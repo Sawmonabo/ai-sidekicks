@@ -21,7 +21,7 @@
 //   • **`app` meta is fixed.** Version, platform, arch, locale are constants, so a
 //     screenshot baseline does not shift when the developer's machine does.
 
-import { ParticipantIdSchema } from "@ai-sidekicks/contracts";
+import { UserIdSchema } from "@ai-sidekicks/contracts";
 import type {
   AuxiliaryWindowControls,
   CpInput,
@@ -39,7 +39,7 @@ import type {
 import type { ConsoleBridge } from "../../console-bridge.js";
 import { createFixtureAuxiliaryWindowPort, readFixtureShell } from "../shell/auxiliary-windows.js";
 import { resolveScriptedReply, assertScriptedReplyOnContract } from "./call-door.js";
-import { FixtureChannelLifecycle } from "../collaboration/channel-lifecycle.js";
+import { FixtureChannelLifecycle } from "../session/channel-lifecycle.js";
 import { createFixtureGrowthPort } from "../growth/growth-port.js";
 import { SETTLED_CALL_FOLDS } from "./settled-call-folds.js";
 import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./served-operations.js";
@@ -93,9 +93,9 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
   const shell = readFixtureShell();
   const sidekicks: SidekicksBridge = {
     daemon: {
-      // `DaemonResult<M>` is a Plan-007 stub that resolves to `unknown`, so the
-      // assertion narrows nothing today; it is here so that when Plan-007 lands the
-      // real method-to-result mapping, this line becomes the one place the fixture
+      // `DaemonResult<M>` is a stub that resolves to `unknown`, so the assertion
+      // narrows nothing today; it is here so that when the daemon lands the real
+      // method-to-result mapping, this line becomes the one place the fixture
       // has to prove its scripted replies match the wire. Until then the check
       // beside it does that job for every method the corpus has already registered.
       call: async <MethodName extends DaemonMethod>(
@@ -152,8 +152,8 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
       // the second would teach the card to report a probe result nothing probed.
       //
       // The two methods answer from ONE stated host, and that is the seam rather than
-      // an economy: `Spec-023 §WebAuthn Credential Flow` has one ceremony with one
-      // machine behind it, so a scenario whose registration succeeded while its
+      // an economy: the credential flow has one ceremony with one machine behind it,
+      // so a scenario whose registration succeeded while its
       // sign-in reported no authenticator would be describing two machines. What they
       // do not share is a single answer: an assertion is put twice — once to sign in
       // and once to collect the device grant main is holding — so the assertions are
@@ -162,8 +162,8 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
       getAssertion: async () => ceremonyHost.assert(),
       // AND THE PRF DERIVATION STAYS REFUSED UNDER EVERY SCENARIO. It is main's:
       // step 5 of that flow derives the wrapping key "in its own address space" and
-      // never exposes it, and I-023-16 leaves the renderer choosing no salt to derive
-      // against. A fixture that answered would be standing in for a call this console
+      // never exposes it, and the renderer chooses no salt to derive against. A
+      // fixture that answered would be standing in for a call this console
       // may not make — so the one honest fixture answer is the one below.
       deriveKeyMaterial: () => refuseAbsentCapability("webAuthn.deriveKeyMaterial"),
     },
@@ -248,8 +248,8 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
 /**
  * The `window` namespace a fixture with no shell underneath carries.
  *
- * Present because I-023-13 makes the fixture shape-identical to `SidekicksBridge`
- * namespace for namespace, and refusing because there is no process here that could
+ * Present because the fixture is shape-identical to `SidekicksBridge` namespace for
+ * namespace, and refusing because there is no process here that could
  * open a window. Nothing in the console calls it — every console reader goes through
  * `ConsoleBridge.auxiliaryWindows`, which answers the same absence as a typed
  * refusal rather than as a rejection — so the two subscriptions hand back a disposer
@@ -316,30 +316,28 @@ class ScriptedCeremonyRunner implements ScriptedCeremonyHost {
    * One scripted host answer, as the value a ceremony call resolves with.
    *
    * THE IDENTITY IS THE SCENARIO'S AND NOT THE SCRIPT'S. A script states what this
-   * machine's authenticator does; who signs in is `viewingParticipantId`, which the
+   * machine's authenticator does; who signs in is `callerUserId`, which the
    * scenario already states once and the fixture's identity read already answers from.
    * Composing the claims here is what keeps that single statement single — a second
-   * one on the ceremony could name a different participant, and nothing would be able
+   * one on the ceremony could name a different user, and nothing would be able
    * to say which was right.
    *
-   * A scenario that scripts an authenticated host and names no viewer takes the same
+   * A scenario that scripts an authenticated host and names no caller takes the same
    * `capability-absent` refusal an unstated ceremony takes, rather than resolving with
-   * an invented participant: the sign-in card then renders _not checked_, which is the
+   * an invented user: the sign-in card then renders _not checked_, which is the
    * honest reading of a fixture that was never told who this window is.
    */
   async #resolve(call: string, answer: ScriptedCeremonyOutcome): Promise<object> {
     if (answer.kind !== "authenticated") {
       return encodeCeremonyResolution(answer);
     }
-    const participantId = ParticipantIdSchema.safeParse(
-      this.#scenarioEngine.scenario.viewingParticipantId,
-    );
-    if (!participantId.success) {
+    const userId = UserIdSchema.safeParse(this.#scenarioEngine.scenario.callerUserId);
+    if (!userId.success) {
       return await refuseAbsentCapability(call);
     }
     const outcome: ProducedCeremonyOutcome = {
       ...answer,
-      claims: { participantId: participantId.data },
+      claims: { userId: userId.data },
     };
     return encodeCeremonyResolution(outcome);
   }

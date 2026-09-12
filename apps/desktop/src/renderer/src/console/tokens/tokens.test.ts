@@ -20,7 +20,7 @@ import {
   SYSTEM_SCHEME_PREFERENCE,
   TOKEN_PREFIX,
   isSchemePreference,
-  participantHueTokenName,
+  actorHueTokenName,
   schemeColor,
   tokenReference,
   tokenVariableName,
@@ -74,9 +74,9 @@ describe("token names — the one place a CSS custom property is spelled", () =>
   });
 
   it("zero-pads a wheel step, so the emitted sheet sorts in wheel order", () => {
-    expect(participantHueTokenName(0)).toBe("hue-00");
-    expect(participantHueTokenName(9)).toBe("hue-09");
-    expect(participantHueTokenName(11)).toBe("hue-11");
+    expect(actorHueTokenName(0)).toBe("hue-00");
+    expect(actorHueTokenName(9)).toBe("hue-09");
+    expect(actorHueTokenName(11)).toBe("hue-11");
   });
 });
 

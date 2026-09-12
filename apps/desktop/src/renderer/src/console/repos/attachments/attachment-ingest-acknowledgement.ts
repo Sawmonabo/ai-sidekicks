@@ -1,8 +1,7 @@
 // What one chunk acknowledgement establishes, and what it refuses to establish.
 //
 // THE SEAM, IN ONE SENTENCE: this module changes when the daemon's answer to a chunk
-// changes. `docs/architecture/contracts/api-payload-contracts.md §Plan-014 — Artifacts
-// Files And Attachments` registers `AttachmentIngestChunkResponse` as `{ ingestId,
+// changes. `AttachmentIngestChunkResponse` is registered as `{ ingestId,
 // receivedBytes }` — the second of those being "spooled running total of DECODED bytes
 // after this chunk", which the same line names as the enforced byte bound — so the
 // answer to "how far is this upload" is the daemon's and never this console's.
@@ -51,7 +50,7 @@ export const ATTACHMENT_ACKNOWLEDGEMENT_SITE =
 /**
  * Why the console stopped an ingest on the strength of the daemon's own reply.
  *
- * The console's code and not a daemon one: `Spec-014`'s vocabulary describes what the
+ * The console's code and not a daemon one: the daemon's vocabulary describes what it
  * daemon decided, and this is a finding about an answer that cannot be reconciled with
  * what this client sent. It is classified `restart` by the caller rather than mapped
  * through `ingestRefusalDisposition`, because the retry-in-place default assumes a

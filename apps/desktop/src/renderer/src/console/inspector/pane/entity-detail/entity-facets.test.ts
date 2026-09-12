@@ -130,20 +130,20 @@ describe("an expiry, which has three answers", () => {
   });
 });
 
-describe("counting what a session attributes to a participant", () => {
+describe("counting what a session attributes to a user", () => {
   const entities: Readonly<Record<string, ConsoleEntity>> = {
-    "run-1": { kind: "run", id: "run-1", attributedTo: "participant-1" },
-    "run-2": { kind: "run", id: "run-2", attributedTo: "participant-2" },
-    "run-3": { kind: "run", id: "run-3", attributedTo: "participant-1" },
+    "run-1": { kind: "run", id: "run-1", attributedTo: "user-1" },
+    "run-2": { kind: "run", id: "run-2", attributedTo: "user-2" },
+    "run-3": { kind: "run", id: "run-3", attributedTo: "user-1" },
     "run-4": { kind: "run", id: "run-4" },
   };
 
-  it("counts the rows attributed to that participant", () => {
-    expect(countAttributedTo(entities, "participant-1")).toBe(2);
+  it("counts the rows attributed to that user", () => {
+    expect(countAttributedTo(entities, "user-1")).toBe(2);
   });
 
-  it("negative control: a participant nothing is attributed to counts zero, not everything", () => {
-    expect(countAttributedTo(entities, "participant-9")).toBe(0);
-    expect(countAttributedTo({}, "participant-1")).toBe(0);
+  it("negative control: a user nothing is attributed to counts zero, not everything", () => {
+    expect(countAttributedTo(entities, "user-9")).toBe(0);
+    expect(countAttributedTo({}, "user-1")).toBe(0);
   });
 });

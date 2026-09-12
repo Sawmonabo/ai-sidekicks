@@ -1,4 +1,4 @@
-// Unit coverage for the bench-tier ledger — Plan-023 Phase 1C (T-023p-1C-1).
+// Unit coverage for the bench-tier ledger.
 //
 // The ledger makes three promises the benchmarks rely on: it appends and never
 // deletes, its percentiles are computed from the samples it was handed, and a

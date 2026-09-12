@@ -2,8 +2,8 @@
 //
 // WHY THIS IS A SEAT AND NOT A VIEW FAMILY'S OWN
 //
-// Several surfaces hold exactly one growth answer each — the channel roster, the
-// membership roster, the invite preview — and every one of them was the same twenty
+// Several surfaces hold exactly one growth answer each — the channel roster among
+// them — and every one of them was the same twenty
 // lines: hold the answer against the subject that asked, ask on mount, publish the
 // outcome on the resolved arm, publish a console refusal on the arm the port's own
 // vocabulary cannot express. View families are siblings, so the second family to
@@ -12,7 +12,7 @@
 // the store's subject-scoped holder, and the refusal reader beside it.
 //
 // SURFACES LEAVE THIS SEAT WHEN THEIR ANSWER STARTS MOVING, which is why the list
-// above is not a closed one: the terminal-control holder and a participant's device
+// above is not a closed one: the terminal-control holder and a user's device
 // fan-out were both held here and both moved to `push-driven-read.ts` once it was
 // established that what they read changes while somebody is looking at it. A read
 // belongs here while its answer is standing, and there once it is not.
@@ -26,8 +26,8 @@
 // and there is something to re-read.
 //
 // It also does not WRITE into what it holds. A surface whose own mutation settles
-// back into its held reading — the sent-invite ledger is the one — needs the
-// publisher itself and keeps the holder directly; this hook hands back the reading
+// back into its held reading needs the publisher itself and keeps the holder
+// directly; this hook hands back the reading
 // and nothing else, because a publisher handed out is a second writer to a cell
 // whose whole discipline is that one read owns it.
 //

@@ -1,10 +1,9 @@
-// Plan-008 §I-008-1 dual-gate, gate #1: bootstrap feature-flag check.
+// Gate #1: bootstrap feature-flag check.
 //
 // Refuses every request unless `env.CONTROL_PLANE_BOOTSTRAP_ENABLED === '1'`.
 // This is the operator-development-only kill-switch — defaulting to off keeps
 // the bootstrap unreachable on any deploy that doesn't explicitly set it.
 //
-// Refs: docs/plans/008-control-plane-relay-and-session-join.md §I-008-1
 
 export interface FeatureFlagEnv {
   readonly CONTROL_PLANE_BOOTSTRAP_ENABLED?: string;

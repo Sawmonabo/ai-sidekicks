@@ -3,7 +3,7 @@
 // Send is a router rather than a verb, which is the claim every case here reads:
 // the same text resolves differently by target, the reserved prefix is refused on
 // both paths, an enumerated provider entry is named rather than sent, and the text
-// that reaches the daemon is the text the participant wrote.
+// that reaches the daemon is the text the user wrote.
 
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -180,7 +180,7 @@ describe("ComposerSendRouter — an enumerated provider entry is named, never se
   });
 });
 
-describe("ComposerSendRouter — the daemon receives the text the participant wrote", () => {
+describe("ComposerSendRouter — the daemon receives the text the user wrote", () => {
   // Indentation and a trailing blank line, both load-bearing: this is what a pasted
   // block and a deliberately separated Markdown paragraph look like. The negative
   // control in every case is the dispatched params rather than the resolution label,
@@ -241,7 +241,7 @@ describe("ComposerSendRouter — the daemon receives the text the participant wr
     expect(call).not.toHaveBeenCalled();
   });
 
-  it("strips exactly the escape and leaves the participant's spacing alone", async () => {
+  it("strips exactly the escape and leaves the user's spacing alone", async () => {
     const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
     await routerWith(call).send("//literal  \n", CHANNEL_TARGET);
 

@@ -99,7 +99,7 @@ import {
 import { resolvedPaneBody, resolvedSurfaceBody } from "./pane-body-resolution.js";
 import { COMPOSED_CONSOLE_PROJECTORS } from "./projector-composition.js";
 // The seat's own readings, from the module that also mounts it for the accessibility
-// tier: one answer to "is this form ready", per `AGENTS.md` §Shared code.
+// tier: one answer to "is this form ready", per the shared-code rule in `AGENTS.md`.
 import {
   SCHEMA_FORM_VERDICT_DEADLINE_MS,
   holdsSchemaForm,

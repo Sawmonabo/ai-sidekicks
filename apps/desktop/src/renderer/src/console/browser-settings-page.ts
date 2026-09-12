@@ -45,7 +45,7 @@
 import type { SettingsPageRegistrar } from "./settings/settings-page-registry.js";
 
 /** The lane that owns this registration, so an unfilled section names someone. */
-const OWNER = "collaboration-settings-browser";
+const OWNER = "settings-browser";
 
 /**
  * Claim the browser section.

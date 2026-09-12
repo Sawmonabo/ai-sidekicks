@@ -18,7 +18,7 @@ import type { ScenarioReply } from "../../bridge/scenario/runtime/reply.js";
 import type { ConsoleScenario } from "../../bridge/scenario/runtime/vocabulary.js";
 import type { WireErrorEnvelope } from "../../core/index.js";
 import {
-  PROBE_PARTICIPANT_ID,
+  PROBE_USER_ID,
   PROBE_SESSION_ID,
   SECOND_PROBE_SESSION_ID,
   settle,
@@ -53,7 +53,7 @@ function scenarioAnsweringTheEnumeration(replies: readonly ScenarioReply[]): Con
     label: "Definition directory probe",
     purpose: "Answers the definition enumeration one way, so one settlement is observable.",
     sessionId: PROBE_SESSION_ID,
-    participantIdsInJoinOrder: [PROBE_PARTICIPANT_ID],
+    userIdsInJoinOrder: [PROBE_USER_ID],
     startedAtIso: "2026-01-01T12:00:00.000Z",
     beats: [],
     replies,

@@ -16,7 +16,7 @@
 // mount and branch-context reads, so a surface drawn from those is drawn from the
 // fixture and cannot drift from it. The gate's `prepared` arm, its push refusal, and
 // both artifact payload arms have no registered reply behind them at all — they are
-// `Plan-023 §Console growth slate` rows — so they are stated once, here, rather than
+// growth-slate rows — so they are stated once, here, rather than
 // per mount.
 
 import type { ReactNode } from "react";

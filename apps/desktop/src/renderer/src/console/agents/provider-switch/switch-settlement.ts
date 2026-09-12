@@ -1,11 +1,11 @@
 // What a switch settlement SAYS, as a projection of the reply and nothing else.
 //
-// `Spec-023 §Console Design (Meridian)` §Switch settlement, continuity, and declared
-// losses fixes the one rule this module exists to hold: the reply's `status` is the
-// discriminator and the renderer never re-derives it. `degraded` is exactly the
-// `memo` continuity and `applied` is exactly the other two, and both facts are
-// already on the wire — recomputing either here would make this a second source of
-// truth for a settlement the daemon already settled.
+// Switch settlement, continuity, and declared losses turn on the one rule this module
+// exists to hold: the reply's `status` is the discriminator and the renderer never
+// re-derives it. `degraded` is exactly the `memo` continuity and `applied` is exactly
+// the other two, and both facts are already on the wire — recomputing either here
+// would make this a second source of truth for a settlement the daemon already
+// settled.
 //
 // So this is a pure function over the reply. It holds no state, reaches no bridge,
 // and renders nothing. Its output is a small record a component lays out, which is
@@ -15,7 +15,7 @@
 //
 //   • It never presents a `memo` settlement as an ordinary success, and never
 //     decorates a lossless one with a generic caution.
-//   • It never renders the failed arm as a switch. The participant asked for a
+//   • It never renders the failed arm as a switch. The user asked for a
 //     change that did not happen.
 //   • It never drops an unrecognized `reason` or continuity value: an unknown member
 //     renders as itself, so a later amendment is visible rather than silently gone.
@@ -39,7 +39,7 @@ export interface SettlementRendering {
   readonly tone: SettlementTone;
   /** Whether `status` is a member this console knows. Unknown still renders. */
   readonly isKnownStatus: boolean;
-  /** The one-line statement, in the participant's terms. */
+  /** The one-line statement, in the user's terms. */
   readonly headline: string;
   /**
    * What the new binding can see, where the settlement said. `undefined` on the

@@ -3,7 +3,7 @@
 // The chain is two reads, and both were held in `useState` cells cleared at the top
 // of an effect. "Cleared first" is first within the EFFECT, which is one commit after
 // the render that renamed the session — so that commit painted the previous session's
-// participant and that person's stored switches under the new session's name.
+// user and that person's stored switches under the new session's name.
 //
 // A case that looks at the DOM after `rerender` cannot see it: `act` flushes the
 // passive effect before returning. The frames are recorded from `Profiler.onRender`
@@ -18,7 +18,7 @@ import {
   servedPreferences,
   settle,
 } from "./notifications-page.test-support.js";
-import type { CallerParticipantOutcome } from "../../../seats/index.js";
+import type { CallerUserOutcome } from "../../../seats/index.js";
 
 const OTHER_SESSION_ID = "session-notifications-other";
 
@@ -27,24 +27,22 @@ const STORED_KEY = "attention.mentions";
 
 /** Two sessions, two people: the whole point is that one's switches never show under the other. */
 function bridgeResolvingPerSession(): ReturnType<typeof bridgeWith> {
-  const participantBySession: Readonly<Record<string, string>> = {
-    [SESSION_ID]: "participant-ana",
-    [OTHER_SESSION_ID]: "participant-bo",
+  const userBySession: Readonly<Record<string, string>> = {
+    [SESSION_ID]: "user-ana",
+    [OTHER_SESSION_ID]: "user-bo",
   };
   return bridgeWith({
-    callerParticipantRead: async (request) => {
-      const participantId = participantBySession[request.sessionId];
-      const outcome: CallerParticipantOutcome =
-        participantId === undefined
-          ? { status: "served", value: { participantId: "participant-unknown" } }
-          : { status: "served", value: { participantId } };
+    callerUserRead: async (request) => {
+      const userId = userBySession[request.sessionId];
+      const outcome: CallerUserOutcome =
+        userId === undefined
+          ? { status: "served", value: { userId: "user-unknown" } }
+          : { status: "served", value: { userId } };
       return await Promise.resolve(outcome);
     },
     attentionPreferenceRead: async (request) =>
       await Promise.resolve(
-        servedPreferences([
-          { key: `${STORED_KEY}.${request.participantId}`, value: { mentions: true } },
-        ]),
+        servedPreferences([{ key: `${STORED_KEY}.${request.userId}`, value: { mentions: true } }]),
       ),
   });
 }
@@ -54,14 +52,14 @@ describe("the notifications page — whose switches are on screen", () => {
     const bridge = bridgeResolvingPerSession();
     const page = renderMovableNotificationsPage(bridge, SESSION_ID);
     await settle(bridge);
-    expect(page.container.textContent ?? "").toContain("participant-ana");
+    expect(page.container.textContent ?? "").toContain("user-ana");
 
     page.forgetFrames();
     page.showSession(OTHER_SESSION_ID);
 
     // Every frame, not just the last: the defect was one frame that was painted and
     // then replaced, which is exactly the frame a person sees.
-    expect(page.frames.filter((frame) => frame.includes("participant-ana"))).toStrictEqual([]);
+    expect(page.frames.filter((frame) => frame.includes("user-ana"))).toStrictEqual([]);
   });
 
   it("negative control: the recorder does see the switches while the session holds", async () => {
@@ -72,7 +70,7 @@ describe("the notifications page — whose switches are on screen", () => {
     const page = renderMovableNotificationsPage(bridge, SESSION_ID);
     await settle(bridge);
 
-    expect(page.frames.filter((frame) => frame.includes("participant-ana"))).not.toStrictEqual([]);
+    expect(page.frames.filter((frame) => frame.includes("user-ana"))).not.toStrictEqual([]);
   });
 
   it("reads the new session's person once the frames after it settle", async () => {
@@ -82,6 +80,6 @@ describe("the notifications page — whose switches are on screen", () => {
     page.showSession(OTHER_SESSION_ID);
     await settle(bridge);
 
-    expect(page.container.textContent ?? "").toContain("participant-bo");
+    expect(page.container.textContent ?? "").toContain("user-bo");
   });
 });

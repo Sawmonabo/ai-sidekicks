@@ -12,7 +12,7 @@
 // one.
 //
 // IT IS THE DAEMON'S RULES AND NOT AN INVENTION OF ITS OWN. Every refusal below is one
-// `Spec-014` names, raised at the enforcement point that spec puts it at: the declared
+// the daemon names, raised at the enforcement point the contract puts it at: the declared
 // total and the running spooled count both refuse `artifact.too_large`, so a chunk that
 // pushes the running count past the declaration refuses far below the cap; the whole
 // carrier refuses `artifact.too_many_attachments` at acceptance while the artifacts
@@ -21,8 +21,8 @@
 // chunk that arrives out of sequence, or names a stream this spool has never held,
 // refuses the terminal `artifact.ingest_stream_invalid`.
 //
-// AND THE RETRY-SAFETY IS MODELLED RATHER THAN ASSERTED. `Spec-014 §Interfaces And
-// Contracts` makes every leg of the trio retry-safe, and the console's whole retry
+// AND THE RETRY-SAFETY IS MODELLED RATHER THAN ASSERTED. Every leg of the trio is
+// retry-safe, and the console's whole retry
 // discipline rests on it: a replayed chunk is acknowledged WITHOUT being appended
 // twice, and a replayed completion replays its original response verbatim. A fixture
 // that appended a replay would make the console's own replay path look like a bug the
@@ -62,7 +62,7 @@ export const FIXTURE_SERVED_ATTACHMENT_INGEST_OPERATION_IDS = [
 export type FixtureServedAttachmentIngestOperationId =
   (typeof FIXTURE_SERVED_ATTACHMENT_INGEST_OPERATION_IDS)[number];
 
-/** The daemon codes this stand-in refuses under. `Spec-014`'s, spelled for the DAG's reason. */
+/** The daemon codes this stand-in refuses under, spelled out for the DAG's reason. */
 const TOO_LARGE_CODE = "artifact.too_large";
 const TOO_MANY_ATTACHMENTS_CODE = "artifact.too_many_attachments";
 const UNSUPPORTED_MEDIA_TYPE_CODE = "artifact.unsupported_media_type";
@@ -235,8 +235,8 @@ interface FixtureIngestCompletion {
  * The type the daemon would derive, or `undefined` where nothing places the payload.
  *
  * THE DECLARATION IS NOT CONSULTED, which is the contract's own posture rather than a
- * shortcut: `Spec-014 §Required Behavior` makes a caller's `mediaType` advisory input
- * that narrows an expected signature and never a trusted fact, and the daemon derives
+ * shortcut: a caller's `mediaType` is advisory input that narrows an expected
+ * signature and never a trusted fact, and the daemon derives
  * its own answer from the bytes. This stand-in holds no bytes, so it places the payload
  * by extension — which keeps the two readings genuinely independent, so a declaration
  * that disagrees with the finding renders as the disagreement it is, and a payload the
@@ -314,8 +314,8 @@ export function fixtureAttachmentIngest(
 /**
  * The name the manifest would record.
  *
- * `Spec-014 §Ingest Validation And Payload Bounds (V1)` keeps every caller-supplied
- * string out of every path component, so the stand-in normalizes exactly as the daemon
+ * Ingest validation keeps every caller-supplied string out of every path component,
+ * so the stand-in normalizes exactly as the daemon
  * would: no separator survives, and what is left is lower-cased. It is deliberately
  * VISIBLE work — a fixture whose normalized name always equalled the declaration would
  * leave the console's "derived truth replaces the declaration" arm untested by eye.

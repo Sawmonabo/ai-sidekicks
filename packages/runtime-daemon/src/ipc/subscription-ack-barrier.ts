@@ -3,29 +3,27 @@
 // Ownership: this file sits at the `ipc/` substrate root rather than under
 // `handlers/` because it is shared substrate — two namespaces bind streaming
 // handlers through it, and a copy per namespace is exactly the drift this
-// module exists to prevent. Plan-007 owns the directory and the streaming
-// primitive; this module is authored by Plan-013 under CP-007-16 and hoisted
-// on its second consumer, per the repo's structure rule that a helper needed
-// by a second module is extracted at that second use rather than duplicated.
+// module exists to prevent. owns the directory and the streaming primitive;
+// this module is authored and hoisted on its second consumer, per the repo's
+// structure rule that a helper needed by a second module is extracted at
+// that second use rather than duplicated.
 //
-// Invariant it implements (canonical text in
-// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`):
-//   * I-007-10 — the subscribe-init response `{ subscriptionId }` reaches the
-//     wire BEFORE the first `$/subscription/notify` frame for that
-//     subscription.
+// Invariant it implements (canonical text):
+//   * The subscribe-init response `{ subscriptionId }` reaches the wire
+//     BEFORE the first `$/subscription/notify` frame for that subscription.
 //
 // WHY A BARRIER IS REQUIRED RATHER THAN A CONVENTION. A subscribe handler's
-// upstream may replay history SYNCHRONOUSLY inside the handler body — the
-// Plan-001 Phase 5 projector contract permits replay-then-live-tail — so its
-// emit callback can fire before the handler has even returned. The gateway
-// writes the init response synchronously inside the dispatch promise's `.then`
-// microtask, so an emission routed straight to the producer lands on the
-// socket AHEAD of the response. The SDK registers a subscription in its
-// inbound dispatcher map only after the init response settles, so every such
-// frame hits the unknown-id silent-drop branch: the rows are gone, no error is
-// raised anywhere, and the consumer sees a subscription that simply began
-// late. Buffering is the fix, and it has to live below the handler because a
-// handler cannot observe when its own response was written.
+// upstream may replay history SYNCHRONOUSLY inside the handler body —
+// projector contract permits replay-then-live-tail — so its emit callback can
+// fire before the handler has even returned. The gateway writes the init
+// response synchronously inside the dispatch promise's `.then` microtask, so
+// an emission routed straight to the producer lands on the socket AHEAD of the
+// response. The SDK registers a subscription in its inbound dispatcher map
+// only after the init response settles, so every such frame hits the
+// unknown-id silent-drop branch: the rows are gone, no error is raised
+// anywhere, and the consumer sees a subscription that simply began late.
+// Buffering is the fix, and it has to live below the handler because a handler
+// cannot observe when its own response was written.
 //
 // WHY `setImmediate` AND NOT A MICROTASK. Any microtask queued from the
 // handler's synchronous body drains in the SAME checkpoint, ahead of the

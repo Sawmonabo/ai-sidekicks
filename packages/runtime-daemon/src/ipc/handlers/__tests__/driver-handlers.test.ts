@@ -1,4 +1,4 @@
-// The `driver.*` JSON-RPC handler suite — Plan-005 Phase 4, T4.1.
+// The `driver.*` JSON-RPC handler suite
 //
 // Everything here drives the REAL `MethodRegistryImpl` and, for the streaming
 // method, the REAL `StreamingPrimitive`. A mock registry would prove only that
@@ -30,8 +30,6 @@
 //     that is the client's backstop against a broken daemon, not a reason this
 //     filter may relax.
 //
-// Refs: Plan-005 §Phase 4 / T4.1, invariants I-005-1 / I-005-2,
-// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants` I-007-6 … I-007-10.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -42,7 +40,7 @@ import type {
   GetCapabilitiesResult,
   HandlerContext,
   JsonRpcNotification,
-  ParticipantId,
+  UserId,
   ProviderCommandBindingGroup,
   ProviderDriver,
   RunId,
@@ -94,7 +92,7 @@ import {
 // ----------------------------------------------------------------------------
 
 const TEST_SESSION_ID = "550e8400-e29b-41d4-a716-446655440000" as SessionId;
-const TEST_ACTOR_ID = "660e8400-e29b-41d4-a716-446655440001" as ParticipantId;
+const TEST_ACTOR_ID = "660e8400-e29b-41d4-a716-446655440001" as UserId;
 const TEST_RUN_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301" as RunId;
 const TEST_IDEMPOTENCY_KEY = "00000000-0000-4000-8000-00000000000a";
 const NO_TRANSPORT: HandlerContext = {};
@@ -266,8 +264,8 @@ async function realProviderRegistry(
 ): Promise<ProviderRegistry> {
   const providerRegistry = new ProviderRegistry();
   for (const [driverName, seed] of Object.entries(driverSeeds)) {
-    // Total flag record derived from the declared set (the structural half of
-    // I-005-2): undeclared flags are explicitly false, never absent.
+    // Total flag record derived from the declared set (the structural half
+    // of): undeclared flags are explicitly false, never absent.
     const flags = Object.fromEntries(
       DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, seed.flags[flag] ?? false]),
     ) as Record<DriverCapabilityFlag, boolean>;
@@ -381,8 +379,7 @@ describe("driver.* registration surface", () => {
     bindAll(registry);
 
     // `false` on the reads and on subscribe so a version-mismatched connection
-    // keeps read-only access (Spec-007 §Fallback Behavior); `true` on the four
-    // that drive a live run.
+    // keeps read-only access; `true` on the four that drive a live run.
     expect(registry.isMutating("driver.listCapabilities")).toBe(false);
     expect(registry.isMutating("driver.listModels")).toBe(false);
     expect(registry.isMutating("driver.listModes")).toBe(false);
@@ -395,14 +392,14 @@ describe("driver.* registration surface", () => {
   });
 
   it("registers NONE of the four lifecycle operations NOR the four R8 parity operations", async () => {
-    // Plan-005 §Phase 4 decision #2, enforced rather than documented: the
-    // lifecycle four establish, restore, start, or tear down a domain object,
-    // so a client reaching them would mint runtime state behind the
-    // orchestrator's back. The R8 parity four (T4.8's absence half) stay
-    // daemon-internal for the reason that decision records — each already has
-    // its own client route (rollback through Plan-004's intervention path,
-    // goals through Plan-016's surface, auth probes through the account
-    // plane), and a second route here would fork one operation's authority.
+    // Enforced rather than documented: the lifecycle four establish, restore,
+    // start, or tear down a domain object, so a client reaching them would
+    // mint runtime state behind the orchestrator's back. The R8 parity four
+    // (the absence half) stay daemon-internal for the reason that decision
+    // records — each already has its own client route (rollback through the
+    // intervention path, goals through the surface, auth probes through the
+    // account plane), and a second route here would fork one operation's
+    // authority.
     const registry = new MethodRegistryImpl();
     bindAll(registry);
 
@@ -423,7 +420,7 @@ describe("driver.* registration surface", () => {
     }
   });
 
-  it("REFUSES a duplicate binding at register-time (I-007-6)", () => {
+  it("REFUSES a duplicate binding at register-time", () => {
     const registry = new MethodRegistryImpl();
     const deps: DriverListCapabilitiesDeps = {
       providerRegistry: { listAvailable: () => [] },
@@ -435,7 +432,7 @@ describe("driver.* registration surface", () => {
     }).toThrowError(RegistryRegistrationError);
   });
 
-  it("REFUSES a duplicate binding of either console-parity verb (I-007-6)", () => {
+  it("REFUSES a duplicate binding of either console-parity verb", () => {
     const registry = new MethodRegistryImpl();
     const drivers = { claude: driverDouble({}) };
     const compactDeps = compactContextDeps(drivers);
@@ -474,7 +471,7 @@ describe("driver.listCapabilities", () => {
     expect(read).toHaveBeenCalledTimes(2);
   });
 
-  it("REFUSES a payload carrying a driver selector (I-007-7, before the handler runs)", async () => {
+  it("REFUSES a payload carrying a driver selector (before the handler runs)", async () => {
     // The read is no-arg by ratified signature. The handler must never see the
     // request at all — a caller who believed `{ driverName }` filtered the reply
     // would otherwise get the whole roster and no indication it was ignored.
@@ -494,7 +491,7 @@ describe("driver.listCapabilities", () => {
   it("fails the WHOLE read when one driver cannot be substantiated", async () => {
     // Omitting the driver would read to a client as "that driver declares no
     // capabilities", which is a different and false claim — the omission-versus-
-    // empty confusion I-005-2 exists to prevent.
+    // empty confusion exists to prevent.
     const registry = new MethodRegistryImpl();
     registerDriverListCapabilities(registry, {
       providerRegistry: { listAvailable: () => ["claude", "codex"] },
@@ -688,7 +685,7 @@ describe("driver.interruptRun", () => {
     expect(wireErrorData(thrown).type).toBe("driver.unavailable");
   });
 
-  it("REFUSES a non-UUID run id before the resolver is consulted (I-007-7)", async () => {
+  it("REFUSES a non-UUID run id before the resolver is consulted", async () => {
     const registry = new MethodRegistryImpl();
     const resolveDriverForRun = vi.fn(() => "claude");
     registerDriverInterruptRun(registry, dispatchDeps({}, resolveDriverForRun));
@@ -709,7 +706,7 @@ describe("driver.applyIntervention", () => {
     payload: { content: "use the other branch" },
   };
 
-  it("returns a DEGRADED envelope as data, not as an error (ADR-011)", async () => {
+  it("returns a DEGRADED envelope as data, not as an error", async () => {
     // The reason this verb is not pre-gated by `checkCapability`: an unsupported
     // intervention must reach the driver so it can answer with a usable fallback
     // hint. A gate here would replace that hint with a refusal.
@@ -971,7 +968,7 @@ describe("driver.subscribeEvents", () => {
     expect(typeof result.subscriptionId).toBe("string");
   });
 
-  it("buffers events raised during setup and flushes them after the response (I-007-10)", async () => {
+  it("buffers events raised during setup and flushes them after the response", async () => {
     // The upstream source is permitted to replay synchronously, so without the
     // buffer those notify frames would reach the wire before the init response
     // and the SDK would drop them against an unregistered subscription id.
@@ -1054,7 +1051,7 @@ describe("driver.subscribeEvents", () => {
     ).rejects.toThrow(/transportId/);
   });
 
-  it("REFUSES an unknown key on the request (I-007-7)", async () => {
+  it("REFUSES an unknown key on the request", async () => {
     const subscribeToDriverEvents = vi.fn(() => () => undefined);
     const { registry } = buildSubscribeHarness(subscribeToDriverEvents);
 
@@ -1070,7 +1067,6 @@ describe("driver.subscribeEvents", () => {
 });
 
 // ----------------------------------------------------------------------------
-// driver.compactContext (T4.9)
 // ----------------------------------------------------------------------------
 
 describe("driver.compactContext", () => {
@@ -1284,7 +1280,7 @@ describe("driver.compactContext", () => {
     expect(wireError.type).toBe("driver.unavailable");
     // Deliberately NO data.fields: the caller named this run in the very
     // request being refused, and echoing it would mint a new fields shape on
-    // a registered code (error-contracts.md documents none for this row).
+    // a registered code (documents none for this row).
     expect(Object.hasOwn(wireError, "fields")).toBe(false);
     // Adjudication ran (its deny would have settled first); liveness refused
     // after it, so a denied caller's answer never varies with binding state.
@@ -1322,7 +1318,7 @@ describe("driver.compactContext", () => {
     expect(compactContext).not.toHaveBeenCalled();
   });
 
-  it("REFUSES a request carrying a bindingId, before the handler runs (I-007-7)", async () => {
+  it("REFUSES a request carrying a bindingId, before the handler runs", async () => {
     // No binding member exists on the wire — a caller naming one believes it
     // holds an addressing key the contract deliberately never published.
     const registry = new MethodRegistryImpl();
@@ -1344,7 +1340,6 @@ describe("driver.compactContext", () => {
 });
 
 // ----------------------------------------------------------------------------
-// driver.listProviderCommands (T4.9)
 // ----------------------------------------------------------------------------
 
 describe("driver.listProviderCommands", () => {
@@ -1448,8 +1443,8 @@ describe("driver.listProviderCommands", () => {
 
   it("refuses the WHOLE read when ONE binding's driver declares provider_commands false, with zero dispatches", async () => {
     // A partial group list would tell a caller the missing binding enumerates
-    // nothing — the omission-versus-empty confusion I-005-2 forbids. Both
-    // spies at zero prove every binding was gated before ANY was dispatched.
+    // nothing — the omission-versus-empty confusion forbids. Both spies at
+    // zero prove every binding was gated before ANY was dispatched.
     const registry = new MethodRegistryImpl();
     const claudeList = vi.fn(async () => ({ bindings: [commandGroup("claude")] }));
     const codexList = vi.fn(async () => ({ bindings: [commandGroup("codex")] }));
@@ -1631,10 +1626,10 @@ describe("driver.listProviderCommands", () => {
   });
 
   it("fails the read when a driver stamps its GROUP with another binding's routing pair", async () => {
-    // The lying-driver case the NS-93 doctrine exists for: the daemon resolved
-    // the dispatch onto `claude`'s accountless binding, and the driver answered
-    // one well-formed group stamped as `codex`. Structure passes (one group);
-    // the PAIR comparison against the resolution's own record must refuse —
+    // The lying-driver case doctrine exists for: the daemon resolved the
+    // dispatch onto `claude`'s accountless binding, and the driver answered one
+    // well-formed group stamped as `codex`. Structure passes (one group); the
+    // PAIR comparison against the resolution's own record must refuse —
     // internal error, same class as the group-count check, because a driver
     // violating its stamp contract is not a caller refusal.
     const registry = new MethodRegistryImpl();
@@ -1757,7 +1752,7 @@ describe("driver.listProviderCommands", () => {
     expect(listProviderCommands).not.toHaveBeenCalled();
   });
 
-  it("REFUSES a request carrying a bindingId, before the handler runs (I-007-7)", async () => {
+  it("REFUSES a request carrying a bindingId, before the handler runs", async () => {
     const registry = new MethodRegistryImpl();
     const resolveSessionAccess = vi.fn(() => true);
     registerDriverListProviderCommands(

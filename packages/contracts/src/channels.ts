@@ -13,7 +13,7 @@
 //       name?: string;                // OPTIONAL — bootstrap default channel
 //                                     // may be unnamed (see rationale below)
 //       state: ChannelState;
-//       participantCount: number;     // non-negative integer
+//       userCount: number;     // non-negative integer
 //     }>;
 //   }
 //
@@ -43,10 +43,10 @@
 //   ("Default channel" / "Main" / similar UI fallback, owned by the renderer,
 //   not contracted here).
 //
-// Why `participantCount: number` is integer + non-negative:
+// Why `userCount: number` is integer + non-negative:
 //
-//   `participantCount` is a count — semantically the cardinality of a set of
-//   active memberships projected into the channel scope. Counts are
+//   `userCount` is a count — semantically the cardinality of the set of
+//   actors projected into the channel scope. Counts are
 //   non-negative integers by definition; `number` in the wire-form gloss is
 //   imprecise about the integer/float distinction (JSON has no integer
 //   type), so the contract layer composes three guards: `z.number()`,
@@ -75,7 +75,7 @@
 //   Together: `z.number()` excludes NaN/±Infinity, `.int()` excludes
 //   floats, `.nonnegative()` excludes negatives + `-0`. Dropping ANY of
 //   the three weakens the "non-negative integer" semantic the canonical
-//   wire form glosses as `participantCount: number`. The triple is
+//   wire form glosses as `userCount: number`. The triple is
 //   belt-and-suspenders by design.
 //
 // No channel creation contracts here:
@@ -154,10 +154,10 @@ export const ChannelListRequestSchema: z.ZodType<ChannelListRequest, ChannelList
 // --------------------------------------------------------------------------
 //
 // One element per visible channel. Wire shape:
-//   `{id: ChannelId, name?: string, state: ChannelState, participantCount: number}`
+//   `{id: ChannelId, name?: string, state: ChannelState, userCount: number}`
 //
 // `name` is OPTIONAL — see file header for the bootstrap-unnamed-channel
-// rationale. `participantCount` is a non-negative integer (the wire-form
+// rationale. `userCount` is a non-negative integer (the wire-form
 // gloss `number` is imprecise about JSON's integer vs float ambiguity;
 // `.int().nonnegative()` enforces both the integer and the non-negative
 // guards at the contract layer).
@@ -170,7 +170,7 @@ export interface ChannelListResponseChannel {
   id: ChannelId;
   name?: string | undefined;
   state: ChannelState;
-  participantCount: number;
+  userCount: number;
 }
 // `z.ZodType<T, T>` — see SessionCreateRequestSchema in session.ts for
 // rationale (preserves Standard-Schema-V1 input inference for tRPC v11
@@ -209,9 +209,9 @@ export const ChannelListResponseChannelSchema: z.ZodType<
     // floats (e.g. `1.5`) and would catch any non-finite that slipped
     // past `z.number()`; `.nonnegative()` rejects `-1` (and `-0`).
     // Together they enforce the "non-negative integer" semantic that the
-    // canonical wire form glosses as `participantCount: number`. See the
+    // canonical wire form glosses as `userCount: number`. See the
     // file header for the full Zod v4 attribution rationale.
-    participantCount: z.number().int().nonnegative(),
+    userCount: z.number().int().nonnegative(),
   })
   .strict() as unknown as z.ZodType<ChannelListResponseChannel, ChannelListResponseChannel>;
 

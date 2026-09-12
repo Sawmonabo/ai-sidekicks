@@ -44,7 +44,7 @@ const PROBE_DEFINITION = (() => {
  *
  * The session is the scenario's OWN, and that is load-bearing rather than tidy: a
  * served operation may legitimately scope its answer to the session it is playing —
- * `callerParticipantRead` does, because an identity is a fact about one roster — so
+ * `callerUserRead` does, because an identity is a fact about one roster — so
  * a probe carrying no session would be asking about a session the fixture is not
  * playing and would read a correct scoping refusal as a broken served claim.
  *
@@ -127,7 +127,7 @@ export type OperationSettlement =
  * WHY THE THROWN ARM EXISTS AT ALL. A fixture answering for the daemon refuses the way
  * the daemon does — by throwing the wire's own envelope — wherever a surface reads the
  * daemon's code rather than the console's: `sessionRead` does it for the unresolvable
- * resume cursor, and the ingest plane does it for every refusal `Spec-014` names,
+ * resume cursor, and the ingest plane does it for every refusal the artifact plane names,
  * because the client's own normalizer keeps a typed envelope's code verbatim and
  * paraphrasing it into a growth code would teach the surface a shape the live seam
  * never sends. A sweep that only awaited outcomes would report that as an unhandled

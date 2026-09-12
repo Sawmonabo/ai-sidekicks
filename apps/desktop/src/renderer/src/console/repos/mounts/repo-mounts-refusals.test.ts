@@ -3,7 +3,7 @@
 // THE SEAM BETWEEN THE TWO CLASSES THAT WRITE THE READING, and the one bug it exists to
 // keep fixed: `RepoMountsReader` rebuilds its refusal map from the capabilities loop on
 // every pass, and `ExecutionModeSelections` writes the answer to a press. While those
-// two shared one map, a lifecycle frame — a `workspace.stale` the participant did not
+// two shared one map, a lifecycle frame — a `workspace.stale` the user did not
 // cause and cannot see — silently deleted the sentence saying why their last press did
 // nothing, because a served capabilities answer for that workspace overwrote it.
 //
@@ -98,7 +98,7 @@ async function openSection(behaviour: PortBehaviour = {}): Promise<ReadUnderTest
   const clock = new ManualClock();
   const sessionStore = new SessionStore({ sessionId: REPOS_SCENARIO.sessionId });
   // A base state is what makes a later frame a frame rather than history.
-  sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+  sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
   const bridge = interceptingBridge(behaviour, parked);
   const reader = new RepoMountsReader({ bridge, sessionStore, clock });
   trackReader(reader);
@@ -138,7 +138,7 @@ describe("the per-workspace refusals — one half per producer", () => {
       workspaceRefusalFor(section.reader.snapshot.workspaceRefusals, GIT_WORKSPACE_ID)?.code,
     ).toBe("selection-in-flight");
 
-    // A frame the participant did not cause. This is the read that used to erase it.
+    // A frame the user did not cause. This is the read that used to erase it.
     section.deliverLifecycleFrame("workspace.stale");
     await settle(section.clock, section.reader);
 
@@ -193,7 +193,7 @@ describe("the per-workspace refusals — one half per producer", () => {
 
     const reading = section.reader.snapshot;
     // Both halves hold an entry for this workspace, and the row shows the one about
-    // what the participant just did.
+    // what the user just did.
     expect(reading.workspaceRefusals.byCapabilitiesRead[GIT_WORKSPACE_ID]?.code).toBe(
       "workspace.busy",
     );

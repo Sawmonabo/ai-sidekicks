@@ -1,34 +1,26 @@
-// Runtime node contracts — RuntimeNodeAttach request/response payloads plus the
-// `NodeId` / `NodeState` brands for Plan-003 (Runtime Node Attach). Exact field
-// set mirrors the canonical TypeScript shapes in
-// docs/architecture/contracts/api-payload-contracts.md § Tier 3 — Plan-003
-// (verbatim — adding/removing/renaming a field here is a contract break and
-// requires the spec edit first).
+// Exact field set mirrors the canonical TypeScript shapes
 //
-// Design note — two ORTHOGONAL axes on the attach response
-// (`docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`):
+// Design note — two ORTHOGONAL axes on the attach response:
 //   • `state: NodeState`  — LIVENESS axis (registering|online|degraded|offline|
 //     revoked), the row's lifecycle position.
 //   • `readOnly: boolean` — PERMISSION axis, DERIVED: true iff the daemon's
 //     `clientVersion` is below the session's `min_client_version` floor. This is
 //     never a `NodeState` value; a node may be `online` AND `readOnly` at once.
-// The two together express I-003-1 (Plan-003): a below-floor daemon is ADMITTED
-// read-only (not ejected); a later write attempt returns typed
-// `VERSION_FLOOR_EXCEEDED` (ADR-018 §Decision #4). T1.1 only ships the contract
-// SURFACE that makes the verdict expressible — `clientVersion` (the floor-
-// compared input) and `readOnly` (the derived verdict). The Phase-3 attach
-// service performs the comparison and populates `readOnly`.
+// The two together express: a below-floor daemon is ADMITTED read-only (not
+// ejected); a later write attempt returns typed `VERSION_FLOOR_EXCEEDED`. only
+// ships the contract SURFACE that makes the verdict expressible —
+// `clientVersion` (the floor- compared input) and `readOnly` (the derived
+// verdict). The Phase-3 attach service performs the comparison and populates
+// `readOnly`.
 //
-// Refs: Spec-003 (Runtime Node Attach), ADR-018 (cross-version compatibility),
-// ADR-022 (toolchain — Zod 4.x).
 import { z } from "zod";
 
 // DIRECT import from the `./event-core.js` leaf, never from `./event.js` —
-// Plan-006 owns all five symbols and `event.ts` re-exports every one of them
+// owns all five symbols and `event.ts` re-exports every one of them
 // unchanged, but `event.ts` now imports this file's payload schemas at module
-// scope (T1.12's `runtime_node.*` union arms), so importing them from there
-// would close an eager Zod cycle. The leaf exists to keep this edge one-way;
-// its header carries the per-edge evidence.
+// scope (the `runtime_node.*` union arms), so importing them from there would
+// close an eager Zod cycle. The leaf exists to keep this edge one-way; its
+// header carries the per-edge evidence.
 import {
   CapabilityDetailsSchema,
   EVENT_FIELD_MAX_LEN,
@@ -38,10 +30,10 @@ import {
 } from "./event-core.js";
 import { NodeIdSchema, type NodeId } from "./node-id.js";
 import {
-  ParticipantIdSchema,
+  UserIdSchema,
   SessionIdSchema,
   wireFreeFormString,
-  type ParticipantId,
+  type UserId,
   type SessionId,
 } from "./session.js";
 
@@ -55,21 +47,20 @@ import {
 // `export * from "./runtime-node.js"` carries all three onward, and
 // `__tests__/runtime-node.test.ts` keeps importing them from here unchanged.
 //
-// Plan-003 still OWNS the shape; only its physical home moved. The hoist was
-// made for Plan-009's `repo.ts`, which composes `NodeIdSchema`: importing it
-// from THIS file used to close the eager three-hop module cycle
-// `repo.ts` → `runtime-node.ts` → `event.ts` → `repo.ts` (per-edge evidence in
-// `./node-id.js`'s header). That MIDDLE EDGE is gone as of Plan-006 T1.12 —
-// this file's Plan-006 value imports now bind the `./event-core.js` leaf — so
-// these modules are acyclic today and `repo.ts` → `runtime-node.ts` would
-// close nothing on its own. What the leaf still buys is that the hazard
-// cannot come back through `repo.ts` — and the hazard is now NEARER, not
-// further off: `event.ts` → `runtime-node.ts` went live with T1.12, so
-// re-adding an `./event.js` import HERE closes a two-hop cycle immediately,
-// with no `repo.ts` change at all, and reopens the original three-hop path
-// the moment `repo.ts` reaches through this file instead of through
-// `./node-id.js`. Amending `NodeId` is still a Plan-003 edit — make that
-// edit in `./node-id.js`.
+// Still OWNS the shape; only its physical home moved. The hoist was made for
+// the `repo.ts`, which composes `NodeIdSchema`: importing it from THIS file
+// used to close the eager three-hop module cycle `repo.ts` → `runtime-node.ts`
+// → `event.ts` → `repo.ts` (per-edge evidence in `./node-id.js`'s header).
+// That MIDDLE EDGE is gone as of — this file's value imports now bind the
+// `./event-core.js` leaf — so these modules are acyclic today and `repo.ts` →
+// `runtime-node.ts` would close nothing on its own. What the leaf still buys
+// is that the hazard cannot come back through `repo.ts` — and the hazard is
+// now NEARER, not further off: `event.ts` → `runtime-node.ts` went live with
+// so re-adding an `./event.js` import HERE closes a two-hop cycle immediately,
+// with no `repo.ts` change at all, and reopens the original three-hop path the
+// moment `repo.ts` reaches through this file instead of through
+// `./node-id.js`. Amending `NodeId` is still a contract change — make it in
+// `./node-id.js`.
 //
 // Type-only re-exports MUST use `export type { ... }` (the `isolatedModules` +
 // `verbatimModuleSyntax` posture from tsconfig.base.json forbids erased
@@ -82,19 +73,17 @@ export { NODE_ID_MAX_LEN, NodeIdSchema } from "./node-id.js";
 // NodeState — node-attachment LIVENESS enum (5 values).
 // --------------------------------------------------------------------------
 //
-// Aligned with the `runtime_node_attachments.state` CHECK constraint
-// (`docs/architecture/schemas/shared-postgres-schema.md §Runtime Node Attachments (Plan-003)`): exactly these five values, in any
-// order (RFC 8785 JCS serializes the literal wire string, so enum declaration
-// order is not load-bearing — but the membership of the set IS a contract per
-// ADR-018 §Decision #8: removals MAJOR, additions MINOR).
+// Aligned with the `runtime_node_attachments.state` CHECK constraint: exactly these five
+// values, in any order (RFC 8785 JCS serializes the literal wire string, so enum
+// declaration order is not load-bearing — but the membership of the set IS a contract
+// additions MINOR).
 //
 // Distinct from two neighboring enums — do NOT conflate:
 //   • `RuntimeNodeHealthState` below — 2-value health axis on the wire
 //     (online|degraded).
-//   • Postgres `runtime_node_presence.health_state` — 3-value
-//     (online|degraded|offline) (`docs/architecture/schemas/shared-postgres-schema.md §Runtime Node Attachments (Plan-003)`). `offline` is
-//     a presence-derived value, not a daemon-reported one, so it is NOT in the
-//     2-value wire health enum.
+//   • Postgres `runtime_node_presence.health_state` — 3-value (online|degraded|offline).
+//     `offline` is a presence-derived value, not a daemon-reported one, so it is NOT in
+//     the 2-value wire health enum.
 export type NodeState = "registering" | "online" | "degraded" | "offline" | "revoked";
 export const NodeStateSchema: z.ZodType<NodeState> = z.enum([
   "registering",
@@ -109,14 +98,12 @@ export const NodeStateSchema: z.ZodType<NodeState> = z.enum([
 // --------------------------------------------------------------------------
 //
 // SHARED wire enum: `healthState: "online" | "degraded"` appears on BOTH
-// `RuntimeNodeAttachRequest` (this task, T1.1) and `RuntimeNodeHeartbeatRequest`
-// (T1.3, same file — `docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`). Hoisted to a single
-// named export so the two surfaces stay single-sourced (2+ wire-surface
-// consumers is the hoist bar). This is the daemon's SELF-REPORTED health at
-// attach/heartbeat time — a 2-value subset, distinct from the 5-value
-// `NodeState` liveness axis above and the 3-value Postgres
-// `runtime_node_presence.health_state` (which adds the presence-derived
-// `offline`).
+// `RuntimeNodeAttachRequest` (this task) and `RuntimeNodeHeartbeatRequest` (same file).
+// Hoisted to a single named export so the two surfaces stay single-sourced (2+
+// wire-surface consumers is the hoist bar). This is the daemon's SELF-REPORTED health at
+// attach/heartbeat time — a 2-value subset, distinct from the 5-value `NodeState`
+// liveness axis above and the 3-value Postgres `runtime_node_presence.health_state`
+// (which adds the presence-derived `offline`).
 export type RuntimeNodeHealthState = "online" | "degraded";
 export const RuntimeNodeHealthStateSchema: z.ZodType<RuntimeNodeHealthState> = z.enum([
   "online",
@@ -127,15 +114,10 @@ export const RuntimeNodeHealthStateSchema: z.ZodType<RuntimeNodeHealthState> = z
 // RuntimeNodeAttach — request / response.
 // --------------------------------------------------------------------------
 //
-// Canonical wire: `docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`. The request carries the
-// daemon's reported `clientVersion` (typed `EventEnvelopeVersion` — the branded
-// MAJOR.MINOR semver, NOT a plain string, so the Phase-3 floor comparison is
-// semver-aware not lexicographic, per ADR-018 §Decision #1) and is `.strict()`
-// (unknown keys rejected — schema drift surfaces at parse time).
 
 export interface RuntimeNodeAttachRequest {
   sessionId: SessionId;
-  participantId: ParticipantId;
+  userId: UserId;
   nodeId: NodeId;
   clientVersion: EventEnvelopeVersion;
   capabilities: Record<string, unknown>;
@@ -167,7 +149,7 @@ export const RuntimeNodeAttachRequestSchema: z.ZodType<
 > = z
   .object({
     sessionId: SessionIdSchema,
-    participantId: ParticipantIdSchema,
+    userId: UserIdSchema,
     nodeId: NodeIdSchema,
     clientVersion: EventEnvelopeVersionSchema,
     // Zod v4 two-arg `z.record(keySchema, valueSchema)` — the one-arg v3 form
@@ -189,22 +171,20 @@ export interface RuntimeNodeAttachResponse {
 // `SessionCreateResponseSchema` et al. in session.ts).
 export const RuntimeNodeAttachResponseSchema: z.ZodType<RuntimeNodeAttachResponse> = z
   .object({
-    // `attachmentId`: the wire contract (`docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`) types
-    // this plain `string`, NOT `NodeId`/UUID — it is the `runtime_node_
-    // attachments.id` surfaced opaquely. We deliberately do NOT add `.uuid()`
-    // (the wire asserts no UUID-format invariant; matches the opaque-`id`
+    // `attachmentId`: the wire contract types this plain `string`, NOT `NodeId`/UUID — it
+    // is the `runtime_node_ attachments.id` surfaced opaquely. We deliberately do NOT add
+    // `.uuid()` (the wire asserts no UUID-format invariant; matches the opaque-`id`
     // stance taken for EventEnvelope.id in event.ts).
     attachmentId: z.string().min(1),
     // LIVENESS axis.
     state: NodeStateSchema,
     // PERMISSION axis — derived below-floor flag, ORTHOGONAL to `state` (true
     // iff `clientVersion` is below the session floor; populated by the Phase-3
-    // attach service per ADR-018 §Decision #4 / I-003-1). NOT a NodeState value.
+    // attach service). NOT a NodeState value.
     readOnly: z.boolean(),
-    // ISO 8601 per api-payload-contracts.md §RuntimeNodeAttachResponse.
     // `{ offset: true }` widens default Z-only acceptance to numeric RFC 3339
-    // §5.6 offsets — identical convention to `createdAt`/`occurredAt` in
-    // session.ts / event.ts.
+    // — identical convention to `createdAt`/`occurredAt` in session.ts /
+    // event.ts.
     attachedAt: z.iso.datetime({ offset: true }),
   })
   .strict();
@@ -218,34 +198,32 @@ export const RuntimeNodeAttachResponseSchema: z.ZodType<RuntimeNodeAttachRespons
 // constant.
 export const RUNTIME_NODE_CAPABILITY_UPDATE_REASON_MAX_LEN = 512;
 //
-// Canonical wire: `docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`. Method
-// `runtimenode.capabilityupdate` (a tRPC mutation), so the REQUEST is a tRPC
-// input surface. The request carries the daemon's FULL REPLACEMENT capability
-// map — additions and removals are both expressed by the new `capabilities`
-// set (a key absent from the new map is a removal; a new key is an addition).
-// Health transitions ride the OPTIONAL `healthChanges` object. Both objects are
-// `.strict()` (top-level AND nested) — the wire shape is closed, so unknown
-// keys at either level are schema drift surfaced at parse time.
+// Method `runtimenode.capabilityupdate` (a tRPC mutation), so the REQUEST is a tRPC input
+// surface. The request carries the daemon's FULL REPLACEMENT capability map — additions
+// and removals are both expressed by the new `capabilities` set (a key absent from the
+// new map is a removal; a new key is an addition). Health transitions ride the OPTIONAL
+// `healthChanges` object. Both objects are `.strict()` (top-level AND nested) — the wire
+// shape is closed, so unknown keys at either level are schema drift surfaced at parse
+// time.
 //
 // `healthChanges.state` is the 2-value `RuntimeNodeHealthState` wire-health enum
-// (online|degraded) — the SAME self-reported-health axis `RuntimeNodeAttach-
-// Request.healthState` and `RuntimeNodeHeartbeatRequest.healthState` already
-// carry, so all three daemon-self-report surfaces are consistent (Spec-003
-// §Default-Behavior `capabilityupdate` amendment, 2026-06-04). LEAST-PRIVILEGE
-// boundary, held by CONSTRUCTION not by runtime check: a daemon self-reports
-// only its OWN capability-health (the §Fallback-Behavior axis — capability-
+// (online|degraded) — the SAME self-reported-health axis
+// `RuntimeNodeAttachRequest.healthState` and
+// `RuntimeNodeHeartbeatRequest.healthState` already carry, so all three
+// daemon-self-report surfaces are consistent (`capabilityupdate` amendment,
+// 2026-06-04). LEAST-PRIVILEGE boundary, held by CONSTRUCTION not by runtime
+// check: a daemon self-reports only its OWN capability-health (capability-
 // validation failure leaves the node `degraded`). The two broad `NodeState`
 // liveness positions a daemon CANNOT self-report are now unrepresentable here:
 //   • `offline` is server-derived liveness-death — the control-plane staleness
-//     sweep (Plan-003 T3.6) derives it from heartbeat age, or an explicit
-//     `detach` retires the node; never daemon-asserted via `healthChanges`.
+//     sweep derives it from heartbeat age, or an explicit `detach` retires the
+//     node; never daemon-asserted via `healthChanges`.
 //   • `revoked` is an authority-issued trust decision ABOUT the node (the
-//     session / detach / admin path, Plan-003 T3.7), never self-asserted.
-// `registering` is likewise not a daemon-reportable health value. This narrows
-// the broad field T1.2 shipped (`docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`); the request→
-// response asymmetry is intentional — the daemon asserts the NARROW 2-value
-// health axis here, while the RESPONSE `state: NodeState` below stays the broad
-// server-derived liveness projection the control plane owns.
+//     session / detach / admin path), never self-asserted.
+// `registering` is likewise not a daemon-reportable health value. This narrows the broad
+// field shipped; the request→ response asymmetry is intentional — the daemon asserts the
+// NARROW 2-value health axis here, while the RESPONSE `state: NodeState` below stays the
+// broad server-derived liveness projection the control plane owns.
 //
 // Optional fields are typed `key?: T | undefined` (not bare `key?:`): Zod's
 // `.optional()` infers `T | undefined`, and the interface must match the
@@ -261,35 +239,32 @@ export interface RuntimeNodeCapabilityUpdateRequest {
 }
 // `z.ZodType<T, T>` (double-T) with the outer `as unknown as z.ZodType<T, T>`
 // cast — required so tRPC v11's Standard-Schema-V1 input inference resolves to
-// `RuntimeNodeCapabilityUpdateRequest` and not `unknown` (per ADR-014; the
-// schema is non-transforming, so Input ≡ Output ≡ T and the double-T preserves
-// that equivalence on the type surface).
+// `RuntimeNodeCapabilityUpdateRequest` and not `unknown` (the schema is
+// non-transforming, so Input ≡ Output ≡ T and the double-T preserves that
+// equivalence on the type surface).
 //
-// The cast's load-bearing trigger here is the single-T `RuntimeNodeHealthState-
-// Schema` member inside `healthChanges.state` (declared
-// `z.ZodType<RuntimeNodeHealthState>` at its export above — its `Input` slot defaults to
-// `unknown`). The T3.0 narrowing swapped this member from `NodeStateSchema` to
-// `RuntimeNodeHealthStateSchema`, but BOTH are single-T, so the cast stays for
-// the identical mechanism: because this is a tRPC INPUT surface, that single-T
-// member poisons the composed object's input inference: without the bridge the
-// request's `healthChanges.state` input resolves to `unknown`. The ablation
-// diagnostic (cast removed) is TS2375; the trigger is the single-T member's
-// `unknown` input slot, NOT the optionality of `healthChanges` — the
-// `online`/`degraded` distinction here is irrelevant. TS2375 is emitted (rather
-// than TS2322) because the `ZodType`→`ZodType` structural comparison routes
-// through the `exactOptionalPropertyTypes` path via Zod's internal phantom
-// `_input` structure; the all-required `RuntimeNodeAttachRequestSchema` above
-// (zero optional user-type fields) ablates to the SAME TS2375, which is direct
-// proof the diagnostic tracks the single-T `unknown`-input member, not any
-// optional property on the request type. After the swap this member is the SAME
-// single-T `RuntimeNodeHealthStateSchema` that drives `RuntimeNodeHeartbeat-
-// RequestSchema`'s cast below (its comment proves the same TS2375 from the
-// all-required side), so the two request schemas' cast rationale is now
-// identical in mechanism. We bridge at the consumption site rather than re-
-// annotating the shared single-T `RuntimeNodeHealthStateSchema` (its other
-// consumers — `RuntimeNodeAttachRequestSchema`, `RuntimeNodeHeartbeatRequest-
-// Schema` — are bridged the same way, and re-annotation is out of this task's
-// scope).
+// The cast's load-bearing trigger here is the single-T `RuntimeNodeHealthStateSchema`
+// member inside `healthChanges.state` (declared `z.ZodType<RuntimeNodeHealthState>` at
+// its export above — its `Input` slot defaults to `unknown`). narrowing swapped this
+// member from `NodeStateSchema` to `RuntimeNodeHealthStateSchema`, but BOTH are
+// single-T, so the cast stays for the identical mechanism: because this is a tRPC INPUT
+// surface, that single-T member poisons the composed object's input inference: without
+// the bridge the request's `healthChanges.state` input resolves to `unknown`. The
+// ablation diagnostic (cast removed) is TS2375; the trigger is the single-T member's
+// `unknown` input slot, NOT the optionality of `healthChanges` — the `online`/`degraded`
+// distinction here is irrelevant. TS2375 is emitted (rather than TS2322) because the
+// `ZodType`→`ZodType` structural comparison routes through the
+// `exactOptionalPropertyTypes` path via Zod's internal phantom `_input` structure; the
+// all-required `RuntimeNodeAttachRequestSchema` above (zero optional user-type fields)
+// ablates to the SAME TS2375, which is direct proof the diagnostic tracks the single-T
+// `unknown`-input member, not any optional property on the request type. After the swap
+// this member is the SAME single-T `RuntimeNodeHealthStateSchema` that drives
+// `RuntimeNodeHeartbeatRequestSchema`'s cast below (its comment proves the same TS2375
+// from the all-required side), so the two request schemas' cast rationale is now
+// identical in mechanism. We bridge at the consumption site rather than re- annotating
+// the shared single-T `RuntimeNodeHealthStateSchema` (its other consumers —
+// `RuntimeNodeAttachRequestSchema`, `RuntimeNodeHeartbeatRequestSchema` — are bridged
+// the same way, and re-annotation is out of this task's scope).
 export const RuntimeNodeCapabilityUpdateRequestSchema: z.ZodType<
   RuntimeNodeCapabilityUpdateRequest,
   RuntimeNodeCapabilityUpdateRequest
@@ -316,11 +291,11 @@ export const RuntimeNodeCapabilityUpdateRequestSchema: z.ZodType<
     healthChanges: z
       .object({
         // 2-value `RuntimeNodeHealthState` (online|degraded) — narrowed from the
-        // broad `NodeStateSchema` by T3.0 so the illegal `offline`/`revoked`/
+        // broad `NodeStateSchema` so the illegal `offline`/`revoked`/
         // `registering` self-report is UNCONSTRUCTABLE at the schema boundary,
-        // not merely runtime-rejected (Spec-003 §Default-Behavior `capability-
-        // update` amendment; I-003-2 least-privilege). Single-T member — the
-        // cast above stays for it (see the cast rationale).
+        // not merely runtime-rejected (`capabilityupdate` amendment
+        // least-privilege). Single-T member — the cast above stays for it (see
+        // the cast rationale).
         state: RuntimeNodeHealthStateSchema,
         reason: wireFreeFormString(
           RUNTIME_NODE_CAPABILITY_UPDATE_REASON_MAX_LEN,
@@ -351,9 +326,8 @@ export const RuntimeNodeCapabilityUpdateResponseSchema: z.ZodType<RuntimeNodeCap
       nodeId: NodeIdSchema,
       // LIVENESS axis — the node's post-update liveness position.
       state: NodeStateSchema,
-      // ISO 8601 per api-payload-contracts.md §RuntimeNodeCapabilityUpdate-
-      // Response. `{ offset: true }` matches `attachedAt` above (RFC 3339 §5.6
-      // numeric offsets widen the default Z-only acceptance).
+      // `{ offset: true }` matches `attachedAt` above (RFC 3339 section 5.6 numeric
+      // offsets widen the default Z-only acceptance).
       updatedAt: z.iso.datetime({ offset: true }),
     })
     .strict();
@@ -362,10 +336,9 @@ export const RuntimeNodeCapabilityUpdateResponseSchema: z.ZodType<RuntimeNodeCap
 // RuntimeNodeHeartbeat — request / response.
 // --------------------------------------------------------------------------
 //
-// Canonical wire: `docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`. Method
-// `runtimenode.heartbeat` (a tRPC mutation), so the REQUEST is a tRPC input
-// surface. The heartbeat is the daemon's periodic liveness self-report: it
-// carries the `nodeId` and the daemon's CURRENT 2-value health on the wire.
+// Method `runtimenode.heartbeat` (a tRPC mutation), so the REQUEST is a tRPC input
+// surface. The heartbeat is the daemon's periodic liveness self-report: it carries the
+// `nodeId` and the daemon's CURRENT 2-value health on the wire.
 //
 // `healthState` REUSES the hoisted 2-value `RuntimeNodeHealthStateSchema`
 // (online|degraded) declared above — the SHARED daemon-reported health enum
@@ -374,12 +347,7 @@ export const RuntimeNodeCapabilityUpdateResponseSchema: z.ZodType<RuntimeNodeCap
 // `NodeState` liveness enum: `offline`/`registering`/`revoked` are NodeState
 // liveness positions a daemon cannot self-report as a heartbeat health value
 // (e.g. `offline` is presence-DERIVED, never daemon-asserted), so they MUST be
-// rejected here. The capability-update path (above) reuses this SAME 2-value
-// `RuntimeNodeHealthStateSchema` on its `healthChanges.state` (T3.0) — so all
-// three daemon-self-report surfaces (attach / capabilityupdate / heartbeat)
-// carry the identical narrow health axis; `offline`/`revoked` are owned by
-// other authorities (the staleness sweep and the trust path) and are not
-// daemon-reportable on ANY of the three.
+// rejected here.
 //
 // `healthState` is REQUIRED (no `.optional()`, no `| undefined`): a heartbeat
 // without a reported health value is not a valid heartbeat.
@@ -390,28 +358,26 @@ export interface RuntimeNodeHeartbeatRequest {
 }
 // `z.ZodType<T, T>` (double-T) with the outer `as unknown as z.ZodType<T, T>`
 // cast — required so tRPC v11's Standard-Schema-V1 input inference resolves to
-// `RuntimeNodeHeartbeatRequest` and not `unknown` (per ADR-014; the schema is
+// `RuntimeNodeHeartbeatRequest` and not `unknown` (the schema is
 // non-transforming, so Input ≡ Output ≡ T and the double-T preserves that
 // equivalence on the type surface).
 //
-// The cast's load-bearing trigger is the single-T `RuntimeNodeHealthStateSchema`
-// member (declared `z.ZodType<RuntimeNodeHealthState>` at its export above — its
-// `Input` slot defaults to `unknown`). Because this is a tRPC INPUT surface, that single-
-// T member poisons the composed object's input inference: without the bridge the
-// request's `healthState` input resolves to `unknown`. The ablation diagnostic
-// (cast removed) is TS2375 — the same mechanism and code as the two casts above:
+// The cast's load-bearing trigger is the single-T `RuntimeNodeHealthStateSchema` member
+// (declared `z.ZodType<RuntimeNodeHealthState>` at its export above — its `Input` slot
+// defaults to `unknown`). Because this is a tRPC INPUT surface, that single- T member
+// poisons the composed object's input inference: without the bridge the request's
+// `healthState` input resolves to `unknown`. The ablation diagnostic (cast removed) is
+// TS2375 — the same mechanism and code as the two casts above:
 // `RuntimeNodeAttachRequestSchema` (single-T `EventEnvelopeVersionSchema`) and
-// `RuntimeNodeCapabilityUpdateRequestSchema` (single-T `RuntimeNodeHealthState-
-// Schema`, the SAME member this heartbeat schema uses after T3.0). The
-// determinant is the single-T `unknown`-input member, NOT user-type optionality:
-// `RuntimeNodeHeartbeatRequest` has ZERO optional fields yet ablates to TS2375,
-// exactly like the all-required `RuntimeNodeAttachRequestSchema` (the cap-update
-// comment above proves the same from the optional-field side). We bridge at the
-// consumption site rather than re-annotating the shared single-T
-// `RuntimeNodeHealthStateSchema` (its other consumers,
-// `RuntimeNodeAttachRequestSchema` and `RuntimeNodeCapabilityUpdateRequest-
-// Schema`, are bridged the same way, and re-annotation is out of this task's
-// scope).
+// `RuntimeNodeCapabilityUpdateRequestSchema` (single-T `RuntimeNodeHealthStateSchema`,
+// the SAME member this heartbeat schema uses after). The determinant is the single-T
+// `unknown`-input member, NOT user-type optionality: `RuntimeNodeHeartbeatRequest` has
+// ZERO optional fields yet ablates to TS2375, exactly like the all-required
+// `RuntimeNodeAttachRequestSchema` (the cap-update comment above proves the same from the
+// optional-field side). We bridge at the consumption site rather than re-annotating the
+// shared single-T `RuntimeNodeHealthStateSchema` (its other consumers,
+// `RuntimeNodeAttachRequestSchema` and `RuntimeNodeCapabilityUpdateRequestSchema`, are
+// bridged the same way, and re-annotation is out of this task's scope).
 export const RuntimeNodeHeartbeatRequestSchema: z.ZodType<
   RuntimeNodeHeartbeatRequest,
   RuntimeNodeHeartbeatRequest
@@ -422,17 +388,16 @@ export const RuntimeNodeHeartbeatRequestSchema: z.ZodType<
   })
   .strict() as unknown as z.ZodType<RuntimeNodeHeartbeatRequest, RuntimeNodeHeartbeatRequest>;
 
-// No-content response. The wire payload is literally `null`, NOT a 204 empty
-// body (`docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`, `docs/architecture/contracts/api-payload-contracts.md §Runtime-Node Method-Name Registry (Tier 3)`): the resolver returns `null`, which
-// tRPC serializes as an ordinary HTTP 200 success envelope
-// `{ result: { data: null } }`, and the JSON-RPC daemon transport returns
-// `result: null`. Both are validated by this `z.null()` schema, so
-// `RuntimeNodeHeartbeatResponseSchema.parse(null)` MUST succeed and any non-null
-// value (`{}`, a string, `undefined`) MUST fail. No `RuntimeNodeHeartbeatResponse`
-// type alias exists: the response type IS `null`, so there is nothing to name
-// (and none is in `contract_provides`). Single-T `z.ZodType<null>` — a response
-// schema is not a tRPC input surface, so it needs no double-T input-inference
-// bridge (matches `RuntimeNodeAttachResponseSchema` above).
+// The wire payload is literally `null`, NOT a 204 empty body: the resolver returns
+// `null`, which tRPC serializes as an ordinary HTTP 200 success envelope `{ result: {
+// data: null } }`, and the JSON-RPC daemon transport returns `result: null`. Both are
+// validated by this `z.null()` schema, so
+// `RuntimeNodeHeartbeatResponseSchema.parse(null)` MUST succeed and any non-null value
+// (`{}`, a string, `undefined`) MUST fail. No `RuntimeNodeHeartbeatResponse` type alias
+// exists: the response type IS `null`, so there is nothing to name (and none is in
+// `contract_provides`). Single-T `z.ZodType<null>` — a response schema is not a tRPC
+// input surface, so it needs no double-T input-inference bridge (matches
+// `RuntimeNodeAttachResponseSchema` above).
 export const RuntimeNodeHeartbeatResponseSchema: z.ZodType<null> = z.null();
 
 // --------------------------------------------------------------------------
@@ -444,13 +409,12 @@ export const RuntimeNodeHeartbeatResponseSchema: z.ZodType<null> = z.null();
 // convention: each operation owns its OWN reason cap rather than sharing a
 // single package-wide constant. The capability-update cap's comment above
 // explicitly anticipated this detach constant ("the not-yet-written detach
-// `reason`"). The framework body-size cap (owned by Plan-004/Plan-005) is the
-// authoritative limit; this is defense-in-depth at the wire trust boundary.
+// `reason`"). The framework body-size cap () is the authoritative limit; this
+// is defense-in-depth at the wire trust boundary.
 export const RUNTIME_NODE_DETACH_REASON_MAX_LEN = 512;
 //
-// Canonical wire: `docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`. Method `runtimenode.detach`
-// (a tRPC mutation), so the REQUEST is a tRPC input surface. The request carries
-// the `nodeId` and an OPTIONAL free-form `reason` audit string.
+// Method `runtimenode.detach` (a tRPC mutation), so the REQUEST is a tRPC input surface.
+// The request carries the `nodeId` and an OPTIONAL free-form `reason` audit string.
 //
 // `reason` uses the package's standard wire free-form-string realization,
 // `wireFreeFormString` (session.ts:118, "Used by every wire-layer free-form
@@ -475,8 +439,8 @@ export interface RuntimeNodeDetachRequest {
   reason?: string | undefined;
 }
 // `z.ZodType<T, T>` (double-T) — required so tRPC v11's Standard-Schema-V1 input
-// inference resolves to `RuntimeNodeDetachRequest` and not `unknown` (per
-// ADR-014; the schema is non-transforming, so Input ≡ Output ≡ T).
+// inference resolves to `RuntimeNodeDetachRequest` and not `unknown` (the schema
+// is non-transforming, so Input ≡ Output ≡ T).
 //
 // This schema needs NO `as unknown as z.ZodType<T, T>` cast and compiles clean —
 // it is the CONTRAST case to the three cast-bearing request schemas above. Both
@@ -504,15 +468,13 @@ export const RuntimeNodeDetachRequestSchema: z.ZodType<
   })
   .strict();
 
-// No-content response. The wire payload is literally `null`, NOT a 204 empty
-// body (`docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`, `docs/architecture/contracts/api-payload-contracts.md §Runtime-Node Method-Name Registry (Tier 3)`): the resolver returns `null`, which
-// tRPC serializes as an ordinary HTTP 200 success envelope
-// `{ result: { data: null } }`, and the JSON-RPC daemon transport returns
-// `result: null`. Both are validated by this `z.null()` schema, so
-// `RuntimeNodeDetachResponseSchema.parse(null)` MUST succeed and any non-null
-// value MUST fail. No `RuntimeNodeDetachResponse` type alias exists: the response
-// type IS `null` (and none is in `contract_provides`). Single-T `z.ZodType<null>`
-// — a response schema is not a tRPC input surface (matches
+// The wire payload is literally `null`, NOT a 204 empty body: the resolver returns
+// `null`, which tRPC serializes as an ordinary HTTP 200 success envelope `{ result: {
+// data: null } }`, and the JSON-RPC daemon transport returns `result: null`. Both are
+// validated by this `z.null()` schema, so `RuntimeNodeDetachResponseSchema.parse(null)`
+// MUST succeed and any non-null value MUST fail. No `RuntimeNodeDetachResponse` type
+// alias exists: the response type IS `null` (and none is in `contract_provides`).
+// Single-T `z.ZodType<null>` — a response schema is not a tRPC input surface (matches
 // `RuntimeNodeHeartbeatResponseSchema` above).
 export const RuntimeNodeDetachResponseSchema: z.ZodType<null> = z.null();
 
@@ -520,41 +482,31 @@ export const RuntimeNodeDetachResponseSchema: z.ZodType<null> = z.null();
 // RuntimeNodeRoster — request / entry / response (the fifth procedure).
 // --------------------------------------------------------------------------
 //
-// Canonical wire: `docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)` (registry row + procedure-type paragraph
-// in `docs/architecture/contracts/api-payload-contracts.md §Runtime-Node Method-Name Registry (Tier 3)`); pinned in Spec-003 §Interfaces And
-// Contracts (2026-06-09 amendment). Method `runtimenode.roster`
-// is the namespace's FIRST — and only — `query` (its four siblings above are
-// mutations) and is control-plane tRPC ONLY: the roster is control-plane-owned
-// cross-node coordination state (a daemon knows only itself), so the read
-// deliberately does not ride the daemon JSON-RPC transport the four mutations
-// share. The read PROJECTS the `runtime_node_attachments` ×
-// `runtime_node_presence` coordination records and authors NO durable event
-// (ADR-017 non-collision — its §Server-Derived Runtime-Node Lifecycle Events
-// V1.1 gate governs durable event AUTHORSHIP, not coordination-record reads).
+// The read PROJECTS the `runtime_node_attachments` × `runtime_node_presence` coordination
+// records and authors NO durable event (non-collision — its not coordination-record
+// reads).
 //
-// BOTH-AXES STANCE (`Spec-003 §Default Behavior`, never-mask): each entry carries BOTH
-// health axes verbatim — `state` (the 5-value slot axis) AND `healthState` +
-// `lastHeartbeatAt` (the sweep-owned liveness axis) — plus identity, and NO
-// collapsed health scalar exists on the wire. Reconciling the two axes is the
-// CLIENT's render-time concern; the schema imposes no cross-field constraint,
-// so a row whose axes disagree (e.g. `state: "online"` with
-// `healthState: "offline"`) is valid by construction. The read NEVER derives
-// staleness — the Plan-003 T3.6 heartbeat sweep stays the single
-// liveness-derivation writer.
+// BOTH-AXES STANCE (never-mask): each entry carries BOTH health axes verbatim —
+// `state` (the 5-value slot axis) AND `healthState` + `lastHeartbeatAt` (the
+// sweep-owned liveness axis) — plus identity, and NO collapsed health scalar exists on
+// the wire. Reconciling the two axes is the CLIENT's render-time concern; the schema
+// imposes no cross-field constraint, so a row whose axes disagree (e.g. `state:
+// "online"` with `healthState: "offline"`) is valid by construction. The read NEVER
+// derives staleness — heartbeat sweep stays the single liveness-derivation writer.
 
 export interface RuntimeNodeRosterRequest {
   sessionId: SessionId;
 }
 // `z.ZodType<T, T>` (double-T) — a `query` input is still a tRPC v11 INPUT
 // surface, so Standard-Schema-V1 input inference must resolve to
-// `RuntimeNodeRosterRequest` and not `unknown` (per ADR-014; the schema is
+// `RuntimeNodeRosterRequest` and not `unknown` (the schema is
 // non-transforming, so Input ≡ Output ≡ T). NO `as unknown as` cast is needed
 // and the schema compiles clean: the only member, `SessionIdSchema`, is
 // double-T (session.ts:52), so there is no single-T `unknown`-input slot to
 // poison the composed input inference — the same no-cast mechanism as
 // `RuntimeNodeDetachRequestSchema` above, and the structural twin
-// `SessionReadRequestSchema` (session.ts:326 — the identical
-// `{ sessionId: SessionIdSchema }` + `.strict()` shape) likewise carries none.
+// `SessionReadRequestSchema` (session.ts:326 — the identical `{ sessionId:
+// SessionIdSchema }` + `.strict()` shape) likewise carries none.
 export const RuntimeNodeRosterRequestSchema: z.ZodType<
   RuntimeNodeRosterRequest,
   RuntimeNodeRosterRequest
@@ -566,7 +518,7 @@ export const RuntimeNodeRosterRequestSchema: z.ZodType<
 
 export interface RuntimeNodeRosterEntry {
   nodeId: NodeId;
-  participantId: ParticipantId;
+  userId: UserId;
   state: NodeState;
   healthState: "online" | "degraded" | "offline" | null;
   lastHeartbeatAt: string | null;
@@ -579,30 +531,27 @@ export interface RuntimeNodeRosterEntry {
 // response side), never a tRPC input surface, so it follows the file's
 // single-T house style (`RuntimeNodeAttachResponseSchema` above) and needs
 // no cast even though it composes the branded `NodeIdSchema` /
-// `ParticipantIdSchema` / `EventEnvelopeVersionSchema` — single-T members only
+// `UserIdSchema` / `EventEnvelopeVersionSchema` — single-T members only
 // poison input inference on the REQUEST side (the
 // `RuntimeNodeCapabilityUpdateResponseSchema` contrast note above).
 export const RuntimeNodeRosterEntrySchema: z.ZodType<RuntimeNodeRosterEntry> = z
   .object({
     nodeId: NodeIdSchema,
-    participantId: ParticipantIdSchema,
+    userId: UserIdSchema,
     // SLOT axis — all five `NodeState` values verbatim (registering|online|
     // degraded|offline|revoked): the roster is a FAITHFUL projection of every
-    // `runtime_node_attachments` row for the session, no server-side hiding —
-    // `Spec-003 §Acceptance Criteria` (AC2) needs `degraded`/`offline` nodes visible and
-    // distinguishable from healthy ones.
+    // `runtime_node_attachments` row for the session, no server-side hiding — needs
+    // `degraded`/`offline` nodes visible and distinguishable from healthy ones.
     state: NodeStateSchema,
-    // LIVENESS axis — `runtime_node_presence.health_state` carried VERBATIM:
-    // the 3-value sweep-owned presence enum (`docs/architecture/schemas/shared-postgres-schema.md §Runtime Node Attachments (Plan-003)`),
-    // deliberately NOT the 2-value `RuntimeNodeHealthState` wire self-report
-    // (which excludes the presence-derived `offline`) and NOT the 5-value
-    // `NodeState` slot axis — the do-not-conflate note on `NodeState`'s
+    // LIVENESS axis — `runtime_node_presence.health_state` carried VERBATIM: the 3-value
+    // sweep-owned presence enum, deliberately NOT the 2-value `RuntimeNodeHealthState`
+    // wire self-report (which excludes the presence-derived `offline`) and NOT the
+    // 5-value `NodeState` slot axis — the do-not-conflate note on `NodeState`'s
     // declaration above names exactly this 3-value Postgres enum. Inline `z.enum` rather
-    // than a named export: single-use, matching the inline 3-value `reason`
-    // enum on `RuntimeNodeOfflinePayloadSchema` below. `.nullable()` (key
-    // required, value nullable): NULL until the node's first heartbeat lands —
-    // the read LEFT-JOINs presence on `node_id`, and no presence row exists
-    // before that first beat.
+    // than a named export: single-use, matching the inline 3-value `reason` enum on
+    // `RuntimeNodeOfflinePayloadSchema` below. `.nullable()` (key required, value
+    // nullable): NULL until the node's first heartbeat lands — the read LEFT-JOINs
+    // presence on `node_id`, and no presence row exists before that first beat.
     healthState: z.enum(["online", "degraded", "offline"]).nullable(),
     // `runtime_node_presence.last_heartbeat_at` verbatim — NULL until the
     // first heartbeat (the same LEFT-JOIN nullability as `healthState`). ISO
@@ -611,9 +560,8 @@ export const RuntimeNodeRosterEntrySchema: z.ZodType<RuntimeNodeRosterEntry> = z
     lastHeartbeatAt: z.iso.datetime({ offset: true }).nullable(),
     // PERMISSION axis — DERIVED per row AT READ TIME (not stored) from the
     // stored `client_version` against `sessions.min_client_version` (NULL
-    // floor → false), semantics identical to the attach-time verdict
-    // (I-003-1 / ADR-018 §Decision #4). Orthogonal to `state`, exactly as on
-    // the attach response above.
+    // floor → false), semantics identical to the attach-time verdict.
+    // Orthogonal to `state`, exactly as on the attach response above.
     readOnly: z.boolean(),
     // Zod v4 two-arg `z.record(keySchema, valueSchema)` — matches the
     // `capabilities` idiom on `RuntimeNodeAttachRequestSchema` above.
@@ -621,8 +569,7 @@ export const RuntimeNodeRosterEntrySchema: z.ZodType<RuntimeNodeRosterEntry> = z
     // Round-trips the attach-validated stored `client_version` TEXT — the
     // branded MAJOR.MINOR semver, NOT a plain string, so a corrupted stored
     // value fails closed at the read boundary (the persisted column exists to
-    // make the read-only verdict auditable + roster-displayable, per
-    // shared-postgres-schema.md).
+    // make the read-only verdict auditable + roster-displayable).
     clientVersion: EventEnvelopeVersionSchema,
     // ISO 8601 `{ offset: true }` — same convention as the attach response's
     // `attachedAt` above; non-nullable (every attachment row has one).
@@ -645,34 +592,32 @@ export interface RuntimeNodeRosterResponse {
   //
   // The suppression is a READ-side predicate that writes nothing and derives no
   // staleness of its own: it consumes the stored `runtime_node_presence.
-  // health_state` verdict the Plan-003 T3.6 sweep owns, and binds at `offline`
-  // and nothing weaker (`degraded` is the reversible hysteresis band). It is NOT
-  // the collapsed health scalar the entries forbid — the producing node's
-  // `healthState` / `lastHeartbeatAt` ride VERBATIM in this same response, so
-  // the payload never contradicts itself and the `offline` verdict behind a
-  // suppression stays visible on the node rows.
-  controlHolder: ParticipantId | null;
+  // health_state` verdict sweep owns, and binds at `offline` and nothing weaker
+  // (`degraded` is the reversible hysteresis band). It is NOT the collapsed
+  // health scalar the entries forbid — the producing node's `healthState` /
+  // `lastHeartbeatAt` ride VERBATIM in this same response, so the payload never
+  // contradicts itself and the `offline` verdict behind a suppression stays
+  // visible on the node rows.
+  controlHolder: UserId | null;
 }
 // Single-T `z.ZodType<T>` — non-input projection (see the entry schema above);
 // `z.array(...)` over a single-T element matches
 // `SessionCreateResponseSchema`'s `z.array(ChannelSummarySchema)`.
 export const RuntimeNodeRosterResponseSchema: z.ZodType<RuntimeNodeRosterResponse> = z
   .object({
-    // One entry per `runtime_node_attachments` row for the session — bounded
-    // by distinct nodes ever attached (`UNIQUE(node_id, session_id)`), per
-    // `Spec-003 §Required Behavior` / AC3 (`Spec-003 §Acceptance Criteria`: multiple runtime nodes coexist without
-    // changing session identity). An EMPTY array is valid (a session with no
-    // attachments yet).
+    // One entry per `runtime_node_attachments` row for the session — bounded by distinct
+    // nodes ever attached (`UNIQUE(node_id, session_id)`). An EMPTY array is valid (a
+    // session with no attachments yet).
     nodes: z.array(RuntimeNodeRosterEntrySchema),
     // KEY REQUIRED, VALUE NULLABLE — `.nullable()` and deliberately not
     // `.optional()`. An omitted key would be indistinguishable from a producer
     // that has not been taught to project the lease at all, and a client cannot
     // tell "nobody holds it" from "nobody asked" out of an absent member; a
     // present `null` says the projection ran and advertised no live holder.
-    // The value is the branded `ParticipantId`, so a corrupted stored holder
+    // The value is the branded `UserId`, so a corrupted stored holder
     // fails closed at the read boundary rather than reaching a surface that
     // would render it as an identity.
-    controlHolder: ParticipantIdSchema.nullable(),
+    controlHolder: UserIdSchema.nullable(),
   })
   .strict();
 
@@ -681,56 +626,39 @@ export const RuntimeNodeRosterResponseSchema: z.ZodType<RuntimeNodeRosterRespons
 // --------------------------------------------------------------------------
 //
 // The canonical exported set of the SEVEN `runtime_node.*` durable event-type
-// names, sourced verbatim from the taxonomy table in
-// `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`. This
-// ships the NAME taxonomy for C4 conformance. The per-event payload-SHAPE schemas
-// for the 5 daemon-reachable events (`registered`, `online`, `offline`,
-// `capability_declared`, `capability_updated`) are now authored in Plan-003 Phase 2
-// in the `Runtime-node event PAYLOAD-shape schemas` section BELOW (CP-003-1
-// amendment 2026-06-02; `degraded` / `revoked` are V1.1-gated — no V1
-// producer). The additive Plan-006 Tier 4 follow-ups were (a) the REGISTRATION
-// of these names + payloads into the discriminated `SessionEventSchema` /
-// `EventType` union in event.ts — landed with Plan-006 T1.12, which registered
-// the FIVE daemon-reachable variants and left `degraded` / `revoked`
-// census-only; (b) the `EventEnvelope` integrity wrapper (BLAKE3 hash chain +
-// dual signature + RFC 8785 JCS); and (c) binding the canonical
-// `CapabilityDetails` over the interim-opaque capability fields, landed with
-// Plan-006 T1.4 (the canonical-first tolerant unions below). The registration
-// still happens THERE, not here: this file exports the names and the payload
-// shapes; event.ts composes them into union arms.
+// names, sourced verbatim from the taxonomy table. This ships the NAME taxonomy for
+// C4 conformance. The per-event payload-SHAPE schemas for the 5 daemon-reachable
+// events (`registered`, `online`, `offline`, `capability_declared`,
+// `capability_updated`) are now authored in the `Runtime-node event PAYLOAD-shape
+// schemas` section BELOW (amendment 2026-06-02; `degraded` / `revoked` are
+// V1.1-gated — no V1 producer). The registration still happens THERE, not here:
+// this file exports the names and the payload shapes; event.ts composes them into
+// union arms.
 //
-// Shape mirrors `SESSION_EVENT_TYPES` / `SessionEventType`: a
-// union type alias plus an explicitly-annotated `readonly [...]  as const` tuple.
-// The explicit `readonly RuntimeNodeEventName[]` annotation is required for
+// Shape mirrors `SESSION_EVENT_TYPES` / `SessionEventType`: a union type alias
+// plus an explicitly-annotated `readonly [...] as const` tuple. The explicit
+// `readonly RuntimeNodeEventName[]` annotation is required for
 // `isolatedDeclarations`, and `as const` freezes the literal element types so
 // consumers can iterate the registered set without re-parsing schemas. The
-// membership of the SET is the contract, not the declaration order — RFC 8785
-// JCS serializes the literal wire string, so tuple order is not load-bearing
-// (same stance as `NodeState` above and `SESSION_EVENT_TYPES`; additions are
-// MINOR, removals MAJOR under ADR-018 §Decision #8).
+// membership of the SET is the contract, not the declaration order — RFC 8785 JCS
+// serializes the literal wire string, so tuple order is not load-bearing (same
+// stance as `NodeState` above and `SESSION_EVENT_TYPES`; additions are MINOR,
+// removals MAJOR).
 //
 // BOUNDARY — the `session.clock_*` pair is EXCLUDED. `session.clock_unsynced` /
-// `session.clock_corrected` (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`) sit in the SAME EventCategory
-// (`runtime_node_lifecycle`) but retain the `session.` prefix by name-
-// preservation (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` / ADR-018 §Decision #8 — an event-type rename is
-// not additive, so it is wire-breaking). They were promoted from Spec-015
-// §Reserved Events and are NOT `runtime_node.*` names: this set is the 7-name
-// `runtime_node.*` prefix set ONLY (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`), exactly per the C4
-// acceptance criterion.
+// `session.clock_corrected` sit in the SAME EventCategory (`runtime_node_lifecycle`) but
+// retain the `session.` prefix by name- preservation (an event-type rename is not
+// additive, so it is wire-breaking). They were promoted `runtime_node.*` names: this set
+// is the 7-name `runtime_node.*` prefix set ONLY, exactly per the C4 acceptance
+// criterion.
 //
 // CATEGORY OWNERSHIP — all 7 names belong to EventCategory
-// `"runtime_node_lifecycle"`, which is already declared in Plan-001's taxonomy
+// `"runtime_node_lifecycle"`, which is already declared in the taxonomy
 // (event.ts's `EventCategory` type union + `EventCategorySchema` enum). This file
 // references that category but does NOT redefine it and does NOT add a category-
-// binding map. Per CP-003-1 (docs/plans/003-runtime-node-attach.md §CP-003-1,
-// "Payload-shape ownership"): Plan-003 owns the `runtime_node.*` name
-// constants AND the per-event payload-SHAPE schemas (Phase 2 ships the 5
-// daemon-reachable shapes BELOW; V1.1 ships `degraded` / `revoked`). Plan-006
-// Tier 4 owns the discriminated-union REGISTRATION (folding each payload schema
-// into `SessionEventSchema` in event.ts) + the `EventEnvelope` integrity wrapper
-// (BLAKE3 hash chain, dual-signature mechanics, JCS), all against the integrity
-// columns Plan-001 forward-declares; the canonical-`CapabilityDetails` binding
-// landed with Plan-006 T1.4 (the tolerant unions on the capability schemas below).
+// binding map.: owns the `runtime_node.*` name constants AND the per-event
+// payload-SHAPE schemas (Phase 2 ships the 5 daemon-reachable shapes BELOW; V1.1
+// ships `degraded` / `revoked`).
 export type RuntimeNodeEventName =
   | "runtime_node.registered"
   | "runtime_node.online"
@@ -750,17 +678,15 @@ export const RUNTIME_NODE_EVENT_NAMES: readonly RuntimeNodeEventName[] = [
 ] as const;
 
 // ==========================================================================
-// Runtime-node event PAYLOAD-shape schemas — Plan-003 Phase 2 (CP-003-1).
+// Runtime-node event PAYLOAD-shape schemas
 // ==========================================================================
 //
 // The Zod object shape of the `EventEnvelope.payload` field for each of the 5
 // DAEMON-REACHABLE `runtime_node.*` events — `registered`, `online`, `offline`,
-// `capability_declared`, `capability_updated` (the events Plan-003 Phase 2's
-// node-registry + capability-service producers actually emit). `degraded` and
-// `revoked` are V1.1-gated on the node-identity trust anchor (ADR-017
-// §Server-Derived Runtime-Node Lifecycle Events): server-derived producers with
-// no sound V1 author. Sourced from the taxonomy table in
-// `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`.
+// `capability_declared`, `capability_updated` (the events the node-registry +
+// capability-service producers actually emit). `degraded` and `revoked` are
+// V1.1-gated on the node-identity trust anchor: server-derived producers with
+// no sound V1 author. Sourced from the taxonomy table.
 //
 // SCOPE — these schemas validate the PAYLOAD CONTENTS ONLY, not the full
 // envelope: there is no `type` / `category` / `sequence` / `id` / `occurredAt`
@@ -768,21 +694,20 @@ export const RUNTIME_NODE_EVENT_NAMES: readonly RuntimeNodeEventName[] = [
 // integrity wrapper (the `EventEnvelope` schema, BLAKE3 hash chain, dual
 // signature, RFC 8785 JCS serialization) and the registration of these payloads
 // into the discriminated `SessionEventSchema` / `EventType` union in `event.ts`
-// are owned by Plan-006 Tier 4 (CP-003-1; see the `RUNTIME_NODE_EVENT_NAMES`
-// block above) — the registration landed there with Plan-006 T1.12, importing
-// the five schemas below. Only the per-event payload SHAPES live here: this
-// file never registers into `event.ts`'s union; `event.ts` composes these
-// shapes into arms.
+// are daemon-side (see the `RUNTIME_NODE_EVENT_NAMES` block above) — the
+// registration landed there with importing the five schemas below. Only the
+// per-event payload SHAPES live here: this file never registers into
+// `event.ts`'s union; `event.ts` composes these shapes into arms.
 //
 // EXPORTED (const + type alias), unlike `event.ts`'s module-LOCAL
 // `sessionCreatedPayloadSchema` et al.: these have 2+ cross-file consumers, so
-// they clear the export bar — (a) Plan-006 Tier 4 imports each
-// `*PayloadSchema` to register it into `SessionEventSchema` (landed: T1.12),
-// and (b) the Phase-2 T2.1-T2.5 daemon producers (`node-registry.ts`,
-// `node-capability-service.ts`) import them to `.parse()`-validate the payload
-// at the emission boundary (the `.parse()` validation seam CP-003-1 mandates,
-// in place of ad-hoc objects). Plan-001's local payload consts were single-file
-// (folded only into the same module's union branches), so they stayed local.
+// they clear the export bar — (a) The daemon imports each `*PayloadSchema` to
+// register it into `SessionEventSchema` (landed:), and (b) the Phase-2 - daemon
+// producers (`node-registry.ts`, `node-capability-service.ts`) import them to
+// `.parse()`-validate the payload at the emission boundary (the `.parse()`
+// validation seam mandates, in place of ad-hoc objects). the local payload
+// consts were single-file (folded only into the same module's union branches),
+// so they stayed local.
 //
 // TYPING — single-`T` `z.ZodType<T>`, `.strict()`. These are NON-INPUT event
 // payloads: constructed daemon-side and validated at the emission boundary with
@@ -802,12 +727,12 @@ export const RUNTIME_NODE_EVENT_NAMES: readonly RuntimeNodeEventName[] = [
 // carry — so single-T payloads composing branded ids compose cleanly.
 //
 // DECLARATION FORM — each payload type below is an object TYPE ALIAS, never an
-// `interface`. Plan-006 T1.12 registers all five as `SessionEventSchema` union
-// arms whose variant interfaces narrow `EventEnvelope.payload`
-// (`Record<string, unknown>`), and only an object type ALIAS carries the
-// implicit index signature that narrowing needs — an `interface` payload fails
-// the `extends EventEnvelope` check outright. Same rule, same reason, as the
-// sibling registered families: `RepoWorkspaceLifecyclePayload` (repo.ts) and
+// `interface`. registers all five as `SessionEventSchema` union arms whose
+// variant interfaces narrow `EventEnvelope.payload` (`Record<string,
+// unknown>`), and only an object type ALIAS carries the implicit index
+// signature that narrowing needs — an `interface` payload fails the `extends
+// EventEnvelope` check outright. Same rule, same reason, as the sibling
+// registered families: `RepoWorkspaceLifecyclePayload` (repo.ts) and
 // `WorktreeLifecyclePayload` (worktree.ts) are both aliases and say so. The
 // change is declaration FORM only — same exported name, same structural type,
 // same schema, no consumer-visible difference (nothing `implements` or
@@ -857,19 +782,16 @@ export const RUNTIME_NODE_CAPABILITY_KEY_MAX_LEN = 128;
 // correct — the factory is the established house style; see the factory-pattern
 // note on event.ts's `buildCommonShape()`.)
 //
-// FULL LIFECYCLE base — `{sessionId?, nodeId, previousState?, newState, actor?}`.
-// The Spec-006 base payload shared by every `runtime_node.*` LIFECYCLE event
-// (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`). `sessionId` is `.optional()` per Spec-006's `sessionId?` base:
-// the daemon always populates it for `runtime_node.*` events (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`,
-// "carry the session_id of the attachment they describe"), but the SCHEMA mirrors
-// the spec's optional base. `actor` is the EventEnvelope free-form actor
-// (`participant_id | agent_id | null` per the actor field under
-// `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`),
-// realized with `wireFreeFormString(...).nullable().optional()` — the
-// SAME wire field as `EventEnvelope.actor` (event.ts's `buildCommonShape()`), so
-// it reuses the shared `EVENT_FIELD_MAX_LEN` cap (a wire field above the
-// 2-consumer hoist bar),
-// NOT a branded `ParticipantId`.
+// FULL LIFECYCLE base — `{sessionId?, nodeId, previousState?, newState, actor?}`. base
+// payload shared by every `runtime_node.*` LIFECYCLE event. `sessionId` is `.optional()`
+// per the `sessionId?` base: the daemon always populates it for `runtime_node.*` events
+// ("carry the session_id of the attachment they describe"), but the SCHEMA mirrors the
+// spec's optional base. `actor` is the EventEnvelope free-form actor (`user_id |
+// agent_id | null` per the actor field), realized with
+// `wireFreeFormString(...).nullable().optional()` — the SAME wire field as
+// `EventEnvelope.actor` (event.ts's `buildCommonShape()`), so it reuses the shared
+// `EVENT_FIELD_MAX_LEN` cap (a wire field above the 2-consumer hoist bar), NOT a branded
+// `UserId`.
 const buildRuntimeNodeLifecycleBaseShape = () => ({
   sessionId: SessionIdSchema.optional(),
   nodeId: NodeIdSchema,
@@ -880,15 +802,14 @@ const buildRuntimeNodeLifecycleBaseShape = () => ({
     .optional(),
 });
 
-// REDUCED CAPABILITY base — the full base MINUS `previousState` / `newState`.
-// Capability events are NOT `NodeState` transitions: the canonical typed
-// payloads `RuntimeNodeCapabilityDeclaredPayload` / `RuntimeNodeCapabilityUpdated-
-// Payload` (`docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`) carry NO base /
-// `NodeState` fields at all — only the capability fields. Carrying a base
-// `newState: NodeState` here would additionally COLLIDE with `capability_updated`'s
-// own `previousState` / `newState`, which are `CapabilityDetails` SNAPSHOTS (the
-// canonical-first tolerant unions below, Plan-006 T1.4), not `NodeState` values.
-// So the reduced base keeps only `{sessionId?, nodeId, actor?}`.
+// REDUCED CAPABILITY base — the full base MINUS `previousState` / `newState`. Capability
+// events are NOT `NodeState` transitions: the canonical typed payloads
+// `RuntimeNodeCapabilityDeclaredPayload` / `RuntimeNodeCapabilityUpdatedPayload` carry NO
+// base / `NodeState` fields at all — only the capability fields. Carrying a base
+// `newState: NodeState` here would additionally COLLIDE with `capability_updated`'s own
+// `previousState` / `newState`, which are `CapabilityDetails` SNAPSHOTS (the
+// canonical-first tolerant unions below), not `NodeState` values. So the reduced base
+// keeps only `{sessionId?, nodeId, actor?}`.
 const buildRuntimeNodeCapabilityBaseShape = () => ({
   sessionId: SessionIdSchema.optional(),
   nodeId: NodeIdSchema,
@@ -901,17 +822,15 @@ const buildRuntimeNodeCapabilityBaseShape = () => ({
 // runtime_node.registered — base + {capabilities, nodeVersion, platform}.
 // --------------------------------------------------------------------------
 //
-// `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` ("base + {capabilities: Record<capabilityKey, details>, nodeVersion, platform}"). Emitted by the
-// T2.1 node-registry when a node is accepted into the roster (`Spec-003 §Required Behavior`,
-// attach admission). Field-type rationale (so reviewers verify, not re-derive):
+// Emitted node-registry when a node is accepted into the roster (attach admission).
+// Field-type rationale (so reviewers verify, not re-derive):
 //   • `capabilities` = `z.record(z.string(), z.unknown())` — a lossless snapshot
 //     of the declared capability map, mirroring `RuntimeNodeAttachRequest.
-//     capabilities` (the schema above in this file) VERBATIM. Spec-006's table
-//     row carried an informal `capabilities[]` array gloss until Plan-006 T1.12
-//     trued it up to this record shape (2026-08-03), so spec and schema now
-//     agree; the typed source governed in the interim per
-//     typed-source-over-table-gloss.
-//     Forward-compatible: Plan-006 Tier 4 can tighten `unknown` → the canonical
+//     capabilities` (the schema above in this file) VERBATIM. the table row
+//     carried an informal `capabilities[]` array gloss until trued it up to this
+//     record shape (2026-08-03), so spec and schema now agree; the typed source
+//     governed in the interim per typed-source-over-table-gloss.
+//     Forward-compatible: A later phase can tighten `unknown` → the canonical
 //     `CapabilityDetails` with no SHAPE change.
 //   • `nodeVersion` = bounded free string, NOT `EventEnvelopeVersion` — it is the
 //     node's software RELEASE version (conventionally full semver, e.g. "1.4.2"),
@@ -954,9 +873,8 @@ export const RuntimeNodeRegisteredPayloadSchema: z.ZodType<RuntimeNodeRegistered
 // runtime_node.online — base (no extension).
 // --------------------------------------------------------------------------
 //
-// `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` ("base"). Emitted by the T2.1/T2.2 path only AFTER
-// `runtime_node.capability_declared` succeeds (I-003-2 ordering, Plan-003 §Phase
-// 2). No payload extension — the full lifecycle base is the whole payload.
+// Emitted path only AFTER `runtime_node.capability_declared` succeeds (ordering). No
+// payload extension — the full lifecycle base is the whole payload.
 export type RuntimeNodeOnlinePayload = {
   sessionId?: SessionId | undefined;
   nodeId: NodeId;
@@ -974,17 +892,13 @@ export const RuntimeNodeOnlinePayloadSchema: z.ZodType<RuntimeNodeOnlinePayload>
 // runtime_node.offline — base + {lastHeartbeatAt, reason}.
 // --------------------------------------------------------------------------
 //
-// `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` ("base + {lastHeartbeatAt, reason ∈ ['heartbeat_lost',
-// 'explicit_shutdown','network_partition']}"). `reason` is authored as the FULL
-// 3-value enum — the COMPLETE contract per Spec-006 — even though Phase 2's T2.5
-// detach producer emits only `explicit_shutdown` (the `heartbeat_lost` /
-// `network_partition` durable events are V1.1-gated — server-derived, no sound
-// V1 author, per ADR-017 §Server-Derived Runtime-Node Lifecycle Events).
-// Authoring the full enum now keeps the SHAPE stable across versions (the V1.1
-// producer adds emission, not a schema change). `lastHeartbeatAt` is ISO 8601
-// with `{ offset: true }` (RFC
-// 3339 §5.6 numeric offsets), the same datetime convention as `attachedAt` (the
-// attach response above) / `occurredAt` (event.ts's `buildCommonShape()`).
+// `reason` is authored as the FULL 3-value enum — the COMPLETE contract — even though
+// Phase 2's detach producer emits only `explicit_shutdown` (the `heartbeat_lost` /
+// `network_partition` durable events are V1.1-gated — server-derived, no sound V1
+// author). Authoring the full enum now keeps the SHAPE stable across versions (the V1.1
+// producer adds emission, not a schema change). `lastHeartbeatAt` is ISO 8601 with `{
+// offset: true }` (RFC 3339), the same datetime convention as `attachedAt` (the attach
+// response above) / `occurredAt` (event.ts's `buildCommonShape()`).
 export type RuntimeNodeOfflinePayload = {
   sessionId?: SessionId | undefined;
   nodeId: NodeId;
@@ -1006,35 +920,29 @@ export const RuntimeNodeOfflinePayloadSchema: z.ZodType<RuntimeNodeOfflinePayloa
 // runtime_node.capability_declared — REDUCED base + {capability, capabilityDetails}.
 // --------------------------------------------------------------------------
 //
-// `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` ("base + {capability, capabilityDetails}"). Emitted by the T2.2
-// capability-service when a node declares a new capability after registration.
+// Emitted capability-service when a node declares a new capability after registration.
 //
 // NAMING NOTE — this `RuntimeNodeCapabilityDeclaredPayload` is a SUPERSET of the
-// canonical interface of the same name under
-// `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`,
-// which lists the EXTENSION fields only (`capability`,
-// `capabilityDetails`). Our schema = Spec-006's REDUCED base (`{sessionId?,
-// nodeId, actor?}`) + that doc's extension fields; it does not contradict the
-// canonical interface, it carries the base the canonical doc's extension-only
-// listing omits (the canonical doc documents extensions inline, per `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`).
+// canonical interface of the same name which lists the EXTENSION fields only
+// (`capability`, `capabilityDetails`). Our schema = the REDUCED base (`{sessionId?,
+// nodeId, actor?}`) + that doc's extension fields; it does not contradict the canonical
+// interface, it carries the base the canonical doc's extension-only listing omits (the
+// canonical doc documents extensions inline).
 //
-// `capabilityDetails` — CANONICAL-FIRST TOLERANT UNION, bound by Plan-006 T1.4
-// (CP-006-5; closes Plan-005 CP-005-5). The interim-opaque
-// `z.record(z.string(), z.unknown())` this field shipped with (CP-003-1 honest
-// forward-dependency) is now the SECOND arm behind the canonical
-// `CapabilityDetailsSchema` (event-core.ts — `{flags; contractVersion; tools}`,
-// `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`).
-// The tolerant arm is deliberate, not a hedge:
-//   (a) CP-006-5 classifies the binding "additive-only MINOR" (ADR-018
-//       §Decision #8) — a hard tightening would REJECT previously-valid wire
-//       payloads, a MAJOR break;
+// `capabilityDetails` — CANONICAL-FIRST TOLERANT UNION, bound. The interim-opaque
+// `z.record(z.string(), z.unknown())` this field shipped with (honest forward-dependency)
+// is now the SECOND arm behind the canonical `CapabilityDetailsSchema` (event-core.ts —
+// `{flags; contractVersion; tools}`). The tolerant arm is deliberate, not a hedge:
+//   (a) classifies the binding "additive-only MINOR" (
+//       — a hard tightening would REJECT previously-valid wire payloads, a
+//       MAJOR break;
 //   (b) TWO producers emit through this schema's `.parse()` emission boundary
-//       — Plan-005's `DriverCapabilitiesWriter` (canonical snapshots) and
-//       Plan-003's `NodeCapabilityService` (arbitrary node-capability
-//       records) — plus stored-row REPLAY of everything either ever emitted;
-//   (c) Plan-005 T1.7's scheduled flag widening would fail pre-widening
+//       the `DriverCapabilitiesWriter` (canonical snapshots) and the
+//       `NodeCapabilityService` (arbitrary node-capability records) — plus
+//       stored-row REPLAY of everything either ever emitted;
+//   (c) the scheduled flag widening would fail pre-widening
 //       canonical snapshots against the exhaustive-flags check — the record
-//       arm keeps them parseable (ADR-018 additive-MINOR evolution).
+//       arm keeps them parseable (additive-MINOR evolution).
 // ACCEPT-SET: unchanged over JSON-representable wire/replay input — plain
 // objects with own enumerable string keys, the only shapes either producer or
 // stored-row replay can supply: the record arm accepted every such object
@@ -1043,21 +951,21 @@ export const RuntimeNodeOfflinePayloadSchema: z.ZodType<RuntimeNodeOfflinePayloa
 // canonical-CONFORMING class instance or own-symbol-keyed object was rejected
 // loud pre-binding (Zod 4.3.6's record parser admits plain objects only) and
 // now parses via the canonical arm's looser any-object gate into a plain
-// snapshot — unreachable from both current producers (Plan-003's
-// `NodeCapabilityService` passes JSON.parse output; Plan-005's
-// `DriverCapabilitiesWriter` builds fresh object literals).
-// PARSE OUTPUT: STRUCTURALLY unchanged (toStrictEqual-equal) for every
-// previously-valid input, but own-key ORDER and object IDENTITY are not
-// preserved on the canonical arm — it emits a fresh object graph in shape /
-// enum declaration order ({flags, contractVersion, tools}; flags in
-// `DRIVER_CAPABILITY_FLAGS` order), where the record arm kept input key order
-// and passed nested values by reference. JSON.stringify byte-stability of
-// persisted parse output across the binding is therefore NOT guaranteed.
-// Unobservable today — both producers already emit in shape/enum order, and
-// the Plan-006 integrity protocol canonicalizes via RFC 8785 JCS lex-sort,
-// which is insertion-order-independent — but do NOT build a byte-diff or
-// pre-JCS-hash assumption over stored payload text. Conforming snapshots
-// simply narrow to the typed `CapabilityDetails`.
+// snapshot — unreachable from both current producers (the
+// `NodeCapabilityService` passes JSON.parse output; the
+// `DriverCapabilitiesWriter` builds fresh object literals). PARSE OUTPUT:
+// STRUCTURALLY unchanged (toStrictEqual-equal) for every previously-valid
+// input, but own-key ORDER and object IDENTITY are not preserved on the
+// canonical arm — it emits a fresh object graph in shape / enum declaration
+// order ({flags, contractVersion, tools}; flags in `DRIVER_CAPABILITY_FLAGS`
+// order), where the record arm kept input key order and passed nested values
+// by reference. JSON.stringify byte-stability of persisted parse output
+// across the binding is therefore NOT guaranteed. Unobservable today — both
+// producers already emit in shape/enum order, and integrity protocol
+// canonicalizes via RFC 8785 JCS lex-sort, which is
+// insertion-order-independent — but do NOT build a byte-diff or pre-JCS-hash
+// assumption over stored payload text. Conforming snapshots simply narrow to
+// the typed `CapabilityDetails`.
 export type RuntimeNodeCapabilityDeclaredPayload = {
   sessionId?: SessionId | undefined;
   nodeId: NodeId;
@@ -1082,17 +990,14 @@ export const RuntimeNodeCapabilityDeclaredPayloadSchema: z.ZodType<RuntimeNodeCa
 // runtime_node.capability_updated — REDUCED base + {capability, previousState, newState}.
 // --------------------------------------------------------------------------
 //
-// `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` ("base + {capability, previousState, newState}"). Emitted by the
-// T2.2 capability-service on a capability health/config change. CRITICAL: here
-// `previousState` / `newState` are `CapabilityDetails` SNAPSHOTS (so consumers
-// diff capability snapshots structurally — `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`),
-// NOT `NodeState` values. This is exactly why this event uses the REDUCED base:
-// a base `previousState`/`newState: NodeState` would collide with these
-// capability-snapshot fields of the same name. Both are now the same
-// CANONICAL-FIRST TOLERANT UNION as `capabilityDetails` on `capability_declared`
-// above (bound by Plan-006 T1.4, CP-006-5 / closes Plan-005 CP-005-5) — see
-// that field's binding note for the accept-set / parse-output-stability /
-// two-producer / flag-widening rationale.
+// Emitted capability-service on a capability health/config change. CRITICAL: here
+// `previousState` / `newState` are `CapabilityDetails` SNAPSHOTS (so consumers diff
+// capability snapshots structurally), NOT `NodeState` values. This is exactly why this
+// event uses the REDUCED base: a base `previousState`/`newState: NodeState` would collide
+// with these capability-snapshot fields of the same name. Both are now the same
+// CANONICAL-FIRST TOLERANT UNION as `capabilityDetails` on `capability_declared` above
+// (bound closes) — see that field's binding note for the accept-set /
+// parse-output-stability / two-producer / flag-widening rationale.
 export type RuntimeNodeCapabilityUpdatedPayload = {
   sessionId?: SessionId | undefined;
   nodeId: NodeId;
@@ -1109,10 +1014,9 @@ export const RuntimeNodeCapabilityUpdatedPayloadSchema: z.ZodType<RuntimeNodeCap
         RUNTIME_NODE_CAPABILITY_KEY_MAX_LEN,
         "RuntimeNodeCapabilityUpdatedPayload.capability",
       ),
-      // Canonical-first tolerant unions (Plan-006 T1.4 — see the
-      // `capabilityDetails` binding note above). `previousState`/`newState`
-      // are CAPABILITY snapshots, NOT `NodeState` (the reason this event uses
-      // the reduced base, above).
+      // Canonical-first tolerant unions (see the `capabilityDetails` binding
+      // note above). `previousState`/`newState` are CAPABILITY snapshots, NOT
+      // `NodeState` (the reason this event uses the reduced base, above).
       previousState: z.union([CapabilityDetailsSchema, z.record(z.string(), z.unknown())]),
       newState: z.union([CapabilityDetailsSchema, z.record(z.string(), z.unknown())]),
     })

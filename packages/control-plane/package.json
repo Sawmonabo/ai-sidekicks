@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Collaboration Control Plane services and shared-session coordination logic.",
+  "description": "Control Plane services and shared-session coordination logic.",
   "license": "Apache-2.0",
   "engines": {
     "node": ">=24.0.0"

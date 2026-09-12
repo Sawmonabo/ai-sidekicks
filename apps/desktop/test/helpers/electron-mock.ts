@@ -1,4 +1,4 @@
-// The one `electron` module mock — Plan-023 Phase 1B.
+// The one `electron` module mock.
 //
 // Three main-process suites need a fake `electron`, and before this module each
 // hand-rolled its own `vi.mock("electron", …)` factory with its own

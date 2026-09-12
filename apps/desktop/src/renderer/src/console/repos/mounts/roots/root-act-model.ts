@@ -1,18 +1,18 @@
 // What a reuse check said, what a prepare form needs, and what disposal costs.
 //
-// PURE. Everything here is a function of a reply or of what a participant typed;
+// PURE. Everything here is a function of a reply or of what a user typed;
 // nothing reaches a bridge, holds a lifetime, or decides eligibility.
 //
 // THE REUSE CHECK'S THREE BOOLEANS ARE NOT THREE INDEPENDENT FACTS, and reading them
-// as though they were is the defect this module exists to prevent. `Spec-010
-// §Interfaces And Contracts` puts `available`, `isClean`, and `compatible` on the reply
-// as DECIDED verdicts rather than as raw git state, and the combinations they form are
+// as though they were is the defect this module exists to prevent. `available`,
+// `isClean`, and `compatible` arrive on the reply as DECIDED verdicts rather than as
+// raw git state, and the combinations they form are
 // three different situations with three different next moves:
 //
 //   • NO CANDIDATE. `available: false`. There is nothing to reuse and nothing to
 //     consent to; the prepare creates a root.
 //   • A DIRTY CANDIDATE. Live, compatible, and carrying uncommitted work. This is the
-//     ONE case `acknowledgeDirtyCandidate` exists for — the participant is consenting
+//     ONE case `acknowledgeDirtyCandidate` exists for — the user is consenting
 //     to run in a tree that is not clean, and the consent is a separate act from
 //     naming the candidate, which is why the wire carries two members and not one.
 //   • AN INCOMPATIBLE CANDIDATE. Live and unusable. There is NO override: the daemon
@@ -55,7 +55,7 @@ export type ReuseVerdict =
  * The one verdict that carries a consent, named so a control can hold its candidate.
  *
  * A CONSENT BELONGS TO A TREE AND NOT TO A BRANCH, which is why this arm is named at
- * all: the acknowledgement a participant gives is recorded against `worktreeId`, so a
+ * all: the acknowledgement a user gives is recorded against `worktreeId`, so a
  * lifecycle refresh that replaces one dirty checkout of a branch with a DIFFERENT dirty
  * checkout of the same branch cannot inherit it.
  */
@@ -101,7 +101,7 @@ export const REUSE_VERDICT_COPY: Readonly<Record<ReuseVerdict["kind"], string>> 
 export interface PrepareFormState {
   readonly branchName: string;
   /**
-   * The dirty candidate this participant consented to, or `undefined` for no consent.
+   * The dirty candidate this user consented to, or `undefined` for no consent.
    *
    * AN ID RATHER THAN A BOOLEAN, and the difference is a defect this form used to carry.
    * A flag records THAT a consent was given and not WHAT it was given for, so the only
@@ -268,7 +268,7 @@ export function prepareFormVerdict(
  * THE RULE ABOVE, MADE INTO A VALUE RATHER THAN LEFT AS A SENTENCE. `prepareFormVerdict`
  * reads the consent to decide whether the form may be sent; this decides what is sent,
  * and until it existed the two disagreed on one reachable state: the checkbox sets the
- * consent under a `dirty` verdict, a refresh — another participant committing, say —
+ * consent under a `dirty` verdict, a refresh — another user committing, say —
  * then settles the candidate `reusable`, the checkbox unmounts with the consent still
  * recorded, and the act carried a consent to a condition that had gone. Reading the
  * verdict at the moment of the send is what closes it, and a stale consent is dropped
@@ -277,7 +277,7 @@ export function prepareFormVerdict(
  *
  * AND IT IS THE CANDIDATE'S OWN ID THAT IS COMPARED, which closes the second half of
  * the same defect: the verdict can stay `dirty` across a refresh and still be about a
- * DIFFERENT tree. `Spec-010`'s pair travels together or not at all, so a consent that
+ * DIFFERENT tree. The pair travels together or not at all, so a consent that
  * names no tree, or names one the daemon is no longer offering, sends nothing.
  *
  * DOUBLE DUTY, DELIBERATELY: this is also what a consent control reads for its own
@@ -300,7 +300,7 @@ export function prepareAcknowledgement(form: PrepareFormState, verdict: ReuseVer
  * BOTH SENTENCES ARE RECORDED-THEN-CLEANED, AND THE CLONE'S USED NOT TO BE. It said the
  * files were already gone, and they are not: `EphemeralCloneDisposeResponse.state` is
  * the single literal `retired` and carries no cleanup instant, because dispose records
- * the transition and the sweep removes the disk afterwards — I-010-9's ordering, which
+ * the transition and the sweep removes the disk afterwards — that ordering, which
  * this method shares with retire. A consequence claiming the bytes are gone is the
  * renderer answering a question the daemon deliberately did not, on the one screen
  * where a person is agreeing to it, and it makes the ordinary post-dispose state — a

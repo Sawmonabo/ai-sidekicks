@@ -54,7 +54,7 @@
 // the console comes through.
 
 // THE COMPOSED TABLE ITSELF is declared in `signature-table.ts` beside this door and
-// re-exported here, because `bridge/index.ts` publishes it to the collaboration family
+// re-exported here, because `bridge/index.ts` publishes it to the channels family
 // and a family door reaching a second `index.ts` is a barrel chain the layering gate
 // fails. Siblings inside this family come through this door; the family door comes
 // through the declaring module.

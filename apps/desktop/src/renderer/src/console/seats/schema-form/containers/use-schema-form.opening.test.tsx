@@ -52,9 +52,9 @@ const PARTLY_DEFAULTED_SCHEMA = {
  * refuses — invalid on a member nobody has touched, and clearable only by answering.
  *
  * `const` rather than the `not: { required: [...] }` the same defect was reported against,
- * for a measured reason pinned below: the schema reader `Spec-023 §Console Libraries`
- * admits throws on `not`, so that schema reaches the raw editor and never a drawn control
- * at all. The defect is the seed's, and this is a schema this console actually draws.
+ * for a measured reason pinned below: the schema reader this console admits throws on
+ * `not`, so that schema reaches the raw editor and never a drawn control at all. The
+ * defect is the seed's, and this is a schema this console actually draws.
  */
 const PRESENCE_SENSITIVE_SCHEMA = {
   type: "object",

@@ -12,8 +12,7 @@
  * `console/tokens/palette.ts` and carries only VALUES; this carries only COMPOSITION
  * and reads every value back out as a custom property.
  *
- * `Spec-023 §Console Design (Meridian)` rules that govern this sheet: rule 2's line
- * weight.
+ * Design-language rules that govern this sheet: rule 2's line weight.
  */
 
 /*

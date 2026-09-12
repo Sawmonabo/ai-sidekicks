@@ -1,16 +1,16 @@
-// Driver diagnostics + reorder-buffer suite (Plan-005 T3.11 P0-1 / P2-1).
+// Driver diagnostics + reorder-buffer suite.
 //
 // Spec coverage under test:
-//   • `Spec-005 §Required Behavior` — an unrecognized wire shape lands on the
-//     daemon diagnostic surface, never silently dropped. Asserted as: every
-//     emitted record reaches the log sink, the counter sink under its pinned
-//     instrument name, and the bounded recent-record ring.
-//   • `Spec-006 §Required Behavior` — reorder-buffer overflow flushes in
-//     arrival order with the `driver.reorder_buffer.overflow` counter, and a
-//     pairing timeout sheds with its own diagnostic; neither is ever silent.
+//   • an unrecognized wire shape lands on the daemon diagnostic surface,
+//     never silently dropped. Asserted as: every emitted record reaches the
+//     log sink, the counter sink under its pinned instrument name, and the
+//     bounded recent-record ring.
+//   • reorder-buffer overflow flushes in arrival order with the
+//     `driver.reorder_buffer.overflow` counter, and a pairing timeout sheds
+//     with its own diagnostic; neither is ever silent.
 //
-// Verifies invariant: none directly (the emitter is the P0-1 substrate the
-// I-005-11 / I-005-12 suites emit through; those invariants are asserted in
+// Verifies invariant: none directly (the emitter is the substrate the other
+// suites emit through; those invariants are asserted in
 // `usage-delta-accountant.test.ts` and `thread-frame-router.test.ts`).
 
 import { describe, expect, it } from "vitest";
@@ -34,7 +34,7 @@ function makeRecord(overrides?: Partial<DriverDiagnosticRecord>): DriverDiagnost
   };
 }
 
-describe("DriverDiagnosticsEmitter (T3.11 P0-1)", () => {
+describe("DriverDiagnosticsEmitter", () => {
   it("delivers every record to the log sink, the counter sink, and the ring", () => {
     const loggedRecords: DriverDiagnosticRecord[] = [];
     const counterSink = new InMemoryDriverDiagnosticCounterSink();
@@ -78,8 +78,8 @@ describe("DriverDiagnosticsEmitter (T3.11 P0-1)", () => {
   });
 
   it("pins the reorder-buffer overflow instrument name verbatim", () => {
-    // The Plan-005 T3.11 P2-1 leg names this counter literally; a rename is a
-    // contract change, not a refactor.
+    // The bounded-buffer leg names this counter literally; a rename is a contract change,
+    // not a refactor.
     expect(DRIVER_DIAGNOSTIC_COUNTER_NAMES.reorder_buffer_overflow).toBe(
       "driver.reorder_buffer.overflow",
     );
@@ -127,7 +127,7 @@ describe("DriverDiagnosticsEmitter (T3.11 P0-1)", () => {
   });
 });
 
-describe("NormalizedEventReorderBuffer (T3.11 P2-1)", () => {
+describe("NormalizedEventReorderBuffer", () => {
   function makeBuffer(options?: { maxBufferedEvents?: number; pairingTimeoutMs?: number }) {
     const emitter = new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
     const buffer = new NormalizedEventReorderBuffer<string>({

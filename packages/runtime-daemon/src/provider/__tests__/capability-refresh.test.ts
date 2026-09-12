@@ -1,17 +1,17 @@
-// T3.12 — CLI-version floor seam + CapabilityRefreshScheduler.
+// CLI-version floor seam + CapabilityRefreshScheduler.
 //
 // Coverage targets (audit-derived):
-//   * `Spec-005 §Required Behavior` (P0-2) — the per-driver minimum-version
-//     floor is enforced mechanically; an unparseable version fails closed as
-//     `driver.cli_version_unparseable` and a parseable below-floor version as
+//   * the per-driver minimum-version floor is enforced mechanically; an
+//     unparseable version fails closed as `driver.cli_version_unparseable`
+//     and a parseable below-floor version as
 //     `driver.cli_version_below_floor`; a build AT or ABOVE the floor is
 //     admitted, above the measured pin included.
-//   * `Spec-005 §Resolved Questions and V1 Scope Decisions` (P2-9) — the
-//     15-minute bounded cadence, per runtime node, with the capability refresh
-//     PAIRED with the zero-turn auth probe; correctness never depends on push.
-//   * CP-005-5 — change-detected emission is the WRITER's: a no-op poll and an
-//     auth-only change append nothing to the timeline; the scheduler adds no
-//     second change detection and no event sink of its own.
+//   * the 15-minute bounded cadence, per runtime node, with the capability
+//     refresh PAIRED with the zero-turn auth probe; correctness never depends
+//     on push.
+//   * Change-detected emission is the WRITER's: a no-op poll and an auth-only
+//     change append nothing to the timeline; the scheduler adds no second
+//     change detection and no event sink of its own.
 //   * The plan row's cadence test list: poll fires on schedule with the paired
 //     probe; a changed snapshot emits `runtime_node.capability_updated`; a
 //     no-op poll and an auth-only change emit nothing; the scheduler clears
@@ -44,7 +44,7 @@ import {
 import { CLI_VERSION_RAW_MAX_LEN } from "../provider-output-validation.js";
 
 // --------------------------------------------------------------------------
-// P0-2 — parse + floor seam
+// The parse + floor seam
 // --------------------------------------------------------------------------
 
 describe("parseCliVersionReport", () => {
@@ -133,13 +133,13 @@ describe("assertCliVersionMeetsFloor", () => {
     ).toThrow(DriverCliVersionUnparseableError);
   });
 
-  it("pins the ratified V1 floor values (Spec-005 §Required Behavior sets these)", () => {
+  it("pins the ratified V1 floor values", () => {
     expect(DRIVER_CLI_VERSION_FLOORS).toStrictEqual({ claude: "2.1.234", codex: "0.141.0" });
   });
 });
 
 // --------------------------------------------------------------------------
-// P2-9 — CapabilityRefreshScheduler
+// The CapabilityRefreshScheduler
 // --------------------------------------------------------------------------
 
 /** A controllable driver entry whose call history the assertions read. */
@@ -151,10 +151,10 @@ interface FakeDriverEntry {
   setProbeResult(result: DriverAuthProbeResult | Error): void;
 }
 
-// Simulates the T2.4 writer's emission decision so the "emits nothing" claims
-// are asserted against an event list, not inferred: the fake appends to
+// Simulates writer's emission decision so the "emits nothing" claims are
+// asserted against an event list, not inferred: the fake appends to
 // `emittedEvents` exactly when the writer would have emitted (declared /
-// updated), and never on noop — which is the writer contract CP-005-5 pins.
+// updated), and never on noop — which is the writer contract pins.
 function buildFakeDriverEntry(
   driverName: FlooredDriverName,
   emittedEvents: string[],
@@ -544,7 +544,7 @@ describe("CapabilityRefreshScheduler", () => {
 });
 
 // --------------------------------------------------------------------------
-// Plan-005 T3.24 — the cadence re-probe's failures are legible as PROBE failures
+// The cadence re-probe's failures are legible as PROBE failures
 // --------------------------------------------------------------------------
 
 describe("the cadence re-probe's diagnostic leg", () => {

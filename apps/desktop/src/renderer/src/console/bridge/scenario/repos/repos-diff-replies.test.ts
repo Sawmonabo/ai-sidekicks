@@ -111,7 +111,7 @@ describe("repos diff replies — the comparison each arm scripts", () => {
   });
 
   it("names the comparison the subject does resolve, and neither ref the caller typed", async () => {
-    // The refs are participant input and the message is rendered verbatim, so a
+    // The refs are user input and the message is rendered verbatim, so a
     // refusal that echoed them would put unbounded text through the one sentence this
     // console does not paraphrase.
     const refusal = await refusalFrom(

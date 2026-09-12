@@ -1,11 +1,10 @@
 // The tokenizer — one `shiki/core` highlighter, the JavaScript engine, lazy grammars.
 //
-// `Spec-023 §Console Libraries`, syntax-highlighting row: "ADOPT-with-constraints
-// `shiki/core` with the JavaScript engine and lazy grammars … One instance per renderer
-// process, in a Worker above about 4 kB of source, byte-bounded token cache, own theme
-// JSON from Meridian tokens, own span renderer; never the preset bundles, never the
-// WebAssembly engine in the renderer (its linear memory grows to about 29 MB and is
-// never reclaimed)."
+// `shiki/core` is adopted with constraints: the JavaScript engine and lazy grammars, one
+// instance per renderer process, in a Worker above about 4 kB of source, a byte-bounded
+// token cache, own theme JSON from Meridian tokens, and an own span renderer; never the
+// preset bundles, and never the WebAssembly engine in the renderer, whose linear memory
+// grows to about 29 MB and is never reclaimed.
 //
 // THIS MODULE RUNS IN TWO THREADS, and that is why it exists apart from the scheduler
 // that calls it. The worker imports it and so does the main-thread path for small
@@ -17,8 +16,8 @@
 //
 // EVERY IMPORT OF SHIKI HERE IS DYNAMIC. Statically importing `shiki/core` would put the
 // core, the JavaScript regex engine, and this module's whole graph into the renderer's
-// initial bundle, against `Spec-023 §Console Design (Meridian)`'s 450 kB gzip budget —
-// for a capability a session with no fenced code never uses. The first highlight pays
+// initial bundle, against the renderer's 450 kB gzip budget — for a capability a session
+// with no fenced code never uses. The first highlight pays
 // for the load; nothing else does.
 //
 // THE GRAMMAR TABLE IS A CLOSED MAP OF LOADERS, not a template-literal import. A dynamic

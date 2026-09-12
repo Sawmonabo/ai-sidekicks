@@ -43,7 +43,7 @@ export function registerComposerFamily(
   registerComposerSeat("composer", (props) => createElement(MessageComposer, props));
   // The sidebar frame is this family's too, and so are three of the eight sections
   // it renders — `goal`, `runs`, and `approvals`, of which `runs` has a body on
-  // this branch. The other five are the collaboration and repos families',
+  // this branch. The other five are the channels and repos families',
   // registered from their own composition for the same reason. The board is the one
   // this function was HANDED, never the module-scope registrar, on the reason its
   // own header gives.

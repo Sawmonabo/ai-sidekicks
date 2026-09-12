@@ -1,5 +1,6 @@
 /*
  * The one filled-accent treatment: a control whose whole face is the accent, with
+ * `accent-ink` as its label.
  *
  * Split out of the family sheet it grew inside: that file had reached 720 lines and
  * a dozen unrelated primitives, and a stylesheet nobody can hold in their head is
@@ -12,13 +13,11 @@
  * `console/tokens/palette.ts` and carries only VALUES; this carries only COMPOSITION
  * and reads every value back out as a custom property.
  *
- * `Spec-023 §Console Design (Meridian)` rules that govern this sheet: rule 3 (one
- * accent hue and no other colour) and rule 5 (motion settles).
- * `accent-ink` as its label. Two surfaces reach for this — an approval's approve
- * action and a goal's save — and both were painting `accent-text` on `accent`,
- * which is 1.53:1 in light and 1.48:1 in dark against rule 3's 4.5:1 floor. One
- * class, so the pairing is made once and `tokens/contrast.test.ts` measures the
- * pair it makes.
+ * Design-language rules that govern this sheet: rule 3 (one accent hue and no other
+ * colour) and rule 5 (motion settles). Two surfaces reach for this — an approval's
+ * approve action and a goal's save — and both were painting `accent-text` on `accent`,
+ * which is 1.53:1 in light and 1.48:1 in dark against rule 3's 4.5:1 floor. One class,
+ * so the pairing is made once and `tokens/contrast.test.ts` measures the pair it makes.
  *
  * A BLOCK RATHER THAN A `--modifier`, deliberately. These primitives carry no
  * `.meridian-button` block, and minting one here would mean minting a button

@@ -11,9 +11,9 @@
 // "open the session this thing belongs to" — so they are declared together and no two
 // surfaces can drift into a second answer for where a press goes.
 //
-// AN ATTENTION ITEM RESOLVES NOTHING BY BEING OPENED. `Spec-019 §Required Behavior`
-// puts resolution in the daemon, and the notification centre offers no dismiss
-// precisely because a client-side one would be a heuristic standing in for it.
+// AN ATTENTION ITEM RESOLVES NOTHING BY BEING OPENED. Resolution lives in the daemon,
+// and the notification centre offers no dismiss precisely because a client-side one
+// would be a heuristic standing in for it.
 
 import type { ConsoleSurfaceContext } from "../../seats/index.js";
 import { requestSessionDirectoryRead } from "../../seats/index.js";

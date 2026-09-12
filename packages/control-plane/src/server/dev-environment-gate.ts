@@ -1,4 +1,4 @@
-// Plan-008 §I-008-1 dual-gate, gate #2: approved-dev-environment allow-list.
+// Gate #2: approved-dev-environment allow-list.
 //
 // Refuses every request unless `env.ENVIRONMENT === 'development'`. The
 // allow-list semantics (only one passing value) is deliberate: it cannot be
@@ -6,11 +6,9 @@
 // `'test'` / `''`. Co-located with the feature flag in `.dev.vars` so neither
 // security-load-bearing key reaches a deployable Wrangler surface.
 //
-// The Codex PR #20 round-4 review surfaced a deny-list weakness (any unknown
-// value passed); the allow-list pivot here closes that exposure path.
+// A deny-list here would be weak (any unknown value passes); the allow-list
+// closes that exposure path.
 //
-// Refs: docs/plans/008-control-plane-relay-and-session-join.md §I-008-1,
-//       Plan-008 §Decision Log Codex PR #20 round-4 allow-list pivot.
 
 import type { GateResult } from "./feature-flag-gate.js";
 

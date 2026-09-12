@@ -17,9 +17,9 @@
 //
 // THE SELECTORS DERIVE NOTHING THEY COULD READ. An effort vocabulary is per MODEL
 // and provider-published: a provider-wide list is wrong for some model in the same
-// reply (`Spec-005 §Provider Parameter Vocabularies`), and an absent list means the
-// model exposes no effort selection at all — which is a different answer from an
-// empty one and is preserved as `undefined` rather than flattened to `[]`.
+// reply, and an absent list means the model exposes no effort selection at all —
+// which is a different answer from an empty one and is preserved as `undefined`
+// rather than flattened to `[]`.
 
 import type {
   DriverCapabilityFlag,

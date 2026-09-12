@@ -81,7 +81,7 @@ const workingTreePredicates: WidenerPredicates = {
 
 // Every call here reads repo-scale content — a whole staged file, a whole
 // `ls-files` listing. Node's 1 MiB default is already exceeded by this repo's
-// own cross-plan-dependencies.md, so a `git show :<path>` on it throws
+// own plan documents, so a `git show :<path>` on one of them throws
 // ENOBUFS under the default and takes the harness down. Same bound and same
 // reasoning as `GIT_OUTPUT_MAX_BUFFER` in `lib/inbound-cite-discovery.ts`.
 const GIT_OUTPUT_MAX_BUFFER = 64 * 1024 * 1024;

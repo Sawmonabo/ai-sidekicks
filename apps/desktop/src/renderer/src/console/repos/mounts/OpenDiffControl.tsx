@@ -27,8 +27,8 @@ import type { ConsoleEntityRef } from "../../store/index.js";
  *
  * NARROWED FROM THE STORE'S OWN REFERENCE rather than declared beside it, so the two
  * kinds here are two members of the console's one entity vocabulary and not a third
- * spelling of them. These are exactly the two rows that carry a checkout: a mount
- * holds several and an invitation or a member holds none.
+ * spelling of them. These are exactly the two rows that carry a checkout: a repository
+ * holds several and the user row holds none.
  */
 export type OpenDiffSubject = ConsoleEntityRef & { readonly kind: "workspace" | "worktree" };
 

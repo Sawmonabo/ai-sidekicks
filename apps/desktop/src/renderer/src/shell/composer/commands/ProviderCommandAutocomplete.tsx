@@ -1,20 +1,18 @@
 // The discovery surface: what the bound provider offers, and what this console can do.
 //
-// `Spec-023 §Signature Feature Composition Sketches` §The Session Composer asks for
-// "a command-and-skill autocomplete listing the target agent's own provider commands
-// and skills with each entry's provider-supplied description — a DISCOVERY surface
-// that shows what the bound provider offers rather than a launcher". Two consequences
-// are structural here rather than conventional:
+// It is a command-and-skill autocomplete listing the target agent's own provider
+// commands and skills with each entry's provider-supplied description — a DISCOVERY
+// surface that shows what the bound provider offers rather than a launcher. Two
+// consequences are structural here rather than conventional:
 //
-//   • SELECTING A PROVIDER ENTRY INSERTS NOTHING. The spec is explicit that selection
-//     "inserts nothing into the message box and starts no turn", and the reason is not
-//     politeness: a leading slash is refused outright on the provider-bound path, so an
-//     insert-then-send affordance would compose text this shell's own send path
-//     rejects. That rule is about the PROVIDER half and says nothing about the
-//     console's own commands, which `Spec-017`'s C-18 reserves the prefix FOR — and
-//     `/workflow start <name>` is one of those, intercepted by the runtime and never
-//     forwarded anywhere. Completing its argument is therefore the opposite case, and
-//     it is the one write this seat makes to the line.
+//   • SELECTING A PROVIDER ENTRY INSERTS NOTHING into the message box and starts no
+//     turn, and the reason is not politeness: a leading slash is refused outright on
+//     the provider-bound path, so an insert-then-send affordance would compose text
+//     this shell's own send path rejects. That rule is about the PROVIDER half and
+//     says nothing about the console's own commands, which the prefix is reserved
+//     FOR — and `/workflow start <name>` is one of those, intercepted by the runtime
+//     and never forwarded anywhere. Completing its argument is therefore the opposite
+//     case, and it is the one write this seat makes to the line.
 //   • THE ONE ACT ON A ROW IS THE CONSOLE'S OWN. A console command's row carries a
 //     button — and that button runs the client-command executor, not a send. A
 //     provider row carries no button at all, because there is nothing this console may

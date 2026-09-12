@@ -21,7 +21,7 @@ function openStore(options: { readonly timelineCap?: number } = {}): SessionStor
   store.initialise({
     cursor: 20,
     entities: [],
-    participantJoinLog: [],
+    userJoinLog: [],
     timeline: eventsAt([18, 19, 20]),
     readFromCursor: "cursor-at-18",
   });
@@ -38,7 +38,7 @@ describe("SessionStore.prependEarlierEvents — the head door", () => {
     // window", and it is what keeps the head control off a log that starts at its own
     // beginning.
     const store = new SessionStore({ sessionId: SESSION_ID });
-    store.initialise({ cursor: 3, entities: [], participantJoinLog: [], timeline: eventsAt([3]) });
+    store.initialise({ cursor: 3, entities: [], userJoinLog: [], timeline: eventsAt([3]) });
 
     expect(store.snapshot().windowHeadCursor).toBeUndefined();
   });
@@ -103,7 +103,7 @@ describe("SessionStore.prependEarlierEvents — the head door", () => {
     store.initialise({
       cursor: 30,
       entities: [],
-      participantJoinLog: [],
+      userJoinLog: [],
       timeline: eventsAt([29, 30]),
     });
     store.applyBatch(eventsAt([31]));

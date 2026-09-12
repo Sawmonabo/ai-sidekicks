@@ -1,8 +1,8 @@
 // A child run, summarized on one line of the parent's ledger.
 //
-// `Spec-013 §Default Behavior` keeps background work summarized and expands it only
-// when somebody asks, and the blueprint's ledger chapter fixes what the summary says:
-// the child agent's hue, its state, how many entries it holds, and which node produced
+// Background work stays summarized and expands only when somebody asks, and what the
+// summary says is fixed: the child agent's hue, its state, how many entries it holds,
+// and which node produced
 // it. Before this row, all of that reached the screen as a single incompleteness
 // marker on the chapter header — a child run that failed was indistinguishable from
 // one that had barely started, and a child run that succeeded was invisible.
@@ -20,8 +20,8 @@
 //
 // THE EXPAND CONTROL IS FAIL-CLOSED IN BOTH DIRECTIONS. It offers the act and renders
 // whatever came back; it decides no eligibility of its own, and a failed expansion
-// keeps the summary on screen with the refusal beside it — `Spec-013 §Fallback
-// Behavior`'s rule, drawn rather than merely obeyed.
+// keeps the summary on screen with the refusal beside it — the fallback rule, drawn
+// rather than merely obeyed.
 //
 // AND AN EXPANSION SHOWS THE CHILD'S OWN WORK, WHICH IS THE WHOLE POINT OF ASKING FOR
 // ONE. `timeline.childRunExpand` answers with the child run's rows, and this row used
@@ -37,7 +37,7 @@
 // a fact about the window holding both — which for these entries is `expansion.entries`
 // and never the parent ledger the outer provider folded. Rendered under that outer map
 // the child's request found no terminal, kept offering its answer controls, and let a
-// participant re-answer an ask the log had already settled. The fold is the one the
+// user re-answer an ask the log had already settled. The fold is the one the
 // ledger's card family declares; what this row supplies is the window it runs over.
 //
 // MOUNTED AS COMPONENTS AND NOT CALLED AS FUNCTIONS. The seat's renderer holds hooks,
@@ -52,7 +52,7 @@ import { formatCount } from "../../../primitives/index.js";
 import { type RunId, type TimelineRow } from "@ai-sidekicks/contracts";
 
 import { type TimelineRowRenderer } from "../../../seats/index.js";
-import { type ParticipantHueAssignment } from "../../../tokens/index.js";
+import { type ActorHueAssignment } from "../../../tokens/index.js";
 // The ledger's own rollback ranking, taken from the module that declares it rather
 // than approximated here: an expanded page can hold the child's own rollback
 // boundaries, and rows past one are superseded in the child's log exactly as they are
@@ -71,7 +71,7 @@ export interface ChildRunSummaryRowProps {
   /** The wire type of the row this summary rides, drawn in the row's kind slot. */
   readonly wireType: string;
   /** The child agent's allocated hue, or `undefined` on an unattributed row. */
-  readonly participantHue?: ParticipantHueAssignment | undefined;
+  readonly actorHue?: ActorHueAssignment | undefined;
   /** Whether a rollback later in the log put this row behind it. */
   readonly isSuperseded?: boolean | undefined;
   readonly expansion: ChildRunExpansion;
@@ -90,10 +90,10 @@ export interface ChildRunSummaryRowProps {
    *
    * The allocation is over the SESSION's join log rather than over a window, so a
    * child run's entries carry the same author colours their actors wear in the parent
-   * log. Resolving them here rather than dropping them would be the same participant
+   * log. Resolving them here rather than dropping them would be the same user
    * drawn two ways on one screen.
    */
-  readonly hueForActor: (participantId: string) => ParticipantHueAssignment | undefined;
+  readonly hueForActor: (userId: string) => ActorHueAssignment | undefined;
 }
 
 /** One child run, as a summary row. */
@@ -120,10 +120,8 @@ export function ChildRunSummaryRow(props: ChildRunSummaryRowProps): React.JSX.El
   };
   return (
     <LedgerRow
-      participantHueStep={props.participantHue?.step ?? -1}
-      {...(props.participantHue === undefined
-        ? {}
-        : { ringTreatment: props.participantHue.ringTreatment })}
+      actorHueStep={props.actorHue?.step ?? -1}
+      {...(props.actorHue === undefined ? {} : { ringTreatment: props.actorHue.ringTreatment })}
       occurredAtIso={entry.timestamp}
       actorLabel={entry.actorId ?? "Child run"}
       kindLabel={props.wireType}
@@ -180,7 +178,7 @@ export function ChildRunSummaryRow(props: ChildRunSummaryRowProps): React.JSX.El
  */
 interface ChildRunEntryDecisions {
   readonly renderTimelineRow: TimelineRowRenderer;
-  readonly hueForActor: (participantId: string) => ParticipantHueAssignment | undefined;
+  readonly hueForActor: (userId: string) => ActorHueAssignment | undefined;
   readonly superseded: SupersededIndex;
   readonly askTerminalByAskIdentity: ReadonlyMap<string, DriverAskReading>;
 }
@@ -273,8 +271,8 @@ function renderExpansion(
  * The child run's own rows, each through the ledger's row body seat.
  *
  * DENSITY IS `collapsed` FOR EVERY ONE OF THEM, and that is a reading of the design
- * rather than a default taken for want of one: `Spec-013 §Default Behavior` keeps
- * background work summarized, so a child run opened inside a parent's line shows its
+ * rather than a default taken for want of one: background work stays summarized, so a
+ * child run opened inside a parent's line shows its
  * rows at the density the rule gives them. There is no lease to consult — the lease
  * table is keyed by the rows of the list, and these rows are not in it.
  *
@@ -296,9 +294,7 @@ function renderExpandedEntries(
           <li key={row.id} className="meridian-child-run-row__entry">
             <EntryBody
               row={row}
-              participantHue={
-                row.actor === undefined ? undefined : decisions.hueForActor(row.actor)
-              }
+              actorHue={row.actor === undefined ? undefined : decisions.hueForActor(row.actor)}
               isSuperseded={decisions.superseded.isSuperseded(row.id)}
               density="collapsed"
             />

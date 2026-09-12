@@ -1,6 +1,6 @@
 // Shared deterministic derivation of the bootstrap "main" channel id.
 //
-// THE single source of truth (Plan-002 Phase 3, shared channel-id derivation):
+// THE single source of truth (shared channel-id derivation):
 // `deriveMainChannelId` is consumed by BOTH the runtime-daemon session
 // projector AND the control-plane `ChannelList` projection. Before this module
 // existed, each surface hand-rolled its OWN deterministic derivation:
@@ -14,11 +14,11 @@
 //   The bootstrap channel is a PROJECTED structural invariant — exactly one per
 //   session, 1:1 with the session, its id a PURE FUNCTION of the session id. It
 //   is NOT an event-sourced object: no `ChannelCreated` event is ever emitted
-//   for it (that event exists for Plan-016 *user* channels). Because the channel
-//   always exists logically the instant a session exists, its id can be computed
+//   for it (that event exists for *user* channels). Because the channel always
+//   exists logically the instant a session exists, its id can be computed
 //   deterministically rather than read from a row or replayed from an event.
 //
-// UUIDv8 rationale (RFC 9562 §5.8 — custom/vendor-defined deterministic layout):
+// UUIDv8 rationale (RFC 9562 section 5.8 — custom/vendor-defined deterministic layout):
 //   This id is deterministic, derived from an application-controlled hash of an
 //   application-defined input string. A version-4 nibble would falsely advertise
 //   "random"; a version-5 nibble would falsely advertise "SHA-1 over a UUID
@@ -61,7 +61,7 @@ export const MAIN_CHANNEL_NAME = "main";
  *
  * Same `sessionId` → byte-identical UUID on every call, across processes and
  * restarts (the derivation holds no state and reads no row). Implements an RFC
- * 9562 §5.8 UUIDv8 layout:
+ * 9562
  *   1. SHA-256 over the UTF-8 bytes of `${sessionId}:main`.
  *   2. Take the first 16 bytes.
  *   3. Stamp the version nibble to 8 (high nibble of byte 6).
@@ -83,7 +83,7 @@ export const MAIN_CHANNEL_NAME = "main";
  * with the prior daemon/control-plane derivations' documented no-validation
  * stance). The id is, however, CANONICALIZED before hashing via the shared
  * `canonicalizeUuid` helper (uuid-canonical.ts): the hex case is lowercased.
- * RFC 9562 §4 makes UUID hex
+ * RFC 9562 section 4 makes UUID hex
  * case-INSENSITIVE while the canonical text representation is lowercase, and
  * `SessionIdSchema` (the `brandedUuidIdSchema` factory's own
  * `RFC_9562_TEXT_FORM` predicate, internal/branded.ts) therefore
@@ -102,10 +102,10 @@ export const MAIN_CHANNEL_NAME = "main";
 export function deriveMainChannelId(sessionId: string): ChannelId {
   const digest = sha256(utf8ToBytes(`${canonicalizeUuid(sessionId)}:${MAIN_CHANNEL_NAME}`));
   const bytes = digest.subarray(0, 16);
-  // Version 8 (RFC 9562 §5.8 — custom/deterministic): clear the high nibble of
+  // Version 8 (RFC 9562 section 5.8 — custom/deterministic): clear the high nibble of
   // byte 6 and set it to 1000.
   bytes[6] = (bytes[6]! & 0x0f) | 0x80;
-  // Variant 10 (RFC 9562 §4.1): clear the high two bits of byte 8 and set 10.
+  // Variant 10 (RFC 9562 section 4.1): clear the high two bits of byte 8 and set 10.
   bytes[8] = (bytes[8]! & 0x3f) | 0x80;
   const hex = bytesToHex(bytes);
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}` as ChannelId;

@@ -14,14 +14,14 @@
 //
 // THEY MEET AT ONE OBJECT, WHICH IS THE WHOLE SEAM. `ProposalGateActionHost` is the
 // seven things an act needs from the half that read: the standing reading, the served
-// context, the caller's own participant id, the publish, the two writes to the held
+// context, the caller's own user id, the publish, the two writes to the held
 // proposal, and the refresh an accepted act asks for. Nothing else crosses — this class
 // holds no scheduler, no trigger, and no arm of its own, so a read cannot be started
 // from here and an act cannot invent a context.
 //
 // THE CAUSATION IS ASKED FOR THROUGH THE SAME SEAM AND NEVER READ HERE. The registered
-// `GitActionExecuteRequest` carries an optional `causationParticipantId`, and which
-// participant this window is comes from a read — so it is the reading half's to
+// `GitActionExecuteRequest` carries an optional `causationUserId`, and which
+// user this window is comes from a read — so it is the reading half's to
 // perform, exactly as the branch context is. This class awaits the answer and sends
 // what it gets: an identity that could not be read omits the member rather than
 // blocking the press, because the daemon resolves the principal an act runs under from
@@ -52,7 +52,7 @@
 // lose the served context inside an act's own await. So a git action re-checks, at the
 // moment it would go on the wire, that the context it was admitted under is still the
 // one the gate has read — by the pairing rule's three members, not by object identity —
-// and refuses rather than mutating a root the participant is no longer looking at.
+// and refuses rather than mutating a root the user is no longer looking at.
 //
 // THE TARGET BRANCH IS THE CONTEXT'S AND NEVER A SELECTION. `branch-context-model.ts`
 // forbids inferring base or head from a pane, a tab, or a focused view; the
@@ -160,7 +160,7 @@ export class ProposalGateActions {
     const round = this.#acts.claim(this, PROPOSAL_ACTION_KEY);
     if (round === undefined) {
       // The sentence names the act the gate is actually waiting on, not the one
-      // pressed: a participant told "something is in flight" cannot tell what. The
+      // pressed: a user told "something is in flight" cannot tell what. The
       // gate's own arm carries it — `#holdFor` publishes it in the tick the key is
       // taken — so there is no second copy to disagree with what the gate is showing.
       const pending = this.#host.currentReading().inFlightAction ?? action;
@@ -306,7 +306,7 @@ export class ProposalGateActions {
     // Awaited before the act rather than alongside it: the causation travels ON the
     // request, so there is nothing to parallelise — and the answer is read once by the
     // half that reads, so this await resolves immediately for every act after the first.
-    const causationParticipantId = await this.#host.callerParticipantId();
+    const causationUserId = await this.#host.callerUserId();
     if (!round.isCurrent) {
       return;
     }
@@ -316,7 +316,7 @@ export class ProposalGateActions {
       // can replace or lose the served context inside this await. A gate already
       // showing a different root — or none — would otherwise mutate the branch context
       // this press was admitted against, which is a remote act against something the
-      // participant is no longer looking at.
+      // user is no longer looking at.
       //
       // REFUSED AT THE SEND RATHER THAN CANCELLED ON THE REFRESH, because the refresh
       // belongs to the half that reads: `ProposalGateActionHost` gives it no operation
@@ -331,7 +331,7 @@ export class ProposalGateActions {
       this.#bridge.growth.gitActionExecute(
         gitActionExecuteRequest(action, context, {
           repoMountId: this.#repoMountId,
-          causationParticipantId,
+          causationUserId,
         }),
       ),
     );

@@ -1,4 +1,4 @@
-// A measurement against a budget's ceiling — Plan-023 Phase 1C.
+// A measurement against a budget's ceiling.
 //
 // The comparison, alone, so that every harness runs the SAME one: `<=` written a
 // second time in a measuring script is a second place a budget can be loosened,

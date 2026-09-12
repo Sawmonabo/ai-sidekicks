@@ -1,11 +1,10 @@
 // The write side of the console's scheduling: one queue, no interval.
 //
-// `Spec-023 §Console Design (Meridian)` §The eight rules, "No interval polling",
-// has a write half as well as a read half. `ApplyQueue` is the write half: it
-// accumulates events and drains them into the store's chokepoint on one frame
-// boundary, so four streaming lanes cost one transition and one render.
-// `refresh-scheduler.ts` beside it is the read half; the two share no symbol,
-// which is why they are two modules and not one.
+// The no-interval-polling rule has a write half as well as a read half. `ApplyQueue` is
+// the write half: it accumulates events and drains them into the store's chokepoint on
+// one frame boundary, so four streaming lanes cost one transition and one render.
+// `refresh-scheduler.ts` beside it is the read half; the two share no symbol, which is
+// why they are two modules and not one.
 //
 // It has no interval. It takes the clock as a dependency rather than reaching for
 // `requestAnimationFrame`, so a test drives it on frozen time with no real timers

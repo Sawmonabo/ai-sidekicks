@@ -1,4 +1,4 @@
-// The collapsed line, which is the only thing most participants ever read of a gate.
+// The collapsed line, which is the only thing most users ever read of a gate.
 //
 // Gates are collapsed by default and their read starts on mount, so this one sentence
 // is a READING rather than an invitation to click — and it has to be true about every
@@ -85,7 +85,7 @@ describe("gateSummaryLine", () => {
 describe("gateSummaryLine — a proposal that is not finished", () => {
   it("does not call a draft ready, which the open gate already refuses to do", () => {
     // The whole defect: the open gate withholds Push on a draft, and the collapsed
-    // line — which is what a participant reads without opening anything — reported
+    // line — which is what a user reads without opening anything — reported
     // every present proposal as ready.
     expect(gateSummaryLine(preparedWithProposal("draft"))).toBe("proposal in draft");
     expect(gateSummaryLine(preparedWithProposal("ready"))).toBe("proposal ready");

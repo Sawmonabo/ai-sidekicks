@@ -1,4 +1,4 @@
-// Tier: endurance — `Spec-023 §Console Test Tiers`.
+// Tier: endurance.
 //
 // `steady-state.test.ts` beside this file measures the console held open for a
 // working day. This one measures the other endurance case a desktop console has:

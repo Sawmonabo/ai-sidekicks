@@ -142,9 +142,8 @@ describe("RepoMountsReader — the read", () => {
 describe("RepoMountsReader — when the answer does not come", () => {
   it("publishes the refusal rather than an empty list", async () => {
     // The fixture rejects a call no scenario scripts, which is what the live bridge
-    // would do for a wire the daemon refused. `Spec-023 §Console Design (Meridian)`
-    // rule 8: "we have not asked" and "there are none" are different facts, and so is
-    // "we asked and were refused".
+    // would do for a wire the daemon refused. "We have not asked" and "there are
+    // none" are different facts, and so is "we asked and were refused".
     const clock = new ManualClock();
     const reader = openReader({ ...REPOS_SCENARIO, replies: [] }, clock);
     reader.start();

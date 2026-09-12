@@ -2,11 +2,11 @@
 // surfaces.
 //
 // The pane's empty state names an act ("send a message to an agent") and carries the
-// control for it, and `Spec-023 §Console Design (Meridian)` requires every operator
-// action to be palette-reachable. That makes the offer a question asked from two
-// places, and a question asked twice is a question two files can answer differently:
-// the button would sit on screen with no palette row beside it, or the palette would
-// keep offering to start work in a pane that has since filled with runs.
+// control for it, and every operator action is palette-reachable. That makes the offer
+// a question asked from two places, and a question asked twice is a question two files
+// can answer differently: the button would sit on screen with no palette row beside it,
+// or the palette would keep offering to start work in a pane that has since filled with
+// runs.
 //
 // SO THE READING IS A FUNCTION AND NOT A CONVENTION. `NoRuns` renders its control on
 // this answer and the pane's palette contribution is built on the same one, so the

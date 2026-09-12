@@ -1,14 +1,13 @@
 // The screenshot tier's ledger arm: the console's signature surface, pinned.
 //
-// `Spec-023 §Console Test Tiers` puts "the flagship frame at its frozen tick" on
-// this tier, and the ledger is what makes that sentence worth anything — the frame
+// This tier captures the flagship frame at its frozen tick, and the ledger is what makes that sentence worth anything — the frame
 // beside it is chrome around an empty surface until a session is open in it. So
 // this file captures the whole console window with the FLAGSHIP session loaded, in
 // both schemes, and the ledger's own region for the one state no loaded session can
 // reach.
 //
 // WHY THE FLAGSHIP PAIR IS THE WHOLE FRAME AND NOT THE LEDGER ALONE. The claim
-// those two pin is a COMPOSITION: the rail, the cast bar, the deck, the chapters,
+// those two pin is a COMPOSITION: the rail, the session header, the deck, the chapters,
 // and the attribution hues all have to be true at once and in the right
 // relationship to each other. A shot cropped to the ledger's own box would still be
 // green the day the rail overlapped it. Being whole frames is also what makes the

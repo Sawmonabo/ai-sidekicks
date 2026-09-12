@@ -10,7 +10,7 @@
 // AND WHY THIS IS NOT A DECODER. The tier runs in Chromium. `createImageBitmap` is that
 // browser's own PNG decoder, and a canvas is its own pixel buffer, so a hand-written
 // inflate-and-unfilter here would be a second implementation of something the runtime
-// already has — which `apps/desktop/AGENTS.md` §Shared code rejects in terms ("check the
+// already has — which the shared-code rule in `apps/desktop/AGENTS.md` rejects in terms ("check the
 // `node:` standard library"; in a page the platform is the library). What is written
 // here is the one thing the platform does not give: the colour-management pins that
 // keep a decode byte-exact.

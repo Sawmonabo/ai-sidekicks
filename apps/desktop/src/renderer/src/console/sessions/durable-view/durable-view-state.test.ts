@@ -2,8 +2,8 @@
 // person has already acted.
 //
 // Both surfaces built on it hydrate from an effect and mutate from a click, and the
-// two are not ordered by anything — a person can pin a session or set an invitation
-// aside while the first read is still in flight. Installing the record that then
+// two are not ordered by anything — a person can pin a session or flip the auto-pin
+// switch while the first read is still in flight. Installing the record that then
 // arrives puts their change back the way it was, with nothing on screen to say why,
 // and it stays that way until the next remount.
 //
@@ -194,7 +194,7 @@ describe("a refusal this state has recovered from", () => {
 
   it("tells its subscribers the failure has cleared", async () => {
     // The defect: the recovery cleared `lastRefusal` and emitted nothing, so the
-    // pin list and the invitation shelf kept rendering a failure a person had
+    // pin list and the preference switch kept rendering a failure a person had
     // already fixed — until something unrelated re-rendered the surface.
     const state = stateOver(openStore({ capacityBytes: CEILING_ADMITTING_A_SHORT_LIST }));
     await state.commit([...STORED_IDS]);

@@ -80,9 +80,9 @@ describe("terminal scenario — all five transition reasons, kept distinct", () 
       const isTake = payload["reason"] === "taken";
       // A free lease is an explicit state, so the member is present and null
       // rather than omitted — omission would read as "the wire did not say".
-      expect(Object.hasOwn(payload, "holderParticipantId")).toBe(true);
-      expect(payload["holderParticipantId"] === null).toBe(!isTake);
-      expect(Object.hasOwn(payload, "previousHolderParticipantId")).toBe(true);
+      expect(Object.hasOwn(payload, "holderUserId")).toBe(true);
+      expect(payload["holderUserId"] === null).toBe(!isTake);
+      expect(Object.hasOwn(payload, "previousHolderUserId")).toBe(true);
     }
   });
 

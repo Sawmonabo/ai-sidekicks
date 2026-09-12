@@ -117,7 +117,7 @@ describe("artifact pane — the reader is held by the subject-scoped seam", () =
     // What the memo could not promise. React documents a memo as a cache it MAY
     // discard, and a discard at unchanged dependencies constructed a second reader
     // mid-render — the pane blanking to its unread absence and re-running a whole read
-    // pair for no participant action. The seam holds the reader in state React owns,
+    // pair for no user action. The seam holds the reader in state React owns,
     // so a re-render at the same subject reaches the same one: the row stands and the
     // port is not asked again.
     const artifactList = vi

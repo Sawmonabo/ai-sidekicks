@@ -5,15 +5,15 @@
 // read that has not answered is not a session with a free lease, and rendering the
 // second for the first would be a claim about the session nothing checked.
 //
-// THE MARK IS THE HUE AND NOTHING ELSE. `Spec-023 §Console Design (Meridian)` rule 2
-// puts the participant hue on a mark and never behind text, so the identifier beside
+// THE MARK IS THE HUE AND NOTHING ELSE. The user hue goes on a mark and never
+// behind text, so the identifier beside
 // it is the ordinary mono wire figure and the colour is a 2 px standing mark — the
 // same attribution width rule 1 spends on a row edge, on an element that is not one.
 // A holder the session's hue wheel has never admitted takes the neutral boundary
 // rather than borrowing the colour of whoever is nearest, which is what fail-closed
 // means for an identity.
 //
-// NO NAME IS INVENTED. The roster reply carries a `ParticipantId` and no display name,
+// NO NAME IS INVENTED. The roster reply carries a `UserId` and no display name,
 // and no projection in this window claims one, so the identifier renders verbatim in
 // mono. A renderer that substituted a friendly label would be asserting an identity
 // nothing answered for.
@@ -25,16 +25,16 @@ import type { ReactNode } from "react";
 
 import { DerivedFigure, InlineRefusal, Nothing, WireFigure } from "../../../primitives/index.js";
 import {
-  participantHueTokenName,
+  actorHueTokenName,
   tokenReference,
-  type ParticipantHueAssignment,
+  type ActorHueAssignment,
 } from "../../../tokens/index.js";
 import type { ControlHolderReading } from "./control-holder-reading.js";
 
 export function ControlHolderLine(props: {
   readonly reading: ControlHolderReading;
   /** The session wheel's assignment, or `undefined` for an identity it never admitted. */
-  readonly hueAssignment: ParticipantHueAssignment | undefined;
+  readonly hueAssignment: ActorHueAssignment | undefined;
 }): ReactNode {
   const { reading } = props;
 
@@ -70,7 +70,7 @@ export function ControlHolderLine(props: {
       ? undefined
       : {
           "--meridian-control-holder-hue": tokenReference(
-            participantHueTokenName(props.hueAssignment.step),
+            actorHueTokenName(props.hueAssignment.step),
           ),
         };
   const markClassName =
@@ -82,7 +82,7 @@ export function ControlHolderLine(props: {
     <p className="meridian-control-holder">
       <span className={markClassName} style={markStyle} aria-hidden="true" />
       <DerivedFigure text="Held by" />
-      <WireFigure value={reading.participantId} />
+      <WireFigure value={reading.userId} />
     </p>
   );
 }

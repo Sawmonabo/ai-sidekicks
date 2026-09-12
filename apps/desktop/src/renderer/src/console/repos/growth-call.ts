@@ -119,9 +119,9 @@ export type GrowthAnswerReading<TValue> =
  * the same fact about the same wire and neither is a rejection, so a caller narrowing
  * on the code should not have to know which of the two saw it first.
  *
- * THE REPLY IS NOT QUOTED INTO THE SENTENCE: what arrived can carry participant
+ * THE REPLY IS NOT QUOTED INTO THE SENTENCE: what arrived can carry user
  * content, so the sentence names the leg and what was expected of it and stops
- * there. `Spec-023 §Console Design (Meridian)` rule 9 is the rule.
+ * there. Only the daemon's own code and message reach the screen.
  */
 export function replyUnreadableRefusal(legName: string, expected: string): ConsoleRefusal {
   return refuse(
@@ -152,7 +152,7 @@ export function replyUnreadableRefusal(legName: string, expected: string): Conso
  *
  * TOTAL, because a reply that is neither is a fact rather than a crash. Rule 8 admits
  * no silent no-op, so the third arm is a refusal a person can read and paste, naming
- * the leg and never the reply — which may be participant content.
+ * the leg and never the reply — which may be user content.
  */
 export function growthAnswerReading<TValue>(
   legName: string,

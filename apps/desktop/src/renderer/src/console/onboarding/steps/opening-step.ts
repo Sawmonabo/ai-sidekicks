@@ -5,12 +5,12 @@
 // now said where this node got to — and both write the same value. Two cells would
 // have to agree about which of them wins, and the answer is always the person.
 //
-// THE RESUME OPENING IS RESOLVED HERE RATHER THAN AT THE PRESS. The collaboration
+// THE RESUME OPENING IS RESOLVED HERE RATHER THAN AT THE PRESS. The remote-access
 // entry point contributes a command whose `run` fires before any state read has
 // necessarily answered, so a step chosen there is chosen from a snapshot reporting
 // nothing done — which resolves to the first step every time, on a node that may have
-// settled two of them. `Spec-026` makes resume a first-class state, not a recovery
-// path, and this is where it becomes one.
+// settled two of them. Resume is a first-class state, not a recovery path, and this is
+// where it becomes one.
 //
 // AND IT IS RESOLVED ONCE. Until the read answers, the pane shows the first step
 // nothing says is done, which is the same value this latches — so the settle costs no

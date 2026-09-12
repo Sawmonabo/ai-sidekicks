@@ -1,15 +1,14 @@
 // The one door through which a registered pane body can be opened in a running
 // console window — fixture builds only.
 //
-// WHY IT EXISTS. `Spec-023 §Console Design (Meridian)` §Budgets bounds one
-// `terminal` pane instance, and a budget's harness has to hold the subject the row
-// names: the emulator, its WebGL renderer, and the pane's own React tree, lease,
-// and store state. Nothing in this revision mounts a registered pane — the deck
-// that will open them is a later family's — so the endurance tier had no window in
-// which one could be held, and the row sat ungated for want of a mount rather than
-// for want of a measurement. This is that mount, and it is deliberately the
-// smallest one that is honest: an address, the registry's own resolve, and a
-// control that opens another instance.
+// WHY IT EXISTS. The console budgets bound one `terminal` pane instance, and a budget's
+// harness has to hold the subject the row names: the emulator, its WebGL renderer, and
+// the pane's own React tree, lease, and store state. Nothing in this revision mounts a
+// registered pane — the deck that will open them is a later family's — so the endurance
+// tier had no window in which one could be held, and the row sat ungated for want of a
+// mount rather than for want of a measurement. This is that mount, and it is
+// deliberately the smallest one that is honest: an address, the registry's own resolve,
+// and a control that opens another instance.
 //
 // WHY IT RESOLVES THROUGH THE REGISTRY AND NEVER IMPORTS A PANE. The thing being
 // measured is what the DECK would mount, which is the descriptor a family
@@ -18,11 +17,11 @@
 // directly would measure a component that happens to sit beside the registration,
 // and would keep measuring it on the day the registration changed.
 //
-// WHY IT IS PER KIND AND NOT PER TERMINAL. Every §Budgets row that bounds ONE PANE
-// has the same shape — open the surface empty, open n instances of one kind, read
-// the difference — so the kind travels on the address and this module names no pane
-// kind anywhere. The terminal is the only kind whose row is measured today; the
-// next one costs a different hash and no code.
+// WHY IT IS PER KIND AND NOT PER TERMINAL. Every budget row that bounds ONE PANE has
+// the same shape — open the surface empty, open n instances of one kind, read the
+// difference — so the kind travels on the address and this module names no pane kind
+// anywhere. The terminal is the only kind whose row is measured today; the next one
+// costs a different hash and no code.
 //
 // WHY THE BODIES ARE MOUNTED AS COMPONENTS RATHER THAN CALLED. `RouteSurface`
 // invokes `descriptor.render(context)` inline, which is correct for a surface:

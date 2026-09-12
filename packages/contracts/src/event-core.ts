@@ -1,28 +1,28 @@
-// Event-core — the Plan-006-owned dependency LEAF of the session-event
-// contracts: the envelope-version brand, the shared per-field length cap, and
-// the canonical `CapabilityDetails` snapshot, in a module that imports nothing
-// able to reach back into `event.ts`.
+// Event-core — the dependency LEAF of the session-event contracts: the
+// envelope-version brand, the shared per-field length cap, and the canonical
+// `CapabilityDetails` snapshot, in a module that imports nothing able to reach
+// back into `event.ts`.
 //
-// OWNERSHIP IS UNCHANGED — Plan-006 governs every shape below. This file is a
-// STRUCTURAL RELOCATION of three declaration blocks that shipped inside
-// `event.ts`, not a re-declaration: the blocks below are verbatim, `event.ts`
-// re-exports all eight symbols — six values plus the `CapabilityDetails` and
-// `EventEnvelopeVersion` types — so its public API is exactly what it was, and
-// amending any of them is still a Plan-006 edit governed by Spec-006 +
-// `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`.
-// Consumers keep importing from `@ai-sidekicks/contracts`; no wire contract
-// moves. Same hoist shape — and the same reason — as `./node-id.js`, which
-// relocated Plan-003's `NodeId` brand out of `runtime-node.ts`.
+// OWNERSHIP IS UNCHANGED — the session-event contracts still govern every shape
+// below. This file is a STRUCTURAL RELOCATION of three declaration blocks that
+// shipped inside `event.ts`, not a re-declaration: the blocks below are
+// verbatim, `event.ts` re-exports all eight symbols — six values plus the
+// `CapabilityDetails` and `EventEnvelopeVersion` types — so its public API is
+// exactly what it was. Consumers keep importing from `@ai-sidekicks/contracts`;
+// no wire contract moves. Same hoist shape — and the
+// same reason — as `./node-id.js`, which relocated the `NodeId` brand out of
+// `runtime-node.ts`.
 //
-// WHY A SEPARATE MODULE — the eager two-hop cycle it breaks. Plan-006 T1.12
+// WHY A SEPARATE MODULE — the eager two-hop cycle it breaks. `event.ts`
 // registers the five `runtime_node.*` payload variants into
-// `SessionEventSchema`, which adds a VALUE edge `event.ts` → `runtime-node.ts`
-// (the five `*PayloadSchema` consts, read at module scope by the union arms).
-// `runtime-node.ts` already holds the opposite edge — VALUE imports of
-// `EVENT_FIELD_MAX_LEN`, `EventEnvelopeVersionSchema` and
-// `CapabilityDetailsSchema`, each read at module scope by a schema initializer
-// (the attach request, the roster projection, the lifecycle / capability
-// payload shapes). Together they would close:
+// `SessionEventSchema`, which adds
+// a VALUE edge `event.ts` → `runtime-node.ts` (the five `*PayloadSchema`
+// consts, read at module scope by the union arms). `runtime-node.ts` already
+// holds the opposite edge — VALUE imports of `EVENT_FIELD_MAX_LEN`,
+// `EventEnvelopeVersionSchema` and `CapabilityDetailsSchema`, each read at
+// module scope by a schema initializer (the attach request, the roster
+// projection, the lifecycle / capability payload shapes). Together they would
+// close:
 //
 //     event.ts → runtime-node.ts → event.ts
 //
@@ -44,10 +44,6 @@
 // the import set (from source text) and clean module init from BOTH entry
 // orders.
 //
-// Refs: Spec-006 §Canonical Serialization Rules, Spec-006 §Runtime Node
-// Lifecycle (runtime_node_lifecycle), ADR-018 (cross-version compatibility),
-// ADR-022 (toolchain — Zod 4.x); Plan-009 CP-009-1 (canonical-origin
-// discipline — a plan composes another plan's symbols, never re-declares them).
 import { z } from "zod";
 
 import {
@@ -64,7 +60,6 @@ import { wireFreeFormString } from "./session.js";
 // EventEnvelopeVersion — branded "MAJOR.MINOR" semver string.
 // --------------------------------------------------------------------------
 //
-// Regex from api-payload-contracts.md § Plan-006:
 //   /^(0|[1-9]\d*)\.(0|[1-9]\d*)$/
 // Rejects leading zeros on either segment ("01.0", "1.01") and pure
 // numeric/single-segment forms ("1", "1.0.0").
@@ -78,11 +73,11 @@ export const EVENT_ENVELOPE_VERSION_PATTERN: RegExp = /^(0|[1-9]\d*)\.(0|[1-9]\d
 // from a decimal string is super-linear in digit count — so an unbounded but
 // regex-valid input (a single segment of arbitrarily many digits) would let a
 // caller drive parse work without limit. Real protocol versions are
-// single/low-double-digit segments per ADR-018 §Decision #1, so 64 characters
-// is generous headroom for any plausible MAJOR.MINOR while keeping the BigInt
-// parse trivially cheap. This is a strict MAJOR.MINOR protocol-version bound,
-// deliberately distinct from `VERSION_STRING_MAX_LEN` (error.ts), which caps
-// free-form version strings in error details — the two must not be coupled.
+// single/low-double-digit segments so 64 characters is generous headroom for
+// any plausible MAJOR.MINOR while keeping the BigInt parse trivially cheap.
+// This is a strict MAJOR.MINOR protocol-version bound, deliberately distinct
+// from `VERSION_STRING_MAX_LEN` (error.ts), which caps free-form version
+// strings in error details — the two must not be coupled.
 export const EVENT_ENVELOPE_VERSION_MAX_LEN = 64;
 
 export type EventEnvelopeVersion = string & {
@@ -91,17 +86,15 @@ export type EventEnvelopeVersion = string & {
 /**
  * Runtime validator for the branded {@link EventEnvelopeVersion} — the
  * producer-set `"MAJOR.MINOR"` protocol version whose bump/stub/read rules
- * live in `Spec-006 §EventEnvelope Version Semantics` (format per
- * `ADR-018 §Decision` #1; see the section comment above). An out-of-range
- * version is rejected at the version-floor gate and reader-side version
- * negotiation (never by this format-and-length-only validator) as the
- * shipped typed error contracts `VersionFloorExceededErrorSchema` /
- * `VersionCeilingExceededErrorSchema` (error.ts): below-floor writes
- * return `VERSION_FLOOR_EXCEEDED` per `ADR-018 §Decision` #4; join-time
- * negotiation surfaces both `VERSION_FLOOR_EXCEEDED` and
- * `VERSION_CEILING_EXCEEDED` per §Decision #10, which also mandates their
- * registration ahead of the first Plan-001 emitter — both shipped by
- * Plan-001 T2.3 and cross-linked here, not re-authored.
+ * live. An out-of-range version is rejected at the version-floor gate and
+ * reader-side version negotiation (never by this format-and-length-only
+ * validator) as the shipped typed error contracts
+ * `VersionFloorExceededErrorSchema` / `VersionCeilingExceededErrorSchema`
+ * (error.ts): below-floor writes return `VERSION_FLOOR_EXCEEDED` #4;
+ * join-time negotiation surfaces both `VERSION_FLOOR_EXCEEDED` and
+ * `VERSION_CEILING_EXCEEDED` which also mandates their registration ahead
+ * of the first emitter — both shipped and cross-linked here, not
+ * re-authored.
  *
  * Its total ordering is `compareEventEnvelopeVersion` (event.ts), which stays
  * beside the envelope it gates rather than riding this leaf: it is a pure
@@ -114,8 +107,7 @@ export const EventEnvelopeVersionSchema: z.ZodType<EventEnvelopeVersion> = z
     message: `EventEnvelopeVersion must be at most ${EVENT_ENVELOPE_VERSION_MAX_LEN} characters.`,
   })
   .regex(EVENT_ENVELOPE_VERSION_PATTERN, {
-    message:
-      'EventEnvelopeVersion must be a "MAJOR.MINOR" semver string per ADR-018 §Decision #1 (e.g. "1.0", "2.5"; not numeric, not three-segment, no leading zeros).',
+    message: 'EventEnvelopeVersion must be a "MAJOR.MINOR" semver string.',
   })
   .brand<"EventEnvelopeVersion">() as unknown as z.ZodType<EventEnvelopeVersion>;
 
@@ -128,8 +120,7 @@ export const EventEnvelopeVersionSchema: z.ZodType<EventEnvelopeVersion> = z
 // It is one member of the defense-in-depth per-field cap set whose full
 // multi-file survey — which caps exist, where each is declared, and why the
 // contracts package holds a second line of defense at all — stays in event.ts,
-// the module whose envelope fields consume them. Raising it is a contract bump
-// per ADR-018 §Decision #8 (MINOR widening is acceptable — shrinking is MAJOR).
+// the module whose envelope fields consume them. Raising it is a contract bump.
 //
 // Hoisted onto this leaf rather than left in event.ts because `runtime-node.ts`
 // reads it at module scope for the `actor` field of both runtime-node payload
@@ -138,20 +129,12 @@ export const EventEnvelopeVersionSchema: z.ZodType<EventEnvelopeVersion> = z
 export const EVENT_FIELD_MAX_LEN = 256;
 
 // --------------------------------------------------------------------------
-// CapabilityDetails — canonical capability snapshot (Plan-006 T1.4).
+// CapabilityDetails — canonical capability snapshot.
 // --------------------------------------------------------------------------
 //
 // The canonical typed shape of the capability snapshot carried on the
-// `runtime_node.capability_declared` / `runtime_node.capability_updated`
-// event payloads — the two capability rows of
-// `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`; wire authority
-// `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`.
-// Authoring it in Plan-006's own tree closes Plan-005 CP-005-5 via CP-006-5:
-// the Plan-003-authored payload schemas in runtime-node.ts EXTEND their
-// interim-opaque `capabilityDetails` / `previousState` / `newState` fields with
-// this schema as the canonical-first arm of a tolerant union (see the binding
-// notes there) — Plan-006 owns only the canonical shape, not the payload
-// wrappers.
+// `runtime_node.capability_declared` / `runtime_node.capability_updated` event
+// payloads — the two capability rows of wire authority.
 //
 // NON-NORMALIZING end to end — parse output is structurally identical to
 // accepted input: no `.default()`, no `.transform()`, no unknown-key
@@ -159,17 +142,16 @@ export const EVENT_FIELD_MAX_LEN = 256;
 // emitter persists the PARSED output of the payload schemas
 // (node-event-emitter.ts): a default-filling or stripping arm here would
 // silently rewrite stored payloads relative to the wire bytes — the same
-// no-collapse stance as the envelope's I-006-1-03 notes in event.ts.
+// no-collapse stance as the envelope's notes in event.ts.
 
-// Per-field cap for the free-form `contractVersion` string — house
-// convention: each free-form wire field owns its own cap. 64 mirrors the
-// sibling version-string precedent `RUNTIME_NODE_VERSION_MAX_LEN`
-// (runtime-node.ts): generous headroom for any plausible driver-contract
-// version string while bounding pathological input at the wire/replay trust
-// boundary. Deliberately NOT `EVENT_ENVELOPE_VERSION_MAX_LEN` — that caps
-// the strict MAJOR.MINOR protocol version, whereas `contractVersion` is a
-// free-form provider-declared value (its semver bound lives at the Plan-005
-// Phase-2 write seam, not at this wire layer).
+// 64 mirrors the sibling version-string precedent
+// `RUNTIME_NODE_VERSION_MAX_LEN` (runtime-node.ts): generous headroom for
+// any plausible driver-contract version string while bounding pathological
+// input at the wire/replay trust boundary. Deliberately NOT
+// `EVENT_ENVELOPE_VERSION_MAX_LEN` — that caps the strict MAJOR.MINOR
+// protocol version, whereas `contractVersion` is a free-form
+// provider-declared value (its semver bound lives Phase-2 write seam, not
+// at this wire layer).
 export const CAPABILITY_CONTRACT_VERSION_MAX_LEN = 64;
 
 // Module-LOCAL strict tool schema — single consumer, so it fails the export
@@ -226,13 +208,11 @@ type _ToolSchemaInputIsNormalized = _AssertExtends<
 
 /**
  * Canonical capability snapshot for `runtime_node.capability_*` payloads
- * (`docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`;
- * `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`; CP-006-5 —
- * closes Plan-005 CP-005-5). `tools` is `readonly` per the Plan-006 T1.4
- * task row (the governing spelling over the wire doc's mutable gloss — a
- * mutable schema output stays assignable under covariance) and carries the
- * NORMALIZED tool shape: `CapabilityDetails` crosses the persistence /
- * event boundary, which the ingress `ProviderToolMetadata` never does.
+ * (closes). `tools` is `readonly` task row (the governing spelling over the
+ * wire doc's mutable gloss — a mutable schema output stays assignable under
+ * covariance) and carries the NORMALIZED tool shape: `CapabilityDetails`
+ * crosses the persistence / event boundary, which the ingress
+ * `ProviderToolMetadata` never does.
  */
 export interface CapabilityDetails {
   flags: Record<DriverCapabilityFlag, boolean>;
@@ -250,10 +230,10 @@ const capabilityDetailsObjectSchema = z
     // `DRIVER_CAPABILITY_FLAGS` const must be present, and a missing member,
     // an unknown key, or a non-boolean value all reject — matching the
     // non-partial `Record<DriverCapabilityFlag, boolean>` type and the
-    // write-seam exactly-all-flags cardinality guard (I-005-2: capabilities
-    // are explicit, never inferred from absence). Keyed off the const — not
-    // a copied literal list — so Plan-005 T1.7's scheduled flag widening
-    // flows through with zero edits here.
+    // write-seam exactly-all-flags cardinality guard (capabilities are
+    // explicit, never inferred from absence). Keyed off the const — not a
+    // copied literal list — so the scheduled flag widening flows through
+    // with zero edits here.
     flags: z.record(z.enum(DRIVER_CAPABILITY_FLAGS), z.boolean()),
     contractVersion: wireFreeFormString(
       CAPABILITY_CONTRACT_VERSION_MAX_LEN,

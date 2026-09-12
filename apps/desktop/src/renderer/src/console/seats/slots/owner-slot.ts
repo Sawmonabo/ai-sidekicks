@@ -23,7 +23,7 @@
  * DEVELOPER-FACING, AND NEVER RENDERED. Every member is prose, and the prose
  * names governance work — which is exactly why no console surface may display
  * one. The repository's standing rule keeps governance ids out of what a
- * participant sees; a slot's empty state names the FEATURE that has not been
+ * user sees; a slot's empty state names the FEATURE that has not been
  * built, and this declaration is read by the people building it. Nothing branches
  * on any member: they exist so the three answers live in the file rather than in
  * a reviewer's memory.

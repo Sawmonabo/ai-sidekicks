@@ -1,5 +1,5 @@
-// Plan-004 T1.4 + T1.5 — version-15 migration: the queue, intervention, and
-// command-receipt tables.
+// Version-15 migration: the queue, intervention, and command-receipt
+// tables.
 //
 // SQL is inlined as a TypeScript string constant rather than loaded from a
 // sibling `.sql` file, for the reasons the `0001-initial.ts` header sets out in
@@ -7,10 +7,8 @@
 // would exclude `src/migrations/` from the published tarball; bundlers handle
 // `import.meta.url` inconsistently).
 //
-// PROVENANCE. The canonical schema source-of-truth is
-// `docs/architecture/schemas/local-sqlite-schema.md`
-// §"Queue and Intervention Tables (Plan-004)". The three CREATE statements
-// below transcribe that block; they do not re-derive it.
+// The three CREATE statements below transcribe that block; they do not
+// re-derive it.
 //
 // ----------------------------------------------------------------------------
 // Why three tables in one ordinal
@@ -25,9 +23,8 @@
 // version marker that says the queue is ready.
 //
 // `command_receipts` joins them because it is a forward-declared SHELL with no
-// behavior of its own (T1.5, CP-004-2) and no reader until Plan-015 arrives.
-// Giving it an ordinal to itself would buy a rollback boundary around a table
-// nothing writes.
+// behavior of its own and no reader until arrives. Giving it an ordinal to
+// itself would buy a rollback boundary around a table nothing writes.
 //
 // None of the three participates in a foreign key in either direction, so the
 // version is order-independent of every earlier one: it creates three tables
@@ -38,21 +35,17 @@
 // What the `command_receipts` shell deliberately omits
 // ----------------------------------------------------------------------------
 //
-// The canonical block for this table is a COMPOSITE of four plans' columns.
-// Plan-004 CREATEs only the crash-recovery log's own five — `id`,
-// `command_id`, `run_id`, `status`, `created_at` — exactly as
-// `docs/architecture/cross-plan-dependencies.md` §Contested Tables scopes the
-// CREATE. The rest belong to plans that ship later and EXTEND through their own
-// migrations, never through an edit of this file:
+// The canonical block for this table is a COMPOSITE of four plans' columns. The
+// rest belong to plans that ship later and EXTEND through their own migrations,
+// never through an edit of this file:
 //
-//   * Plan-015 (BL-051): `idempotency_class`, `dedupe_key`, `started_at`,
-//     `completed_at`. `idempotency_class` is `NOT NULL` with no default in the
-//     canonical block, so that EXTEND is a table REBUILD rather than an
-//     `ALTER TABLE ... ADD COLUMN` — SQLite refuses to add a NOT NULL column
-//     without a default to a table that may hold rows. That cost is Plan-015's
-//     to pay and is recorded here so it is not discovered at authoring time.
-//   * Plan-005 (campaign B10): the additive nullable `mcp_task_id`.
-//   * Plan-028 (CP-028-7): the additive nullable `mcp_binding_digest`.
+//   * `idempotency_class`, `dedupe_key`, `started_at`, `completed_at`.
+//     `idempotency_class` is `NOT NULL` with no default in the canonical
+//     block, so that EXTEND is a table REBUILD rather than an `ALTER TABLE...
+//     ADD COLUMN` — SQLite refuses to add a NOT NULL column without a default
+//     to a table that may hold rows.
+//   * The additive nullable `mcp_task_id`.
+//   * The additive nullable `mcp_binding_digest`.
 //
 // The two partial indexes in the canonical block that read those columns
 // (`idx_command_receipts_inflight` over `started_at` / `completed_at`,
@@ -69,19 +62,13 @@
 //     admission path it represents, and an unstamped insert fails at the
 //     database rather than silently becoming a system-origin row.
 //
-// Neither `queue_items.pii_participant_id` nor `interventions.pii_participant_id`
-// is indexed. That is deliberate and matched between the two tables: the
-// Plan-022 Path-1 erasure/export selector is a maintenance scan, never a hot
-// path, and an index on a column read once per erasure would cost every write.
+// Neither `queue_items.pii_user_id` nor `interventions.pii_user_id`
+// is indexed. That is deliberate and matched between the two tables: Path-1
+// erasure/export selector is a maintenance scan, never a hot path, and an index
+// on a column read once per erasure would cost every write.
 //
-// Spec coverage: `Spec-004 §State And Data Implications` (queue items durable
-// storage + intervention audit records). Refs: Plan-004 T1.4, T1.5, I-004-1,
-// I-004-2, I-004-3, I-004-4, I-004-22, I-004-23, CP-004-2,
-// `docs/architecture/schemas/local-sqlite-schema.md` §"Queue and Intervention
-// Tables (Plan-004)".
 
 export const QUEUE_AND_INTERVENTIONS_MIGRATION_SQL: string = `
--- Owner: Plan-004 | Migration: 0015-queue-and-interventions.ts (Tier 5 Phase 1)
 
 -- ---------------------------------------------------------------------------
 -- queue_items: the durable admission queue.
@@ -94,25 +81,26 @@ CREATE TABLE queue_items (
                   CHECK(state IN ('queued', 'admitted', 'superseded', 'canceled', 'expired')),
   priority        INTEGER NOT NULL DEFAULT 0, -- higher = more urgent
   payload         TEXT NOT NULL DEFAULT '{}', -- JSON: NON-PII members only -- context, metadata, and the
-                                              -- non-PII identifiers. A participant-authored send's body
+                                              -- non-PII identifiers. A user-authored send's body
                                               -- never rides this column (it encrypts into pii_payload).
                                               -- Orchestration-authored content (a workflow phase input, an
                                               -- orchestrated child-run prompt) is session work product,
-                                              -- not participant PII, and stays here in plaintext with both
-                                              -- PII columns NULL -- the system arm has no participant DEK
+                                              -- not user PII, and stays here in plaintext with both
+                                              -- PII columns NULL -- the system arm has no user DEK
                                               -- to encrypt under. Every drain-selection field is its own
                                               -- column (state, priority, target_run_id, channel_id,
                                               -- session_id), so the split costs no queryability.
-  pii_payload     BLOB,                       -- encrypted per-participant AES-256-GCM via Plan-006's
-                                              -- PiiEncryptor: the participant-authored send body.
+  pii_payload     BLOB,                       -- encrypted per-user AES-256-GCM via the
+                                              -- PiiEncryptor: the user-authored send body.
                                               -- Same-key parity with session_events.pii_payload and
-                                              -- interventions.pii_payload, so one Plan-022 Path-1 key
-                                              -- deletion shreds every copy of the same send identically.
-                                              -- NULL on rows carrying no participant-authored body.
-  pii_participant_id TEXT,                    -- PII owner stamp: the authoring participant whose key
+                                              -- interventions.pii_payload, so one Path-1 key
+                                              -- deletion shreds every copy of the same send
+                                              -- identically. NULL on rows carrying no
+                                              -- user-authored body.
+  pii_user_id TEXT,                    -- PII owner stamp: the authoring user whose key
                                               -- encrypts pii_payload -- the erasure/export selector this
                                               -- table otherwise lacks entirely (no other column names a
-                                              -- participant, so without it the GDPR fan-out cannot address
+                                              -- user, so without it the GDPR fan-out cannot address
                                               -- these rows); NULL on rows carrying no PII leg
   target_run_id   TEXT,                       -- run-bound admission arm: NULL on ordinary follow-up items
                                               -- (admission converts them into a new run); stamped solely
@@ -120,7 +108,7 @@ CREATE TABLE queue_items (
                                               -- item delivers into its bound run as its next provider
                                               -- send on run.resume, never converting into a new run
   admitting_intervention_id TEXT,             -- row-anchored linkage to the interventions row whose
-                                              -- admission created this item: NULL on ordinary participant
+                                              -- admission created this item: NULL on ordinary user
                                               -- sends, stamped beside target_run_id in the composite's
                                               -- single durable transaction
   created_at      TEXT NOT NULL,
@@ -130,8 +118,8 @@ CREATE TABLE queue_items (
 CREATE INDEX idx_queue_items_session_state ON queue_items(session_id, state);
 CREATE INDEX idx_queue_items_target_run ON queue_items(target_run_id) WHERE target_run_id IS NOT NULL;
 CREATE INDEX idx_queue_items_channel ON queue_items(channel_id) WHERE channel_id IS NOT NULL;
--- No index on pii_participant_id, matching the interventions.pii_participant_id sibling: the Plan-022
--- Path-1 erasure/export selector is a V1.1 maintenance scan, never a hot path, and both tables carry the
+-- No index on pii_user_id, matching the interventions.pii_user_id sibling: Path-1
+-- erasure/export selector is a V1.1 maintenance scan, never a hot path, and both tables carry the
 -- stamp unindexed for the same reason.
 
 -- ---------------------------------------------------------------------------
@@ -145,12 +133,12 @@ CREATE TABLE interventions (
   state                  TEXT NOT NULL DEFAULT 'requested'
                          CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired')),
   payload                TEXT NOT NULL DEFAULT '{}', -- JSON: type-specific NON-PII fields only -- neither a rollback's replacementSend body nor a steer's directive text rides this column (both encrypt into pii_payload)
-  expected_run_version   INTEGER NOT NULL,           -- MANDATORY fail-closed comparand (D-004-2)
-  client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (participant client or daemon system-origination); replay-or-conflict intervention dedupe
-  pii_payload            BLOB,                       -- encrypted per-participant AES-256-GCM via Plan-006's PiiEncryptor: the participant-authored intervention body -- the rollback replacementSend body and the steer directive text; same-key parity with session_events.pii_payload, so the Plan-022 Path-1 key deletion shreds every copy identically; NULLed by the daemon retention pass past the 90-day full-retention bound (no digest binding attaches, unlike session_events)
-  pii_participant_id     TEXT,                       -- PII owner stamp: the requesting participant whose key encrypts pii_payload; NULL on rows carrying no PII leg
-  origin                 TEXT NOT NULL               -- daemon-resolved admission-path discriminator: 'participant' for a request admitted over an identity-carrying transport, 'system' for the in-process orchestration entrypoint below the wire authz boundary. NO DEFAULT by design -- a default would fail OPEN for the system path, so every insert site declares
-                         CHECK(origin IN ('participant', 'system')),
+  expected_run_version   INTEGER NOT NULL,           -- MANDATORY fail-closed comparand
+  client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (user client or daemon system-origination); replay-or-conflict intervention dedupe
+  pii_payload            BLOB,                       -- encrypted per-user AES-256-GCM via the PiiEncryptor: the user-authored intervention body -- the rollback replacementSend body and the steer directive text; same-key parity with session_events.pii_payload, so Path-1 key deletion shreds every copy identically; NULLed by the daemon retention pass past the 90-day full-retention bound (no digest binding attaches, unlike session_events)
+  pii_user_id     TEXT,                       -- PII owner stamp: the requesting user whose key encrypts pii_payload; NULL on rows carrying no PII leg
+  origin                 TEXT NOT NULL               -- daemon-resolved admission-path discriminator: 'user' for a request admitted over an identity-carrying transport, 'system' for the in-process orchestration entrypoint below the wire authz boundary. NO DEFAULT by design -- a default would fail OPEN for the system path, so every insert site declares
+                         CHECK(origin IN ('user', 'system')),
   result                 TEXT,                       -- JSON: outcome details
   rejection_reason       TEXT,                       -- machine-readable rejected cause (driver.capability_unsupported foremost) -- replay-durable: the wire contract forbids result on rejected, so an idempotent replay reconstructs rejectionReason from this column
   created_at             TEXT NOT NULL,
@@ -162,12 +150,10 @@ CREATE INDEX idx_interventions_run ON interventions(target_run_id);
 CREATE INDEX idx_interventions_state ON interventions(state) WHERE state IN ('requested', 'accepted');
 
 -- ---------------------------------------------------------------------------
--- command_receipts: forward-declared SHELL (CP-004-2). Plan-004 CREATEs the
--- crash-recovery command-receipt log's own five columns; Plan-015 owns the
--- two-phase idempotency columns and the read model, Plan-005 the mcp_task_id
--- handle, Plan-028 the mcp_binding_digest provenance -- each through its own
--- migration, never through an edit of this file. See the file header for why
--- Plan-015's EXTEND is a table rebuild rather than an ADD COLUMN.
+-- CREATEs the crash-recovery command-receipt log's own five columns owns the
+-- two-phase idempotency columns and the read model the mcp_task_id handle
+-- the mcp_binding_digest provenance -- each through its own migration, never
+-- through an edit of this file.
 -- ---------------------------------------------------------------------------
 CREATE TABLE command_receipts (
   id                TEXT PRIMARY KEY,

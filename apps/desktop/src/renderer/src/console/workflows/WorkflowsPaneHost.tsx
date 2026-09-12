@@ -1,13 +1,13 @@
 // What the rail's workflows slot mounts: the destination, and whichever pane a person
 // opened from it.
 //
-// WHY THE SLOT NEEDS MORE THAN THE DESTINATION. `Spec-023 §Console Design (Meridian)`
-// says it in one clause — "the workflows rail destination opens `workflow-builder`" —
-// and until this module nothing carried that out. The destination supplied no open
-// action to the definitions browser and none to the run list, so every definition name
-// and every run name rendered as a plain span; the two pane kinds this family claims
-// were registered and reachable from their own tests and from nowhere else. An
-// operator could see a parked run and could not get to the controls that lift it.
+// WHY THE SLOT NEEDS MORE THAN THE DESTINATION. The design says it in one clause — the
+// workflows rail destination opens `workflow-builder` — and until this module nothing
+// carried that out. The destination supplied no open action to the definitions browser
+// and none to the run list, so every definition name and every run name rendered as a
+// plain span; the two pane kinds this family claims were registered and reachable from
+// their own tests and from nowhere else. An operator could see a parked run and could
+// not get to the controls that lift it.
 //
 // WHERE AN OPENED PANE GOES. Into this surface, one at a time, in place of the lists
 // it was opened from. That is NOT the session workspace's deck and does not grow into

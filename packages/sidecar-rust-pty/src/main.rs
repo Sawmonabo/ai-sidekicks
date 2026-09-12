@@ -1,4 +1,4 @@
-//! Sidecar runtime — Plan-024 Phase 3 dispatcher binary.
+//! Sidecar runtime — dispatcher binary.
 //!
 //! ## What this binary does
 //!
@@ -64,25 +64,21 @@
 //! budget so the operator sees a framing-fault diagnostic instead of
 //! a silent `exit 0` that hides transport regressions.
 //!
-//! Refs: Plan-024 §Implementation Step 3 + 4 + 5 (dispatcher contract);
-//! ADR-009 (Content-Length framing); ADR-019 §Decision item 1.
 
 mod framing;
 mod protocol;
 mod pty_session;
 
-// Windows-only translation/tree-kill substrate for Plan-024 I-024-1
-// + I-024-2 + I-024-3. Module-level `#![cfg(target_os = "windows")]`
+// + Module-level `#![cfg(target_os = "windows")]`
 // gates inside each file ensure they compile out of the build on
 // non-Windows targets without per-symbol attributes here.
 //
-// `allow(dead_code)` because the wire-through PR (T-024-3-1
-// follow-up) is what reads from these modules inside
-// `pty_session::kill()`. T-024-3-1 ships the substrate; the wire-
-// through happens after the sidecar's Windows kill arm replaces its
-// `WindowsKillNotImplemented` stub. Without this allow the
-// module-level cargo build on Windows would warn-as-error on the
-// unused public API.
+// `allow(dead_code)` because the wire-through PR (follow-up) is
+// what reads from these modules inside `pty_session::kill()`. ships
+// the substrate; the wire- through happens after the sidecar's
+// Windows kill arm replaces its `WindowsKillNotImplemented` stub.
+// Without this allow the module-level cargo build on Windows would
+// warn-as-error on the unused public API.
 #[cfg(target_os = "windows")]
 #[allow(dead_code)]
 mod kill_translation;
@@ -965,12 +961,12 @@ mod tests {
         frames
     }
 
-    /// Live-channel starvation regression discriminator
-    /// (Plan-024 T-024-3-1): when `dispatch_rx` is continuously Ready
-    /// under sustained request pressure AND `outbound_rx` has a queued
-    /// `DataFrame`, the writer MUST poll outbound fairly — the
-    /// DataFrame must surface within the first ~few frames of writer
-    /// output, NOT after all queued PingResponses have drained.
+    /// Live-channel starvation regression discriminator: when
+    /// `dispatch_rx` is continuously Ready under sustained request
+    /// pressure AND `outbound_rx` has a queued `DataFrame`, the writer
+    /// MUST poll outbound fairly — the DataFrame must surface within
+    /// the first ~few frames of writer output, NOT after all queued
+    /// PingResponses have drained.
     ///
     /// Under the previous shape with `biased;`, the dispatch arm was
     /// always polled first; with dispatch continuously Ready, outbound
@@ -1097,11 +1093,11 @@ mod tests {
     // request IDs and no per-request timeout. If the sidecar silently
     // skipped a malformed inbound request, the daemon-side Promise
     // would either (a) hang forever waiting for a response that will
-    // never arrive, or (b) be matched to a later same-kind response
-    // and produce a cross-wired result. Making this fatal trips the
+    // never arrive, or (b) be matched to a later same-kind response and
+    // produce a cross-wired result. Making this fatal trips the
     // supervisor's crash budget instead — the operator sees an
     // `InvalidData` framing-fault diagnostic and the restart loop
-    // re-establishes a clean FIFO state. Plan-024 + ADR-009.
+    // re-establishes a clean FIFO state..
     // ------------------------------------------------------------------
 
     /// Build a Content-Length frame around `body` using the same wire
@@ -1147,7 +1143,7 @@ mod tests {
              daemon correlates responses by FIFO order with no request \
              IDs, so silently skipping a malformed inbound frame would \
              either leave the corresponding Promise unresolved or match \
-             a later response to the wrong waiter (Plan-024, ADR-009).",
+             a later response to the wrong waiter.",
         );
         assert_eq!(
             err.kind(),

@@ -1,7 +1,7 @@
 // The one per-row control — the trigger, and nothing behind it.
 //
-// ONE CONTROL AND NOT FIVE BUTTONS. `Spec-023 §Console Design (Meridian)` rule 7 puts
-// a row at one line until it is opened, and five inline controls would be five lines'
+// ONE CONTROL AND NOT FIVE BUTTONS. A row stays at one line until it is opened, and
+// five inline controls would be five lines'
 // worth of chrome on every row of a log a person scrolls through thousands of. So the
 // row carries a single revealed trigger and the offers live behind it.
 //

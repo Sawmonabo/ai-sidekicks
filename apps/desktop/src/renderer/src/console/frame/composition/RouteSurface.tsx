@@ -5,8 +5,7 @@
 // first pass. Resolving in an effect instead would mean the first paint has already
 // said the surface does not exist.
 //
-// The absences are kept apart because a person's next move differs for each of them,
-// which is `Spec-023 §Console Design (Meridian)` rule 8:
+// The absences are kept apart because a person's next move differs for each of them:
 //
 //   • **Not-found** — the address names nothing. The way back is the sessions list.
 //   • **A bare auxiliary route** — a WORKING window that has not been given a

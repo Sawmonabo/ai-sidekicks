@@ -1,36 +1,29 @@
-// Build-time assertion: every Spec-023 §Security Hardening Baseline-locked
-// `webPreferences` key still appears with the required literal value in
-// `apps/desktop/src/main/window.ts`, and that locked block appears EXACTLY
-// ONCE. Drift fails the build.
+// Build-time assertion: every hardening-locked `webPreferences` key still
+// appears with the required literal value in `apps/desktop/src/main/window.ts`,
+// and that locked block appears EXACTLY ONCE. Drift fails the build —
+// `nodeIntegration: true` or `sandbox: false` in any window is a build error,
+// never a runtime surprise.
 //
-// `Plan-023 §Done Checklist`: "Build-time assertion script
-// (`assert-webprefs.ts`) greps the factory for each value and fails the build
-// on drift."
-//
-// `Spec-023 §Pitfalls To Avoid`: `nodeIntegration: true` or
-// `sandbox: false` MUST be a build-time error.
-//
-// The exactly-once conjunct (Plan-023 T-023p-1B-2) is what keeps the check
-// honest now that the module builds MORE THAN ONE KIND OF WINDOW. A presence
-// check alone is satisfied by the main window's block while a second factory
-// carries an unchecked one beside it — `sandbox: false` in an auxiliary window
-// would be a build-time PASS. Counting both the locked block and the
-// `new BrowserWindow(` call sites closes that: the module is required to have
-// exactly one of each, which is the structural form of "one private function
-// owns the literal" (Plan-023 I-023-2, I-023-12).
+// The exactly-once conjunct is what keeps the check honest now that the module
+// builds MORE THAN ONE KIND OF WINDOW. A presence check alone is satisfied by
+// the main window's block while a second factory carries an unchecked one
+// beside it — `sandbox: false` in an auxiliary window would be a build-time
+// PASS. Counting both the locked block and the `new BrowserWindow(` call sites
+// closes that: the module is required to have exactly one of each, which is the
+// structural form of "one private function owns the literal".
 //
 // The exactly-once count is scoped to ONE FILE, though, and a count in one file
 // says nothing about a second file. `src/main/menu.ts` could construct a window
-// of its own tomorrow, or a Tier-8 module could, and every assertion above would
-// still pass while an unlocked window shipped. So the check also SCANS THE WHOLE
-// `src/main/**` TREE (Codex round 1) and requires that `new BrowserWindow(`
-// appears in the locked module and nowhere else. That is the conjunct that makes
-// "one private function owns the literal" a property of the PROCESS rather than
-// of one file — every window this main process can construct is constructed by
-// the block the checks above verify. Test files are scanned too: a unit test
-// mocks `electron`, so a real construction in one would be as much of an escape
-// hatch as a production one, and excluding them would be an exemption keyed on a
-// filename rather than on a behavior.
+// of its own tomorrow, and every assertion above would still pass while an
+// unlocked window shipped. So the check also SCANS THE WHOLE `src/main/**` TREE
+// and requires that `new BrowserWindow(` appears in the locked module and
+// nowhere else. That is the conjunct that makes "one private function owns the
+// literal" a property of the PROCESS rather than of one file — every window
+// this main process can construct is constructed by the block the checks above
+// verify. Test files are scanned too: a unit test mocks `electron`, so a real
+// construction in one would be as much of an escape hatch as a production one,
+// and excluding them would be an exemption keyed on a filename rather than on a
+// behavior.
 //
 // Regex-based matching (not literal-string) tolerates Prettier-driven
 // quote-style or whitespace drift while still catching semantic drift.
@@ -71,7 +64,7 @@ interface CountedCheck {
   readonly expected: number;
 }
 
-// `Spec-023 §Security Hardening Baseline` (verbatim):
+// The locked hardening baseline:
 //
 //   contextIsolation: true,          // must be true
 //   sandbox: true,                   // must be true
@@ -129,11 +122,10 @@ const SINGLETON_CHECKS: readonly CountedCheck[] = [
 
 // Blank out comments AND literal bodies in the loaded source before applying
 // the regex set, preserving byte length so nothing else has to be re-indexed.
-// The header documentation block in `window.ts` cites Spec-023's locked values
-// verbatim (e.g. `sandbox: true`, `nodeIntegration: false`) as in-code
-// references — without sanitization the regex could match those comment
-// occurrences instead of the live `webPreferences` object literal, defeating
-// `Spec-023 §Pitfalls To Avoid`.
+// The header documentation block in `window.ts` writes the locked values out
+// verbatim (e.g. `sandbox: true`, `nodeIntegration: false`) — without
+// sanitization the regex could match those comment occurrences instead of the
+// live `webPreferences` object literal, and a disabled sandbox would pass.
 //
 // String and template literals are blanked too, which closes the check in both
 // directions at once. A naive `//`-to-end-of-line regex eats the tail of any
@@ -266,7 +258,7 @@ function findConstructionsOutsideLockedModule(scanRoot: string, lockedModulePath
         `  - ${path.relative(process.cwd(), sourceFile)} constructs ` +
           `${occurrences.toString()} \`new BrowserWindow(\`. Every window must be built by the ` +
           `one locked factory in ${path.relative(process.cwd(), lockedModulePath)}, or the ` +
-          `\`Spec-023 §Security Hardening Baseline\` assertion above covers only some of them.`,
+          `hardening assertion above covers only some of them.`,
       );
     }
   }
@@ -303,17 +295,17 @@ function assertWebPreferences(targetPath: string, scanRoot: string): void {
 
   if (failures.length > 0) {
     const message =
-      `[assert-webprefs] Spec-023 §Security Hardening Baseline drift detected ` +
+      `[assert-webprefs] security-hardening drift detected ` +
       `in ${path.relative(process.cwd(), targetPath)}:\n` +
       failures.join("\n") +
-      `\nSee docs/specs/023-desktop-shell-and-renderer.md §Security Hardening ` +
-      `Baseline for the locked contract.`;
+      `\nEvery window this main process constructs must come from that single ` +
+      `hardened factory, with its locked options intact.`;
     process.stderr.write(`${message}\n`);
     process.exit(1);
   }
 
   process.stdout.write(
-    `[assert-webprefs] OK — all ${CHECKS.length.toString()} Spec-023 ` +
+    `[assert-webprefs] OK — all ${CHECKS.length.toString()} hardened ` +
       `webPreferences locks present exactly once in ` +
       `${path.relative(process.cwd(), targetPath)}, and no other source under ` +
       `${path.relative(process.cwd(), scanRoot)} constructs a BrowserWindow\n`,

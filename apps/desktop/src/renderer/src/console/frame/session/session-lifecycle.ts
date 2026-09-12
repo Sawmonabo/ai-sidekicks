@@ -21,8 +21,8 @@
 // and no stream is bound at all. `createWindowSessionPlumbing` below carries that
 // reasoning.
 //
-// Two rules from `Spec-023 §Console Design (Meridian)` decide the shape here, and
-// both are about the render phase:
+// Two of the console's own rules decide the shape here, and both are about the render
+// phase:
 //
 //   • **No component constructs a store.** A component RESOLVES one through
 //     `useOpenSessionStore`, which is a read. Nothing here calls `open` during
@@ -111,7 +111,7 @@ import { SessionEventBinder } from "./session-event-binder.js";
  *     read and whose binder both pointed at a transport nothing was serving.
  *   • **The plumbing disposed itself.** The remount arm, for the same component
  *     instance — React's StrictMode double-mount is the one that does it today, and
- *     the Tier-8 opt-in is named in `main.tsx`. The cleanup has already disposed the
+ *     the opt-in is named in `main.tsx`. The cleanup has already disposed the
  *     registry by then and a disposed registry refuses every open, so the second
  *     mount publishes a fresh plumbing rather than keeping a corpse. It cannot be a
  *     render-phase comparison, because the disposal happens in an effect's cleanup
@@ -128,8 +128,8 @@ export function useSessionStoreRegistry(
 ): SessionStoreRegistry {
   // Resolved from context rather than taken as an argument, so every caller of this
   // hook gets the same bridge the rest of the frame renders against and no surface
-  // has to thread one through. `Spec-023`'s "the bridge is provided, never reached
-  // for" is the same rule one layer down.
+  // has to thread one through. The bridge is provided, never reached for, which is the
+  // same rule one layer down.
   const bridge = useConsoleBridge();
   // The bridge alone is the subject, and the projector registry deliberately is not:
   // the plumbing takes a SNAPSHOT of that table at construction, exactly so a later

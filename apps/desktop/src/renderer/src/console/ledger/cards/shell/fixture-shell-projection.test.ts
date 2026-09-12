@@ -8,14 +8,14 @@ import { isContractTimelineRow } from "../../../bridge/daemon/timeline-row-contr
 import { type ConsoleSessionEvent } from "../../../store/index.js";
 // Deeply, and not through `structure/index.ts`: this is the only consumer outside
 // that directory and it is a test, so a door line for it would be a door widened for
-// testing — which is what `apps/desktop/AGENTS.md` §Module shape rejects.
+// testing, which this package rejects.
 import { deriveSupersededBands } from "../../structure/seams/superseded-bands.js";
 import { projectFixtureShellRows } from "./fixture-shell-projection.js";
 
 const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";
 const RUN_ONE = "019b793b-7b60-740e-8110-d1a4c1150111";
 const RUN_TWO = "019b793b-7b60-740e-8120-d1a4c1150112";
-const PARTICIPANT = "019b793b-7b60-79a4-8110-cca0117a0410";
+const USER = "019b793b-7b60-79a4-8110-cca0117a0410";
 
 function event(
   overrides: Partial<ConsoleSessionEvent> & { readonly sequence: number },
@@ -41,7 +41,7 @@ function rollbackEvent(
   return event({
     sequence,
     kind: "run.rolled_back",
-    actorId: PARTICIPANT,
+    actorId: USER,
     payload: { sessionId: SESSION_ID, runId, runVersion: sequence, targetPosition },
   });
 }
@@ -100,7 +100,7 @@ describe("the fixture shell's row projection", () => {
       event({
         sequence: 2,
         kind: "run.rolled_back",
-        actorId: PARTICIPANT,
+        actorId: USER,
         payload: { sessionId: SESSION_ID, runId: RUN_ONE, runVersion: 6, targetPosition: 0 },
       }),
       runEvent(3, RUN_ONE),
@@ -256,7 +256,7 @@ describe("which payload member names a row's run", () => {
     return event({
       sequence,
       kind: "intervention.applied",
-      actorId: PARTICIPANT,
+      actorId: USER,
       payload: {
         sessionId: SESSION_ID,
         type: "interrupt",

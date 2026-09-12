@@ -1,8 +1,8 @@
 // One bound's row: its name, its ceiling, what this window measures, and why the
 // ceiling is where it is.
 //
-// A module of its own because `apps/desktop/AGENTS.md` §Module shape holds every `.tsx`
-// to one component. Not exported through the family door — it is the meter's own
+// A module of its own because this package holds every `.tsx` to one component. Not
+// exported through the family door — it is the meter's own
 // composition, and a bound row rendered outside that table would be a ceiling
 // reported with no ledger around it.
 

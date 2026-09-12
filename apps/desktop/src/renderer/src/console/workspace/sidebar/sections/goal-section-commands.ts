@@ -1,22 +1,21 @@
 // The goal section's one act, contributed to the command palette.
 //
-// `Spec-023 §Console Design (Meridian)` requires every operator action to be
-// palette-reachable, and this section offers exactly one: open the surface the goal
-// lives on. The sidebar's own `Enter` command is a different act — it expands the
-// section under the DOM-free cursor, on a registry scoped to the sidebar element —
-// so a person who never puts focus in the sidebar can reach neither it nor this
-// section's control without a pointer.
+// Every operator action is palette-reachable, and this section offers exactly one:
+// open the surface the goal lives on. The sidebar's own `Enter` command is a different
+// act — it expands the section under the DOM-free cursor, on a registry scoped to the
+// sidebar element — so a person who never puts focus in the sidebar can reach neither
+// it nor this section's control without a pointer.
 //
 // IT IS NAVIGATION AND SAYS SO. The section states the goal and never edits it: the
 // editor, the draft, the validation, and both mutations live on the approvals
-// surface's goal card, and whether this window's participant may use them is that
+// surface's goal card, and whether this window's user may use them is that
 // card's own resolved authorization. So this act promises a destination rather than
 // a mutation — and the row and the button carry ONE string, so the palette cannot
 // end up calling one act by a second name.
 //
 // WHY THE ROW IS NOT GATED ON THE GOAL AUTHORIZATION. Gating navigation on a role
 // would mean reading the caller's identity here as well, which is a second read of a
-// fact that already has one reader, and it would hide the goal itself from a viewer
+// fact that already has one reader, and it would hide the goal itself from a caller
 // who is entitled to see it. The honest fix for "the control advertised an edit the
 // destination may refuse" is the copy, not a gate: nothing here claims a mutation, so
 // there is nothing for a read-only role to be denied.
@@ -38,7 +37,7 @@ export const GOAL_SECTION_COMMAND_ID = "sidebar.openSessionGoal";
  *
  * Neutral about what happens next on purpose: the destination offers the editor to
  * the roles the goal contract admits and states the goal to everyone else, and a
- * label that promised "Set a goal" to a viewer would be advertising an act the
+ * label that promised "Set a goal" to a caller it does not admit would advertise an act the
  * surface it opens will not offer them.
  */
 export const GOAL_SECTION_ACTION_LABEL = "Open the goal in approvals";

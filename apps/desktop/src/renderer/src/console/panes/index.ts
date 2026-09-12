@@ -17,16 +17,14 @@
 // A family exports `register<Family>Panes(registry: ConsolePaneRegistry, …): void`
 // from its own family door — `<family>/index.ts`, the same door `console/families.ts`
 // calls for its surfaces — claims its pane kinds inside that function, and replaces
-// its own placeholder line below with the import and the call. The task marker rides
-// the call rather than being dropped with the comment, so a filled seat is still a
-// seat and the board reads the same whether a family has landed or not. Each line
-// names the kinds it claims, so a reviewer can read the whole deck off this file.
-// A filled seat is therefore one or more `register<X>(<boards>); // T-023p-1C-<n>
-// <word…>` lines carrying that seat's task id and no other, every one of them marked.
-// `<boards>` is the comma-separated NAMES of the registries the seat writes into, and
-// on this board that is always the one this function was handed; the family board
-// hands out five, which is why the shape admits a list rather than the single
-// parameter this file happens to have.
+// its own placeholder line below with the import and the call. Each line names the
+// kinds it claims, so a reviewer can read the whole deck off this file. A filled seat
+// is therefore one or more `register<X>(<boards>); // <kind…>` lines, every one of
+// them naming the kinds that call claims and no others. `<boards>` is the
+// comma-separated NAMES of the registries the seat writes into, and on this board that
+// is always the one this function was handed; the family board hands out five, which
+// is why the shape admits a list rather than the single parameter this file happens to
+// have.
 //
 // THE BODY IS THE FAMILY'S, AND THIS DIRECTORY IS FLAT. A pane body renders one
 // family's vocabulary, so it lives in that family — `agents/agent-console/` for the
@@ -70,9 +68,9 @@
 // WHAT A FAMILY DOES NOT DO
 //
 // A family never edits `seats/pane/pane-registry.ts` or `seats/pane/pane-kinds.ts`. The
-// pane-kind set is closed by `Spec-023 §Console Design (Meridian)` and widening it
-// is a spec amendment, not a console change; the registry is a shared spine, and a
-// six-way concurrent edit to one is a guaranteed conflict — or worse, a merge that
+// pane-kind set is closed by design and widening it is a decision taken outside this
+// package, not a console change; the registry is a shared spine, and a six-way
+// concurrent edit to one is a guaranteed conflict — or worse, a merge that
 // resolves cleanly while silently dropping one family's registration.
 //
 // ORDER IS THE SEAT BOARD'S ORDER, NOT PREFERENCE
@@ -107,13 +105,13 @@ import { registerWorkflowPanes } from "../workflows/index.js";
  * second code path.
  */
 export function registerConsolePanes(registry: ConsolePaneRegistry): void {
-  registerLedgerPanes(registry); // T-023p-1C-2 timeline
-  registerRunsPane(registry); // T-023p-1C-3 runs
-  registerApprovalsPane(registry); // T-023p-1C-3 approvals
-  registerInspectorPane(registry); // T-023p-1C-3 inspector
-  registerAgentConsolePane(registry); // T-023p-1C-4 agent-console
-  registerReposPanes(registry); // T-023p-1C-5 diff artifact
-  registerWorkflowPanes(registry); // T-023p-1C-6 workflow-run workflow-builder
-  registerBrowserPanes(registry); // T-023p-1C-7 browser
-  registerTerminalPanes(registry); // T-023p-1C-7 terminal
+  registerLedgerPanes(registry); // timeline
+  registerRunsPane(registry); // runs
+  registerApprovalsPane(registry); // approvals
+  registerInspectorPane(registry); // inspector
+  registerAgentConsolePane(registry); // agent-console
+  registerReposPanes(registry); // diff artifact
+  registerWorkflowPanes(registry); // workflow-run workflow-builder
+  registerBrowserPanes(registry); // browser
+  registerTerminalPanes(registry); // terminal
 }

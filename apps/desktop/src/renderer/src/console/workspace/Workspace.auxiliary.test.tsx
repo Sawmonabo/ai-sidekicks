@@ -180,10 +180,10 @@ describe("Workspace — a pane moved into a window of its own", () => {
   }
 
   it("brings the pane back with the crash in its error slot when its window is lost", async () => {
-    // `Spec-023 §The surface set`: "a crashed auxiliary window returns the pane to the
-    // deck with the crash noted in the pane's error slot". The return happened; the
-    // note did not — the reason reached the drain loop and was dropped there, so the
-    // pane reappeared saying nothing about why.
+    // A crashed auxiliary window returns the pane to the deck with the crash noted
+    // in the pane's error slot. The return happened; the note did not — the reason
+    // reached the drain loop and was dropped there, so the pane reappeared saying
+    // nothing about why.
     const store = memoryStore();
     const session: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
     const { container } = render(

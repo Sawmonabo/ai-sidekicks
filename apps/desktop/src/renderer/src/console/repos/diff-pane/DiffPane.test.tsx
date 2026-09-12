@@ -5,8 +5,8 @@
 // its whole trail and the entity it is a view of arrives wire-verbatim. Two of the five
 // subjects a diff pane opens over can be keyed by the create wire and three cannot, so
 // a control is offered over exactly those two. And an unasked question renders as
-// `not-checked` and never as `empty` — `Spec-023 §Meridian, the design language` rule 8
-// — because `empty` is the console asserting that a workspace has no changes. A pane
+// `not-checked` and never as `empty`, because `empty` is the console asserting that a
+// workspace has no changes. A pane
 // that regressed into `empty` would look identical to a reviewer and would be stating a
 // fact nobody established.
 //
@@ -158,7 +158,7 @@ describe("diff pane — the absence it renders", () => {
       WORKSPACE_ENTITY,
       REPO_ENTITY,
       { kind: "worktree", id: "worktree-1" } as const,
-      { kind: "participant", id: "participant-1" } as const,
+      { kind: "user", id: "user-1" } as const,
     ]) {
       const { container } = render(<DiffPane context={diffPaneContextFor(entity)} />);
       expect(container.querySelector(".meridian-nothing")?.textContent, entity.kind).not.toBe("");

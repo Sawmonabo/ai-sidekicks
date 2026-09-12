@@ -3,22 +3,20 @@
 // MOST FIGURES ON A CONSOLE SURFACE ARE AGES, and an age is only ever wrong by how
 // long ago the surface read. A DEADLINE is not: crossing it changes what the row
 // SAYS — a clone goes from "scheduled for disposal" to "past its disposal time, and
-// the snapshot refs may already be gone", an invite from live to expired, a lease
-// from held to lapsed. A surface rendering against the instant of its last read
+// the snapshot refs may already be gone", a lease from held to lapsed. A surface rendering against the instant of its last read
 // therefore keeps the pre-deadline sentence for as long as the window stays open,
 // which is exactly the state a person leaves a session in.
 //
-// AND THE FIX IS NOT A POLL. `Spec-023 §Console Design (Meridian)`'s "No interval
-// polling" rule and the idle-CPU budget behind it both hold, so this arms ONE
-// timeout at a time, for the earliest deadline still ahead, and re-arms from inside
-// its own tick: a chain of single shots that stops on its own the moment nothing is
-// outstanding. A deadline further out than a platform timer can hold is walked in
-// steps of that ceiling rather than armed for in one go — see
-// `MAXIMUM_TIMEOUT_MILLISECONDS`, where a single unclamped arm fires immediately and
-// forever. Nothing is read when it fires — it publishes an INSTANT — which is
-// why this is not a refresh and does not belong to `read/refresh-scheduler.ts`. That
-// module decides when to ask the daemon again; this one decides nothing at all
-// except what time it is for the rows already in hand.
+// AND THE FIX IS NOT A POLL. The no-interval-polling rule and the idle-CPU budget
+// behind it both hold, so this arms ONE timeout at a time, for the earliest deadline
+// still ahead, and re-arms from inside its own tick: a chain of single shots that stops
+// on its own the moment nothing is outstanding. A deadline further out than a platform
+// timer can hold is walked in steps of that ceiling rather than armed for in one go —
+// see `MAXIMUM_TIMEOUT_MILLISECONDS`, where a single unclamped arm fires immediately
+// and forever. Nothing is read when it fires — it publishes an INSTANT — which is why
+// this is not a refresh and does not belong to `read/refresh-scheduler.ts`. That module
+// decides when to ask the daemon again; this one decides nothing at all except what
+// time it is for the rows already in hand.
 //
 // THE DEPENDENCY IS THE DEADLINE, NOT THE ARRAY. Every family that wrote this by
 // hand keyed its effect on the record array, so a caller that rebuilt the array each
@@ -60,7 +58,7 @@ import { useSubjectScopedState } from "./subject-scoped-state.js";
  * comment is indistinguishable from a call.
  *
  * A deadline more than about 24.8 days out is ordinary here — a clone scheduled for
- * disposal in two months, an invitation good for a quarter — so an unclamped delay
+ * disposal in two months, a lease held for a quarter — so an unclamped delay
  * would publish that far-future instant immediately and render every row in the list
  * past its deadline, permanently: with the instant beyond every threshold, nothing
  * is outstanding and nothing re-arms.

@@ -34,25 +34,25 @@ export function StoredPreferences(props: {
         kind="not-checked"
         placement="surface"
         title="Your preferences have not been read yet."
-        detail="Reading them starts with knowing which participant you are, and this window has opened no session to resolve one from. Nothing was asked — so nothing here is a reading, and a default would look like your answer."
+        detail="Reading them starts with knowing which user you are, and this window has opened no session to resolve one from. Nothing was asked — so nothing here is a reading, and a default would look like your answer."
       />
     );
   }
-  if (binding.participantReading === undefined) {
+  if (binding.userReading === undefined) {
     return <Nothing kind="not-loaded" placement="surface" title="Finding out who you are." />;
   }
   // Two refusals, one shape. A port that answered `unavailable` and a call that
   // produced no answer at all are the same thing to a person reading the page —
-  // nothing was asked of the preference store and no participant was guessed to ask
+  // nothing was asked of the preference store and no user was guessed to ask
   // with — and they stay apart in the value because only one is the port speaking.
-  if (binding.participantReading.kind === "unreadable") {
-    return <InlineRefusal {...binding.participantReading.refusal} />;
+  if (binding.userReading.kind === "unreadable") {
+    return <InlineRefusal {...binding.userReading.refusal} />;
   }
-  if (binding.participantReading.outcome.status === "unavailable") {
+  if (binding.userReading.outcome.status === "unavailable") {
     return (
       <InlineRefusal
-        code={binding.participantReading.outcome.code}
-        detail={binding.participantReading.outcome.detail}
+        code={binding.userReading.outcome.code}
+        detail={binding.userReading.outcome.detail}
       />
     );
   }

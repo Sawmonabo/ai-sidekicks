@@ -1,8 +1,8 @@
-// The console budget registry — Plan-023 Phase 1C (T-023p-1C-1).
+// The console budget registry.
 //
 // The QUERY surface over `test/console/budget/budgets.json`, the one place every
-// numeric budget in `Spec-023 §Console Design (Meridian)` §Budgets is written
-// down. Load it, then ask it things: which rows the spec's table owns, which the
+// numeric budget the console is gated on is written down. Load it, then ask it
+// things: which rows are the console's own product budgets, which the
 // scaffolding applies to itself, which are enforced, and what one row's canonical
 // figure is.
 //
@@ -61,7 +61,6 @@ export const DEFAULT_BUDGETS_FILE_PATH: string = path.join(
 export class ConsoleBudgetRegistry {
   readonly budgetsFilePath: string;
   readonly schemaVersion: number;
-  readonly source: string;
   /**
    * Why the `harness` rows carry the figures they do, stated once for the set.
    *
@@ -75,7 +74,6 @@ export class ConsoleBudgetRegistry {
   private constructor(budgetsFilePath: string, document: ConsoleBudgetDocument) {
     this.budgetsFilePath = budgetsFilePath;
     this.schemaVersion = document.schemaVersion;
-    this.source = document.source;
     this.harnessBudgetDerivation = document.harnessBudgetDerivation;
     this.budgets = document.budgets;
   }
@@ -97,7 +95,7 @@ export class ConsoleBudgetRegistry {
     return budget;
   }
 
-  /** The rows `Spec-023 §Budgets` names — the set that table closes. */
+  /** The console's own product budgets — the set that list closes. */
   productBudgets(): readonly ConsoleBudget[] {
     return this.budgets.filter((budget) => budget.scope === "product");
   }

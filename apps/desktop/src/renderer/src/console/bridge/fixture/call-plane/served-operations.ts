@@ -31,7 +31,7 @@
 // served absence here would be a shape no daemon can send, which is the one thing a
 // fixture must not script. The refusal is the same "not checked" the live bridge
 // takes, which is the honest reading of a script that has not said — the
-// `callerParticipantRead` posture below, for the same reason.
+// `callerUserRead` posture below, for the same reason.
 //
 // The corpus premise behind that: two things would have to be true for a scenario to
 // derive a branch context from its beats rather than script one, and neither is:
@@ -56,8 +56,8 @@
 // PREPARATION is not an absence a surface has to draw: a proposal was either assembled
 // or it was not, so there is no "we asked and there is none" state here for the served
 // arm to answer with, and the port would have to mint a `prPreparationId` and a
-// `proposalBlob` out of nothing. `Spec-011 §Required Behavior` puts the
-// review before any remote mutation, which is the last of it — a fixture that answered
+// `proposalBlob` out of nothing. The review comes before any remote mutation, which
+// is the last of it — a fixture that answered
 // would be standing in for the review rather than for the wire.
 //
 // The finder pins that too, from the same side it pins the branch premise: no scenario
@@ -88,7 +88,7 @@
 // `findScenariosNaming` in `growth/growth-port.test-support.ts` pins the callback-tool
 // premise the way the
 // branch finder pins its own, and pins the identity premise from the other side: no
-// scenario states a viewer under any name but the one field the port reads.
+// scenario names the caller under any member but the one field the port reads.
 //
 // WHY THE NEGOTIATION READ IS SERVED FROM A SCRIPT AND FROM NOTHING ELSE
 //
@@ -116,7 +116,7 @@
 // a scenario cannot teach the pane a row shape the surface will not accept later.
 //
 // A scenario that scripts none of them refuses rather than serving an empty
-// projection, which is the `callerParticipantRead` disposition and not the branch
+// projection, which is the `callerUserRead` disposition and not the branch
 // read's: an empty approvals list is a claim that nothing is waiting on a decision,
 // and a scenario that models no approvals has not made it.
 //
@@ -140,7 +140,7 @@
 // WHY THE FIVE WINDOW OPERATIONS ARE SERVED WITHOUT A SCENARIO SCRIPTING ANYTHING
 //
 // They are the one plane here addressed to the SHELL rather than to the daemon — the
-// window bridge `Spec-023 §Windows` describes — and the rule above cannot be applied
+// window bridge the shell describes — and the rule above cannot be applied
 // to them as written, because a scenario carries no windows and never will. For a
 // shell-addressed operation the fixture IS the shell, so the answers come from a real
 // model of one that `../shell/auxiliary-windows.ts` holds per bridge, and every one of
@@ -181,7 +181,7 @@
 // and no bridge member carries the fact, so the read is the growth port's.
 //
 // It is served here so a scenario can put the centre in that arm, and it REFUSES for
-// a scenario that scripts nothing, which is `callerParticipantRead`'s disposition
+// a scenario that scripts nothing, which is `callerUserRead`'s disposition
 // rather than an empty answer: a permission has no empty form. "Nobody asked"
 // is a true statement about a script that has not said, and answering `granted`
 // would be the fixture promising a notification nothing in the console can deliver.
@@ -239,8 +239,8 @@
 // No scenario carries a goal — no `session.goal_updated` beat, no scripted reply, and
 // `ConsoleScenario` has no field for one — so there is nothing to answer from, and a
 // mutation the fixture pretended to accept would leave the card waiting for a
-// projection event the log will never grow. The refusal names Plan-016, which is the
-// true state of that wire.
+// projection event the log will never grow. The refusal names the owning surface,
+// which is the true state of that wire.
 
 // AND EVERY PLANE WITH A MODULE STATES ITS OWN MEMBERSHIP, in the module that
 // implements it — read the import list below for the residents rather than a count
@@ -254,8 +254,8 @@
 
 import { FIXTURE_SERVED_APPROVAL_OPERATION_IDS } from "../growth/approval-answers.js";
 import { FIXTURE_SERVED_ATTACHMENT_INGEST_OPERATION_IDS } from "../growth/attachment-ingest.js";
-import { FIXTURE_SERVED_COLLABORATION_OPERATION_IDS } from "../collaboration/collaboration-reads.js";
-import { FIXTURE_SERVED_SESSION_OPERATION_IDS } from "../collaboration/session-answers.js";
+import { FIXTURE_SERVED_CHANNEL_OPERATION_IDS } from "../session/channel-reads.js";
+import { FIXTURE_SERVED_SESSION_OPERATION_IDS } from "../session/session-answers.js";
 import { FIXTURE_SERVED_DIAGNOSTICS_OPERATION_IDS } from "../settings/diagnostics-reads.js";
 import { FIXTURE_SERVED_MCP_OPERATION_IDS } from "../settings/mcp-governance.js";
 import { FIXTURE_SERVED_ONBOARDING_OPERATION_IDS } from "../settings/onboarding-answers.js";
@@ -301,7 +301,7 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "terminalAcquireWriteLease",
   "terminalReleaseWriteLease",
   "workspaceExecutionContextRead",
-  ...typeof FIXTURE_SERVED_COLLABORATION_OPERATION_IDS,
+  ...typeof FIXTURE_SERVED_CHANNEL_OPERATION_IDS,
   ...typeof FIXTURE_SERVED_PRESENCE_OPERATION_IDS,
   "providerSessionImportBegin",
   "providerSessionImportSubscribe",
@@ -313,9 +313,9 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   ...typeof FIXTURE_SERVED_ATTACHMENT_INGEST_OPERATION_IDS,
   ...typeof FIXTURE_SERVED_RUN_RECORD_OPERATION_IDS,
 ] = [
-  // sessions — the two the console cannot function without and the viewer that resolves
+  // sessions — the two the console cannot function without and the caller that resolves
   // a role against them, taken from the module that implements them so the ids and the
-  // handlers cannot disagree. `collaboration/session-answers.ts` carries the reasoning.
+  // handlers cannot disagree. `session/session-answers.ts` carries the reasoning.
   ...FIXTURE_SERVED_SESSION_OPERATION_IDS,
   // The header's own identity read, derived from the same scripted reply the base
   // state is. The health read the same header renders is the diagnostics plane's
@@ -325,7 +325,7 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // that performed the handshake — scripted for the reason above, since a fixture that
   // answered it would be asserting which two builds met.
   "daemonNegotiationRead",
-  // The accountant's committed figure, which the cast bar's all-clear line renders and
+  // The accountant's committed figure, which the session header's all-clear line renders and
   // is forbidden to compute. Scripted, never derived: an unscripted zero would be a
   // claim about a session's spend rather than an absence.
   "orchestrationBudgetRead",
@@ -379,8 +379,8 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // channels — the four lifecycle verbs, the one user's per-device presence, and the
   // terminal-control holder, taken from the module that implements them so the ids and
   // the handlers cannot disagree. Every one is script-only, and
-  // `collaboration/collaboration-reads.ts` carries the reasoning for each.
-  ...FIXTURE_SERVED_COLLABORATION_OPERATION_IDS,
+  // `session/channel-reads.ts` carries the reasoning for each.
+  ...FIXTURE_SERVED_CHANNEL_OPERATION_IDS,
   // presence — the activity read and the node's own control-plane host, from the same
   // kind of module. The composer's two writes are deliberately absent, and
   // `shell/presence-answers.ts` says why.

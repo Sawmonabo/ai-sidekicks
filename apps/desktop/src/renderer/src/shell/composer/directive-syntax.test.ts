@@ -27,7 +27,7 @@ describe("readDirectiveName", () => {
 
   it("negative control: an indented line is prose, so it names nothing", () => {
     // The grammar used to trim the line first, which made this "compact". It cannot,
-    // because the router now hands over the participant's text untouched: pasted
+    // because the router now hands over the user's text untouched: pasted
     // code whose first non-blank character is a slash would otherwise be claimed as
     // a command. A command occupies its line from the first byte.
     expect(readDirectiveName("  /compact")).toBeUndefined();

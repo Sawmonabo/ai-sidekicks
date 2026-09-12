@@ -4,8 +4,8 @@
 // WHY THIS PAGE EXISTS AND THE OTHER TWO ARE BLOCKS
 //
 // The design enumerates the settings sections and neither `updates` nor
-// `crash-reporting` is one of them, while its own §Application updates and §Crash
-// reporting sections are each one row plus a line ("One row plus its state line";
+// `crash-reporting` is one of them, while the application-update and crash-reporting
+// rules are each one row plus a line ("One row plus its state line";
 // "One row, copy inline, no disclosure"). Two rows about the application itself are
 // one page, so this module claims the `application` section and composes them.
 // Splitting them into two registrations would need two ids the design does not name
@@ -27,7 +27,7 @@ import { UpdatesBlock } from "./updates/UpdatesBlock.js";
 import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
-const OWNER = "collaboration-settings-application";
+const OWNER = "settings-application";
 
 export function ApplicationPage(props: { readonly context: SettingsPageContext }): ReactNode {
   const { bridge, retainedSessionStore } = props.context;

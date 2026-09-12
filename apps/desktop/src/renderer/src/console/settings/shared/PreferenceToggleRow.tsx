@@ -2,12 +2,12 @@
 //
 // Every settings toggle in this console renders the same four regions — a label, a
 // sentence saying what the setting governs, the control, and whatever the carrier
-// had to say about the last attempt. Three pages need it, so it is written once
-// (`apps/desktop/AGENTS.md` hoists on the second use) and each page supplies text.
+// had to say about the last attempt. Three pages need it, so it is written once — a
+// shared helper is hoisted on the second use — and each page supplies text.
 //
 // THE CONTROL IS `@base-ui/react`'s SWITCH, not a bare checkbox and not our own.
-// `Spec-023 §Console Libraries` adopts that package as the console's one widget
-// family; it renders a `<span>` plus a hidden `<input>`, so the row associates a
+// That package is the console's one adopted widget family; it renders a `<span>` plus
+// a hidden `<input>`, so the row associates a
 // real `<label>` with the input's id and the switch is reachable by keyboard,
 // labelled, and focus-visible without this file re-deriving any of it.
 //

@@ -53,7 +53,7 @@
 // one `carriedKinds.add(…)` anywhere in the process would have re-routed EVERY
 // fixture subscription in that renderer for the rest of its life, and no compiler
 // and no test would have said so. Module-level mutable singletons are rejected
-// outright by `apps/desktop/AGENTS.md` §State and views for exactly that reason.
+// outright by this package's state rules for exactly that reason.
 //
 // The replacement is immutable record membership rather than an encapsulated class
 // with private fields, and the choice is not stylistic. A class exists to own
@@ -118,9 +118,9 @@ export type RunStateStreamArm = "state-change" | "rollback";
 /**
  * The run's initial state.
  *
- * `docs/domain/run-state-machine.md` calls `queued` the state a run is CREATED in,
- * and its §Complete Transition Table — the single authoritative reference — names
- * `queued` in the `From` column of three rows and in the `To` column of none. So no
+ * The run state machine calls `queued` the state a run is CREATED in, and its
+ * complete transition table — the single authoritative reference — names `queued` in
+ * the `From` column of three rows and in the `To` column of none. So no
  * transition ends in `queued`, and `RunStateChangeEvent` requires a `previousState`:
  * there is no registered state a run could have come from to reach it, and no
  * pre-birth member of the vocabulary to invent one out of.

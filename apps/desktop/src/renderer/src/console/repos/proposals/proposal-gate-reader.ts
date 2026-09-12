@@ -10,20 +10,19 @@
 // THE ACTS ARE NEXT DOOR, AND THIS CLASS IS THEIR HOST. `requestAction` delegates to
 // `ProposalGateActions`, which is handed the seven operations `ProposalGateActionHost`
 // names and nothing else: the standing reading, the served context, the caller's own
-// participant id, the publish, the two writes to the held proposal, and the refresh an
+// user id, the publish, the two writes to the held proposal, and the refresh an
 // accepted act asks for. So an act cannot start a read and this class cannot decide
 // what an act sends.
 //
-// THE CALLER-IDENTITY READ IS `caller-participant-attribution.ts`, HELD HERE. An act carries
-// the participant who pressed it as the registered request's `causationParticipantId`,
+// THE CALLER-IDENTITY READ IS `caller-user-attribution.ts`, HELD HERE. An act carries
+// the user who pressed it as the registered request's `causationUserId`,
 // which is a read — but a lazy, unscheduled, unpublished one, so it is that module's and
 // this class holds one of them and hands its answer through the act seam.
 //
 // EVERY READ GOES THROUGH THE CONSOLE'S ONE SCHEDULER, AND EVERY REASON THROUGH ONE
-// TRIGGER CLASS. `Spec-023 §Rules every console surface obeys` fixes the policy —
-// "Reads happen on subscribe, on window focus, on reconnect, and on the terminal events
-// the owning spec names", under "No interval polling" — so this class arms no timer of
-// its own and owns no listener of
+// TRIGGER CLASS. The policy is fixed — reads happen on subscribe, on window focus, on
+// reconnect, and on the terminal events the owning surface names, and never on an
+// interval — so this class arms no timer of its own and owns no listener of
 // its own either: it hands itself to a `SessionRefreshTriggers` exactly as
 // `repos/mounts/repo-mounts-reader.ts` does, which is what makes all four reasons reach
 // a gate rather than only window focus. A daemon that reconnected, or a `workspace.stale`
@@ -44,8 +43,8 @@
 //
 // ALL THREE OPERATIONS ARE GROWTH-PORT OPERATIONS, AND ALL THREE ARE UNREGISTERED.
 // `bridge/growth-signatures/gitflow.ts` carries the branch-context read, the preparation
-// call, and the git action under one `gitflow-actions` slate row that `Spec-011`
-// owns, and the live bridge refuses each of them by name. So the ordinary arm on a
+// call, and the git action under one `gitflow-actions` slate row, and the live bridge
+// refuses each of them by name. So the ordinary arm on a
 // release build is `not-checked` carrying the port's own sentence — never an empty
 // gate, and never a gate that looks prepared because nothing came back.
 //
@@ -79,7 +78,7 @@
 // sentence the producing side wrote.
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { CallerParticipantAttribution } from "./caller-participant-attribution.js";
+import { CallerUserAttribution } from "./caller-user-attribution.js";
 import { Emitter, refuse, type ConsoleClock, type Unsubscribe } from "../../core/index.js";
 import {
   RefreshScheduler,
@@ -155,7 +154,7 @@ export class ProposalGateReader implements ReadTriggerTarget {
   readonly #scheduler: RefreshScheduler;
   readonly #triggers: SessionRefreshTriggers;
   readonly #actions: ProposalGateActions;
-  readonly #callerParticipant: CallerParticipantAttribution;
+  readonly #callerUser: CallerUserAttribution;
   readonly #changes = new Emitter<ProposalGateReading>("proposal gate reading");
 
   #reading: ProposalGateReading = NOTHING_ASKED_GATE_READING;
@@ -212,7 +211,7 @@ export class ProposalGateReader implements ReadTriggerTarget {
       target: this,
       sessionStore: options.sessionStore,
     });
-    this.#callerParticipant = new CallerParticipantAttribution({
+    this.#callerUser = new CallerUserAttribution({
       bridge: options.bridge,
       sessionId: options.sessionStore.sessionId,
     });
@@ -341,7 +340,7 @@ export class ProposalGateReader implements ReadTriggerTarget {
     return {
       currentReading: () => this.#reading,
       servedContext: () => this.#context,
-      callerParticipantId: async () => await this.#callerParticipant.read(),
+      callerUserId: async () => await this.#callerUser.read(),
       publish: (reading: ProposalGateReading) => {
         this.#publish(reading);
       },

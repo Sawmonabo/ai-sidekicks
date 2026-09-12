@@ -103,7 +103,7 @@ describe("a plan-owned slot's mount", () => {
     expect(container.textContent).toContain("held ses-slot-mount");
   });
 
-  it("renders none of the seat's governance prose, on either arm", () => {
+  it("renders none of the seat's ownership prose, on either arm", () => {
     const seatless = render(
       <WorkflowSlotMount
         contract={WORKFLOW_CHAT_START_SLOT}

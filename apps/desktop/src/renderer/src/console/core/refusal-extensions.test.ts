@@ -38,7 +38,7 @@ function growthRefusal(): ConsoleRefusal & Record<string, unknown> {
     status: "unavailable",
     operationId: "sessionSearch",
     slateRow: "session-search",
-    owningDocument: "Spec-016",
+    owningDocument: "session channels",
   };
 }
 
@@ -60,7 +60,7 @@ describe("refusal extensions — the registry is the set, and it is closed", () 
     expect(readRefusalExtensions(growthRefusal())).toStrictEqual({
       operationId: "sessionSearch",
       slateRow: "session-search",
-      owningDocument: "Spec-016",
+      owningDocument: "session channels",
     });
   });
 
@@ -84,7 +84,7 @@ describe("refusal extensions — the registry is the set, and it is closed", () 
   });
 
   it("reads the failed bindings a goal-delivery refusal names", () => {
-    // `error-contracts.md §Session` puts these on `data.fields` for
+    // `error-contracts.md` puts these on `data.fields` for
     // `session.goal_delivery_failed`, and the goal card names them beside the remedy.
     expect(readRefusalExtensions({ failedBindingIds: ["binding-a", "binding-b"] })).toStrictEqual({
       failedBindingIds: ["binding-a", "binding-b"],
@@ -108,8 +108,8 @@ describe("refusal extensions — the registry is the set, and it is closed", () 
   });
 
   it("reads the referencing manifests a blocked delete names, list and total together", () => {
-    // `error-contracts.md §Artifact` puts both on the `artifact.delete_blocked`
-    // details shape, and the panel names the derivatives beside the remedy.
+    // `error-contracts.md` puts both on the `artifact.delete_blocked` details shape,
+    // and the panel names the derivatives beside the remedy.
     expect(
       readRefusalExtensions({
         referencingArtifacts: { ids: ["artifact-02", "artifact-03"], total: 51 },
@@ -164,11 +164,11 @@ describe("refusal extensions — a rebuild carries the registered set and nothin
   it("carries a growth refusal's ledger through the normalizer", () => {
     // The defect in terms: this used to answer the three core members and drop the
     // rest, so a surface rendering the refusal could not say who owes the wire.
-    const normalized = normalizeWireRejection("collaboration", growthRefusal());
+    const normalized = normalizeWireRejection("channels", growthRefusal());
 
     expect(normalized.operationId).toBe("sessionSearch");
     expect(normalized.slateRow).toBe("session-search");
-    expect(normalized.owningDocument).toBe("Spec-016");
+    expect(normalized.owningDocument).toBe("session channels");
     expect(normalized.code).toBe("wire-unregistered");
     expect(normalized.origin).toBe("growth-port");
   });
@@ -176,20 +176,17 @@ describe("refusal extensions — a rebuild carries the registered set and nothin
   it("carries it through an error the refusal was thrown as, too", () => {
     // The path the seat actually takes: a growth outcome raised as a throw so a read
     // body can settle into its failure arm.
-    const carried = normalizeWireRejection(
-      "collaboration",
-      new ConsoleRefusalError(growthRefusal()),
-    );
+    const carried = normalizeWireRejection("channels", new ConsoleRefusalError(growthRefusal()));
 
     expect(carried.operationId).toBe("sessionSearch");
-    expect(carried.owningDocument).toBe("Spec-016");
+    expect(carried.owningDocument).toBe("session channels");
   });
 
   it("drops the union discriminant, so a rebuilt refusal never claims to be an arm", () => {
     // `status` is deliberately unregistered: carried off an unvalidated candidate it
     // would let a rejection spelling `status: "served"` answer as the arm it is not,
     // and the next reader would go looking for the value that arm carries.
-    const normalized = normalizeWireRejection("collaboration", growthRefusal());
+    const normalized = normalizeWireRejection("channels", growthRefusal());
 
     expect(Object.hasOwn(normalized, "status")).toBe(false);
     // Both paths, because the ledger travels on both and so would the discriminant.
@@ -221,13 +218,13 @@ describe("refusal extensions — a rebuild carries the registered set and nothin
       origin: ["growth-port"],
       operationId: ["sessionSearch"],
       slateRow: ["session-search"],
-      owningDocument: ["Spec-016"],
+      owningDocument: ["session channels"],
     });
 
-    const normalized = normalizeWireRejection("collaboration", readOnce);
+    const normalized = normalizeWireRejection("channels", readOnce);
 
     expect(normalized.operationId).toBe("sessionSearch");
-    expect(normalized.owningDocument).toBe("Spec-016");
+    expect(normalized.owningDocument).toBe("session channels");
     // And the answer survives being read again, which the candidate would not.
     expect(normalized.operationId).toBe("sessionSearch");
   });

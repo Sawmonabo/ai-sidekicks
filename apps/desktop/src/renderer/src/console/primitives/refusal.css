@@ -12,8 +12,8 @@
  * `console/tokens/palette.ts` and carries only VALUES; this carries only COMPOSITION
  * and reads every value back out as a custom property.
  *
- * `Spec-023 §Console Design (Meridian)` rules that govern this sheet: rule 9 (the code
- * in mono, the message verbatim) and rule 3's red.
+ * Design-language rules that govern this sheet: rule 9 (the code in mono, the message
+ * verbatim) and rule 3's red.
  */
 
 .meridian-refusal__message {

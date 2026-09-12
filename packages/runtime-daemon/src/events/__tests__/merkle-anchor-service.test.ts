@@ -1,11 +1,11 @@
-// Contract coverage for `MerkleAnchorService` — SERVICE behaviour only
-// (Plan-006 T3.3).
+// Contract coverage for `MerkleAnchorService` — SERVICE behaviour
+// only.
 //
 // TWO SIBLING FILES ALREADY OWN THE OTHER HALVES and are deliberately not
 // repeated here: `merkle-root.test.ts` pins the pure `computeMerkleRoot`
-// conformance (RFC 9162 §2.1.1 Merkle Tree Hash), and
+// conformance (RFC 9162 section 2.1.1 Merkle Tree Hash), and
 // `daemon-credential-provider.test.ts` pins the DPoP guard and the transport's
-// RFC 9449 §4.3 htm/htu agreement. What is left — and what this file is for — is
+// RFC 9449 section 4.3 htm/htu agreement. What is left — and what this file is for — is
 // everything that depends on the QUEUE and the CLOCK:
 //
 //   * the earlier-of cadence rule (1000 rows OR 300 seconds since the window's
@@ -28,10 +28,6 @@
 // also pins `anchorsUnreadable: 0` — a bucket that only ever increments on the
 // one row class the drain cannot record durably.
 //
-// Spec coverage: `Spec-006 §Anchoring Cadence` (the earlier-of rule and the
-// seven-member anchor), `Spec-006 §Post-Compaction Integrity` (the coverage
-// query), `Spec-006 §Daemon-Scope Event Binding And Node-Scope Anchoring` (the
-// sentinel the drain excludes). Refs: Plan-006 T3.3, T3.5, I-006-3-02.
 
 import { ed25519 } from "@noble/curves/ed25519.js";
 import type { Database as DatabaseType } from "better-sqlite3";
@@ -127,7 +123,7 @@ function seedEvents(count: number, sessionId: SessionId = SESSION): void {
     `INSERT INTO session_events
        (id, session_id, sequence, occurred_at, monotonic_ns, category, type, actor, payload,
         pii_payload, correlation_id, causation_id, version, prev_hash, row_hash,
-        daemon_signature, pii_participant_id)
+        daemon_signature, pii_user_id)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   const insertMany = database.transaction((total: number) => {
@@ -179,7 +175,7 @@ function anchorRows(): ReadonlyArray<PendingAnchorUploadRow> {
 }
 
 // ----------------------------------------------------------------------------
-// I-006-3-02 — the uploaded anchor is METADATA ONLY
+// The uploaded anchor is METADATA ONLY
 // ----------------------------------------------------------------------------
 
 describe("MerkleAnchorService — the anchor carries no event content", () => {
@@ -208,15 +204,15 @@ describe("MerkleAnchorService — the anchor carries no event content", () => {
 
     // The TYPE half, checked by the compiler rather than at runtime: a `payload`
     // member added to `AnchorPayload` would make this directive unused and fail
-    // the build. The two halves close opposite directions — a schema that
-    // stopped stripping, and an interface that started declaring.
-    // @ts-expect-error `AnchorPayload` declares no `payload` member (I-006-3-02).
+    // the build. The two halves close opposite directions — a schema that stopped
+    // stripping, and an interface that started declaring.
+    // @ts-expect-error `AnchorPayload` declares no `payload` member.
     expect(uploaded.payload).toBeUndefined();
   });
 });
 
 // ----------------------------------------------------------------------------
-// The earlier-of cadence rule — `Spec-006 §Anchoring Cadence`
+// The earlier-of cadence rule
 // ----------------------------------------------------------------------------
 
 describe("MerkleAnchorService — cadence (earlier of rows or seconds)", () => {
@@ -390,9 +386,9 @@ describe("MerkleAnchorService — anchorRange coverage pre-check", () => {
     expect(rootSignature).toHaveLength(64);
 
     // GOLDEN PIN on the preimage bytes themselves: RFC 8785 member order and
-    // spellings per `Spec-006 §Anchoring Cadence` — sequences as JSON numbers,
-    // merkleRoot in the upload wire's base64, ids as wire strings. A builder
-    // drift (member added, renamed, re-encoded) fails here byte-for-byte.
+    // spellings — sequences as JSON numbers, merkleRoot in the upload wire's
+    // base64, ids as wire strings. A builder drift (member added, renamed,
+    // re-encoded) fails here byte-for-byte.
     const claimBytes = buildAnchorClaimBytes({
       sessionId: anchor.sessionId,
       nodeId: anchor.nodeId,
@@ -409,8 +405,8 @@ describe("MerkleAnchorService — anchorRange coverage pre-check", () => {
 
     // NEGATIVE CONTROL — the pre-amendment root-only preimage MUST fail. A
     // signature that also verified over the raw root would mean the claim
-    // members are not actually inside the preimage, and the Spec-008 carried
-    // anchor's relabeling attack is back.
+    // members are not actually inside the preimage, and carried anchor's
+    // relabeling attack is back.
     expect(
       ed25519.verify(new Uint8Array(rootSignature), new Uint8Array(merkleRoot), DAEMON_PUBLIC_KEY),
     ).toBe(false);

@@ -1,7 +1,7 @@
 // How a pane drawing a native view watches the overlays it has to yield to move.
 //
-// `Spec-023 §Console Design (Meridian)` 12.3 puts the overlay set at the primitive
-// layer and the yield rule here. The set is `core/`'s airspace registry, which every
+// The overlay set lives at the primitive layer and the yield rule lives here. The set
+// is `core/`'s airspace registry, which every
 // overlay primitive registers into; this module is the half of the observation that
 // only a native-view consumer needs, and it is installed by that consumer rather than
 // standing on its own.

@@ -18,7 +18,7 @@ import {
   storeThrough,
 } from "./TerminalPane.test-support.js";
 
-describe("terminal pane — the viewer the lease fold is told about", () => {
+describe("terminal pane — the device the lease fold is told about", () => {
   /** The claim control, or `null` — which is the whole point of two of these cases. */
   function claimControl(region: HTMLElement): Element | null {
     return region.querySelector(".meridian-lease-line__claim");
@@ -35,7 +35,7 @@ describe("terminal pane — the viewer the lease fold is told about", () => {
    * whether the surface is writable and this pane's is not: the byte stream is a
    * growth-slate row, so `XtermHost` has nowhere to send a keystroke and holds the
    * surface read-only whatever the lease says. The NAME tells the two read-only
-   * states apart, which is exactly the distinction the lease's viewer decides.
+   * states apart, which is exactly the distinction the lease's device identity decides.
    */
   async function surfaceName(region: HTMLElement): Promise<string | null> {
     let name: string | null = null;
@@ -50,7 +50,7 @@ describe("terminal pane — the viewer the lease fold is told about", () => {
 
   it("reads this window's own take as its own, and offers the handback", async () => {
     // The scenario's first transition is a `taken`. Told that this window is the
-    // participant it named, the fold answers `held-by-you` — which is exactly what the
+    // user it named, the fold answers `held-by-you` — which is exactly what the
     // hard-coded `undefined` made unreachable.
     const region = renderPane(
       storeThrough(1),
@@ -71,7 +71,7 @@ describe("terminal pane — the viewer the lease fold is told about", () => {
     // one read that changed.
     const region = renderPane(
       storeThrough(1),
-      bridgeAnsweringCallerWith(TERMINAL_SCENARIO_CAST.collaborator),
+      bridgeAnsweringCallerWith(TERMINAL_SCENARIO_CAST.otherDevice),
     );
     await waitFor(() => {
       expect(claimControl(region)).not.toBeNull();

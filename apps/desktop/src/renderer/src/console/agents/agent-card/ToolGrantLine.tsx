@@ -1,9 +1,8 @@
 // The per-agent tool grant, on the card, as one line.
 //
-// `Spec-023 §Console Design (Meridian)`'s tool-governance section puts the per-agent
-// control here and the node-wide one in settings. Neither half is a control on this
-// card: a person changes the first by attaching with a different definition and the
-// second on the browser settings page.
+// The per-agent tool control belongs here and the node-wide one in settings. Neither
+// half is a control on this card: a person changes the first by attaching with a
+// different definition and the second on the browser settings page.
 //
 // WHY THIS IS ITS OWN LINE AND NOT A ROW IN THE ECHO. The echo answers "what did the
 // attach resolve to", and every axis in it is a provider axis a switch can later

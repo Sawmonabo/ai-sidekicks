@@ -131,7 +131,7 @@ export interface DriverAskReading {
  * that rejected the request, a reply the registered schema does not admit — was
  * discarded, the free-text arm cleared its draft the instant it dispatched, and an
  * option press changed nothing on screen. The run stayed blocked on an ask nobody had
- * answered and the participant was told none of it.
+ * answered and the user was told none of it.
  *
  * THE RESPONSE TRAVELS ON EVERY ARM PAST `unsent` because two arms need it: `refused`
  * is what a retry re-sends and what keeps a draft that was never delivered, and
@@ -220,7 +220,7 @@ export function askTerminalIn(
  * FIRST TERMINAL WINS. An ask settles once; a second terminal row for one ask is
  * either a duplicate delivery or a log that contradicts itself, and in both readings
  * the row that settled the ask is the first one. Taking the last would let a late
- * `canceled` overwrite the answer a participant actually gave.
+ * `canceled` overwrite the answer a user actually gave.
  *
  * AND THE KEY IS THE RUN'S AS WELL AS THE ASK'S. A provider mints its ask ids per
  * provider session, so two runs blocked at once legitimately raise `ask-1` each; keyed
@@ -279,7 +279,7 @@ export function askSettledBy(
  * causes here, silently, on a screen that then removes a blocked run's answer controls.
  *
  * WHICH MEMBERS, AND IN WHICH ORDER, IS NOT THIS FAMILY'S QUESTION. It is
- * `core/driver-ask-identity.ts`', because the cast bar keys driver asks in a fold of
+ * `core/driver-ask-identity.ts`', because the session header keys driver asks in a fold of
  * its own and a second answer there is the same defect pointing the other way. What is
  * this family's is the ENCODING, and it goes through `structuralKey` — the console's
  * one tuple-to-key encoder — rather than through a join of its own: a separator is

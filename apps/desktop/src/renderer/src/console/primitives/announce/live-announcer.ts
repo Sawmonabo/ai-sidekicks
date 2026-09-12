@@ -1,11 +1,11 @@
 // The console's one live announcer.
 //
-// `Spec-023 §Console Libraries` makes the headless primitives OWN-BUILD, and this
-// is the one every family after the substrate would otherwise re-mint: a deck drop
-// outcome, a run-state change, an attention item, a toast. Each of those minting
-// its own `aria-live` node is not a style problem — a screen reader reads live
-// regions in the order the DOM mutates them, so N regions is N speakers talking
-// over each other, and the second one to change wins for reasons nobody can see.
+// The console's headless primitives are own-built, and this is the one every family
+// after the substrate would otherwise re-mint: a deck drop outcome, a run-state change,
+// an attention item, a toast. Each of those minting its own `aria-live` node is not a
+// style problem — a screen reader reads live regions in the order the DOM mutates them,
+// so N regions is N speakers talking over each other, and the second one to change wins
+// for reasons nobody can see.
 //
 // FOUR DECISIONS, each of which is a defect if it goes the other way.
 //
@@ -33,11 +33,11 @@
 //      the lane's standing message AND its queue tail, so a repeat that arrives
 //      after the clear is a real second announcement and is spoken again.
 //
-//   4. **One armed timer, ever.** `Spec-023 §Console Design (Meridian)`'s
-//      idle-CPU budget is checked by counting armed work on the `ConsoleClock`
-//      seam, so the announcer arms at most one timeout at a time — for the earliest
-//      lane deadline — and re-arms from inside its own tick. Nothing polls, and an
-//      idle announcer holds no handle at all.
+//   4. **One armed timer, ever.** The console's idle-CPU budget is checked by
+//      counting armed work on the `ConsoleClock` seam, so the announcer arms at
+//      most one timeout at a time — for the earliest lane deadline — and re-arms
+//      from inside its own tick. Nothing polls, and an idle announcer holds no
+//      handle at all.
 
 import {
   Emitter,

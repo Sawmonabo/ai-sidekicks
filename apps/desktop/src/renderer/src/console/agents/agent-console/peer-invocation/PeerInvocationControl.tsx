@@ -42,7 +42,7 @@ export function PeerInvocationControl(props: {
   const reRead = useSessionProjectionReRead(bridge, sessionStore);
 
   // A settled reply is retired the moment the projection it was read against MOVES,
-  // and so is one still in flight. Another participant's
+  // and so is one still in flight. Another user's
   // `session.peer_invocation_set`, this session's own event landing, a reconnect
   // read — each replaces the projected row, and each is the daemon speaking more
   // recently than the reply this control is waiting on or remembering. Without it
@@ -50,7 +50,7 @@ export function PeerInvocationControl(props: {
   // reading as on, which is the one direction that matters.
   //
   // A REFUSAL IS NOT ONE OF THOSE CLAIMS, and it used to be retired with them. It is
-  // a fact about the participant's own press rather than about the projection, and
+  // a fact about the user's own press rather than about the projection, and
   // an unrelated partition event — anybody's `session.*`, the re-read control beside
   // this one — is no evidence about whether the write was refused. So the reason
   // stays until the next press replaces it, and the "was this pressed here" flag

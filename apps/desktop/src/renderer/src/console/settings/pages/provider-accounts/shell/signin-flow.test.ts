@@ -184,7 +184,7 @@ describe("readRegistrationFields", () => {
   });
 
   it("echoes no refused value back into the sentence a person reads", () => {
-    // A label is participant content. `detail` says what would change the answer.
+    // A label is user content. `detail` says what would change the answer.
     const refusal = refusalOf(readRegistrationFields(typed(" \t ")));
     expect(JSON.stringify(refusal)).not.toContain("\\t");
   });

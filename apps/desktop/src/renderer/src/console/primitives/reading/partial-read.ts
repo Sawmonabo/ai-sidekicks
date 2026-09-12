@@ -1,15 +1,15 @@
 // What a reading is, when it is not the whole of what was asked for — and the one
 // sentence set that says so.
 //
-// `Spec-023 §Console Design (Meridian)` rule 8 closes the FIVE absences a surface may
-// render. It says nothing about the case that is not an absence at all: a reading that
-// arrived, is being shown, and is INCOMPLETE. Every family met that case separately
-// and each wrote its own notice — a queue whose snapshot refused while the tail kept
-// delivering, a quota tail whose deliveries this build could not parse, a provider
-// enumeration the daemon cut, a definitions browser answering per scope. The shapes
-// agreed by accident and the sentences did not, so one console said "may be stale",
-// another "may be behind the registry", and a third said nothing at all and rendered
-// a list that looked exhaustive.
+// Design-language rule 8 closes the FIVE absences a surface may render. It says nothing
+// about the case that is not an absence at all: a reading that arrived, is being shown,
+// and is INCOMPLETE. Every family met that case separately and each wrote its own
+// notice — a queue whose snapshot refused while the tail kept delivering, a quota tail
+// whose deliveries this build could not parse, a provider enumeration the daemon cut, a
+// definitions browser answering per scope. The shapes agreed by accident and the
+// sentences did not, so one console said "may be stale", another "may be behind the
+// registry", and a third said nothing at all and rendered a list that looked
+// exhaustive.
 //
 // THE CLAIM THIS MODULE MAKES IS RULE 8'S, EXTENDED BY ONE STEP: a surface never
 // claims a completeness it cannot prove. `served` is the only state that claims it,

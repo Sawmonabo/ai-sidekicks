@@ -1,8 +1,8 @@
 // Wire figures: the console's whole formatting policy, in one module.
 //
-// `Spec-023 §Console Design (Meridian)` §The eight rules: "A figure the wire
-// supplies renders verbatim … a quantity the console derives renders through `Intl`
-// … the console performs no arithmetic on a wire figure outside `Intl`."
+// The eight rules: a figure the wire supplies renders verbatim, a quantity the console
+// derives renders through `Intl`, and the console performs no arithmetic on a wire
+// figure outside `Intl`.
 //
 // That rule has one amendment, and it is stated here because this module is the
 // only place it applies: **byte quantities may be scaled.** `Intl` has no kibibyte
@@ -164,10 +164,9 @@ export function formatCount(value: number, locale?: string): string {
 /**
  * A duration in milliseconds, as the console's own reading.
  *
- * `Spec-023 §Console Design (Meridian)` §The eight rules fixes two shapes: digital
- * at one minute and above,
- * `1.2 s`-style below it. Sub-second durations render in milliseconds because a run
- * that took 340 ms is not "0.3 s" to anyone debugging it.
+ * The eight rules fix two shapes: digital at one minute and above, `1.2 s`-style below
+ * it. Sub-second durations render in milliseconds because a run that took 340 ms is not
+ * "0.3 s" to anyone debugging it.
  *
  * Digital is composed from `NumberFormat` rather than taken from
  * `Intl.DurationFormat`, and that is a runtime-range decision rather than a
@@ -413,7 +412,7 @@ const CENTS_PER_CURRENCY_UNIT = 100;
  * Render a cents figure the accountant supplied as money.
  *
  * HERE RATHER THAN BESIDE EITHER READER. The cost-receipt settings page and the
- * session cast bar both render the same committed-spend figure from the same
+ * session session header both render the same committed-spend figure from the same
  * accountant, and they are sibling view families that may not import each other. It
  * belongs in this module on its own terms too: the precision is `formatMoney`'s and
  * none of it is re-decided — including its sub-unit arm, which keeps four fractional

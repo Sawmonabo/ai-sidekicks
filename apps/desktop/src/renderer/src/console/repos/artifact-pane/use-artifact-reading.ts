@@ -66,7 +66,7 @@ export interface ArtifactPaneBinding {
  * all. React documents a memo as a cache it MAY discard, and a discard with unchanged
  * dependencies constructed a second reader mid-render: `useSyncExternalStore` then
  * read that reader's not-read-yet absence, the effect disposed the committed one, and
- * the pane blanked and re-ran a whole read pair for no participant action.
+ * the pane blanked and re-ran a whole read pair for no user action.
  *
  * THE ARTIFACT ID IS THE WHOLE KEY, and it is not a narrowing of the memo it replaces.
  * An artifact id names one artifact of one session, so a key that moved to another

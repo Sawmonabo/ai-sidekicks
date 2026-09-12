@@ -1,6 +1,6 @@
 // One act, the question it is issued against, and what both halves publish.
 //
-// WHAT AN ACT IS, in this console. A participant presses something, one call goes on
+// WHAT AN ACT IS, in this console. A user presses something, one call goes on
 // the wire, and the answer is a settlement they read — attached, bound, prepared,
 // sent, held. Around that there is always a second question the act depends on and
 // which fails independently of it: the roster a node is picked from, the modes a mount
@@ -9,19 +9,18 @@
 // front of somebody who has not pressed anything yet.
 //
 // THREE COPIES OF THIS WERE WRITTEN IN ONE DIRECTORY. The repos family's attach, bind,
-// and execution-root-prepare controllers were the same class member for member — the
-// same scheduler wiring, the same trigger wiring, the same emitter, the same disposed
-// latch, the same four read arms, the same four act arms, the same overlap guard, and
-// the same hook and disposal constant underneath — differing only in which call each
-// sent and what its settled arm carried. `apps/desktop/AGENTS.md` §Shared code hoists
-// on the SECOND use, and the place copies of a guard drift is the predicate.
+// and execution-root-prepare controllers were the same class member for member — the same
+// scheduler wiring, the same trigger wiring, the same emitter, the same disposed latch,
+// the same four read arms, the same four act arms, the same overlap guard, and the same
+// hook and disposal constant underneath — differing only in which call each sent and what
+// its settled arm carried. The package's shared-code rule hoists on the SECOND use, and
+// the place copies of a guard drift is the predicate.
 //
-// THE PREREQUISITE HALF IS SCHEDULED AND THE ACT HALF IS NOT, which is the one
-// asymmetry this class is built around. `Spec-023 §Rules every console surface obeys`
-// admits four reasons to read again and forbids interval polling, so the read goes
-// through the console's one `RefreshScheduler` and declares its own trigger census.
-// An act is something a person did once; re-sending it on a window focus would put a
-// second durable record on the wire for one press.
+// THE PREREQUISITE HALF IS SCHEDULED AND THE ACT HALF IS NOT, which is the one asymmetry
+// this class is built around. Four reasons admit reading again and interval polling is
+// forbidden, so the read goes through the console's one `RefreshScheduler` and declares
+// its own trigger census. An act is something a person did once; re-sending it on a
+// window focus would put a second durable record on the wire for one press.
 //
 // THE QUESTION IS A STRING AND IT ARRIVES LATE. A prerequisite has nothing to ask
 // until something names it — a dialog that opened, a branch that was typed — so a
@@ -201,7 +200,7 @@ export class ActController<
    * not changed the question either.
    *
    * A DIFFERENT QUESTION RESETS THE HALF AND ABANDONS THE ANSWER IN FLIGHT. The
-   * verdict on screen must never be the one for a branch the participant has already
+   * verdict on screen must never be the one for a branch the user has already
    * edited away from, and a reply still on the wire for the old question installs
    * nothing — its own read sees `#question` has moved, and the fire this request
    * schedules supersedes its round.
@@ -219,7 +218,7 @@ export class ActController<
   /**
    * Withdraw the question, and put the half back to unasked.
    *
-   * For the participant who cleared the field: leaving the last answer on screen would
+   * For the user who cleared the field: leaving the last answer on screen would
    * attach it to a question nobody is asking. The act half is deliberately untouched,
    * and so is the read line — a withdrawal fires no read, so no newer round supersedes
    * the answer in flight and what keeps it off screen is that its question is unnamed.
@@ -246,9 +245,9 @@ export class ActController<
     this.#scheduler.request(reason);
   }
 
-  /** Ask again after a refused read. The participant-driven one of the four reasons. */
+  /** Ask again after a refused read. The user-driven one of the four reasons. */
   public retryRead(): void {
-    this.requestRead("participant-request");
+    this.requestRead("user-request");
   }
 
   /**
@@ -259,9 +258,9 @@ export class ActController<
    * from the published reading admits both. What that costs is two durable records for
    * one intended act, and two replies racing to decide which settlement is shown.
    *
-   * THE SETTLEMENT IS PUBLISHED ON BOTH ARMS AND SWALLOWED ON NEITHER. `Spec-023
-   * §Rules every console surface obeys` admits no silent no-op: an act that worked
-   * says what it produced, and one that was refused renders the daemon's own code.
+   * THE SETTLEMENT IS PUBLISHED ON BOTH ARMS AND SWALLOWED ON NEITHER. No silent no-op is
+   * admitted: an act that worked says what it produced, and one that was refused renders
+   * the daemon's own code.
    *
    * AND THE SETTLE CALLBACK IS ANNOTATED {@link ActOwnArm} RATHER THAN `TSettlement`,
    * which is where this module's "a discriminant of its own" requirement is actually
@@ -309,7 +308,7 @@ export class ActController<
    *
    * ITS OWN CALL RATHER THAN A SIDE EFFECT OF CLOSING, because the two are different
    * moments: a settlement is read after the call settles and the surface is still
-   * open, and a participant who comes back to act a second time must not meet the
+   * open, and a user who comes back to act a second time must not meet the
    * first one's sentence. The prerequisite half is deliberately untouched, and the
    * single-flight key is not given back — a call still on the wire is not recallable,
    * so a second act is still refused until that one answers.

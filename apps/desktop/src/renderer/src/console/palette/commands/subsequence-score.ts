@@ -1,15 +1,14 @@
 // The subsequence scorer — the console's one matcher.
 //
-// WHY THIS IS OWN-BUILT. `Spec-023 §Console Libraries`, the "State, storage,
-// forms, search, dates" row, reads: "OWN-BUILD the subsequence scorer shared by
-// the palette, settings search, sidebar filter, and find … AVOID … fuse.js, fzf,
-// minisearch". That is a verdict, not a preference, and the reason is visible in
-// what this file is: one pure function over two strings, no index to build, no
-// tokenizer, no options object, no per-keystroke allocation beyond four small
-// typed arrays. A matching library buys none of that back and costs bytes on a
-// budget the spec measures. It also cannot give us the one output the palette
-// actually needs — `matchedIndices`, so the renderer can emphasise the characters
-// the person typed — without reaching into its internals.
+// WHY THIS IS OWN-BUILT. The library policy OWN-BUILDs the subsequence scorer
+// shared by the palette, settings search, sidebar filter and find, and AVOIDs
+// fuse.js, fzf and minisearch. That is a verdict, not a preference, and the
+// reason is visible in what this file is: one pure function over two strings, no
+// index to build, no tokenizer, no options object, no per-keystroke allocation
+// beyond four small typed arrays. A matching library buys none of that back and
+// costs bytes on a measured budget. It also cannot give us the one output the
+// palette actually needs — `matchedIndices`, so the renderer can emphasise the
+// characters the person typed — without reaching into its internals.
 //
 // WHAT IT SCORES. A candidate matches when the query is a case-insensitive
 // SUBSEQUENCE of it: every query character appears, in order, not necessarily
@@ -116,9 +115,9 @@ const NO_PATH = Number.NEGATIVE_INFINITY;
  *
  * Returns `undefined` when the query is not a subsequence of the candidate, and
  * ALSO when the query is empty — an empty query is not a match of everything, it
- * is a different state, and conflating the two is exactly the mistake
- * `Spec-023 §Console Design (Meridian)` rule 8 forbids. The palette's empty-query
- * arm is recents, not "every result at score zero".
+ * is a different state, and conflating the two is exactly the mistake rule 8
+ * forbids. The palette's empty-query arm is recents, not "every result at score
+ * zero".
  */
 export function scoreSubsequence(candidate: string, query: string): SubsequenceMatch | undefined {
   const candidateLength = candidate.length;

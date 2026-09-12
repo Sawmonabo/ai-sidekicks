@@ -31,7 +31,7 @@
 //     point (`XtermHost.tsx`).
 //   • `lease/` — where the write lease is held and how this window asks for it: the
 //     fold (`lease-model.ts`) over the one-event reader beneath it
-//     (`lease-transition.ts`), the read of which window this is (`viewer-identity.ts`),
+//     (`lease-transition.ts`), the read of which device this is (`viewer-identity.ts`),
 //     the acquisition terms (`lease-acquisition.ts`), the one wire call
 //     (`lease-claim.ts`), and the line that renders all of it (`LeaseLine.tsx`) with
 //     its ledger, its holding statement, and its withheld-claim control.
@@ -46,9 +46,10 @@
 // would close a cycle: this module imports the pane, and the pane imports these.
 //
 // Its BOUNDS are not among them. The scrollback, the WebGL ceiling, and the ledger
-// cap live in `console/core/constants/terminal-caps.ts`, which `apps/desktop/AGENTS.md` §Config
-// single-sourcing makes the console's one home for a cap — a family module holding
-// its own put the console's cap inventory in three places.
+// cap live in `console/core/constants/terminal-caps.ts`, which the config
+// single-sourcing rule in `apps/desktop/AGENTS.md` makes the console's one home for a
+// cap — a family module holding its own put the console's cap inventory in three
+// places.
 
 // THIS FAMILY'S STYLESHEETS ARE NOT IMPORTED HERE. They enter at
 // `pane/terminal-pane-body.ts` — the family's one chunk root — which is the same

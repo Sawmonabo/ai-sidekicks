@@ -99,7 +99,7 @@ describe("the sidekick editor's seat — once a body has arrived", () => {
 describe("the sidekick editor's seat — what its contract may not do", () => {
   it("reaches no screen", () => {
     // The contract is developer-facing in terms (`seats/slots/owner-slot.ts`),
-    // and every member of it names governance work, which a participant never reads.
+    // and every member of it names governance work, which a user never reads.
     const { contract } = SIDEKICK_DEFINITION_RECORD_EDITOR_SLOT;
     const { container } = render(
       <SidekickDefinitionRecordEditorMount

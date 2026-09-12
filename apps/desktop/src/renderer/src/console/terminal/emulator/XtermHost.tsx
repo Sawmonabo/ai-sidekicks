@@ -63,7 +63,7 @@ import type { TerminalRendererMode } from "./xterm-adapter.js";
 export interface XtermHostProps {
   /** The shared terminal this surface is a view of. One per session in V1. */
   readonly terminalId: string;
-  /** Whether the lease says this participant may type. Watch mode is `false`. */
+  /** Whether the lease says this user may type. Watch mode is `false`. */
   readonly isWriteEnabled: boolean;
   /** The surface's accessible name, supplied by the pane that mounted it. */
   readonly label: string;
@@ -255,7 +255,7 @@ function renderEmulatorAbsence(
 /**
  * Whether this surface may be typed into, and when it may not, why.
  *
- * Two conditions and not one. The lease says whether this participant is ALLOWED
+ * Two conditions and not one. The lease says whether this user is ALLOWED
  * to write; `onKeystroke` says whether there is anywhere for a keystroke to GO.
  * A surface built without the writer — which is what the pane mounts today, and
  * what a re-render across a terminal id already exercises — opened xterm's stdin

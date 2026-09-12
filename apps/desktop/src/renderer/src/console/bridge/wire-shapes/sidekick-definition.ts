@@ -1,9 +1,9 @@
 // The saved sidekick configuration the definitions page reads and writes, declared
 // here because no code package carries it.
 //
-// `Spec-030 §Interfaces And Contracts` registers a five-verb `sidekick.*` namespace
-// and `api-payload-contracts.md §Plan-030 — Sidekick Definitions And Peer Invocation`
-// registers its shapes; `packages/contracts` carries none of them, and neither does
+// The sidekick-definitions design registers a five-verb `sidekick.*` namespace and
+// the payload contracts register its shapes; `packages/contracts` carries none of
+// them, and neither does
 // the client SDK. A definitions page whose stored row exists nowhere would have to
 // invent it inside a view family, which is what the growth slate exists to prevent —
 // so the shape is declared here, on the substrate, behind the
@@ -12,8 +12,8 @@
 //
 // DELETION OBLIGATION. When `packages/contracts` registers these types, this module
 // is DELETED and `growth-signatures/sidekicks.ts` imports them from the contracts
-// instead. The slate row leaves `growth-slate.ts` and `Plan-023 §Console growth
-// slate` in the same PR, and `failure-modes.test.ts` then fails on the port entries
+// instead. The slate row leaves `growth-slate.ts` and the growth slate in the same
+// PR, and `failure-modes.test.ts` then fails on the port entries
 // that still claim fixture-only — which is the reminder this file wants at that
 // moment.
 //

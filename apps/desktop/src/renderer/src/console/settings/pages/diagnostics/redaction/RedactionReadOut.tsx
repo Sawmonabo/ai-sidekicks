@@ -1,12 +1,11 @@
 // The redaction read-out: what this machine keeps, for how long, and where it may go.
 //
-// `Spec-023 §Console Design (Meridian)` §Diagnostics and health: "The redaction policy
-// read-out from `health.redactionPolicyRead`: the four diagnostic buckets, the
-// default-deny outbound posture, and a prominent notice when a retention override is
-// active."
+// The redaction policy read-out from `health.redactionPolicyRead`: the four diagnostic
+// buckets, the default-deny outbound posture, and a prominent notice when a retention
+// override is active.
 //
-// IT REPORTS AND CHANGES NOTHING. The same section forbids this page from offering an
-// outbound send or altering a policy, so there is no control anywhere in this
+// IT REPORTS AND CHANGES NOTHING. This page may not offer an outbound send or alter a
+// policy, so there is no control anywhere in this
 // component — not a toggle, not a link, not a disabled one. What a person can do about
 // a retention override is not this surface's answer to give.
 //

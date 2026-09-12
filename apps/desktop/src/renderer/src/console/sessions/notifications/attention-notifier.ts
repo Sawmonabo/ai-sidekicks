@@ -1,9 +1,9 @@
 // The one caller of `native.showNotification`.
 //
-// `Spec-023 §Console Design (Meridian)` §Notification center names OS emission as
-// this surface's, and until now the console had none: the centre rendered the
-// projection and nothing ever left the window. A person with the console behind
-// another application learned that a run had failed by coming back and looking.
+// OS emission belongs to the notification center, and until now the console had none:
+// the centre rendered the projection and nothing ever left the window. A person with
+// the console behind another application learned that a run had failed by coming back
+// and looking.
 //
 // WHEN ONE IS RAISED, and the whole of it:
 //
@@ -18,8 +18,8 @@
 //
 //     KEYED ON THE EVENT BECAUSE ONE EVENT IS ONE THING THAT HAPPENED. A projection
 //     carries a run-scoped item AND its session aggregate over the same
-//     `sourceEventId` — Plan-019 D-019-2 derives the aggregate from its contributors
-//     and takes the representative's event — so one run beginning to wait produced
+//     `sourceEventId`, because the aggregate is derived from its contributors and
+//     takes the representative's event — so one run beginning to wait produced
 //     two distinct item ids, both new, and this class raised two banners for it. An
 //     id-keyed memory cannot see that they are the same news; the event they name
 //     is exactly what says so. Excluding the aggregate instead would have been the
@@ -57,8 +57,7 @@
 //
 // WHAT THIS CLASS DELIBERATELY DOES NOT DO. It applies no preference filter and no
 // quiet-hours rule. Non-matching events are dropped at the control plane before they
-// are ever emitted (`Spec-019 §Desktop-to-Desktop Delivery`) and the shell honours the
-// OS do-not-disturb setting (`Spec-023 §Main Process Responsibilities`), so either one
+// are ever emitted, and the shell honours the OS do-not-disturb setting, so either one
 // re-implemented here would be a second authority over a decision already made — and
 // a second authority that cannot see the inputs the first one had.
 
@@ -270,7 +269,7 @@ export class AttentionNotifier {
  *
  * `NotificationOptions` CARRIES NO MEMBER YET, and that is a decision already made
  * elsewhere rather than a gap this surface may close: it is `packages/contracts`'
- * Tier-1 stub for Electron's own `NotificationConstructorOptions`, and its comment
+ * Stub for Electron's own `NotificationConstructorOptions`, and its comment
  * schedules the real shape for the tier that gives that package an `electron` devDep.
  * So the call supplies the only value the contract admits. What a person reads on the
  * banner is the shell's to compose until then; the item's own words are on the centre

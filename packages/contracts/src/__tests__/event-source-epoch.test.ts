@@ -1,19 +1,14 @@
-// Plan-006 T1.9 — cross-cutting `sourceEpoch` + `sourcePosition`
-// epoch-attribution carrier suite (the CP-004-12 registration).
+// Cross-cutting `sourceEpoch` + `sourcePosition`
+// epoch-attribution carrier suite (registration).
 //
-// Backstops Spec-006 §Event Type Enumeration (the cross-cutting payload-field
-// pair) and Spec-006 §Compacted Event Format (the audit-stub `originPosition`
-// projection key). This file owns the TYPED SHAPE only: stamping is Plan-004
-// T3.11's and consumption is the T3.14 supersede projection's, so no
-// assertion here speaks to when a row gets stamped. Coverage shape:
 //   • SourceEpochSchema / SourcePositionSchema accept 0 and positive
 //     integers and reject negatives, non-integers, and non-numbers — `0` is
 //     the pre-any-rollback epoch, so it is a VALUE, never a falsy sentinel.
 //   • The three shared wire literals are pinned by exact string equality:
 //     `sourceEpoch` / `sourcePosition` (the registered payload-field names
 //     two plans' code writes and reads) and `originPosition` (the audit-stub
-//     projection key the Plan-004 T3.12 rewind-span check reads back). A
-//     rename is forbidden-non-additive per `ADR-018 §Decision` #8.
+//     projection key rewind-span check reads back). A rename is
+//     forbidden-non-additive #8.
 //   • withEpochStamp composition: strictness survives (a composed strict
 //     payload still rejects unknown keys), the stamp stays OPTIONAL (absence
 //     means current-epoch), and the pairing refinement rejects all three
@@ -37,27 +32,22 @@
 //     it — a `@ts-expect-error` there would be reported unused), which is why
 //     the ratchet below also refuses a wrapped branch whose payload is not
 //     strict.
-//   • End-to-end validation of a fully-stamped event of each run-scoped
-//     family, through a discriminated union assembled the way
-//     `SessionEventSchema` is. These branches are STAND-INS, deliberately:
-//     no payload branch of the five late-append families is registered in
-//     the live union yet (see the admission ratchet below), and authoring
-//     them is each emitting plan's job, not T1.9's. They are also a
-//     DELIBERATE SIMPLIFICATION — six of `buildCommonShape`'s eight members
-//     (no `correlationId` / `causationId`), with loosened scalar types —
-//     because envelope-field validation is session-event.test.ts's lane.
-//     What the stand-ins prove is payload-slot behavior INSIDE a
-//     `discriminatedUnion` branch, not envelope fidelity. Each one's
-//     `category` is PINNED AGAINST SESSION_EVENT_CATEGORY_BY_TYPE by
-//     assertion rather than derived from it, so the drift protection is the
-//     assertion: a type/category pair that disagrees with the census turns
-//     that pin red instead of silently re-deriving to match.
-//   • The WRAP-ADMISSION RATCHET over the LIVE `SessionEventSchema` union:
-//     a branch is required to carry the stamp exactly when it is run-scoped
+//   • They are also a DELIBERATE SIMPLIFICATION — six of
+//     `buildCommonShape`'s eight members (no `correlationId` /
+//     `causationId`), with loosened scalar types — because envelope-field
+//     validation is session-event.test.ts's lane. What the stand-ins prove
+//     is payload-slot behavior INSIDE a `discriminatedUnion` branch, not
+//     envelope fidelity. Each one's `category` is PINNED AGAINST
+//     SESSION_EVENT_CATEGORY_BY_TYPE by assertion rather than derived from
+//     it, so the drift protection is the assertion: a type/category pair
+//     that disagrees with the census turns that pin red instead of silently
+//     re-deriving to match.
+//   • The WRAP-ADMISSION RATCHET over the LIVE `SessionEventSchema` union: a
+//     branch is required to carry the stamp exactly when it is run-scoped
 //     (its payload carries `runId`) AND belongs to an admitting family; any
 //     other branch must not carry the keys at all. Today every registered
 //     branch is in the must-not class and passes non-vacuously — including
-//     the five `runtime_node.*` arms T1.12 registered, which are NODE-scoped
+//     the five `runtime_node.*` arms registered, which are NODE-scoped
 //     (payload carries `nodeId`, no `runId`), so the guard below widened to
 //     them by set-equality with no assertion change; the ratchet turns red
 //     when a run-scoped branch of an admitting family lands unwrapped — a
@@ -68,17 +58,16 @@
 //     transport or append). Because a zero-violation result is only
 //     trustworthy if the checker can fail, a known-bad synthetic union is fed
 //     through the same classifier and each violation class is asserted to
-//     fire, including the two negative
-//     controls the plan names by hand: a `run_lifecycle` branch (stragglers
-//     are absorbed, never appended) and the account-plane
-//     `usage.rate_limit_update` (no `runId` — an epoch stamp there is
-//     unattributable). A branch payload may itself be a DISCRIMINATED UNION
-//     (`audit_integrity_failed`, Plan-006 T1.11), so the walk resolves a
+//     fire, including the two negative controls the plan names by hand: a
+//     `run_lifecycle` branch (stragglers are absorbed, never appended) and
+//     the account-plane `usage.rate_limit_update` (no `runId` — an epoch
+//     stamp there is unattributable). A branch payload may itself be a
+//     DISCRIMINATED UNION (`audit_integrity_failed`), so the walk resolves a
 //     payload to its arms and applies each rule arm-exactly; a known-bad
 //     union-payload arm is in the FIRES table so that path cannot rot green.
-//   • The envelope canonical set is UNTOUCHED (I-006-1-03): the pair rides
-//     inside `payload`, and a top-level `sourceEpoch` member is still
-//     rejected by EventEnvelopeSchema's closed membership.
+//   • The envelope canonical set is UNTOUCHED: the pair rides inside
+//     `payload`, and a top-level `sourceEpoch` member is still rejected by
+//     EventEnvelopeSchema's closed membership.
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
@@ -86,7 +75,7 @@ import {
   EventEnvelopeSchema,
   ORIGIN_POSITION_STUB_KEY,
   PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
-  PII_PARTICIPANT_ID_PAYLOAD_KEY,
+  PII_USER_ID_PAYLOAD_KEY,
   SESSION_EVENT_CATEGORY_BY_TYPE,
   SESSION_EVENT_TYPES,
   SessionEventSchema,
@@ -108,7 +97,7 @@ const VERSION = "1.0";
 // Scalar shapes.
 // --------------------------------------------------------------------------
 
-describe("SourceEpochSchema / SourcePositionSchema (T1.9 scalar shapes)", () => {
+describe("SourceEpochSchema / SourcePositionSchema (scalar shapes)", () => {
   it.each([
     // `0` is the pre-any-rollback epoch and the first turn boundary — a
     // real value on both scales, so it must parse.
@@ -152,16 +141,15 @@ describe("SourceEpochSchema / SourcePositionSchema (T1.9 scalar shapes)", () => 
 // The three pinned wire literals.
 // --------------------------------------------------------------------------
 
-describe("payload-field + stub-projection key names (T1.9 pins)", () => {
+describe("payload-field + stub-projection key names (pins)", () => {
   it.each([
     ["SOURCE_EPOCH_PAYLOAD_KEY", SOURCE_EPOCH_PAYLOAD_KEY, "sourceEpoch"],
     ["SOURCE_POSITION_PAYLOAD_KEY", SOURCE_POSITION_PAYLOAD_KEY, "sourcePosition"],
     ["ORIGIN_POSITION_STUB_KEY", ORIGIN_POSITION_STUB_KEY, "originPosition"],
   ])("%s === %s", (_label, actual, expected) => {
-    // Exact-string pins, not shape checks: Plan-004's stamping leg
-    // (T3.11/T3.14) and the Plan-006 T3.2 compactor's stub projection write
-    // and read these literals across plan boundaries, and a rename is
-    // forbidden-non-additive per `ADR-018 §Decision` #8.
+    // Exact-string pins, not shape checks: the stamping leg and compactor's
+    // stub projection write and read these literals across plan boundaries,
+    // and a rename is forbidden-non-additive #8.
     expect(actual).toBe(expected);
   });
 
@@ -207,9 +195,9 @@ const optionalRunIdPayloadSchema = z
   .strict();
 
 // The account-plane shape: NO `runId` key at all — the
-// `usage.rate_limit_update` case (Spec-006 §Usage Telemetry). It is never
-// admitted to the stamp; this schema exists to prove that even a mistaken
-// wrap cannot produce a stamped account-plane row.
+// `usage.rate_limit_update` case. It is never admitted to the stamp; this
+// schema exists to prove that even a mistaken wrap cannot produce a
+// stamped account-plane row.
 const accountPlanePayloadSchema = z
   .object({
     limitName: z.string(),
@@ -300,7 +288,7 @@ void epochStampConstraintPins;
 // where the contract is actually breached.
 const strippingPayloadSchema = z.object({ runId: z.string().min(1), text: z.string() });
 
-describe("withEpochStamp (T1.9 composition helper)", () => {
+describe("withEpochStamp (composition helper)", () => {
   it("preserves the base payload's own field validation", () => {
     // Composition adds keys; it must not relax what the payload already
     // demanded.
@@ -311,8 +299,7 @@ describe("withEpochStamp (T1.9 composition helper)", () => {
   it("preserves strictness — the composed payload still rejects unknown keys", () => {
     // The five families' payload schemas are `.strict()`; composition must
     // not open unknown-key acceptance, or a composed payload would silently
-    // absorb keys the canonical bytes then hash (the I-006-1-03 no-collapse
-    // stance).
+    // absorb keys the canonical bytes then hash (no-collapse stance).
     const result = stampedRunScoped.safeParse({
       runId: RUN_ID,
       text: "hi",
@@ -398,12 +385,12 @@ describe("withEpochStamp (T1.9 composition helper)", () => {
 
   it("rejects a stamp key set to an EXPLICIT undefined (key present, value absent)", () => {
     // Not reachable over the JSON wire — `{"sourceEpoch": undefined}` is not
-    // JSON — but very reachable in-process: Plan-004 T3.11's natural spread
-    // `{...base, sourceEpoch: maybeEpoch, sourcePosition: maybePosition}`
-    // over `number | undefined` sources plants both keys unconditionally.
-    // Zod 4's object parser PRESERVES such keys in its output, so a
-    // key-presence test would see a complete pair and pass the row through
-    // half-stamped. This is why the refinement reads `!== undefined`.
+    // JSON — but very reachable in-process: the natural spread `{...base,
+    // sourceEpoch: maybeEpoch, sourcePosition: maybePosition}` over `number
+    // | undefined` sources plants both keys unconditionally. Zod 4's object
+    // parser PRESERVES such keys in its output, so a key-presence test would
+    // see a complete pair and pass the row through half-stamped. This is why
+    // the refinement reads `!== undefined`.
     const missingEpoch = stampedRunScoped.safeParse({
       runId: RUN_ID,
       text: "hi",
@@ -467,10 +454,8 @@ describe("withEpochStamp (T1.9 composition helper)", () => {
   });
 
   it("rejects a stamp on a payload with NO runId key — the account-plane control", () => {
-    // `usage.rate_limit_update` (Spec-006 §Usage Telemetry) is account-plane
-    // and carries no run identity, so it is never admitted to the stamp. Even
-    // a mistaken wrap cannot yield a stamped account-plane row: the pair has
-    // no `runId` to travel with.
+    // `usage.rate_limit_update` is account-plane and carries no run identity,
+    // so it is never admitted to the stamp.
     const result = stampedAccountPlane.safeParse({
       limitName: "requests_per_minute",
       resetsAt: "2026-07-24T00:00:00.000Z",
@@ -631,12 +616,7 @@ describe("stamped events validate end-to-end through a union (stand-in branches)
 // --------------------------------------------------------------------------
 
 // The four categories whose every run-scoped variant admits the stamp, plus
-// the two `interactive_request` members that do. Admission is scoped by the
-// late-append window of Spec-006 §Event Type Enumeration, NOT by category
-// alone: `interactive_request` admits only the closed pair, and within the
-// four categories only the run-attributed variants qualify (the account-plane
-// `usage.rate_limit_update` carries no `runId` and is excluded by the
-// run-scopedness leg below).
+// the two `interactive_request` members that do.
 const STAMP_ADMITTING_CATEGORIES: readonly EventCategory[] = [
   "assistant_output",
   "tool_activity",
@@ -648,8 +628,7 @@ const STAMP_ADMITTING_TYPES: readonly SessionEventType[] = [
   "driver_ask.canceled",
 ];
 
-// The payload key that marks a variant run-scoped, per Spec-006 §Event Type
-// Enumeration ("whose variant is run-scoped — the payload carries `runId`").
+// The payload key that marks a variant run-scoped.
 const RUN_ID_PAYLOAD_KEY = "runId";
 
 type BranchFacts = {
@@ -688,13 +667,9 @@ type BranchView = {
 type UnionView = { readonly options: readonly BranchView[] };
 
 // A branch's payload is either ONE object schema or a DISCRIMINATED UNION of
-// them — `audit_integrity_failed` is the first of the latter (Plan-006 T1.11:
-// the fifteen verifier modes carry the Merkle triple, the registrar mode
-// carries none). Resolving to the arm list keeps every rule below arm-exact.
-// The throw is deliberate and is the same anti-vacuity stance as the
-// non-vacuity guard one level up: a payload shape this walk cannot read must
-// fail LOUD, because reading zero facts off it would silently satisfy every
-// rule.
+// them — `audit_integrity_failed` is the first of the latter (the fifteen
+// verifier modes carry the Merkle triple, the registrar mode carries none).
+// Resolving to the arm list keeps every rule below arm-exact.
 const payloadArms = (payload: PayloadView): readonly PayloadObjectView[] => {
   if (Array.isArray((payload as PayloadUnionView).options)) {
     return (payload as PayloadUnionView).options;
@@ -725,8 +700,8 @@ const readBranchFacts = (union: unknown): BranchFacts[] =>
     // The PII indirection pair aggregates with the same `some` direction and
     // for the same reason: any arm carrying a key makes the branch carry it,
     // which is the conservative reading for the must-NOT-admit rule.
-    const piiKeys = [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY, PII_PARTICIPANT_ID_PAYLOAD_KEY].filter(
-      (key) => arms.some((arm) => Object.hasOwn(arm.shape, key)),
+    const piiKeys = [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY, PII_USER_ID_PAYLOAD_KEY].filter((key) =>
+      arms.some((arm) => Object.hasOwn(arm.shape, key)),
     );
     return {
       type: branch.shape.type.def.values[0] ?? "(no discriminator literal)",
@@ -981,22 +956,20 @@ describe("wrap-admission ratchet over the live SessionEventSchema union", () => 
 // be a second thing to keep correct, and the walk is what this file owns even
 // though its name says `source-epoch`.
 //
-// WHAT THE RULE IS. `Spec-006 §Canonical Serialization Rules` requires a row
-// whose `pii_payload` column is non-NULL to embed BOTH `pii_ciphertext_digest`
-// and `pii_participant_id` in `payload`. The sealing codec does exactly that
-// and then signs the composed row, so a registered variant that did not admit
-// the pair would reject the very row the daemon signed — a permanently
-// unparseable authoritative event, refused only AFTER the encrypt. Admission is
-// scoped by CATEGORY and by nothing else, because that is the only axis the
-// codec's own refusal is keyed on.
+// Requires a row whose `pii_payload` column is non-NULL to embed BOTH
+// `pii_ciphertext_digest` and `pii_user_id` in `payload`. The sealing
+// codec does exactly that and then signs the composed row, so a registered
+// variant that did not admit the pair would reject the very row the daemon
+// signed — a permanently unparseable authoritative event, refused only AFTER
+// the encrypt. Admission is scoped by CATEGORY and by nothing else, because
+// that is the only axis the codec's own refusal is keyed on.
 
-// The two categories `Plan-006 §Audit Integrity Invariant` holds free of
-// participant PII: never compacted, never crypto-shredded, `pii_payload` NULL
-// by construction, and refused BY NAME in the codec before it encrypts
-// anything. Spelled here rather than imported, on the
-// `STAMP_ADMITTING_CATEGORIES` precedent above: this is the RULE the union is
-// held against, and reading it from the same declaration the implementation
-// reads would make the assertion circular.
+// The two categories holds free of user PII: never compacted, never
+// crypto-shredded, `pii_payload` NULL by construction, and refused BY NAME in
+// the codec before it encrypts anything. Spelled here rather than imported,
+// on the `STAMP_ADMITTING_CATEGORIES` precedent above: this is the RULE the
+// union is held against, and reading it from the same declaration the
+// implementation reads would make the assertion circular.
 const PII_REFUSED_CATEGORIES: readonly EventCategory[] = ["audit_integrity", "event_maintenance"];
 
 const piiAdmissionViolations = (branches: readonly BranchFacts[]): string[] => {
@@ -1010,7 +983,7 @@ const piiAdmissionViolations = (branches: readonly BranchFacts[]): string[] => {
     }
     if (!mustAdmit && branch.piiKeyCount > 0) {
       violations.push(
-        `${branch.type}: a ${branch.category} branch MUST NOT admit the PII indirection pair (found ${branch.piiKeyCount} key(s)) — Plan-006 §Audit Integrity Invariant holds this category's pii_payload NULL by construction, so admitting the pair would declare legal a row the append path refuses to produce`,
+        `${branch.type}: a ${branch.category} branch MUST NOT admit the PII indirection pair (found ${branch.piiKeyCount} key(s)) — so admitting the pair would declare legal a row the append path refuses to produce`,
       );
     }
     if (branch.piiKeyCount > 0 && !branch.payloadStrict) {
@@ -1081,7 +1054,7 @@ describe("PII-indirection admission ratchet over the live SessionEventSchema uni
             category: z.literal("event_maintenance"),
             payload: runScopedPayloadSchema.extend({
               [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: z.string().optional(),
-              [PII_PARTICIPANT_ID_PAYLOAD_KEY]: z.string().optional(),
+              [PII_USER_ID_PAYLOAD_KEY]: z.string().optional(),
             }),
           })
           .strict(),
@@ -1097,7 +1070,7 @@ describe("PII-indirection admission ratchet over the live SessionEventSchema uni
             category: z.literal("assistant_output"),
             payload: strippingPayloadSchema.extend({
               [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: z.string().optional(),
-              [PII_PARTICIPANT_ID_PAYLOAD_KEY]: z.string().optional(),
+              [PII_USER_ID_PAYLOAD_KEY]: z.string().optional(),
             }),
           })
           .strict(),
@@ -1120,7 +1093,7 @@ describe("PII-indirection admission ratchet over the live SessionEventSchema uni
           category: z.literal("assistant_output"),
           payload: runScopedPayloadSchema.extend({
             [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: z.string().optional(),
-            [PII_PARTICIPANT_ID_PAYLOAD_KEY]: z.string().optional(),
+            [PII_USER_ID_PAYLOAD_KEY]: z.string().optional(),
           }),
         })
         .strict(),
@@ -1171,7 +1144,7 @@ describe("a sealed row's PII indirection pair parses through its own strict vari
   const PII_PAIR = {
     [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]:
       "3f79bb7b435b05321651daefd374cdc681dc06faa65e374e38337b88ca046dea",
-    [PII_PARTICIPANT_ID_PAYLOAD_KEY]: "990e8400-e29b-41d4-a716-446655440009",
+    [PII_USER_ID_PAYLOAD_KEY]: "990e8400-e29b-41d4-a716-446655440009",
   };
 
   it("accepts a row carrying BOTH members, verbatim", () => {
@@ -1179,35 +1152,35 @@ describe("a sealed row's PII indirection pair parses through its own strict vari
     expect(payload[PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]).toBe(
       PII_PAIR[PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY],
     );
-    expect(payload[PII_PARTICIPANT_ID_PAYLOAD_KEY]).toBe(PII_PAIR[PII_PARTICIPANT_ID_PAYLOAD_KEY]);
+    expect(payload[PII_USER_ID_PAYLOAD_KEY]).toBe(PII_PAIR[PII_USER_ID_PAYLOAD_KEY]);
   });
 
   it("accepts a NON-UUID owner stamp, which is what the codec actually embeds", () => {
     // The stamp is a bounded free-form string and deliberately NOT
-    // `ParticipantIdSchema`: the codec types the value a plain `string` because
+    // `UserIdSchema`: the codec types the value a plain `string` because
     // nothing on that path mints the brand. A variant demanding a canonical
     // UUID here would refuse rows the append path legally signs.
     const payload = parseAssistantMessagePayload(
-      buildAssistantMessageRow({ ...PII_PAIR, [PII_PARTICIPANT_ID_PAYLOAD_KEY]: "local-holder-7" }),
+      buildAssistantMessageRow({ ...PII_PAIR, [PII_USER_ID_PAYLOAD_KEY]: "local-holder-7" }),
     );
-    expect(payload[PII_PARTICIPANT_ID_PAYLOAD_KEY]).toBe("local-holder-7");
+    expect(payload[PII_USER_ID_PAYLOAD_KEY]).toBe("local-holder-7");
   });
 
   it("accepts a row carrying NEITHER member (the pair stays optional)", () => {
     const payload = parseAssistantMessagePayload(buildAssistantMessageRow({}));
     expect(payload[PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]).toBeUndefined();
-    expect(payload[PII_PARTICIPANT_ID_PAYLOAD_KEY]).toBeUndefined();
+    expect(payload[PII_USER_ID_PAYLOAD_KEY]).toBeUndefined();
   });
 
   it("REJECTS the pair on a refused-category row (event.shredded)", () => {
     // The other direction of the invariant, parsed rather than introspected:
-    // `Plan-006 §Audit Integrity Invariant` holds this category's `pii_payload`
-    // NULL, so the pair is not merely unused here — it is not registered.
+    // holds this category's `pii_payload` NULL, so the pair is not merely
+    // unused here — it is not registered.
     const shreddedPayload = {
       nodeId: "990e8400-e29b-41d4-a716-446655440011",
       operationId: "shred-pass-0007",
       occurredAt: "2026-08-30T11:02:04.000Z",
-      participantId: "990e8400-e29b-41d4-a716-446655440012",
+      userId: "990e8400-e29b-41d4-a716-446655440012",
       affectedSessionIds: [SESSION_ID],
       piiPayloadsCleared: 3,
       shredReason: "gdpr_article_17" as const,
@@ -1236,7 +1209,7 @@ describe("a sealed row's PII indirection pair parses through its own strict vari
 });
 
 // --------------------------------------------------------------------------
-// The envelope canonical set stays fixed (I-006-1-03).
+// The envelope canonical set stays fixed.
 // --------------------------------------------------------------------------
 
 describe("the carrier is a PAYLOAD field, not an envelope field", () => {
@@ -1263,11 +1236,9 @@ describe("the carrier is a PAYLOAD field, not an envelope field", () => {
   });
 
   it.each([[SOURCE_EPOCH_PAYLOAD_KEY], [SOURCE_POSITION_PAYLOAD_KEY], [ORIGIN_POSITION_STUB_KEY]])(
-    "rejects `%s` as a TOP-LEVEL envelope member (I-006-1-03 membership is closed)",
+    "rejects `%s` as a TOP-LEVEL envelope member (membership is closed)",
     (key) => {
-      // The registration takes no envelope member and no version bump: the
-      // canonical set stays the eleven of Spec-006 §Canonical Serialization
-      // Rules. `originPosition` is likewise a stub-projection key, never an
+      // `originPosition` is likewise a stub-projection key, never an
       // envelope member.
       const broken = { ...buildEnvelope(), [key]: 1 };
       expect(EventEnvelopeSchema.safeParse(broken).success).toBe(false);

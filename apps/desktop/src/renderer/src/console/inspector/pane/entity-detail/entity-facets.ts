@@ -22,10 +22,9 @@
 // invents a method string, an event type, or a wire member.
 //
 // AND WHY EVERY BUILDER HAS AN ABSENT ARM. A member the body does not carry is not
-// a member whose value is empty. `Spec-023 §Console Design (Meridian)` rule 8 keeps
-// those two apart, so a builder that cannot narrow its input renders the
-// `not-checked` absence naming the member — never a blank cell, never a zero, and
-// never a dash standing in for both.
+// a member whose value is empty. Those two are kept apart, so a builder that cannot
+// narrow its input renders the `not-checked` absence naming the member — never a
+// blank cell, never a zero, and never a dash standing in for both.
 
 import type { ConsoleEntity, SessionDegradedCause, SessionStore } from "../../../store/index.js";
 import { formatByteQuantity, formatClockTime, formatCount } from "../../../primitives/index.js";
@@ -54,10 +53,10 @@ export interface EntityDetailProps {
    *
    * A PROP and never a coupling: an inspector may be linked to a source pane, and
    * this console's own rule — stated in `InspectedEntity.tsx` — still keeps every
-   * pane independently movable and closable, which is what
-   * `Spec-023 §Meridian, the design language`'s "a pane kind, not a fixed third
-   * column" means here. Holding a handle on the source pane would make one of those two
-   * false; holding its id makes the link a fact the record can state.
+   * pane independently movable and closable, which is what being a pane kind rather
+   * than a fixed third column means here. Holding a handle on the source pane would
+   * make one of those two false; holding its id makes the link a fact the record can
+   * state.
    */
   readonly linkedSourcePaneId: string | undefined;
 }
@@ -135,8 +134,8 @@ export function byteFacet(label: string, value: unknown, memberName: string): En
  *
  * Wall clock rather than relative, and that is a budget decision as much as a
  * formatting one: a relative phrase is only true for an instant, so a record
- * carrying one would need something telling it when now is — and the console has
- * no timer (`Spec-023 §Console Design (Meridian)`, the budget rules).
+ * carrying one would need something telling it when now is — and the console has no
+ * timer.
  *
  * A string that does not parse takes the absent arm rather than the figures
  * module's em dash, because a dash beside a label reads as "there is none" and the
@@ -152,12 +151,10 @@ export function instantFacet(label: string, value: unknown, memberName: string):
 /**
  * An expiry, which has three answers rather than two.
  *
- * `Spec-023 §Rules every console surface obeys` renders a wire timestamp from the
- * exact value, and rule 8 of `§Meridian, the design language` forbids collapsing two
- * kinds of nothing. THE EXPLICIT "no expiry" LABEL IS THIS MODULE'S OWN, because no
- * committed document states it: a member the projector set to `null` is a decision
- * that never lapses and says so — a different sentence from a member nobody
- * projected.
+ * A wire timestamp renders from the exact value, and collapsing two kinds of
+ * nothing is forbidden. THE EXPLICIT "no expiry" LABEL IS THIS MODULE'S OWN: a
+ * member the projector set to `null` is a decision that never lapses and says so —
+ * a different sentence from a member nobody projected.
  */
 export function expiryFacet(label: string, value: unknown, memberName: string): EntityFacet {
   if (value === null) {
@@ -167,7 +164,7 @@ export function expiryFacet(label: string, value: unknown, memberName: string): 
 }
 
 /**
- * How many entities of one kind this session attributes to a participant.
+ * How many entities of one kind this session attributes to a user.
  *
  * Over `ConsoleEntity.attributedTo`, which the store TYPES — so this is a read of
  * the projection rather than a guess at a body member, and it is the one relation
@@ -175,9 +172,9 @@ export function expiryFacet(label: string, value: unknown, memberName: string): 
  */
 export function countAttributedTo(
   entities: Readonly<Record<string, ConsoleEntity>>,
-  participantId: string,
+  userId: string,
 ): number {
-  return Object.values(entities).filter((entity) => entity.attributedTo === participantId).length;
+  return Object.values(entities).filter((entity) => entity.attributedTo === userId).length;
 }
 
 /**

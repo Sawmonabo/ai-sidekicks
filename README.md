@@ -171,7 +171,7 @@ A short alias `sk` installs alongside it; if an unrelated `sk` is already on you
 | Desktop Shell | Electron |
 | Desktop UI | React + Vite |
 | Local Database | SQLite (WAL mode, 59 tables) |
-| Shared Database | Postgres (25 tables) |
+| Shared Database | Postgres (26 tables) |
 | Auth | PASETO v4 (access + refresh), WebAuthn, DPoP |
 | Relay Encryption | X25519 + XChaCha20-Poly1305 (V1), MLS RFC 9420 (V2) |
 | State Machines | XState v5 |
@@ -190,7 +190,7 @@ V1 ships 21 core features across CLI and Desktop GUI per [ADR-015: V1 Feature Sc
 
 | # | Feature | Description |
 | --- | --- | --- |
-| 1 | Session creation and join | Foundational session primitive; a linked device joins a session you already own |
+| 1 | Session creation | Foundational session primitive; any of your linked devices can drive a session you own |
 | 4 | Runtime node attach | Your own machines contribute local compute |
 | 5 | Single-agent runs | Claude and Codex via provider drivers |
 | 6 | Queue, steer, pause, resume | Real runtime control and interventions |
@@ -204,12 +204,12 @@ V1 ships 21 core features across CLI and Desktop GUI per [ADR-015: V1 Feature Sc
 | 15 | Desktop GUI | Electron shell + React/Vite renderer over the same typed SDK |
 | 16 | Multi-agent channels | Sidekick-to-sidekick coordination primitives per [Spec-016](docs/specs/016-multi-agent-channels-and-orchestration.md) |
 | 17 | Workflow authoring and execution | Full workflow engine with a visual node-graph builder, session/project/shared definition scopes, chat-invoked start (the intercepted `/workflow start` command, the composer affordance, and the `workflow_start` callback tool per [ADR-027](docs/decisions/027-chat-invoked-workflow-start.md)), and a park-and-recovery surface — a phase parked on a provider usage limit or a human wait is readable from one run-read and acted on through authorized run-cancel and run-resume operations, the resume carrying the audited definition re-pin — per [Spec-017](docs/specs/017-workflow-authoring-and-execution.md), [ADR-026](docs/decisions/026-visual-node-graph-workflow-authoring.md) |
-| 18 | MCP server configuration and governance | Server-config CRUD, operator-managed trusted-server store, status/health probing, server OAuth per [Spec-028](docs/specs/028-mcp-server-configuration-and-governance.md) + [Plan-028](docs/plans/028-mcp-server-configuration-and-governance.md) (landed 2026-07-22 via campaign B18; audit-cleared 2026-08-12 via Plan-028's targeted readiness audit, §6 node NS-61, and promoted `approved` 2026-08-14 by its §Rollout Order step-2 promotion — code dispatches in tier order per Plan-028 §Preconditions) |
-| 19 | Session time-travel | Run rollback as a version-guarded intervention + forward `run.rolled_back` event (log never truncates) — governing amendments in-tree (B2 merged via #205, B1 merged via #173; Spec-004 + Spec-006 re-promoted `approved` 2026-07-18 via the W1.5 gate), and durable file restoration needed the B21→B23 turn-snapshot leg gated before Plan-004 Phase 3 (Codex rollback reverts conversation only) — the B23 leg shipped 2026-08-09 via PR #303, so that gate is met and rollback dispatch — Plan-004's Phase-3B explicit-label supplement since the NS-69 round-1 re-home — rides tier order plus its precondition legs — and the user-visible superseded-turn timeline rendering rides the Spec-013/Plan-013 CP-004-13 consumer leg (flipped `review` 2026-07-20; restored `approved` 2026-08-10 by the Tier-8 plan-readiness audit, NS-20; built at Plan-013's Tier-8 dispatch) |
-| 20 | Session goals | Per-session structured goal with set/clear RPC and goal events — governing amendments in-tree (B6 landed 2026-07-06; B1 merged via #173) — specs re-promoted `approved` 2026-07-18 (W1.5 gate cleared) |
-| 21 | Session callback tools | Daemon-registered tools exposed into every run, Cedar-governed — governing amendments in-tree (B3 merged 2026-07-05; B20 merged via #175) — specs re-promoted `approved` 2026-07-18 (W1.5 gate cleared) |
-| 22 | Execution postures and sandbox profiles | Per-run sandbox posture as an authorization input, provider-uniform presets — governing amendments in-tree (B20 merged via #175; B3 merged 2026-07-05) — specs re-promoted `approved` 2026-07-18 (W1.5 gate cleared) |
-| 23 | Realtime voice channels | Reserved and capability-gated on upstream Codex realtime-flag stabilization — governing amendments in-tree (B6 landed 2026-07-06; B1 merged via #173) — specs re-promoted `approved` 2026-07-18 (W1.5 gate cleared) |
+| 18 | MCP server configuration and governance | Server-config CRUD, operator-managed trusted-server store, status/health probing, server OAuth per [Spec-028](docs/specs/028-mcp-server-configuration-and-governance.md) + [Plan-028](docs/plans/028-mcp-server-configuration-and-governance.md) |
+| 19 | Session time-travel | Run rollback as a version-guarded intervention plus a forward `run.rolled_back` event, so the log never truncates; durable file restoration rides the turn-snapshot restore leg, and the superseded-turn timeline rendering is built by [Plan-013](docs/plans/013-live-timeline-visibility-and-reasoning-surfaces.md) |
+| 20 | Session goals | Per-session structured goal with set/clear RPC and goal events |
+| 21 | Session callback tools | Daemon-registered tools exposed into every run, Cedar-governed |
+| 22 | Execution postures and sandbox profiles | Per-run sandbox posture as an authorization input, provider-uniform presets |
+| 23 | Realtime voice channels | Reserved, and capability-gated on upstream Codex realtime-flag stabilization |
 | 24 | Remote Control | Drive any session from any of your linked devices with full parity per [Spec-031](docs/specs/031-remote-control.md) + [Plan-031](docs/plans/031-remote-control.md) |
 
 **V1.1 additions:** MLS relay E2EE, plus the criterion-gated sub-feature commitments named in ADR-015 (workflow BIND channel reuse; `human`-phase default timeout; automated GDPR erasure endpoint; direct-first artifact fetch).
@@ -218,7 +218,7 @@ V1 ships 21 core features across CLI and Desktop GUI per [ADR-015: V1 Feature Sc
 
 ## Build Order
 
-Implementation follows the tiered dependency graph defined in [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). [Plan-001](docs/plans/001-shared-session-core.md) Shared Session Core is `completed`; every other plan is `approved`.
+Implementation follows the tiered dependency graph below. [Plan-001](docs/plans/001-shared-session-core.md) Shared Session Core is `completed`, [Plan-031](docs/plans/031-remote-control.md) Remote Control is `draft`, and every other plan is `approved`.
 
 ```
 Tier 1  ► Plan-001  Shared Session Core
@@ -228,7 +228,7 @@ Tier 4  ► Plan-005  Provider Driver Contract
          Plan-006  Event Taxonomy and Audit Log
          Plan-007  Local IPC and Daemon Control
 Tier 5  ► Plan-004  Queue, Steer, Pause, Resume
-         Plan-018  Identity and Participant State
+         Plan-018  Identity and User State
          Plan-022  Data Retention and GDPR
 Tier 6  ► Plan-009  Repo Attachment and Workspace Binding
          Plan-010  Worktree Lifecycle
@@ -246,22 +246,23 @@ Tier 8  ► Plan-013  Live Timeline and Visibility
          Plan-020  Observability and Failure Recovery
          Plan-023  Desktop Shell and Renderer
 Tier 9  ► Plan-026  First-Run Three-Way-Choice Onboarding
+         Plan-030  Sidekick Definitions and Peer Invocation
 Tier 10 ► Plan-031  Remote Control
 Tier 11 ► Plan-027  Cross-Node Dispatch and Approval
 ```
 
-Each tier's prerequisites are the prior tier's completion. See [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md) for the full dependency graph and table ownership map.
+A tier's prerequisites are every tier above it — the numbers are stable labels, not a dense sequence, so the gap at 2 carries no meaning. See [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md) for the forward phase DAG, which is where the phases still to ship and their real dependencies live.
 
 ---
 
 ## Project Status
 
-**Phase:** code execution is under way through Tier 4. Every plan has cleared its implementation-readiness audit, so a plan's code dispatches on tier order and its own `§Preconditions`. [Plan-024](docs/plans/024-rust-pty-sidecar.md) Phases 4-5 (CI cross-compile, signing, and the measurement substrate) are the one hard-blocked lane, waiting on hardware and certificate procurement.
+**Phase:** code execution is under way. A plan's code dispatches on tier order and its own `§Preconditions`; the forward DAG of phases still to ship is [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). [Plan-024](docs/plans/024-rust-pty-sidecar.md) Phases 4-5 (CI cross-compile, signing, and the measurement substrate) are the one hard-blocked lane, waiting on hardware and certificate procurement.
 
 Current documentation corpus:
 
-- **28 V1 implementation plans** with step-by-step build instructions; [Plan-001](docs/plans/001-shared-session-core.md) is `completed` and the other 27 are `approved`
-- **29 specifications** covering every feature and cross-cutting concern, all `approved`
+- **28 V1 implementation plans** with step-by-step build instructions; [Plan-001](docs/plans/001-shared-session-core.md) is `completed`, [Plan-031](docs/plans/031-remote-control.md) is `draft`, and the other 26 are `approved`
+- **29 specifications** covering every feature and cross-cutting concern; 27 are `approved` and [Spec-031](docs/specs/031-remote-control.md) / [Spec-032](docs/specs/032-ios-remote-client.md) are `draft`
 - **12 domain models** (run state machine, intervention model, user and device model, workflow model, etc.)
 - **15 architecture documents** (schemas, contracts, security, deployment, dependencies)
 - **12 operations runbooks** (CLI commands, SLOs, on-call routing, self-host secure defaults)
@@ -281,7 +282,7 @@ Current documentation corpus:
 | ADRs | [`docs/decisions/`](docs/decisions/) | Architectural decision records |
 | Operations | [`docs/operations/`](docs/operations/) | Runbooks, SLOs, on-call routing |
 | V1 Scope | [`docs/architecture/v1-feature-scope.md`](docs/architecture/v1-feature-scope.md) | What ships in V1 vs V2 |
-| Build Order | [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md) | Tiered implementation sequence |
+| Build Order | `docs/architecture/cross-plan-dependencies.md` | Forward phase DAG and dispatch groups |
 | Contributing | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Branch naming, commit format, PR workflow |
 
 ---

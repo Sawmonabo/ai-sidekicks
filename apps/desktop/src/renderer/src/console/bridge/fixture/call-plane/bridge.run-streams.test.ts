@@ -126,7 +126,7 @@ function scenarioWithQueueAndRollbackBeats(): ConsoleScenario {
           sequence: nextSequence,
           kind: "queue_item.created",
           occurredAt: "2026-01-01T14:20:00.440Z",
-          // Exactly what `Spec-006 §Queue Events` registers, and nothing more. The
+          // Exactly what the queue event family registers, and nothing more. The
           // row-only members ride the scripted row read above.
           payload: {
             sessionId,

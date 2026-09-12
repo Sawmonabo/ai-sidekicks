@@ -1,4 +1,4 @@
-// What a harness prints about the budgets it did NOT measure — Plan-023 Phase 1C.
+// What a harness prints about the budgets it did NOT measure.
 //
 // Formatting, alone. Every harness prints this block beside its own reading, so
 // an ungated budget stays visible instead of being absent from every report —
@@ -30,7 +30,7 @@ export function formatUnavailableBudgetReport(source: UnavailableBudgetSource): 
   for (const budget of unavailable) {
     lines.push(
       `  ${budget.id} — ${budget.specTarget}`,
-      `      produced by ${budget.producedBy}: ${budget.notMeasurableReason ?? ""}`,
+      `      ${budget.notMeasurableReason ?? ""}`,
     );
   }
   return lines.join("\n");

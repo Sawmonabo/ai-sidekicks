@@ -6,13 +6,13 @@
 // by name rather than winning by import order.
 //
 // WHY THERE IS NO STUB PENCIL BEHIND IT. A hover-revealed pencil that opened nothing —
-// or worse, one that decided for itself whether this participant may correct this row —
+// or worse, one that decided for itself whether this user may correct this row —
 // would be the second source of eligibility truth the design forbids: the affordance is
 // a fail-closed projection of a daemon predicate. So the shell renders the reserved
 // answer and no control, which is the shape `shell/composer/accessories/EditResendSlot.tsx`
 // already takes for the editor half of the same feature.
 //
-// IT IS ONE LINE AND IT IS INLINE, because it repeats once per participant message
+// IT IS ONE LINE AND IT IS INLINE, because it repeats once per user message
 // rather than once per pane. A surface-placed absence under every message would be a
 // paragraph of unbuilt-feature prose down the whole ledger.
 

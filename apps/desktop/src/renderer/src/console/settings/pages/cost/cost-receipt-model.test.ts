@@ -61,7 +61,7 @@ function receipt(options: {
       aggregationScope: "run-only",
     })),
     causedBy: options.causedByCosts.map((costCents, index) => ({
-      party: { kind: "participant", participantId: `participant-${String(index + 1)}` },
+      party: { kind: "user", userId: `user-${String(index + 1)}` },
       costCents,
       costStatus: "priced",
     })),

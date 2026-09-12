@@ -1,7 +1,7 @@
 // What the fixture answers a WORKFLOW read with, and what it refuses to invent.
 //
 // Lifted out of `growth/growth-port.ts` beside `bridge/fixture/workflows/workflow-scope.ts`, on the
-// precedent that port set for `fixture/collaboration/session-directory.ts` and
+// precedent that port set for `fixture/session/session-directory.ts` and
 // `growth/scripted-answer.ts`: the four handlers here and the reasoning that governs
 // them are one unit with one subject, and holding them in the port took it past the
 // package's split threshold. The port keeps the DECISION — which operations are
@@ -24,9 +24,9 @@
 // a property of the value rather than a preference:
 //
 //   • The two ENUMERATIONS answer with an empty list. A context that resolves no
-//     definitions, and a session holding no runs, are both the EMPTY kind of nothing
-//     (`Spec-023 §Console Design (Meridian)` §The five kinds of nothing) — a stated
-//     fact a surface draws — and an empty enumeration is a real daemon answer to the
+//     definitions, and a session holding no runs, are both the EMPTY kind of
+//     nothing — a stated fact a surface draws — and an empty enumeration is a real
+//     daemon answer to the
 //     question asked. No `nextCursor` travels with the definitions, on the scripted
 //     reply's own reasoning: a `result`-shaped reply is one fixed value the engine
 //     finds by call name, so a cursor would promise a second page that every later
@@ -38,8 +38,8 @@
 //     empty one is a reply no daemon can build. The only way to answer would be to
 //     invent a run, a finished phase and a version nobody published, and a run pane
 //     offers operator controls on whatever it is handed. They take the same "not
-//     checked" refusal `callerParticipantRead` takes for a scenario that names no
-//     viewer: the question reached nothing that could answer it.
+//     checked" refusal `callerUserRead` takes for a scenario that names no
+//     caller: the question reached nothing that could answer it.
 //
 // EVERY WORKFLOW READ CHECKS WHAT IT WAS ADDRESSED BY BEFORE IT ANSWERS. A scripted
 // reply is matched by CALL NAME, so a handler that only forwarded the request answered

@@ -1,4 +1,4 @@
-// Thread-frame router (Plan-005 Phase 3, T3.11 — the NS-91 child-routing leg).
+// Thread-frame router (child-routing leg).
 //
 // Both pinned providers multiplex CHILD-THREAD traffic — subagent, review, and
 // compaction threads the provider spawns for itself — over the same connection
@@ -9,12 +9,11 @@
 // module owns the thread-identity registry and the fail-closed routing /
 // quarantine decision both driver legs consult BEFORE any projection decision
 // — each session's lifecycle band constructs one and routes every inbound
-// frame through it ahead of the normalize hand-off — and it enforces I-005-12:
-// only the session's own thread projects, and no child's spend or interactive
-// request is lost.
+// frame through it ahead of the normalize hand-off — and it enforces: only the
+// session's own thread projects, and no child's spend or interactive request
+// is lost.
 //
-// The rule, per `Spec-005 §Required Behavior` (2026-08-28, PR #377 round-1
-// fold), is FAMILY-SCOPED:
+// The rule is FAMILY-SCOPED:
 //
 //   - A THREAD-SCOPED family routes by explicit thread identity read from the
 //     frame; only the session's own thread projects.
@@ -58,10 +57,8 @@
 //   - INTERACTIVE REQUESTS: a child's tool-approval / permission / input
 //     requests route through the SAME dispatch and approval pipeline as the
 //     parent run's, answered on the child's own correlation identity —
-//     mandatory per `Spec-016 §Provider-Native Subagents` ("subagent tool
-//     calls flow through the same approval pipeline as the parent run's; a
-//     subagent introduces no separate trust surface"); suppressing the
-//     request with the transcript would not hide the child but HANG it.
+//     mandatory suppressing the request with the transcript would not hide
+//     the child but HANG it.
 //
 // What suppression governs is the child's TRANSCRIPT PROJECTION alone. Child
 // lifecycle reaches the timeline only through the already-registered
@@ -69,12 +66,10 @@
 // registration / completion); a child thread's own frames are never a second
 // lifecycle channel.
 //
-// Verifies invariant: I-005-12 (Plan-005 §Invariants). The single routing
-// decision both normalizers consult; consumed unchanged by T3.14's
-// terminal-emission boundary, which adds no second routing decision.
+// The single routing decision both normalizers consult; consumed
+// unchanged by the terminal-emission boundary, which adds no second
+// routing decision.
 //
-// Refs: Plan-005 §Phase 3 / T3.11, `Spec-005 §Required Behavior`,
-// `Spec-016 §Provider-Native Subagents`.
 
 import { type DriverDiagnosticsEmitter, type DriverProviderName } from "./driver-diagnostics.js";
 
@@ -137,7 +132,7 @@ export interface RoutableProviderFrame {
 // Registration.
 // --------------------------------------------------------------------------
 
-/** How a registered child's usage attributes (`Spec-005 §Required Behavior`). */
+/** How a registered child's usage attributes (``). */
 export type ChildSpendAttribution =
   | { readonly kind: "subagent"; readonly subagentId: string }
   | { readonly kind: "parent-run" };
@@ -390,7 +385,7 @@ export class ThreadFrameRouter<TFrame extends RoutableProviderFrame = RoutablePr
 
   /**
    * Route one inbound frame. The single decision both normalizers consult
-   * before any projection; T3.14's emission boundary consumes it unchanged.
+   * before any projection; the emission boundary consumes it unchanged.
    */
   routeFrame(frame: TFrame, nowMs: number): ThreadFrameRoute {
     this.expirePendingHolds(nowMs);

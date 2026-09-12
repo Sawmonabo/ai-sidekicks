@@ -326,9 +326,8 @@ describe("the command zone's accelerator wiring", () => {
   };
 
   it("threads the addressed channel onto a start typed into a channel composer", async () => {
-    // `Spec-017 §Chat-start surface (SA-38)`: a start issued from a channel carries
-    // the originating channel. The zone already holds that address, so the field is
-    // read off it rather than composed anywhere.
+    // A start issued from a channel carries the originating channel. The zone already
+    // holds that address, so the field is read off it rather than composed anywhere.
     registerCommand({ id: WORKFLOW_COMMAND_ROOT, run: vi.fn() });
     const calls = recordedWorkflowCalls();
     const zone = zoneFor(

@@ -10,9 +10,9 @@
 | **Depends On** | [ADR-020: V1 Deployment Model (OSS Self-Host + Hosted SaaS) and OSS License](../decisions/020-v1-deployment-model-and-oss-license.md), [Spec-007: Local IPC And Daemon Control](./007-local-ipc-and-daemon-control.md), [Spec-023: Desktop Shell And Renderer](./023-desktop-shell-and-renderer.md), [Spec-006: Session Event Taxonomy And Audit Log](./006-session-event-taxonomy-and-audit-log.md), [Spec-029: Provider Accounts And Credential Homes](./029-provider-accounts-and-credential-homes.md) |
 | **Implementation Plan** | [Plan-026: First-Run Onboarding](../plans/026-first-run-onboarding.md) |
 
-> **Amendment (2026-08-25, first-run provider-authentication surfacing — the provider step a fresh install previously never met; user-ratified, closes [BL-154](../archive/backlog-archive.md), §6 node NS-77).** Flips the previously-`approved` spec to `review` per the audit runbook's spec-amendment rule, since it adds normative §Required Behavior, §Persistence, §Default Behavior, §Fallback Behavior, §Interfaces And Contracts, §State And Data Implications, and §Acceptance Criteria text, and **restores `approved` in the same diff** through the targeted readiness-audit delta riding it — the same-PR flip-and-restore shape [Spec-029](029-provider-accounts-and-credential-homes.md), [Plan-026](../plans/026-first-run-onboarding.md), and [Plan-029](../plans/029-provider-accounts-and-credential-homes.md) take in this swap; Plan-026's paired-spec Preconditions box carries the scoped Re-opened/Delivered record. **The growth.** §Required Behavior is restated as **two independently-triggered step groups**: the three-way deployment choice and the telemetry opt-in already specified here (**Group A**, unchanged in every particular), and the new §Provider Authentication (Group B), which settles whether the node can run an agent at all. Group B is **offered, never demanded** — onboarding may complete with zero registered accounts, and the completion summary says so — is triggered on exactly three conditions including **after** an account-plane refusal, and never runs ahead of a provider run that would otherwise have been admitted. It composes the registry and readiness surfaces [Spec-029](029-provider-accounts-and-credential-homes.md) defines rather than minting a second registry, reports a provider as set up **only** on the authenticated readiness arm, and offers no field, flag, or environment variable anywhere into which a provider credential could be supplied — sign-in completes through the provider's own first-party flow, which the vendor's published policy requires. Group B deliberately **holds no state of its own**: the registry is the single source of provider truth, so nothing about the step is persisted and nothing can drift from it. **Mints nothing**: no `onboarding.*` method (the five are unchanged in name, count, and shape), no config key, no event type (the `onboarding_lifecycle` category is deliberately unwidened — the account registry is node-local, non-evented configuration), no error code (the headless arm reuses `onboarding.headless_required`), and no table. One column pair is minted, and only on the daemon side: Spec-029's unshipped `provider_accounts` CREATE statement gains the stored health reading and its observation timestamp — no table, no migration ordinal, and no census move (SQLite stays at 56). Nothing in Group B's own surface is persisted.
+> **Amendment (2026-08-25, first-run provider-authentication surfacing — the provider step a fresh install previously never met; user-ratified, closes [BL-154](../archive/backlog-archive.md)).** Flips the previously-`approved` spec to `review` per the audit runbook's spec-amendment rule, since it adds normative §Required Behavior, §Persistence, §Default Behavior, §Fallback Behavior, §Interfaces And Contracts, §State And Data Implications, and §Acceptance Criteria text, and **restores `approved` in the same diff** through the targeted readiness-audit delta riding it — the same-PR flip-and-restore shape [Spec-029](029-provider-accounts-and-credential-homes.md), [Plan-026](../plans/026-first-run-onboarding.md), and [Plan-029](../plans/029-provider-accounts-and-credential-homes.md) take in this swap; Plan-026's paired-spec Preconditions box carries the scoped Re-opened/Delivered record. **The growth.** §Required Behavior is restated as **two independently-triggered step groups**: the three-way deployment choice and the telemetry opt-in already specified here (**Group A**, unchanged in every particular), and the new §Provider Authentication (Group B), which settles whether the node can run an agent at all. Group B is **offered, never demanded** — onboarding may complete with zero registered accounts, and the completion summary says so — is triggered on exactly three conditions including **after** an account-plane refusal, and never runs ahead of a provider run that would otherwise have been admitted. It composes the registry and readiness surfaces [Spec-029](029-provider-accounts-and-credential-homes.md) defines rather than minting a second registry, reports a provider as set up **only** on the authenticated readiness arm, and offers no field, flag, or environment variable anywhere into which a provider credential could be supplied — sign-in completes through the provider's own first-party flow, which the vendor's published policy requires. Group B deliberately **holds no state of its own**: the registry is the single source of provider truth, so nothing about the step is persisted and nothing can drift from it. **Mints nothing**: no `onboarding.*` method (the five are unchanged in name, count, and shape), no config key, no event type (the `onboarding_lifecycle` category is deliberately unwidened — the account registry is node-local, non-evented configuration), no error code (the headless arm reuses `onboarding.headless_required`), and no table. One column pair is minted, and only on the daemon side: Spec-029's unshipped `provider_accounts` CREATE statement gains the stored health reading and its observation timestamp — no table, no migration ordinal, and no census move (SQLite stays at 56). Nothing in Group B's own surface is persisted.
 
-> **Amendment (2026-08-25, CLI executable-name canonicalization — the `sidekicks://` scheme value inside §Required Behavior; §6 node NS-79).** Flips the previously-`approved` spec to `review` per the audit runbook's [§Spec-Status Promotion Gate](../operations/plan-implementation-readiness-audit-runbook.md#spec-status-promotion-gate) rule that an amendment touching §Required Behavior re-triggers the gate, and **restores `approved` in the same diff** through the targeted readiness-audit delta riding it — the in-swap flip-and-restore shape the NS-63 / NS-65..NS-74 cohort established and this same vehicle takes on [Plan-007](../plans/007-local-ipc-and-daemon-control.md). **The change is one value, and it is a repair rather than a design move.** §Three-Way Choice Semantics' Option-3 sentence named the deep-link scheme with an `ai-` prefix the scheme never carried: [Spec-023 §Deep-Link Invite Flow](./023-desktop-shell-and-renderer.md#deep-link-invite-flow) **owns** the scheme, the same sentence cites Spec-023 as its authority, and Spec-023 has spelled it `sidekicks://` throughout — so this spec was restating its authority incorrectly and now restates it correctly. The scheme's canonical value has not moved. **Why it flips anyway:** the sentence is inside normative §Required Behavior and a reader implementing from this spec alone would have registered the wrong handler, which is the condition the gate exists for — the correction's obviousness is not a reason to skip the lifecycle, and the in-swap restore costs nothing that the ceremony buys. §CLI Surface additionally gains one descriptive sentence naming the `sk` alias and its `PATH` collision; that sentence is outside §Required Behavior and would not itself have flipped the spec. **Mints nothing**: no method, config key, event type, error code, table, or column, and no census moves.
+> **Amendment (2026-08-25, CLI executable-name canonicalization — the `sidekicks://` scheme value inside §Required Behavior).** Flips the previously-`approved` spec to `review` per the audit runbook's [§Spec-Status Promotion Gate](../operations/plan-implementation-readiness-audit-runbook.md#spec-status-promotion-gate) rule that an amendment touching §Required Behavior re-triggers the gate, and **restores `approved` in the same diff** through the targeted readiness-audit delta riding it — the in-swap flip-and-restore shape the cohort established and this same vehicle takes on [Plan-007](../plans/007-local-ipc-and-daemon-control.md). **The change is one value, and it is a repair rather than a design move.** §Three-Way Choice Semantics' Option-3 sentence named the deep-link scheme with an `ai-` prefix the scheme never carried: [Spec-023](./023-desktop-shell-and-renderer.md) **owns** the scheme, the same sentence cites Spec-023 as its authority, and Spec-023 has spelled it `sidekicks://` throughout — so this spec was restating its authority incorrectly and now restates it correctly. The scheme's canonical value has not moved. **Why it flips anyway:** the sentence is inside normative §Required Behavior and a reader implementing from this spec alone would have registered the wrong handler, which is the condition the gate exists for — the correction's obviousness is not a reason to skip the lifecycle, and the in-swap restore costs nothing that the ceremony buys. §CLI Surface additionally gains one descriptive sentence naming the `sk` alias and its `PATH` collision; that sentence is outside §Required Behavior and would not itself have flipped the spec. **Mints nothing**: no method, config key, event type, error code, table, or column, and no census moves.
 
 ## Purpose
 
@@ -20,13 +20,13 @@ Define the one-time, client-daemon first-run onboarding flow that presents the t
 
 It also defines the **provider-authentication step group** that settles whether the node can start an agent run at all — the first-run gap [BL-154](../archive/backlog-archive.md) recorded, where a node completes onboarding with no provider account registered and learns it only when its first run is refused. The two step groups are independently triggered and independently skippable; §Required Behavior names which sections belong to which.
 
-This spec covers the **client-daemon** first-run experience across both V1 clients (CLI and desktop). It does not define the self-hosted _operator_ first-run — that is `docker-compose up` using the package defined in Spec-025 and is not subject to the three-way choice. [Spec-023](./023-desktop-shell-and-renderer.md) remains authoritative for keystore access, WebAuthn orchestration, and the preload bridge; this spec composes those surfaces, it does not restate them.
+This spec covers the **client-daemon** first-run experience across both V1 clients (CLI and desktop). It does not define the self-hosted _operator_ first-run — that is `docker-compose up` for the self-hosted package and is not subject to the three-way choice. [Spec-023](./023-desktop-shell-and-renderer.md) remains authoritative for keystore access, WebAuthn orchestration, and the preload bridge; this spec composes those surfaces, it does not restate them.
 
 ## Scope
 
 In scope:
 
-- The Group-A trigger conditions (first outbound invite or explicit `sidekicks onboarding start`). Group B's three offer conditions are enumerated separately in §Provider Authentication (Group B) — the two step groups do not share a trigger.
+- The Group-A trigger condition (explicit `sidekicks onboarding start`). Group B's three offer conditions are enumerated separately in §Provider Authentication (Group B) — the two step groups do not share a trigger.
 - The CLI interaction flow: prompts, validation, confirmations, copy intent per choice, help text.
 - The desktop interaction flow: modal or step-through placement, preload-bridge capability additions, accessibility baseline.
 - Persistence of the resolved choice in daemon config at a specified path.
@@ -39,9 +39,9 @@ In scope:
 Out of scope (see Non-Goals):
 
 - Installer or package-manager bootstrap (brew, apt, npm, release binary).
-- Self-hosted _operator_ first-run — that is `docker-compose up` per Spec-025.
+- Self-hosted _operator_ first-run — that is `docker-compose up` for the self-hosted package.
 - Hosted SaaS sign-up page UX, pricing surface, billing, or account dashboard (hosted product concerns).
-- Relay protocol design or endpoint validation contract beyond calling the Spec-008 / Spec-025 endpoints that already exist.
+- Relay protocol design or endpoint validation contract beyond calling the relay endpoints that already exist ([Spec-031](./031-remote-control.md)).
 - Enterprise SSO onboarding (OIDC / SAML) — deferred to V1.1+ alongside the rest of the enterprise track in [BL-060](../archive/backlog-archive.md).
 - The provider-account registry, credential homes, the readiness derivation, spawn validation, and the vendor authentication-policy constraints — all [Spec-029](029-provider-accounts-and-credential-homes.md)'s, composed here and never re-specified. Group B owns the _surface_; it owns none of the mechanism beneath it.
 
@@ -49,15 +49,15 @@ Out of scope (see Non-Goals):
 
 - Re-deriving the three-way-choice semantics. `ADR-020 §First-Run UX` is authoritative; this spec implements it.
 - Re-specifying OS-keystore mechanics, WebAuthn orchestration, or the preload bridge. Spec-023 is authoritative; this spec composes those capabilities through the bridge.
-- Prompting on initial install, first daemon start, or first local session creation. Single-user local-daemon mode must reach a working session without ever hitting this flow. **This holds for both step groups**: the three-way choice is keyed to the first outbound invite, and the provider-authentication step is keyed to an account-plane refusal that has already happened — neither runs ahead of work that would otherwise have succeeded.
+- Prompting on initial install, first daemon start, or first local session creation. A local-daemon node must reach a working session without ever hitting this flow. **This holds for both step groups**: the three-way choice is keyed to explicit activation, and the provider-authentication step is keyed to an account-plane refusal that has already happened — neither runs ahead of work that would otherwise have succeeded.
 - Owning provider sign-in, or specifying the provider-account registry. The flow hands the operator to each provider's own first-party sign-in and never collects, stores, or intermediates provider credentials; [Spec-029](029-provider-accounts-and-credential-homes.md) is authoritative for the registry, the credential homes, the readiness derivation, and the vendor authentication-policy constraints, and this spec composes those surfaces rather than re-specifying them.
 - Shipping a full telemetry-consent framework. The flow surfaces opt-in at onboarding; broader telemetry policy and UX is tracked separately.
 - Designing the hosted-SaaS sign-up web surface. This spec defines the daemon-side callback contract; the web surface is a hosted product concern.
 
 ## Domain Dependencies
 
-- [Session Model](../domain/session-model.md) — onboarding resolves before the first outbound _invite_ is issued on a session; session creation itself is not gated.
-- [User And Device Model](../domain/user-and-device-model.md) — `onboarding.choice_made` is attributed to a `ParticipantId`.
+- [Session Model](../domain/session-model.md) — session creation is never gated on onboarding.
+- [User And Device Model](../domain/user-and-device-model.md) — `onboarding.choice_made` is attributed to a `UserId`.
 
 ## Architectural Dependencies
 
@@ -75,16 +75,12 @@ The flow comprises **two independently-triggered step groups**. **Group A** — 
 
 ### Trigger
 
-The daemon must present the three-way choice on exactly one of the following conditions, whichever happens first:
-
-1. The first outbound _invite_ is attempted on any session (via CLI `sidekicks invite create` or desktop invite action).
-2. An operator or user explicitly runs `sidekicks onboarding start` (CLI) or selects _Set up collaboration_ (desktop menu) to pre-stage the choice.
+The daemon must present the three-way choice when the user explicitly runs `sidekicks onboarding start` (CLI) or selects _Set up relay_ (desktop menu). Nothing else triggers it.
 
 The flow must not trigger on:
 
 - Daemon install, first launch, or health check.
-- First session creation, first local run, first local artifact write, or any other purely single-user interaction.
-- Incoming invite acceptance (the inviter's relay carries the join; the invitee's choice is deferred to their own first outbound invite).
+- First session creation, first local run, first local artifact write, or any other ordinary local interaction.
 
 Once the choice is persisted (see §State And Data Implications), the daemon must not re-prompt unless the user explicitly resets via `sidekicks onboarding reset`.
 
@@ -94,16 +90,16 @@ The flow must present three and only three options. Their identifiers, copy inte
 
 | # | Choice ID (config) | Display name | One-line framing the UI must convey |
 | --- | --- | --- | --- |
-| 1 | `free-public-relay` | Free public relay (default) | _Use the project-operated relay — zero config, fastest path to inviting a collaborator. Session payloads are end-to-end encrypted; the relay never sees plaintext._ |
-| 2 | `self-host` | Self-host your own relay | _Point at a relay you operate (Spec-025). You own the infrastructure and the audit surface. Requires a relay URL, an admin-issued join token, and a first-connection fingerprint trust decision._ |
+| 1 | `free-public-relay` | Free public relay (default) | _Use the project-operated relay — zero config, fastest path to reaching this machine from another device. Session payloads are end-to-end encrypted; the relay never sees plaintext._ |
+| 2 | `self-host` | Self-host your own relay | _Point at a relay you operate. You own the infrastructure and the audit surface. Requires a relay URL, an admin-issued relay token, and a first-connection fingerprint trust decision._ |
 | 3 | `hosted-saas` | Sign up for hosted SaaS | _Open a browser to sign up for the hosted managed service. Same feature set as the free option with vendor support on the paid tier. Returns a scoped token to this daemon via deep-link or loopback callback._ |
 
 Copy may be tightened or localized; the framing (zero-config vs. own-it vs. managed; what the user has to provide; where tokens live) must not be lost.
 
 Option-specific required prompts:
 
-- **Option 1 (`free-public-relay`).** The UI must display the current published relay URL from daemon config (the URL is not operator-editable from this flow). No further prompts. Token: the free tier uses the daemon's existing per-machine identity key; no network call is made until the first invite is actually issued.
-- **Option 2 (`self-host`).** The UI must prompt for: the relay URL (`https://…`); the admin-issued join token (paste, never echoed on CLI); a TLS-fingerprint-trust confirmation step after the daemon's first reachability probe against `GET /readyz` at the URL. The daemon must pin the certificate's SubjectPublicKeyInfo hash on confirmation (TOFU). The admin token must be written to the OS keystore via the same keystore surface Spec-023 defines; never to a plaintext config field.
+- **Option 1 (`free-public-relay`).** The UI must display the current published relay URL from daemon config (the URL is not operator-editable from this flow). No further prompts. Token: the free tier uses the daemon's existing per-machine identity key; no network call is made until the relay is actually used.
+- **Option 2 (`self-host`).** The UI must prompt for: the relay URL (`https://…`); the admin-issued relay token (paste, never echoed on CLI); a TLS-fingerprint-trust confirmation step after the daemon's first reachability probe against `GET /readyz` at the URL. The daemon must pin the certificate's SubjectPublicKeyInfo hash on confirmation (TOFU). The admin token must be written to the OS keystore via the same keystore surface Spec-023 defines; never to a plaintext config field.
 - **Option 3 (`hosted-saas`).** The UI must open the system browser to the hosted sign-up URL (a configurable constant in daemon config) with a one-shot PKCE state parameter. The daemon must listen on a `127.0.0.1:<ephemeral>/callback` loopback endpoint (desktop may alternatively register a `sidekicks://` deep-link handler per Spec-023) and accept exactly one inbound callback bearing the scoped token and the matching PKCE state. The scoped token must be written to the OS keystore. The loopback listener must bind only to `127.0.0.1` and must close within 5 minutes or on first use, whichever comes first.
 
 ### Persistence
@@ -136,17 +132,17 @@ Secrets (`self-host` admin token; `hosted-saas` scoped token) are never written 
 2. Delete the `[onboarding]` block from `config.toml`.
 3. Delete the associated keystore entry (self-host admin token or hosted scoped token) if present. Failure to delete must not block the reset, but must be surfaced in stderr so the user can clean up manually.
 4. Emit `onboarding.choice_reset` (see §State And Data Implications).
-5. Not re-prompt automatically; the next first-outbound-invite re-triggers the flow.
+5. Not re-prompt automatically; the next explicit `sidekicks onboarding start` re-triggers the flow.
 
 ### Telemetry Opt-In
 
-Telemetry opt-in must be presented as a _separate step_ after the three-way choice resolves, in the same session. Default must be **off**. Copy must state: what is collected (error-class counts, version strings, choice-ID without relay URL), what is _not_ collected (session payloads, file contents, participant identifiers, relay traffic), the retention window, and how to change the setting later (`sidekicks telemetry set {on,off}`). The flow must not proceed past telemetry opt-in without an explicit choice; no silent default.
+Telemetry opt-in must be presented as a _separate step_ after the three-way choice resolves, in the same session. Default must be **off**. Copy must state: what is collected (error-class counts, version strings, choice-ID without relay URL), what is _not_ collected (session payloads, file contents, user identifiers, relay traffic), the retention window, and how to change the setting later (`sidekicks telemetry set {on,off}`). The flow must not proceed past telemetry opt-in without an explicit choice; no silent default.
 
 [EU ePrivacy Directive Article 5(3)](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:02002L0058-20091219) requires explicit consent for non-essential client-side storage; legitimate-interest is not an accepted basis. This flow's default-off posture is global (not EU-only) for uniform behavior.
 
 ### Provider Authentication (Group B)
 
-A node that finished Group A and never met Group B can invite collaborators and cannot start a run. That was the state a fresh install was previously left in — the gap discovered only when the first provider run refused. This step group closes it by surfacing the state and handing the operator to the provider's own sign-in; it does not authenticate anyone.
+A node that finished Group A and never met Group B can reach the relay and cannot start a run. That was the state a fresh install was previously left in — the gap discovered only when the first provider run refused. This step group closes it by surfacing the state and handing the operator to the provider's own sign-in; it does not authenticate anyone.
 
 **Trigger.** Group B is offered on exactly three conditions and on nothing else:
 
@@ -177,13 +173,13 @@ It must not trigger on install, on first daemon launch, on a health check, on se
 
 - When the UI presents the three choices, Option 1 (`free-public-relay`) is the default. The user can accept by pressing Enter (CLI) or clicking the default button (desktop).
 - Telemetry opt-in default is off.
-- Non-invite interactions (session creation, local runs, local artifacts) proceed without any onboarding prompt. The daemon treats the `[onboarding]` config block's absence as "not yet required."
+- Ordinary interactions (session creation, local runs, local artifacts) proceed without any onboarding prompt. The daemon treats the `[onboarding]` config block's absence as "not yet required."
 - The provider-authentication step is offered, never demanded: onboarding completes with zero registered accounts, and a node with none is a fully onboarded node that cannot yet start a provider run.
 
 ## Fallback Behavior
 
-- **No network at first-invite time (Option 1).** The daemon must offer a deferred-choice mode: store the resolved choice; defer network validation until the next invite attempt; log `onboarding.choice_made` with `deferred_validation: true`. The onboarding flow itself completes offline.
-- **Self-host TLS fingerprint mismatch on subsequent connect (Option 2).** The daemon must refuse the connection and surface a CLI / desktop dialog asking the user to either re-run `sidekicks onboarding reset` or explicitly re-pin with `sidekicks relay repin --force` (which itself requires the user to paste the new SPKI hash to prove out-of-band verification). Silent re-trust is forbidden. (Spec-008 may later introduce a named event for this refusal path; that registration is out of scope here.)
+- **No network when the choice resolves (Option 1).** The daemon must offer a deferred-choice mode: store the resolved choice; defer network validation until the next relay connection attempt; log `onboarding.choice_made` with `deferred_validation: true`. The onboarding flow itself completes offline.
+- **Self-host TLS fingerprint mismatch on subsequent connect (Option 2).** The daemon must refuse the connection and surface a CLI / desktop dialog asking the user to either re-run `sidekicks onboarding reset` or explicitly re-pin with `sidekicks relay repin --force` (which itself requires the user to paste the new SPKI hash to prove out-of-band verification). Silent re-trust is forbidden. (A named event for this refusal path may be registered later; that registration is out of scope here.)
 - **Hosted-SaaS sign-up canceled or loopback callback never fires (Option 3).** The flow must time out after 5 minutes, discard the PKCE state, leave `onboarding` unset, and return the user to the three-way choice screen. No partial state persists.
 - **OS keystore unavailable (Option 2, Option 3, or telemetry-choice persistence on platforms that require keystore-backed daemon tokens).** Per `Spec-023 §Fallback Behavior`: refuse to persist long-lived auth material; the session proceeds memory-only with the degradation surfaced; the flow records `onboarding.choice_made` with `keystore_available: false` so ops can diagnose. On Linux, the daemon must distinguish `basic_text` (plaintext fallback) from `gnome_libsecret` / `kwallet*` via `safeStorage.getSelectedStorageBackend()` ([Electron safeStorage docs](https://www.electronjs.org/docs/latest/api/safe-storage)) and refuse the plaintext backend for hosted / self-host tokens.
 - **Conflicting daemon already configured (`config.toml` present but no `[onboarding]`, or `[onboarding]` present on a daemon installation version that predates this spec).** The daemon must migrate at first trigger: if a legacy config field maps to a current choice ID, carry it forward with `resolved_at = now()` and emit `onboarding.choice_made` with `migrated: true`; otherwise treat it as a fresh onboarding.
@@ -199,7 +195,7 @@ It must not trigger on install, on first daemon launch, on a health check, on se
 ```
 sidekicks onboarding start           # force-trigger the flow (manual activation)
 sidekicks onboarding start --providers   # activate the provider-authentication step group directly (Group B)
-sidekicks onboarding reset           # clear choice + associated token; next invite re-triggers
+sidekicks onboarding reset           # clear choice + associated token; re-run start to re-trigger
 sidekicks onboarding status          # print resolved choice, relay URL, opt-in, fingerprint (if self-host),
                                      #   and per-provider readiness with the remedy for any provider not ready
 sidekicks telemetry set {on,off}     # toggle telemetry post-onboarding
@@ -218,7 +214,7 @@ Desktop composes the flow through two bridges exposed by the Spec-023 preload co
 
 - The Group-B entry point is _Set up providers_. The provider step is hosted in the same walkthrough as Group A when it runs inside the flow, and opens as its own walkthrough when an account-plane refusal or the menu activates it. It composes the node-local `providerAccount.*` surface directly and adds **no** preload-bridge method for provider credentials — there is no credential input for a bridge to carry, so nothing here relaxes the renderer's no-secrets posture.
 
-Desktop follows the [VS Code walkthrough pattern](https://code.visualstudio.com/api/ux-guidelines/walkthroughs) for step-through visual layout (left-rail progress, right-pane copy and inputs, explicit primary CTA per step). The modal is non-dismissible until a choice is made or the user explicitly cancels the outbound invite that triggered it.
+Desktop follows the [VS Code walkthrough pattern](https://code.visualstudio.com/api/ux-guidelines/walkthroughs) for step-through visual layout (left-rail progress, right-pane copy and inputs, explicit primary CTA per step). The modal is non-dismissible until a choice is made or the user explicitly cancels the flow.
 
 ### Daemon JSON-RPC Additions
 
@@ -238,8 +234,8 @@ This spec's two onboarding events are registered in [Spec-006](./006-session-eve
 
 | Event (dotted form) | Payload |
 | --- | --- |
-| `onboarding.choice_made` | `{participantId, choiceId, relayUrl, migrated: boolean, deferredValidation: boolean, keystoreAvailable: boolean, timestamp}` |
-| `onboarding.choice_reset` | `{participantId, previousChoiceId, reason: 'cli-reset' \| 'operator-reset', timestamp}` |
+| `onboarding.choice_made` | `{userId, choiceId, relayUrl, migrated: boolean, deferredValidation: boolean, keystoreAvailable: boolean, timestamp}` |
+| `onboarding.choice_reset` | `{userId, previousChoiceId, reason: 'cli-reset' \| 'operator-reset', timestamp}` |
 
 Payloads must not contain secret material (no tokens, no SPKI pin raw bytes — the pin is stored in config, not events).
 
@@ -256,31 +252,9 @@ Payloads must not contain secret material (no tokens, no SPKI pin raw bytes — 
 
 ## Example Flows
 
-### Example: CLI first-invite on a fresh install (happy path, Option 1)
-
-1. Alice runs `sidekicks invite create --session my-sprint`.
-2. Daemon reads `config.toml`; no `[onboarding]` block. It returns `OnboardingRequired` to the CLI.
-3. CLI renders the three-way choice with `@inquirer/prompts`; Alice presses Enter (default = Option 1).
-4. CLI shows telemetry opt-in prompt; Alice chooses "off" (explicit default).
-5. CLI submits `OnboardingSubmitChoice('free-public-relay', ...)` + `OnboardingSubmitTelemetry(false)`.
-6. Daemon writes `[onboarding]` block with `resolved_at`, emits `onboarding.choice_made`, and proceeds with the original `invite create` request.
-7. Total added latency: single digit seconds on happy path; network only touched when the invite issues.
-
-### Example: Desktop first-invite, Option 2 (self-host)
-
-1. Bob clicks _Invite collaborator_ in the desktop UI.
-2. Main process checks daemon `OnboardingRead()`; returns `unresolved`.
-3. Main process opens a modal through the `onboarding.presentChoice` preload bridge (renderer never sees the token).
-4. Bob selects _Self-host your own_; main process prompts for relay URL and admin token (native dialog, not renderer DOM).
-5. Main process probes `GET <relay_url>/readyz`; captures the certificate SPKI; shows Bob the fingerprint.
-6. Bob confirms the fingerprint (out-of-band verification against what his relay operator posted).
-7. Main process writes the admin token to the OS keystore via Spec-023's `safeStorage`; writes `[onboarding]` with the pinned SPKI; emits `onboarding.choice_made` with `keystoreAvailable: true`.
-8. Telemetry-opt-in modal appears; Bob picks off.
-9. Original invite flow resumes against the now-configured self-host relay.
-
 ### Example: CI environment (headless, Option 1 via env var)
 
-1. CI job runs `sidekicks invite create` non-interactively.
+1. CI job runs `sidekicks onboarding start` non-interactively.
 2. Daemon triggers onboarding; CLI detects `!process.stdin.isTTY`.
 3. CLI prints the four override env-vars and exits 2.
 4. CI job re-runs with `SIDEKICKS_ONBOARDING_CHOICE=free-public-relay SIDEKICKS_TELEMETRY_OPT_IN=false`.
@@ -290,7 +264,7 @@ Payloads must not contain secret material (no tokens, no SPKI pin raw bytes — 
 
 1. User: `sidekicks onboarding reset --yes`.
 2. Daemon deletes `[onboarding]` block and keystore entry; emits `onboarding.choice_reset` with `reason: 'cli-reset'`.
-3. Next `sidekicks invite create` re-triggers the three-way choice as for a fresh install.
+3. Next `sidekicks onboarding start` re-triggers the three-way choice as for a fresh install.
 
 ## Implementation Notes
 
@@ -305,7 +279,7 @@ Payloads must not contain secret material (no tokens, no SPKI pin raw bytes — 
 
 ## Pitfalls To Avoid
 
-- **Prompting on initial install or first session create.** The flow is keyed to first-invite (or explicit activation), not first-launch. Prompting earlier breaks single-user and offline modes and conflicts with `ADR-020 §First-Run UX`. Implementations that put the prompt on install-time must be rejected in review.
+- **Prompting on initial install or first session create.** The flow is keyed to explicit activation, not first-launch. Prompting earlier breaks local-only and offline modes and conflicts with `ADR-020 §First-Run UX`. Implementations that put the prompt on install-time must be rejected in review.
 - **Silent defaulting to Option 1 on non-interactive invoke.** Headless environments must fail loudly with the env-var instruction. Silent selection of Option 1 in CI is a privacy footgun: a caller who intended to use self-host will leak connection attempts to the public relay.
 - **Writing secrets to `config.toml`.** The admin token (Option 2) and scoped token (Option 3) must never land in the config file. Keystore-only; surface degradation if the keystore is unavailable.
 - **Hidden telemetry default.** Telemetry must be an explicit second step. Bundling it into the three-way choice UI makes it easy to miss and violates the EU ePrivacy Directive §5(3) consent baseline that this product applies globally.
@@ -314,12 +288,12 @@ Payloads must not contain secret material (no tokens, no SPKI pin raw bytes — 
 - **Leaking secrets into renderer (Desktop Option 2 / Option 3).** The renderer must never handle the paste-box or the callback token directly. All secret input flows through main-process dialogs per `Spec-023 §Trust Stance`. An implementation that renders the admin-token input via `<input type="password">` in React has already leaked the secret into the renderer address space.
 - **Reporting a provider as authenticated on anything but the probe.** A plan label, a subscription echo, a stored billing mode, or the existence of a home directory is not evidence of a usable credential. A surface that clears its own warning on one of those tells the operator everything is fine while every run refuses — the disagreement that arises whenever a client re-derives a predicate the daemon already computes.
 - **Prompting for a provider token.** There must be no field, flag, or environment variable anywhere in this flow into which a provider credential can be supplied. Sign-in completes through the provider's own first-party flow; anything else is the credential intermediation the vendor's published policy bars.
-- **Blocking onboarding on the provider step.** Group B is offered, never demanded. Making it mandatory turns a node whose operator only wants to invite collaborators into a node that cannot finish setup, and re-creates the install-time prompt this spec forbids at a different point in the flow.
+- **Blocking onboarding on the provider step.** Group B is offered, never demanded. Making it mandatory turns a node whose operator only wants to set up its relay into a node that cannot finish setup, and re-creates the install-time prompt this spec forbids at a different point in the flow.
 - **Emitting secret payload fields in `onboarding.choice_made`.** The event must stay public-safe; no tokens, no SPKI raw bytes beyond what's already in `config.toml`. Audit-log privacy is the intent.
 
 ## Acceptance Criteria
 
-- [ ] Onboarding flow triggers on first outbound invite or on `sidekicks onboarding start`, and never on install, first launch, or local-only session creation.
+- [ ] Onboarding flow triggers on `sidekicks onboarding start`, and never on install, first launch, or session creation.
 - [ ] CLI flow presents exactly three options, default = `free-public-relay`, uses `@inquirer/prompts`, and supports non-interactive env-var override (`SIDEKICKS_ONBOARDING_CHOICE`, `--relay-url`, `--hosted-token-stdin`, `SIDEKICKS_TELEMETRY_OPT_IN`) with exit code 2 on headless detection.
 - [ ] Desktop flow presents the three options via the `onboarding.presentChoice` preload bridge; secret input (Option 2 token paste, Option 3 callback) never crosses into the renderer address space.
 - [ ] Resolved choice persists at `$XDG_CONFIG_HOME/ai-sidekicks/config.toml` (or `%APPDATA%\ai-sidekicks\config.toml` on Windows) in the `[onboarding]` block with `choice_id`, `resolved_at`, `relay_url`, `telemetry_opt_in`, and (Option 2 only) `self_host_spki_pin`.

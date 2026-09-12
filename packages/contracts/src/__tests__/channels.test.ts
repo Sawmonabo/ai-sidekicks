@@ -16,7 +16,7 @@
 //   * ChannelListResponseChannelSchema (per-element) — all required fields
 //     present (without `name`), all required + optional `name`,
 //     missing-field rejections, malformed-id rejection, invalid-state
-//     rejection, `participantCount` int/non-negative/NaN/string rejection,
+//     rejection, `userCount` int/non-negative/NaN/string rejection,
 //     `name` length boundaries, `name` NUL-byte and whitespace-only
 //     wireFreeFormString guards, `.strict()` per-element anti-leakage.
 //   * ChannelListResponseSchema (outer) — empty list, one element, multiple
@@ -53,7 +53,7 @@ const buildValidChannelElement = () => ({
   id: CHANNEL_ID,
   name: "general",
   state: "active" as ChannelState,
-  participantCount: 3,
+  userCount: 3,
 });
 
 // =============================================================================
@@ -160,16 +160,16 @@ describe("ChannelListRequestSchema (sessionId-only request)", () => {
 // =============================================================================
 //
 // Response: `{channels: Array<{id: ChannelId, name?: string,
-// state: ChannelState, participantCount: number}>}`. This describe block
+// state: ChannelState, userCount: number}>}`. This describe block
 // exercises the per-element shape; the next describe block covers the
 // outer envelope.
 //
 // Per-element invariants:
-//   * `id`, `state`, `participantCount` are REQUIRED at parse time.
+//   * `id`, `state`, `userCount` are REQUIRED at parse time.
 //   * `name` is OPTIONAL — the bootstrap default channel may have no
 //     friendly label; the wire
 //     signal for "no name" is KEY ABSENT.
-//   * `participantCount` is non-negative integer (`.int().nonnegative()`
+//   * `userCount` is non-negative integer (`.int().nonnegative()`
 //     enforces both guards; the canonical wire-form gloss `number` is
 //     imprecise about JSON's int-vs-float ambiguity).
 //   * `.strict()` rejects unknown keys per the package anti-leakage stance.
@@ -179,12 +179,12 @@ describe("ChannelListResponseChannelSchema (per-element projection)", () => {
   // Happy paths — REQUIRED-fields-only AND REQUIRED + optional `name`
   // --------------------------------------------------------------------
 
-  it("accepts a minimal element (id, state, participantCount — no `name` key)", () => {
-    const payload = { id: CHANNEL_ID, state: "active" as ChannelState, participantCount: 0 };
+  it("accepts a minimal element (id, state, userCount — no `name` key)", () => {
+    const payload = { id: CHANNEL_ID, state: "active" as ChannelState, userCount: 0 };
     const parsed = ChannelListResponseChannelSchema.parse(payload);
     expect(parsed.id).toBe(CHANNEL_ID);
     expect(parsed.state).toBe("active");
-    expect(parsed.participantCount).toBe(0);
+    expect(parsed.userCount).toBe(0);
     expect(parsed.name).toBeUndefined();
   });
 
@@ -193,7 +193,7 @@ describe("ChannelListResponseChannelSchema (per-element projection)", () => {
     expect(parsed.id).toBe(CHANNEL_ID);
     expect(parsed.name).toBe("general");
     expect(parsed.state).toBe("active");
-    expect(parsed.participantCount).toBe(3);
+    expect(parsed.userCount).toBe(3);
   });
 
   it.each(["active", "muted", "archived"] as const)(
@@ -205,10 +205,10 @@ describe("ChannelListResponseChannelSchema (per-element projection)", () => {
   );
 
   // --------------------------------------------------------------------
-  // Required-field guards — id / state / participantCount
+  // Required-field guards — id / state / userCount
   // --------------------------------------------------------------------
 
-  it.each(["id", "state", "participantCount"] as const)(
+  it.each(["id", "state", "userCount"] as const)(
     "rejects element missing required field: %s (with the field name surfaced in the issue path)",
     (field) => {
       const valid = buildValidChannelElement();
@@ -244,36 +244,36 @@ describe("ChannelListResponseChannelSchema (per-element projection)", () => {
   });
 
   // --------------------------------------------------------------------
-  // participantCount — int + non-negative + NaN/Infinity/string rejection
+  // userCount — int + non-negative + NaN/Infinity/string rejection
   // --------------------------------------------------------------------
   //
-  // `participantCount` is a count (cardinality of a set), so it must be a
+  // `userCount` is a count (cardinality of a set), so it must be a
   // non-negative integer. Pin every drift mode: negative int, float,
   // NaN, Infinity, string. The canonical wire-form gloss `number` is
   // imprecise; `.int().nonnegative()` is the contract-layer enforcement.
 
-  it("accepts participantCount of 0 (empty channel — no active participants)", () => {
-    const payload = { ...buildValidChannelElement(), participantCount: 0 };
+  it("accepts userCount of 0 (empty channel — no active users)", () => {
+    const payload = { ...buildValidChannelElement(), userCount: 0 };
     expect(ChannelListResponseChannelSchema.safeParse(payload).success).toBe(true);
   });
 
-  it("accepts participantCount of large positive integer", () => {
-    const payload = { ...buildValidChannelElement(), participantCount: 10_000 };
+  it("accepts userCount of large positive integer", () => {
+    const payload = { ...buildValidChannelElement(), userCount: 10_000 };
     expect(ChannelListResponseChannelSchema.safeParse(payload).success).toBe(true);
   });
 
-  it("rejects negative participantCount: -1 (counts cannot be negative)", () => {
-    const broken = { ...buildValidChannelElement(), participantCount: -1 };
+  it("rejects negative userCount: -1 (counts cannot be negative)", () => {
+    const broken = { ...buildValidChannelElement(), userCount: -1 };
     expect(ChannelListResponseChannelSchema.safeParse(broken).success).toBe(false);
   });
 
-  it("rejects float participantCount: 1.5 (counts must be integers; JSON's number type is imprecise)", () => {
-    const broken = { ...buildValidChannelElement(), participantCount: 1.5 };
+  it("rejects float userCount: 1.5 (counts must be integers; JSON's number type is imprecise)", () => {
+    const broken = { ...buildValidChannelElement(), userCount: 1.5 };
     expect(ChannelListResponseChannelSchema.safeParse(broken).success).toBe(false);
   });
 
-  it("rejects NaN participantCount (z.number() guard excludes NaN)", () => {
-    const broken = { ...buildValidChannelElement(), participantCount: Number.NaN };
+  it("rejects NaN userCount (z.number() guard excludes NaN)", () => {
+    const broken = { ...buildValidChannelElement(), userCount: Number.NaN };
     expect(ChannelListResponseChannelSchema.safeParse(broken).success).toBe(false);
   });
 
@@ -284,16 +284,13 @@ describe("ChannelListResponseChannelSchema (per-element projection)", () => {
   it.each([
     ["+Infinity", Number.POSITIVE_INFINITY],
     ["-Infinity", Number.NEGATIVE_INFINITY],
-  ])(
-    "rejects %s participantCount (z.number() rejects non-finite numbers)",
-    (_label, infinityValue) => {
-      const broken = { ...buildValidChannelElement(), participantCount: infinityValue };
-      expect(ChannelListResponseChannelSchema.safeParse(broken).success).toBe(false);
-    },
-  );
+  ])("rejects %s userCount (z.number() rejects non-finite numbers)", (_label, infinityValue) => {
+    const broken = { ...buildValidChannelElement(), userCount: infinityValue };
+    expect(ChannelListResponseChannelSchema.safeParse(broken).success).toBe(false);
+  });
 
-  it("rejects string participantCount: '5' (no implicit coercion at the wire layer)", () => {
-    const broken = { ...buildValidChannelElement(), participantCount: "5" };
+  it("rejects string userCount: '5' (no implicit coercion at the wire layer)", () => {
+    const broken = { ...buildValidChannelElement(), userCount: "5" };
     expect(ChannelListResponseChannelSchema.safeParse(broken).success).toBe(false);
   });
 
@@ -374,14 +371,14 @@ describe("ChannelListResponseSchema (outer envelope)", () => {
   it("accepts a response with multiple channels in different states (with and without `name`)", () => {
     const payload = {
       channels: [
-        { id: CHANNEL_ID, name: "general", state: "active" as ChannelState, participantCount: 3 },
+        { id: CHANNEL_ID, name: "general", state: "active" as ChannelState, userCount: 3 },
         // Bootstrap default channel — no `name` key.
-        { id: SECOND_CHANNEL_ID, state: "muted" as ChannelState, participantCount: 0 },
+        { id: SECOND_CHANNEL_ID, state: "muted" as ChannelState, userCount: 0 },
         {
           id: THIRD_CHANNEL_ID,
           name: "design-review",
           state: "archived" as ChannelState,
-          participantCount: 7,
+          userCount: 7,
         },
       ],
     };
@@ -418,9 +415,9 @@ describe("ChannelListResponseSchema (outer envelope)", () => {
 
   it("rejects a response whose channel element is malformed (per-element guards compose)", () => {
     // Sanity check that per-element guards compose under the array — a
-    // negative `participantCount` in any element fails the whole response.
+    // negative `userCount` in any element fails the whole response.
     const broken = {
-      channels: [{ id: CHANNEL_ID, state: "active", participantCount: -1 }],
+      channels: [{ id: CHANNEL_ID, state: "active", userCount: -1 }],
     };
     expect(ChannelListResponseSchema.safeParse(broken).success).toBe(false);
   });

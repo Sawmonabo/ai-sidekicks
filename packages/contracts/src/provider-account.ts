@@ -1,13 +1,9 @@
-// Plan-029 T1.1 + T1.4 — the `providerAccount.*` wire surface: the node-local
-// provider-account registry, its brokered sign-in pair, its registry-change
-// notification union, and its per-limit quota-window shape.
+// The `providerAccount.*` wire surface: the node-local provider-account
+// registry, its brokered sign-in pair, its registry-change notification
+// union, and its per-limit quota-window shape.
 //
-// PROVENANCE. The canonical shapes are
-// `docs/architecture/contracts/api-payload-contracts.md` §"Plan-029 — Provider
-// Accounts And Credential Homes"; the durable columns those shapes project are
-// `docs/architecture/schemas/local-sqlite-schema.md` §"Provider Account Tables
-// (Plan-029)". This module APPLIES both; it decides neither. Changing a member
-// name, an enum member, or a requiredness is a doc edit first.
+// This module APPLIES both; it decides neither. Changing a member name, an
+// enum member, or a requiredness is a doc edit first.
 //
 // ----------------------------------------------------------------------------
 // The one credential input, and the census that keeps it one
@@ -27,20 +23,19 @@
 // for it. A `provideraccount.*` refusal travels as `JsonRpcErrorData`, whose
 // `fields` is `Record<string, unknown>` — an untyped hole no schema census can
 // close, because there is no schema. The permitted contents are declared in
-// prose, per code, in `docs/architecture/contracts/error-contracts.md`
-// §"Provider Account"; the guarantee that matters most there is
+// prose, per code the guarantee that matters most there is
 // `provideraccount.token_class_refused`, which "names which condition failed and
 // never quotes, echoes, or excerpts the supplied value". The contract suite
 // therefore censuses representative refusal envelopes — each code transcribed
-// from those rows, each `fields` shape composed to be consistent with that
-// row's prose — by member NAME at any depth and by VALUE against the token
-// fixture, so a mapper that echoed the input back fails a test rather than only
-// a reading of the docs. Two honest limits: the fixture set is enumerated by
-// hand, so a code added to that doc without a fixture is not caught here, and
-// the binding enforcement is the daemon's error mapper, which is a later phase.
-// Registering the field names as a typed contract belongs to the swap that
-// gives them a producer — a declaration whose only consumer is its own test is
-// minted ahead of its reader.
+// from those rows, each `fields` shape composed to be consistent with that row's
+// prose — by member NAME at any depth and by VALUE against the token fixture, so
+// a mapper that echoed the input back fails a test rather than only a reading of
+// the docs. Two honest limits: the fixture set is enumerated by hand, so a code
+// added to that doc without a fixture is not caught here, and the binding
+// enforcement is the daemon's error mapper, which is a later phase. Registering
+// the field names as a typed contract belongs to the swap that gives them a
+// producer — a declaration whose only consumer is its own test is minted ahead
+// of its reader.
 //
 // ----------------------------------------------------------------------------
 // What is response-only, and what deliberately is not
@@ -57,9 +52,8 @@
 // and the optional token RE-SUPPLY selector on
 // `ProviderAccountRegisterRequest.accountId` (the one CREATE-shaped verb, so
 // the only place a supplied id could be mistaken for an assertion — documented
-// in the canonical wire section and `Spec-029 §Non-interactive token
-// registration`). A supplied id that names no registered account is refused
-// rather than created.
+// in the canonical wire section and). A supplied id that names no registered
+// account is refused rather than created.
 //
 // ----------------------------------------------------------------------------
 // Where tolerance lives, and where it must not
@@ -73,10 +67,6 @@
 // the `unknown` arm and never throws, so a vendor adding a mode degrades an
 // observation's precision rather than failing the observation closed.
 //
-// Refs: Plan-029 T1.1, T1.4, I-029-1, I-029-2, I-029-5, I-029-11, I-029-13;
-// ADR-014 (tRPC v11 / Standard Schema V1 double-T annotation), ADR-021
-// (credential custody ladder), ADR-028 (bounded non-interactive token custody),
-// ADR-022 (Zod 4.x).
 import { z } from "zod";
 
 import { wireFreeFormString } from "./session.js";
@@ -95,7 +85,7 @@ import { wireFreeFormString } from "./session.js";
 export const PROVIDER_ACCOUNT_ID_MAX_LEN = 256;
 /** Operator-chosen disambiguation label. */
 export const PROVIDER_ACCOUNT_DISPLAY_LABEL_MAX_LEN = 256;
-/** RFC 5321 §4.5.3.1.3 caps a forward path at 320 octets. */
+/** RFC 5321 section 4.5.3.1.3 caps a forward path at 320 octets. */
 export const PROVIDER_ACCOUNT_EMAIL_MAX_LEN = 320;
 /** Provider-reported organization identifier. */
 export const PROVIDER_ACCOUNT_ORG_ID_MAX_LEN = 256;
@@ -118,7 +108,7 @@ export const PROVIDER_QUOTA_LIMIT_ID_MAX_LEN = 128;
 /** The provider's own display label for a quota window. */
 export const PROVIDER_QUOTA_LABEL_MAX_LEN = 256;
 /**
- * Bound on the ADR-028 D2 non-interactive token. Generous because the class is
+ * Bound on D2 non-interactive token. Generous because the class is
  * vendor-minted and its encoding is not this layer's to predict; the bound
  * exists so an unbounded body cannot be smuggled through the one member whose
  * value is never logged and so never observable in a diagnostic.
@@ -203,8 +193,7 @@ const PROVIDER_AUTH_MODE_VALUES = [
  * on every wire surface this type appears on; the tolerance belongs at the
  * observation boundary and is `normalizeObservedProviderAuthMode` below.
  *
- * `oauth_token` is the ADR-028 D2 class and is the mode under which a
- * token-mode account is admitted. The token VALUE is not on this wire.
+ * The token VALUE is not on this wire.
  */
 export type ProviderAuthMode = (typeof PROVIDER_AUTH_MODE_VALUES)[number];
 export const PROVIDER_AUTH_MODES: readonly ProviderAuthMode[] = PROVIDER_AUTH_MODE_VALUES;
@@ -296,18 +285,16 @@ export function normalizeObservedProviderAuthMode(reportedMode: unknown): Provid
 // ProviderAccountId — daemon-minted opaque brand (NOT a UUID)
 // --------------------------------------------------------------------------
 //
-// `account_id` is `TEXT PRIMARY KEY` and is daemon-minted, opaque, and
-// immutable. It is deliberately NOT derived from credential material, an email
-// address, a subscription identifier, or a filesystem path: those rotate, and an
-// identity that rotates cannot key historical spend (I-029-1). No client,
-// driver, or renderer parses it — it selects a credential environment and
-// nothing else.
+// It is deliberately NOT derived from credential material, an email address, a
+// subscription identifier, or a filesystem path: those rotate, and an identity
+// that rotates cannot key historical spend. No client, driver, or renderer
+// parses it — it selects a credential environment and nothing else.
 //
 // Non-UUID, so it composes `.brand()` inline in the `node-id.ts` /
 // `EventCursorSchema` idiom rather than going through `brandedUuidIdSchema`.
 // The `z.ZodType<T, T>` double-T annotation is required, not decorative: this
 // schema composes into REQUEST schemas whose Standard-Schema-V1 input inference
-// must resolve to `ProviderAccountId` rather than `unknown` (ADR-014).
+// must resolve to `ProviderAccountId` rather than `unknown`.
 
 export type ProviderAccountId = string & { readonly __brand: "ProviderAccountId" };
 export const ProviderAccountIdSchema: z.ZodType<ProviderAccountId, ProviderAccountId> = z
@@ -320,7 +307,7 @@ export const ProviderAccountIdSchema: z.ZodType<ProviderAccountId, ProviderAccou
 // CredentialGeneration
 // --------------------------------------------------------------------------
 
-/** The generation a freshly registered account is born at (I-029-2). */
+/** The generation a freshly registered account is born at. */
 export const CREDENTIAL_GENERATION_MIN = 1;
 
 /**
@@ -348,7 +335,7 @@ export const CredentialGenerationSchema: z.ZodType<CredentialGeneration, Credent
 // A PROJECTION, not a row mirror. Four column groups are deliberately absent:
 //   * `credential_home_path` — the home reaches an operator's screen through
 //     `ProviderSignInRemedy.credentialHomePath` and nowhere else. On every
-//     surface a session participant can reach, `credential_home_path` names a
+//     surface a session user can reach, `credential_home_path` names a
 //     column and nothing else.
 //   * `created_at` / `updated_at` — row bookkeeping with no wire consumer.
 //     `updated_at` moves on ANY mutation, so surfacing it beside the health
@@ -364,7 +351,7 @@ export const CredentialGenerationSchema: z.ZodType<CredentialGeneration, Credent
 export interface ProviderAccount {
   accountId: ProviderAccountId;
   provider: ProviderName;
-  /** Operator-chosen; participant-adjacent PII. Never provider-reported. */
+  /** Operator-chosen; user-adjacent PII. Never provider-reported. */
   displayLabel: string;
   credentialGeneration: CredentialGeneration;
   billingMode: BillingMode;
@@ -376,7 +363,7 @@ export interface ProviderAccount {
   observedAccountEmail?: string | undefined;
   observedAccountOrgId?: string | undefined;
   observedAccountOrgName?: string | undefined;
-  /** Exactly one per provider, enforced by a partial unique index (I-029-5). */
+  /** Exactly one per provider, enforced by a partial unique index. */
   isDefault: boolean;
   healthState: ProviderAccountHealthState;
   /**
@@ -493,7 +480,7 @@ export const ProviderAccountSchema: z.ZodType<ProviderAccount, ProviderAccount> 
  * `no_account` has no credential home to name at all, and `no_default`
  * deliberately resolved to none of several homes, so a single sign-in shape
  * would have required inventing a path or arbitrarily electing an account —
- * exactly the arbitrary selection I-029-5 exists to prevent.
+ * exactly the arbitrary selection exists to prevent.
  *
  * The discriminant is `kind` and it is NOT redundant with `state`:
  * `reauth_required`, `home_missing`, and `indeterminate` all map to `sign_in`,
@@ -602,15 +589,11 @@ export interface ProviderReadiness {
 }
 
 /**
- * The state -> remedy-kind mapping `Spec-029 §Node provider readiness and the
- * sign-in handoff` states in prose: "three different actions, not one" — with
- * nothing registered, register; with accounts registered and none default,
- * choose a default; with exactly one account resolved but not authenticated,
- * the provider's own first-party sign-in against THAT account's home. `null` is
- * the fourth case and is not a fourth action: `authenticated` needs nothing
- * done, so a remedy on it is not merely redundant but wrong — it would put a
- * credential-home path and a sign-in invocation on the one entry whose account
- * requires neither.
+ * The state -> remedy-kind mapping states in prose: "three different actions,
+ * not one" — with nothing registered, register; with accounts registered and
+ * none default, choose a default; with exactly one account resolved but not
+ * authenticated, the provider's own first-party sign-in against THAT account's
+ * home.
  *
  * A TOTAL record rather than a switch: adding a readiness arm without deciding
  * its remedy is then a compile error here rather than a hole that parses.
@@ -653,14 +636,12 @@ export const ProviderReadinessSchema: z.ZodType<ProviderReadiness, ProviderReadi
       });
       return;
     }
-    // The `sign_in` arm is the arm where resolution reached exactly one account,
-    // and its `accountId` names the home its invocation authenticates INTO. If
-    // that id disagreed with the entry's own `resolvedAccountId` the operator
+    // If that id disagreed with the entry's own `resolvedAccountId` the operator
     // would be pointed at one account's credential home to fix another's —
-    // exactly the arbitrary cross-account election I-029-5 exists to prevent,
-    // arriving as guidance instead of as a binding. Checked in both directions:
-    // a `sign_in` remedy on an entry that resolved NO account has a home path
-    // that belongs to no entry at all.
+    // exactly the arbitrary cross-account election exists to prevent, arriving
+    // as guidance instead of as a binding. Checked in both directions: a
+    // `sign_in` remedy on an entry that resolved NO account has a home path that
+    // belongs to no entry at all.
     if (remedy.kind === "sign_in" && remedy.accountId !== entry.resolvedAccountId) {
       ctx.addIssue({
         code: "custom",
@@ -674,7 +655,7 @@ export const ProviderReadinessSchema: z.ZodType<ProviderReadiness, ProviderReadi
   });
 
 // --------------------------------------------------------------------------
-// ProviderAccountUsageWindow — the per-limit quota reading (I-029-13)
+// ProviderAccountUsageWindow — the per-limit quota reading
 // --------------------------------------------------------------------------
 //
 // `limitId` IS THE KEY and `windowMins` is an ATTRIBUTE of the reading. The
@@ -839,7 +820,7 @@ export interface ProviderAccountRegisterRequest {
    *
    * A supplied id that names no registered account is REFUSED, never created,
    * so this member cannot be used to assert an identity of the caller's
-   * choosing (I-029-1).
+   * choosing.
    *
    * NEVER ADMITTED ALONE. A re-supply with nothing to supply is not a request
    * this verb can serve: it is not a registration (an identity already exists)
@@ -853,9 +834,7 @@ export interface ProviderAccountRegisterRequest {
    */
   accountId?: ProviderAccountId | undefined;
   /**
-   * THE ONE CREDENTIAL-ACCEPTING INPUT ON THIS WIRE (ADR-028 D2). Optional:
-   * omitted is the ordinary registration, and the account authenticates through
-   * `providerAccount.login` or the operator's own out-of-band sign-in.
+   * THE ONE CREDENTIAL-ACCEPTING INPUT ON THIS WIRE (D2).
    *
    * WRITE-ONLY. This value is on no response in this module, is never logged,
    * never echoed to a terminal, never rendered, never placed in an error
@@ -865,10 +844,9 @@ export interface ProviderAccountRegisterRequest {
    * `PROVIDER_ACCOUNT_REDACTED_WIRE_MEMBERS`, which exists so that redaction is
    * driven by a declaration rather than by each transport re-deriving the list.
    *
-   * Admitted only under ADR-028's four conjunctive conditions and sealed
-   * through the ADR-021 ladder; it is never written into the credential home,
-   * because daemon-owned bytes in provider-owned space are indistinguishable to
-   * every later reader.
+   * Admitted only under the four conjunctive conditions and sealed through
+   * ladder; it is never written into the credential home, because daemon-owned
+   * bytes in provider-owned space are indistinguishable to every later reader.
    */
   nonInteractiveToken?: string | undefined;
 }
@@ -1116,10 +1094,10 @@ export const ProviderAccountProbeResponseSchema: z.ZodType<ProviderAccountProbeR
 // providerAccount.login / providerAccount.loginCancel
 // --------------------------------------------------------------------------
 //
-// Brokered interactive sign-in (ADR-028 D1). The daemon constructs the
-// invocation, spawns the provider's UNMODIFIED binary with this account's home
-// pinned, and reads nothing the flow writes. What returns is what the provider
-// emits for the OPERATOR to act on, plus an opaque daemon-minted attempt id.
+// Brokered interactive sign-in (D1). The daemon constructs the invocation,
+// spawns the provider's UNMODIFIED binary with this account's home pinned, and
+// reads nothing the flow writes. What returns is what the provider emits for
+// the OPERATOR to act on, plus an opaque daemon-minted attempt id.
 //
 // The shape MIRRORS THE PROVIDER'S OWN, deliberately: one pinned login-start
 // returns either an authorization URL or a device code with its verification
@@ -1321,7 +1299,6 @@ export const ProviderAccountNotificationSchema: z.ZodType<ProviderAccountNotific
   ]);
 
 // --------------------------------------------------------------------------
-// Transport redaction marking (I-029-11)
 // --------------------------------------------------------------------------
 
 /**
@@ -1341,10 +1318,10 @@ export const PROVIDER_ACCOUNT_REDACTED_WIRE_MEMBERS: readonly string[] = ["nonIn
 // --------------------------------------------------------------------------
 //
 // Every request, response, and notification schema in this module appears here
-// exactly once. The registry exists so the I-029-11 census DERIVES its subject
-// set rather than hand-listing it: a hand-listed census passes forever after
-// someone adds an eleventh shape, which is precisely the incremental widening
-// ADR-028 names as its failure mode and this census as its detection.
+// exactly once. The registry exists so census DERIVES its subject set rather
+// than hand-listing it: a hand-listed census passes forever after someone adds
+// an eleventh shape, which is precisely the incremental widening names as its
+// failure mode and this census as its detection.
 //
 // `direction` is what makes the count meaningful: credential material may
 // appear on `request` shapes (exactly one member, on exactly one shape) and on

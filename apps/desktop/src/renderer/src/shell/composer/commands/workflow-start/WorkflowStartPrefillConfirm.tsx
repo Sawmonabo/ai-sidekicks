@@ -10,7 +10,7 @@
 // row, which is a surface away from here, so the open state is the composer's own and
 // the dialog renders nothing at all while nothing is pending.
 //
-// THE TEXT THAT WOULD GO IS SHOWN, and it is shown as the participant's own bytes in
+// THE TEXT THAT WOULD GO IS SHOWN, and it is shown as the user's own bytes in
 // a preformatted block rather than paraphrased or counted: "your unsent message" is a
 // description of a thing, and what a person needs to decide is the thing itself.
 

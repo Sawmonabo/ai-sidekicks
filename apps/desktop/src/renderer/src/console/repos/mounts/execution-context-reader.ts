@@ -11,10 +11,10 @@
 // about the section, and folding it into the burst would have made the whole reading
 // carry a refusal for a wire nothing else in it needs.
 //
-// IT REFRESHES THROUGH THE CONSOLE'S ONE SCHEDULER AND ARMS NO TIMER. `Spec-023 §Rules
-// every console surface obeys` fixes the policy — reads happen on subscribe, on window
-// focus, on reconnect, and on the terminal events the owning spec names, under "No
-// interval polling" — so this class hands itself to a `SessionRefreshTriggers` exactly
+// IT REFRESHES THROUGH THE CONSOLE'S ONE SCHEDULER AND ARMS NO TIMER. The policy is
+// fixed — reads happen on subscribe, on window focus, on reconnect, and on the
+// terminal events the owning surface names, and never on an interval — so this class
+// hands itself to a `SessionRefreshTriggers` exactly
 // as `repo-mounts-reader.ts` beside it does and owns no listener of its own. A reader
 // that read once at construction would be correct at mount and stale from the first
 // reconnect, with nothing on screen saying so; the execution root a workspace runs

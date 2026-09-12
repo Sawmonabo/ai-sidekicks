@@ -59,7 +59,7 @@ describe("the updates block — nothing restarts without a press", () => {
     // The code used to be discarded entirely: `wireRejectionToError` puts a
     // registered daemon code on `Error.name` and this page read only `.message`, so
     // every refusal the updater namespace can raise reached a person with the one
-    // part `Spec-023 §Console Design (Meridian)` rule 9 requires verbatim missing.
+    // part a refusal must always carry verbatim — the refuser's own code — missing.
     const { block: container } = await renderSettled(
       bridgeReporting(
         { status: "idle" },
@@ -102,7 +102,7 @@ describe("the updates block — nothing restarts without a press", () => {
 
 describe("the updates block — a control fails onto one line, however it failed", () => {
   it("renders the refusal when the control THROWS rather than rejecting", async () => {
-    // The shape that matters on the build a person runs. The shipped Tier-1 bridge
+    // The shape that matters on the build a person runs. The shipped stub bridge
     // implements every updater method as a synchronous `throw`, while the fixture's
     // refusals arrive as rejected promises — so a handler that attached its `catch`
     // to the RETURNED promise handled the fixture and let the release build's throw

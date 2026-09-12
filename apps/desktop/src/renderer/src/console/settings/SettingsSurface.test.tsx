@@ -40,7 +40,7 @@ beforeAll(async () => {
 }, CHUNK_WARM_TIMEOUT_MS);
 
 /**
- * One page that renders the session member and nothing else.
+ * One page that renders the retained session id and nothing else.
  *
  * A probe rather than a shipped page, because the claim under test is the SURFACE's:
  * which session it hands down. Driving it through a real page would make the case

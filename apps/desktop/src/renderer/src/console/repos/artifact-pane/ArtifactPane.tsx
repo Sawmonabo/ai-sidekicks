@@ -1,5 +1,5 @@
 // The artifact pane: what this session produced, whether its bytes are reachable, and
-// what a participant may attempt on one.
+// what a user may attempt on one.
 //
 // THE PANE'S FRAME IS NOT THIS MODULE'S. `seats/ConsolePaneChrome` draws the section,
 // the kind glyph, the breadcrumb, the control strip, and the body box for every pane
@@ -7,9 +7,9 @@
 // two acts it hands the chrome's `actions` slot. The section, its tab stop, its
 // accessible name, and the actor's hue all arrive from there.
 //
-// THE ARTIFACT SURFACE'S COMPOSITION IS THIS FAMILY'S, because `Spec-023 §Console
-// Design (Meridian)` puts a surface's composition — what it renders, offers, refuses,
-// and folds — in the console's code. The pane is the DECK's view of the artifact
+// THE ARTIFACT SURFACE'S COMPOSITION IS THIS FAMILY'S: what a surface renders, offers,
+// refuses, and folds lives in the console's code. The pane is the DECK's view of the
+// artifact
 // list; the sidebar panel
 // beside it in `repos/artifacts/ArtifactsPanel.tsx` is the same rows in a narrower column. One
 // body renders both, which is what keeps the diff pane a view onto this list rather
@@ -54,7 +54,7 @@
 // WHAT THE FOOT OF THE PANE IS FOR. The effective allow-list and the ingest
 // bounds otherwise sit behind the attach affordance's own disclosure, and the composer
 // owns that affordance. This pane is where the same facts are readable without one, because they
-// are the artifact plane's rules and a participant who has just been refused for an
+// are the artifact plane's rules and a user who has just been refused for an
 // unsupported type needs somewhere to read what IS supported.
 
 import { useCallback } from "react";
@@ -101,7 +101,7 @@ export function ArtifactPane(props: ArtifactPaneProps): React.JSX.Element {
       // `reconciling` speaks in the settled sentence because that sentence is true of
       // it: the act was served, the reader applied it, and the list is being read
       // again. What the two arms disagree about is whether a refresh was already in
-      // flight underneath — which is the reader's business and not the participant's.
+      // flight underneath — which is the reader's business and not the user's.
       // Only `superseded` stays silent, because on that arm nothing happened at all.
       if (outcome.status === "settled" || outcome.status === "reconciling") {
         // ABSENT means the arm has nothing to say, which is not the same as saying
@@ -213,7 +213,7 @@ export function ArtifactPane(props: ArtifactPaneProps): React.JSX.Element {
             // what holds it — there is no second flag to keep in step. A payload is
             // bounded only by the ingest cap, so a second press before the first
             // settles is a second download of the same bytes; the reader refuses it
-            // in words, and this is what keeps a participant from meeting that
+            // in words, and this is what keeps a user from meeting that
             // refusal by pressing a control the pane was offering.
             disabled={reading.payload.status === "fetching"}
           >

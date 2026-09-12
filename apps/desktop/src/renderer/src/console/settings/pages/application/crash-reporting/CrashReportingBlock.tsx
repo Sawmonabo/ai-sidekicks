@@ -1,9 +1,9 @@
 // Crash reporting: the opt-out, and an honest account of what a report contains.
 //
-// `Spec-023 §Console Design (Meridian)` §Crash reporting: "An opt-out toggle, on by
-// default, and copy that names what is stripped: session identifiers reduced to
-// stable hashes, file paths reduced to extensions, and no content payloads. The
-// coverage is stated as main process, renderer, and child and utility processes."
+// An opt-out toggle, on by default, and copy that names what is stripped: session
+// identifiers reduced to stable hashes, file paths reduced to extensions, and no
+// content payloads. The coverage is stated as main process, renderer, and child and
+// utility processes.
 //
 // TWO THINGS THIS COPY DELIBERATELY DOES NOT SAY
 //

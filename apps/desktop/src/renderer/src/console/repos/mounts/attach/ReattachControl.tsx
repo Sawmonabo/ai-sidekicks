@@ -1,7 +1,7 @@
 // Re-attaching one mount's path, from the card that says the mount has drifted.
 //
-// THE REMEDY FOR THE THIRD HEALTH VERDICT, AND ONLY FOR IT. `Spec-009 §Repo Mount
-// Health (V1 Definition)` makes `identity_mismatch` a permanent refusal — the root is
+// THE REMEDY FOR THE THIRD HEALTH VERDICT, AND ONLY FOR IT. `identity_mismatch` is a
+// permanent refusal — the root is
 // reachable and is no longer the repository this mount was attached as, so every bind
 // and every run on this mount refuses until someone acts — and names re-attaching as
 // the recovery. A card that reported the verdict and offered nothing would name a
@@ -116,9 +116,9 @@ export function ReattachControl(props: ReattachControlProps): React.JSX.Element 
           Re-attach this path
         </AlertDialog.Trigger>
         {/* The popup shell is the primitive's, which is what puts this confirmation in
-            the window's airspace (`Spec-023 §Console Design (Meridian)` 12.3): a native
-            browser-pane view yields to what is registered there, and a confirmation it
-            painted over is the one thing 12.3 forbids outright. */}
+            the window's airspace: a native browser-pane view yields to what is
+            registered there, and a confirmation it painted over is the one thing
+            forbidden outright. */}
         <OverlayAlertDialogPopup
           backdropClassName="meridian-reattach__backdrop"
           className="meridian-reattach__dialog"

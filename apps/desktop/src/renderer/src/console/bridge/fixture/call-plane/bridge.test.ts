@@ -1,8 +1,8 @@
 // A fixture subscription delivers only what the caller asked for.
 //
-// `Spec-023 §Console Design (Meridian)` §The fixture bridge makes the fixture
-// shape-identical to `SidekicksBridge`, and I-023-13 turns that into a checked
-// claim. Shape is the cheap half. This file is one of the three places where a
+// The fixture is shape-identical to `SidekicksBridge`, and `bridge-shape.test.ts`
+// turns that into a checked claim. Shape is the cheap half. This file is one of the
+// three places where a
 // fixture that matched the contract's SHAPE was still answering something the live
 // bridge never would: `daemon.subscribe` takes an event name and the fixture
 // ignored it, so a surface subscribed to `run.starting` was handed

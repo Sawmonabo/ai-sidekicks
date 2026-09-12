@@ -44,7 +44,7 @@ describe("the composer outlives its dispatch", () => {
     typeInto(container.querySelector(".meridian-run-composer__position"), "4");
     typeInto(container.querySelector(".meridian-run-composer__body"), "try this instead");
     await submit(container);
-    // The one thing the participant cannot reproduce is the one thing that used to
+    // The one thing the user cannot reproduce is the one thing that used to
     // be dropped: the form closed the moment the dispatch STARTED.
     expect(dismissCount()).toBe(0);
     expect(bodyValue(container)).toBe("try this instead");

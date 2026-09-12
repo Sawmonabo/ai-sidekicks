@@ -1,10 +1,9 @@
 // The composer's input and its one primary action.
 //
-// `Spec-023 §Signature Feature Composition Sketches` §The Session Composer has Send
-// resolve "to the one wire call the addressed target admits", and everything visible
-// here is that resolution made legible: the placeholder names the target, the label
-// under the line names the path the send will take, and the refusal that comes back
-// sits beside the control that produced it rather than replacing it.
+// Send resolves to the one wire call the addressed target admits, and everything
+// visible here is that resolution made legible: the placeholder names the target, the
+// label under the line names the path the send will take, and the refusal that comes
+// back sits beside the control that produced it rather than replacing it.
 //
 // ONE PRIMARY ACTION. Send is the primary; Stop is a quiet control that appears only
 // while the addressed target is a running turn, because a stop with nothing to stop
@@ -162,8 +161,8 @@ export function ComposerSendBar(props: ComposerSendBarProps): React.JSX.Element 
         placeholder={controller.placeholder}
         value={controller.text}
         rows={1}
-        // The cap `Spec-023 §Console Design (Meridian)` asks for: the line grows to
-        // it and then scrolls inside its own box, so the ledger above keeps its room.
+        // The growth cap: the line grows to it and then scrolls inside its own box,
+        // so the ledger above keeps its room.
         style={{ maxHeight: `calc(${String(COMPOSER_DIRECTIVE_LINE_MAX_ROWS)} * 1.5em)` }}
         readOnly={isSending}
         onChange={(event) => {

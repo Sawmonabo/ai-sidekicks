@@ -2,7 +2,7 @@
 //
 // What the repos family needs from a fixture is a session that HAS repositories
 // attached rather than one that could have: three mounts rather than one, because
-// `Spec-009 §Required Behavior` admits several in a session and a section that had
+// a session admits several mounts and a section that had
 // only ever been drawn against one is a section that has never been drawn as a
 // list; and three DIFFERENT mounts, because a plain-directory mount is the case the
 // git-only controls have to be unavailable in and a checkout that is no longer the
@@ -36,9 +36,9 @@
 // `repo.*` / `workspace.*` / `worktree.*` beats below carry the registered family
 // payload `{sessionId, repoMountId?, workspaceId?, worktreeId?, state, actor?}`, and
 // the `run.*` and `artifact_publication` beats carry the shapes
-// `Spec-006 §Run Lifecycle (run_lifecycle)` and `Spec-006 §Artifact and Diff Publication (artifact_publication)` state, which
+// the run-lifecycle and artifact-publication families state, which
 // the strict layer does not yet register a variant for — so the census leg is what
-// holds them and the payloads are transcribed from the spec rather than invented.
+// holds them and the payloads are transcribed from the wire rather than invented.
 //
 // THE CAST, THE ENVELOPE AND THE REPLIES LIVE BESIDE THIS FILE.
 // `repos-fixture-data.ts` holds the identifiers, the two agents, and the three
@@ -62,7 +62,7 @@ import {
   GIT_WORKSPACE_ID,
   IMPLEMENTER_RUN_ID,
   IMPLEMENTER_WORKTREE_ID,
-  PARTICIPANT_YOU,
+  USER_YOU,
   PINNED_ATTACHMENT_ID,
   PLAIN_MOUNT_ID,
   PLAIN_WORKSPACE_ID,
@@ -78,14 +78,14 @@ export { REPOS_WORKTREE_STATUS_REPLY } from "./repos-replies.js";
 export const REPOS_SCENARIO_ID = "repos";
 
 /**
- * The scenario's viewing participant, and the session it views.
+ * The scenario's signed-in user, and the session they are in.
  *
  * Exported because the family's own component fixtures name a producer and a
  * session, and two spellings of one identity is how a fixture and the scenario it
  * is meant to represent come apart — the failure the seats merge fixed in this file
  * and left standing in those. A test reads the constant; nothing at runtime does.
  */
-export const REPOS_VIEWING_PARTICIPANT_ID: string = PARTICIPANT_YOU;
+export const REPOS_CALLER_USER_ID: string = USER_YOU;
 
 /** The session every row in this scenario belongs to. Same reason as above. */
 export const REPOS_SESSION_ID: string = SESSION_ID;
@@ -110,18 +110,18 @@ export const REPOS_SCENARIO: ConsoleScenario = {
   purpose:
     "A healthy git checkout, an unreachable plain directory, and a checkout that is no longer the repository it was attached as, an execution root per agent, a proposal waiting at the gate, a run rewound after it published, and three attachments whose payloads stand in three different places.",
   sessionId: SESSION_ID,
-  participantIdsInJoinOrder: [PARTICIPANT_YOU, AGENT_IMPLEMENTER, AGENT_REVIEWER],
+  userIdsInJoinOrder: [USER_YOU, AGENT_IMPLEMENTER, AGENT_REVIEWER],
   // Which of the three this window is. Stated rather than inferred from the head of
   // the join order — that entry is whoever opened the session, on whichever machine.
   // The fixture's caller-identity read answers from this field and from nothing else.
-  viewingParticipantId: PARTICIPANT_YOU,
+  callerUserId: USER_YOU,
   startedAtIso: REPOS_SCENARIO_STARTED_AT_ISO,
   beats: [
     reposBeat({
       atMs: 0,
       sequence: 1,
       kind: "session.created",
-      actorId: PARTICIPANT_YOU,
+      actorId: USER_YOU,
       // The registered shape, verbatim: the new session's id plus the resolved
       // config and metadata, both open records the corpus names no key inside. A
       // title is not on this wire.
@@ -133,7 +133,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
         sequence: FIRST_AGENT_SEQUENCE + agentIndex,
         kind: "agent.attached",
         // The person who attached the agent, not the agent.
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         // The full persona plus the daemon-resolved state, so the `agents` projection
         // rebuilds from the log alone; `name` is the member — `displayName` is not on
         // this wire.
@@ -144,7 +144,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
           driverName: agent.driverName,
           modelId: agent.modelId,
           state: "ready",
-          actor: PARTICIPANT_YOU,
+          actor: USER_YOU,
         },
       }),
     ),
@@ -152,7 +152,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
       atMs: 200,
       sequence: 4,
       kind: "repo.attached",
-      actorId: PARTICIPANT_YOU,
+      actorId: USER_YOU,
       payload: { sessionId: SESSION_ID, repoMountId: GIT_MOUNT_ID, state: "attached" },
     }),
     // One workspace immediately after a successful attach, which is what
@@ -161,7 +161,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
       atMs: 260,
       sequence: 5,
       kind: "workspace.ready",
-      actorId: PARTICIPANT_YOU,
+      actorId: USER_YOU,
       payload: {
         sessionId: SESSION_ID,
         repoMountId: GIT_MOUNT_ID,
@@ -173,14 +173,14 @@ export const REPOS_SCENARIO: ConsoleScenario = {
       atMs: 420,
       sequence: 6,
       kind: "repo.attached",
-      actorId: PARTICIPANT_YOU,
+      actorId: USER_YOU,
       payload: { sessionId: SESSION_ID, repoMountId: PLAIN_MOUNT_ID, state: "attached" },
     }),
     reposBeat({
       atMs: 480,
       sequence: 7,
       kind: "workspace.ready",
-      actorId: PARTICIPANT_YOU,
+      actorId: USER_YOU,
       payload: {
         sessionId: SESSION_ID,
         repoMountId: PLAIN_MOUNT_ID,
@@ -188,7 +188,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
         state: "ready",
       },
     }),
-    // A root per agent, in the two-beat `creating -> ready` shape Plan-010 D-010-12
+    // A root per agent, in the two-beat `creating -> ready` shape the snapshot design
     // emits. Both hang off the GIT mount's workspace: a worktree is a git-backed
     // execution root, so a plain-directory mount has none and never grows one.
     ...REPOS_AGENTS.flatMap((agent, agentIndex) => [
@@ -196,7 +196,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
         atMs: 620 + agentIndex * 140,
         sequence: FIRST_WORKTREE_SEQUENCE + agentIndex * 2,
         kind: "worktree.created",
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         payload: {
           sessionId: SESSION_ID,
           repoMountId: GIT_MOUNT_ID,
@@ -209,7 +209,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
         atMs: 700 + agentIndex * 140,
         sequence: FIRST_WORKTREE_SEQUENCE + agentIndex * 2 + 1,
         kind: "worktree.ready",
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         payload: {
           sessionId: SESSION_ID,
           repoMountId: GIT_MOUNT_ID,
@@ -223,7 +223,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
       atMs: 900,
       sequence: 12,
       kind: "run.queued",
-      actorId: PARTICIPANT_YOU,
+      actorId: USER_YOU,
       // A run-lifecycle payload is a STATE TRANSITION carrying the progression
       // counter, not a bare id. `previousState` is absent here and only here: a
       // queued run is being born, and no document names a value for the state it
@@ -237,7 +237,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
       },
     }),
     // No actor from here to `run.running`. The daemon moves a run from `queued` to
-    // `starting`; a participant id would attribute a system transition to a person.
+    // `starting`; a user id would attribute a system transition to a person.
     reposBeat({
       atMs: 960,
       sequence: 13,
@@ -256,7 +256,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
       kind: "run.running",
       // `executionPosture` is stamped on this transition and only this one — the
       // post-setup-gate spawn success, where the resolved workspace root and the
-      // effective posture are final (`Spec-006 §Run Lifecycle (run_lifecycle)`). The shape is the
+      // effective posture are final. The shape is the
       // registered `ExecutionPosture` in `packages/contracts/src/provider-driver.ts`,
       // whose sandboxed arms REQUIRE `credentialPolicyRef` — a content-addressed
       // reference rather than a credential list, so the posture reveals which
@@ -296,7 +296,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
       sequence: 16,
       kind: "diff.created",
       actorId: AGENT_IMPLEMENTER,
-      // `Spec-006 §Artifact and Diff Publication (artifact_publication)`'s family payload, verbatim:
+      // The artifact-publication family payload, verbatim:
       // `{sessionId, artifactId?, runId?, diffArtifactId?, visibility?, state}`. A
       // diff names itself through `diffArtifactId`; the base and head refs a diff
       // header renders are the branch context's and reach the console through
@@ -314,7 +314,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
         atMs: attachment.atMs,
         sequence: FIRST_ATTACHMENT_SEQUENCE + attachmentIndex,
         kind: "artifact.published",
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         payload: {
           sessionId: SESSION_ID,
           artifactId: attachment.artifactId,
@@ -343,15 +343,15 @@ export const REPOS_SCENARIO: ConsoleScenario = {
       },
     }),
     // The rewind. A FORWARD, non-terminal event with its own payload — no
-    // `previousState` / `newState`, because a rollback is not a state transition
-    // (`Spec-006 §Run Lifecycle (run_lifecycle)`), and `targetPosition` is the turn-boundary anchor
+    // `previousState` / `newState`, because a rollback is not a state transition,
+    // and `targetPosition` is the turn-boundary anchor
     // the run actually landed at. The turns above it stay in the log and are marked
     // superseded by projection; nothing is truncated.
     reposBeat({
       atMs: 1800,
       sequence: 21,
       kind: "run.rolled_back",
-      actorId: PARTICIPANT_YOU,
+      actorId: USER_YOU,
       payload: {
         sessionId: SESSION_ID,
         runId: IMPLEMENTER_RUN_ID,

@@ -120,9 +120,9 @@ export function AttachSidekick(props: AttachSidekickProps): React.JSX.Element {
   return (
     <Dialog.Root open={props.open} onOpenChange={props.onOpenChange} modal="trap-focus">
       {/* The popup shell is the primitive's, which is also what puts this dialog in
-          the window's airspace (`Spec-023 §Console Design (Meridian)` 12.3): a native
-          browser-pane view yields to whatever is registered there, and a form that
-          mounted its own portal would be a dialog the view paints over. */}
+          the window's airspace: a native browser-pane view yields to whatever is
+          registered there, and a form that mounted its own portal would be a dialog
+          the view paints over. */}
       <OverlayDialogPopup
         container={props.overlayContainer}
         backdropClassName="meridian-attach__backdrop"

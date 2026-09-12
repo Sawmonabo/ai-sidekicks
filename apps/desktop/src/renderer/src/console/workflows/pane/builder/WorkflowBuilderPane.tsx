@@ -17,10 +17,10 @@
 //
 // The node graph itself — the entry node and the four phase classes, the gate on a
 // phase's outgoing shoulder, the one sequence edge kind, and the connection-validity
-// predicate that refuses a shape DURING the drag rather than at save — is Plan-017's
-// body, mounted through this directory's typed slots. What this file owns is the
-// frame around them and the answer to the question a builder pane asks before it can
-// draw anything: which definition am I editing?
+// predicate that refuses a shape DURING the drag rather than at save — is the
+// workflow engine's body, mounted through this directory's typed slots. What this
+// file owns is the frame around them and the answer to the question a builder pane
+// asks before it can draw anything: which definition am I editing?
 //
 // A PANE THAT NAMES NO DEFINITION SAYS SO, and stops there. It used to render the
 // definitions browser instead, on the grounds that "pick one, or start one" is what a
@@ -97,7 +97,7 @@ export interface WorkflowBuilderPaneProps {
   readonly context: PaneContextOf<"workflow-builder">;
 }
 
-/** The builder pane's body. The canvas and the inspector inside it are Plan-017's. */
+/** The builder pane's body. The canvas and the inspector inside it are the engine's. */
 export function WorkflowBuilderPane(props: WorkflowBuilderPaneProps): React.JSX.Element {
   const { bridge, uiStateStore, draftStore, sessionStore, focusHue } = props.context;
   // WIDENED ON PURPOSE, and the annotation is the whole of it. This arm's `entity` is

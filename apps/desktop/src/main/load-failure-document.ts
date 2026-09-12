@@ -1,4 +1,4 @@
-// The generated load-failure document — Plan-023 Phase 1B (T-023p-1B-2).
+// The generated load-failure document.
 //
 // A rejected `loadURL` used to log and return, leaving a live, blank, retained
 // window: no content, no reason on screen, and nothing for the user to act on.
@@ -16,9 +16,8 @@
 //
 // It carries no script (the CSP's `script-src 'self'` would refuse an inline one
 // anyway), no link out, and no reload control — a retry affordance would need a
-// renderer-to-main channel this phase does not have, and offering a button that
-// did nothing is the capability-claimed-but-not-implemented shape
-// `Spec-023 §Console Design (Meridian)` §Copy forbids.
+// renderer-to-main channel that does not exist yet, and a control that claims a
+// capability nothing implements is exactly what the console's copy rules forbid.
 //
 // Split out of `./protocol.ts` so the document's own grammar — the reason
 // bound, the escaping, the URL round trip — is unit-testable with no Electron

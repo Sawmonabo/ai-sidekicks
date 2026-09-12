@@ -1,7 +1,7 @@
 // The one decision the binding makes about a handed-back keystroke.
 //
-// `Spec-023 §Console Design (Meridian)` 12.4's two halves meet here: the projection
-// decides which chords MAY be claimed, and this decides what happens to one that was.
+// The handback's two halves meet here: the projection decides which chords MAY be
+// claimed, and this decides what happens to one that was.
 // The three outcomes are different and each has to be reachable — replayed, left
 // alone because the console does not claim it, and left alone because there is no
 // pane root to replay into — and only the first of them may produce an event.

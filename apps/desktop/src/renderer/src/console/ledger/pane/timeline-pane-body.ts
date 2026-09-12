@@ -8,8 +8,7 @@
 // chunk, and the difference was measured rather than argued: the pane, its feed, its
 // window and structure derivations, the cards the rows render through, and the markdown
 // and ANSI renderers behind those cards were the largest single block on the renderer's
-// initial import graph, against a budget (`Spec-023 §Console Design (Meridian)`
-// §Budgets) the console was over.
+// initial import graph, against a bundle budget the console was over.
 //
 // THE ROW SEAT IS FILLED HERE BECAUSE THIS CHUNK IS WHAT READS IT. `TimelinePane.tsx` is
 // the only module anywhere that calls `timelineRowRenderer()`, so the seat's reader and

@@ -1,15 +1,12 @@
-// Plan-009 T1.1 — `repo.ts` contract core: branded ids, the four canonical
-// repo/workspace enums, the derived `RepoMountHealth` projection, the shared
-// lifecycle event payload, and its registration into `SessionEventSchema`.
+// `repo.ts` contract core: branded ids, the four canonical repo/workspace
+// enums, the derived `RepoMountHealth` projection, the shared lifecycle
+// event payload, and its registration into `SessionEventSchema`.
 //
-// Backstops `Spec-009 §Required Behavior` (the canonical four-mode execution
-// taxonomy git-backed binding must support, per ADR-006) and the invariant
-// this contract carries:
-//   • I-009-4 — honest non-git classification. `VcsTypeSchema` is the
-//     discriminator's contract carrier, so the tests pin it CLOSED at two
-//     values: no third member, no tolerant passthrough arm. A widened
-//     discriminator is what would let a non-git path be presented as a git
-//     mount.
+// Backstops and the invariant this contract carries:
+//   • `VcsTypeSchema` is the discriminator's contract carrier, so the
+//     tests pin it CLOSED at two values: no third member, no tolerant
+//     passthrough arm. A widened discriminator is what would let a non-git
+//     path be presented as a git mount.
 //
 // Coverage shape:
 //   • Every member of every enum parses, INCLUDING the space-containing
@@ -22,21 +19,14 @@
 //   • `RepoMountHealth` accepts all three ratified verdicts, rejects a
 //     `status` outside them, and rejects a missing `checkedAt`, a non-ISO
 //     `checkedAt`, and an unknown key.
-//   • The lifecycle payload matches
-//     `Spec-006 §Repo, Workspace, and Worktree Lifecycle (session_lifecycle)`
-//     field-for-field: `sessionId` required, the three subject ids optional
-//     and independently omittable, `state` drawn from BOTH Plan-009
-//     vocabularies, `actor` bounded by the envelope's own cap and its three
-//     `wireFreeFormString` guards.
-//   • The six Plan-009 types parse end-to-end through `SessionEventSchema`
-//     with a category/type mismatch and a payload smuggle rejected. The
-//     `worktree.*` half of the family registered through the same seam by
-//     Plan-010 T1.1 (CP-010-5) is covered by worktree.test.ts, which owns
-//     that contract.
-//   • The `index.ts` barrel re-exports every symbol this task provides —
-//     the barrel-gap regression Plan-001 GitHub PR-#30 round-1 caught — and
-//     the six standalone event-variant exports are driven behaviorally
-//     against the independently-spelled union arms they must agree with.
+//   • The lifecycle payload matches field-for-field: `sessionId` required,
+//     the three subject ids optional and independently omittable, `state`
+//     drawn from BOTH vocabularies, `actor` bounded by the envelope's own cap
+//     and its three `wireFreeFormString` guards.
+//   • The six types parse end-to-end through `SessionEventSchema` with a
+//     category/type mismatch and a payload smuggle rejected. The
+//     `worktree.*` half of the family registered through the same seam is
+//     covered by worktree.test.ts, which owns that contract.
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
@@ -99,7 +89,7 @@ const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const REPO_MOUNT_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10";
 const WORKSPACE_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f11";
 const WORKTREE_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f12";
-const PARTICIPANT_ID = "660e8400-e29b-41d4-a716-446655440001";
+const USER_ID = "660e8400-e29b-41d4-a716-446655440001";
 const CHECKED_AT = "2026-07-24T19:14:35.000Z";
 const VERSION = "1.0";
 
@@ -107,16 +97,14 @@ const VERSION = "1.0";
 // Canonical enums.
 // --------------------------------------------------------------------------
 
-describe("ExecutionModeSchema (Spec-009 §Required Behavior — the ADR-006 four-mode taxonomy)", () => {
+describe("ExecutionModeSchema (four-mode taxonomy)", () => {
   it.each([
     ["read-only", true],
     ["branch", true],
     ["worktree", true],
-    // The space is part of the WIRE literal, preserved verbatim from
-    // `docs/architecture/contracts/api-payload-contracts.md §Shared Enums`
-    // (the same stance as `MembershipRole`'s "runtime contributor"). The
-    // three plausible "cleanups" below must all stay rejected, or a producer
-    // that normalized the literal would diverge from the canonical bytes.
+    // The space is part of the WIRE literal, preserved verbatim. The three
+    // plausible "cleanups" below must all stay rejected, or a producer that
+    // normalized the literal would diverge from the canonical bytes.
     ["ephemeral clone", true],
     ["ephemeral_clone", false],
     ["ephemeral-clone", false],
@@ -171,11 +159,11 @@ describe("RepoMountStateSchema (the 3-value mount lifecycle)", () => {
   });
 });
 
-describe("VcsTypeSchema (I-009-4 — honest non-git classification)", () => {
+describe("VcsTypeSchema (honest non-git classification)", () => {
   it.each([
     ["git", true],
     ["none", true],
-    // I-009-4's whole content is that the discriminator stays CLOSED at two
+    // The whole content is that the discriminator stays CLOSED at two
     // values. Each rejection below is a shape a widened union would admit:
     // an "unknown"/"pending" third state (which would let a resolver defer
     // the verdict), a sibling VCS (which would be presented as git-adjacent
@@ -230,7 +218,7 @@ const brandNominalityPin = (): void => {
 void brandNominalityPin;
 
 // --------------------------------------------------------------------------
-// RepoMountHealth — the derived projection (D-009-2).
+// RepoMountHealth — the derived projection.
 // --------------------------------------------------------------------------
 
 const buildValidHealth = () => ({
@@ -238,20 +226,19 @@ const buildValidHealth = () => ({
   checkedAt: CHECKED_AT,
 });
 
-describe("RepoMountHealthSchema (D-009-2 — derived projection, never persisted)", () => {
+describe("RepoMountHealthSchema (derived projection, never persisted)", () => {
   it.each([
     ["healthy", true],
     ["unreachable", true],
-    // The third ratified verdict (`Spec-009 §Repo Mount Health (V1 Definition)`,
-    // I-009-17): a reachable root whose re-derived common directory no longer
-    // equals the attach-persisted anchor. Its accept case is pinned here rather
-    // than left implied, because the whole point of the member is that a mount
-    // whose binds are already refusing must not still project `healthy`.
+    // The third ratified verdict: a reachable root whose re-derived common
+    // directory no longer equals the attach-persisted anchor. Its accept case is
+    // pinned here rather than left implied, because the whole point of the
+    // member is that a mount whose binds are already refusing must not still
+    // project `healthy`.
     ["identity_mismatch", true],
-    // Outside the three-value union. `unknown` is the shape D-009-2 explicitly
-    // rejects (the on-read probe floor means every read carries a fresh
-    // verdict), and `stale` is the WORKSPACE-state overload D-009-2 chose
-    // `unreachable` to avoid.
+    // Outside the three-value union. `unknown` is the shape explicitly rejects
+    // (the on-read probe floor means every read carries a fresh verdict), and
+    // `stale` is the WORKSPACE-state overload chose `unreachable` to avoid.
     ["unknown", false],
     ["stale", false],
     ["degraded", false],
@@ -276,7 +263,7 @@ describe("RepoMountHealthSchema (D-009-2 — derived projection, never persisted
       RepoMountHealthSchema.safeParse({ ...buildValidHealth(), checkedAt: "yesterday" }).success,
     ).toBe(false);
     // `{ offset: true }` — the package-wide datetime convention (RFC 3339
-    // §5.6 numeric offsets, not just Z-suffixed UTC).
+    // not just Z-suffixed UTC).
     expect(
       RepoMountHealthSchema.safeParse({
         ...buildValidHealth(),
@@ -293,14 +280,14 @@ describe("RepoMountHealthSchema (D-009-2 — derived projection, never persisted
 });
 
 // --------------------------------------------------------------------------
-// RepoWorkspaceLifecyclePayload — the family-shared payload (CP-009-4).
+// RepoWorkspaceLifecyclePayload — the family-shared payload.
 // --------------------------------------------------------------------------
 
 const buildMountPayload = () => ({
   sessionId: SESSION_ID,
   repoMountId: REPO_MOUNT_ID,
   state: "attached" as const,
-  actor: PARTICIPANT_ID,
+  actor: USER_ID,
 });
 
 const buildWorkspacePayload = () => ({
@@ -311,10 +298,10 @@ const buildWorkspacePayload = () => ({
   actor: null,
 });
 
-describe("RepoWorkspaceLifecyclePayloadSchema (Spec-006 §Repo, Workspace, and Worktree Lifecycle)", () => {
+describe("RepoWorkspaceLifecyclePayloadSchema (Workspace, and Worktree Lifecycle)", () => {
   it("accepts the minimum shape — sessionId + state only", () => {
-    // Every subject id is optional per the Spec-006 family shape, so the two
-    // required members are the whole floor.
+    // Every subject id is optional family shape, so the two required members
+    // are the whole floor.
     expect(
       RepoWorkspaceLifecyclePayloadSchema.safeParse({
         sessionId: SESSION_ID,
@@ -334,12 +321,12 @@ describe("RepoWorkspaceLifecyclePayloadSchema (Spec-006 §Repo, Workspace, and W
         workspaceId: WORKSPACE_ID,
         worktreeId: WORKTREE_ID,
         state: "archived",
-        actor: PARTICIPANT_ID,
+        actor: USER_ID,
       }).success,
     ).toBe(true);
   });
 
-  it("requires `sessionId` — Spec-006 spells the family base without a `?`", () => {
+  it("requires `sessionId` — spells the family base without a `?`", () => {
     const broken = { ...buildMountPayload() } as Record<string, unknown>;
     delete broken["sessionId"];
     expect(RepoWorkspaceLifecyclePayloadSchema.safeParse(broken).success).toBe(false);
@@ -356,8 +343,8 @@ describe("RepoWorkspaceLifecyclePayloadSchema (Spec-006 §Repo, Workspace, and W
   });
 
   it.each([
-    // BOTH Plan-009 vocabularies are in the union: mount states for `repo.*`
-    // rows, workspace states for `workspace.*` rows.
+    // BOTH vocabularies are in the union: mount states for `repo.*` rows,
+    // workspace states for `workspace.*` rows.
     ["attached (mount)", "attached", true],
     ["detached (mount)", "detached", true],
     ["archived (shared by both vocabularies)", "archived", true],
@@ -373,16 +360,16 @@ describe("RepoWorkspaceLifecyclePayloadSchema (Spec-006 §Repo, Workspace, and W
   });
 
   it.each([["creating"], ["dirty"], ["merged"], ["retired"]])(
-    "rejects the Plan-010-owned worktree state %s (per-family boundary, permanent)",
+    "rejects -owned worktree state %s (per-family boundary, permanent)",
     (worktreeState) => {
-      // PERMANENT BOUNDARY. This block's original comment predicted CP-010-5
-      // would widen the shipped schema with a third `WorktreeStateSchema`
-      // union arm; the ratified design (PR #250 round 4) PARAMETERIZED the
-      // family instead — Plan-010's registration instantiates the factory in
-      // worktree.ts and never touches this schema — so the shipped
-      // two-vocabulary accept set never admits a worktree state. These rows
-      // stay red for good; the worktree vocabulary's accept half lives in
-      // worktree.test.ts against `WorktreeLifecyclePayloadSchema`.
+      // This block's original comment predicted would widen the shipped
+      // schema with a third `WorktreeStateSchema` union arm; the ratified
+      // design PARAMETERIZED the family instead — the
+      // registration instantiates the factory in worktree.ts and never
+      // touches this schema — so the shipped two-vocabulary accept set never
+      // admits a worktree state. These rows stay red for good; the worktree
+      // vocabulary's accept half lives in worktree.test.ts against
+      // `WorktreeLifecyclePayloadSchema`.
       expect(
         RepoWorkspaceLifecyclePayloadSchema.safeParse({
           sessionId: SESSION_ID,
@@ -393,7 +380,7 @@ describe("RepoWorkspaceLifecyclePayloadSchema (Spec-006 §Repo, Workspace, and W
     },
   );
 
-  it("types `worktreeId` as a canonical UUID string (unbranded, Plan-010 narrows it later)", () => {
+  it("types `worktreeId` as a canonical UUID string (unbranded narrows it later)", () => {
     expect(
       RepoWorkspaceLifecyclePayloadSchema.safeParse({
         sessionId: SESSION_ID,
@@ -413,7 +400,7 @@ describe("RepoWorkspaceLifecyclePayloadSchema (Spec-006 §Repo, Workspace, and W
     // ...and IDENTICAL, not merely similar. This member composes the very
     // predicate `brandedUuidIdSchema` composes (`uuidTextFormSchema`, the
     // unbranded export beside it), so a value's parse result cannot move when
-    // Plan-010 narrows this to `WorktreeId`. The case-variant sentinel is the
+    // narrows this to `WorktreeId`. The case-variant sentinel is the
     // discriminating input: `z.string().uuid()` — what this member composed
     // before the two exports were unified — refuses it while every branded id
     // accepts it, so this pair fails on the divergence and on nothing else.
@@ -473,8 +460,7 @@ describe("RepoWorkspaceLifecyclePayloadSchema (Spec-006 §Repo, Workspace, and W
     // The byte is BUILT at runtime rather than written as a unicode escape,
     // which is the one deviation from the sibling suites' spelling. A raw NUL
     // in the source makes ripgrep classify the file as binary and skip its
-    // content matches, which silently breaks the repo's cite-and-grep
-    // tooling; constructing it here keeps the assertion identical and the
+    // content matches, which silently breaks the repo's grep tooling; constructing it here keeps the assertion identical and the
     // file text-clean.
     const actorWithNulByte = `agent${String.fromCharCode(0)}injected`;
     expect(
@@ -514,23 +500,19 @@ describe("RepoWorkspaceLifecyclePayloadSchema (Spec-006 §Repo, Workspace, and W
 });
 
 // --------------------------------------------------------------------------
-// buildRepoWorkspaceLifecyclePayloadSchema — the CP-010-5 seam.
 // --------------------------------------------------------------------------
 //
-// The factory exists so Plan-010 can register five `worktree.*` types against
-// this payload family WITHOUT editing repo.ts. What these tests pin is the
+// The factory exists so can register five `worktree.*` types against this
+// payload family WITHOUT editing repo.ts. What these tests pin is the
 // property that makes that safe: each instantiation's accept set is exactly
 // its own vocabulary, so the two never merge into one widened union.
 
-// Stands in for Plan-010's `WorktreeStateSchema` — D-010-12's four worktree
-// transitions plus `ready`, the only literal shared with either Plan-009
-// vocabulary. Spelled locally on purpose: `worktree.ts` is Plan-010-owned,
-// and the whole point of the factory is that it never has to exist for this
-// seam to be verifiable.
+// Stands in for the `WorktreeStateSchema` — the four worktree transitions
+// plus `ready`, the only literal shared with either vocabulary.
 const worktreeLikeStateSchema = z.enum(["creating", "ready", "dirty", "merged", "retired"]);
 const worktreeLikePayloadSchema = buildRepoWorkspaceLifecyclePayloadSchema(worktreeLikeStateSchema);
 
-describe("buildRepoWorkspaceLifecyclePayloadSchema (CP-010-5 — a parameter, not a third union arm)", () => {
+describe("buildRepoWorkspaceLifecyclePayloadSchema (a parameter, not a third union arm)", () => {
   it.each(["creating", "ready", "dirty", "merged", "retired"])(
     "an instantiation accepts its own vocabulary: %s",
     (state) => {
@@ -541,7 +523,7 @@ describe("buildRepoWorkspaceLifecyclePayloadSchema (CP-010-5 — a parameter, no
   );
 
   it.each(["attached", "detached", "provisioning", "busy", "stale"])(
-    "an instantiation REJECTS the Plan-009 state a shared union would have admitted: %s",
+    "an instantiation REJECTS state a shared union would have admitted: %s",
     (state) => {
       // This is the finding. Adding `WorktreeStateSchema` as a third arm on
       // the shipped schema would have widened ALL eleven types at once, so a
@@ -586,7 +568,7 @@ describe("buildRepoWorkspaceLifecyclePayloadSchema (CP-010-5 — a parameter, no
         workspaceId: WORKSPACE_ID,
         worktreeId: WORKTREE_ID,
         state: "merged",
-        actor: PARTICIPANT_ID,
+        actor: USER_ID,
       }).success,
     ).toBe(true);
     // `sessionId` still required, still a UUID; `actor` still capped.
@@ -605,8 +587,8 @@ describe("buildRepoWorkspaceLifecyclePayloadSchema (CP-010-5 — a parameter, no
 
   it("the shipped schema is itself an instantiation — same accept set as a hand-built twin", () => {
     // Pins the refactor's own claim: `RepoWorkspaceLifecyclePayloadSchema` is
-    // now the factory applied to the two Plan-009 vocabularies, and nothing
-    // about its accept set moved when it stopped being a literal `z.object`.
+    // now the factory applied to the two vocabularies, and nothing about its
+    // accept set moved when it stopped being a literal `z.object`.
     const rebuilt = buildRepoWorkspaceLifecyclePayloadSchema(
       z.union([RepoMountStateSchema, WorkspaceStateSchema]),
     );
@@ -632,7 +614,7 @@ describe("buildRepoWorkspaceLifecyclePayloadSchema (CP-010-5 — a parameter, no
 });
 
 // --------------------------------------------------------------------------
-// Union registration into SessionEventSchema (CP-009-4).
+// Union registration into SessionEventSchema.
 // --------------------------------------------------------------------------
 
 // Each registered type paired with the state its emitter actually writes —
@@ -657,9 +639,9 @@ const REGISTERED_REPO_EVENTS: ReadonlyArray<
   ["workspace.archived", "archived"],
 ];
 
-// `workspaces.repo_mount_id` is NOT NULL (D-009-4, mount-first single
-// funnel), so every workspace row names its mount: the workspace fixtures
-// carry BOTH ids and the mount fixtures carry only `repoMountId`.
+// `workspaces.repo_mount_id` is NOT NULL (mount-first single funnel), so
+// every workspace row names its mount: the workspace fixtures carry BOTH
+// ids and the mount fixtures carry only `repoMountId`.
 const buildRepoEvent = (eventType: string, state: string) => ({
   id: "evt-repo-0001",
   sessionId: SESSION_ID,
@@ -667,7 +649,7 @@ const buildRepoEvent = (eventType: string, state: string) => ({
   occurredAt: "2026-07-24T19:14:35.000Z",
   category: "session_lifecycle" as const,
   type: eventType,
-  actor: PARTICIPANT_ID,
+  actor: USER_ID,
   version: VERSION,
   payload: {
     sessionId: SESSION_ID,
@@ -677,7 +659,7 @@ const buildRepoEvent = (eventType: string, state: string) => ({
   },
 });
 
-describe("SessionEventSchema registration of the six Plan-009 variants (CP-009-4)", () => {
+describe("SessionEventSchema registration of the six variants", () => {
   it.each(REGISTERED_REPO_EVENTS)(
     "%s parses end-to-end through the union carrying state %s",
     (eventType, state) => {
@@ -737,43 +719,37 @@ describe("SessionEventSchema registration of the six Plan-009 variants (CP-009-4
     expect(SessionEventSchema.safeParse(broken).success).toBe(false);
   });
 
-  // The forward-edge pin that lived here ("does not yet register the
-  // Plan-010 family member %s") flipped exactly as its comment designed when
-  // Plan-010 T1.1 landed CP-010-5's five `worktree.*` arms. Their
-  // registration, D-010-12 state mapping, standalone-vs-union agreement, and
-  // closed-registry boundary (`worktree.failed` stays rejected — D-010-11)
-  // are covered by worktree.test.ts, which owns that contract. One residue
-  // stays HERE because it pins THIS family's accept set: a registered
-  // worktree arm carries Plan-010's vocabulary, NOT this shared schema — see
-  // the per-family disjointness rows above.
+  // The forward-edge pin that lived here ("does not yet register family
+  // member %s") flipped exactly as its comment designed when landed the five
+  // `worktree.*` arms. Their registration state mapping, standalone-vs-union
+  // agreement, and closed-registry boundary (`worktree.failed` stays
+  // rejected) are covered by worktree.test.ts, which owns that contract.
+  // One residue stays HERE because it pins THIS family's accept set: a
+  // registered worktree arm carries the vocabulary, NOT this shared schema —
+  // see the per-family disjointness rows above.
   it("still rejects a worktree TYPE carrying this family's payload builder with a repo-only subject", () => {
     // A `worktree.*` row must satisfy `WorktreeLifecyclePayloadSchema`; the
     // mount-shaped fixture (state: "attached") stays rejected even though
-    // the type arm now exists — the union's registration did not loosen the
-    // Plan-009 vocabularies into the worktree arm.
+    // the type arm now exists — the union's registration did not loosen
+    // vocabularies into the worktree arm.
     const brokenWorktreeRow = buildRepoEvent("worktree.created", "attached");
     expect(SessionEventSchema.safeParse(brokenWorktreeRow).success).toBe(false);
   });
 });
 
 // --------------------------------------------------------------------------
-// Wire surfaces — RepoAttach / RepoMountRead / RepoDetach (T1.2).
+// Wire surfaces — RepoAttach / RepoMountRead / RepoDetach.
 // --------------------------------------------------------------------------
 //
 // The three request/response pairs for the MOUNT half of the six `repo.*`
-// methods. Coverage backstops the field requirements the shapes carry:
-// `Spec-009 §Interfaces And Contracts` (attach accepts a local path, session
-// id, and owning runtime node; mount-read exposes canonical root, VCS
-// metadata, and current health) and
-// `Spec-009 §Detach Semantics (V1 Definition)` (detach accepts a repo mount id
-// and transitions the mount to `detached`).
+// methods.
 
 // A daemon-assigned OPAQUE scalar, deliberately NOT a UUID — the fixture uses
 // a non-UUID value on purpose, and a dedicated row below pins that.
 const NODE_ID = "node-alpha-01";
 
 // The entered path and the resolved root DIFFER on purpose: attaching from a
-// nested subdirectory is the canonical I-009-5 case (`local_path` keeps the
+// nested subdirectory is the canonical case (`local_path` keeps the
 // provenance, `canonical_root` carries the resolver output). A fixture that
 // made them equal could not catch a schema that conflated the two fields.
 const LOCAL_PATH = "/Users/dev/projects/ai-sidekicks/packages/contracts";
@@ -824,7 +800,7 @@ const parseMountReadResponse = (overrides: Record<string, unknown> = {}) =>
 const parseDetachResponse = (overrides: Record<string, unknown> = {}) =>
   RepoDetachResponseSchema.safeParse({ ...buildDetachResponse(), ...overrides });
 
-describe("RepoAttachRequestSchema (Spec-009 §Interfaces And Contracts — path, session, owning node)", () => {
+describe("RepoAttachRequestSchema (path, session, owning node)", () => {
   it("accepts a valid attach request", () => {
     expect(parseAttachRequest().success).toBe(true);
   });
@@ -839,11 +815,11 @@ describe("RepoAttachRequestSchema (Spec-009 §Interfaces And Contracts — path,
   );
 
   it("types `nodeId` as the daemon-assigned OPAQUE scalar, not a UUID", () => {
-    // The contract-consumption pin. `NodeIdSchema` (Plan-003-owned, declared
-    // in node-id.ts) deliberately departs from the UUID parser the branded
-    // repo ids use, because `runtime_node_attachments.node_id` is TEXT.
-    // Composing a UUID-branded schema here by mistake would satisfy every
-    // other row in this block — only this one catches it.
+    // `NodeIdSchema` (-owned, declared in node-id.ts) deliberately departs
+    // from the UUID parser the branded repo ids use, because
+    // `runtime_node_attachments.node_id` is TEXT. Composing a UUID-branded
+    // schema here by mistake would satisfy every other row in this block —
+    // only this one catches it.
     expect(parseAttachRequest({ nodeId: "cli-daemon@host.local" }).success).toBe(true);
     // Opaque is not unvalidated — empty and over-cap are still refused, at the
     // cap the canonical declaration owns.
@@ -873,13 +849,13 @@ describe("RepoAttachRequestSchema (Spec-009 §Interfaces And Contracts — path,
     ["a Windows absolute path", "C:\\repos\\ai-sidekicks"],
     ["a tilde-prefixed path", "~/projects/repo"],
   ])("admits %s — the resolver canonicalizes, not the schema", (_label, candidate) => {
-    // NEGATIVE CONTROL on the guards above. I-009-1 assigns resolution to the
-    // daemon resolver (T1.5), so the wire must be able to carry a path it has
-    // not seen yet. Every row here would be refused by an absoluteness or
-    // traversal check the schema deliberately does not make; without them the
-    // guards above would read as "the schema validates paths", which is
-    // exactly the wrong impression. The Windows row is the ADR-019 V1-tier
-    // case that rules out a `startsWith("/")` test outright.
+    // NEGATIVE CONTROL on the guards above. assigns resolution to the daemon
+    // resolver, so the wire must be able to carry a path it has not seen yet.
+    // Every row here would be refused by an absoluteness or traversal check
+    // the schema deliberately does not make; without them the guards above
+    // would read as "the schema validates paths", which is exactly the wrong
+    // impression. The Windows row is V1-tier case that rules out a
+    // `startsWith("/")` test outright.
     expect(parseAttachRequest({ localPath: candidate }).success).toBe(true);
   });
 
@@ -888,7 +864,7 @@ describe("RepoAttachRequestSchema (Spec-009 §Interfaces And Contracts — path,
   });
 });
 
-describe("RepoAttachResponseSchema (D-009-7 — resolved root + default workspace required)", () => {
+describe("RepoAttachResponseSchema (resolved root + default workspace required)", () => {
   it("accepts a valid attach response", () => {
     expect(parseAttachResponse().success).toBe(true);
   });
@@ -897,10 +873,10 @@ describe("RepoAttachResponseSchema (D-009-7 — resolved root + default workspac
     "rejects an attach response missing %s — the field is unrepresentable-absent",
     (field) => {
       // `canonicalRoot`: resolution failure ABORTS attach with typed
-      // `repo.root_resolution_failed` (I-009-2), so there is no partial
-      // success carrying an unresolved root. `defaultWorkspaceId`: attach
-      // unconditionally creates the default read-only workspace (D-009-7), so
-      // "attached but no workspace" is a state the model never produces.
+      // `repo.root_resolution_failed`, so there is no partial success
+      // carrying an unresolved root. `defaultWorkspaceId`: attach
+      // unconditionally creates the default read-only workspace, so "attached
+      // but no workspace" is a state the model never produces.
       const broken = { ...buildAttachResponse() } as Record<string, unknown>;
       delete broken[field];
       expect(RepoAttachResponseSchema.safeParse(broken).success).toBe(false);
@@ -957,7 +933,7 @@ const attachResponseRequiredFieldPins = (): void => {
     vcsType: "git",
     defaultWorkspaceId: WorkspaceIdSchema.parse(WORKSPACE_ID),
   };
-  // @ts-expect-error — an attach response with no default workspace (D-009-7).
+  // @ts-expect-error — an attach response with no default workspace.
   const missingDefaultWorkspaceId: RepoAttachResponse = {
     repoMountId: RepoMountIdSchema.parse(REPO_MOUNT_ID),
     state: "attached",
@@ -1021,7 +997,7 @@ describe("RepoMountReadResponseSchema (canonical root + VCS metadata + current h
   it("rejects out-of-vocabulary `vcsType` and `state` through the composition", () => {
     // The composed-enum leg, the same argument as the `health.status` rows
     // below: driven through the RESPONSE, these prove the projection composes
-    // T1.1's canonical enums instead of re-spelling widened unions of its own.
+    // the canonical enums instead of re-spelling widened unions of its own.
     // `hg` is the VCS a re-spell would plausibly admit; `provisioning` is a
     // WORKSPACE state — the cross-vocabulary trap the attach block pins with
     // `stale`, and the reason `RepoMountState` and `WorkspaceState` must not be
@@ -1043,9 +1019,9 @@ describe("RepoMountReadResponseSchema (canonical root + VCS metadata + current h
   it.each([
     ["healthy", true],
     ["unreachable", true],
-    // Outside the 2-value union: `unknown` is the member D-009-2 rejects (the
-    // on-read probe floor means every read carries a fresh verdict), and
-    // `stale` is the workspace-state overload it chose `unreachable` to avoid.
+    // Outside the 2-value union: `unknown` is the member rejects (the on-read
+    // probe floor means every read carries a fresh verdict), and `stale` is
+    // the workspace-state overload it chose `unreachable` to avoid.
     ["unknown", false],
     ["stale", false],
   ])("health.status %s -> %s, driven through the composed response", (status, shouldPass) => {
@@ -1057,7 +1033,7 @@ describe("RepoMountReadResponseSchema (canonical root + VCS metadata + current h
     expect(parseMountReadResponse({ health }).success).toBe(shouldPass);
   });
 
-  it("keeps `localPath` and `canonicalRoot` independent (I-009-5)", () => {
+  it("keeps `localPath` and `canonicalRoot` independent", () => {
     const parsed = RepoMountReadResponseSchema.parse(buildMountReadResponse());
     expect(parsed.localPath).toBe(LOCAL_PATH);
     expect(parsed.canonicalRoot).toBe(CANONICAL_ROOT);
@@ -1085,7 +1061,7 @@ describe("RepoMountReadResponseSchema (canonical root + VCS metadata + current h
   });
 });
 
-describe("RepoDetach request/response (Spec-009 §Detach Semantics (V1 Definition))", () => {
+describe("RepoDetach request/response", () => {
   it("accepts a detach request and requires `repoMountId`", () => {
     const valid = { repoMountId: REPO_MOUNT_ID };
     expect(RepoDetachRequestSchema.safeParse(valid).success).toBe(true);
@@ -1101,7 +1077,7 @@ describe("RepoDetach request/response (Spec-009 §Detach Semantics (V1 Definitio
   it("accepts an EMPTY archivedWorkspaceIds array — a no-dependent cascade", () => {
     // Not degenerate: a mount whose dependent workspaces were all already
     // `archived` archives none, which is why the schema carries no `.min(1)`
-    // even though D-009-7 guarantees attach created one workspace.
+    // even though guarantees attach created one workspace.
     expect(parseDetachResponse({ archivedWorkspaceIds: [] }).success).toBe(true);
   });
 
@@ -1137,32 +1113,31 @@ describe("RepoDetach request/response (Spec-009 §Detach Semantics (V1 Definitio
 
 // --------------------------------------------------------------------------
 // Wire surfaces — WorkspaceBind / WorkspaceExecutionModeCapabilitiesRead /
-// WorkspaceList (T1.3).
+// WorkspaceList.
 // --------------------------------------------------------------------------
 //
 // The three request/response pairs for the WORKSPACE half of the six `repo.*`
 // methods. Coverage backstops the field requirements the shapes carry, all
-// three from `Spec-009 §Interfaces And Contracts`: `WorkspaceBind` accepts a
-// repo mount plus an intended execution mode from the canonical set (the
-// "or directory root" arm being satisfied by a plain-directory mount under
-// D-009-4); the capabilities read exposes which modes are currently valid for
-// the bound repo mount OR workspace; `WorkspaceList` exposes workspace health
-// and current binding state.
+// three: `WorkspaceBind` accepts a repo mount plus an intended execution mode
+// from the canonical set (the "or directory root" arm being satisfied by a
+// plain-directory mount); the capabilities read exposes which modes are
+// currently valid for the bound repo mount OR workspace; `WorkspaceList`
+// exposes workspace health and current binding state.
 //
 // Three conditional relationships are deliberately NOT pinned as shape rules,
 // because the schemas deliberately do not encode them: `restrictions`
-// covering every mode absent from `availableModes` (I-009-8 — T2.5's test),
-// `lastError` present iff `stale`, and `fsRoot` absent while `provisioning`.
-// The rows below pin the REPRESENTABILITY of each case instead, which is the
-// contract half; the emitter half belongs to Phase 2.
+// covering every mode absent from `availableModes` (the test), `lastError`
+// present iff `stale`, and `fsRoot` absent while `provisioning`. The rows
+// below pin the REPRESENTABILITY of each case instead, which is the contract
+// half; the emitter half belongs to Phase 2.
 
 // A daemon-provisioned execution root — deliberately NOT equal to
 // `CANONICAL_ROOT` above. A writable bind's root lives under the daemon's
-// execution-roots directory (D-010-6), not inside the mount, so a fixture
-// that reused the mount root could not catch a schema conflating the two.
+// execution-roots directory, not inside the mount, so a fixture that
+// reused the mount root could not catch a schema conflating the two.
 const WORKSPACE_FS_ROOT = "/Users/dev/.ai-sidekicks/execution-roots/wt-0190f8a0";
 // Mount-root-RELATIVE, the whole point of the field: an absolute path here
-// would be a caller bug, though the schema still admits one (T1.6 owns
+// would be a caller bug, though the schema still admits one (owns
 // containment — see the traversal negative control below).
 const BIND_DIRECTORY = "packages/contracts";
 const WORKSPACE_LAST_ERROR = "fatal: could not create work tree dir: Permission denied";
@@ -1191,12 +1166,8 @@ const buildReadyBindResponse = () => ({
   state: "ready" as const,
 });
 
-// The two rows of D-009-5's static capability matrix. Keeping BOTH as fixtures
-// is what makes the `defaultMode` semantics visible: on a git mount it is
-// `worktree` (the default WRITABLE run mode per ADR-006) while a freshly bound
-// workspace is still `read-only`; on a non-git mount it is `read-only` because
-// no writable mode exists to default to. A single fixture would let a reader
-// conclude `defaultMode` echoes the fresh-workspace posture.
+// The two rows of the static capability matrix. A single fixture would let a
+// reader conclude `defaultMode` echoes the fresh-workspace posture.
 const buildGitCapabilitiesResponse = () => ({
   availableModes: ["read-only", "branch", "worktree", "ephemeral clone"],
   defaultMode: "worktree" as const,
@@ -1206,7 +1177,7 @@ const buildNonGitCapabilitiesResponse = () => ({
   availableModes: ["read-only"],
   defaultMode: "read-only" as const,
   // Sparse: the three excluded modes carry reasons, `read-only` is omitted
-  // because it is not restricted (I-009-8's explicit-gap shape).
+  // because it is not restricted (the explicit-gap shape).
   restrictions: {
     branch: "no git repository at the mount root",
     worktree: "no git repository at the mount root",
@@ -1275,7 +1246,7 @@ const RESTRICTION_MAP_CASES: ReadonlyArray<
   ["a mixed map with one foreign key", { worktree: "ok", submodule: "not a mode" }, false],
 ];
 
-describe("WorkspaceBindRequestSchema (Spec-009 §Interfaces And Contracts — mount + explicit mode)", () => {
+describe("WorkspaceBindRequestSchema (mount + explicit mode)", () => {
   it("accepts a valid bind request", () => {
     expect(parseBindRequest().success).toBe(true);
   });
@@ -1311,11 +1282,11 @@ describe("WorkspaceBindRequestSchema (Spec-009 §Interfaces And Contracts — mo
   });
 
   it("has NO wire-level default for `executionMode` — omission is a rejection, not read-only", () => {
-    // The T1.3 acceptance criterion, and the row that would flip if someone
-    // added `.default("read-only")`: with a default, the omission row above
-    // would parse and "caller omitted" would become indistinguishable from
-    // "caller chose read-only". The read-only initial posture is the
-    // `workspaces.execution_mode` DDL default (D-009-7), not a wire coercion.
+    // Acceptance criterion, and the row that would flip if someone added
+    // `.default("read-only")`: with a default, the omission row above would
+    // parse and "caller omitted" would become indistinguishable from "caller
+    // chose read-only". The read-only initial posture is the
+    // `workspaces.execution_mode` DDL default, not a wire coercion.
     const omitted = { repoMountId: REPO_MOUNT_ID };
     expect(WorkspaceBindRequestSchema.safeParse(omitted).success).toBe(false);
   });
@@ -1324,16 +1295,12 @@ describe("WorkspaceBindRequestSchema (Spec-009 §Interfaces And Contracts — mo
     ["a parent-traversal subpath", "../../etc"],
     ["an interior traversal that names a legitimate subtree", "docs/../packages"],
     ["an absolute path", "/etc/passwd"],
-  ])("admits %s — T1.6's validator owns containment, not the schema", (_label, candidate) => {
-    // NEGATIVE CONTROL on the guards below. I-009-3 is enforced AFTER symlink
-    // resolution by the trust-envelope validator
-    // (`Spec-009 §Local Trust Envelope (V1 Definition)` scopes the check to
-    // exactly this field), so the wire must carry a value the validator has
-    // not seen yet. A `..`-rejecting regex here would be both bypassable (a
-    // symlink inside the mount escapes without a single `..`) and over-broad
-    // (row two names a real subtree). Without these rows the guards below
-    // would read as "the schema validates subpaths", which is the wrong
-    // impression entirely.
+  ])("admits %s — the validator owns containment, not the schema", (_label, candidate) => {
+    // NEGATIVE CONTROL on the guards below. A `..`-rejecting regex here would
+    // be both bypassable (a symlink inside the mount escapes without a single
+    // `..`) and over-broad (row two names a real subtree). Without these rows
+    // the guards below would read as "the schema validates subpaths", which
+    // is the wrong impression entirely.
     expect(parseBindRequest({ directory: candidate }).success).toBe(true);
   });
 
@@ -1353,9 +1320,9 @@ describe("WorkspaceBindRequestSchema (Spec-009 §Interfaces And Contracts — mo
     expect(parseBindRequest({ directory: directoryWithNulByte }).success).toBe(false);
   });
 
-  it("rejects a `localPath` arm — bind is mount-first, with no second identifier (D-009-4)", () => {
-    // `.strict()` doing load-bearing work: the mount-less bind path D-009-4
-    // closed must stay unrepresentable, not merely unused.
+  it("rejects a `localPath` arm — bind is mount-first, with no second identifier", () => {
+    // `.strict()` doing load-bearing work: the mount-less bind path closed
+    // must stay unrepresentable, not merely unused.
     expect(parseBindRequest({ localPath: LOCAL_PATH }).success).toBe(false);
   });
 
@@ -1364,17 +1331,17 @@ describe("WorkspaceBindRequestSchema (Spec-009 §Interfaces And Contracts — mo
   });
 });
 
-describe("WorkspaceBindResponseSchema (fsRoot deferred to Plan-010 provisioning completion)", () => {
+describe("WorkspaceBindResponseSchema (fsRoot deferred to provisioning completion)", () => {
   it("accepts the read-only bind — root known immediately, state `ready`", () => {
     expect(WorkspaceBindResponseSchema.safeParse(buildReadyBindResponse()).success).toBe(true);
   });
 
   it("accepts the WRITABLE bind with NO `fsRoot` while `state` is `provisioning`", () => {
     // The load-bearing optionality row. A writable bind returns before its
-    // execution root exists; Plan-010 fills `fs_root` at provisioning
-    // completion (`Spec-009 §Execution Mode Transitions`). Making `fsRoot`
-    // required would make this lawful response unrepresentable and force the
-    // daemon to return a placeholder root — a guess I-009-2 forbids.
+    // execution root exists fills `fs_root` at provisioning completion.
+    // Making `fsRoot` required would make this lawful response
+    // unrepresentable and force the daemon to return a placeholder root — a
+    // guess forbids.
     expect(WorkspaceBindResponseSchema.safeParse(buildProvisioningBindResponse()).success).toBe(
       true,
     );
@@ -1486,7 +1453,7 @@ describe("WorkspaceExecutionModeCapabilitiesReadRequestSchema (exactly-one scope
   });
 });
 
-describe("WorkspaceExecutionModeCapabilitiesReadResponseSchema (D-009-5 static matrix)", () => {
+describe("WorkspaceExecutionModeCapabilitiesReadResponseSchema (static matrix)", () => {
   it("accepts the `git` matrix row — all four modes, no restrictions", () => {
     const parsed = WorkspaceExecutionModeCapabilitiesReadResponseSchema.safeParse(
       buildGitCapabilitiesResponse(),
@@ -1510,12 +1477,8 @@ describe("WorkspaceExecutionModeCapabilitiesReadResponseSchema (D-009-5 static m
   });
 
   it("accepts `defaultMode: read-only` — the field is NOT narrowed to writable modes", () => {
-    // The reviewer-hold row. `defaultMode` reports the default for the next
-    // WRITABLE coding run (D-009-5), never the fresh-workspace posture — but
-    // "writable" is the field's SEMANTICS, not a constraint on its type: on a
-    // `'none'` mount there is no writable mode to default to and D-009-5 sets
-    // `read-only`. A `z.enum` here that excluded `read-only` to "enforce" the
-    // writable reading would reject half the ratified matrix.
+    // A `z.enum` here that excluded `read-only` to "enforce" the writable
+    // reading would reject half the ratified matrix.
     expect(parseCapabilitiesResponse({ defaultMode: "read-only" }).success).toBe(true);
     expect(parseCapabilitiesResponse({ defaultMode: "worktree" }).success).toBe(true);
     // Non-narrowed is not unvalidated.
@@ -1523,12 +1486,12 @@ describe("WorkspaceExecutionModeCapabilitiesReadResponseSchema (D-009-5 static m
   });
 
   it("accepts an EMPTY `availableModes` and rejects an out-of-taxonomy member", () => {
-    // No `.min(1)` — and no V1 case that produces an empty list: D-009-5's
-    // matrix is STATIC by `vcs_type`, so even a `'none'` mount still offers
-    // `read-only`. Leaving the constraint off is headroom for a later
-    // probe-derived matrix, plus the I-009-8 pairing of `availableModes` with
-    // `restrictions`, which makes a fully restricted answer well formed rather
-    // than a shape error. `repo.ts` carries the authoritative account.
+    // No `.min(1)` — and no V1 case that produces an empty list: the matrix is
+    // STATIC by `vcs_type`, so even a `'none'` mount still offers `read-only`.
+    // Leaving the constraint off is headroom for a later probe-derived matrix,
+    // plus pairing of `availableModes` with `restrictions`, which makes a
+    // fully restricted answer well formed rather than a shape error. `repo.ts`
+    // carries the authoritative account.
     expect(parseCapabilitiesResponse({ availableModes: [] }).success).toBe(true);
     expect(parseCapabilitiesResponse({ availableModes: ["submodule"] }).success).toBe(false);
   });
@@ -1556,11 +1519,11 @@ describe("WorkspaceExecutionModeCapabilitiesReadResponseSchema (D-009-5 static m
     // The map's absence signal is KEY-OMISSION, deliberately unlike the
     // request side's explicit-undefined leniency a few blocks up: the value
     // schema is a bare non-optional string, so a present key carrying no
-    // reason is precisely the I-009-8 gap. Cannot join RESTRICTION_MAP_CASES,
-    // which is typed `Record<string, string>`. Load-bearing for Phase 2 — the
-    // response schema is single-T, so a projection builder spreading
-    // `worktree: maybeReason` (`string | undefined`) gets NO compile-time
-    // protection and would throw at the I-009-10 validation seam instead.
+    // reason is precisely gap. Cannot join RESTRICTION_MAP_CASES, which is
+    // typed `Record<string, string>`. Load-bearing for Phase 2 — the response
+    // schema is single-T, so a projection builder spreading `worktree:
+    // maybeReason` (`string | undefined`) gets NO compile-time protection and
+    // would throw validation seam instead.
     expect(parseCapabilitiesResponse({ restrictions: { worktree: undefined } }).success).toBe(
       false,
     );
@@ -1569,9 +1532,9 @@ describe("WorkspaceExecutionModeCapabilitiesReadResponseSchema (D-009-5 static m
   it("applies the wireFreeFormString guard to restriction reason values", () => {
     // GUARD-DOWNGRADE VISIBILITY on the map's VALUE side — the key rows above
     // all carry well-formed reasons, so a bare `z.string()` value would pass
-    // every one of them. An empty reason is the I-009-8 failure mode that
-    // matters: a restriction with no explanation is a silent gap wearing an
-    // explicit gap's shape.
+    // every one of them. An empty reason is failure mode that matters: a
+    // restriction with no explanation is a silent gap wearing an explicit
+    // gap's shape.
     expect(parseCapabilitiesResponse({ restrictions: { worktree: "" } }).success).toBe(false);
     expect(parseCapabilitiesResponse({ restrictions: { worktree: "   " } }).success).toBe(false);
     const atCap = "r".repeat(EXECUTION_MODE_RESTRICTION_REASON_MAX_LEN);
@@ -1583,9 +1546,9 @@ describe("WorkspaceExecutionModeCapabilitiesReadResponseSchema (D-009-5 static m
   it("leaves the shared canonical ExecutionModeSchema unmutated by partialRecord", () => {
     // `z.partialRecord` clears the key schema's enumerated-value set to drop
     // exhaustiveness — on a CLONE. If it ever mutated the instance instead,
-    // this module's canonical `ExecutionModeSchema` (imported by Plan-010 per
-    // CP-009-1) would quietly lose its value set for every other consumer.
-    // Cheap to assert, catastrophic to miss.
+    // this module's canonical `ExecutionModeSchema` (imported) would quietly
+    // lose its value set for every other consumer. Cheap to assert,
+    // catastrophic to miss.
     expect(ExecutionModeSchema.safeParse("worktree").success).toBe(true);
     expect(ExecutionModeSchema.safeParse("submodule").success).toBe(false);
     const schemaInternals = ExecutionModeSchema as unknown as { options: readonly string[] };
@@ -1617,7 +1580,7 @@ describe("WorkspaceExecutionModeCapabilitiesReadResponseSchema (D-009-5 static m
   });
 });
 
-describe("WorkspaceList request/response (Spec-009 §Interfaces And Contracts — health + binding state)", () => {
+describe("WorkspaceList request/response (health + binding state)", () => {
   it("accepts a session-scoped list request and its optional mount filter", () => {
     expect(WorkspaceListRequestSchema.safeParse({ sessionId: SESSION_ID }).success).toBe(true);
     expect(
@@ -1679,9 +1642,9 @@ describe("WorkspaceList request/response (Spec-009 §Interfaces And Contracts �
     "exposes workspace health as the full `state` vocabulary — %s",
     (state) => {
       // `state` IS the health surface on this projection — not
-      // `RepoMountHealth`, which is the MOUNT's reachability verdict (D-009-2)
-      // and belongs to `repo.mountRead`. `stale` is the availability-loss
-      // position I-009-7 requires every daemon read surface to expose.
+      // `RepoMountHealth`, which is the MOUNT's reachability verdict and
+      // belongs to `repo.mountRead`. `stale` is the availability-loss position
+      // requires every daemon read surface to expose.
       expect(parseWorkspaceListItem({ state }).success).toBe(true);
     },
   );
@@ -1708,12 +1671,11 @@ describe("WorkspaceList request/response (Spec-009 §Interfaces And Contracts �
   });
 
   it("exposes an optional `lastError`, present or absent independently of `state`", () => {
-    // The `metadata.lastError` surface (D-009-7,
-    // `Spec-009 §Execution Mode Transitions`). Both directions are lawful and
-    // the schema refines NEITHER: a `stale` workspace WITH a recorded failure
-    // detail carries it, and a `stale` workspace whose path simply vanished
-    // with no captured detail carries none. Pinning "present iff stale" here
-    // would reject the second and duplicate T2.4's emitter obligation.
+    // Both directions are lawful and the schema refines NEITHER: a `stale`
+    // workspace WITH a recorded failure detail carries it, and a `stale`
+    // workspace whose path simply vanished with no captured detail carries
+    // none. Pinning "present iff stale" here would reject the second and
+    // duplicate the emitter obligation.
     expect(
       parseWorkspaceListItem({ state: "stale", lastError: WORKSPACE_LAST_ERROR }).success,
     ).toBe(true);
@@ -1723,8 +1685,8 @@ describe("WorkspaceList request/response (Spec-009 §Interfaces And Contracts �
   it("bounds `lastError` at WORKSPACE_LAST_ERROR_MAX_LEN and applies the blank/NUL guards", () => {
     // Deliberately the generous 8192 class, not the 512 reason class: this is
     // captured provisioning output, nothing truncates it before the wire, and
-    // because I-009-10 validates responses too an under-sized cap would make a
-    // LAWFUL daemon list response unrepresentable.
+    // because validates responses too an under-sized cap would make a LAWFUL
+    // daemon list response unrepresentable.
     const atCap = "e".repeat(WORKSPACE_LAST_ERROR_MAX_LEN);
     const overCap = "e".repeat(WORKSPACE_LAST_ERROR_MAX_LEN + 1);
     expect(parseWorkspaceListItem({ lastError: atCap }).success).toBe(true);
@@ -1749,7 +1711,7 @@ describe("WorkspaceList request/response (Spec-009 §Interfaces And Contracts �
   });
 });
 
-// COMPILE-TIME leg of the T1.3 optionality decisions, validated by the
+// COMPILE-TIME leg of optionality decisions, validated by the
 // `tsconfig.test.json` typecheck leg rather than at runtime. Held in
 // never-invoked functions so each pin does its whole job at compile time.
 const workspaceBindTypePins = (): void => {
@@ -1842,16 +1804,15 @@ const parsedLifecyclePayload: RepoWorkspaceLifecyclePayload =
 const payloadNarrowsTheEnvelope: Record<string, unknown> = parsedLifecyclePayload;
 void payloadNarrowsTheEnvelope;
 
-// The T1.1 acceptance criterion: all six Spec-009 wire surfaces can type
-// their Plan-009-owned fields from this module alone. One representative
-// field per surface, spelled with only this module's exported types —
-// `RepoAttachResponse.state` / `.vcsType` / `.defaultWorkspaceId`,
-// `RepoMountReadResponse.health`, `RepoDetachResponse.archivedWorkspaceIds`,
+// One representative field per surface, spelled with only this module's
+// exported types — `RepoAttachResponse.state` / `.vcsType` /
+// `.defaultWorkspaceId`, `RepoMountReadResponse.health`,
+// `RepoDetachResponse.archivedWorkspaceIds`,
 // `WorkspaceBindRequest.executionMode`,
 // `WorkspaceExecutionModeCapabilitiesReadResponse.availableModes` /
-// `.restrictions`, and `WorkspaceListResponse.workspaces[].state`. T1.2/T1.3
-// assemble the full request/response shapes; this pin proves the vocabulary
-// is complete before they do.
+// `.restrictions`, and `WorkspaceListResponse.workspaces[].state`. assemble
+// the full request/response shapes; this pin proves the vocabulary is
+// complete before they do.
 const sixWireSurfacesTypeFromThisModuleAlone: {
   attachState: RepoMountState;
   attachVcsType: VcsType;
@@ -1905,18 +1866,18 @@ const STANDALONE_REPO_EVENT_SCHEMAS: ReadonlyArray<
 ];
 
 // A LAWFUL event of a DIFFERENT registered variant, for the discriminator pin
-// below. `archived` is the one state both Plan-009 vocabularies carry, so the
+// below. `archived` is the one state both vocabularies carry, so the
 // substitute parses under the union whichever row asks for it.
 const buildSiblingRepoEvent = (eventType: SessionEvent["type"]) =>
   buildRepoEvent(eventType === "repo.attached" ? "workspace.ready" : "repo.attached", "archived");
 
-describe("index.ts re-exports the Plan-009 contract core", () => {
-  // The barrel-gap regression Plan-001 GitHub PR-#30 round-1 caught: a module
-  // can be complete and still invisible to consumers if the
-  // `export * from "./repo.js"` line is missing or dropped in a later
-  // refactor. Importing through `../index.js` (not `../repo.js`) is what
-  // makes this exercise the re-export layer — the same reason
-  // anti-leakage.test.ts imports through the barrel.
+describe("index.ts re-exports contract core", () => {
+  // The barrel-gap regression: a module can be
+  // complete and still invisible to consumers if the `export * from
+  // "./repo.js"` line is missing or dropped in a later refactor. Importing
+  // through `../index.js` (not `../repo.js`) is what makes this exercise the
+  // re-export layer — the same reason anti-leakage.test.ts imports through
+  // the barrel.
   it.each([
     ["RepoMountIdSchema", contracts.RepoMountIdSchema],
     ["WorkspaceIdSchema", contracts.WorkspaceIdSchema],
@@ -1926,16 +1887,16 @@ describe("index.ts re-exports the Plan-009 contract core", () => {
     ["VcsTypeSchema", contracts.VcsTypeSchema],
     ["RepoMountHealthSchema", contracts.RepoMountHealthSchema],
     ["RepoWorkspaceLifecyclePayloadSchema", contracts.RepoWorkspaceLifecyclePayloadSchema],
-    // The six T1.2 wire surfaces (the MOUNT half).
+    // The six wire surfaces (the MOUNT half).
     ["RepoAttachRequestSchema", contracts.RepoAttachRequestSchema],
     ["RepoAttachResponseSchema", contracts.RepoAttachResponseSchema],
     ["RepoMountReadRequestSchema", contracts.RepoMountReadRequestSchema],
     ["RepoMountReadResponseSchema", contracts.RepoMountReadResponseSchema],
     ["RepoDetachRequestSchema", contracts.RepoDetachRequestSchema],
     ["RepoDetachResponseSchema", contracts.RepoDetachResponseSchema],
-    // The six T1.3 wire surfaces (the WORKSPACE half). Phase 2's T2.4 /
-    // T2.5 consume these THROUGH `index.ts`, so a barrel gap here would not
-    // surface until the daemon package failed to resolve them.
+    // The six wire surfaces (the WORKSPACE half). Phase 2's consume these
+    // THROUGH `index.ts`, so a barrel gap here would not surface until the
+    // daemon package failed to resolve them.
     ["WorkspaceBindRequestSchema", contracts.WorkspaceBindRequestSchema],
     ["WorkspaceBindResponseSchema", contracts.WorkspaceBindResponseSchema],
     [
@@ -1954,10 +1915,10 @@ describe("index.ts re-exports the Plan-009 contract core", () => {
   });
 
   it("still resolves the hoisted NodeId symbols through the barrel (re-export seam)", () => {
-    // T1.2 moved `NodeId` / `NodeIdSchema` / `NODE_ID_MAX_LEN` out of
-    // runtime-node.ts into the dependency-free leaf node-id.ts, to break the
-    // `repo.ts` -> `runtime-node.ts` -> `event.ts` -> `repo.ts` cycle that
-    // composing `NodeIdSchema` here would otherwise have closed; runtime-node.ts
+    // Moved `NodeId` / `NodeIdSchema` / `NODE_ID_MAX_LEN` out of runtime-node.ts
+    // into the dependency-free leaf node-id.ts, to break the `repo.ts` ->
+    // `runtime-node.ts` -> `event.ts` -> `repo.ts` cycle that composing
+    // `NodeIdSchema` here would otherwise have closed; runtime-node.ts
     // re-exports all three so its public API is unchanged.
     //
     // `__tests__/runtime-node.test.ts` is the untouched control that the DIRECT

@@ -1,11 +1,10 @@
 // The destination's own switches, and where they live.
 //
 // One today: whether a session a person starts and then sends into is pinned to the
-// front tier for them. `Spec-023 §Console Design (Meridian)` §All-sessions list makes
-// pins renderer-local view state persisted to shell-local config, and this is a rule
-// ABOUT pins, so it lives in the same place they do — the persistence layer's global
-// partition, under the `preference` value class, through `UiStateStore` like every
-// other durable byte in this console.
+// front tier for them. Pins are renderer-local view state persisted to shell-local
+// config, and this is a rule ABOUT pins, so it lives in the same place they do — the
+// persistence layer's global partition, under the `preference` value class, through
+// `UiStateStore` like every other durable byte in this console.
 //
 // A SEPARATE RECORD FROM THE PIN MAP, and deliberately: the pin map is keyed by
 // session and this is keyed by nothing, so folding the switch in would need a
@@ -38,10 +37,9 @@ export const AUTO_PIN_ON_FIRST_SEND = "auto-pin-on-first-send";
 /**
  * On unless a person turned it off.
  *
- * `Spec-023 §Console Design (Meridian)` §All-sessions list states the default, and it
- * is stated here as a constant rather than as a `?? true` at each reader: two readers
- * disagreeing about a default is a switch that reads as on in one place and off in
- * another.
+ * The default is stated here as a constant rather than as a `?? true` at each reader:
+ * two readers disagreeing about a default is a switch that reads as on in one place
+ * and off in another.
  */
 export const AUTO_PIN_ON_FIRST_SEND_DEFAULT = true;
 

@@ -1,17 +1,10 @@
-// Usage-delta accountant suite (Plan-005 T3.11 — the NS-91 usage-delta leg,
-// plus the P1-6-producer / P2-6-producer decision functions).
+// Usage-delta accountant suite (the usage-delta leg, plus the cost-provenance
+// and window-telemetry decision functions).
 //
 // Spec coverage under test:
-//   • `Spec-005 §Required Behavior` — per-axis deltas from one base register
-//     per provider thread and axis, advanced in stream order; named-turn
-//     attribution; two-armed establishment; no compaction re-base; the
-//     corroborating cross-check; the floor rule; the containment partition.
-//   • `Spec-006 §Usage Telemetry (usage_telemetry)` — the four-value cost
-//     provenance enum and the both-or-neither window pair rule.
+//   • the four-value cost provenance enum and the both-or-neither window
+//     pair rule.
 //
-// Verifies invariant: I-005-11 (a driver never emits a provider's cumulative
-// counter as a per-turn figure, and no normalized token axis counts a token
-// twice).
 
 import { describe, expect, it } from "vitest";
 
@@ -28,7 +21,7 @@ function makeAccountant() {
   return { accountant, diagnostics };
 }
 
-describe("UsageDeltaAccountant (T3.11, I-005-11)", () => {
+describe("UsageDeltaAccountant", () => {
   it("interleaved 0→100→150 two-turn sequence attributes exactly 100 and 50 by named turn", () => {
     const { accountant } = makeAccountant();
     accountant.establishThread("thread-1", { mode: "fresh" });
@@ -327,7 +320,7 @@ describe("UsageDeltaAccountant (T3.11, I-005-11)", () => {
   });
 });
 
-describe("resolveCostUpdateProvenance (T3.11 P1-6-producer)", () => {
+describe("resolveCostUpdateProvenance", () => {
   function makeDiagnostics() {
     return new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
   }
@@ -460,7 +453,7 @@ describe("resolveCostUpdateProvenance (T3.11 P1-6-producer)", () => {
   });
 });
 
-describe("deriveWindowTelemetry (T3.11 P2-6-producer)", () => {
+describe("deriveWindowTelemetry", () => {
   it("counts travel both-or-neither: a full pair emits both members", () => {
     const telemetry = deriveWindowTelemetry({
       windowSource: "provider_reported",

@@ -1,4 +1,4 @@
-// Plan-029 T1.3 — contract <-> DDL conformance.
+// Contract <-> DDL conformance.
 //
 // The suite IS the test: one row per pinned pair, and every pin reads the LIVE
 // schema rather than a transcription of it. That distinction is the whole point
@@ -22,8 +22,6 @@
 // never been shown to fail proves nothing about a clean result, so it is run
 // against a deliberately-wrong DDL and must report the mismatch.
 //
-// Spec coverage: `Spec-029 §State And Data Implications`.
-// Refs: Plan-029 T1.3, I-029-1, I-029-2, I-029-13.
 
 import {
   BILLING_MODES,
@@ -266,7 +264,7 @@ describe("provider-account contract <-> DDL conformance", () => {
     /** Columns the account record deliberately does not project, and why. */
     const COLUMNS_WITH_NO_ACCOUNT_MEMBER: Readonly<Record<string, string>> = {
       credential_home_path:
-        "the home reaches an operator only through the readiness remedy's sign-in arm; on every surface a session participant can reach, this names a column and nothing else",
+        "the home reaches an operator only through the readiness remedy's sign-in arm; on every surface a session user can reach, this names a column and nothing else",
       last_refresh_observed_at:
         "an input to the re-login estimate; the wire carries the estimate, not its inputs",
       removal_intent:

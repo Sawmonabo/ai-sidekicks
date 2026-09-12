@@ -5,13 +5,12 @@
 // screen at all. Keeping them apart is what lets the gate be asserted without a
 // bridge and the dispatch be asserted without a capability read.
 //
-// WHICH TWO ARE GATED IS THIS MODULE'S OWN RULE, because no committed document
-// states it: `steer` and `rollback` are gated on the bound driver's declared flags,
-// while pause, resume, interrupt, and cancel are orchestration-layer and are never
-// driver-gated. What a false flag DOES is the corpus's — `Spec-023 §Rules every
-// console surface obeys`, "Absent, not disabled": such a control is not rendered,
-// because a disabled one asserts the capability exists and is momentarily
-// unavailable, which would be false.
+// WHICH TWO ARE GATED IS THIS MODULE'S OWN RULE, because no committed document states
+// it: `steer` and `rollback` are gated on the bound driver's declared flags, while
+// pause, resume, interrupt, and cancel are orchestration-layer and are never
+// driver-gated. What a false flag DOES is the console's standing rule — absent, not
+// disabled: such a control is not rendered, because a disabled one asserts the
+// capability exists and is momentarily unavailable, which would be false.
 //
 // ON THE BOUND DRIVER — WHICH IS PER RUN, NOT PER SESSION. `driver.listCapabilities`
 // answers with one report PER DRIVER (`DriverCapabilityReport` is keyed by its own

@@ -1,13 +1,12 @@
 // The attachment ingest bounds, and the stride the encoder walks a chunk in.
 
-// `Spec-014 §Bounds (normative defaults; operator-tunable)` registers all four of
-// the bounds below on the wire, and the daemon is what enforces them; the console
-// carries them so it can explain a bound ahead of the refusal rather than after
-// it. Each mirrors its registered source EXACTLY and is never looser — a console
-// that admitted more than the daemon would spend a participant's upload to earn a
-// refusal. Three are operator-tunable, so every surface that shows one says
-// "default" until `artifactAllowlistRead` answers with the effective value; the
-// chunk size is fixed because the frame ceiling it derives from is.
+// All four of the bounds below are registered on the wire, and the daemon is what
+// enforces them; the console carries them so it can explain a bound ahead of the refusal
+// rather than after it. Each mirrors its registered source EXACTLY and is never looser —
+// a console that admitted more than the daemon would spend a user's upload to earn
+// a refusal. Three are operator-tunable, so every surface that shows one says "default"
+// until `artifactAllowlistRead` answers with the effective value; the chunk size is fixed
+// because the frame ceiling it derives from is.
 
 /**
  * Decoded bytes one attachment may carry, at the shipped default.
@@ -44,7 +43,7 @@ export const ATTACHMENT_CHUNK_BYTE_CAP: number = 512 * 1024;
  * `max_ingest_stream_lifetime`. The abandoned-spool reaper clocks file
  * modification time, which a trickle of chunks refreshes forever, so live-stream
  * tenure needs its own clock. Surfaced on a stalled upload because it is the one
- * bound whose expiry a participant cannot otherwise see coming. Operator-tunable
+ * bound whose expiry a user cannot otherwise see coming. Operator-tunable
  * over a 1 – 24 hour range.
  */
 export const INGEST_STREAM_LIFETIME_CEILING_MS: number = 6 * 60 * 60 * 1000;
@@ -55,7 +54,7 @@ export const INGEST_STREAM_LIFETIME_CEILING_MS: number = 6 * 60 * 60 * 1000;
  * The console's own, with no wire source: the daemon enforces the ceiling and
  * says nothing about when a person should be told it exists. A minute — long
  * enough that a chunk round trip on a slow uplink is not called a stall, short
- * enough that a participant learns the stream is bounded while there is still
+ * enough that a user learns the stream is bounded while there is still
  * time to act on it, which is why it has to sit far inside the ceiling itself.
  */
 export const INGEST_STALL_DISCLOSURE_MS = 60_000;

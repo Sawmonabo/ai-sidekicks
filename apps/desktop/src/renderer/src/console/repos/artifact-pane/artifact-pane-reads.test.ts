@@ -212,7 +212,7 @@ describe("artifact pane reads — one leg that did not come back", () => {
   it("gives each leg its own refusal when neither came back", async () => {
     // Negative control for both cases above: a fix that caught the join rather than
     // the legs would satisfy them by producing ONE refusal over both readings — and
-    // the sentence a participant read would then name whichever call lost the race.
+    // the sentence a user read would then name whichever call lost the race.
     const { artifacts, allowlist } = await bothLegs({
       listAnswer: DISCONNECTED,
       allowlistAnswer: DISCONNECTED,

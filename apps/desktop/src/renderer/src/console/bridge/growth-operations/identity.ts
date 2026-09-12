@@ -1,4 +1,4 @@
-// The identity plane's ledger rows: which participant this window is, and the
+// The identity plane's ledger rows: which user this window is, and the
 // session's callback-tool registry.
 //
 // One plane of `GROWTH_OPERATIONS`, composed into it by `index.ts`. The section
@@ -17,7 +17,7 @@ import { op } from "./operation-entry.js";
  */
 type IdentityOperationId = Extract<
   GrowthOperationId,
-  "callerParticipantRead" | "callbackToolRegistryRead" | "participantPresenceDetailRead"
+  "callerUserRead" | "callbackToolRegistryRead" | "userPresenceDetailRead"
 >;
 
 /** The identity rows, in the order the single table carried them. */
@@ -28,16 +28,16 @@ export const IDENTITY_GROWTH_OPERATIONS: Readonly<
   // registers a method string anywhere, so neither entry names one — the corpus has
   // the daemon RESOLVE a caller's principal and never return it, and has the
   // callback-tool registry ride spawn with no read seam at all.
-  callerParticipantRead: op("callerParticipantRead", "caller-participant-identity", "method"),
+  callerUserRead: op("callerUserRead", "caller-user-identity", "method"),
   callbackToolRegistryRead: op("callbackToolRegistryRead", "callback-tool-registry-read", "method"),
   // The per-device fan-out behind the aggregated presence summary. It DOES name a
-  // registered method — the `participant.*` registry carries it — and it is the one
-  // read whose refusal is specified as a projection rather than as an error: a caller
-  // outside the owner/operator set gets the summary they already had.
-  participantPresenceDetailRead: op(
-    "participantPresenceDetailRead",
-    "participant-presence-detail",
+  // registered method — the `user.*` registry carries it — and it is the one
+  // read whose refusal is specified as a projection rather than as an error: a device
+  // the user has not linked gets the summary it already had.
+  userPresenceDetailRead: op(
+    "userPresenceDetailRead",
+    "user-presence-detail",
     "method",
-    "participant.presenceDetail",
+    "user.presenceDetail",
   ),
 };

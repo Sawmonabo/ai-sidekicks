@@ -27,7 +27,7 @@ import type { ConsoleScenario } from "./runtime/index.js";
 export const SHELL_SCENARIO_ID = "shell";
 
 const SESSION_ID = "019b78d1-2c00-75e5-8510-ada11a5a3301";
-const PARTICIPANT_YOU = "019b78d1-2c00-79a4-8110-cca0117a3302";
+const USER_YOU = "019b78d1-2c00-79a4-8110-cca0117a3302";
 const NODE_ID = "workstation-1";
 
 /** The instant the frozen clock reports at tick zero. */
@@ -52,8 +52,8 @@ export const SHELL_SCENARIO: ConsoleScenario = {
   purpose:
     "A window whose local runtime is reconnecting, whose transport fell back to loopback, and whose host has no usable keystore — the state the frame's honest chrome is designed against, standing at tick zero so it is what the switcher shows. Advancing reaches a refused handshake and then the quiet connected state.",
   sessionId: SESSION_ID,
-  participantIdsInJoinOrder: [PARTICIPANT_YOU],
-  viewingParticipantId: PARTICIPANT_YOU,
+  userIdsInJoinOrder: [USER_YOU],
+  callerUserId: USER_YOU,
   startedAtIso: STARTED_AT,
   // Three frames on three beat ticks. `store/shell/shell-state.ts` owns every word in them.
   shellStatus: [
@@ -72,8 +72,8 @@ export const SHELL_SCENARIO: ConsoleScenario = {
           reason: undefined,
         },
         lastHeartbeatAt: occurredAt(0),
-        // Both notices standing at once, which is one of the four states
-        // §Loopback and keystore notices enumerates and the only one in which a
+        // Both notices standing at once, which is one of the four states the
+        // loopback and keystore notices enumerate and the only one in which a
         // surface can be caught rendering them as one line.
         transport: "loopback",
         keystore: "unavailable",
@@ -123,7 +123,7 @@ export const SHELL_SCENARIO: ConsoleScenario = {
         sequence: 1,
         kind: "session.created",
         occurredAt: occurredAt(0),
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
       },
     },
@@ -135,7 +135,7 @@ export const SHELL_SCENARIO: ConsoleScenario = {
         sequence: 2,
         kind: "runtime_node.registered",
         occurredAt: occurredAt(400),
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         payload: {
           sessionId: SESSION_ID,
           nodeId: NODE_ID,

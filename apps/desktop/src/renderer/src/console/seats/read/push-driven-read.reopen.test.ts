@@ -2,7 +2,7 @@
 //
 // The suite beside this one drives the five rules a push-driven read holds while its
 // subscription is up. These cases are about the state that reaches every one of them
-// first: the open itself, which the shipped Tier-1 preload refuses on every call,
+// first: the open itself, which the shipped stub preload refuses on every call,
 // because that build implements each daemon method by throwing. Under the shape this
 // replaced, that refusal was terminal for the life of the window — the model marked
 // itself started BEFORE the attempt, so every later open returned at the guard and
@@ -88,7 +88,7 @@ describe("push-driven read — a refused open is not the end of the surface", ()
     expect(harness.readCount()).toBe(0);
   });
 
-  it("re-opens on a participant's trigger and loads behind the new subscription", async () => {
+  it("re-opens on a user's trigger and loads behind the new subscription", async () => {
     const clock = new ManualClock();
     const harness = buildRefusingRead({ clock });
 
@@ -99,7 +99,7 @@ describe("push-driven read — a refused open is not the end of the surface", ()
 
     // What a repair, a focus, a reconnect, or a person pressing the control does.
     harness.admitOpens();
-    harness.model.refresh("participant-request");
+    harness.model.refresh("user-request");
 
     // Pinned BEFORE the read settles, because this is the moment the replaced shape
     // could not reach: the subscription is live and the refusal beside it has already
@@ -129,7 +129,7 @@ describe("push-driven read — a refused open is not the end of the surface", ()
     await settle();
     expect(harness.subscribeCount()).toBe(1);
 
-    harness.model.refresh("participant-request");
+    harness.model.refresh("user-request");
     clock.advance(5000);
     await settle();
 
@@ -211,7 +211,7 @@ describe("push-driven read — a refused open is not the end of the surface", ()
     expect(harness.model.state.kind).toBe("failed");
 
     harness.admitOpens();
-    harness.model.refresh("participant-request");
+    harness.model.refresh("user-request");
     clock.advance(200);
     await settle();
 
@@ -266,7 +266,7 @@ describe("push-driven read — a refused open is not the end of the surface", ()
     harness.model.dispose();
 
     harness.admitOpens();
-    harness.model.refresh("participant-request");
+    harness.model.refresh("user-request");
     harness.model.start();
     clock.advance(5000);
     await settle();

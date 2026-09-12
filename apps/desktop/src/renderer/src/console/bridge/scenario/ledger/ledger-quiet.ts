@@ -7,8 +7,8 @@
 // is empty, the ledger's empty state is unreachable in the fixture picker at all,
 // and an empty state nobody can look at is an empty state nobody designed.
 //
-// The roster is the load-bearing part, exactly as it is next door: `Spec-023
-// §Console Design (Meridian)` rule 2 allocates participant hues by join-log order,
+// The roster is the load-bearing part, exactly as it is next door: user hues
+// are allocated by join-log order,
 // so two people and one agent is the smallest roster that still shows a wrapped-hue
 // treatment apart from a first-step one.
 //
@@ -26,8 +26,8 @@ import type { ConsoleScenario } from "../runtime/index.js";
 export const LEDGER_QUIET_SCENARIO_ID = "ledger-quiet";
 
 const SESSION_ID = "019b793b-7b60-75e5-8520-ada11a5a45a5";
-const PARTICIPANT_YOU = "019b793b-7b60-79a4-8130-cca0117a0440";
-const PARTICIPANT_PRIYA = "019b793b-7b60-79a4-8140-cca0117a0450";
+const USER_YOU = "019b793b-7b60-79a4-8130-cca0117a0440";
+const USER_PRIYA = "019b793b-7b60-79a4-8140-cca0117a0450";
 const AGENT_IMPLEMENTER = "019b793b-7b60-7a6e-8140-d1a4c1150104";
 const STARTED_AT_ISO = "2026-01-01T09:00:00.000Z";
 
@@ -48,11 +48,11 @@ export const LEDGER_QUIET_SCENARIO: ConsoleScenario = {
   purpose:
     "A session with a roster and nothing on the log yet. Reaches the ledger's empty state, which no scripted stream can.",
   sessionId: SESSION_ID,
-  participantIdsInJoinOrder: [PARTICIPANT_YOU, PARTICIPANT_PRIYA, AGENT_IMPLEMENTER],
+  userIdsInJoinOrder: [USER_YOU, USER_PRIYA, AGENT_IMPLEMENTER],
   // One person opened this session and nothing has happened in it, so which of the
   // roster this window is is not in doubt — which is why it is stated rather than
   // left for the caller-identity read to refuse.
-  viewingParticipantId: PARTICIPANT_YOU,
+  callerUserId: USER_YOU,
   startedAtIso: STARTED_AT_ISO,
   beats: [],
   replies: [

@@ -1,12 +1,11 @@
 // One page tool call, and the governance it is already under.
 //
-// `Spec-023 §Console Design (Meridian)` 12.7 says this surface renders "Nothing
-// directly" — every invocation is an ordinary tool row in the timeline — and 12.8
-// says approval cards render in the approvals surface "like any other, carrying
-// category, the acting agent, and the action summary". Both are true, and this card
-// is neither of them: it is the pane-side reading of a call the human is watching an
-// agent make on the page in front of them, collapsed to one line with the arguments
-// one click away (12.7's density rule, verbatim).
+// The page-tool surface renders nothing directly — every invocation is an ordinary
+// tool row in the timeline — and approval cards render in the approvals surface like
+// any other, carrying category, the acting agent, and the action summary. Both are
+// true, and this card is neither of them: it is the pane-side reading of a call the
+// human is watching an agent make on the page in front of them, collapsed to one line
+// with the arguments one click away, which is that surface's density rule verbatim.
 //
 // WHAT IT DELIBERATELY DOES NOT DO.
 //

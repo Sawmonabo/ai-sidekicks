@@ -148,15 +148,14 @@ export class RunStateProjection {
   /**
    * A rewind, which is not a transition.
    *
-   * The run reads `paused` afterwards — every run, not only one this pane has not
-   * seen before. `Spec-004`'s absorption rule states it directly ("after a rollback
-   * has re-opened the run in `paused`"), and `RunRolledBackEventSchema` is
-   * `{sessionId, runId, runVersion, channelId?, targetPosition}` and strict, so the
-   * state comes from the contract rather than from a member. Carrying the held
-   * state forward instead would leave a run this pane had already seen `completed`,
-   * `failed`, or `waiting_for_approval` looking terminal or blocked indefinitely —
-   * this event is the operation's only state-stream notification — and would
-   * withhold the controls the rewound run now has.
+   * The run reads `paused` afterwards — every run, not only one this pane has not seen
+   * before. The absorption rule states it directly — after a rollback has re-opened the
+   * run in `paused` — and `RunRolledBackEventSchema` is `{sessionId, runId, runVersion,
+   * channelId?, targetPosition}` and strict, so the state comes from the contract rather
+   * than from a member. Carrying the held state forward instead would leave a run this
+   * pane had already seen `completed`, `failed`, or `waiting_for_approval` looking
+   * terminal or blocked indefinitely — this event is the operation's only state-stream
+   * notification — and would withhold the controls the rewound run now has.
    *
    * The metadata that described the pre-rewind epoch goes with it: a trigger, a
    * clean-close marking, a failure category, and the stamped execution posture all

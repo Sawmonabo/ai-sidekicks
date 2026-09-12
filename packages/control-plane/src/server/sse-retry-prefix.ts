@@ -1,5 +1,5 @@
-// Plan-008 §Phase 1: SSE `retry:` field injector for the
-// `session.subscribe` response.
+// `retry:` field injector for the `session.subscribe`
+// response.
 //
 // tRPC v11's `sseStreamProducer` (the substrate at
 // `@trpc/server/dist/resolveResponse-*.mjs`) emits `event:` / `data:` /
@@ -9,19 +9,12 @@
 // first `connected` event payload (consumed by tRPC's own
 // `sseStreamConsumer`, ignored by native `EventSource`).
 //
-// The wire frame ratified at
-// `docs/architecture/contracts/api-payload-contracts.md` §SSE Wire Frame
-// (Tier 1 Ratified) requires `retry: 5000` so reconnecting
-// `EventSource` clients honor the documented backoff under transient
-// disconnects. This module bridges the gap without forking tRPC: a
-// TransformStream prepends `retry: <ms>\n` ahead of tRPC's first chunk.
-// Per the WHATWG SSE grammar, fields concatenate into the same event
-// until a blank line — so the retry value rides on tRPC's `connected`
-// frame and dispatches as one parse: `retry=5000, event=connected,
-// data=<config>`. No frame-count change, no test-helper churn.
+// The wire frame) requires `retry: 5000` so reconnecting `EventSource`
+// clients honor the documented backoff under transient disconnects. This
+// module bridges the gap without forking tRPC: a TransformStream
+// prepends `retry: <ms>\n` ahead of tRPC's first chunk. No frame-count
+// change, no test-helper churn.
 //
-// Refs: docs/plans/008-control-plane-relay-and-session-join.md §I-008-3 #1,
-//       docs/architecture/contracts/api-payload-contracts.md §SSE Wire Frame.
 
 import { SSE_RETRY_HINT_MS } from "../sessions/session-subscribe-sse.js";
 
@@ -35,7 +28,7 @@ const RETRY_PREFIX_BYTES: Uint8Array = new TextEncoder().encode(`retry: ${SSE_RE
  * verbatim — only the body stream is transformed.
  */
 export function prefixSseRetry(response: Response): Response {
-  // Per RFC 9110 §8.3, media-type type/subtype tokens are case-insensitive —
+  // Per RFC 9110 section 8.3, media-type type/subtype tokens are case-insensitive —
   // an upstream that emits `Text/Event-Stream` is RFC-valid SSE. The Fetch
   // API normalizes header *names* to lowercase but passes *values* through
   // verbatim, so `Headers.get("Content-Type")` returns the upstream bytes as

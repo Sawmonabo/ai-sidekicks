@@ -5,9 +5,9 @@
 // and lifetime is what was wrong: the read was mounted by the sessions destination, so
 // a person who navigated to Workspace took the rail's badge down with them and the
 // window said "nothing is waiting on you" while the daemon was answering perfectly
-// well. That is the stale-versus-absent distinction `Spec-023 §The surface set` is
-// built on, answered wrongly — and it is invisible to every case that mounts one tree and
-// leaves it mounted.
+// well. That is the stale-versus-absent distinction the surface set is built on,
+// answered wrongly — and it is invisible to every case that mounts one tree and leaves
+// it mounted.
 //
 // SO EVERY CASE HERE SWAPS THE SUBTREE. The child under the binding is what a route
 // change replaces, so re-rendering with a different child is a navigation as far as

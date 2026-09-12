@@ -1,9 +1,8 @@
 // Reading the attention projection: the seam, the fan-out, and the boundary.
 //
-// `Spec-023 §Console Design (Meridian)` §Notification center and the attention plane
-// puts the whole answer in the daemon's projection: items are read, never counted
-// here, and `Spec-019 §Required Behavior` makes emission derived from canonical
-// state rather than from client heuristics.
+// The whole answer lives in the daemon's projection: items are read, never counted
+// here, and emission is derived from canonical state rather than from client
+// heuristics.
 //
 // WHAT IS REGISTERED, AND WHAT IS NOT
 //
@@ -13,7 +12,7 @@
 // attention type, no `SidekicksBridge` namespace names one, and the growth port
 // carries no attention operation on any slate row. A console that composed the
 // method string anyway would be wiring a surface live against an unregistered
-// wire, which `Plan-023 §Console growth slate` makes a review rejection.
+// wire, which the console growth slate makes a review rejection.
 //
 // So the read is a SEAM the caller supplies, defaulting to the one honest answer
 // available today: nothing was read. `frame/session/session-lifecycle.ts` reaches the same

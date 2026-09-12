@@ -1,49 +1,43 @@
-// Per-capability zero-turn detection (Plan-005 T3.24, verifies I-005-10).
+// Per-capability zero-turn detection.
 //
 // Coverage map — the plan's Tests field is the contract, and each clause below
 // names the block that discharges it:
 //
 //   * "the mechanism table is TOTAL over the flag set for each driver, every
 //     `static` entry names a failing conjunct, and an entry claiming `probed`
-//     without a declared probe fails the suite" — §the mechanism table. The
-//     totality half is enforced twice: by the `Record<DriverCapabilityFlag, …>`
-//     annotation in the module (a union growth is a compile error) and by an
-//     ENUMERATION test here that walks the canonical tuple, because a compile
-//     error is invisible to a reader auditing what this suite proves. The
-//     checker itself is driven against a deliberately-malformed table so a
-//     clean run is evidence rather than an absence of evidence.
-//   * "zero billed turns, asserted at the provider transport" — §zero billed
-//     turns. Asserted at a recording transport double, NOT at the daemon's
-//     event stream: a probe that billed before normal event handling attached
-//     would produce neither a `usage.cost_update` row nor a run-lifecycle
-//     event, so a daemon-side assertion could not distinguish "no turn" from
-//     "no listener".
+//     without a declared probe fails the suite". The totality half is
+//     enforced twice: by the `Record<DriverCapabilityFlag, …>` annotation in
+//     the module (a union growth is a compile error) and by an ENUMERATION test
+//     here that walks the canonical tuple, because a compile error is invisible
+//     to a reader auditing what this suite proves. The checker itself is driven
+//     against a deliberately-malformed table so a clean run is evidence rather
+//     than an absence of evidence.
+//   * "zero billed turns, asserted at the provider transport". Asserted at
+//     a recording transport double, NOT at the daemon's event stream: a probe
+//     that billed before normal event handling attached would produce neither
+//     a `usage.cost_update` row nor a run-lifecycle event, so a daemon-side
+//     assertion could not distinguish "no turn" from "no listener".
 //   * "no probe issues `mcp_set_servers` at all, asserted at the same transport
-//     double" — §zero billed turns.
+//     double"
 //   * "the negative control is refused at every probed build, and a probe run
 //     whose negative control SUCCEEDS fails the suite rather than reporting
-//     capabilities available" — §the negative control.
+//     capabilities available"
 //   * "a driver whose one probe refuses keeps every other flag and the session"
-//     — §withdrawal is per capability.
 //   * the classifier reads the MESSAGE and not only the code on the Codex
-//     channel — §classification, driven against the measured verbatim shapes the
-//     pinned build emits for all three `-32600` cases.
+//     channel — driven against the measured verbatim shapes the pinned build
+//     emits for all three `-32600` cases.
 //   * a flag whose consumers call several wire names withdraws on a refusal of
-//     ANY of them — §conjunctive probes.
+//     ANY of them
 //   * a reading is bound to the executable the version handshake proved, and a
-//     composition site refuses two readings that disagree — §build binding.
+//     composition site refuses two readings that disagree
 //   * a withdrawal reaches the driver diagnostic band, and an all-accepted read
-//     emits nothing — §withdrawal diagnostics.
+//     emits nothing
 //   * "a flag moving `true` → `false` across two polls emits exactly one
-//     `runtime_node.capability_updated` and an unchanged poll emits none" —
-//     §change-detected emission, over the REAL `DriverCapabilitiesWriter` and a
-//     real SQLite handle. A recording sink fake could not discharge this: change
-//     detection lives in the writer, so a fake would be asserting its own canned
-//     discriminant.
+//     `runtime_node.capability_updated` and an unchanged poll emits none" — over
+//     the REAL `DriverCapabilitiesWriter` and a real SQLite handle. A recording
+//     sink fake could not discharge this: change detection lives in the writer,
+//     so a fake would be asserting its own canned discriminant.
 //
-// Refs: Plan-005 T3.24, `Spec-005 §Required Behavior`, `Spec-005 §Capability
-// discovery`, CP-005-5, `docs/reference/provider-wire/claude.md`,
-// `docs/reference/provider-wire/codex.md`.
 
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -246,10 +240,8 @@ function recordingDiagnostics(): {
 }
 
 // --------------------------------------------------------------------------
-// §the mechanism table
 // --------------------------------------------------------------------------
 
-// Verifies I-005-10 (the detection table and its named failing conjuncts).
 describe("the declared detection-mechanism table", () => {
   it.each(DRIVERS)("is TOTAL over the canonical flag set for driver '%s'", (driverName) => {
     // The ENUMERATION test. It walks `DRIVER_CAPABILITY_FLAGS` rather than the
@@ -435,7 +427,6 @@ describe("the declared detection-mechanism table", () => {
 });
 
 // --------------------------------------------------------------------------
-// §zero billed turns
 // --------------------------------------------------------------------------
 
 describe("zero billed turns, asserted at the provider transport", () => {
@@ -563,7 +554,6 @@ describe("zero billed turns, asserted at the provider transport", () => {
 });
 
 // --------------------------------------------------------------------------
-// §the negative control
 // --------------------------------------------------------------------------
 
 describe("the capability-probe negative control", () => {
@@ -653,7 +643,6 @@ describe("the capability-probe negative control", () => {
 });
 
 // --------------------------------------------------------------------------
-// §classification
 // --------------------------------------------------------------------------
 
 describe("capability-probe reply classification", () => {
@@ -731,7 +720,6 @@ describe("capability-probe reply classification", () => {
 });
 
 // --------------------------------------------------------------------------
-// §withdrawal is per capability
 // --------------------------------------------------------------------------
 
 describe("capability withdrawal is per capability", () => {
@@ -798,10 +786,10 @@ describe("capability withdrawal is per capability", () => {
     // because a flag declared ahead of the code that reads it is a promise no
     // caller can keep.
     //
-    // The vehicle was `transcript_replay` until T3.20, whose replay leg and
-    // post-replay assertion made that flag `true` on this driver. The rule under
-    // test did not move — only the flag that still exemplifies it, which must be
-    // one this driver declares `false`.
+    // The vehicle was `transcript_replay` until whose replay leg and post-replay
+    // assertion made that flag `true` on this driver. The rule under test did
+    // not move — only the flag that still exemplifies it, which must be one this
+    // driver declares `false`.
     expect(CODEX_CAPABILITY_FLAGS.cost_cap).toBe(false);
     const transport = new RecordingCapabilityProbeTransport("codex");
     const reading = await readCapabilityDetection({
@@ -838,7 +826,6 @@ describe("capability withdrawal is per capability", () => {
 });
 
 // --------------------------------------------------------------------------
-// §the report
 // --------------------------------------------------------------------------
 
 describe("detectionSource on the capability report", () => {
@@ -873,9 +860,9 @@ describe("detectionSource on the capability report", () => {
   });
 
   it("PROBES ONLY AFTER the floor gate — a below-floor build is never asked", async () => {
-    // `Spec-005` refuses every use of a below-floor build beyond the version
-    // handshake, and a probe is such a use. Asserted on the transport: the
-    // refusal is not merely raised, it is raised before a single request.
+    // refuses every use of a below-floor build beyond the version handshake,
+    // and a probe is such a use. Asserted on the transport: the refusal is
+    // not merely raised, it is raised before a single request.
     const transport = new RecordingCapabilityProbeTransport("claude");
     const reporter = new ClaudeCapabilityReporter({
       readSpawnedVersion: () =>
@@ -935,7 +922,6 @@ describe("detectionSource on the capability report", () => {
 });
 
 // --------------------------------------------------------------------------
-// §conjunctive probes
 // --------------------------------------------------------------------------
 
 describe("a flag whose consumers call several wire names", () => {
@@ -999,7 +985,6 @@ describe("a flag whose consumers call several wire names", () => {
 });
 
 // --------------------------------------------------------------------------
-// §build binding
 // --------------------------------------------------------------------------
 
 describe("a detection reading is bound to the build it was read from", () => {
@@ -1044,7 +1029,6 @@ describe("a detection reading is bound to the build it was read from", () => {
 });
 
 // --------------------------------------------------------------------------
-// §withdrawal diagnostics
 // --------------------------------------------------------------------------
 
 describe("a successful read that withdrew a flag reaches the diagnostic band", () => {
@@ -1134,7 +1118,6 @@ describe("a successful read that withdrew a flag reaches the diagnostic band", (
 });
 
 // --------------------------------------------------------------------------
-// §change-detected emission (real writer, real SQLite)
 // --------------------------------------------------------------------------
 
 class FixedDaemonSigningKeySource implements DaemonSigningKeySource {
@@ -1187,8 +1170,8 @@ function readCapabilityEventTypes(): readonly string[] {
     .map((row) => row.type);
 }
 
-// Verifies the change-detected emission obligation (CP-005-5): the writer
-// owns the discriminant, and a re-probe only changes the snapshot it compares.
+// Verifies the change-detected emission obligation: the writer owns the
+// discriminant, and a re-probe only changes the snapshot it compares.
 describe("the cadence re-probe and its change-detected emission", () => {
   async function poll(
     writer: DriverCapabilitiesWriter,

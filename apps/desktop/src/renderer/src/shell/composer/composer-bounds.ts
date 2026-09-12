@@ -1,10 +1,10 @@
 // The composer family's named bounds.
 //
 // The console keeps its own caps at its floor, one module per concern, in
-// `console/core/constants/` — `apps/desktop/AGENTS.md` §Config single-sourcing. The
-// shell is not a console family and has no module there, so this is that module for
-// the composer, and it exists for the same reason the console's do: a number that
-// appears inline is a decision nobody wrote down.
+// `console/core/constants/`, per the config single-sourcing rules in
+// `apps/desktop/AGENTS.md`. The shell is not a console family and has no module there,
+// so this is that module for the composer, and it exists for the same reason the
+// console's do: a number that appears inline is a decision nobody wrote down.
 //
 // Each bound below is spent by exactly one module today. They live here rather than
 // in those modules because the next zone to want one would otherwise copy it, and two
@@ -37,10 +37,9 @@ export const COMPOSER_RETAINED_ADDRESS_CAP = 12;
 /**
  * Lines the directive line grows to before it scrolls.
  *
- * `Spec-023 §Console Design (Meridian)` puts the composer at "one line that grows
- * to a cap". The cap is what keeps the composer from eating the ledger it is
- * addressed within: past this the input scrolls inside its own box and the session
- * above it keeps its room.
+ * The composer is one line that grows to a cap. The cap is what keeps it from eating
+ * the ledger it is addressed within: past this the input scrolls inside its own box and
+ * the session above it keeps its room.
  */
 export const COMPOSER_DIRECTIVE_LINE_MAX_ROWS = 8;
 

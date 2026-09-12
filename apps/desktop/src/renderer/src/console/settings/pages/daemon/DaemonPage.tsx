@@ -1,10 +1,9 @@
 // The local-runtime page: the supervisor's detail, one click behind the frame's chip.
 //
-// `Spec-023 §Console Design (Meridian)` puts the daemon's state in the frame as a
-// chip and its DETAIL — the attempt count and the last heartbeat — one click away,
-// diagnostic only and never editable. This is that click. The tray carrying the same
-// three states outside the window is main-process work on a later phase
-// (`T-023r-3-x`); nothing here reaches for it.
+// The daemon's state belongs in the frame as a chip, with its DETAIL — the attempt
+// count and the last heartbeat — one click away, diagnostic only and never editable.
+// This is that click. The tray carrying the same three states outside the window is
+// main-process work for a later phase; nothing here reaches for it.
 //
 // TWO CONTROLS AND NO THIRD. Stop and restart are calls to a runtime that is running.
 // Starting a stopped one is a shell spawn rather than a call — a stopped daemon has
@@ -52,7 +51,7 @@ import {
 } from "./daemon-controls.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
-const OWNER = "collaboration-settings-daemon";
+const OWNER = "settings-daemon";
 
 /**
  * Why both confirmation actions are refused once one dispatch has gone out.

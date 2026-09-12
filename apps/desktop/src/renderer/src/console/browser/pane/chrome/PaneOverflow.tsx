@@ -1,9 +1,7 @@
 // Everything the pane offers that is one click away rather than on the row.
 //
-// `Spec-023 §Console Design (Meridian)` 12.1 Density: "Chrome is one row: tabs,
-// address, six controls. The page picker, capture target, developer tools, and
-// site-data reset live in one overflow control." 12.2 Density says the same from the
-// other side and adds pick element to the list.
+// Chrome is one row: tabs, address, six controls. The page picker, capture target,
+// developer tools, site-data reset, and pick element all live in one overflow control.
 //
 // SO THE VISIBLE ROW IS SIX CONTROLS AND THE FIELD, counted rather than asserted:
 // back, forward, the reload/stop slot, new page, open externally, and this control.

@@ -1,12 +1,7 @@
-// Plan-013 T1.3 + T1.4 — the four timeline operations' request/response pairs:
-// `TimelineRead`, `TimelineSubscribe`, `ReasoningSurfaceRead`, `ChildRunExpand`.
+// The four timeline operations' request/response pairs: `TimelineRead`,
+// `TimelineSubscribe`, `ReasoningSurfaceRead`, `ChildRunExpand`.
 //
-// PROVENANCE. The canonical shapes are
-// `docs/architecture/contracts/api-payload-contracts.md` §"Plan-013 — Live
-// Timeline Visibility And Reasoning Surfaces" and its §"Timeline Method-Name
-// Registry (Tier 8, Plan-013 T1.4)"; the behavior they serve is
-// `Spec-013 §Interfaces And Contracts`, `Spec-013 §Required Behavior`, and
-// `Spec-013 §Fallback Behavior`. This module APPLIES them; it decides nothing.
+// This module APPLIES them; it decides nothing.
 //
 // ----------------------------------------------------------------------------
 // ONE ROW SCHEMA, TWO CARRIERS
@@ -15,10 +10,10 @@
 // `TimelineReadResponse.entries`, the `timeline.subscribe` stream, and
 // `ChildRunExpandResponse.entries` are all `TimelineRow` — the SAME
 // `TimelineRowSchema` instance, not three structurally-equal copies. That is
-// the whole of `Plan-013 §API And Transport Changes`' "live subscription
-// payloads and replay windows use the same row schema so reconnect recovery
-// does not require projection translation": a replay row and a live row are
-// indistinguishable to a parser because there is only one parser.
+// the whole of ' "live subscription payloads and replay windows use the same
+// row schema so reconnect recovery does not require projection translation":
+// a replay row and a live row are indistinguishable to a parser because
+// there is only one parser.
 //
 // ----------------------------------------------------------------------------
 // EVERY PAGED REPLY IS BOUNDED BY THE FRAME IT WILL BECOME
@@ -26,9 +21,9 @@
 //
 // A reply leaves the daemon inside ONE `Content-Length`-framed JSON-RPC body,
 // and a body over `MAX_MESSAGE_BYTES` is not a failed request — the framer
-// refuses to emit it and the CONNECTION CLOSES (`Spec-007 §Wire Format`,
-// F-007p-2-05). So an oversized page does not degrade one read; it drops the
-// live subscription, the pending calls, and the client's session with it.
+// refuses to emit it and the CONNECTION CLOSES. So an oversized page does not
+// degrade one read; it drops the live subscription, the pending calls, and
+// the client's session with it.
 //
 // A row-count ceiling alone does not bound that, and the arithmetic says so
 // rather than the intuition: a `TimelineRow` carries three free-form fields at
@@ -45,26 +40,24 @@
 // trips first and sets `hasMore` accordingly; the schema is what makes that
 // obligation enforceable rather than merely documented.
 //
-// SCOPE. This bounds the three PAGED replies. It does not bound one
+// This bounds the three PAGED replies. It does not bound one
 // `timeline.subscribe` emission, which is a single row on its own
 // `$/subscription/notify` frame: a row large enough to blow a frame by itself
 // is an oversized projected event payload, and `session.subscribe` has carried
 // that exposure since it shipped. Bounding it is a decision about the event
-// envelope (Plan-006) and the framer (Plan-007), not one a Plan-013 page
-// budget may make on their behalf.
+// envelope and the framer, not one a page budget may make on their behalf.
 //
 // ----------------------------------------------------------------------------
 // The `ReasoningSurfaceReadRequest` principal: no wire member, by design
 // ----------------------------------------------------------------------------
 //
-// SETTLED, not omitted. The Tier-8 plan-readiness audit (§6 node NS-20) left
-// this request's authorization principal recorded as unshaped; it is shaped
-// here as the decision that it carries none.
+// The plan-readiness review left this request's authorization
+// principal recorded as unshaped; it is shaped here as the decision that it
+// carries none.
 //
-// The principal is resolved by the class rule in `api-payload-contracts.md
-// §Authenticated Principal And Authorization Model`: that section scopes every
+// The principal is resolved by the class rule: that section scopes every
 // endpoint to the authenticated caller implicitly, and its
-// informational-body-fields rule makes any participant-naming body field
+// informational-body-fields rule makes any user-naming body field
 // routing and audit metadata Cedar does not read. So a principal member would
 // be inert at best, and at worst the second source of identity truth that rule
 // exists to forbid. The request is `{ runId, afterCursor? }` and its schema is
@@ -77,12 +70,7 @@
 // nothing to retain and sits under the resolution rules instead.
 //
 // The transport carrier is `HandlerContext` (`../jsonrpc-registry.ts`), which
-// every registered handler receives beside its parsed params. It carries
-// `transportId` alone today and is documented as widening additively — so the
-// principal reaches a handler through that context when Plan-007 widens it,
-// and never through this request type. Phase 1 registers no handler, so there
-// is no reader to point at yet; what Phase 1 fixes is that there is no wire
-// member for a later reader to be tempted by.
+// every registered handler receives beside its parsed params.
 import { z } from "zod";
 
 import { MAX_MESSAGE_BYTES, jsonUtf8ByteLength } from "../jsonrpc.js";
@@ -114,7 +102,7 @@ import { TimelineRowSchema, type TimelineRow } from "./row.js";
  *   * JSON-RPC response envelope `{"jsonrpc":"2.0","id":…,"result":…}` —
  *     33 bytes of punctuation and keys.
  *   * The echoed request `id` — `JSON_RPC_ID_MAX_BYTES` (`../jsonrpc.js`), 256 bytes.
- *     JSON-RPC 2.0 §4 permits a string id and the substrate echoes it verbatim
+ *     JSON-RPC 2.0 section 4 permits a string id and the substrate echoes it verbatim
  *     without interpreting it, so this is the one response member the CALLER
  *     sizes and no RESPONSE schema can bound it. It is an ENFORCED bound
  *     rather than an assumed allowance: the gateway refuses an over-bound id
@@ -252,17 +240,13 @@ const requirePageToRideOneFrame = (
 /**
  * Adjacent entries must not go backwards in sequence.
  *
- * `Spec-013 §Default Behavior`: "Timeline rows default to chronological order
- * from oldest to newest within the current view." A page that arrives out of
- * order forces every consumer to re-sort a window the producer already had in
- * order, and a consumer that does not re-sort renders the session's history
- * scrambled.
+ * "Timeline rows default to chronological order from oldest to newest within
+ * the current view." A page that arrives out of order forces every consumer
+ * to re-sort a window the producer already had in order, and a consumer that
+ * does not re-sort renders the session's history scrambled.
  *
- * NONDECREASING and deliberately not strictly increasing. Session sequence is
- * unique per event, so a strict check would hold today — but it would also
- * make it a parse failure for a projection to emit two rows from one event,
- * and no section of Spec-013 forbids that. The rule here is the one the spec
- * states: the order never reverses.
+ * NONDECREASING and deliberately not strictly increasing. The rule here is
+ * the one the spec states: the order never reverses.
  *
  * Applies to every ordered page this module returns, not to timeline rows
  * alone. `ReasoningEntry` carries the same `sequence` and this spec's ordering
@@ -300,13 +284,12 @@ const requireNondecreasingSequence = (
 /**
  * Ceiling on a single `timeline.read` window.
  *
- * `Spec-013 §Interfaces And Contracts` requires `TimelineRead` to "support
- * bounded windows"; an uncapped `limit` would make the window bounded only by
- * whatever the caller asked for, which is the opposite. Sized to match this
- * package's other capped-count wire members (`DRIVER_WIRE_CATALOG_ENTRIES_MAX`)
- * rather than picking a fresh magnitude — the cursor-based continuation
- * `TimelineReadResponse.nextCursor` carries is how a caller reads more, so a
- * higher cap buys nothing a second call does not.
+ * requires `TimelineRead` to "support bounded windows"; an uncapped `limit`
+ * would make the window bounded only by whatever the caller asked for, which is
+ * the opposite. Sized to match this package's other capped-count wire members
+ * (`DRIVER_WIRE_CATALOG_ENTRIES_MAX`) rather than picking a fresh magnitude —
+ * the cursor-based continuation `TimelineReadResponse.nextCursor` carries is
+ * how a caller reads more, so a higher cap buys nothing a second call does not.
  *
  * A COUNT CEILING, NOT A SIZE ONE. Reaching it is not what usually ends a
  * page; {@link TIMELINE_PAGE_MAX_BYTES} typically trips first, and must, since
@@ -319,10 +302,10 @@ export const TIMELINE_READ_LIMIT_MAX = 256;
  *
  * `afterCursor` and `beforeCursor` are independently optional — the pair spans
  * forward paging, backward paging, and a bounded range — and both are the
- * opaque `EventCursor` Plan-006 owns. `channelId` filters to one channel's
- * rows; per I-013-6 that filter NEVER suppresses a `run.rolled_back` boundary
- * for a run whose rows the filter admits, which is a delivery rule the daemon
- * enforces and not something this request shape can express.
+ * opaque `EventCursor` owns. `channelId` filters to one channel's rows that
+ * filter NEVER suppresses a `run.rolled_back` boundary for a run whose rows
+ * the filter admits, which is a delivery rule the daemon enforces and not
+ * something this request shape can express.
  */
 export interface TimelineReadRequest {
   sessionId: SessionId;
@@ -354,25 +337,23 @@ export const TimelineReadRequestSchema: z.ZodType<TimelineReadRequest, TimelineR
  * ended and there is not" without inferring it from an optional member's
  * absence.
  *
- * THE CURSOR IS REQUIRED ON THE CONTINUING ARM. `Spec-013 §Interfaces And
- * Contracts` requires `TimelineRead` to "support bounded windows and
- * cursor-based continuation". A response saying `hasMore: true` while carrying
- * no cursor promises more and supplies no way to ask for it — the caller's only
- * recoveries are to re-read the same window forever or to give up, and both
- * lose timeline rows the session actually holds. A union rather than a
- * refinement so the guarantee is a TYPE: a consumer that narrows on
- * `hasMore === true` reaches a `nextCursor` that is present, with no non-null
- * assertion and no optional chain.
+ * THE CURSOR IS REQUIRED ON THE CONTINUING ARM. requires `TimelineRead` to
+ * "support bounded windows and cursor-based continuation". A response saying
+ * `hasMore: true` while carrying no cursor promises more and supplies no way to
+ * ask for it — the caller's only recoveries are to re-read the same window
+ * forever or to give up, and both lose timeline rows the session actually
+ * holds. A union rather than a refinement so the guarantee is a TYPE: a
+ * consumer that narrows on `hasMore === true` reaches a `nextCursor` that is
+ * present, with no non-null assertion and no optional chain.
  *
  * THE CURSOR IS PERMITTED, NOT FORBIDDEN, ON THE TERMINAL ARM. The two members
  * answer different questions — `hasMore` says whether unread rows remain,
  * `nextCursor` says where this window ended — and they are not contradictory
- * on a final page. `Spec-013 §Interfaces And Contracts` also requires
- * `TimelineSubscribe` to "support live append plus replay recovery", and a
- * client that has just read to the end and now wants to subscribe from exactly
- * there needs precisely that position. Forbidding it would make a caller
- * re-derive the position from the last row, or re-read the final window, to
- * recover something the producer already held.
+ * on a final page. also requires `TimelineSubscribe` to "support live append
+ * plus replay recovery", and a client that has just read to the end and now
+ * wants to subscribe from exactly there needs precisely that position.
+ * Forbidding it would make a caller re-derive the position from the last row,
+ * or re-read the final window, to recover something the producer already held.
  */
 export type TimelineReadResponse =
   | { entries: TimelineRow[]; hasMore: true; nextCursor: EventCursor }
@@ -439,17 +420,13 @@ export const TimelineReadResponseSchema: z.ZodType<TimelineReadResponse> = z
 // ---------------------------------------------------------------------------
 
 /**
- * A live subscription with replay catch-up from `afterCursor`
- * (`Spec-013 §Fallback Behavior`: "if live delivery gaps occur, the client must
- * request replay from the canonical event source").
+ * A live subscription with replay catch-up from `afterCursor` ("if live
+ * delivery gaps occur, the client must request replay from the canonical event
+ * source").
  *
  * Deliberately carries no `lastEventId`: that member exists on
  * `SessionSubscribeRequest` because tRPC's HTTP substrate injects the
- * `Last-Event-ID` resumption header into the input object pre-validation. The
- * timeline surface rides the daemon JSON-RPC transport ONLY — the canonical
- * Timeline Method-Name Registry says so, and ADR-017 is why — so no such
- * injection reaches this shape and declaring the member would be inventing a
- * second resumption channel beside `afterCursor`.
+ * `Last-Event-ID` resumption header into the input object pre-validation.
  */
 export interface TimelineSubscribeRequest {
   sessionId: SessionId;
@@ -489,10 +466,10 @@ export const TimelineSubscribeResponseSchema: z.ZodType<TimelineSubscribeRespons
 // ---------------------------------------------------------------------------
 
 /**
- * Cap on `reasoningEntries` — the "bounded" in T1.3's "`available` requires the
- * bounded `reasoningEntries`". `Spec-013 §Default Behavior` makes durable
- * reasoning summary-first, so a reply needing more than this many normalized
- * entries has stopped being a summary.
+ * Cap on `reasoningEntries` — the "bounded" in the "`available` requires the
+ * bounded `reasoningEntries`". makes durable reasoning summary-first, so a
+ * reply needing more than this many normalized entries has stopped being a
+ * summary.
  */
 export const REASONING_SURFACE_ENTRIES_MAX = 256;
 
@@ -543,13 +520,13 @@ export const ReasoningEntrySchema: z.ZodType<ReasoningEntry> = z
  *
  * The prior shape was `available: boolean` with two free optionals, which
  * serialized the available / unavailable / compacted / policy-redacted cases
- * IDENTICALLY and left `Spec-013 §Acceptance Criteria`'s distinguish-the-cases
- * requirement unrepresentable. The Tier-8 audit's Codex round replaced it in
- * place rather than compatibility-extending it: the shape predated that PR as
- * canonical-doc text only, with no shipped emitter or parser, so ADR-018's
- * deployed-skew rules — which guard from the first shipped parser onward —
- * impose no legacy boolean arm. This module is that first shipped parser, and
- * it ships with NO tolerant fallback arm: the legacy boolean shape fails parse.
+ * IDENTICALLY and left the distinguish-the-cases requirement unrepresentable.
+ * It was replaced in place rather than
+ * compatibility-extending it: the shape predated that PR as canonical-doc text
+ * only, with no shipped emitter or parser, so the deployed-skew rules — which
+ * guard from the first shipped parser onward — impose no legacy boolean arm.
+ * This module is that first shipped parser, and it ships with NO tolerant
+ * fallback arm: the legacy boolean shape fails parse.
  *
  * Per-state field rules, each enforced by `.strict()` on its own arm rather
  * than narrated:
@@ -557,11 +534,11 @@ export const ReasoningEntrySchema: z.ZodType<ReasoningEntry> = z
  *     is the one paged state, so it is the one that carries `hasMore` — and,
  *     on the continuing arm, the `nextCursor` to continue from.
  *   * `policy_redacted` REQUIRES `policyReason` and admits no entries — the
- *     redaction renders as an explicit surface, never as absence (I-013-7).
+ *     redaction renders as an explicit surface, never as absence.
  *   * `unavailable` and `compacted` carry NEITHER; the client renders the
  *     placeholder from the state itself. `compacted` names WHY expansion is
  *     empty, and neither state erases the durable summary or the policy marker
- *     that remain canonical on the summary-first surface (I-013-8).
+ *     that remain canonical on the summary-first surface.
  *
  * No two states serialize identically, so a state-inconsistent field set is a
  * parse failure rather than a rendering ambiguity.
@@ -593,11 +570,10 @@ export type ReasoningSurfaceReadResponse =
 //
 // A FIRST `available` page carrying zero entries claims a reasoning surface
 // exists and then shows nothing, which renders identically to `unavailable`
-// while asserting the opposite — the collapse
-// `Spec-013 §Acceptance Criteria`'s distinguish-the-cases requirement forbids,
-// and which I-013-7 ("redaction never renders as absence") forbids in the
-// redaction direction. A producer with no entries to serve at all has three
-// honest arms to choose from and must pick one.
+// while asserting the opposite — the collapse the distinguish-the-cases
+// requirement forbids, and which forbids in the redaction direction. A
+// producer with no entries to serve at all has three honest arms to choose
+// from and must pick one.
 //
 // A CONTINUATION is a different question with a different honest answer. A
 // caller re-asking from an `afterCursor` that already sat at the end of the
@@ -671,8 +647,8 @@ export const ReasoningSurfaceReadResponseSchema: z.ZodType<ReasoningSurfaceReadR
 /**
  * The closed `availability` vocabulary, in the union's own arm order. Exported
  * so a renderer switching on the state asserts exhaustiveness against the
- * contract — the mechanism behind I-013-7's "every non-`available` state
- * produces a visible explanation surface".
+ * contract — the mechanism behind the "every non-`available` state produces a
+ * visible explanation surface".
  *
  * FOUR VALUES, FIVE TYPE ARMS: `available` splits on `hasMore` for its
  * continuation, which is a paging distinction and not a fifth state, so it

@@ -29,7 +29,7 @@ const STRANGER_SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a7777";
 /**
  * What one relay handler received, in delivery order.
  *
- * The frame is a Plan-008 stub typed `unknown` on the contract, so the collector
+ * The frame is a stub typed `unknown` on the contract, so the collector
  * keeps it at that type and reads only the envelope member the assertions name —
  * asserting through a shape the corpus has not registered would be this test
  * teaching the fixture a wire nobody ships.

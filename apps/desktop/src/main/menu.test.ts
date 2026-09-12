@@ -1,8 +1,8 @@
-// Plan-023 Phase 1B (T-023p-1B-2) — the application menu.
+// The application menu.
 //
 // Two properties are asserted here.
 //
-// The first is the one Phase 1C depends on: the `Window` submenu's auxiliary
+// The first: the `Window` submenu's auxiliary
 // entries are derived from the SHARED BARE-LAUNCHABLE ROUTE LIST and never from
 // the route type nor from the wider implemented set, so a build whose bare
 // launch can reach no subject offers no command that opens a window which can
@@ -12,10 +12,10 @@
 // they are two lists. One case cross-asserts the menu against the shared closed
 // set, and one asserts the REAL shipped lists, which is the build's own claim.
 //
-// The second is the `registerMenuSection` seam Plan-026 T7.3 consumes. A seam
-// that is promised in a plan and not exported is a promise its consumer cannot
-// keep, so these cases drive registration through the same public function that
-// plan will call.
+// The second is the `registerMenuSection` seam the onboarding family registers
+// through. A seam that is promised and not exported is a promise its consumer
+// cannot keep, so these cases drive registration through the same public
+// function that consumer will call.
 //
 // Two things are asserted together on every auxiliary arm, because either alone
 // is satisfiable by a wrong implementation: which entries the submenu carries,
@@ -304,7 +304,7 @@ describe("registerMenuSection", () => {
     menu.registerMenuSection({
       id: "onboarding",
       label: "Session",
-      items: [{ label: "Set up collaboration" }],
+      items: [{ label: "Set up remote access" }],
     });
     menu.installApplicationMenu();
 

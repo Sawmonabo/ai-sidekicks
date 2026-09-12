@@ -56,7 +56,7 @@ describe("the growth port's refusal builders", () => {
   });
 
   it("composes the unregistered sentence byte for byte, for every operation", () => {
-    // WHAT A PARTICIPANT READS, PINNED — over the whole table rather than one row,
+    // WHAT A USER READS, PINNED — over the whole table rather than one row,
     // because the sentence is the same frame 145 times and the interesting failure is a
     // single row composing a different one. The wire is read off the slate rather than
     // spelled here: this pins the FRAME the builder wraps a wire in, and a copy of the

@@ -122,8 +122,8 @@ export class DiffArtifactCreationController extends ActSurfaceController<
   /**
    * Mint a diff between the two named states, and read its payload back.
    *
-   * AN UNRESOLVED SUBJECT SETTLES AS A REFUSAL RATHER THAN AS A NO-OP.
-   * `Spec-023 §Console Design (Meridian)` rule 8 admits no silent nothing: the control
+   * AN UNRESOLVED SUBJECT SETTLES AS A REFUSAL RATHER THAN AS A NO-OP. No silent
+   * nothing is admitted: the control
    * is held shut while the attribution is unresolved, and a press that arrives anyway —
    * a keyboard activation racing a refusal that has just landed — says what did not
    * happen instead of appearing to do nothing.

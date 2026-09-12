@@ -1,19 +1,16 @@
-// Plan-001 Phase 5 Lane A T5.1: typed `sessionClient` SDK surface — the
-// V1 vertical-slice consumer wrapping `JsonRpcClient` (daemon transport,
-// Plan-007 Phase 3) and the tRPC v11 SSE substrate (control-plane transport,
-// Plan-008 Phase 1) under a single `SessionClient` interface.
+// Lane A: typed `sessionClient` SDK surface — the V1 vertical-slice consumer
+// wrapping `JsonRpcClient` (daemon transport) and the tRPC v11 SSE substrate
+// (control-plane transport) under a single `SessionClient` interface.
 //
-// Spec coverage:
-//   * Spec-001 §AC1 — `SessionCreate` returns a sessionId; `SessionRead`
-//     against the same id round-trips identical state. `create()` + `read()`
-//     below.
-//   * Spec-001 §AC3 — Replay-from-cursor: events arrive in monotonically
-//     increasing sequence; reconnect resumes after the consumer-tracked
-//     cursor. `subscribe()` accepts `afterCursor` on both transports.
-//   * Spec-001 §AC6 — Recovery from snapshot — a reconnect after a lost
-//     stream restores from the daemon/control-plane authoritative
-//     projection (NOT from the client's local cache). `subscribe()` issues
-//     a fresh wire request on every call; the SDK holds no event cache.
+//   * `SessionCreate` returns a sessionId; `SessionRead` against the same id
+//     round-trips identical state. `create()` + `read()` below.
+//   * Replay-from-cursor: events arrive in monotonically increasing
+//     sequence; reconnect resumes after the consumer-tracked cursor.
+//     `subscribe()` accepts `afterCursor` on both transports.
+//   * Recovery from snapshot — a reconnect after a lost stream restores
+//     from the daemon/control-plane authoritative projection (NOT from the
+//     client's local cache). `subscribe()` issues a fresh wire request on
+//     every call; the SDK holds no event cache.
 //
 // What this file does NOT do:
 //   * Implement byte-level framing or HTTP transport. The daemon factory
@@ -21,8 +18,8 @@
 //     `ClientTransport`); the control-plane factory consumes a fetcher
 //     callable (caller supplies `globalThis.fetch` or a wrangler/miniflare
 //     test handler).
-//   * Cache events client-side (per Spec-001 §AC6 — snapshot authority is
-//     server-side; the SDK MUST NOT shadow it).
+//   * Cache events client-side (snapshot authority is server-side; the
+//     SDK MUST NOT shadow it).
 //   * Expose the dual-cursor wire schema. Internally `afterCursor` routes
 //     to `params.afterCursor` on the daemon path and the `Last-Event-ID`
 //     HTTP header on the control-plane path; the consumer surface unifies
@@ -68,13 +65,9 @@ import type { JsonRpcClient } from "./transport/jsonRpcClient.js";
 // --------------------------------------------------------------------------
 
 /**
- * Per-event envelope yielded by `subscribe()`. Carries both the opaque
- * `eventId` (the cursor the consumer should retain for `afterCursor`-based
- * reconnect) and the validated `SessionEvent` payload. Mirrors the shape
- * `sessionClientSubscribeStub` in
- * `client-sdk/test/transport/sse-roundtrip.test.ts:252-256` consumes — that
- * test was written ahead of this file specifically to PIN the consumer
- * surface for Plan-001 Phase 5 (per F-008b-1-09 unblock contract).
+ * Carries both the opaque `eventId` (the cursor the consumer should retain
+ * for `afterCursor`-based reconnect) and the validated `SessionEvent`
+ * payload.
  */
 export interface SessionEventEnvelope {
   readonly eventId: EventCursor;
@@ -98,15 +91,13 @@ export interface SessionSubscribeOptions {
 }
 
 /**
- * Canonical session-operation names shared by both transports. On the daemon
- * path these route to `JSON-RPC` `method` field (per
- * docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name
- * Registry, Tier 1 Ratified). On the control-plane path the same names
- * route to the per-procedure tRPC URL segment (the control-plane router
- * mounts `session.create` / `session.read` / `session.join` / `session.subscribe`
- * at `${endpoint}/${name}`). Centralizing here so a future name evolution
- * (namespace move, BL-issued rename, or transport divergence) edits one
- * location rather than scattered string literals.
+ * Canonical session-operation names shared by both transports. On the daemon path
+ * these route to `JSON-RPC` `method` field (ratified). On the
+ * control-plane path the same names route to the per-procedure tRPC URL segment
+ * (the control-plane router mounts `session.create` / `session.read` /
+ * `session.join` / `session.subscribe` at `${endpoint}/${name}`). Centralizing
+ * here so a future name evolution (namespace move, BL-issued rename, or transport
+ * divergence) edits one location rather than scattered string literals.
  *
  * If the two transports ever diverge on these names, fork into per-transport
  * tables rather than reusing a name from the other side.
@@ -157,14 +148,11 @@ export interface DaemonSessionClient extends SessionClient {
  *
  * Daemon-side `$/subscription/notify` frames carry `SessionEvent` directly
  * (no cursor envelope — the wire schema documents this in
- * `runtime-daemon/src/ipc/handlers/session-subscribe.ts`). To unify with the
- * control-plane consumer surface, we synthesize the `eventId` from
- * `event.id` — UUIDs satisfy `EventCursorSchema.min(1).max(256)`, and
- * Plan-006's structured cursor format is not yet on the wire. If/when
- * Plan-006 ratifies a structural `EventCursor` format, the daemon's
- * subscribe wire schema gains a cursor field and this synthesis is
- * removed (Spec-001 contract is shape-stable; the server-side change
- * widens the streaming envelope additively per ADR-018).
+ * `runtime-daemon/src/ipc/handlers/session-subscribe.ts`). If/when ratifies
+ * a structural `EventCursor` format, the daemon's subscribe wire schema
+ * gains a cursor field and this synthesis is removed (contract is
+ * shape-stable; the server-side change widens the streaming envelope
+ * additively).
  */
 export function createDaemonSessionClient(client: JsonRpcClient): DaemonSessionClient {
   return {
@@ -267,8 +255,8 @@ async function* daemonSubscribe(
       // Synthesize the cursor from the event's authoritative id. UUIDs
       // satisfy `EventCursorSchema.min(1).max(256)`; we cast through the
       // brand because the bare `event.id: string` does not carry it. This
-      // synthesis disappears when Plan-006 widens the daemon's streaming
-      // envelope with a structural cursor field.
+      // synthesis disappears when widens the daemon's streaming envelope
+      // with a structural cursor field.
       yield { eventId: event.id as EventCursor, event };
     }
   } finally {
@@ -291,32 +279,30 @@ async function* daemonSubscribe(
  * Default tRPC procedure path under the control-plane fetch handler.
  * `buildControlPlaneFetchHandler` (in `@ai-sidekicks/control-plane`)
  * mounts at `/trpc` by default; the consumer can override via the
- * `endpoint` option. Plan-008 Phase 1 ratifies this path
- * (api-payload-contracts.md §HTTP Endpoints).
+ * `endpoint` option.
  */
 const DEFAULT_TRPC_ENDPOINT = "/trpc";
 
 /**
- * SSE frame separator — an empty line terminated by either LF or CRLF.
- * WHATWG HTML §9.2.6 (Server-sent events §interpretation) allows lines to
- * end with U+000D U+000A (CRLF), U+000A (LF), or U+000D (CR); a frame
- * boundary is two consecutive line terminators. tRPC v11.17.0's
- * `sseStreamProducer` emits LF-only today, but proxies and Node's HTTP
- * server can re-encode the stream to CRLF in transit, so the consumer must
- * accept both forms (and the mixed case where one terminator is CRLF and
- * the other LF) to remain interoperable. Compiled at module scope so the
- * RegExp is not rebuilt per-frame in the read loop. Lone-CR separators
+ * SSE frame separator — an empty line terminated by either LF or CRLF. WHATWG
+ * HTML section 9.2.6 (Server-sent events) allows lines to end with U+000D U+000A
+ * (CRLF), U+000A (LF), or U+000D (CR); a frame boundary is two consecutive line
+ * terminators. tRPC v11.17.0's `sseStreamProducer` emits LF-only today, but
+ * proxies and Node's HTTP server can re-encode the stream to CRLF in transit, so
+ * the consumer must accept both forms (and the mixed case where one terminator
+ * is CRLF and the other LF) to remain interoperable. Compiled at module scope so
+ * the RegExp is not rebuilt per-frame in the read loop. Lone-CR separators
  * (legal per the spec but not surfaced by tRPC's producer or by the proxies
  * cited in the bug report) are out of scope for this fix; surfaced as a
- * future-work concern in the PR notes rather than silently expanding the
- * scope of this round-trip.
+ * future-work concern in the PR notes rather than silently expanding the scope
+ * of this round-trip.
  */
 const SSE_FRAME_BOUNDARY = /\r?\n\r?\n/;
 
 /**
  * SSE intra-frame line separator — the same LF / CRLF tolerance as
  * `SSE_FRAME_BOUNDARY`, applied to split a single frame into its `field:`
- * lines. WHATWG HTML §9.2.6 allows the two forms; using a shared regex
+ * lines. WHATWG HTML section 9.2.6 allows the two forms; using a shared regex
  * keeps the frame-boundary tolerance and the line-split tolerance aligned
  * (mismatched tolerance would parse the frame envelope but mis-split lines
  * inside the frame, surfacing as silently-dropped fields).
@@ -367,12 +353,12 @@ export function createControlPlaneSessionClient(
     create: async (request) => {
       // tRPC v11 mutation wire format with no transformer (the control-plane
       // router uses defaultTransformer — see packages/control-plane/src/
-      // sessions/trpc.ts:35-42, no `transformer:` slot in `.create()`):
-      // POST body is the raw input JSON. resolveResponse line 92 reads the
-      // input via `await req.json()` and applies an identity deserialize
+      // sessions/trpc.ts:35-42, no `transformer:` slot in `.create()`): POST
+      // body is the raw input JSON. resolveResponse line 92 reads the input
+      // via `await req.json()` and applies an identity deserialize
       // (defaultTransformer at tracked-DWInO6EQ.mjs:70-79). Validate AT the
       // SDK boundary (mirrors the daemon path's `JsonRpcClient.call`
-      // fail-fast posture per I-007-3).
+      // fail-fast posture).
       const validated = SessionCreateRequestSchema.parse(request);
       const response = await opts.fetcher(
         new Request(trpcUrl(SESSION_METHOD_CREATE), {
@@ -473,8 +459,7 @@ function extractTrpcResponseData(envelope: unknown): unknown {
 }
 
 /**
- * Control-plane subscribe — uses the SSE wire frame ratified by
- * api-payload-contracts.md §SSE Wire Frame (Tier 1 Ratified). Mirrors the
+ * Control-plane subscribe — uses the SSE wire frame ratified. Mirrors the
  * `sessionClientSubscribeStub` in `client-sdk/test/transport/
  * sse-roundtrip.test.ts:279-389` — that stub was authored ahead of this
  * production surface specifically to PIN the consumer shape.
@@ -562,7 +547,7 @@ async function* controlPlaneSubscribe(
   if (response.body === null) {
     throw new Error("Control-plane subscribe: response body is null");
   }
-  // WHATWG HTML §9.2.6 SSE parsing requires the response Content-Type to be
+  // WHATWG HTML section 9.2.6 SSE parsing requires the response Content-Type to be
   // `text/event-stream` (optional `; charset=utf-8` parameter). Without this
   // check, an intermediary or auth layer that returns a non-SSE 200 payload
   // (JSON error envelope, HTML login redirect, etc.) silently produces zero
@@ -573,7 +558,7 @@ async function* controlPlaneSubscribe(
   //   * `^text\/event-stream` — anchored start, literal type
   //   * `\b` — word boundary so a hypothetical `text/event-streaming` type
   //     does not match
-  //   * `/i` — case-insensitive per RFC 9110 §8.3.1 (media types are
+  //   * `/i` — case-insensitive per RFC 9110 section 8.3.1 (media types are
   //     case-insensitive)
   // The regex tolerates the optional `; charset=utf-8` parameter naturally
   // because it does not anchor on the end of the string.
@@ -701,11 +686,10 @@ interface SseFrame {
 }
 
 /**
- * Parse a single SSE frame's text into its named fields. SSE spec § 9.2.6:
- * field name is everything before the first colon; value is everything after,
- * with a single leading space stripped if present. Lines beginning with `:`
- * are comments; empty lines are field separators (handled by the caller's
- * outer split on `\n\n`).
+ * Parse a single SSE frame's text into its named fields. SSE spec value is
+ * everything after, with a single leading space stripped if present. Lines
+ * beginning with `:` are comments; empty lines are field separators (handled
+ * by the caller's outer split on `\n\n`).
  *
  * Multiple `data:` lines on the same frame are joined with `\n` per the
  * spec (each line appends to the data buffer; the dispatcher strips the
@@ -718,7 +702,7 @@ function parseSseFrame(frameText: string): SseFrame {
   const fields: { event?: string; data?: string; id?: string } = {};
   // Split on LF or CRLF (SSE_LINE_SEPARATOR) to mirror the frame-boundary
   // tolerance — see the regex's JSDoc for the spec citation. The accumulated
-  // multi-line `data:` join below uses literal `\n` per WHATWG §9.2.6 (the
+  // multi-line `data:` join below uses literal `\n` per WHATWG section 9.2.6 (the
   // spec's data buffer is LF-only regardless of input separator).
   for (const line of frameText.split(SSE_LINE_SEPARATOR)) {
     if (line === "" || line.startsWith(":")) continue;

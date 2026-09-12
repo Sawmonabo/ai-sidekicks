@@ -74,7 +74,7 @@ describe("the registered procedure name", () => {
 
 describe("every shipped roster frame", () => {
   it("is a reading the registered response schema accepts", () => {
-    // What discharges the scenarios' `as NodeId` / `as ParticipantId` /
+    // What discharges the scenarios' `as NodeId` / `as UserId` /
     // `as EventEnvelopeVersion` assertions. The schema is `.strict()`, so a member
     // the wire does not carry fails here as loudly as a malformed identifier.
     let framesChecked = 0;

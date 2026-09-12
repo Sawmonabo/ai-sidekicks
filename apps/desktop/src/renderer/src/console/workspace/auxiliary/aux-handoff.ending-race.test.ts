@@ -5,8 +5,8 @@
 // that lands while nothing is subscribed is not late, it is gone. The subscriptions
 // used to be opened by an effect above the hand-off, which runs after the detached
 // projection COMMITS, so every ending between `detachPane` resolving and that commit
-// reached nobody: the deck kept a placeholder over a dead window and the crash notice
-// `Spec-023 §The surface set` requires was never rendered.
+// reached nobody: the deck kept a placeholder over a dead window and the required
+// crash notice was never rendered.
 //
 // NOTHING HERE RENDERS, deliberately. The defect lives in the gap between a promise
 // settling and React committing, so a case that mounted a component would be asserting

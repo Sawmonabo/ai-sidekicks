@@ -1,83 +1,71 @@
-// Plan-003 Phase 5 T5.1 (Tier 3) — renderer NodeRoster component.
+// The roster of runtime nodes attached to a session.
 //
 // A thin projection over the read seam `node-roster-reads.ts` beside this file
 // declares: it renders the SET of runtime nodes attached to the active session — one
 // `RuntimeNodeRosterEntry` per `runtime_node_attachments` row, exactly as the
-// registered `runtimenode.roster` read returns it (`docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`;
-// `packages/contracts/src/runtime-node.ts#RuntimeNodeRosterEntry`) — and visually
+// registered `runtimenode.roster` read returns it
+// (`packages/contracts/src/runtime-node.ts#RuntimeNodeRosterEntry`) — and visually
 // distinguishes the three status facets the wire entry carries:
 //   • `state: NodeState` — the SLOT axis (registering|online|degraded|offline|
 //     revoked — `packages/contracts/src/runtime-node.ts#NodeState`),
-//     `runtime_node_attachments.state` carried
-//     verbatim with all five values: the read is a faithful projection with no
-//     server-side hiding (`Spec-003 §Interfaces And Contracts` amendment).
-//     AC2 distinguishability (`Spec-003 §Acceptance Criteria`): a `degraded`/
-//     `offline` node renders with a degraded/offline indicator, NOT a
-//     disappearance — a healthy `online` node is visually distinct from one
+//     `runtime_node_attachments.state` carried verbatim with all five values:
+//     the read is a faithful projection with no server-side hiding. A
+//     `degraded`/`offline` node renders with a degraded/offline indicator, NOT
+//     a disappearance — a healthy `online` node is visually distinct from one
 //     that is not.
 //   • `healthState` + `lastHeartbeatAt` — the LIVENESS axis: the sweep-owned
 //     3-value presence verdict (`online | degraded | offline`) carried
 //     VERBATIM from `runtime_node_presence`, nullable until the node's first
-//     heartbeat lands (LEFT JOIN — the `healthState` field on `RuntimeNodeRosterEntrySchema`). The read NEVER
-//     derives staleness (the Plan-003 T3.6 sweep stays the single
-//     liveness-derivation writer), and neither does this view.
+//     heartbeat lands (LEFT JOIN — the `healthState` field on
+//     `RuntimeNodeRosterEntrySchema`). The read NEVER derives staleness (the
+//     heartbeat sweep stays the single liveness-derivation writer), and neither
+//     does this view.
 //   • `readOnly: boolean` — the PERMISSION axis, DERIVED per row at read time:
 //     true iff the node's stored `client_version` is below the session's
-//     `min_client_version` floor (the `readOnly` field on `RuntimeNodeRosterEntrySchema`; the server
-//     derivation lives in
+//     `min_client_version` floor (the `readOnly` field on
+//     `RuntimeNodeRosterEntrySchema`; the server derivation lives in
 //     `packages/control-plane/src/runtime-nodes/attach-service.ts#readRoster`).
-//     A below-floor node is ADMITTED read-only,
-//     not ejected (I-003-1, Plan-003 §Invariants) — see the I-003-1 note below
-//     for why the roster MUST never hide such a node. A node may be `online`
-//     AND `readOnly` at once (the axes are independent); all are rendered.
+//     A below-floor node is ADMITTED read-only, not ejected — see the
+//     admit-not-eject note below for why the roster MUST never hide such a
+//     node. A node may be `online` AND `readOnly` at once (the axes are
+//     independent); all are rendered.
 //
-// NEVER-MASK (`Spec-003 §Default Behavior`): the two HEALTH axes (`state`, `healthState`)
-// have distinct owners — the slot axis vs the heartbeat sweep — and this view
-// renders BOTH, verbatim, side by side. It computes NO collapsed/"effective"
-// health scalar, so a recovery on one axis can never mask a degradation on the
-// other; the wire itself carries no collapsed scalar either (the BOTH-AXES
-// STANCE note above
-// `packages/contracts/src/runtime-node.ts#RuntimeNodeRosterRequest`), and
+// NEVER MASK ONE HEALTH AXIS WITH THE OTHER. `state` and `healthState` have
+// distinct owners — the slot axis vs the heartbeat sweep — and this view renders
+// BOTH, verbatim, side by side. It computes NO collapsed/"effective" health
+// scalar, so a recovery on one axis can never mask a degradation on the other;
+// the wire itself carries no collapsed scalar either (the BOTH-AXES STANCE note
+// above `packages/contracts/src/runtime-node.ts#RuntimeNodeRosterRequest`), and
 // reconciling the axes is deliberately this client's render-time concern,
 // satisfied here by presenting both.
 //
-// Spec-003 coverage:
-//   • `Spec-003 §Acceptance Criteria` AC2 ("a degraded or offline node remains distinguishable from
-//     a healthy online node"): the per-node row renders BOTH health axes as
-//     labeled indicators, and a `degraded`/`offline` node (on either axis) is
-//     kept in the rendered set with those indicators rather than removed (see
-//     the I-003-1 admit-not-eject note).
-//   • `Spec-003 §Acceptance Criteria` AC3 ("multiple runtime nodes can coexist in one session
-//     without changing session identity"): the roster renders a SET
-//     (`nodes.map(...)`), not a singleton. The `sessionId` prop scopes the
-//     read; the roster never mutates it, so adding a second (e.g. below-floor)
-//     node changes the rendered set, not the session identity. This is the
-//     MULTI-NODE requirement.
-//   • `Spec-003 §Required Behavior` ("multiple runtime nodes per session"): same set-render
-//     — the component is structurally a list over the session's attached
-//     nodes, one entry per `runtime_node_attachments` row.
-//   • `Spec-003 §Fallback Behavior` ("capability-validation failure keeps the node
-//     degraded/offline, distinguishable from healthy"): a node that failed
-//     capability validation arrives in the read with `state: "degraded"` (the
-//     §Fallback-Behavior axis — capability-validation failure leaves the node
-//     `degraded`, the LEAST-PRIVILEGE note on `healthChanges.state`); the roster surfaces it with the
-//     degraded indicator alongside healthy peers. This view does NOT perform
-//     the validation (that is the daemon/control-plane authority) — it
-//     projects the resulting `state` distinguishably.
+// Three consequences the render is shaped by:
+//   • A degraded or offline node stays distinguishable from a healthy online
+//     one: the per-node row renders BOTH health axes as labeled indicators, and
+//     a `degraded`/`offline` node (on either axis) is kept in the rendered set
+//     with those indicators rather than removed.
+//   • Multiple runtime nodes coexist in one session without changing session
+//     identity: the roster renders a SET (`nodes.map(...)`), not a singleton.
+//     The `sessionId` prop scopes the read and the roster never mutates it, so
+//     adding a second (e.g. below-floor) node changes the rendered set, not the
+//     session identity.
+//   • A node that failed capability validation arrives in the read with
+//     `state: "degraded"` (the LEAST-PRIVILEGE note on `healthChanges.state`),
+//     and the roster surfaces it with the degraded indicator alongside healthy
+//     peers. This view does NOT perform the validation — that is the
+//     daemon/control-plane authority — it projects the resulting `state`
+//     distinguishably.
 //
-// I-003-1 (admit-not-eject) — what this roster MUST NOT do. T5.1 cites no
-// invariant (it is a read-only projection), but I-003-1 (Plan-003 §Invariants,
-// "a below-floor node stays JOINED and VISIBLE; it is never ejected") shapes a
-// NEGATIVE requirement on the render: a `degraded`/`offline` node (on either
-// health axis) and a `readOnly` (below-floor) node are ALL kept in the
-// rendered set with their indicators — never filtered out. There is
-// deliberately NO `.filter(...)` that drops a node by `state`, `healthState`,
-// or `readOnly`; the roster renders every node the read returns (the server
-// side is equally unfiltered — `Spec-003 §Interfaces And Contracts`'s "every row, no server-side
-// hiding" visibility clause). A future reader must NOT add a "hide
-// offline/below-floor nodes" filter: that would violate I-003-1's
-// admit-not-eject guarantee and break the AC2 distinguishability this view
-// exists to provide.
+// ADMIT, NEVER EJECT — what this roster MUST NOT do. A below-floor node stays
+// JOINED and VISIBLE, which shapes a NEGATIVE requirement on the render: a
+// `degraded`/`offline` node (on either health axis) and a `readOnly`
+// (below-floor) node are ALL kept in the rendered set with their indicators —
+// never filtered out. There is deliberately NO `.filter(...)` that drops a node
+// by `state`, `healthState`, or `readOnly`; the roster renders every node the
+// read returns, and the server side is equally unfiltered — every row, no
+// server-side hiding. A future reader must NOT add a "hide offline/below-floor
+// nodes" filter: that would eject a node by render and break the
+// distinguishability this view exists to provide.
 //
 // WHERE THE READ LIVES, AND WHY IT IS NOT HERE. The snapshot-plus-change-signal
 // design — subscribe first, then read; every push an OPAQUE trigger to re-read
@@ -88,7 +76,7 @@
 // registered procedure name and the presence event set are declared once in
 // `console/bridge/runtime-nodes/runtime-node-roster.ts` and reach this view already resolved.
 //
-// Renderer-untrusted boundary (Spec-023 §Trust Stance) — this file imports ONLY:
+// The renderer is untrusted, so this file imports ONLY:
 //   • `react` — the renderer's UI engine; explicitly allowed.
 //   • Type-only from `@ai-sidekicks/contracts` — the contracts package is
 //     renderer-safe (no `node:*`, `electron`, or `fs`/`path`/`process` runtime
@@ -100,9 +88,8 @@
 // `@ai-sidekicks/client-sdk` (the Node-side `runtimeNodeClient.ts` SDK) —
 // statically enforced via the `no-restricted-imports` rule in
 // apps/desktop/eslint.config.mjs. (The `@ai-sidekicks/client-sdk` ban is
-// structural since Plan-023 T-023p-1C-1 removed the package from this app's
-// manifest — the specifier no longer resolves here, per the SessionBootstrap
-// header.)
+// structural since the package left this app's manifest — the specifier no
+// longer resolves here, per the SessionBootstrap header.)
 
 import type { SessionId } from "@ai-sidekicks/contracts";
 
@@ -116,9 +103,8 @@ import { useNodeRosterRead, type NodeRosterReads } from "./node-roster-reads.js"
  * (`packages/contracts/src/runtime-node.ts#RuntimeNodeRosterRequest`), so
  * `{ sessionId }` constructs a valid roster-read request with no cast. The read is
  * scoped to this id, and the roster NEVER mutates it — adding nodes changes the
- * rendered set, not the session identity (AC3). The id arrives as a prop (supplied by
- * the console's own mount), not from renderer-side discovery — the same prop-contract
- * posture as `ParticipantRoster`.
+ * rendered set, not the session identity. The id arrives as a prop (supplied by
+ * the console's own mount), not from renderer-side discovery.
  *
  * `reads` is REQUIRED. This view resolves no transport of its own: a mount hands it
  * the pair it already resolved, which is what keeps the wire names in one production
@@ -151,25 +137,25 @@ export function NodeRoster({ sessionId, reads }: NodeRosterProps): React.JSX.Ele
   }
 
   if (rosterViewState.kind === "loaded") {
-    // One row per node (AC3 set-render). Each row distinguishes all three wire
-    // facets — the two HEALTH axes verbatim (never-mask, `Spec-003 §Default Behavior`)
-    // plus the permission verdict:
+    // One row per node — a set render, not a singleton. Each row distinguishes
+    // all three wire facets: the two HEALTH axes verbatim (neither masking the
+    // other) plus the permission verdict:
     //   • slot `state` — `online` vs `degraded`/`offline`/`registering`/
-    //     `revoked` (AC2 + the `Spec-003 §Fallback Behavior` capability-degrade
-    //     distinguishability).
+    //     `revoked`, which is what keeps a capability-degraded node
+    //     distinguishable from a healthy one.
     //   • liveness `healthState` + `lastHeartbeatAt` — the sweep-owned
     //     presence verdict, rendered verbatim and SEPARATELY from `state` (no
     //     collapsed/"effective" scalar is computed, so a recovery on one axis
     //     never masks a degradation on the other). The pre-first-heartbeat
     //     `null` renders as an explicit "none" label, not a hidden field.
     //   • `readOnly` — at-floor (read-write) vs below-floor (read-only); the
-    //     `data-read-only` attribute + label surface the below-floor verdict
-    //     (I-003-1: the below-floor node is VISIBLE, not ejected).
+    //     `data-read-only` attribute + label surface the below-floor verdict,
+    //     because the below-floor node is VISIBLE, not ejected.
     // No `.filter(...)` — every node the read returned is rendered
     // (admit-not-eject). `data-node-state` / `data-health-state` /
-    // `data-read-only` expose the facets for the T5.4 manual smoke and for the
-    // BL-131 component suite in `__tests__/` to assert distinguishability without
-    // scraping prose. `data-health-state` is ABSENT exactly when the wire
+    // `data-read-only` expose the facets so the component suite in `__tests__/`
+    // can assert distinguishability without scraping prose.
+    // `data-health-state` is ABSENT exactly when the wire
     // value is `null` (React omits null-valued attributes) — the DOM mirrors
     // the LEFT-JOIN nullability verbatim rather than inventing a fourth enum
     // token.

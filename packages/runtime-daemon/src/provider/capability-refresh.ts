@@ -1,29 +1,23 @@
 // Capability refresh — the CLI-version floor seam + the daemon-side refresh
-// scheduler (Plan-005 Phase 3, T3.12 / P0-2 + P2-9).
+// scheduler.
 //
 // Two concerns share this module because they share one lifecycle moment: a
 // capability READING. The floor seam decides whether a reading's version is
 // admissible at all, and the scheduler decides when readings happen after
 // attach. Both drivers' `capabilities.ts` modules consume the floor seam, and
-// T3.23 re-points the *source* of the version string (to the in-band reading of
-// the spawned process) without moving the comparison, which is why the compare
+// re-points the *source* of the version string (to the in-band reading of the
+// spawned process) without moving the comparison, which is why the compare
 // lives here as a single exported source of truth rather than inside either
 // driver tree (the driver trees stay import-independent of each other; both may
 // import `provider/`-level daemon modules).
 //
-// -- P0-2: the CLI-version floor ------------------------------------------------
+// -- The CLI-version floor ------------------------------------------------
 //
-// `Spec-005 §Required Behavior`: every `getCapabilities` report carries a
-// `DriverCliVersionReport { raw, semver }`; the daemon enforces a per-driver
-// minimum-version floor mechanically at attach and refresh. The FLOOR VALUES
-// are Spec-005's to set (`Spec-005 §Required Behavior`, "the floor is this
-// spec's to set; the pin is the reference family's to record") — the constants
-// below restate the ratified pair (Claude Code `2.1.234`, raised 2026-08-26;
-// codex-cli `0.141.0`) and are deliberately NOT read from any reference file's
-// pin, because a pin records what was measured, not what is supported.
+// every `getCapabilities` report carries a `DriverCliVersionReport { raw,
+// semver }`; the daemon enforces a per-driver minimum-version floor
+// mechanically at attach and refresh.
 //
-// Failure semantics are fail-closed and two-coded
-// (`docs/architecture/contracts/error-contracts.md §Driver`, both 409):
+// Failure semantics are fail-closed and two-coded (both 409):
 //   * `driver.cli_version_unparseable` — the raw string yields no canonical
 //     semver. `DriverCliVersionReport.semver` is REQUIRED, so an unparseable
 //     version is unrepresentable in the report shape; the refusal therefore
@@ -35,38 +29,37 @@
 //     floors, not provider CLI installs.
 //
 // A build AT or ABOVE the floor is admitted — above the measured pin included:
-// the floor comparison is the whole of the version gate (`Spec-005 §Required
-// Behavior`, the 2026-08-26 version-tolerance amendment).
+// the floor comparison is the whole of the version gate (the 2026-08-26
+// version-tolerance amendment).
 //
-// -- P2-9: the refresh scheduler ------------------------------------------------
+// -- The refresh scheduler ------------------------------------------------
 //
-// `Spec-005 §Resolved Questions and V1 Scope Decisions`: capability and
-// account-state declarations refresh per runtime node on a bounded periodic
-// cadence — 15 minutes in V1 — and may additionally update live where the
-// provider pushes; correctness must not depend on push-only updates.
+// capability and account-state declarations refresh per runtime node on a
+// bounded periodic cadence — 15 minutes in V1 — and may additionally update
+// live where the provider pushes; correctness must not depend on push-only
+// updates.
 //
-// The `CapabilityRefreshScheduler` is the named lifecycle owner that finding
-// P2-9 demanded: without a file that starts and stops the poll, capability /
+// The `CapabilityRefreshScheduler` is the named lifecycle owner the cadence
+// needs: without a file that starts and stops the poll, capability /
 // CLI-floor / auth state could stay stale indefinitely. It is started on
 // runtime-node attach and stopped on detach by the daemon provider subsystem
 // (a sanctioned wiring call — this module claims no bootstrap-file ownership),
 // holds one timer per runtime node, and on each tick drives every registered
 // driver entry's `refreshDeclaration()` PAIRED with its zero-turn
-// `probeAuth()`. The pairing is load-bearing (Codex round 5): auth state is
+// `probeAuth()`. The pairing is load-bearing: auth state is
 // NOT on `GetCapabilitiesResult` — capabilities/tools/`cliVersion` only — so a
 // capabilities-only poll would leave admission auth state stale after a
 // post-attach logout. With the pair, a post-attach logout surfaces within one
 // cadence period; mid-run credential expiry stays the live-signal path
-// (`RecoveryCondition` `reauth-required`, T3.14 P3-3), not this poll's.
+// (`RecoveryCondition` `reauth-required`), not this poll's.
 //
-// Change-detected emission (Codex round 6) is the WRITER's: `refreshDeclaration`
-// declares through the T2.4 `DriverCapabilitiesWriter`, which compares the
-// reconstructed snapshot against the cached rows and emits
-// `runtime_node.capability_updated` only on an actual difference (CP-005-5 — no
-// new event type). This scheduler deliberately carries no event sink and adds
-// no second change detection: a no-op poll and an auth-only change append
-// nothing to the timeline, because the auth-state record updates out-of-band of
-// the event surface.
+// Change-detected emission is the WRITER's: `refreshDeclaration`
+// declares through `DriverCapabilitiesWriter`, which compares the reconstructed
+// snapshot against the cached rows and emits `runtime_node.capability_updated`
+// only on an actual difference (no new event type). This scheduler deliberately
+// carries no event sink and adds no second change detection: a no-op poll and an
+// auth-only change append nothing to the timeline, because the auth-state record
+// updates out-of-band of the event surface.
 //
 // The auth-state record lives HERE because no earlier task minted one: the
 // scheduler is the daemon's per-(node, driver) auth-state owner, and run
@@ -75,9 +68,6 @@
 // A thrown probe records `indeterminate` — fail closed, while staying
 // distinguishable from `unauthenticated` (`DriverAuthProbeResult` doctrine).
 //
-// Refs: Plan-005 §Phase 3 / T3.12 (P0-2, P2-9), invariant I-005-2, CP-005-5,
-// `Spec-005 §Required Behavior`, `Spec-005 §Resolved Questions and V1 Scope
-// Decisions`, `docs/architecture/contracts/error-contracts.md §Driver`.
 
 import semver from "semver";
 
@@ -89,7 +79,7 @@ import { type DriverDiagnosticKind, type DriverDiagnosticsEmitter } from "./driv
 import { CLI_VERSION_RAW_MAX_LEN } from "./provider-output-validation.js";
 
 // --------------------------------------------------------------------------
-// P0-2 — the per-driver floors (Spec-005 §Required Behavior sets these)
+// The per-driver version floors
 // --------------------------------------------------------------------------
 
 /** The two drivers the V1 floor table answers for. */
@@ -98,11 +88,11 @@ export type FlooredDriverName = "claude" | "codex";
 /**
  * The ratified V1 minimum-version floors, per driver.
  *
- * `Spec-005 §Required Behavior` sets these values (Claude Code raised
- * `2.1.198` → `2.1.234` on 2026-08-26; codex-cli unchanged). They are floors,
- * not pins: the oldest build each driver accepts, never the newest build
- * measured. T3.23 re-points where the compared version COMES FROM (the in-band
- * reading of the spawned process); the values and the comparison stay here.
+ * sets these values (Claude Code raised `2.1.198` → `2.1.234` on 2026-08-26;
+ * codex-cli unchanged). They are floors, not pins: the oldest build each
+ * driver accepts, never the newest build measured. re-points where the
+ * compared version COMES FROM (the in-band reading of the spawned process);
+ * the values and the comparison stay here.
  */
 export const DRIVER_CLI_VERSION_FLOORS: Readonly<Record<FlooredDriverName, string>> = Object.freeze(
   {
@@ -113,8 +103,7 @@ export const DRIVER_CLI_VERSION_FLOORS: Readonly<Record<FlooredDriverName, strin
 
 /**
  * Thrown when a provider-reported version string yields no canonical semantic
- * version. `code === "driver.cli_version_unparseable"`
- * (`docs/architecture/contracts/error-contracts.md §Driver`, 409 — the
+ * version. `code === "driver.cli_version_unparseable"` (409 — the
  * blocked-until-repair family): capability attach/refresh fails closed until
  * the provider install is repaired.
  *
@@ -139,9 +128,9 @@ export class DriverCliVersionUnparseableError extends Error {
 
 /**
  * Thrown when a cleanly-parsed provider version sits below the configured
- * per-driver floor. `code === "driver.cli_version_below_floor"`
- * (`docs/architecture/contracts/error-contracts.md §Driver`, 409): capability
- * attach/refresh fails closed until the provider install is upgraded.
+ * per-driver floor. `code === "driver.cli_version_below_floor"` (409):
+ * capability attach/refresh fails closed until the provider install is
+ * upgraded.
  */
 export class DriverCliVersionBelowFloorError extends Error {
   readonly code = "driver.cli_version_below_floor" as const;
@@ -176,7 +165,7 @@ const SEMVER_TOKEN_PATTERN = /\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*
  * (bounds are the persistence seam's, `assertValidCliVersionReport`); `semver`
  * is the canonical form `semver.valid` returns for the extracted token.
  *
- * T3.23 feeds this from the in-band reading of the spawned process (Claude
+ * Feeds this from the in-band reading of the spawned process (Claude
  * `get_binary_version`, the Codex `initialize` `userAgent`); the derivation
  * does not move when the source does.
  */
@@ -193,15 +182,15 @@ export function parseCliVersionReport(
 }
 
 /**
- * The floor gate (P0-2): refuse a report whose version sits below the
+ * The floor gate: refuse a report whose version sits below the
  * configured per-driver floor.
  *
  * The comparison is the WHOLE of the version gate — at or above the floor the
- * report passes, above the measured pin included (`Spec-005 §Required
- * Behavior`, 2026-08-26). A report whose `semver` member is not canonical
- * (possible only via an untyped boundary — well-behaved callers construct
- * reports through `parseCliVersionReport`) refuses as unparseable rather than
- * letting `semver.lt` throw a raw `TypeError` out of the gate.
+ * report passes, above the measured pin included (2026-08-26). A report whose
+ * `semver` member is not canonical (possible only via an untyped boundary —
+ * well-behaved callers construct reports through `parseCliVersionReport`)
+ * refuses as unparseable rather than letting `semver.lt` throw a raw
+ * `TypeError` out of the gate.
  */
 export function assertCliVersionMeetsFloor(
   driverName: FlooredDriverName,
@@ -217,14 +206,14 @@ export function assertCliVersionMeetsFloor(
 }
 
 // --------------------------------------------------------------------------
-// P2-9 — the refresh scheduler
+// The refresh scheduler
 // --------------------------------------------------------------------------
 
 /**
- * The V1 refresh cadence — 15 minutes, per `Spec-005 §Resolved Questions and
- * V1 Scope Decisions`. A constant rather than a constructor knob: the cadence
- * is a ratified V1 decision, and a configurable interval would be a second
- * place for it to be wrong. Tests drive the tick with fake timers.
+ * The V1 refresh cadence — 15 minutes. A constant rather than a constructor
+ * knob: the cadence is a ratified V1 decision, and a configurable interval
+ * would be a second place for it to be wrong. Tests drive the tick with fake
+ * timers.
  */
 export const CAPABILITY_REFRESH_INTERVAL_MS: number = 15 * 60 * 1000;
 
@@ -262,21 +251,20 @@ export interface CapabilityRefreshDriverEntry {
   /** Canonical driver id (`"claude"` / `"codex"`) — the auth-record key. */
   readonly driverName: FlooredDriverName;
   /**
-   * Re-read the declaration and declare it through the T2.4 writer
+   * Re-read the declaration and declare it through writer
    * (`refreshCodexCapabilities` / `ClaudeCapabilityReporter.refreshDeclaration`).
-   * The writer owns change detection and emission (CP-005-5); the scheduler
-   * reacts to the discriminant not at all.
+   * The writer owns change detection and emission; the scheduler reacts to the
+   * discriminant not at all.
    *
-   * THE CADENCE RE-PROBES (T3.24). Every poll must take a NEW capability
-   * detection reading (`readCapabilityDetection`) alongside its new version
-   * reading, for the same reason the version reading is re-taken: a mid-lifetime
-   * provider replacement is detectable only by asking the build that is
-   * installed NOW. Replaying the attach-time reading would make a capability
-   * that has since disappeared invisible until the next attach, and would report
-   * `probed` provenance for an answer no longer measured. A flag a re-probe
-   * withdraws changes the snapshot, so the writer's own change detection turns
-   * it into exactly one `runtime_node.capability_updated` — an unchanged poll
-   * still emits nothing.
+   * Every poll must take a NEW capability detection reading
+   * (`readCapabilityDetection`) alongside its new version reading, for the same
+   * reason the version reading is re-taken: a mid-lifetime provider replacement
+   * is detectable only by asking the build that is installed NOW. Replaying the
+   * attach-time reading would make a capability that has since disappeared
+   * invisible until the next attach, and would report `probed` provenance for an
+   * answer no longer measured. A flag a re-probe withdraws changes the snapshot,
+   * so the writer's own change detection turns it into exactly one
+   * `runtime_node.capability_updated` — an unchanged poll still emits nothing.
    */
   readonly refreshDeclaration: () => Promise<DeclareDriverCapabilitiesResult>;
   /** The zero-turn authentication probe, paired with every refresh. */
@@ -294,7 +282,7 @@ export interface CapabilityRefreshNodeRegistration {
  *
  * `detail` is the probe's knowingly PII-bearing operator diagnostic
  * (`DriverAuthProbeResult.detail`) — held in memory only, never persisted or
- * evented by this module, per that field's Spec-022 scope note.
+ * evented by this module, per that field's scope note.
  */
 export interface DriverAuthStateRecord {
   readonly status: DriverAuthProbeResult["status"];
@@ -320,15 +308,15 @@ export interface CapabilityRefreshDiagnostic {
   readonly driverName: FlooredDriverName;
   /**
    * `capability-probe` is a REFINEMENT of `capability-refresh`, not a separate
-   * poll leg: the T3.24 detection read runs inside `refreshDeclaration()`, and
-   * this value marks the refresh failures the probe surface caused (its negative
-   * control answered, its transport rejected, a prohibited wire name was
-   * reached) so an operator can tell "the probe channel is broken" from "the
-   * declaration could not be written". Both land on the same diagnostic kind
-   * because both are the SAME condition — a refresh that produced no
-   * declaration — and distinguishing why is a `details` concern. A successful
-   * read that merely withdrew a flag is a different condition and does get its
-   * own kind; see {@link emitCapabilityDetectionDiagnostics}.
+   * poll leg: detection read runs inside `refreshDeclaration()`, and this value
+   * marks the refresh failures the probe surface caused (its negative control
+   * answered, its transport rejected, a prohibited wire name was reached) so an
+   * operator can tell "the probe channel is broken" from "the declaration could
+   * not be written". Both land on the same diagnostic kind because both are the
+   * SAME condition — a refresh that produced no declaration — and distinguishing
+   * why is a `details` concern. A successful read that merely withdrew a flag is
+   * a different condition and does get its own kind; see {@link
+   * emitCapabilityDetectionDiagnostics}.
    */
   readonly leg: "capability-refresh" | "auth-probe" | "capability-probe";
   /** The typed error's registered code, where the failure carried one. */
@@ -475,14 +463,14 @@ async function settleLegWithinDeadline<TValue>(
 }
 
 /**
- * The poll-lifecycle owner (P2-9): one timer per attached runtime node, each
+ * The poll-lifecycle owner: one timer per attached runtime node, each
  * tick driving every registered driver's refresh + auth-probe pair.
  *
  * Lifecycle: `startForNode` on attach, `stopForNode` on detach, `shutdown` at
  * daemon shutdown — after any of which the node's timer is cleared and no
  * further polls fire (no timer leaks). `refreshNow` is the sanctioned lever
  * for provider-push updates: push MAY tighten freshness, but correctness never
- * depends on it (`Spec-005 §Resolved Questions and V1 Scope Decisions`).
+ * depends on it.
  */
 export class CapabilityRefreshScheduler {
   readonly #nodes: Map<string, ScheduledNode> = new Map();
@@ -603,7 +591,7 @@ export class CapabilityRefreshScheduler {
       this.#reportFailure(nodeId, entry.driverName, "capability-refresh", refreshOutcome);
     }
     // A fulfilled refresh needs no reaction here: the writer already decided
-    // declared/updated/noop and emitted (or deliberately did not) — CP-005-5.
+    // declared/updated/noop and emitted (or deliberately did not)
 
     if (probeOutcome.settled === "fulfilled") {
       this.#recordAuthState(nodeId, generation, entry.driverName, {

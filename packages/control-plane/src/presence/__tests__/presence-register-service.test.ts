@@ -1007,7 +1007,7 @@ describe("PresenceRegisterService — crash guard on the onTransition seam", () 
 // UUID hex-case canonicalization at the session-map key boundary.
 // ----------------------------------------------------------------------------
 //
-// UUID hex text is case-INSENSITIVE (RFC 9562 §4) and `SessionIdSchema` accepts
+// UUID hex text is case-INSENSITIVE (RFC 9562 section 4) and `SessionIdSchema` accepts
 // an uppercase UUID unchanged (no normalization). Ids in this codebase are
 // branded by bare cast at DB-row reads, NOT by parsing through the schema, so an
 // uppercase and a lowercase spelling of the SAME logical session can both reach

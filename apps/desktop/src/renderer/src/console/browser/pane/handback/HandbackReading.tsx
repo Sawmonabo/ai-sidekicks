@@ -1,7 +1,7 @@
 // What the keyboard handback is doing, said where the pane keeps its standing readings.
 //
-// `Spec-023 §Console Design (Meridian)` 12.4 has two halves and both of them run
-// without anyone asking: the console publishes its chord mirror when the chord table
+// The keyboard handback has two halves and both of them run without anyone asking:
+// the console publishes its chord mirror when the chord table
 // changes, and the host hands claimed chords back over a subscription opened at mount.
 // So neither half's outcome is an answer to an act, and neither belongs in the pane's
 // refusal banner — which is reserved for the newest thing a person did.

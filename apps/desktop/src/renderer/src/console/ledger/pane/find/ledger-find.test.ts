@@ -184,7 +184,7 @@ describe("the walk when the result moves under it", () => {
 
 /** A narrowing that admits a family {@link syntheticEventLog} has no row of. */
 const ADMITS_NO_SYNTHETIC_ROW: LedgerFilter = {
-  participantIds: [],
+  userIds: [],
   categories: ["tool_activity"],
 };
 

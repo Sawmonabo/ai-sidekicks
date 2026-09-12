@@ -9,8 +9,8 @@
 import type { ScenarioReply } from "../runtime/index.js";
 import {
   SESSION_ID,
-  PARTICIPANT_YOU,
-  PARTICIPANT_AWAY,
+  USER_YOU,
+  USER_AWAY,
   AGENT_IMPLEMENTER,
   AGENT_REVIEWER,
   RUN_ID,
@@ -107,7 +107,7 @@ export const APPROVALS_REPLIES: readonly ScenarioReply[] = [
           expiryAt: "2026-01-01T17:30:00.200Z",
           resolvedAt: "2026-01-01T13:30:00.420Z",
           decision: "approved",
-          approverId: PARTICIPANT_YOU,
+          approverId: USER_YOU,
           effectiveScope: "run",
           // The resolution that minted a rule. An OBJECT, as the wire declares
           // it, and the one row here that carries a narrowing pattern.
@@ -141,7 +141,7 @@ export const APPROVALS_REPLIES: readonly ScenarioReply[] = [
           updatedAt: "2026-01-01T13:29:10.000Z",
           resolvedAt: "2026-01-01T13:29:10.000Z",
           decision: "rejected",
-          approverId: PARTICIPANT_YOU,
+          approverId: USER_YOU,
           effectiveScope: "run",
         },
         {
@@ -168,7 +168,7 @@ export const APPROVALS_REPLIES: readonly ScenarioReply[] = [
         {
           ruleId: RULE_SESSION_WIDE,
           sessionId: SESSION_ID,
-          participantId: PARTICIPANT_YOU,
+          userId: USER_YOU,
           nodeId: NODE_ID,
           category: "tool_execution",
           scope: { kind: "session" },
@@ -177,7 +177,7 @@ export const APPROVALS_REPLIES: readonly ScenarioReply[] = [
         {
           ruleId: RULE_RUN_SCOPED,
           sessionId: SESSION_ID,
-          participantId: PARTICIPANT_YOU,
+          userId: USER_YOU,
           nodeId: NODE_ID,
           runId: RUN_ID,
           category: "file_write",
@@ -187,7 +187,7 @@ export const APPROVALS_REPLIES: readonly ScenarioReply[] = [
         {
           ruleId: RULE_REVOKED,
           sessionId: SESSION_ID,
-          participantId: PARTICIPANT_AWAY,
+          userId: USER_AWAY,
           nodeId: NODE_ID,
           category: "network_access",
           scope: { kind: "session" },

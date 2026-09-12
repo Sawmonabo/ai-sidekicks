@@ -4,14 +4,13 @@
 // the entries it is handed and knows nothing about sessions; the routing family
 // knows nothing about a rail. This module is the one place the two meet.
 //
-// THE DESTINATIONS ARE UNCONDITIONAL. `Spec-023 §Console Design (Meridian)` §The
-// surface set gives the main window three destinations — sessions, workflows,
-// settings — and every one of them is reachable from every main-window route, so
-// the entries are a constant rather than a function of window state. They used to
-// be neither: a fourth entry, Workspace, was shown or hidden on whether this window
-// had a session in hand. The session workspace is reached from the sessions
-// destination instead, which is why `railDestinationFor` maps a workspace route
-// onto `sessions` and why the palette's "Go to Workspace" — an act, not a
+// THE DESTINATIONS ARE UNCONDITIONAL. The main window has three destinations —
+// sessions, workflows, settings — and every one of them is reachable from every
+// main-window route, so the entries are a constant rather than a function of window
+// state. They used to be neither: a fourth entry, Workspace, was shown or hidden on
+// whether this window had a session in hand. The session workspace is reached from the
+// sessions destination instead, which is why `railDestinationFor` maps a workspace
+// route onto `sessions` and why the palette's "Go to Workspace" — an act, not a
 // destination — lives beside these rather than among them.
 //
 // RENDER ORDER COMES FROM THE TUPLE. `RAIL_DESTINATIONS` declares the destinations

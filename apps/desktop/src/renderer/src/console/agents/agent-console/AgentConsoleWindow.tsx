@@ -1,11 +1,10 @@
 // The agent console as a whole window: its own heading, and the body under it.
 //
-// `Spec-023 §Console Design (Meridian)` §The surface set names two panes that "can be
-// moved into their own hardened `BrowserWindow`", and this is the second one's window
-// mount. A window OWNS ITS FRAME and shares no store with the deck it was torn from
-// (I-023-12), so the deck's pane chrome is deliberately absent here rather than
-// rendered without its controls: a window does not detach from itself, it is not one
-// pane among several to be closed or dragged, and a breadcrumb trail describing a
+// Two panes can be moved into their own hardened `BrowserWindow`, and this is the
+// second one's window mount. A window OWNS ITS FRAME and shares no store with the
+// deck it was torn from, so the deck's pane chrome is deliberately absent here rather
+// than rendered without its controls: a window does not detach from itself, it is not
+// one pane among several to be closed or dragged, and a breadcrumb trail describing a
 // position in a deck would describe a deck this surface is not in.
 //
 // SO THE HEADING IS THIS MODULE'S, AND IT IS THE ONLY ONE. The body below draws no

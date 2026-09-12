@@ -1,4 +1,4 @@
-// RuntimeBindingStore — Plan-005 Phase 2 (T2.2).
+// RuntimeBindingStore behaviour.
 //
 // Exercises CRUD + the provider-output write-seam validation over a REAL Local
 // SQLite handle via `openDatabase(":memory:")` — so BOTH the Zod write-seam
@@ -8,41 +8,34 @@
 // `:memory:`), so there is no tmp-file/unlink lifecycle to manage.
 //
 // Coverage map (cites are the authoritative contract, not just the ACs):
-//   * `Spec-005 §Required Behavior` (resume_handle is a provider-owned opaque handle, bounded at
-//     the write seam): nullability round-trips; length-edge accept/reject;
-//     whitespace-only + NUL rejection (the /\S/ + NUL hardening beyond the DB
-//     CHECK).
-//   * I-005-1 (driver authority remains local, daemon-resident binding store):
-//     the store operates entirely over the local handle — every assertion below
+//   * nullability round-trips; length-edge accept/reject; whitespace-only + NUL
+//     rejection (the /\S/ + NUL hardening beyond the DB CHECK).
+//   * The store operates entirely over the local handle — every assertion below
 //     reads/writes the local DB, with no provider round-trip.
 //   * const↔Zod↔SQL-CHECK coherence: boundary fixtures are derived FROM the
 //     exported consts and INSERTed through `create()` (a real INSERT), so a
 //     const bumped above the SQL CHECK literal would pass Zod but fail the DB
 //     CHECK — making this test fail. The coherence is enforced, not commented.
-//   * T2.6 `spawn_config` (the CP-005-1 recovery seam): the daemon-owned
-//     spawn-bound record is written at EVERY create and read back through the
-//     closed-key-set parser, so the resume assembly can rebuild
-//     `ResumeSessionParams`' data legs from the row rather than from a client
-//     request recovery does not have. A malformed record FAILS LOUD — a
-//     silently-empty posture would relaunch UNSANDBOXED — on the read paths AND
-//     on `update()`, whose in-transaction parse refuses to commit a patch onto a
-//     record this store cannot read back.
-//   * T2.6 `cli_version_raw` / `cli_version_semver` (`Spec-005 §State And Data
-//     Implications`): the binding record stores the handshake report as a PAIR;
-//     the both-or-neither DDL CHECK is exercised directly, an invalid report is
-//     refused at the write seam as a TYPED error before any row lands, and a
-//     half-present row staged out-of-band reads back as `null` rather than as a
-//     fabricated member.
-//   * T3.23 spawned-version carriers (`Spec-005 §Required Behavior`,
-//     invariant I-005-10): the reading taken from the dereferenced build
-//     reaches the ROW — asserted by reading back out of the database under
-//     launcher drift, which the projection helpers alone cannot show.
-//   * T2.6 `findByRuns` (the Plan-016 T2.10 ack-barrier input): batch lookup is
-//     synchronous, order-deterministic, duplicate-tolerant, and returns
-//     superseded history unfiltered — the caller owns the liveness intersection.
+//   * `spawn_config` (recovery seam): the daemon-owned spawn-bound record is
+//     written at EVERY create and read back through the closed-key-set parser,
+//     so the resume assembly can rebuild `ResumeSessionParams`' data legs from
+//     the row rather than from a client request recovery does not have. A
+//     malformed record FAILS LOUD — a silently-empty posture would relaunch
+//     UNSANDBOXED — on the read paths AND on `update()`, whose in-transaction
+//     parse refuses to commit a patch onto a record this store cannot read back.
+//   * `cli_version_raw` / `cli_version_semver`: the binding record stores the
+//     handshake report as a PAIR; the both-or-neither DDL CHECK is exercised
+//     directly, an invalid report is refused at the write seam as a TYPED error
+//     before any row lands, and a half-present row staged out-of-band reads
+//     back as `null` rather than as a fabricated member.
+//   * Spawned-version carriers (invariant): the reading taken from the
+//     dereferenced build reaches the ROW — asserted by reading back out of
+//     the database under launcher drift, which the projection helpers
+//     alone cannot show.
+//   * `findByRuns` (ack-barrier input): batch lookup is synchronous,
+//     order-deterministic, duplicate-tolerant, and returns superseded history
+//     unfiltered — the caller owns the liveness intersection.
 //
-// Refs: Plan-005 §Phase 2 / T2.2 + T2.6, `Spec-005 §Required Behavior`,
-// `Spec-005 §State And Data Implications`, invariant I-005-1.
 
 import type {
   CallbackToolResult,
@@ -652,7 +645,7 @@ describe("RuntimeBindingStore — runtime_metadata", () => {
 });
 
 // ----------------------------------------------------------------------------
-// findResumableBindings (Plan-015 recovery seam — functional now).
+// findResumableBindings (recovery seam — functional now).
 // ----------------------------------------------------------------------------
 
 describe("RuntimeBindingStore — findResumableBindings", () => {
@@ -803,7 +796,7 @@ describe("RuntimeBindingStore — update revalidation", () => {
 });
 
 // ----------------------------------------------------------------------------
-// findByRuns — the T2.6 batch lookup (Plan-016 T2.10's local ack-barrier input).
+// findByRuns — batch lookup (the local ack-barrier input).
 // ----------------------------------------------------------------------------
 
 describe("RuntimeBindingStore — findByRuns (batch lookup)", () => {
@@ -958,7 +951,7 @@ describe("RuntimeBindingStore — findByRuns (batch lookup)", () => {
 });
 
 // ----------------------------------------------------------------------------
-// spawn_config — the CP-005-1 recovery seam (T2.6).
+// spawn_config — recovery seam.
 // ----------------------------------------------------------------------------
 
 describe("RuntimeBindingStore — spawn_config", () => {
@@ -981,13 +974,13 @@ describe("RuntimeBindingStore — spawn_config", () => {
   });
 
   it("NEGATIVE CONTROL: a create carrying an executionPosture never leaves the raw column at '{}'", () => {
-    // The defect this pins is the one the T2.6 row calls out by name: a spawn
-    // that realizes a spawn-bound surface but persists nothing, leaving the
-    // column at its migration DEFAULT. Recovery would then rebuild a
-    // posture-less resume — an UNSANDBOXED relaunch — while every accessor above
-    // reported a successful create. Read through a RAW SELECT, because the
-    // store's own accessor parses `'{}'` into a perfectly valid empty record and
-    // could not tell the two apart.
+    // The defect this pins is the one row calls out by name: a spawn that
+    // realizes a spawn-bound surface but persists nothing, leaving the column at
+    // its migration DEFAULT. Recovery would then rebuild a posture-less resume —
+    // an UNSANDBOXED relaunch — while every accessor above reported a successful
+    // create. Read through a RAW SELECT, because the store's own accessor parses
+    // `'{}'` into a perfectly valid empty record and could not tell the two
+    // apart.
     const store = makeStore();
     const created = store.create({
       runId: RUN_ID,
@@ -1087,10 +1080,10 @@ describe("RuntimeBindingStore — spawn_config", () => {
 
   for (const { label, raw } of malformed) {
     it(`FAILS LOUD on ${label} in the stored column`, () => {
-      // Loud failure is a SECURITY property, not tidiness: the CP-005-1 consumer
-      // rebuilds ResumeSessionParams from this record, and a silently-empty
-      // posture would resume UNSANDBOXED. The only safe reading of a record we
-      // cannot read is a refusal.
+      // Loud failure is a SECURITY property, not tidiness: consumer rebuilds
+      // ResumeSessionParams from this record, and a silently-empty posture would
+      // resume UNSANDBOXED. The only safe reading of a record we cannot read is
+      // a refusal.
       const store = makeStore();
       const rawId = insertRawBinding({ id: "corrupt-row-1", spawnConfig: raw });
 
@@ -1141,15 +1134,15 @@ describe("RuntimeBindingStore — spawn_config", () => {
 });
 
 // ----------------------------------------------------------------------------
-// cli_version_raw / cli_version_semver — the handshake version pair (T2.6).
+// cli_version_raw / cli_version_semver — the handshake version pair.
 // ----------------------------------------------------------------------------
 
 describe("RuntimeBindingStore — cliVersion pair", () => {
   it("rejects a bounded-but-unparseable semver and a non-canonical form at the seam", () => {
-    // Codex PR #372 round 1: a bounded garbage semver stored now poisons the
-    // T3.23 floor comparison at a call site far from the row that produced it.
-    // The seam applies the module's one semver predicate (`semver.valid(v) === v`,
-    // the same one the floor gate uses), so the two layers cannot disagree.
+    // A bounded garbage semver stored now poisons floor
+    // comparison at a call site far from the row that produced it. The seam
+    // applies the module's one semver predicate (`semver.valid(v) === v`, the same
+    // one the floor gate uses), so the two layers cannot disagree.
     const store = makeStore();
     for (const unparseableSemver of ["not-a-version", "v1.2.3", " 1.2.3", "1.2"]) {
       let thrown: unknown;
@@ -1480,18 +1473,18 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
 });
 
 // ----------------------------------------------------------------------------
-// T3.23 — the spawned-build reading reaches the ROW
+// The spawned-build reading reaches the ROW
 // ----------------------------------------------------------------------------
 
-describe("RuntimeBindingStore — spawned-version carriers (T3.23)", () => {
+describe("RuntimeBindingStore — spawned-version carriers", () => {
   // `version-gate.test.ts` proves the READING is taken from the dereferenced
   // build. This proves the value that reading produced is what a later reader
   // gets back OUT OF THE DATABASE — through `create()`'s report validation, the
   // both-or-neither DDL CHECK, and the closed-key-set `spawn_config` parser,
   // none of which the in-memory projection helpers exercise. That end-to-end
-  // claim is what `Spec-005 §Required Behavior` and invariant I-005-10 state:
-  // the version compared, the version recorded on the binding, and the version
-  // of the process that runs the session are ONE reading.
+  // claim is what and invariant state: the version compared, the version
+  // recorded on the binding, and the version of the process that runs the
+  // session are ONE reading.
   const LAUNCHER_PATH: string = "/opt/homebrew/bin/claude";
   const DEREFERENCED_BUILD_PATH: string = "/opt/homebrew/Cellar/claude/2.1.245/bin/claude";
 
@@ -1604,19 +1597,19 @@ describe("RuntimeBindingStore — spawned-version carriers (T3.23)", () => {
 });
 
 // ----------------------------------------------------------------------------
-// T3.15 R4 — the resumed leg's spawn-bound surface, re-realized from the row.
+// R4 — the resumed leg's spawn-bound surface, re-realized from the row.
 // ----------------------------------------------------------------------------
 //
 // Spec coverage under test:
-//   `Spec-005 §Required Behavior` — a resumed leg runs under the same
-//     spawn-bound surface the original spawn declared. CP-005-1: resume is a
-//     FRESH process spawn, so every leg is re-supplied or the relaunch sheds it
-//     — a posture-less resume relaunches UNSANDBOXED.
-//   I-005-5 — a binding that names no resumable provider session refuses
+//   a resumed leg runs under the same
+//     spawn-bound surface the original spawn declared.: resume is a FRESH
+//     process spawn, so every leg is re-supplied or the relaunch sheds it — a
+//     posture-less resume relaunches UNSANDBOXED.
+//   A binding that names no resumable provider session refuses
 //     locally and classifiably rather than pushing an empty handle at the
 //     provider.
 
-describe("composeResumeSessionParams (T3.15 R4, CP-005-1)", () => {
+describe("composeResumeSessionParams (R4)", () => {
   const SESSION_ID = "11111111-1111-4111-8111-111111111111" as SessionId;
   const NO_FUNCTION_LEGS = {
     onCallbackToolCall: undefined,
@@ -1653,9 +1646,8 @@ describe("composeResumeSessionParams (T3.15 R4, CP-005-1)", () => {
   it("carries no `relaunch-input` member onto the resume params", () => {
     // A spread from `spawnConfig` would carry members the params shape does not
     // declare — the resolved executable path, which the relaunch path owns
-    // rather than the resume path. The paying account is NOT in that class as of
-    // T3.17: the driver is handed it on the params, and the relaunch reads it
-    // too.
+    // rather than the resume path. The paying account is NOT in that class as
+    // of: the driver is handed it on the params, and the relaunch reads it too.
     const store = makeStore();
     const binding = store.create({
       runId: RUN_ID,
@@ -1757,7 +1749,7 @@ describe("composeResumeSessionParams (T3.15 R4, CP-005-1)", () => {
   });
 
   it("stores the REQUESTED level and never a provider observation", () => {
-    // `cooldown` is a state the Claude surface REPORTS and that no participant
+    // `cooldown` is a state the Claude surface REPORTS and that no user
     // may request — it is a rate-limit condition, not a setting. It reaches the
     // daemon on the binding-held `ProviderOutputSpeedState`, which is discarded
     // with the session. If it could ever reach this column, a restart would
@@ -1778,10 +1770,10 @@ describe("composeResumeSessionParams (T3.15 R4, CP-005-1)", () => {
 });
 
 // --------------------------------------------------------------------------
-// T3.17 — provider-account identity through the `spawn_config` carrier
+// Provider-account identity through the `spawn_config` carrier
 // --------------------------------------------------------------------------
 
-describe("provider-account identity at spawn and resume (T3.17)", () => {
+describe("provider-account identity at spawn and resume", () => {
   const SESSION_ID = "11111111-1111-4111-8111-111111111111" as SessionId;
   const NO_FUNCTION_LEGS = {
     onCallbackToolCall: undefined,

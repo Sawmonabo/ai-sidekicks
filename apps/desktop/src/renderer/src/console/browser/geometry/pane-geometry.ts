@@ -1,19 +1,19 @@
 // Where the native view is allowed to be, and when it has to get out of the way.
 //
-// `Spec-023 §Console Design (Meridian)` 12.3, arithmetic half. This module touches no
-// DOM and schedules nothing: it is the pure computation that makes a native rectangle
+// The arithmetic half of pane geometry. This module touches no DOM and schedules
+// nothing: it is the pure computation that makes a native rectangle
 // and a DOM layout look like one application, so every rule it carries has a negative
 // control — the clipping-ancestor intersection and the sub-pixel floor on
 // `composePaneGeometrySample`, and the yield-to-overlays rule on `PaneOverlaySource`.
 // The sampling half — four required invalidation sources, read-now / write-next-frame
 // — lives in `geometry-publisher.ts`, which needs a document and cannot be pure.
 //
-// WHAT IS NOT INVENTED HERE. 12.3 names `browser.setRect` as the publish. That method
-// is on `Plan-023 §Console growth slate` row `browser-pane-namespace` with no
-// growth-port operation registered for it — the port carries the five navigation verbs
-// and the navigation subscription, and nothing else — so the publish target is 12.11's
-// HOST SEAM rather than a fabricated method string. Registering the operation belongs
-// to the task that lands the namespace.
+// WHAT IS NOT INVENTED HERE. The publish is `browser.setRect`. That method is on the
+// growth slate under `browser-pane-namespace` with no growth-port operation registered
+// for it — the port carries the five navigation verbs and the navigation subscription,
+// and nothing else — so the publish target is the HOST SEAM rather than a fabricated
+// method string. Registering the operation belongs to the task that lands the
+// namespace.
 //
 // The two surfaces beside this one: `view-host.ts` is 12.11's host seam — what a
 // sample is published TO — and `core/airspace-registry.ts` is the overlay set every

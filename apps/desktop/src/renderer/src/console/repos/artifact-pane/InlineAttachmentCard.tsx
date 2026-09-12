@@ -1,7 +1,7 @@
 // The attachment card a ledger row carries, and the seat registration that fills it.
 //
-// `Spec-023 §Meridian, the design language` rule 7 puts a secondary control one click
-// away, and THIS FAMILY'S OWN RULE puts an attachment in the position the participant
+// A secondary control lives one click away, and THIS FAMILY'S OWN RULE puts an
+// attachment in the position the user
 // put it: an attachment belongs to the
 // turn that carried it, and its marker sits in the attachment's
 // DECLARED POSITION rather than being appended or footnoted — which is exactly what a
@@ -16,8 +16,8 @@
 // WHAT THE SEAT HANDS OVER, AND WHY THE READING IS `not-checked`. The seat carries
 // `InlineCardAttachmentRef` — an opaque `attachmentId` and nothing else — because
 // `@ai-sidekicks/contracts` exports no attachment type at all: `SteerPayload.attachments`
-// is `z.array(z.unknown())`, an untyped arm `Spec-014 §Interfaces And Contracts` forbids
-// delivering an attachment over, and the typed reference is Plan-014 T14.13's. There is
+// is `z.array(z.unknown())`, an untyped arm no attachment may be delivered over, and
+// the typed reference has not landed yet. There is
 // therefore no read that turns this id into a manifest row and no bridge on the seat to
 // attempt one with, so the reading is the arm that says nobody asked. When the typed
 // reference lands, the seat's own placeholder is deleted and this arm becomes the

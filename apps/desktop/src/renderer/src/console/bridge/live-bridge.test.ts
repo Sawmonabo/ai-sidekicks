@@ -11,7 +11,7 @@
 // The preload is the stand-in here, and it has to be: `window.sidekicks` is
 // installed by a process this test does not run. Everything above it is real — the
 // real `createLiveBridge`, the real seam, the real registered name constants — and
-// the stand-in is built from the contracts package's own `createTier1Bridge`, so it
+// the stand-in is built from the contracts package's own `createStubBridge`, so it
 // is the shape the preload actually installs rather than a hand-drawn one.
 //
 // EVERY CLEAN RESULT HERE HAS A CONTROL THAT FAILS. The forwarding cases run against
@@ -22,7 +22,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  createTier1Bridge,
+  createStubBridge,
   type SidekicksBridge,
   type Unsubscribe,
   type SessionId,
@@ -57,7 +57,7 @@ interface PreloadStandIn {
  * what makes the negative control possible: point it at a misspelling and the seam,
  * still sending the registered name, gets the refusal a real router would give it.
  *
- * The two casts are the Plan-007/Plan-008 brands. `CpProcedure` and `DaemonEvent`
+ * The two casts are the transport and daemon brands. `CpProcedure` and `DaemonEvent`
  * are `never`-shaped, so no literal is assignable to them and no stand-in can be
  * written without one; the seam under test carries the same two casts and for the
  * same reason.
@@ -93,7 +93,7 @@ function preloadStandIn(
       releases.push(eventName);
     };
   };
-  const base = createTier1Bridge();
+  const base = createStubBridge();
   const bridge = {
     ...base,
     daemon: { ...base.daemon, subscribe },
@@ -128,12 +128,12 @@ describe("the live bridge's roster read", () => {
   });
 
   it("answers rather than rejecting when the preload throws synchronously", async () => {
-    // The Tier-1 stub throws from the call itself rather than returning a rejected
+    // The stub throws from the call itself rather than returning a rejected
     // promise, so a seam that did not funnel both into one arm would throw out of
     // the caller's effect. The thrower named no code — it is a class, not a wire
     // envelope — so the refusal carries the seam's own registered one rather than a
     // constructor name no contract registers and no search finds.
-    const outcome = await createLiveBridge(createTier1Bridge()).runtimeNodeRosterRead({
+    const outcome = await createLiveBridge(createStubBridge()).runtimeNodeRosterRead({
       sessionId: SESSION_ID,
     });
 
@@ -185,10 +185,10 @@ describe("the live bridge's presence subscription", () => {
   });
 
   it("answers rather than throwing when the preload's subscribe throws", () => {
-    // The crash this seam exists to prevent: the Tier-1 `daemon.subscribe` throws
+    // The crash this seam exists to prevent: the stub's `daemon.subscribe` throws
     // synchronously, and a surface calling this inside a mount effect would take
     // that throw with no `catch` between it and React.
-    const subscription = createLiveBridge(createTier1Bridge()).runtimeNodePresenceSubscribe(
+    const subscription = createLiveBridge(createStubBridge()).runtimeNodePresenceSubscribe(
       SESSION_ID,
       () => undefined,
     );
@@ -204,7 +204,7 @@ describe("the presence subscription's session filter", () => {
   /** Deliver one payload to every handler the seam installed, and count the calls. */
   function signalsFor(payload: unknown): number {
     const handlers: ((payload: unknown) => void)[] = [];
-    const base = createTier1Bridge();
+    const base = createStubBridge();
     const bridge = {
       ...base,
       daemon: {

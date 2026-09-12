@@ -8,11 +8,10 @@
 // own. Enumerating them is what keeps that true: a sixth act that needed a sixth
 // method would have to be added here first, in front of a reviewer.
 //
-// ONE OF THE FIVE IS DRAWN. `Spec-023 §Console Design (Meridian)` rule 7 gives a
-// surface one primary action and puts the rest one click away, so the builder pane's
-// head offers saving and nothing else; the other four are reached from the
-// definitions browser and from the version chain, where the thing they act on is
-// already in front of the person.
+// ONE OF THE FIVE IS DRAWN. Rule 7 gives a surface one primary action and puts the
+// rest one click away, so the builder pane's head offers saving and nothing else; the
+// other four are reached from the definitions browser and from the version chain,
+// where the thing they act on is already in front of the person.
 //
 // A MODULE RATHER THAN LITERALS IN THE COMPONENT, for the reason the run pane's own
 // control vocabulary gives: the act set and the refusal-code set are CLOSED, and a
@@ -29,7 +28,7 @@
 //
 // WHICH IS WHY THE REFUSAL BELOW IS NO LONGER ABOUT THE WIRE. What stops SAVING here is
 // upstream of any call: saving submits an EDITED body, and the canvas that edits one is
-// Plan-017's reserved slot — there is nothing to send. `reservedCanvasAct` says that,
+// the engine's reserved slot — there is nothing to send. `reservedCanvasAct` says that,
 // and a pane that said "the operation is not on the bridge" would now be asserting
 // something false about a port that carries it. The two acts whose subject is the
 // definition already on screen — importing and promoting — do reach the port, from

@@ -1,9 +1,9 @@
 // The page picker: every page the session owns, including the ones nobody is looking
 // at.
 //
-// `Spec-023 §Console Design (Meridian)` 12.2 Renders: "A page picker listing every
-// page the session owns with its label, title, and host, including background pages
-// the agent opened but never showed." That last clause is the whole reason the picker
+// A page picker listing every page the session owns with its label, title, and host,
+// including background pages the agent opened but never showed. That last clause is
+// the whole reason the picker
 // exists beside the strip — a background page is a page an agent is working in, and a
 // surface that only listed what is on screen would hide most of what is happening.
 //

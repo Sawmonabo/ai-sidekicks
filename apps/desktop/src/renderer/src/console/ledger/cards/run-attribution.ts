@@ -24,8 +24,8 @@ import {
  * The payload members that attribute a row to a run — THE CONTRACT'S OWN LIST.
  *
  * `TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS` is `["runId", "targetRunId"]`, and the
- * second one is the whole finding: `Spec-006` spells run identity `runId` on every
- * run-attributed family except interventions, whose registered shape names the run
+ * second one is the whole finding: the event contract spells run identity `runId` on
+ * every run-attributed family except interventions, whose registered shape names the run
  * `targetRunId`. The shell read the first member and nothing else, so every
  * `intervention.*` event projected as a session-level `general` row and sat outside
  * the run chapter it belongs to — on a ledger whose whole shape is runs.

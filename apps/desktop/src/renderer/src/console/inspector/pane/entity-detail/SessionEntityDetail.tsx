@@ -15,7 +15,7 @@ import { EntityRecord } from "./EntityRecord.js";
 import { composedCountFacet, instantFacet, type EntityDetailProps } from "./entity-facets.js";
 
 export function SessionEntityDetail(props: EntityDetailProps): React.JSX.Element {
-  const participants = useSessionPartition(props.sessionStore, "participant");
+  const users = useSessionPartition(props.sessionStore, "user");
   const channels = useSessionPartition(props.sessionStore, "channel");
   const runs = useSessionPartition(props.sessionStore, "run");
   const agents = useSessionPartition(props.sessionStore, "agent");
@@ -35,7 +35,7 @@ export function SessionEntityDetail(props: EntityDetailProps): React.JSX.Element
       absentTitle="This session is not open in the console."
       absentDetail="The identifier this pane was opened with belongs to no session the console holds. Open the session from the sidebar and its record appears here."
       facets={[
-        composedCountFacet("Participants", Object.keys(participants).length),
+        composedCountFacet("Users", Object.keys(users).length),
         composedCountFacet("Channels", Object.keys(channels).length),
         composedCountFacet("Runs", Object.keys(runs).length),
         composedCountFacet("Agents", Object.keys(agents).length),

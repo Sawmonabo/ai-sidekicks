@@ -1,7 +1,7 @@
 // What every `LeaseLine` suite needs before it asserts anything.
 //
 // The line's cases are split by responsibility — the holding projection, the claim
-// call, the transition ledger, and the viewer-identity gate each have their own module
+// call, the transition ledger, and the device-identity gate each have their own module
 // — and all four render the same component against the same session ids and the same
 // bridges. Those live here rather than in whichever file was written first, on this
 // package's rule that shared scaffolding lives once: a second copy of `servingBridge`
@@ -18,7 +18,7 @@
 //
 // The lease STATE is a value here, built directly rather than folded from a
 // scenario, because `lease-model.test.ts` already holds the fold to the wire and
-// these suites' subject is what each state RENDERS. The viewer's identity is a value
+// these suites' subject is what each state RENDERS. This device's identity is a value
 // for the same reason: `terminal/pane/TerminalPane.test.tsx` drives the read that
 // produces one, against the real port, and every case renders under a settled one so
 // that the state it names is what it is about.
@@ -28,11 +28,7 @@ import { render, type RenderResult } from "@testing-library/react";
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { FLAGSHIP_SCENARIO } from "../../bridge/scenario/flagship/flagship.js";
 import { TERMINAL_SCENARIO } from "../../bridge/scenario/terminal/terminal.js";
-import {
-  leaseEventWithPayload,
-  OTHER_PARTICIPANT,
-  VIEWER_PARTICIPANT,
-} from "./lease-model.test-support.js";
+import { leaseEventWithPayload, OTHER_USER, VIEWER_USER } from "./lease-model.test-support.js";
 import { LeaseLine } from "./LeaseLine.js";
 import type { TerminalViewerIdentity } from "./viewer-identity.js";
 import { UNREAD_TERMINAL_LEASE, type TerminalLeaseState } from "./lease-model.js";
@@ -150,7 +146,7 @@ export function servingBridge(): ConsoleBridge {
       // `controlHolder`, a release answers with the freed lease.
       terminalAcquireWriteLease: async () => ({
         status: "served" as const,
-        value: { controlHolder: VIEWER_PARTICIPANT },
+        value: { controlHolder: VIEWER_USER },
       }),
       terminalReleaseWriteLease: async () => ({
         status: "served" as const,
@@ -207,9 +203,9 @@ export function transitionAt(
     sequence,
     occurredAtIso: leaseEventWithPayload(sequence, undefined).occurredAt,
     reason,
-    holderParticipantId: reason === "taken" ? OTHER_PARTICIPANT : null,
-    previousHolderParticipantId: reason === "taken" ? null : OTHER_PARTICIPANT,
-    actorId: OTHER_PARTICIPANT,
+    holderUserId: reason === "taken" ? OTHER_USER : null,
+    previousHolderUserId: reason === "taken" ? null : OTHER_USER,
+    actorId: OTHER_USER,
     ...overrides,
   };
 }
@@ -217,13 +213,13 @@ export function transitionAt(
 /**
  * The identity every case below renders under unless it is about the other arms.
  *
- * Read, and read as the viewer: the claim control is gated on the identity having
+ * Read, and read as this device: the claim control is gated on the identity having
  * landed, so a default of anything else would make every case in this file about the
  * withheld state instead of about the state it names.
  */
 export const VIEWER_IDENTITY_READ: TerminalViewerIdentity = {
   status: "read",
-  participantId: VIEWER_PARTICIPANT,
+  userId: VIEWER_USER,
 };
 
 export function renderLease(

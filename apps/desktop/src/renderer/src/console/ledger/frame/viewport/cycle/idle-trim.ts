@@ -21,9 +21,9 @@
 // what they are for.
 //
 // THERE IS NO TIMER, AND THAT IS THE DESIGN RATHER THAN A SIMPLIFICATION.
-// `Spec-023 §Console Design (Meridian)` §The four bars rules out a timer on the
-// console's steady state — "no timer fires except the refresh scheduler's deadline and
-// the presence heartbeat" — and `LedgerViewport.test.tsx` holds the ledger to it by
+// A timer on the console's steady state is ruled out — no timer fires except the
+// refresh scheduler's deadline and the presence heartbeat — and `LedgerViewport.test.tsx`
+// holds the ledger to it by
 // asserting a settled frame has armed nothing. A dwell timer was written here first
 // and that case caught it. So the pass runs on the NEXT activity after a quiet period
 // instead: the gap is measured against the clock, and a `run` that arrives more than a

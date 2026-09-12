@@ -10,13 +10,12 @@
 //
 // AND WHY THE RATE-LIMIT FOLD IS NO LONGER HERE. It used to be — a third fold over
 // `usage.rate_limit_update` rows, keyed `(providerAccountId, limitId)`, producing the
-// composer's quota chips. That event is ACCOUNT-PLANE: `Spec-006 §Daemon-Scope Event
-// Binding And Node-Scope Anchoring` binds it to the reserved node-scope sentinel
-// session, so a live session store holds none of them and the chips could appear only
-// under a fixture that put one in a session's log. The fold moved whole to
-// `console/bridge/quotas/provider-account-quota.ts`, which reads the registry the wire
-// actually publishes it on; the two readings this module still narrows are genuinely
-// session-scoped and stay.
+// composer's quota chips. That event is ACCOUNT-PLANE: it is bound to the reserved
+// node-scope sentinel session, so a live session store holds none of them and the chips
+// could appear only under a fixture that put one in a session's log. The fold moved
+// whole to `console/bridge/quotas/provider-account-quota.ts`, which reads the registry
+// the wire actually publishes it on; the two readings this module still narrows are
+// genuinely session-scoped and stay.
 //
 // That makes the narrowing rule sharp. A reading is produced only when every member
 // it needs is present at the right type; a payload short one member yields NO
@@ -27,8 +26,8 @@
 // AND THE MEMBERS ARE THE REGISTERED ONES, NOT THE ONES A FIXTURE HAPPENED TO SEND.
 // The context reading used to be narrowed from `usagePercent`, `tokenCount`, and
 // `maxTokens` — three names that appear in this repository's own fixtures and in no
-// registered payload. `Spec-006 §Usage Telemetry (usage_telemetry)` gives this
-// type `windowUsedTokens?`, `windowMaxTokens?`, `windowSource?`, and `exceeded?`, so
+// registered payload. The registered usage-telemetry payload gives this type
+// `windowUsedTokens?`, `windowMaxTokens?`, `windowSource?`, and `exceeded?`, so
 // the shipped narrowing could never have matched a daemon-sent row and the meter
 // would have rendered the "not reported" absence against a live session forever. The
 // adaptation happens HERE and nowhere above: the wire sends counts and this module
@@ -43,34 +42,32 @@
 // the compaction fold does, and a row whose `runId` is absent, empty, or not a
 // string is read for no run at all — attributing an unattributed row to whichever
 // run the composer happens to point at is the same fabrication in the other
-// direction. `Spec-006 §Usage Telemetry (usage_telemetry)` types that member
-// `runId?`, so the absence is a shape the wire admits and this module answers with
-// no reading rather than with a guess. A composer addressed to a channel asks for
-// no reading at all.
+// direction. The wire types that member `runId?`, so the absence is a shape it admits
+// and this module answers with no reading rather than with a guess. A composer
+// addressed to a channel asks for no reading at all.
 //
-// AND A COMPACTION BOUNDARY IS PART OF THE READING, not a separate fact beside it.
-// `Spec-006 §Usage Telemetry (usage_telemetry)` states the consumer obligation in
-// terms: a compaction invalidates the run's last used-tokens reading — "replaced by
-// `postCompactionTokens` when present, else unknown until the next
-// `usage.context_window_update`". A fold that read only the update rows honoured
-// neither arm: the meter stayed at the pre-compaction figure, indefinitely where no
-// update followed, and went on advising a compaction that had already happened. So
-// the newest boundary ABOVE the newest update is what decides, and its two arms are
-// the wire's own. What the compacted arm carries forward from the superseded update
-// is the DENOMINATOR and its grade — a compaction shrinks the conversation, not the
-// window, and dropping the grade would silently promote an estimated window to the
-// ungraded render a provider-reported one gets — while `exceeded` is dropped,
-// because a compaction is the wire's own evidence that the state that flag reported
-// has ended.
+// AND A COMPACTION BOUNDARY IS PART OF THE READING, not a separate fact beside it. The
+// consumer obligation is stated on the wire in terms: a compaction invalidates the
+// run's last used-tokens reading — replaced by `postCompactionTokens` when present,
+// else unknown until the next `usage.context_window_update`. A fold that read only the
+// update rows honoured neither arm: the meter stayed at the pre-compaction figure,
+// indefinitely where no update followed, and went on advising a compaction that had
+// already happened. So the newest boundary ABOVE the newest update is what decides, and
+// its two arms are the wire's own. What the compacted arm carries forward from the
+// superseded update is the DENOMINATOR and its grade — a compaction shrinks the
+// conversation, not the window, and dropping the grade would silently promote an
+// estimated window to the ungraded render a provider-reported one gets — while
+// `exceeded` is dropped, because a compaction is the wire's own evidence that the state
+// that flag reported has ended.
 //
-// THE COUNTS TRAVEL AS A PAIR, and this reading requires both. A payload naming one
-// of them is an emitter bug by that spec's own words, and the reading it would
-// otherwise produce is worse than none: a numerator with no denominator renders as
-// 0% of an unknown window, which is a confident answer to a question nobody asked.
-// The recorded limit is the mirror case — a counts-absent row carrying only
-// provenance and `exceeded` is a headroom-unknown signal this meter does not read,
-// because this meter draws a ratio and there is none; the protective responses that
-// signal authorizes belong to the run-control layer and are not a bar's to make.
+// THE COUNTS TRAVEL AS A PAIR, and this reading requires both. A payload naming one of
+// them is an emitter bug, and the reading it would otherwise produce is worse than
+// none: a numerator with no denominator renders as 0% of an unknown window, which is a
+// confident answer to a question nobody asked. The recorded limit is the mirror case —
+// a counts-absent row carrying only provenance and `exceeded` is a headroom-unknown
+// signal this meter does not read, because this meter draws a ratio and there is none;
+// the protective responses that signal authorizes belong to the run-control layer and
+// are not a bar's to make.
 //
 // Nothing here reaches the bridge, a clock, or a store. It is a pure fold over rows
 // the store already holds, so one input always yields one reading and a test can

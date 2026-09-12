@@ -1,4 +1,4 @@
-// Driver diagnostics surface (Plan-005 Phase 3, T3.11).
+// Driver diagnostics surface.
 //
 // The daemon diagnostic channel both event normalizers route to — the typed
 // `DriverDiagnosticRecord`, the emitter that lands each record on the
@@ -7,32 +7,19 @@
 // surface's own records (the reorder-and-diagnostics band is one band: the
 // buffer's entire OBSERVABLE contract is the diagnostics it emits, so the
 // producer lives beside the surface it reports through rather than minting a
-// fourth provider-level module the Plan-005 T3.11 Files census does not name).
+// fourth provider-level module Files census does not name).
 //
-// Deliberately OFF-TIMELINE. Nothing here mints a `session_events` envelope,
-// and no record kind is spelled `runtime_node.*` — that prefix is the Spec-006
-// event namespace and these records are operator diagnostics by design
-// (Plan-005 T3.11 P0-1, Codex round 3). A frame that reaches this surface is
-// never silently dropped and never forced into an envelope: it becomes a
-// structured log line plus a counter increment, queryable through the
-// diagnostics surfaces rather than through the event timeline.
+// Nothing here mints a `session_events` envelope, and no record kind is
+// spelled `runtime_node.*` — that prefix is event namespace and these records
+// are operator diagnostics by design. A frame that
+// reaches this surface is never silently dropped and never forced into an
+// envelope: it becomes a structured log line plus a counter increment,
+// queryable through the diagnostics surfaces rather than through the event
+// timeline.
 //
 // Metrics: the counter NAMES below are the OpenTelemetry instrument names
-// (`driver.reorder_buffer.overflow` is pinned verbatim by Plan-005 T3.11
-// P2-1). The daemon carries no OpenTelemetry SDK yet — Plan-024's measurement
-// substrate owns that wiring and is procurement-blocked (BL-108) — so the
-// counter sink is an injected seam: the default in-memory sink keeps exact
-// totals (which is what makes the overflow "queryable via those
-// diagnostics/metrics surfaces" today), and the Plan-024 substrate binds an
-// OTel-backed sink behind the same interface without touching a call site.
+// (`driver.reorder_buffer.overflow` is pinned verbatim).
 //
-// Spec coverage: Spec-005 §Required Behavior (the usage-delta, token-partition,
-// and thread-routing rules route their diagnostics here); Spec-005 §Pitfalls
-// To Avoid (no silent drop, no silent flush); Plan-005 T3.11 P0-1 / P2-1.
-//
-// Refs: Plan-005 §Phase 3 / T3.11, `Spec-005 §Required Behavior`,
-// `docs/plans/006-session-event-taxonomy-and-audit-log.md`
-// §Event-Kind Disposition Table.
 
 // --------------------------------------------------------------------------
 // Provider identity.
@@ -55,18 +42,18 @@ export type DriverProviderName = "codex" | "claude";
  *
  * Closed on purpose: the counter-name map below is keyed by this union, so a
  * new diagnostic kind added without a counter name is a compile error rather
- * than an unmetered record. Each kind is owned by a named Plan-005 T3.11 leg:
+ * than an unmetered record. Each kind is owned by a named leg:
  *
- *   - `unmapped_wire_kind` — P0-1 default branch: a wire kind outside the
+ *   - `unmapped_wire_kind` — the default branch: a wire kind outside the
  *     pinned census, or an interim `typePending` kind whose literal has not
  *     landed.
- *   - `payload_variant_pending` — P0-1's second arm: a censused kind whose
+ *   - `payload_variant_pending` — the default branch's second arm: a censused kind whose
  *     target `SessionEventType` has no registered `SessionEventSchema` payload
- *     variant yet, so envelope construction is forbidden (Plan-006 T1.10's
+ *     variant yet, so envelope construction is forbidden (the
  *     flip-is-not-emission rule).
- *   - `reorder_buffer_overflow` / `tool_pairing_timeout` — P2-1: the bounded
+ *   - `reorder_buffer_overflow` / `tool_pairing_timeout` — the bounded
  *     reorder buffer's two never-silent conditions.
- *   - `reorder_initiation_ledger_evicted` — P2-1's third bound: the seen-
+ *   - `reorder_initiation_ledger_evicted` — that buffer's third bound: the seen-
  *     initiation ledger is per-provider-session state with no completion
  *     guarantee, so it is capped and evicted oldest-first. An eviction changes
  *     how a later completion for that call routes, so it is never silent.
@@ -109,10 +96,10 @@ export type DriverProviderName = "codex" | "claude";
  *     child thread's transcript projection (deduplicated per thread so child
  *     content deltas do not flood the channel).
  *
- * Three are owned by the T3.12 capability-refresh cadence and the T3.24
- * detection read that runs inside it. They live here for the same reason as
- * everything else on this union: a scheduler-local callback would be a second
- * diagnostic surface, and a failure reported there is unmetered.
+ * Three are capability-refresh cadence and detection read that runs inside
+ * it. They live here for the same reason as everything else on this union: a
+ * scheduler-local callback would be a second diagnostic surface, and a
+ * failure reported there is unmetered.
  *
  *   - `capability_refresh_failed` — a driver's capability re-declaration threw
  *     or exceeded its liveness deadline during a scheduled refresh.
@@ -127,15 +114,15 @@ export type DriverProviderName = "codex" | "claude";
  *     the next — is the single capability-band condition that reaches an
  *     operator through no counter at all.
  *
- * The remaining eight are owned by named Plan-005 T3.15 and T3.18 legs (callback-tool
- * hosting, leg 3; `subagentPolicy` pass-through, leg 4). They live here rather
- * than on a second diagnostic surface because the closed-union-plus-counter-map
- * pairing above is the property worth keeping: a parallel record type would let
- * a T3.15 refusal go unmetered, which is exactly what this union prevents.
+ * The remaining eight are owned by named and legs (callback-tool hosting, leg 3;
+ * `subagentPolicy` pass-through, leg 4). They live here rather than on a second
+ * diagnostic surface because the closed-union-plus-counter-map pairing above is the
+ * property worth keeping: a parallel record type would let a refusal go unmetered,
+ * which is exactly what this union prevents.
  *
  *   - `callback_tool_seam_absent` — leg 3's runtime backstop: an invocation or
- *     a routed provider ask reached the host while no Plan-012 evaluation seam
- *     is registered. Answered refused, never completed-without-Cedar and never
+ *     a routed provider ask reached the host while no evaluation seam is
+ *     registered. Answered refused, never completed-without-Cedar and never
  *     left unanswered.
  *   - `callback_tool_registry_withheld` — leg 3's fail-closed spawn rule: the
  *     callback-tool registry was withheld from the provider because the daemon
@@ -160,19 +147,19 @@ export type DriverProviderName = "codex" | "claude";
  *   - `subagent_concurrency_breach` — leg 4's observability-only enforcement:
  *     concurrent subagents observed above the declared cap. A breach surfaces
  *     here and never fails the run.
- *   - `text_neutralization_trip_report_failed` — T3.18: the tripwire ruled a
+ *   - `text_neutralization_trip_report_failed`: the tripwire ruled a
  *     provider-bound text frame swallowed, and the consumer the run terminal is
  *     reported to threw. The trip itself still stands and the binding is still
  *     disposed; what this records is that the operator-visible terminal may not
  *     have landed, which is the one part of a trip that a swallowed exception
  *     could make invisible.
  *
- * Three are owned by the T3.26 console-parity surfaces. Each records a case
- * where a caller's own result is already honest about the outcome but says
- * nothing about WHY — the settlement carries a closed reason and the operator
- * needs the terminal, the count, or the wire text behind it.
+ * Three are console-parity surfaces. Each records a case where a caller's own
+ * result is already honest about the outcome but says nothing about WHY — the
+ * settlement carries a closed reason and the operator needs the terminal, the
+ * count, or the wire text behind it.
  *
- *   - `compaction_wait_terminal` — a participant-triggered compaction was
+ *   - `compaction_wait_terminal` — a user-triggered compaction was
  *     dispatched and the wait for the provider's typed compaction frame reached
  *     a terminal that is not the frame: the declared per-driver bound elapsed,
  *     or the binding stopped being live. The caller already settles `failed`
@@ -187,7 +174,7 @@ export type DriverProviderName = "codex" | "claude";
  *   - `interactive_request_option_set_dropped` — a structured input ask
  *     published a choice set the cardinality cap refuses, or one no admissible
  *     option could be read from. The ask STILL NORMALIZES and still reaches the
- *     participant as free text: dropping the ask would hang the turn, and
+ *     user as free text: dropping the ask would hang the turn, and
  *     carrying an unbounded set would let provider-authored strings size a
  *     client render. What is lost is the choice set, and losing it silently is
  *     what this forbids.
@@ -253,10 +240,10 @@ export type DriverDiagnosticKind =
  * One operator-visible daemon diagnostic.
  *
  * The `{ provider, rawWireType, dispositionReason }` triple is the exact shape
- * Plan-005 T3.11 P0-1 pins for the default-branch record; `kind` discriminates
- * the emitting leg and selects the counter, and `details` carries the leg's
- * structured context (axis names, counts, thread identities) as flat
- * JSON-safe primitives so the log sink can serialize without walking a graph.
+ * Pinned for the default-branch record; `kind` discriminates the emitting
+ * leg and selects the counter, and `details` carries the leg's structured
+ * context (axis names, counts, thread identities) as flat JSON-safe primitives
+ * so the log sink can serialize without walking a graph.
  *
  * `rawWireType` is `null` for records not caused by a single wire frame (a
  * buffer overflow aggregates many). Where present it is UNTRUSTED provider
@@ -274,9 +261,9 @@ export interface DriverDiagnosticRecord {
 /**
  * The OpenTelemetry instrument name for each diagnostic kind.
  *
- * `driver.reorder_buffer.overflow` is pinned verbatim by Plan-005 T3.11 P2-1;
- * the rest follow its `driver.<band>.<condition>` shape. Keyed by the closed
- * kind union so a new kind without a counter is a compile error.
+ * `driver.reorder_buffer.overflow` is pinned verbatim; the rest follow
+ * its `driver.<band>.<condition>` shape. Keyed by the closed kind union so a
+ * new kind without a counter is a compile error.
  */
 export const DRIVER_DIAGNOSTIC_COUNTER_NAMES: Readonly<Record<DriverDiagnosticKind, string>> =
   Object.freeze({
@@ -326,7 +313,7 @@ export interface DriverDiagnosticLogSink {
 }
 
 /**
- * Increments one metrics counter. The Plan-024 measurement substrate binds an
+ * Increments one metrics counter. measurement substrate binds an
  * OpenTelemetry-backed implementation behind this seam; until it lands, the
  * default in-memory sink keeps exact totals so the counters stay queryable.
  */
@@ -350,8 +337,8 @@ export class ConsoleDriverDiagnosticLogSink implements DriverDiagnosticLogSink {
 /**
  * The default counter sink: exact in-memory totals keyed by counter name plus
  * serialized attributes. This is what makes an overflow "queryable via those
- * diagnostics/metrics surfaces" (Plan-005 T3.11 P2-1) before the Plan-024
- * substrate binds OpenTelemetry behind the same interface.
+ * diagnostics/metrics surfaces" before substrate binds OpenTelemetry
+ * behind the same interface.
  */
 export class InMemoryDriverDiagnosticCounterSink implements DriverDiagnosticCounterSink {
   readonly #totalsByCounterKey = new Map<string, number>();
@@ -391,13 +378,13 @@ export class InMemoryDriverDiagnosticCounterSink implements DriverDiagnosticCoun
 /**
  * The single emission path onto the daemon diagnostic channel.
  *
- * Every T3.11 leg routes through one instance of this class: it freezes the
- * record, lands it on the log sink, increments the kind's counter, and retains
- * it in a bounded most-recent ring so the channel is queryable in-process.
- * Nothing here throws on a sink failure — a diagnostic surface that can take
- * down the normalizer it reports for would invert the containment the PR-A
- * `#ingest` delegate already ships, so sink errors are swallowed after a
- * best-effort fallback line.
+ * Every leg routes through one instance of this class: it freezes the record,
+ * lands it on the log sink, increments the kind's counter, and retains it in a
+ * bounded most-recent ring so the channel is queryable in-process. Nothing
+ * here throws on a sink failure — a diagnostic surface that can take down the
+ * normalizer it reports for would invert the containment the PR-A `#ingest`
+ * delegate already ships, so sink errors are swallowed after a best-effort
+ * fallback line.
  */
 export class DriverDiagnosticsEmitter {
   static readonly DEFAULT_RECENT_RECORD_CAPACITY = 256;
@@ -460,17 +447,16 @@ export class DriverDiagnosticsEmitter {
 }
 
 // --------------------------------------------------------------------------
-// The bounded reorder buffer (Plan-005 T3.11 P2-1).
+// The bounded reorder buffer.
 // --------------------------------------------------------------------------
 
 /**
  * One buffered normalized event awaiting its pair.
  *
  * `toolCallId` is the canonical pairing key — the provider `tool_use_id`
- * normalized into `payload.toolCallId` per Spec-006 §Required Behavior —
- * carried verbatim. `pairingRole` states which half of a tool pair the event
- * is; an `unpaired` event never waits and flows straight through in arrival
- * order.
+ * normalized into `payload.toolCallId` — carried verbatim. `pairingRole`
+ * states which half of a tool pair the event is; an `unpaired` event never
+ * waits and flows straight through in arrival order.
  */
 export interface ReorderBufferedEvent<TEvent> {
   readonly toolCallId: string | null;
@@ -480,7 +466,7 @@ export interface ReorderBufferedEvent<TEvent> {
 
 /**
  * The bounded reorder buffer for a normalize boundary that pairs tool events
- * (Plan-005 T3.11 P2-1).
+ *.
  *
  * Constructed by the EMISSION PIPELINE, not by a driver lifecycle band: pairing
  * operates on normalized events, and the lifecycle bands hand raw frames to

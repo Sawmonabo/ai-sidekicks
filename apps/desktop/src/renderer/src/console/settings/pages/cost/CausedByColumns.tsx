@@ -18,7 +18,7 @@ export const CAUSED_BY_COLUMNS: readonly PartitionColumn<CostReceiptCausedByRow>
       row.party.kind === "system" ? (
         <DerivedFigure text="the machine itself" />
       ) : (
-        <WireFigure value={row.party.participantId} />
+        <WireFigure value={row.party.userId} />
       ),
   },
   { label: "Cost", isAmount: true, render: (row) => <MoneyFigure cents={row.costCents} /> },

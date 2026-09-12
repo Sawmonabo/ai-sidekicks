@@ -1,4 +1,4 @@
-// Plan-005 T3.19 — version-12 migration: the transcript capability backfill.
+// Version-12 migration: the transcript capability backfill.
 //
 // ONE leg, and the smallest a migration in this tree gets: a `supported = 0`
 // `transcript_replay` row for every `driver_name` already cached in
@@ -11,12 +11,9 @@
 // would exclude `src/migrations/` from the published tarball; bundlers handle
 // `import.meta.url` inconsistently).
 //
-// PROVENANCE. The canonical schema source-of-truth is
-// `docs/architecture/schemas/local-sqlite-schema.md`
-// §"Driver and Runtime Binding Tables (Plan-005)", whose widening note describes
-// the row set landing "in two waves": the thirteen campaign flags at version 11,
-// and `transcript_replay` here. This file applies that note; it does not decide
-// it.
+// The canonical schema source-of-truth is whose widening note describes the row
+// set landing "in two waves": the thirteen campaign flags at version 11, and
+// `transcript_replay` here. This file applies that note; it does not decide it.
 //
 // ----------------------------------------------------------------------------
 // Why the CHECK is untouched and the ROW SET is not
@@ -41,8 +38,6 @@
 // backfill has to land in the same ordinal that widens the union for that reason
 // and no other.
 //
-// Per invariant I-005-2 (undeclared capability = unsupported) the backfilled row
-// is `supported = 0`: a driver that has not answered a flag does not support it.
 // Both shipped drivers declare `transcript_replay: false` at this task, so the
 // backfilled row and the declared value agree; the task that flips a declaration
 // to `true` moves the row through an ordinary capability refresh, not through a
@@ -76,19 +71,13 @@
 //     `schema_version` guard is still what prevents a second apply; the
 //     idempotency only means a hand-run costs nothing.
 //
-// Spec coverage: `Spec-005 §Canonical Transcript Export And Replay` (the
-// `transcript_replay` capability), `Spec-005 §Required Behavior` (undeclared
-// capability = unsupported). Refs: Plan-005 T3.19, I-005-2, ADR-029,
-// `docs/architecture/schemas/local-sqlite-schema.md` §"Driver and Runtime
-// Binding Tables (Plan-005)".
 
 export const TRANSCRIPT_CAPABILITY_BACKFILL_MIGRATION_SQL: string = `
--- Owner: Plan-005 | Migration: 0012-transcript-capability-backfill.ts (Tier 4 Phase 3)
 
 -- ---------------------------------------------------------------------------
 -- driver_capabilities: the fourteenth flag's row, for every cached driver.
 -- The version-11 CHECK already admits 'transcript_replay'; only the row set
--- moves here (I-005-2: undeclared capability = unsupported).
+-- moves here (undeclared capability = unsupported).
 -- ---------------------------------------------------------------------------
 INSERT INTO driver_capabilities (driver_name, capability_flag, supported, refreshed_at)
   SELECT cached_driver.driver_name, 'transcript_replay', 0, cached_driver.refreshed_at

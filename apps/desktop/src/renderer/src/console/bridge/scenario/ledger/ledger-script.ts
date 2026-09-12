@@ -64,7 +64,7 @@ export interface LedgerScriptEntry {
    * Who the beat is attributed to, where the wire names anyone.
    *
    * `EventEnvelope.actor`, under the console's own name for it: the wire's member
-   * holds a participant id, an AGENT id, or nothing, and carries no discriminator, so
+   * holds a user id, an AGENT id, or nothing, and carries no discriminator, so
    * the scenario states whichever id acted and claims nothing about which kind it is.
    * Absent for a daemon transition, which is the system arm.
    */
@@ -117,7 +117,7 @@ export interface RunTransitionInput {
    * stating a value nothing here can check.
    */
   readonly parentRunId?: string;
-  /** Whether the child is the parent's own helper rather than a participant's run. */
+  /** Whether the child is the parent's own helper rather than a user's run. */
   readonly internalHelper?: boolean;
   /** The runtime node that produced the child, where the daemon resolved one. */
   readonly producingNodeId?: string;

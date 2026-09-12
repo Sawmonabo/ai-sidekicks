@@ -4,11 +4,9 @@
   // excludes `src/**/__tests__/**` so test files don't ship in `dist/`; this
   // config covers them via a `noEmit` typecheck pass.
   //
-  // Plan-023 Phase 1 T-023p-1-7 widens this config to also cover the
-  // package-root `test/` directory. The substrate-boots smoke test lives at
-  // `apps/desktop/test/launch.smoke.test.ts` (sibling to `src/`, per the
-  // Plan-023 §Tier 1 Partial PR Sequence > Phase 1 §Tasks T-023p-1-7
-  // declaration on line 273). To keep that file typechecked, we drop the
+  // This config also covers the package-root `test/` directory. The
+  // substrate-boots smoke test lives at `apps/desktop/test/launch.smoke.test.ts`,
+  // a sibling of `src/`. To keep that file typechecked, we drop the
   // `rootDir: ./src` constraint (which would error on files outside `src/`)
   // and broaden `include` to also accept `test/**/*`. The narrower `dist`
   // / `node_modules` excludes remain; `rootDir` is omitted so TS infers it
@@ -27,7 +25,7 @@
     "sourceMap": false,
     // The console budget tier imports the harnesses under `scripts/budget/`,
     // which are TypeScript run directly by `node --experimental-strip-types`
-    // (Plan-023 T-023p-1C-1). Node resolves the extension it is GIVEN and does
+    // Node resolves the extension it is GIVEN and does
     // no `.mjs` → `.mts` rewriting, so those modules import each other by their
     // real `.mts` path — and a program that pulls them in needs this option to
     // accept that path. Legal here because this config is `noEmit`.
@@ -47,11 +45,11 @@
   // tsconfig.json `references`. This Node-context test config would otherwise
   // drag renderer .tsx files into a JSX-less / DOM-less compilation and trip
   // TS17004 / TS6142 / TS2584 — the same shape of structural blocker the
-  // parent tsconfig.json exclude resolves. Renderer-internal test files (when
-  // they land at T-023p-1-7+) are typechecked by the renderer composite
-  // project itself, not by this Node-context config.
+  // parent tsconfig.json exclude resolves. Renderer-internal test files are
+  // typechecked by the renderer composite project itself, not by this
+  // Node-context config.
   //
-  // Plan-023 Phase 1C adds the three browser-mode console tiers to that list.
+  // The three browser-mode console tiers are on that list too.
   // They live under `test/` — so `include` reaches them — but they import
   // renderer sources and render React into a real DOM, and dragging those in
   // here fails exactly as the renderer `.tsx` exclusion above describes:

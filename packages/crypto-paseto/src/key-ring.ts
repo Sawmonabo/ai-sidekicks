@@ -14,10 +14,10 @@ export interface KeyRingEntry {
 /**
  * In-memory key ring with rotation semantics.
  *
- * Phase 1 scope: no persistence, no I/O. Plan-018 Tier 5 will load entries
- * from its storage backend and hand them to the constructor.
+ * Phase 1 scope: no persistence, no I/O. A later phase will load entries from its
+ * storage backend and hand them to the constructor.
  *
- * Constructor invariants (design spec §3.3):
+ * Constructor invariants (design spec):
  *   1. At least one entry with `retiredAt: undefined` (active).
  *   2. At most one entry with `retiredAt: undefined`.
  *   Together: exactly one active entry per instance.
@@ -93,7 +93,7 @@ export class KeyRing {
    *
    * Callers must reassign the variable holding the `KeyRing` after rotation —
    * `keyRing = keyRing.rotate(next)`. Calling `rotate()` and discarding the
-   * return value silently keeps the old key active. See design spec §8.3.
+   * return value silently keeps the old key active.
    */
   rotate(next: KeyRingEntry): KeyRing {
     if (next.retiredAt !== undefined) {

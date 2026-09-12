@@ -40,14 +40,13 @@ export interface LiveAnnouncerProviderProps {
   /**
    * The clock the announcer's hold deadline runs on.
    *
-   * `Spec-023 §Console Design (Meridian)` §The fixture bridge: "the fixture clock
-   * is the only clock the renderer reads in fixture mode". The announcer arms a
-   * timeout, so an announcer left on the wall clock is a subsystem reaching past
-   * the frozen one — a refusal raised in a scenario would clear on how fast the
-   * runner happened to be rather than on the beat that advanced time, which makes
-   * an accessibility assertion and a screenshot of a standing banner both
-   * unrepeatable. The frame reads `useConsoleClock` and hands the answer down;
-   * this family sits below the bridge in the DAG and cannot ask for itself.
+   * The fixture clock is the only clock the renderer reads in fixture mode. The
+   * announcer arms a timeout, so an announcer left on the wall clock is a subsystem
+   * reaching past the frozen one — a refusal raised in a scenario would clear on how
+   * fast the runner happened to be rather than on the beat that advanced time, which
+   * makes an accessibility assertion and a screenshot of a standing banner both
+   * unrepeatable. The frame reads `useConsoleClock` and hands the answer down; this
+   * family sits below the bridge in the DAG and cannot ask for itself.
    *
    * Ignored when `announcer` is supplied — that announcer arrived with its own.
    */

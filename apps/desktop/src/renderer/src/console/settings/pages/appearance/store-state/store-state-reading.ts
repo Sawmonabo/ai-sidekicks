@@ -1,8 +1,8 @@
 // What this window's durable store says about itself, as a reading a block can draw.
 //
-// Plan-023 §Target Areas states the obligation in terms: until the durable adapter
-// ships, the console "runs on an in-memory adapter and reports that state in its own
-// settings page". Nothing read it. A person choosing a colour scheme was told the
+// Until the durable adapter ships, the console runs on an in-memory adapter and owes
+// a report of that state in its own settings page. Nothing read it. A person choosing
+// a colour scheme was told the
 // choice is "remembered for the next start", which on the in-memory adapter is
 // false — and the only way to find that out was to restart and see it gone.
 //

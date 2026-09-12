@@ -9,11 +9,11 @@ import { type ConsoleRefusal } from "../../../core/index.js";
  * The pane whose body is somewhere else.
  *
  * A named absence rather than an empty rectangle, and two controls rather than none:
- * `Spec-023 §The surface set` keeps the SLOT while the auxiliary window shows the
- * projection — "the main window shows the moved pane's slot as a placeholder with a
- * focus control" — so the widths and the order survive the window's whole life and the
- * pane goes back exactly where it was. Closing the pane instead — which is what this
- * replaced — deleted the position the window's own close would have needed to restore.
+ * the SLOT is kept while the auxiliary window shows the projection — the main window
+ * shows the moved pane's slot as a placeholder with a focus control — so the widths
+ * and the order survive the window's whole life and the pane goes back exactly where
+ * it was. Closing the pane instead — which is what this replaced — deleted the
+ * position the window's own close would have needed to restore.
  *
  * The signal refusal renders HERE, in the slot it is about. A build that cannot
  * subscribe to the crashed-window signal cannot notice a window that died, and a

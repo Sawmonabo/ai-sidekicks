@@ -53,7 +53,7 @@ function renderSection(options: {
 }): RenderedSection {
   const store = new SessionStore({ sessionId: SESSION_ID });
   if (options.runs !== undefined) {
-    store.initialise({ cursor: 0, entities: options.runs, participantJoinLog: [] });
+    store.initialise({ cursor: 0, entities: options.runs, userJoinLog: [] });
   }
   if (options.degraded === true) {
     store.markDegraded("read-failed");

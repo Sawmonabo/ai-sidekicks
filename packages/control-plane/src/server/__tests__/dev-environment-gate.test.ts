@@ -1,5 +1,4 @@
-// Plan-008 §Phase 1 §T-008b-1-T2 (table-driven) + §T-008b-1-T3 (pass-through):
-// I-008-1 gate #2 (`ENVIRONMENT === 'development'`) allow-list contract.
+// +): gate #2 (`ENVIRONMENT === 'development'`) allow-list contract.
 //
 // What we verify, end-to-end through `buildControlPlaneFetchHandler`:
 //
@@ -14,8 +13,7 @@
 //        Worker published via `wrangler deploy` (no `--env`) has
 //        `env.ENVIRONMENT === undefined`, even after a hypothetical
 //        `wrangler secret put CONTROL_PLANE_BOOTSTRAP_ENABLED 1`. The
-//        allow-list pivot (Codex PR #20 round 4 — see Plan-008 §Decision
-//        Log) closed this path.
+//        allow-list closes this path.
 //
 //   T3 — The 'development' row asserts the gate-PASS contract: status
 //        is NOT 503 and the refusal logger is never invoked. The handler
@@ -25,10 +23,6 @@
 //        method) — that path crashes the refusal-asserting deps if
 //        reached, so a passing test proves the dispatch happened cleanly.
 //
-// Refs: docs/plans/008-control-plane-relay-and-session-join.md §I-008-1,
-//       docs/plans/008-control-plane-relay-and-session-join.md §T-008b-1-T2,
-//       docs/plans/008-control-plane-relay-and-session-join.md §T-008b-1-T3,
-//       Plan-008 §Decision Log 2026-04-30 (Codex PR #20 round-4 allow-list pivot).
 
 import { describe, expect, it } from "vitest";
 import { buildControlPlaneFetchHandler, type ControlPlaneEnv } from "../host.js";
@@ -86,7 +80,7 @@ const REFUSAL_ROWS: readonly RefusalRow[] = [
   },
 ];
 
-describe("T2 / I-008-1 gate #2: dev-environment allow-list refusal table", () => {
+describe("T2 / gate #2: dev-environment allow-list refusal table", () => {
   for (const row of REFUSAL_ROWS) {
     it(`refuses ${row.label}`, async () => {
       const result = await runGate(row.env);
@@ -101,7 +95,7 @@ describe("T2 / I-008-1 gate #2: dev-environment allow-list refusal table", () =>
   }
 });
 
-describe("T3 / I-008-1 gate #2: handler serves with both gates passing", () => {
+describe("T3 / gate #2: handler serves with both gates passing", () => {
   it("does NOT refuse when CONTROL_PLANE_BOOTSTRAP_ENABLED='1' AND ENVIRONMENT='development'", async () => {
     const result = await runGate({
       CONTROL_PLANE_BOOTSTRAP_ENABLED: "1",

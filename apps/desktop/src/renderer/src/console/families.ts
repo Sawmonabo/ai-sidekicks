@@ -2,12 +2,11 @@
 //
 // WHY THIS FILE EXISTS AT ALL
 //
-// Seven surface families (T-023p-1C-2 … T-023p-1C-8) are built on branches that run
-// at the same time. Each has to become reachable from the entry point, and there is
-// exactly one way to do that without every branch editing the same registry: give
-// each family a SEAT — one line, reserved in advance, that only that family
-// replaces. Each branch then produces one one-line diff at a position no other
-// branch touches, and none of them conflicts.
+// Seven surface families are built on branches that run at the same time. Each has to
+// become reachable from the entry point, and there is exactly one way to do that
+// without every branch editing the same registry: give each family a SEAT — one line,
+// reserved in advance, that only that family replaces. Each branch then produces one
+// one-line diff at a position no other branch touches, and none of them conflicts.
 //
 // SEVEN IS THE ONLY COUNT THIS HEADER STATES, and it is the number of reserved seat
 // lines at the foot of the composition. It was not always: this header spelled the
@@ -126,12 +125,12 @@ export function registerConsoleFamilies(
   frameBindings: FrameBindingRegistry,
   pinnedRegions: PinnedPaneRegionRegistry,
 ): void {
-  // NO SHIPPED TIER-1 FAMILY CLAIMS A SLOT OF ITS OWN ANY MORE. Two of them are
+  // NO PRE-CONSOLE FAMILY CLAIMS A SLOT OF ITS OWN ANY MORE. Two of them are
   // absorbed by the console surfaces that mount them, through the helpers
   // `seats/surface/absorbed-surfaces.ts` publishes, so they reach the screen inside a
-  // console-authored surface rather than beside one. The shipped participant roster
+  // console-authored surface rather than beside one. The shipped user roster
   // was the last slot claimant, and it is retired rather than re-homed: it rendered
-  // presence a second time in one application, and the collaboration family renders
+  // presence a second time in one application, and the channels family renders
   // presence from the bridge the console resolved. The `workspace` slot it used to
   // hold is the LEDGER's now, claimed at that family's own seat below, so the frame
   // resolves a console-authored body there rather than a reservation.
@@ -193,7 +192,7 @@ export function registerConsoleFamilies(
   // what keeps the block a grammar a reviewer can read at a glance.
   const ledgerComposition = { workspace: Workspace };
   // The sessions destination's composition, on the same terms one line up: that
-  // surface is the collaboration family's and the composed new-session draft is the
+  // surface is the channels family's and the composed new-session draft is the
   // workspace family's, and one view family may not import another — so the root says
   // which component fills the place beside the shipped probe. Named for what it
   // MOUNTS rather than `…Composition` because a seat is one line and has to stay
@@ -204,11 +203,11 @@ export function registerConsoleFamilies(
   // NOTHING BUT SEATS BELOW THIS LINE. A paragraph between two seats reads to a
   // branch exactly like this one does above them, and only one of the two leaves
   // seven one-line diffs at seven distinct positions.
-  registerLedger(surfaces, ledgerComposition); // T-023p-1C-2 ledger
-  registerComposerFamily(projectors, sidebarSections); // T-023p-1C-3 composer
+  registerLedger(surfaces, ledgerComposition); // ledger
+  registerComposerFamily(projectors, sidebarSections); // composer
   registerSessionSurfacesFamily(surfaces, sidebarSections, frameBindings, sessionsMount); // session surfaces
-  registerRepos(sidebarSections, inlineCardSeats); // T-023p-1C-5 repos
-  registerWorkflowSurfaces(surfaces, pinnedRegions); // T-023p-1C-6 workflows
-  // T-023p-1C-7 browser-terminal
-  // T-023p-1C-8 gallery
+  registerRepos(sidebarSections, inlineCardSeats); // repos
+  registerWorkflowSurfaces(surfaces, pinnedRegions); // workflows
+  // browser-terminal
+  // gallery
 }

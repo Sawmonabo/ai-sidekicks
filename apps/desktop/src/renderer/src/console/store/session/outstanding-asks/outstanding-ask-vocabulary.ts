@@ -3,7 +3,7 @@
 // SEPARATE FROM THE REGISTER THAT READS IT because these are two different claims. This
 // module says which event kinds open and close which lifecycle, which member each one
 // carries its identity on, and how those parts compose into one key — every sentence a
-// statement about `Spec-006`'s taxonomy, checkable against the contracts event census
+// statement about the event taxonomy, checkable against the contracts event census
 // and against nothing this console does. `outstanding-ask-journal.ts` says what a
 // ledger of those lifecycles holds and how rows advance it, which is a statement about
 // this console and about no wire at all.
@@ -19,7 +19,7 @@ import type { RunState } from "@ai-sidekicks/contracts";
 import { driverAskIdentitySegments, structuralKey } from "../../../core/index.js";
 import type { ConsoleSessionEvent } from "../../entities/index.js";
 
-/** How `Spec-006 §Run Lifecycle (run_lifecycle)` denormalizes a state onto its event type. */
+/** How the run-lifecycle taxonomy denormalizes a state onto its event type. */
 export const RUN_STATE_EVENT_PREFIX = "run.";
 
 /**
@@ -136,7 +136,7 @@ export const REQUEST_LIFECYCLES: readonly RequestLifecycle[] = [
     openedBy: "driver_ask.requested",
     closedBy: ["driver_ask.responded", "driver_ask.expired", "driver_ask.canceled"],
     correlationMember: "askId",
-    // `Spec-006` makes `runId` required on all four `driver_ask.*` shapes, which is what
+    // `runId` is required on all four `driver_ask.*` shapes, which is what
     // makes the scope readable off the payload here rather than off a row this register
     // never sees.
     scopeMember: RUN_CORRELATION_MEMBER,
@@ -218,8 +218,7 @@ export function identifiedRequestKeyOf(
  * Which request lifecycle, if any, this event belongs to.
  *
  * Matched on the event KIND and never on which correlation member the payload happens to
- * carry: `Spec-006 §Approval Flow (approval_flow)` puts `askId` on `approval.requested`
- * as well, so a payload-first match would open a provider ask that no `driver_ask.*`
+ * carry: `askId` rides `approval.requested` as well, so a payload-first match would open a provider ask that no `driver_ask.*`
  * terminal could ever close.
  */
 export function lifecycleFor(kind: string): RequestLifecycle | undefined {

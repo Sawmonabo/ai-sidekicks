@@ -1,15 +1,15 @@
 // A figure the daemon sent, wearing the provenance signature.
 //
-// `Spec-023 §Console Design (Meridian)` rule 4: "every wire-true figure — costs,
-// counts, SHAs, durations, token totals, timestamps — renders in mono … Mono is the
-// signature that a number came from the wire; prose never paraphrases a figure."
+// Design-language rule 4: every wire-true figure — costs, counts, SHAs, durations,
+// token totals, timestamps — renders in mono. Mono is the signature that a number came
+// from the wire; prose never paraphrases a figure.
 //
-// This carries BOTH classes §The eight rules names, because both come from the wire
-// and both therefore earn the mono signature: a byte-for-byte string (an id, a
-// digest, a state name, an error code, a provider label) and a quantity formatted
-// from the exact wire value through `Intl` (`wire-figures.ts` is the only module
-// allowed to do that formatting). It is selectable, because a digest a person cannot
-// copy is a digest they have to retype.
+// This carries BOTH classes the eight rules name, because both come from the wire and
+// both therefore earn the mono signature: a byte-for-byte string (an id, a digest, a
+// state name, an error code, a provider label) and a quantity formatted from the exact
+// wire value through `Intl` (`wire-figures.ts` is the only module allowed to do that
+// formatting). It is selectable, because a digest a person cannot copy is a digest they
+// have to retype.
 //
 // ITS OWN MODULE, AND `DerivedFigure` BESIDE IT RATHER THAN INSIDE IT. The
 // distinction between the two is the console's most load-bearing typographic claim,

@@ -41,7 +41,7 @@
 // WHY IT SURVIVES AT ALL. Nine modules inside this family reach it: the seven plane
 // modules of `growth-signatures/` that name a value at all — `panes.ts` names shapes
 // from two of these planes and the other six one each — plus
-// `fixture/collaboration/session-directory.ts` and the gitflow port test. What the door buys them
+// `fixture/session/session-directory.ts` and the gitflow port test. What the door buys them
 // is a binding to the growth values as a SET rather than to the file layout
 // underneath: a plane module that reached `growth-values/tools.js` directly would
 // have to move the day a value did, for no gain over the one name that never moves.
@@ -84,7 +84,7 @@ export type {
 export type { GrowthAttentionPreference } from "./attention.js";
 
 // The Awareness activity field's reading, and the per-device fan-out behind one
-// participant's aggregated presence.
+// user's aggregated presence.
 export type {
   GrowthActivitySnapshot,
   GrowthAgentActivityReading,
@@ -143,11 +143,11 @@ export type {
 // identities.
 export { mcpBindingKeyOf } from "./mcp.js";
 
-// What the channel plane's and the membership plane's SIGNATURES take, and nothing
+// What the channel plane's SIGNATURES take, and nothing
 // else. Every one of these is a shape no code package carries, which is what puts them
 // here rather than behind a contracts import.
 //
-// The vocabulary those shapes are built from — the audience tuple, and the per-device
+// The vocabulary those shapes are built from — the per-device
 // reading — is deliberately ABSENT from this door: its only readers are the surfaces
 // that render it, which are outside this family, and a door publishes what a SIBLING
 // takes. It leaves through `bridge/index.ts` from the module that declares it, which is

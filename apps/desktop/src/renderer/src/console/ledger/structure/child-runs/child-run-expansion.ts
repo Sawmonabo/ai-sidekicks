@@ -1,8 +1,8 @@
 // Expanding a child run in place — and what stays on screen when it cannot be.
 //
-// `Spec-013 §Default Behavior` summarizes child-run activity and expands it only when
-// somebody asks; `Spec-013 §Fallback Behavior` fixes what a failed ask leaves behind:
-// "the summary row visible and marked incomplete rather than disappearing". Both
+// Child-run activity is summarized and expands only when somebody asks, and what a
+// failed ask leaves behind is fixed: the summary row visible and marked incomplete
+// rather than disappearing. Both
 // halves are here, and the second is the one that decides the shape — a state machine
 // whose failure arm still carries the summary is a machine that cannot drop a row, and
 // a boolean `isExpanded` beside a separate error would have let a caller render

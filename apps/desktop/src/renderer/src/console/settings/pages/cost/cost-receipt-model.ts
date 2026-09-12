@@ -10,8 +10,8 @@
 //
 // THE SUM IS COMPUTED AND NEVER SHOWN
 //
-// This is the distinction the page's own rules turn on. `Spec-023 §Console Design
-// (Meridian)`'s cost section forbids the renderer producing a figure — the
+// This is the distinction the page's own rules turn on. The renderer never produces
+// a cost figure — the
 // accountant produces the number a session is charged, and a table that added its
 // own column up would be a second accountant reaching a second answer. What happens
 // here is not that: the total is compared against the one the daemon sent and then
@@ -22,7 +22,7 @@
 // WHERE THE CENTS FORMATTER WENT
 //
 // `formatCentsAsCurrency` was declared here while this page was its only reader. The
-// session cast bar renders the same committed figure from the same accountant, and
+// session session header renders the same committed figure from the same accountant, and
 // `workspace/` and `settings/` are sibling view families that may not import each
 // other — so the adapter is hoisted to `console/primitives/figures/wire-figures.ts`,
 // which `apps/desktop/AGENTS.md` already makes the one module that formats a wire

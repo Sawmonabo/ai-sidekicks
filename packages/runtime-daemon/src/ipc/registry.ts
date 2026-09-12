@@ -1,28 +1,22 @@
 // MethodRegistryImpl — runtime realization of the method-namespace registry
-// interface declared in `@ai-sidekicks/contracts/src/jsonrpc-registry.ts`
-// (Plan-007 Phase 2, T-007p-2-3).
+// interface declared in `@ai-sidekicks/contracts/src/jsonrpc-registry.ts`.
 //
-// Spec coverage:
-//   * Plan-007 §Cross-Plan Obligations CP-007-3
-//     (docs/plans/007-local-ipc-and-daemon-control.md) — the
-//     `MethodRegistry.register()` registry surface owed to Plan-026 and
-//     Tier 4 namespace plans. The interface is the cross-package contract;
-//     this file is the daemon-side implementation that the bootstrap
-//     orchestrator constructs and wires into `LocalIpcGateway` dispatch.
+//   * The interface is the cross-package contract; this file is the
+//     daemon-side implementation that the bootstrap orchestrator
+//     constructs and wires into `LocalIpcGateway` dispatch.
 //
-// Invariants this module owns (canonical text in
-// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-6 through I-007-9):
+// Invariants this module owns (canonical text through):
 //
-//   * I-007-6 — duplicate method-name registration MUST be rejected at
+//   * Duplicate method-name registration MUST be rejected at
 //     register-time (synchronously), not at dispatch-time. The registry
-//     here throws `RegistryRegistrationError("duplicate_method", ...)` on
-//     any second `register(method, ...)` call with an already-registered
+//     here throws `RegistryRegistrationError("duplicate_method",...)` on
+//     any second `register(method,...)` call with an already-registered
 //     name. The throw surfaces during daemon bootstrap before any
 //     listener binds, making the failure deterministic for the operator
 //     and for tests.
 //
-//   * I-007-7 — schema validation runs BEFORE handler dispatch. The
-//     `dispatch()` order is exactly: (1) `has(method)` check; (2)
+//   * Schema validation runs BEFORE handler dispatch. The `dispatch()`
+//     order is exactly: (1) `has(method)` check; (2)
 //     `paramsSchema.safeParse(params)`; (3) handler invocation only on
 //     `success: true`; (4) `resultSchema.safeParse(result)` on the
 //     handler's resolved value. The handler is NEVER invoked on a
@@ -30,39 +24,30 @@
 //     short-circuits dispatch with `RegistryDispatchError(registryCode:
 //     "invalid_params")`.
 //
-//   * I-007-9 — method names conform to the canonical format declared in
-//     `docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name Registry (Tier 1 Ratified)`. The dotted-
-//     camelCase regex `/^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/` is
-//     canonical (every segment starts lowercase and may carry camelCase, the
-//     namespace root included since the 2026-09-05 root widening);
-//     LSP-style `$/`-prefixed names remain enforced via a sibling regex
-//     pending a follow-up decision. The regex check runs at `register()`
-//     time per I-007-9.
+//   * Method names conform to the canonical format. The dotted- camelCase regex
+//     `/^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/` is canonical (every segment
+//     starts lowercase and may carry camelCase, the namespace root included since
+//     the 2026-09-05 root widening); LSP-style `$/`-prefixed names remain
+//     enforced via a sibling regex pending a follow-up decision. The regex check
+//     runs at `register()` time.
 //
 // What this module does NOT do (deferred to sibling tasks):
 //   * JSON-RPC numeric error code mapping (`-32601` method not found,
-//     `-32602` invalid params, `-32603` internal error) — owned by
-//     T-007p-2-2 (`jsonrpc-error-mapping.ts`). The registry throws a
-//     daemon-internal `RegistryDispatchError` carrying a stable
-//     `registryCode`; T-2 catches it and selects the wire numeric code.
-//   * Outbound emission / framing — owned by T-007p-2-1
-//     (`local-ipc-gateway.ts`). The registry returns plain values; the
-//     gateway wraps them in `JsonRpcResponse` envelopes.
-//   * Version-mismatch gate enforcement — owned by T-007p-2-4
-//     (`protocol-negotiation.ts`). The registry merely EXPOSES
+//     `-32602` invalid params, `-32603` internal error). The registry
+//     throws a daemon-internal `RegistryDispatchError` carrying a
+//     stable `registryCode`; T-2 catches it and selects the wire
+//     numeric code.
+//   * Outbound emission / framing. The registry returns plain
+//     values; the gateway wraps them in `JsonRpcResponse` envelopes.
+//   * Version-mismatch gate enforcement. The registry merely EXPOSES
 //     `isMutating(method)` for T-2-4 to consult; the registry itself does
 //     not refuse dispatch based on version state.
 //
 // The canonical dotted-camelCase method-name format is imported from
 // `@ai-sidekicks/contracts` as `METHOD_NAME_FORMAT` — the single runtime
-// source ratified at api-payload-contracts.md §JSON-RPC Method-Name Registry
-// (Tier 1 Ratified). BL-142 collapsed the prior daemon-local literal (whose
-// tail class had drifted to `[a-z0-9]`, dropping the ratified camelCase
-// tails) into that shared import. `METHOD_NAME_LSP_REGEX` below stays
-// daemon-local: it enforces the LSP-style `$/`-prefixed system-method shape
-// used by the streaming primitive (T-007p-2-5), which the §Method-Name
-// Registry ratification does not address and which remains a separate
-// follow-up.
+// source. collapsed the prior daemon-local literal (whose tail class had
+// drifted to `[a-z0-9]`, dropping the ratified camelCase tails) into that
+// shared import.
 
 import type {
   Handler,
@@ -83,12 +68,12 @@ import { METHOD_NAME_FORMAT } from "@ai-sidekicks/contracts";
 
 /**
  * LSP-style `$/`-prefixed system method shape. Used by the streaming
- * primitive (T-007p-2-5) for `$/subscription/notify` and
- * `$/subscription/cancel`. The method names inside the streaming
- * primitive's frames are NOT user-namespace registrations, but the
- * registry must still be able to register handlers for them when the
- * substrate routes inbound notifications back through the same dispatch
- * surface (e.g. server-initiated subscription cancellation acks).
+ * primitive for `$/subscription/notify` and `$/subscription/cancel`.
+ * The method names inside the streaming primitive's frames are NOT
+ * user-namespace registrations, but the registry must still be able to
+ * register handlers for them when the substrate routes inbound
+ * notifications back through the same dispatch surface (e.g.
+ * server-initiated subscription cancellation acks).
  *
  * Pattern: literal `$/` + lowercase-leading identifier + zero or more
  * `/`-separated identifiers. Identifiers permit camelCase after the
@@ -101,20 +86,14 @@ import { METHOD_NAME_FORMAT } from "@ai-sidekicks/contracts";
  *   dollar), `$/Subscription/notify` (uppercase head), `$//notify`
  *   (empty segment).
  *
- * The LSP-style shape is not addressed by api-payload-contracts.md §JSON-RPC
- * Method-Name Registry (which ratifies dotted-camelCase only); whether the
- * LSP form remains accepted, gets re-homed under a separate namespace, or is
- * subsumed into a unified canonical taxonomy is a separate follow-up.
  */
 const METHOD_NAME_LSP_REGEX = /^\$\/[a-z][a-zA-Z0-9]*(?:\/[a-z][a-zA-Z0-9]*)*$/;
 
 /**
- * Test a method-name string against the registry's accepted shapes.
- * Returns `true` if the name matches EITHER the canonical dotted-camelCase
- * pattern (per `docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name Registry (Tier 1 Ratified)`)
- * OR the LSP `$/`-prefixed system-method pattern (separate
- * follow-up). Exported only for test reach — production callers go through
- * `register()`.
+ * Test a method-name string against the registry's accepted shapes. Returns
+ * `true` if the name matches EITHER the canonical dotted-camelCase pattern OR the
+ * LSP `$/`-prefixed system-method pattern (separate follow-up). Exported only for
+ * test reach — production callers go through `register()`.
  */
 export function isCanonicalMethodName(method: string): boolean {
   return METHOD_NAME_FORMAT.test(method) || METHOD_NAME_LSP_REGEX.test(method);
@@ -130,12 +109,11 @@ export function isCanonicalMethodName(method: string): boolean {
  * assertions and bootstrap log lines can discriminate without parsing
  * the human-readable message.
  *
- *   * `"duplicate_method"` — I-007-6 enforcement: a second `register()`
- *     call with the same method name. Synchronous throw at register-time.
- *   * `"invalid_method_name"` — I-007-9 enforcement: the method-name
- *     string did not match the canonical dotted-camelCase regex (per
- *     `docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name Registry (Tier 1 Ratified)`)
- *     OR the sibling LSP-style `$/`-prefixed regex.
+ *   * `"duplicate_method"` — enforcement: a second `register()` call with
+ *     the same method name. Synchronous throw at register-time.
+ *   * `"invalid_method_name"` — enforcement: the method-name string did not match
+ *     the canonical dotted-camelCase regex OR the sibling LSP-style `$/`-prefixed
+ *     regex.
  */
 export type RegistryRegistrationCode = "duplicate_method" | "invalid_method_name";
 
@@ -168,16 +146,16 @@ export class RegistryRegistrationError extends Error {
 
 /**
  * Stable string codes for dispatch-time failures. Surfaced via the thrown
- * `RegistryDispatchError`'s `registryCode` field so T-007p-2-2's
- * error-mapping table can select the JSON-RPC numeric code without
- * inspecting the human-readable message.
+ * `RegistryDispatchError`'s `registryCode` field so the error-mapping
+ * table can select the JSON-RPC numeric code without inspecting the
+ * human-readable message.
  *
  *   * `"method_not_found"` — `dispatch(method, ...)` was called for a
  *     method name not present in the registry. T-2 maps to JSON-RPC
  *     `-32601 Method Not Found`.
  *   * `"invalid_params"` — `paramsSchema.safeParse(params)` failed.
- *     I-007-7 enforcement: handler NOT invoked. T-2 maps to JSON-RPC
- *     `-32602 Invalid Params`.
+ *     enforcement: handler NOT invoked. T-2 maps to JSON-RPC `-32602
+ *     Invalid Params`.
  *   * `"invalid_result"` — `resultSchema.safeParse(result)` failed
  *     against the handler's resolved value. This is a PROGRAMMER ERROR
  *     (the handler returned malformed data); T-2 maps to JSON-RPC
@@ -190,8 +168,8 @@ export type RegistryDispatchCode = "method_not_found" | "invalid_params" | "inva
 
 /**
  * Error thrown from `dispatch()`. A dispatch error is a per-request
- * failure surface; T-007p-2-2's mapping table converts the
- * `registryCode` into the JSON-RPC numeric code that lands on the wire.
+ * failure surface; the mapping table converts the `registryCode` into
+ * the JSON-RPC numeric code that lands on the wire.
  *
  * `issues` carries the raw `ZodIssue[]` array produced by `safeParse` for
  * `"invalid_params"` / `"invalid_result"` codes. Type erased to
@@ -249,7 +227,7 @@ interface RegistryEntry {
  * Runtime realization of the `MethodRegistry` interface. Instantiable —
  * the bootstrap orchestrator constructs ONE registry instance and wires
  * it into `LocalIpcGateway`'s dispatch path. Multiple registries per
- * process are plausible (test isolation, future Tier-4 surfaces); the
+ * process are plausible (test isolation, future transport surfaces); the
  * instantiable shape mirrors `LocalIpcGateway`'s same decision.
  *
  * Recommendation: instantiable class, internal `Map<string, RegistryEntry>`.
@@ -260,7 +238,7 @@ interface RegistryEntry {
  *   registry contract and tests need a `__resetForTest()` hook that the
  *   capability domain doesn't naturally have.
  * Trade-off accepted: the bootstrap orchestrator must plumb the registry
- *   instance to dispatch consumers. Tier 1 has exactly one consumer (the
+ *   instance to dispatch consumers. there is exactly one consumer (the
  *   gateway), which makes the plumbing trivial.
  */
 export class MethodRegistryImpl implements MethodRegistry {
@@ -274,13 +252,12 @@ export class MethodRegistryImpl implements MethodRegistry {
   }
 
   /**
-   * Register a typed handler against a method name (I-007-6 + I-007-9
-   * enforcement).
+   * Register a typed handler against a method name (enforcement).
    *
    * Order of validation:
-   *   1. Method-name format check (I-007-9 — runs FIRST so a malformed
-   *      name doesn't first cross the duplicate check).
-   *   2. Duplicate-method check (I-007-6 — synchronous throw).
+   *   1. Method-name format check (runs FIRST so a malformed name
+   *      doesn't first cross the duplicate check).
+   *   2. Duplicate-method check (synchronous throw).
    *   3. Storage.
    *
    * Flag handling: per `RegisterOptions` JSDoc, `mutating` defaults to
@@ -295,22 +272,21 @@ export class MethodRegistryImpl implements MethodRegistry {
     handler: Handler<P, R>,
     opts?: RegisterOptions,
   ): void {
-    // I-007-9: method-name format check at register-time.
+    // Method-name format check at register-time.
     if (!isCanonicalMethodName(method)) {
       throw new RegistryRegistrationError(
         "invalid_method_name",
-        `MethodRegistry.register: method name ${JSON.stringify(method)} does not match the canonical dotted-camelCase format 'namespace.method' (per api-payload-contracts.md §JSON-RPC Method-Name Registry) or the LSP-style '$/segment[/segment]*' system-method shape`,
+        `MethodRegistry.register: method name ${JSON.stringify(method)} does not match the canonical dotted-camelCase format 'namespace.method' or the LSP-style '$/segment[/segment]*' system-method shape`,
       );
     }
 
-    // I-007-6: duplicate-method check. The throw surfaces synchronously
-    // during daemon bootstrap, before any listener binds — the operator
-    // sees a deterministic failure rather than a non-deterministic
-    // dispatch-time shadowing.
+    // The throw surfaces synchronously during daemon bootstrap, before
+    // any listener binds — the operator sees a deterministic failure
+    // rather than a non-deterministic dispatch-time shadowing.
     if (this.#methods.has(method)) {
       throw new RegistryRegistrationError(
         "duplicate_method",
-        `MethodRegistry.register: method ${JSON.stringify(method)} is already registered (duplicate registrations are rejected at register-time, not dispatch-time, per I-007-6)`,
+        `MethodRegistry.register: method ${JSON.stringify(method)} is already registered (duplicate registrations are rejected at register-time, not dispatch-time)`,
       );
     }
 
@@ -340,7 +316,7 @@ export class MethodRegistryImpl implements MethodRegistry {
    * mirrors it verbatim:
    *   1. `has(method)` — unregistered → throw `method_not_found`.
    *   2. `paramsSchema.safeParse(params)` — failure → throw
-   *      `invalid_params` BEFORE handler invocation (I-007-7).
+   *      `invalid_params` BEFORE handler invocation.
    *   3. Handler invocation with the parsed params + ctx.
    *   4. `resultSchema.safeParse(result)` — failure → throw
    *      `invalid_result` (programmer error; T-2 maps to `-32603`).
@@ -358,10 +334,9 @@ export class MethodRegistryImpl implements MethodRegistry {
       );
     }
 
-    // Step 2: schema-validates-before-dispatch (I-007-7). `safeParse`
-    // returns `{ success: false, error }` on failure rather than
-    // throwing — this lets us short-circuit dispatch with a structured
-    // throw of our own type (`RegistryDispatchError`) that T-007p-2-2's
+    // `safeParse` returns `{ success: false, error }` on failure rather
+    // than throwing — this lets us short-circuit dispatch with a
+    // structured throw of our own type (`RegistryDispatchError`) that
     // mapping table can convert to the wire `-32602` envelope.
     const parsedParams = entry.paramsSchema.safeParse(params);
     if (!parsedParams.success) {
@@ -409,13 +384,13 @@ export class MethodRegistryImpl implements MethodRegistry {
 
   /**
    * Test whether a registered method was registered with `mutating: true`.
-   * Returns `undefined` for unregistered methods — the caller (T-007p-2-4
-   * version-gate) needs to distinguish "unknown method" (let dispatch
+   * Returns `undefined` for unregistered methods — the caller
+   * (version-gate) needs to distinguish "unknown method" (let dispatch
    * surface the `method_not_found` error) from "known read-only method"
-   * (allow through despite version mismatch) from "known mutating
-   * method" (refuse with version-mismatch error).
+   * (allow through despite version mismatch) from "known mutating method"
+   * (refuse with version-mismatch error).
    *
-   * Per F-007p-2-06, this query is the version-gate's primary read.
+   * This query is the version-gate's primary read.
    */
   isMutating(method: string): boolean | undefined {
     const entry = this.#methods.get(method);

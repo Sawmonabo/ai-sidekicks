@@ -1,10 +1,9 @@
 // The settings entry index: which page holds which section, and how a term finds it.
 //
-// `Spec-023 §Console Design (Meridian)` §The settings surface fixes the shape: "A
-// left rail of sections and a right pane holding the selected one … Every registry
-// entry declares an id, a section, a label, keyword aliases, and its renderer, so a
-// match names where it landed, scrolls into the pane, and settles with one brief
-// highlight."
+// The surface is a left rail of sections and a right pane holding the selected one.
+// Every registry entry declares an id, a section, a label, keyword aliases, and its
+// renderer, so a match names where it landed, scrolls into the pane, and settles with
+// one brief highlight.
 //
 // WHY A REGISTRY RATHER THAN A SWITCH
 //

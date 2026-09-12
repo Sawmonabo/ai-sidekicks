@@ -1,4 +1,4 @@
-// Wire-rejection helpers shared by every renderer surface — Plan-023 Phase 1B.
+// Wire-rejection helpers shared by every renderer surface.
 //
 // Counted across the four sibling views in `runtime-node-attach/` before this
 // module existed: THREE normalizers (`normalizeAttachError`,

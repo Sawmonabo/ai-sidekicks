@@ -1,9 +1,9 @@
 // One carrier row's drag gesture: what the library is asked for, and what stays ours.
 //
 // THE LIBRARY IS THE ADOPTED ONE AND ONLY FOR THE GESTURE.
-// `Spec-023 §Console Libraries` admits `@atlaskit/pragmatic-drag-and-drop` at an exact
-// pin for drag and assigns the drop indicators, the keyboard path, and the live-region
-// strings to us. So this module registers a draggable and a drop target through the
+// `@atlaskit/pragmatic-drag-and-drop` is admitted at an exact pin for drag, with the
+// drop indicators, the keyboard path, and the live-region strings ours. So this module
+// registers a draggable and a drop target through the
 // library's own direct entry paths — never the deprecated shims the 3.x line kept — and
 // answers exactly two questions with its own state: whether this row is the one being
 // dragged, and whether a droppable row is over it. Where the drop LANDS is
@@ -12,7 +12,7 @@
 // THE DRAG DATA IS A LOCAL ID AND NOTHING ELSE. `getInitialData` runs once as the drag
 // starts, so anything richer put in it would be a snapshot of an entry that can settle,
 // be refused, or be abandoned before the drop — and the drop would then move a row the
-// participant is no longer looking at. One opaque string, re-read against the ledger by
+// user is no longer looking at. One opaque string, re-read against the ledger by
 // whoever performs the move.
 //
 // A ROW NEVER ACCEPTS ITSELF. `canDrop` refuses the source row, so a drag that ends

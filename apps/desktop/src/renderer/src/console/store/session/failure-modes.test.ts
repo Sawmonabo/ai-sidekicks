@@ -45,7 +45,7 @@ describe("failure matrix — a bridge event arrives before the store is initiali
     expect(early.buffered).toBe(2);
     expect(store.snapshot().timeline).toHaveLength(0);
 
-    store.initialise({ cursor: 1, entities: [], participantJoinLog: [] });
+    store.initialise({ cursor: 1, entities: [], userJoinLog: [] });
 
     // Both buffered events land, ordered, with no gap recorded: the events were
     // never missing, only early. Dropping them would have left a hole the console
@@ -58,7 +58,7 @@ describe("failure matrix — a bridge event arrives before the store is initiali
 
   it("refuses an event addressed to another session instead of mixing it in", () => {
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
 
     const outcome = store.applyBatch([eventAt(1, { sessionId: "session-2" })]);
 
@@ -69,7 +69,7 @@ describe("failure matrix — a bridge event arrives before the store is initiali
 
   it("records the missing sequences when a gap opens rather than renumbering", () => {
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
 
     const outcome = store.applyBatch([eventAt(1), eventAt(4)]);
 
@@ -81,7 +81,7 @@ describe("failure matrix — a bridge event arrives before the store is initiali
 describe("failure matrix — a subscriber writes back into the apply chokepoint", () => {
   it("queues the re-entrant batch, applies it, and names the subscriber as the defect", () => {
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
 
     let hasReentered = false;
     const unsubscribe = store.readable.subscribe(() => {
@@ -109,7 +109,7 @@ describe("failure matrix — a subscriber writes back into the apply chokepoint"
 
   it("applies a duplicate sequence exactly once", () => {
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
 
     store.applyBatch([eventAt(1)]);
     const second = store.applyBatch([eventAt(1)]);
@@ -123,7 +123,7 @@ describe("failure matrix — a subscriber writes back into the apply chokepoint"
 describe("failure matrix — dedupe memory over a long-lived session", () => {
   it("releases the sequences the cursor already refuses, so the set stays a batch wide", () => {
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
 
     const batchSize = 100;
     const batchCount = 50;
@@ -147,7 +147,7 @@ describe("failure matrix — dedupe memory over a long-lived session", () => {
     // The set's whole remaining job. A release that cleared it mid-batch would
     // admit the second copy of a sequence the same batch already carried.
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
 
     const outcome = store.applyBatch([eventAt(1), eventAt(1), eventAt(2)]);
 
@@ -158,7 +158,7 @@ describe("failure matrix — dedupe memory over a long-lived session", () => {
 
   it("negative control: a replay below the cursor is still rejected", () => {
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
     store.applyBatch([eventAt(1), eventAt(2), eventAt(3)]);
 
     const replay = store.applyBatch([eventAt(2), eventAt(3)]);

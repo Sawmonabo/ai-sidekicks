@@ -245,7 +245,7 @@ describe("ScheduledReading — a scheduled read published to subscribers", () =>
       },
     });
 
-    reading.requestRead("participant-request");
+    reading.requestRead("user-request");
     clock.advance(PAST_DEBOUNCE_MS);
     await settleMicrotasks();
 
@@ -273,7 +273,7 @@ describe("ScheduledReading — a scheduled read published to subscribers", () =>
       read: () => Promise.reject(new Error("the port did not answer")),
     });
 
-    reading.requestRead("participant-request");
+    reading.requestRead("user-request");
     clock.advance(PAST_DEBOUNCE_MS);
     await settleMicrotasks();
 
@@ -304,7 +304,7 @@ describe("ScheduledReading — a scheduled read published to subscribers", () =>
       read: () => Promise.reject(new Error("the port did not answer")),
     });
 
-    reading.requestRead("participant-request");
+    reading.requestRead("user-request");
     clock.advance(PAST_DEBOUNCE_MS);
     await settleMicrotasks();
 
@@ -321,7 +321,7 @@ describe("ScheduledReading — a scheduled read published to subscribers", () =>
       read: () => Promise.reject(new Error("the port did not answer")),
     });
 
-    reading.requestRead("participant-request");
+    reading.requestRead("user-request");
     clock.advance(PAST_DEBOUNCE_MS);
     await settleMicrotasks();
 
@@ -434,7 +434,7 @@ describe("ScheduledReading — a scheduled read published to subscribers", () =>
       // HELD until that write settles, so the read below overlaps it.
       const write = reading.beginOutOfBandWrite();
 
-      reading.requestRead("participant-request");
+      reading.requestRead("user-request");
       clock.advance(PAST_DEBOUNCE_MS);
       await settleMicrotasks();
       expect(reading.readsEntered).toHaveLength(1);

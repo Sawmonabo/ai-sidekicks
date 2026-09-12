@@ -1,8 +1,8 @@
 // Renderer-asset resolution: one pure function and its containment matrix.
 //
-// Plan-023 Phase 1B (T-023p-1B-1). Split out of `./protocol.ts` so every
-// containment arm is unit-testable with no Electron import anywhere in its
-// dependency graph — this module reaches only `node:*`, the scheme constants,
+// Split out of `./protocol.ts` so every containment arm is unit-testable with
+// no Electron import anywhere in its dependency graph — this module reaches
+// only `node:*`, the scheme constants,
 // and the absence predicate main's log shares with it, and performs no Electron
 // call of any kind.
 //
@@ -67,7 +67,7 @@ const SOURCE_MAP_SUFFIX = ".map";
  * unconditionally — which `./protocol.ts` answers as an empty-bodied 404.
  *
  * The build emits hidden source maps for the Sentry upload; they are not
- * shipped, and Phase 5's `electron-builder` `files` filter excludes
+ * shipped, and the `electron-builder` `files` filter excludes
  * `out/**\/*.map` from the package. But a developer tree has them sitting
  * beside the bundle, so "not packaged" is not the same as "not reachable" —
  * without this the resolver would happily admit the renderer's full original

@@ -1,7 +1,7 @@
 // The footnote registry — one per timeline, keyed by source.
 //
-// `Spec-023 §Console Libraries`, streaming-markdown row, OWN-BUILDs "the footnote
-// registry" and says nothing about how it is keyed. THIS MODULE DECIDES THAT, and the
+// The footnote registry is own-built, and nothing above this module says how it is
+// keyed. THIS MODULE DECIDES THAT, and the
 // rule is: one popover host per timeline over a registry keyed by (source, identifier),
 // so a definition line never resolves as its own body.
 //

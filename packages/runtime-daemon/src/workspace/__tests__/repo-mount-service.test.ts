@@ -1,4 +1,4 @@
-// RepoMountService — Plan-009 Phase 2 T2.3.
+// RepoMountService behaviour.
 //
 // Drives the real service against a real temp-file SQLite database (canonical
 // `openDatabase` factory → per-test tmp dir → `afterEach` close + unlink), a
@@ -7,22 +7,6 @@
 // the same fixture approach `repo-root-resolver.test.ts` uses, because "attach
 // through a subdirectory resolves to the repository root" is only a real claim
 // if git actually answered it.
-//
-// Spec coverage: `Spec-009 §Required Behavior` (attach resolves and persists
-// the canonical root); `Spec-009 §Default Behavior` (attach unconditionally
-// creates a read-only default workspace rooted at that canonical root);
-// `Spec-009 §Fallback Behavior` (unresolvable paths fail explicitly);
-// `Spec-009 §Local Trust Envelope (V1 Definition)` (attach IS envelope
-// admission — no containment check fires here);
-// `Spec-009 §Detach Semantics (V1 Definition)` (busy refusal, archive cascade,
-// terminal `detached`, re-attach as a NEW row);
-// `Spec-009 §Repo Mount Health (V1 Definition)` (the on-read probe floor).
-//
-// Verifies invariant: I-009-1 (the persisted root is the resolver's output, not
-// the entered path), I-009-2 (a failed resolution persists nothing at all),
-// I-009-4 (a non-git directory is `vcs_type 'none'`, which is not an error),
-// I-009-5 (rows carry resolved identity AND provenance), I-009-9 (one lifecycle
-// event per real transition, and none for a non-transition).
 //
 // Five deliberate test-only mechanisms:
 //   * REAL git fixtures, built once in `beforeAll` under a hermetic environment.
@@ -99,7 +83,7 @@ const NODE_ID: NodeId = "node-local" as NodeId;
 const OTHER_NODE_ID: NodeId = "node-remote" as NodeId;
 const UNKNOWN_MOUNT_ID: RepoMountId = "0190f9a1-0000-7000-8000-00000000ffff" as RepoMountId;
 
-const PARTICIPANT_ACTOR: string = "0190f9a4-0000-7000-8000-000000000001";
+const USER_ACTOR: string = "0190f9a4-0000-7000-8000-000000000001";
 const ATTACH_CORRELATION_ID: string = "0190f9a5-0000-7000-8000-000000000001";
 const DETACH_CORRELATION_ID: string = "0190f9a5-0000-7000-8000-000000000002";
 const RUN_ID: string = "0190f9a6-0000-7000-8000-000000000001";
@@ -312,9 +296,9 @@ interface GitFixtures {
   readonly nestedDirectory: string;
   /** A second, unrelated repository — the envelope-admission control's target. */
   readonly unrelatedRepositoryRoot: string;
-  /** A directory that is not a repository at all (I-009-4's honest `none`). */
+  /** A directory that is not a repository at all (the honest `none`). */
   readonly plainDirectory: string;
-  /** An absolute path that does not exist (I-009-2). */
+  /** An absolute path that does not exist. */
   readonly absentPath: string;
   /** An absolute path to a `git` that is not there (the win32 seam's control). */
   readonly missingGitExecutable: string;
@@ -635,16 +619,14 @@ afterEach(() => {
 });
 
 // ----------------------------------------------------------------------------
-// attach — `Spec-009 §Required Behavior` / `§Default Behavior`
 // ----------------------------------------------------------------------------
 
 describe("RepoMountService.attach", () => {
   it("persists the resolved root of a SUBDIRECTORY attach, and it survives a reopen", async () => {
     const response = await harness.service.attach({
       sessionId: SESSION_ID,
-      // The entered path is BELOW the repository root — the case
-      // `Spec-009 §Implementation Notes` calls out, and the only shape in which
-      // I-009-1 (resolved root, not entered path) is observable at all.
+      // The entered path is BELOW the repository root — the case calls out, and
+      // the only shape in which is observable at all.
       localPath: gitFixtures.nestedDirectory,
       nodeId: NODE_ID,
     });
@@ -655,17 +637,15 @@ describe("RepoMountService.attach", () => {
     expect(response.canonicalRoot).not.toBe(gitFixtures.nestedDirectory);
     expect(response.defaultWorkspaceId).toBe(WORKSPACE_ID_POOL[0]);
 
-    // AC1's durability leg: close the handle, reopen the same FILE, and read.
-    // An in-memory or uncommitted row would not survive this. The harness's
-    // service and emitter hold statements against the closed handle and are not
-    // used again in this arm.
+    // The durability leg: close the handle, reopen the same FILE, and read. An
+    // in-memory or uncommitted row would not survive this.
     harness.db.close();
     harness.db = openDatabase(harness.dbPath);
 
     const mount = requireMountRow(response.repoMountId);
     expect(mount.canonical_root).toBe(gitFixtures.repositoryRoot);
-    // PROVENANCE survives alongside resolved identity (I-009-5), and the two
-    // differ — which is what makes keeping both meaningful.
+    // PROVENANCE survives alongside resolved identity, and the two differ —
+    // which is what makes keeping both meaningful.
     expect(mount.local_path).toBe(gitFixtures.nestedDirectory);
     expect(mount.local_path).not.toBe(mount.canonical_root);
     expect(mount.session_id).toBe(SESSION_ID);
@@ -684,7 +664,7 @@ describe("RepoMountService.attach", () => {
     expect(readLifecycleEventTypes()).toEqual(["repo.attached", "workspace.ready"]);
   });
 
-  it("records a non-git directory as vcs_type 'none' — not an error (I-009-4, D-009-4)", async () => {
+  it("records a non-git directory as vcs_type 'none' — not an error", async () => {
     const response = await harness.service.attach({
       sessionId: SESSION_ID,
       localPath: gitFixtures.plainDirectory,
@@ -708,17 +688,17 @@ describe("RepoMountService.attach", () => {
       sessionId: SESSION_ID,
       localPath: gitFixtures.repositoryRoot,
       nodeId: NODE_ID,
-      actor: PARTICIPANT_ACTOR,
+      actor: USER_ACTOR,
       correlationId: ATTACH_CORRELATION_ID,
     });
 
     for (const envelope of readLifecycleEnvelopes()) {
-      expect(envelope.actor).toBe(PARTICIPANT_ACTOR);
+      expect(envelope.actor).toBe(USER_ACTOR);
       expect(envelope.correlation_id).toBe(ATTACH_CORRELATION_ID);
     }
   });
 
-  it("persists NOTHING when the root cannot be resolved (I-009-2)", async () => {
+  it("persists NOTHING when the root cannot be resolved", async () => {
     for (const unresolvable of [
       gitFixtures.absentPath,
       // Relative — the resolver refuses rather than completing it against the
@@ -851,7 +831,7 @@ describe("RepoMountService.attach", () => {
 });
 
 // ----------------------------------------------------------------------------
-// attach — active-root uniqueness (D-009-7)
+// attach — active-root uniqueness
 // ----------------------------------------------------------------------------
 
 describe("RepoMountService.attach — active-root uniqueness", () => {
@@ -897,7 +877,7 @@ describe("RepoMountService.attach — active-root uniqueness", () => {
     });
 
     // The same absolute path on two nodes names two node-local filesystems, and
-    // both may attach (D-009-7's node-scoped key).
+    // both may attach (the node-scoped key).
     const otherNode = await harness.service.attach({
       sessionId: SESSION_ID,
       localPath: gitFixtures.repositoryRoot,
@@ -914,10 +894,9 @@ describe("RepoMountService.attach — active-root uniqueness", () => {
     expect(otherSession.canonicalRoot).toBe(gitFixtures.repositoryRoot);
     expect(countRows("repo_mounts")).toBe(3);
 
-    // I-009-9 is per-stream, not per-process: each attach emits its pair onto
-    // the session it named and onto no other. Three attaches over two sessions
-    // must therefore split 2/1, never 3/0 or 0/3. This is the only arm where a
-    // sessionId threaded from the request into the wrong envelope would show.
+    // Three attaches over two sessions must therefore split 2/1, never 3/0 or
+    // 0/3. This is the only arm where a sessionId threaded from the request
+    // into the wrong envelope would show.
     expect(readLifecycleEventTypes(SESSION_ID)).toEqual([
       "repo.attached",
       "workspace.ready",
@@ -977,7 +956,6 @@ describe("RepoMountService.attach — active-root uniqueness", () => {
 });
 
 // ----------------------------------------------------------------------------
-// read — `Spec-009 §Repo Mount Health (V1 Definition)`
 // ----------------------------------------------------------------------------
 
 describe("RepoMountService.read", () => {
@@ -1000,11 +978,11 @@ describe("RepoMountService.read", () => {
     expect(response.vcsType).toBe("git");
     expect(response.state).toBe("attached");
     expect(response.health.status).toBe("healthy");
-    // FRESH, per the D-009-5 on-read probe floor: `checkedAt` is when this read
-    // measured the root, not when the mount was attached. Asserting it is not
-    // BEFORE `attachedAt` is the strongest ordering claim available without
-    // freezing the clock — and it fails if `checkedAt` were ever sourced from
-    // the row rather than the probe.
+    // FRESH on-read probe floor: `checkedAt` is when this read measured the
+    // root, not when the mount was attached. Asserting it is not BEFORE
+    // `attachedAt` is the strongest ordering claim available without freezing
+    // the clock — and it fails if `checkedAt` were ever sourced from the row
+    // rather than the probe.
     expect(Date.parse(response.health.checkedAt)).not.toBeNaN();
     expect(Date.parse(response.health.checkedAt)).toBeGreaterThanOrEqual(
       Date.parse(requireMountRow(attached.repoMountId).attached_at),
@@ -1057,8 +1035,8 @@ describe("RepoMountService.read", () => {
 
     const response = await harness.service.read(attached.repoMountId);
 
-    // `Spec-009 §Detach Semantics (V1 Definition)` keeps the durable record, and
-    // a record that could not be read would not be kept in any useful sense.
+    // keeps the durable record, and a record that could not be read would not be
+    // kept in any useful sense.
     expect(response.state).toBe("detached");
     // The root is still on disk, so the mount is `healthy`. Folding lifecycle
     // into health would invent a semantics the ratified shape does not carry.
@@ -1090,7 +1068,6 @@ describe("RepoMountService.read", () => {
 });
 
 // ----------------------------------------------------------------------------
-// detach — `Spec-009 §Detach Semantics (V1 Definition)`
 // ----------------------------------------------------------------------------
 
 describe("RepoMountService.detach", () => {
@@ -1114,7 +1091,7 @@ describe("RepoMountService.detach", () => {
 
     const response = await service.detach({
       repoMountId: attached.repoMountId,
-      actor: PARTICIPANT_ACTOR,
+      actor: USER_ACTOR,
       correlationId: DETACH_CORRELATION_ID,
     });
 
@@ -1151,10 +1128,10 @@ describe("RepoMountService.detach", () => {
     // that collates them, since the follow-on events cannot name the
     // `repo.detached` event id without reading the append receipt.
     for (const envelope of readLifecycleEnvelopes().slice(3)) {
-      expect(envelope.actor).toBe(PARTICIPANT_ACTOR);
+      expect(envelope.actor).toBe(USER_ACTOR);
       expect(envelope.correlation_id).toBe(DETACH_CORRELATION_ID);
     }
-    // The dependent archivals name their mount, per T2.2's cascade contract.
+    // The dependent archivals name their mount, per the cascade contract.
     for (const envelope of readLifecycleEnvelopes().filter(
       (row) => row.type === "workspace.archived",
     )) {
@@ -1221,7 +1198,7 @@ describe("RepoMountService.detach", () => {
     });
     // Planted directly — a stand-in for a workspace archived on some earlier
     // path. An `archived` row is terminal, so re-archiving it is not a
-    // transition, and I-009-9 forbids an event for a non-transition.
+    // transition, and forbids an event for a non-transition.
     harness.db
       .prepare("UPDATE workspaces SET state = 'archived' WHERE id = ?")
       .run(bound.workspaceId);
@@ -1340,10 +1317,10 @@ describe("RepoMountService.detach", () => {
   });
 
   it("archives a dependent that appeared AFTER the pre-transaction read", async () => {
-    // The race the T2.4 bind-side predicate closes from its end. The
-    // interference commits a `ready` workspace on this mount in the window
-    // between `detach`'s row read and its prelude — exactly where a bind that
-    // passed the mount's `state = 'attached'` guard would land.
+    // The race bind-side predicate closes from its end. The interference
+    // commits a `ready` workspace on this mount in the window between
+    // `detach`'s row read and its prelude — exactly where a bind that passed
+    // the mount's `state = 'attached'` guard would land.
     //
     // DISCRIMINATING: if the dependent set were read outside the write
     // transaction, this workspace would not be in it, one workspace would be
@@ -1414,7 +1391,7 @@ describe("RepoMountService.detach", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Construction — the Windows `git` seam (`Plan-009 §Notes`, 2026-07-25)
+// Construction — the Windows `git` seam (2026-07-25)
 // ----------------------------------------------------------------------------
 
 describe("RepoMountService construction", () => {
@@ -1472,7 +1449,7 @@ describe("RepoMountService construction", () => {
 
     expect(error).toBeInstanceOf(RepoRootResolutionError);
     // `vcs_error`, never a `none` fallback: a repository whose git could not run
-    // is not a plain directory (I-009-4).
+    // is not a plain directory.
     expect((error as RepoRootResolutionError).reason).toBe("vcs_error");
     expect(countRows("repo_mounts")).toBe(0);
   });

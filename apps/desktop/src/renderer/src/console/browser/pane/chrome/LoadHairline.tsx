@@ -1,7 +1,7 @@
 // The load hairline, under the address field.
 //
-// `Spec-023 §Console Design (Meridian)` 12.1 States: "Loading: a determinate progress
-// hairline under the address field, driven by the view's own load events."
+// Loading is a determinate progress hairline under the address field, driven by the
+// view's own load events.
 //
 // DETERMINATE WHERE THE VIEW SUPPLIES A FRACTION, and honestly indeterminate where it
 // does not. A hairline that invented a fraction — a fixed sweep, a timed ramp, a

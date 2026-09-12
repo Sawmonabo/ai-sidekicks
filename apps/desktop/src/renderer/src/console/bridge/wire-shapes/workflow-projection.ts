@@ -1,11 +1,11 @@
 // The console's declaration of the workflow plane's read shapes.
 //
-// OWNER. `Spec-017 §Interfaces And Contracts` owns the definition, run, gate,
-// phase-output, and human-form operations; `Spec-017 §Operator run control (SA-45)`
-// owns the cancel and resume pair. The typed request and reply shapes are registered
-// in `docs/architecture/contracts/api-payload-contracts.md` §Plan-017, and every
-// vocabulary below is transcribed from that section rather than re-derived from the
-// spec's prose — the spec states the rules and that section fixes the spellings.
+// OWNER. The workflow plane owns the definition, run, gate, phase-output, and
+// human-form operations, and its operator run control owns the cancel and resume
+// pair. The typed request and reply shapes are registered in the payload contracts,
+// and every vocabulary below is transcribed from that registry rather than
+// re-derived from prose — the rules live one layer up and the registry fixes the
+// spellings.
 //
 // WHY THE CONSOLE DECLARES IT AT ALL. None of it is registered in any code package:
 // there is no `workflow` root in the daemon method union, no `SidekicksBridge`
@@ -17,8 +17,8 @@
 //
 // DELETION OBLIGATION. When `packages/contracts` registers these types, this module
 // is DELETED and `growth-signatures/workflows.ts` imports them from the contracts
-// instead. The slate row leaves `growth-slate.ts` and `Plan-023 §Console growth slate`
-// in the same PR, and `failure-modes.test.ts` then fails on the port entries that still
+// instead. The slate row leaves `growth-slate.ts` and the growth slate in the same
+// PR, and `failure-modes.test.ts` then fails on the port entries that still
 // claim fixture-only — which is the reminder this file wants at that moment.
 //
 // WHY THE VOCABULARIES ARE TUPLES AND THE NARROWINGS ARE NOT. Four of the five
@@ -203,7 +203,7 @@ export interface WorkflowRunSnapshot {
  * pin has fallen behind — which is the one condition an operator repairs.
  *
  * The enumeration is registered nowhere and rides `workflow-run-enumeration` on
- * `Plan-023 §Console growth slate`; this is the console declaring what that wire has
+ * the growth slate; this is the console declaring what that wire has
  * to answer with, in the same file and on the same footing as the request shape it
  * already declares. A daemon serving it holds both rows in one query.
  */
@@ -225,8 +225,8 @@ export interface WorkflowRunListEntry extends WorkflowRunSnapshot {
    *
    * `workflowRunStart` already carries `channelId` as provenance — derived by the
    * client from the originating channel on the human path and by the daemon from the
-   * invoking turn on the agent path, and never an input to the role adjudication
-   * (`Spec-017 §Chat-start surface (SA-38)`). What no read carries is that provenance
+   * invoking turn on the agent path, and never an input to the role adjudication.
+   * What no read carries is that provenance
    * BACK, so a channel-scoped surface has no way to ask which of a session's runs
    * belongs to it: the run read addresses one run by an id such a surface does not
    * hold, and the enumeration is keyed by session and answers with every run.
@@ -289,7 +289,7 @@ export interface WorkflowDefinitionSummary {
  * flag would be the wire restating the request.
  *
  * Registered nowhere — this rides `workflow-version-chain` on
- * `Plan-023 §Console growth slate`, on the same footing as the run enumeration above.
+ * the growth slate, on the same footing as the run enumeration above.
  */
 export interface WorkflowVersionChainEntry {
   /** Opaque and server-minted, exactly as a run start accepts it. Never parsed. */

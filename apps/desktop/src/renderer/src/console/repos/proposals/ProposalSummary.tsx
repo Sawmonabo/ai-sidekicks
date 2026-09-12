@@ -1,10 +1,9 @@
 // One prepared proposal, rendered before any remote mutation.
 //
-// `Spec-011 §Interfaces And Contracts` requires the proposal to be generated and
-// reviewable BEFORE anything leaves the machine, and THIS FAMILY'S OWN density carries
-// it: the gate opens on base, head, title, and the check rollup, and body, trailers,
-// and the full file list are one click away — `Spec-023 §Meridian, the design language`
-// rule 7's "secondary controls live one click away", on a proposal.
+// The proposal is generated and reviewable BEFORE anything leaves the machine, and
+// THIS FAMILY'S OWN density carries it: the gate opens on base, head, title, and the
+// check rollup, and body, trailers, and the full file list are one click away —
+// secondary controls live one click away, applied to a proposal.
 // This module is the second half of that split, and it is its own
 // file rather than a block inside `ProposalGate.tsx` because it is a second surface
 // rather than a second arm — the gate renders one of six states, and exactly two of them

@@ -21,8 +21,8 @@ describe("data and erasure page", () => {
     expect(chipLabels).toStrictEqual([
       "session.purge_requested",
       "session.purged",
-      "participant.purge_requested",
-      "participant.purged",
+      "user.purge_requested",
+      "user.purged",
     ]);
   });
 

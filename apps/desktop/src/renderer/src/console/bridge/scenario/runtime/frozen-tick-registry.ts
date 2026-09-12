@@ -1,8 +1,8 @@
 // The frozen-tick registry: which frame of each scenario the capture tiers pin.
 //
-// `Spec-023 §Console Design (Meridian)` §The fixture bridge: "the manifest names every
-// scenario, its frozen ticks (`flagship@t=<tick>`), and, per bridge method, its live
-// status at HEAD". The manifest already carried the scenarios and the live statuses and
+// The manifest names every scenario, its frozen ticks (`flagship@t=<tick>`), and,
+// per bridge method, its live status at HEAD. The manifest already carried the
+// scenarios and the live statuses and
 // named no tick, which left the middle claim unmade — and it is the claim that decides
 // whether a reference image means anything.
 //
@@ -24,7 +24,7 @@
 //
 // WHAT A NAME MEANS. `settled` is the tick at which every beat the script carries has
 // been delivered — the longest the session gets, and the frame most surfaces are worth
-// photographing at. `money-shot` is the flagship's own composed frame per §14.7. A
+// photographing at. `money-shot` is the flagship's own composed frame. A
 // scenario that wants a second frame adds a second row with its own name; the rules
 // below hold the pair to an ascending, uniquely-named sequence.
 //

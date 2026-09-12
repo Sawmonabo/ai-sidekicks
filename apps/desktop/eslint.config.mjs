@@ -1,8 +1,7 @@
-// Package-scoped ESLint flat-config for `@ai-sidekicks/desktop`
-// — Plan-023 Phase 1 (T-023p-1-6).
+// Package-scoped ESLint flat-config for `@ai-sidekicks/desktop`.
 //
-// Purpose: enforce the renderer-untrusted boundary at the import surface per
-// Spec-023 §Trust Stance. The renderer process is the untrusted surface;
+// Purpose: enforce the renderer-untrusted boundary at the import surface. The
+// renderer process is the untrusted surface;
 // every Node / Electron / main-process / preload-process capability MUST
 // reach the renderer ONLY via the `window.sidekicks` bridge declared by
 // `apps/desktop/src/preload/index.ts`. This config makes that boundary
@@ -19,24 +18,20 @@
 // the renderer's constraints. Scope is narrowed by the `files` selectors on the
 // override blocks below.
 //
-// Tier-1 ban list (this task): `electron`, the `node:*` protocol family,
+// Ban list: `electron`, the `node:*` protocol family,
 // the bare-specifier Node built-ins (`fs`, `child_process`, `net`, `os`,
 // `path`, `process`), and relative-path escapes into `**/main/**` /
-// `**/preload/**`. The full extended ban list (`keytar`, `@napi-rs/keyring`,
-// `@sentry/electron`) lands at Plan-023 Tier 8 remainder — those modules do
-// not yet exist in the workspace, so banning them now would be inert.
+// `**/preload/**`. The extended ban list (`keytar`, `@napi-rs/keyring`,
+// `@sentry/electron`) lands when those modules do; banning them before they
+// exist in the workspace would be inert.
 //
-// BL-131 addition (2026-08-25, PR #355 Codex round 1): the two server-side
-// workspace packages, `@ai-sidekicks/runtime-daemon` and
-// `@ai-sidekicks/control-plane`. `Plan-003 §Cross-Plan Obligations` CP-003-3
-// requires the renderer to reach both ONLY through the bridge, but nothing
-// enforced it — the Plan-003 renderer suites scanned each component's own
-// source text, which cannot see a violation reached through a local helper
-// (component → `./helper.js` → `@ai-sidekicks/control-plane` scans clean).
-// Lint traverses every renderer file, so it catches the transitive shape the
-// per-component scan structurally cannot. Both packages exist in the
-// workspace today, so unlike the Tier-8 list above this ban is live, not
-// inert. It is asserted against the REAL rule — not a reimplementation — by
+// The two server-side workspace packages, `@ai-sidekicks/runtime-daemon` and
+// `@ai-sidekicks/control-plane`, are banned here too. The renderer must reach
+// both ONLY through the bridge, and a per-component source scan cannot see a
+// violation reached through a local helper (component → `./helper.js` →
+// `@ai-sidekicks/control-plane` scans clean). Lint traverses every renderer
+// file, so it catches the transitive shape such a scan structurally cannot.
+// It is asserted against the REAL rule — not a reimplementation — by
 // `src/renderer/src/runtime-node-attach/__tests__/renderer-import-boundary.test.ts`.
 //
 // This config spreads the repo-root `eslint.config.mjs` first, so this package
@@ -84,47 +79,47 @@ const RENDERER_RESTRICTED_PATHS = [
   {
     name: "electron",
     message:
-      "Spec-023 §Trust Stance: renderer is untrusted — `electron` must NEVER be imported from renderer source. Route through the preload bridge (`window.sidekicks`) instead. See apps/desktop/src/preload/index.ts.",
+      "The renderer is untrusted: `electron` must NEVER be imported from renderer source. Route through the preload bridge (`window.sidekicks`) instead. See apps/desktop/src/preload/index.ts.",
   },
   {
     name: "fs",
     message:
-      "Spec-023 §Trust Stance: renderer is untrusted — Node built-in `fs` is forbidden in renderer source. Route through the preload bridge.",
+      "The renderer is untrusted: Node built-in `fs` is forbidden in renderer source. Route through the preload bridge.",
   },
   {
     name: "child_process",
     message:
-      "Spec-023 §Trust Stance: renderer is untrusted — Node built-in `child_process` is forbidden in renderer source. Route through the preload bridge.",
+      "The renderer is untrusted: Node built-in `child_process` is forbidden in renderer source. Route through the preload bridge.",
   },
   {
     name: "net",
     message:
-      "Spec-023 §Trust Stance: renderer is untrusted — Node built-in `net` is forbidden in renderer source. Route through the preload bridge.",
+      "The renderer is untrusted: Node built-in `net` is forbidden in renderer source. Route through the preload bridge.",
   },
   {
     name: "os",
     message:
-      "Spec-023 §Trust Stance: renderer is untrusted — Node built-in `os` is forbidden in renderer source. Route through the preload bridge.",
+      "The renderer is untrusted: Node built-in `os` is forbidden in renderer source. Route through the preload bridge.",
   },
   {
     name: "path",
     message:
-      "Spec-023 §Trust Stance: renderer is untrusted — Node built-in `path` is forbidden in renderer source. Route through the preload bridge.",
+      "The renderer is untrusted: Node built-in `path` is forbidden in renderer source. Route through the preload bridge.",
   },
   {
     name: "process",
     message:
-      "Spec-023 §Trust Stance: renderer is untrusted — Node built-in `process` is forbidden in renderer source. Route through the preload bridge.",
+      "The renderer is untrusted: Node built-in `process` is forbidden in renderer source. Route through the preload bridge.",
   },
   {
     name: "@ai-sidekicks/runtime-daemon",
     message:
-      "Plan-003 CP-003-3 / Spec-023 §Trust Stance: renderer is untrusted — the daemon package must NEVER be imported from renderer source (directly or through a local helper). Route through the preload bridge (`window.sidekicks.daemon`).",
+      "The renderer is untrusted: the daemon package must NEVER be imported from renderer source (directly or through a local helper). Route through the preload bridge (`window.sidekicks.daemon`).",
   },
   {
     name: "@ai-sidekicks/control-plane",
     message:
-      "Plan-003 CP-003-3 / Spec-023 §Trust Stance: renderer is untrusted — the control-plane package must NEVER be imported from renderer source (directly or through a local helper). Route through the preload bridge (`window.sidekicks.controlPlane`).",
+      "The renderer is untrusted: the control-plane package must NEVER be imported from renderer source (directly or through a local helper). Route through the preload bridge (`window.sidekicks.controlPlane`).",
   },
 ];
 
@@ -141,7 +136,7 @@ const RENDERER_RESTRICTED_PATTERNS = [
     // Electron subpath at once.
     group: ["electron/**"],
     message:
-      "Spec-023 §Trust Stance: renderer is untrusted — `electron` (and any `electron/*` subpath) must NEVER be imported from renderer source. Route through the preload bridge (`window.sidekicks`) instead. See apps/desktop/src/preload/index.ts.",
+      "The renderer is untrusted: `electron` (and any `electron/*` subpath) must NEVER be imported from renderer source. Route through the preload bridge (`window.sidekicks`) instead. See apps/desktop/src/preload/index.ts.",
   },
   {
     // `no-restricted-imports` does NOT auto-cover `node:fs` from a `fs` ban
@@ -154,7 +149,7 @@ const RENDERER_RESTRICTED_PATTERNS = [
     // `node:readline/promises`, `node:stream/consumers`).
     group: ["node:**"],
     message:
-      "Spec-023 §Trust Stance: renderer is untrusted — `node:*` protocol imports (and their subpaths, e.g. `node:fs/promises`) are forbidden in renderer source. Route through the preload bridge.",
+      "The renderer is untrusted: `node:*` protocol imports (and their subpaths, e.g. `node:fs/promises`) are forbidden in renderer source. Route through the preload bridge.",
   },
   {
     // Subpath entrypoints of the two banned workspace packages.
@@ -164,7 +159,7 @@ const RENDERER_RESTRICTED_PATTERNS = [
     // semantics as the `electron/**` group.
     group: ["@ai-sidekicks/runtime-daemon/**", "@ai-sidekicks/control-plane/**"],
     message:
-      "Plan-003 CP-003-3 / Spec-023 §Trust Stance: renderer is untrusted — daemon / control-plane package subpaths are forbidden in renderer source. Route through the preload bridge (`window.sidekicks`).",
+      "The renderer is untrusted: daemon / control-plane package subpaths are forbidden in renderer source. Route through the preload bridge (`window.sidekicks`).",
   },
   {
     // Relative-path escape into the main/preload subtrees. `**` matches
@@ -175,7 +170,7 @@ const RENDERER_RESTRICTED_PATTERNS = [
     // preload-exposed `window.sidekicks` bridge.
     group: ["**/main/**", "**/preload/**"],
     message:
-      "Spec-023 §Trust Stance: renderer is untrusted — relative-path imports into `main/**` or `preload/**` are forbidden. The renderer's only cross-process surface is the `window.sidekicks` bridge.",
+      "The renderer is untrusted: relative-path imports into `main/**` or `preload/**` are forbidden. The renderer's only cross-process surface is the `window.sidekicks` bridge.",
   },
 ];
 
@@ -197,7 +192,7 @@ const CONSOLE_RESTRICTED_PATTERNS = [
     // on the bare form alone would be one import away from useless.
     group: ["zod", "zod/**"],
     message:
-      "Spec-023 §Console Design (Meridian): a console surface never parses a wire value itself. Reach the daemon through `callDaemon` from `console/bridge/`, which parses the reply against the method's registered schema and answers `served` or `refused`; a value that needs a shape needs a registry row, not a local validator.",
+      "A console surface never parses a wire value itself. Reach the daemon through `callDaemon` from `console/bridge/`, which parses the reply against the method's registered schema and answers `served` or `refused`; a value that needs a shape needs a registry row, not a local validator.",
   },
   {
     // The same claim as the `zod` group above, on the schemas the corpus
@@ -212,7 +207,7 @@ const CONSOLE_RESTRICTED_PATTERNS = [
     // corpus spells a parser, not a guess about one.
     importNamePattern: "Schema$",
     message:
-      "Spec-023 §Console Design (Meridian): a console surface never parses a wire value itself, and a contracts schema is a parser. Reach the daemon through `callDaemon` from `console/bridge/`, which parses the reply against the method's registered schema and answers `served` or `refused`; a value that needs a shape needs a registry row, not a second reading of one. Types and non-schema values from this package are untouched.",
+      "A console surface never parses a wire value itself, and a contracts schema is a parser. Reach the daemon through `callDaemon` from `console/bridge/`, which parses the reply against the method's registered schema and answers `served` or `refused`; a value that needs a shape needs a registry row, not a second reading of one. Types and non-schema values from this package are untouched.",
   },
 ];
 
@@ -248,7 +243,7 @@ const BRIDGE_GLOBAL_READ = {
   selector:
     ':matches(MemberExpression[object.name="window"][property.name="sidekicks"], MemberExpression[object.name="globalThis"][property.name="sidekicks"], MemberExpression[object.type="TSAsExpression"][property.name="sidekicks"], MemberExpression[computed=true][property.value="sidekicks"], VariableDeclarator[init.name=/^(?:window|globalThis)$/] > ObjectPattern > Property[key.name="sidekicks"])',
   message:
-    "`apps/desktop/AGENTS.md` §Import boundaries: renderer code reaches the bridge only through `console/bridge/live-bridge.ts`, and every surface above it takes the bridge from `BridgeProvider`'s context. A second reader is a second idea of when the bridge exists and what stands in for it under test.",
+    "The import-boundary rules in `apps/desktop/AGENTS.md`: renderer code reaches the bridge only through `console/bridge/live-bridge.ts`, and every surface above it takes the bridge from `BridgeProvider`'s context. A second reader is a second idea of when the bridge exists and what stands in for it under test.",
 };
 
 /**
@@ -268,7 +263,7 @@ const BRIDGE_GLOBAL_READ = {
 const EXPORT_DEFAULT_DECLARATION = {
   selector: ':matches(ExportDefaultDeclaration, ExportSpecifier[exported.name="default"])',
   message:
-    "`apps/desktop/AGENTS.md` §Module shape: named exports only. `export default` is for tool configuration at the package root — `*.config.{ts,mjs}` and `.dependency-cruiser.mjs`, which their tools load by default export — and nowhere else: a default export has no name at the import site, so two importers can call one symbol two things and a rename reaches neither.",
+    "The module-shape rules in `apps/desktop/AGENTS.md`: named exports only. `export default` is for tool configuration at the package root — `*.config.{ts,mjs}` and `.dependency-cruiser.mjs`, which their tools load by default export — and nowhere else: a default export has no name at the import site, so two importers can call one symbol two things and a rename reaches neither.",
 };
 
 /**
@@ -289,7 +284,7 @@ const EXPORT_DEFAULT_DECLARATION = {
 const MODULE_LEVEL_LET = {
   selector: ':matches(Program, ExportNamedDeclaration) > VariableDeclaration[kind="let"]',
   message:
-    "`apps/desktop/AGENTS.md` §State and views: stateful logic is an encapsulated class with private fields. A module-level `let` is a singleton every importer in the window shares and any of them can reassign — put it in a class, a hook, or a controller the caller constructs.",
+    "The state-and-views rules in `apps/desktop/AGENTS.md`: stateful logic is an encapsulated class with private fields. A module-level `let` is a singleton every importer in the window shares and any of them can reassign — put it in a class, a hook, or a controller the caller constructs.",
 };
 
 /**
@@ -303,12 +298,12 @@ const CHILD_PROCESS_DYNAMIC_REACH = [
   {
     selector: "ImportExpression[source.value=/child_process/]",
     message:
-      "`apps/desktop/AGENTS.md` §Tests: `test/helpers/electron-child.ts` is the only module that reaches `spawn` from `node:child_process`, and it registers the kill on `onTestFinished` so a spawned child's lifetime belongs to the test rather than to a timer. Spawn through that door; `spawnSync` is untouched.",
+      "The test rules in `apps/desktop/AGENTS.md`: `test/helpers/electron-child.ts` is the only module that reaches `spawn` from `node:child_process`, and it registers the kill on `onTestFinished` so a spawned child's lifetime belongs to the test rather than to a timer. Spawn through that door; `spawnSync` is untouched.",
   },
   {
     selector: 'CallExpression[callee.name="require"][arguments.0.value=/child_process/]',
     message:
-      "`apps/desktop/AGENTS.md` §Tests: `test/helpers/electron-child.ts` is the only module that reaches `spawn` from `node:child_process`, and it registers the kill on `onTestFinished` so a spawned child's lifetime belongs to the test rather than to a timer. Spawn through that door; `spawnSync` is untouched.",
+      "The test rules in `apps/desktop/AGENTS.md`: `test/helpers/electron-child.ts` is the only module that reaches `spawn` from `node:child_process`, and it registers the kill on `onTestFinished` so a spawned child's lifetime belongs to the test rather than to a timer. Spawn through that door; `spawnSync` is untouched.",
   },
 ];
 
@@ -335,7 +330,7 @@ const TEXT_SNAPSHOT_MATCHER_REACH = {
   selector:
     "MemberExpression[property.name=/^toMatch(Inline|File)?Snapshot$/], MemberExpression[computed=true][property.value=/^toMatch(Inline|File)?Snapshot$/]",
   message:
-    "`apps/desktop/AGENTS.md` §Tests: this package's Vitest runs resolve `UPDATE_SNAPSHOT=all` so the screenshot tier writes capture aids rather than gating on them, and under that mode a text snapshot rewrites itself instead of failing. Assert the value.",
+    "The test rules in `apps/desktop/AGENTS.md`: this package's Vitest runs resolve `UPDATE_SNAPSHOT=all` so the screenshot tier writes capture aids rather than gating on them, and under that mode a text snapshot rewrites itself instead of failing. Assert the value.",
 };
 
 /**
@@ -354,7 +349,7 @@ const SCREENSHOT_MATCHER_REACH = {
   selector:
     ':matches(MemberExpression[property.name="toMatchScreenshot"], MemberExpression[computed=true][property.value="toMatchScreenshot"])',
   message:
-    "`apps/desktop/AGENTS.md` §Tests: a screenshot is taken through `test/console/screenshot/settled-capture.ts` and no other way. A capture taken straight after a mount photographs the region a loader-backed body has not filled yet — stable, green, and a picture of a pane that had not finished loading.",
+    "The test rules in `apps/desktop/AGENTS.md`: a screenshot is taken through `test/console/screenshot/settled-capture.ts` and no other way. A capture taken straight after a mount photographs the region a loader-backed body has not filled yet — stable, green, and a picture of a pane that had not finished loading.",
 };
 
 /**
@@ -373,7 +368,7 @@ const RELATIVE_STYLESHEET_SPECIFIER = "^[.][.]?[/].*[.]css(?:[?].*)?$";
 const STYLESHEET_THROUGH_OWNER = {
   selector: `:matches(ImportDeclaration[source.value=/${RELATIVE_STYLESHEET_SPECIFIER}/], ImportExpression[source.value=/${RELATIVE_STYLESHEET_SPECIFIER}/])`,
   message:
-    "`apps/desktop/AGENTS.md` §Module shape: a stylesheet enters through the barrel of the directory that OWNS it — that directory's `index.ts`, or the root of the chunk a lazily-loaded body arrives on (`*-body.ts`) — and through no component. A component that pulls a sheet in puts that surface's rules on the initial document for every session that never opens it.",
+    "The module-shape rules in `apps/desktop/AGENTS.md`: a stylesheet enters through the barrel of the directory that OWNS it — that directory's `index.ts`, or the root of the chunk a lazily-loaded body arrives on (`*-body.ts`) — and through no component. A component that pulls a sheet in puts that surface's rules on the initial document for every session that never opens it.",
 };
 
 /**
@@ -474,20 +469,20 @@ function rendererFiles(subtree, patterns) {
 }
 
 /**
- * The file sections `AGENTS.md` §Module shape names, in declaration-kind order: the
+ * The file sections `AGENTS.md` names under Module shape, in declaration-kind order: the
  * exported types and interfaces that are the module's contract, then the exported class
  * or function the file is named for, then everything private.
  *
  * Only the EXPORTED forms are ranked. A non-exported declaration matches no listed group
  * and so becomes `unknown` — one bucket, held last and left `unsorted`, which is what
- * keeps the §Module shape exception ("a private type that exactly one helper uses may sit
+ * keeps the module-shape exception ("a private type that exactly one helper uses may sit
  * directly above that helper") followable: the type and its helper are both in it, so
  * their relative order is never touched. Verified against the shipped 5.11.0 rule —
  * `generate-predefined-groups.js` emits `export-function` AND `function` for an exported
  * declaration and only `function` for a private one, and `get-group-index.js` ranks an
  * unmatched group last.
  *
- * Module-level constants (§Module shape section 4) are convention only: `sort-modules`
+ * Module-level constants (module-shape section 4) are convention only: `sort-modules`
  * has no variable selector, and `compute-node-details.js` starts a fresh PARTITION after
  * every `VariableDeclaration`, so the rule neither positions a constant nor moves any
  * declaration across one.
@@ -500,7 +495,7 @@ const CONSOLE_MODULE_GROUPS = [
 ];
 
 /**
- * `AGENTS.md` §Module shape, inside a class: fields, constructor, public methods, private
+ * The `AGENTS.md` module-shape rule inside a class: fields, constructor, public methods, private
  * methods. Accessors rank with the methods of their own accessibility — this tree already
  * writes `get` after the constructor — and `protected` ranks with `private`, since the
  * split the four sections draw is the externally reachable surface against everything
@@ -529,9 +524,9 @@ export default [
   // `src/shared/auxiliary-routes.ts`), which means every byte of it is bundled
   // into the RENDERER. The renderer-untrusted ban below is scoped to
   // `src/renderer/src/**`, so without this block a `node:fs` import could reach
-  // the renderer bundle through a shared module and pass lint — the exact
-  // transitive shape the BL-131 addition to that block exists to close, arriving
-  // through a different door. The ban restated here is the shipped-renderer one;
+  // the renderer bundle through a shared module and pass lint — the same
+  // transitive shape that block's package bans exist to close, arriving through
+  // a different door. The ban restated here is the shipped-renderer one;
   // there is no test carve-out, because a shared test file is not bundled either
   // way and a shared module has no reason to touch a Node builtin at all.
   {
@@ -544,39 +539,39 @@ export default [
             {
               name: "electron",
               message:
-                "Spec-023 §Trust Stance: `src/shared/**` is bundled into the RENDERER — `electron` must never be imported here. Put main-process code in `src/main/**` and share only data and pure functions.",
+                "`src/shared/**` is bundled into the RENDERER: `electron` must never be imported here. Put main-process code in `src/main/**` and share only data and pure functions.",
             },
             {
               name: "@ai-sidekicks/runtime-daemon",
               message:
-                "Plan-003 CP-003-3 / Spec-023 §Trust Stance: `src/shared/**` is bundled into the renderer — the daemon package must never be imported here. Route through the preload bridge.",
+                "`src/shared/**` is bundled into the renderer: the daemon package must never be imported here. Route through the preload bridge.",
             },
             {
               name: "@ai-sidekicks/control-plane",
               message:
-                "Plan-003 CP-003-3 / Spec-023 §Trust Stance: `src/shared/**` is bundled into the renderer — the control-plane package must never be imported here. Route through the preload bridge.",
+                "`src/shared/**` is bundled into the renderer: the control-plane package must never be imported here. Route through the preload bridge.",
             },
           ],
           patterns: [
             {
               group: ["electron/**"],
               message:
-                "Spec-023 §Trust Stance: `src/shared/**` is bundled into the renderer — `electron` and every `electron/*` subpath are forbidden here.",
+                "`src/shared/**` is bundled into the renderer: `electron` and every `electron/*` subpath are forbidden here.",
             },
             {
               group: ["node:**"],
               message:
-                "Spec-023 §Trust Stance: `src/shared/**` is bundled into the renderer — `node:*` protocol imports (and their subpaths) are forbidden here.",
+                "`src/shared/**` is bundled into the renderer: `node:*` protocol imports (and their subpaths) are forbidden here.",
             },
             {
               group: ["@ai-sidekicks/runtime-daemon/**", "@ai-sidekicks/control-plane/**"],
               message:
-                "Plan-003 CP-003-3: daemon / control-plane subpaths are forbidden in `src/shared/**`, which is bundled into the renderer.",
+                "Daemon / control-plane subpaths are forbidden in `src/shared/**`, which is bundled into the renderer.",
             },
             {
               group: ["**/main/**", "**/preload/**"],
               message:
-                "Spec-023 §Trust Stance: `src/shared/**` is bundled into the renderer — it must never reach into `main/**` or `preload/**`. Dependencies point the other way: main imports shared, never the reverse.",
+                "`src/shared/**` is bundled into the renderer: it must never reach into `main/**` or `preload/**`. Dependencies point the other way: main imports shared, never the reverse.",
             },
           ],
         },
@@ -623,7 +618,7 @@ export default [
   // directly, and be exactly the per-surface parser this gate claims to reject,
   // with no lint error anywhere. The ban is therefore on the NAME as well as on the
   // package: a console module outside `bridge/**` may import types and non-schema
-  // values from contracts (`SESSION_EVENT_CATEGORY_BY_TYPE`, `createTier1Bridge`,
+  // values from contracts (`SESSION_EVENT_CATEGORY_BY_TYPE`, `createStubBridge`,
   // `MAIN_CHANNEL_NAME`) and no binding whose name ends in `Schema`.
   //
   // WHY THE IMPORT AND NOT THE CALL. A `.parse(` / `.safeParse(` selector was the
@@ -670,11 +665,11 @@ export default [
   },
   // Renderer TEST files: the Node/Electron builtin ban above is deliberately
   // lifted (they are not bundled — see that block's comment), but the
-  // CP-003-3 workspace-package boundary is NOT. No renderer test has any
+  // workspace-package boundary is NOT. No renderer test has any
   // reason to import the daemon or control-plane package, and leaving the
   // exclusion total would hand test files a hole in the very boundary the
   // sibling `renderer-import-boundary.test.ts` exists to enforce. This block
-  // RESTATES the two CP-003-3 entries rather than inheriting them, because
+  // RESTATES those two entries rather than inheriting them, because
   // nothing is inherited: the block above `ignores` `__tests__/**` and so does
   // not match these files at all, and even where two objects did both match,
   // the later one's options would replace the earlier one's wholesale (see the
@@ -690,19 +685,19 @@ export default [
             {
               name: "@ai-sidekicks/runtime-daemon",
               message:
-                "Plan-003 CP-003-3: the daemon package is forbidden in renderer source, tests included — assert against the bridge contract (`@ai-sidekicks/contracts`) instead.",
+                "The daemon package is forbidden in renderer source, tests included — assert against the bridge contract (`@ai-sidekicks/contracts`) instead.",
             },
             {
               name: "@ai-sidekicks/control-plane",
               message:
-                "Plan-003 CP-003-3: the control-plane package is forbidden in renderer source, tests included — assert against the bridge contract (`@ai-sidekicks/contracts`) instead.",
+                "The control-plane package is forbidden in renderer source, tests included — assert against the bridge contract (`@ai-sidekicks/contracts`) instead.",
             },
           ],
           patterns: [
             {
               group: ["@ai-sidekicks/runtime-daemon/**", "@ai-sidekicks/control-plane/**"],
               message:
-                "Plan-003 CP-003-3: daemon / control-plane subpaths are forbidden in renderer source, tests included.",
+                "Daemon / control-plane subpaths are forbidden in renderer source, tests included.",
             },
           ],
         },
@@ -910,7 +905,7 @@ export default [
     },
   },
   {
-    // The Vitest configuration modules, which the `lint` script reads since 2026-09-09
+    // The Vitest configuration modules, which the `lint` script reads
     // and which are where the process-wide snapshot mode is set in the first place.
     // They carry no other syntax ban — `export default` is how a Vitest config is
     // written and no block above claims this directory — so the union is the one
@@ -941,7 +936,7 @@ export default [
         {
           name: "setInterval",
           message:
-            "`apps/desktop/AGENTS.md` §Chokepoints: every refresh goes through `console/store/read/refresh-scheduler.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
+            "The chokepoint rules in `apps/desktop/AGENTS.md`: every refresh goes through `console/store/read/refresh-scheduler.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
         },
       ],
       "no-restricted-properties": [
@@ -950,13 +945,13 @@ export default [
           object: "window",
           property: "setInterval",
           message:
-            "`apps/desktop/AGENTS.md` §Chokepoints: every refresh goes through `console/store/read/refresh-scheduler.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
+            "The chokepoint rules in `apps/desktop/AGENTS.md`: every refresh goes through `console/store/read/refresh-scheduler.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
         },
         {
           object: "globalThis",
           property: "setInterval",
           message:
-            "`apps/desktop/AGENTS.md` §Chokepoints: every refresh goes through `console/store/read/refresh-scheduler.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
+            "The chokepoint rules in `apps/desktop/AGENTS.md`: every refresh goes through `console/store/read/refresh-scheduler.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
         },
       ],
     },
@@ -979,13 +974,13 @@ export default [
               name: "node:child_process",
               importNames: ["spawn"],
               message:
-                "`apps/desktop/AGENTS.md` §Tests: `test/helpers/electron-child.ts` is the only module that reaches `spawn`, and it registers the kill on `onTestFinished` — which runs on a pass, on a failure, and on vitest's own timeout kill alike. A child a timer was going to kill is reparented to init when the worker is torn down first. `spawnSync` is untouched.",
+                "The test rules in `apps/desktop/AGENTS.md`: `test/helpers/electron-child.ts` is the only module that reaches `spawn`, and it registers the kill on `onTestFinished` — which runs on a pass, on a failure, and on vitest's own timeout kill alike. A child a timer was going to kill is reparented to init when the worker is torn down first. `spawnSync` is untouched.",
             },
             {
               name: "child_process",
               importNames: ["spawn"],
               message:
-                "`apps/desktop/AGENTS.md` §Tests: `test/helpers/electron-child.ts` is the only module that reaches `spawn`, and it registers the kill on `onTestFinished`. The prefix-less specifier resolves to the same builtin. `spawnSync` is untouched.",
+                "The test rules in `apps/desktop/AGENTS.md`: `test/helpers/electron-child.ts` is the only module that reaches `spawn`, and it registers the kill on `onTestFinished`. The prefix-less specifier resolves to the same builtin. `spawnSync` is untouched.",
             },
           ],
         },
@@ -997,7 +992,7 @@ export default [
     files: ["test/helpers/electron-child.ts"],
     rules: { "no-restricted-imports": "off" },
   },
-  // --- Member order: the file and class shapes `AGENTS.md` §Module shape states ------
+  // --- Member order: the file and class shapes `AGENTS.md` states under Module shape ---
   //
   // Scope is the console subtree ONLY — `src/renderer/src/console/**/*.{ts,tsx}`,
   // co-located tests included, since a suite reads top to bottom like anything else and
@@ -1010,8 +1005,8 @@ export default [
   // `partitionByNewLine` (both `false`) are what makes that true — none of the three is
   // set here, and none of them adds or removes a blank line.
   //
-  // `eslint-plugin-perfectionist` is the one library the Spec-023 §Console Libraries
-  // structure-enforcement axis admits. `@typescript-eslint/member-ordering` stays frozen
+  // `eslint-plugin-perfectionist` is the one library the structure-enforcement axis
+  // admits. `@typescript-eslint/member-ordering` stays frozen
   // out, and no other perfectionist rule is enabled.
   {
     files: ["src/renderer/src/console/**/*.{ts,tsx}"],

@@ -6,10 +6,9 @@
  * own rule fixes and the reason the strip can sit inside the frame column without
  * either sheet knowing the other's selectors.
  *
- * `Spec-023 §Console Design (Meridian)` rules that govern this sheet: rule 3 (one
- * accent hue and no other colour — every value here is a token) and rule 5 (motion
- * settles; nothing here animates, because a banner that slides in during an outage
- * is motion spent on the worst possible moment).
+ * Two console rules govern this sheet: one accent hue and no other colour — every value
+ * here is a token — and motion settles; nothing here animates, because a banner that
+ * slides in during an outage is motion spent on the worst possible moment).
  */
 
 .meridian-shell-state {
@@ -33,8 +32,8 @@
  *
  * IT REACHES INTO THE CHIP FOR NOTHING, hover included. A frame selector ending in
  * `.meridian-chip` would DECLARE a primitives class from this family, which is the
- * cross-family collision `apps/desktop/AGENTS.md` §Module shape
- * forbids — and it would make the chip's own appearance depend on which sheet the bundler
+ * cross-family collision the package's module-shape rule forbids — and it would make
+ * the chip's own appearance depend on which sheet the bundler
  * emitted last. The cursor is the affordance; the primitive keeps its looks.
  *
  * The focus ring is stated here rather than borrowed from `shared.css`, whose one

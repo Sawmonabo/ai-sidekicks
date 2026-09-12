@@ -295,7 +295,7 @@ export function clientOver(port: ScriptedGrowthPort): AttachmentIngestClient {
  * One source over bytes the case can recognise on the other side of the wire.
  *
  * The declared media type is optional here for the same reason it is optional on the
- * request: a participant's file carries one or it does not, and the cases that turn on
+ * request: a user's file carries one or it does not, and the cases that turn on
  * the difference need both arms buildable.
  */
 export function sourceOver(
@@ -351,7 +351,7 @@ export const SMALL_SOURCE: AttachmentSource = sourceOver("attachment-1", "notes.
 /**
  * One source whose bytes the browser refuses to hand over.
  *
- * A `Blob` off a picker is a HANDLE on a file the host still owns, so a participant who
+ * A `Blob` off a picker is a HANDLE on a file the host still owns, so a user who
  * moves or deletes that file between two chunks gets a rejecting `arrayBuffer()` where
  * every earlier read succeeded. No real `Blob` can be put in that state from a test, so
  * the payload is scripted here — beside the sources every other case is driven with,

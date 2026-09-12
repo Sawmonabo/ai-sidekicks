@@ -1,10 +1,9 @@
 // The pane's produced-object shelf: what this session's browser has left behind.
 //
-// `Spec-023 §Console Design (Meridian)` 12.6 Renders: "The pane's overflow control
-// shows the session's recent browser-produced artifacts with a
-// reveal-in-file-manager action on each local one." 12.6 Density: "One artifact row
-// per produced object, collapsed to name, kind, and size, with the preview one click
-// away."
+// The pane's overflow control shows the session's recent browser-produced artifacts
+// with a reveal-in-file-manager action on each local one, at one artifact row per
+// produced object, collapsed to name, kind, and size, with the preview one click
+// away.
 //
 // WHERE EACH HALF OF A ROW COMES FROM, AND WHY THAT SPLIT IS THE HONEST ONE. The log
 // carries a produced object's IDENTITY, its state, and the run that made it, and it

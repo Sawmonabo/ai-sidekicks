@@ -58,7 +58,7 @@ export async function dispatchInterrupt(
  * item's id, its state, and when it was created — so a reply that is not that shape
  * is a reply this console can read no queued message out of, which is what a
  * protocol-version mismatch produces. Returning it as sent would clear the
- * participant's draft on the strength of a payload nothing had understood.
+ * user's draft on the strength of a payload nothing had understood.
  *
  * The parsed value is deliberately not KEPT. Nothing in the composer addresses a
  * queue item — the shelf reads the queue from its own subscription — so what the
@@ -103,15 +103,14 @@ export async function dispatchIntervention(
 /**
  * Whether an intervention state means the composed text reached the run.
  *
- * A total switch over the registered union rather than a list, so a seventh state
- * has to be classified rather than falling into whichever arm was written last.
- * `Queue And Intervention Model §Intervention State Transition Table` is what
- * decides each one: `requested` and `accepted` are admissions the daemon will act
- * on, `applied` is the provider confirming the effect, and `degraded` is the
- * orchestration layer having fallen back — the message travelled on all four. Only
- * `rejected` (refused before dispatch) and `expired` (the version guard, or the run
- * moving between accept and apply) leave the participant's words unsent, and those
- * are the two that keep the draft.
+ * A total switch over the registered union rather than a list, so a seventh state has
+ * to be classified rather than falling into whichever arm was written last. The
+ * intervention state transitions are what decide each one: `requested` and `accepted`
+ * are admissions the daemon will act on, `applied` is the provider confirming the
+ * effect, and `degraded` is the orchestration layer having fallen back — the message
+ * travelled on all four. Only `rejected` (refused before dispatch) and `expired` (the
+ * version guard, or the run moving between accept and apply) leave the user's
+ * words unsent, and those are the two that keep the draft.
  */
 function isInterventionAdmitted(state: InterventionState): boolean {
   switch (state) {

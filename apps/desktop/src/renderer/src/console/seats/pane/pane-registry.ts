@@ -1,11 +1,10 @@
 // The deck's single mount door: one owner per pane kind.
 //
-// `Spec-023 §Console Design (Meridian)` §The surface set states the deck rule in
-// structural terms — "one entity opens one pane, structurally (a single mount door
-// and a tripwire that fails on a second)". This module is that door. A view family is
-// HANDED this table by the composition and claims the kind it owns inside its own
-// `register<Family>` entry point; the deck resolves a pane's kind to a descriptor and
-// mounts it. There is deliberately no module-scope convenience that writes into the
+// The deck rule, in structural terms: one entity opens one pane, through a single
+// mount door and a tripwire that fails on a second. This module is that door. A view
+// family is HANDED this table by the composition and claims the kind it owns inside its
+// own `register<Family>` entry point; the deck resolves a pane's kind to a descriptor
+// and mounts it. There is deliberately no module-scope convenience that writes into the
 // process-wide instance — a family calling one would compose into production from
 // inside a composition that had handed it somewhere else.
 //
@@ -208,7 +207,6 @@ interface ConsolePaneRegistrationBase {
 /** The process-wide registry the view families call at module scope. */
 export const consolePaneRegistry: ConsolePaneRegistry = new ConsolePaneRegistry();
 
-// Consumed by T-023p-1C-2, T-023p-1C-8
 /** Which pane kinds the process-wide registry has a body for. */
 export function registeredPaneKinds(): readonly PaneKind[] {
   return consolePaneRegistry.registeredPaneKinds();

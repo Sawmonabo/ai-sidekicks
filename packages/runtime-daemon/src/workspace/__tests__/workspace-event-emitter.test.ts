@@ -1,12 +1,12 @@
-// WorkspaceEventEmitter — Plan-009 Phase 2.
+// WorkspaceEventEmitter behaviour.
 //
 // Exercises the single seam every repo-mount / workspace state transition
 // appends its `session_lifecycle` event through, over a real test SQLite DB
 // (same lifecycle as the neighbouring emitter suite: `openDatabase` factory →
-// per-test tmp file → `afterEach` close + unlink), with Plan-006's
-// `EventLogService` as the durable append path. A structural block at the
-// bottom drives the same emitter through a plain-object log to pin the parts
-// of the seam contract a real database cannot show.
+// per-test tmp file → `afterEach` close + unlink), with the `EventLogService`
+// as the durable append path. A structural block at the bottom drives the
+// same emitter through a plain-object log to pin the parts of the seam
+// contract a real database cannot show.
 //
 // Coverage map (cites are the authoritative contract, not just the ACs):
 //   * Registry anchor: `SESSION_EVENT_CATEGORY_BY_TYPE` maps all six types to
@@ -48,15 +48,6 @@
 // control below instead. The schema's own state vocabulary is `repo.test.ts`'s
 // beat, and asserting it from here would test contracts, not this seam.
 //
-// Spec coverage: `Spec-006 §Repo, Workspace, and Worktree Lifecycle (session_lifecycle)`
-// (the six event types and their shared payload shape);
-// `Spec-009 §State And Data Implications` (the rows whose transitions these events witness);
-// `Spec-009 §Detach Semantics (V1 Definition)` (the cascade that emits a workspace archival
-// naming both a workspace and its mount).
-// Verifies invariant: I-009-9 (emitter-side half: one emit, one row, with the
-// method-determined state. The producer-side "every transition" quantifier
-// rides T2.3/T2.4 — this suite constructs no producer, so that half is closed
-// by T2.6's acceptance walk rather than here).
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -94,7 +85,7 @@ const REPO_MOUNT_ID: string = "0190f8a1-1c3d-7e6a-8f21-2c7d6b4e9a10";
 const WORKSPACE_ID: string = "0190f8a2-2d4e-7f7b-9a32-3d8e7c5f0b21";
 // `actor` is the free-form envelope actor string (a bounded audit scalar), NOT
 // a branded id — any bounded non-blank string is valid.
-const PARTICIPANT_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
+const USER_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
 
 // The integrity-column widths the `session_events` CHECK constraints enforce.
 // The emitter never writes them; the arm below asserts the append path
@@ -245,7 +236,7 @@ function makeEmitter(overrides: Partial<WorkspaceEventEmitterDeps> = {}): Worksp
 
 /**
  * Read back the single row an emit is expected to have appended, asserting the
- * "exactly once" half of I-009-9 plus the envelope fields every one of the six
+ * "exactly once" half of plus the envelope fields every one of the six
  * carries. The category comes from the registry rather than a literal — the
  * anchor test above is what stops that from being circular.
  */
@@ -263,8 +254,8 @@ function readSingleRow(expectedType: SessionEventType): LifecycleRow {
 }
 
 /**
- * Assert the persisted payload BOTH matches the literal shape Spec-006
- * mandates and equals what the family schema itself returns for that input.
+ * Assert the persisted payload BOTH matches the literal shape mandates and
+ * equals what the family schema itself returns for that input.
  *
  * The literal comparison is the load-bearing one: `toEqual` fails on a missing
  * key AND on an extra one, so an envelope-only field leaking into the payload
@@ -304,7 +295,7 @@ describe("WorkspaceEventEmitter — category registry anchor", () => {
 
 // ----------------------------------------------------------------------------
 // One method per event type — exactly one row, right type, right category,
-// schema-parsed payload, method-determined state (I-009-9)
+// schema-parsed payload, method-determined state
 // ----------------------------------------------------------------------------
 
 describe("WorkspaceEventEmitter — per-event emission", () => {
@@ -312,14 +303,14 @@ describe("WorkspaceEventEmitter — per-event emission", () => {
     await makeEmitter().emitRepoAttached({
       sessionId: SESSION_ID,
       repoMountId: REPO_MOUNT_ID,
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
     });
 
     expectPersistedPayload(readSingleRow("repo.attached"), {
       sessionId: SESSION_ID,
       repoMountId: REPO_MOUNT_ID,
       state: "attached",
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
     });
   });
 
@@ -327,14 +318,14 @@ describe("WorkspaceEventEmitter — per-event emission", () => {
     await makeEmitter().emitRepoDetached({
       sessionId: SESSION_ID,
       repoMountId: REPO_MOUNT_ID,
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
     });
 
     expectPersistedPayload(readSingleRow("repo.detached"), {
       sessionId: SESSION_ID,
       repoMountId: REPO_MOUNT_ID,
       state: "detached",
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
     });
   });
 
@@ -349,7 +340,7 @@ describe("WorkspaceEventEmitter — per-event emission", () => {
       workspaceId: WORKSPACE_ID,
       state: "provisioning",
       // A system-driven transition: absent input actor narrows to null, the
-      // wire form for "no participant or agent did this".
+      // wire form for "no user or agent did this".
       actor: null,
     });
   });
@@ -386,14 +377,14 @@ describe("WorkspaceEventEmitter — per-event emission", () => {
     await makeEmitter().emitWorkspaceArchived({
       sessionId: SESSION_ID,
       workspaceId: WORKSPACE_ID,
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
     });
 
     expectPersistedPayload(readSingleRow("workspace.archived"), {
       sessionId: SESSION_ID,
       workspaceId: WORKSPACE_ID,
       state: "archived",
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
     });
   });
 
@@ -405,8 +396,8 @@ describe("WorkspaceEventEmitter — per-event emission", () => {
     await makeEmitter().emitWorkspaceStale({
       sessionId: SESSION_ID,
       workspaceId: WORKSPACE_ID,
-      // @ts-expect-error — callers cannot pair a type with a state Spec-006
-      // does not give it.
+      // @ts-expect-error — callers cannot pair a type with a state does not
+      // give it.
       state: "ready",
     });
 
@@ -500,7 +491,7 @@ describe("WorkspaceEventEmitter — envelope/payload reconciliation", () => {
     await makeEmitter().emitRepoAttached({
       sessionId: SESSION_ID,
       repoMountId: REPO_MOUNT_ID,
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
     });
 
     const row: LifecycleRow = readSingleRow("repo.attached");
@@ -508,8 +499,8 @@ describe("WorkspaceEventEmitter — envelope/payload reconciliation", () => {
     // The row's own actor column IS the payload's actor, and the row lives
     // under the session the payload names — a caller has no second input with
     // which to make the two disagree.
-    expect(row.actor).toBe(PARTICIPANT_ID);
-    expect(persisted["actor"]).toBe(PARTICIPANT_ID);
+    expect(row.actor).toBe(USER_ID);
+    expect(persisted["actor"]).toBe(USER_ID);
     expect(persisted["sessionId"]).toBe(SESSION_ID);
   });
 
@@ -556,15 +547,14 @@ describe("WorkspaceEventEmitter — envelope/payload reconciliation", () => {
   });
 
   it("names both ids on a detach-cascade workspace archival", async () => {
-    // `Spec-009 §Detach Semantics (V1 Definition)`: a workspace archived
-    // BECAUSE its mount detached is the one flow whose payload legitimately
-    // carries two ids — a reader holding only the mount would otherwise have
-    // no way to attribute the archival.
+    // a workspace archived BECAUSE its mount detached is the one flow whose
+    // payload legitimately carries two ids — a reader holding only the mount
+    // would otherwise have no way to attribute the archival.
     await makeEmitter().emitWorkspaceArchived({
       sessionId: SESSION_ID,
       workspaceId: WORKSPACE_ID,
       repoMountId: REPO_MOUNT_ID,
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
     });
 
     expectPersistedPayload(readSingleRow("workspace.archived"), {
@@ -572,7 +562,7 @@ describe("WorkspaceEventEmitter — envelope/payload reconciliation", () => {
       workspaceId: WORKSPACE_ID,
       repoMountId: REPO_MOUNT_ID,
       state: "archived",
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
     });
   });
 
@@ -797,14 +787,14 @@ describe("WorkspaceEventEmitter — WorkspaceEventLog seam", () => {
 
   it("aborts the append when the forwarded prelude throws against the real path — no row persists", async () => {
     // The identity arms above prove the closure REACHES the options object;
-    // this arm proves the mechanism the module header rests I-009-9's
-    // dual-write story on: against the real append path the prelude runs
-    // INSIDE the transaction, so its throw aborts before the INSERT and the
-    // failure surfaces to the producer. A future emitter that wrapped,
-    // deferred, or invoked the prelude itself — or swallowed the append
-    // rejection — passes the identity arms and fails here. (The positive
-    // control, a prelude whose write commits atomically with the row, ships
-    // with the first real dual-write producer.)
+    // this arm proves the mechanism the module header rests the dual-write
+    // story on: against the real append path the prelude runs INSIDE the
+    // transaction, so its throw aborts before the INSERT and the failure
+    // surfaces to the producer. A future emitter that wrapped, deferred, or
+    // invoked the prelude itself — or swallowed the append rejection —
+    // passes the identity arms and fails here. (The positive control, a
+    // prelude whose write commits atomically with the row, ships with the
+    // first real dual-write producer.)
     await expect(
       makeEmitter().emitRepoAttached({
         sessionId: SESSION_ID,

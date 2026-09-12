@@ -35,7 +35,7 @@ function staleFrame(sessionId: string, sequence: number): ConsoleSessionEvent {
 /** A store with a base state, which is what makes a later frame a frame and not history. */
 function initialisedStore(sessionId: string): SessionStore {
   const sessionStore = new SessionStore({ sessionId });
-  sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+  sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
   return sessionStore;
 }
 
@@ -89,7 +89,7 @@ describe("RepoMountsReader — the reasons it reads again", () => {
     await settle(clock, reader);
     expect(reader.performCount).toBe(1);
 
-    sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
     await settle(clock, reader);
 
     expect(reader.performCount).toBe(2);
@@ -170,7 +170,7 @@ describe("RepoMountsReader — the reasons it reads again", () => {
     sessionStore.initialise({
       cursor: 1,
       entities: [],
-      participantJoinLog: [],
+      userJoinLog: [],
       // A stale frame inside the BACKFILL is history the section's own live read already
       // reflects, so establishing a base state re-reads nothing.
       timeline: [staleFrame(REPOS_SCENARIO.sessionId, 1)],

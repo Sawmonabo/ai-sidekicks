@@ -4,7 +4,7 @@
 // Why this exists
 // ---------------
 //
-// Plan-024 ships two backends behind the `PtyHost` contract:
+// Ships two backends behind the `PtyHost` contract:
 //   * `NodePtyHost`           — in-process `node-pty` wrapper (Phase 2,
 //                                primary on macOS/Linux at every phase,
 //                                Phase 5 Windows-fallback).
@@ -20,7 +20,7 @@
 // fallback when the sidecar binary is not resolvable. macOS/Linux
 // remain on `NodePtyHost` primary at Phase 5 and beyond.
 //
-// Env-var override grammar (F-024-2-07 / the `Plan-024 §Implementation Steps` step-9 selector bullet)
+// Env-var override grammar (step-9 selector bullet)
 // ----------------------------------------------------
 //
 // `AIS_PTY_BACKEND` is **case-sensitive lowercase**:
@@ -53,10 +53,8 @@
 // inject `vi.fn()` doubles so the entire selection grammar can be
 // exercised without touching real env-vars, the real console sink, or
 // the real `NodePtyHost` constructor (which lazily loads `node-pty`).
-// Same DI pattern as `NodePtyHostDeps` from T-024-2-2.
+// Same DI pattern as `NodePtyHostDeps`.
 //
-// Refs: Plan-024 §Implementation Step 9, §F-024-2-02, §F-024-2-07;
-// ADR-019 §Decision item 1.
 
 import type { PtyHost } from "@ai-sidekicks/contracts";
 
@@ -68,12 +66,11 @@ import { createRustSidecarPtyHost, PtyBackendUnavailableError } from "./rust-sid
 // --------------------------------------------------------------------------
 
 /**
- * Recognized `AIS_PTY_BACKEND` env-var values per F-024-2-07.
+ * Recognized `AIS_PTY_BACKEND` env-var values.
  *
- * Case-sensitive lowercase. Any string outside this union (including
- * empty string, uppercase variants, typos) is "unrecognized" and falls
- * back to the platform default with a `console.warn` per the
- * `Plan-024 §Implementation Steps` step-9 selector bullet.
+ * Any string outside this union (including empty string, uppercase
+ * variants, typos) is "unrecognized" and falls back to the platform
+ * default with a `console.warn` step-9 selector bullet.
  */
 export type PtyBackendName = "rust-sidecar" | "node-pty";
 
@@ -229,11 +226,10 @@ export function selectPtyHost(deps?: Partial<PtyHostSelectorDeps>): PtyHost {
   }
 
   if (envValue === "rust-sidecar") {
-    // Phase 3 wiring (per the `Plan-024 §Implementation Steps` step-9
-    // selector bullet + F-024-2-02): the env-var IS honored (no silent fallback),
-    // and the rust-sidecar backend is now available. Failures inside
-    // the factory (binary missing, spawn-time error, sliding-window
-    // crash budget exhausted) are wrapped as
+    // Phase 3 wiring (step-9 selector bullet +): the env-var IS honored (no
+    // silent fallback), and the rust-sidecar backend is now available.
+    // Failures inside the factory (binary missing, spawn-time error,
+    // sliding-window crash budget exhausted) are wrapped as
     // `PtyBackendUnavailableError` so the consumer learns about the
     // structured failure rather than the raw spawn errno.
     //
@@ -264,9 +260,8 @@ export function selectPtyHost(deps?: Partial<PtyHostSelectorDeps>): PtyHost {
     return resolved.createNodePtyHost();
   }
 
-  // Unrecognized value (mixed-case, typo, empty string, etc). Per
-  // the `Plan-024 §Implementation Steps` step-9 selector bullet we emit a
-  // warn AND fall back to the platform default
+  // Unrecognized value (mixed-case, typo, empty string, etc). step-9
+  // selector bullet we emit a warn AND fall back to the platform default
   // — silent fallback would hide operator misconfig.
   resolved.warn(`AIS_PTY_BACKEND='${envValue}' unrecognized; falling back to platform default`);
   return platformDefault(resolved);
@@ -275,15 +270,14 @@ export function selectPtyHost(deps?: Partial<PtyHostSelectorDeps>): PtyHost {
 /**
  * Resolve the platform default backend.
  *
- * **Phase 2 contract: always `NodePtyHost` on every platform**
- * (`Plan-024 §Implementation Steps`, step 9). This intentionally does NOT consult `deps.platform`
- * — the platform branch is dead at Phase 2, and adding a no-op branch
- * here would dilute the contract.
+ * **Phase 2 contract: always `NodePtyHost` on every platform**. This
+ * intentionally does NOT consult `deps.platform` — the platform branch is
+ * dead at Phase 2, and adding a no-op branch here would dilute the contract.
  *
  * TODO(Phase 5): flip the `win32` branch to `RustSidecarPtyHost` with a
  * `NodePtyHost` fallback when the sidecar binary is not resolvable.
- * macOS/Linux MUST remain on `NodePtyHost` primary at Phase 5 and
- * beyond per the `Plan-024 §Implementation Steps` step-9 selector bullet.
+ * macOS/Linux MUST remain on `NodePtyHost` primary at Phase 5 and beyond
+ * step-9 selector bullet.
  */
 function platformDefault(deps: ResolvedPtyHostSelectorDeps): PtyHost {
   return deps.createNodePtyHost();

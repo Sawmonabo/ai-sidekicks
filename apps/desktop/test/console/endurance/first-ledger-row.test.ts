@@ -1,7 +1,7 @@
-// The time-to-first-ledger-row budget, measured — Plan-023 Phase 1C.
+// The time-to-first-ledger-row budget, measured.
 //
-// `Spec-023 §Console Design (Meridian)` §Budgets bounds "time to first ledger row
-// on launch" at 800 ms from window show, in fixture mode. This file is the row's
+// Time to first ledger row on launch is bounded at 800 ms from window show, in
+// fixture mode. This file is the row's
 // `measuredBy`, and it compares through the registry's own `evaluateBudget`, so
 // the number this gate uses and the number the spec wrote are one number read from
 // one file.

@@ -1,7 +1,7 @@
 // The health banner while it is being read.
 //
-// `Spec-023 §Console Design (Meridian)` §Diagnostics and health names this state
-// exactly: "Loading: per-component skeletons." Rows rather than a spinner because the
+// The loading state is named exactly: per-component skeletons. Rows rather than a
+// spinner because the
 // banner is the tallest thing on the page and a region that collapsed to a line and
 // then grew back would move every reading below it as the read landed.
 //

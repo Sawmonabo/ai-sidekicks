@@ -1,49 +1,42 @@
-//! Negative-invariant scope guard for WSL2 path translation
-//! (Plan-024 §Invariants I-024-3).
+//! Negative-invariant scope guard for WSL2 path
+//! translation.
 //!
-//! Plan-024 §Windows Implementation Gotchas Gotcha 3: the sidecar MUST
-//! pass `SpawnRequest.cwd` and `SpawnRequest.env` paths to `portable-pty`
+//! `SpawnRequest.cwd` and `SpawnRequest.env` paths to `portable-pty`
 //! verbatim and MUST NOT invoke `wslpath` or any Windows ↔ WSL2 path
-//! conversion. WSL path translation is a daemon-layer step (CP-001-2
-//! `spawn-cwd-translator`, already shipped in PR #48) that runs BEFORE
-//! the `SpawnRequest` reaches the sidecar.
+//! conversion. WSL path translation is a daemon-layer step
+//! (`spawn-cwd-translator`) that runs BEFORE the `SpawnRequest` reaches
+//! the sidecar.
 //!
 //! ## Why a module rather than a comment in `pty_session.rs`?
 //!
-//! I-024-3 is a NEGATIVE invariant: "the sidecar does NOT do X." The
-//! conventional encoding is a comment that says "do not call `wslpath`
-//! here." Comments rot. A module with a pure pass-through function and
-//! a property test that asserts byte-for-byte identity provides:
+//! A module with a pure pass-through function and a property test that
+//! asserts byte-for-byte identity provides:
 //!
 //!   1. A single point of truth that future contributors find when
 //!      they grep for "wsl" in the crate.
 //!   2. An executable assertion: the test FAILS if some future refactor
 //!      adds path translation.
 //!   3. A reviewer-readable scope-boundary declaration: the diff for
-//!      the wire-through PR (T-024-3-1 follow-up) routes `cwd` through
+//!      the wire-through PR (follow-up) routes `cwd` through
 //!      `pass_through` and the lint catches a regression.
 //!
 //! ## Lint complement
 //!
-//! Plan-024 §I-024-3 mentions a `clippy::ban_path_translation` lint as
-//! a complementary defense. That lint is a separate follow-up; this
-//! module ships the executable test.
+//! `clippy::ban_path_translation` lint as a complementary defense.
+//! That lint is a separate follow-up; this module ships the executable
+//! test.
 //!
-//! Refs: Plan-024 I-024-3, ADR-019 §Decision item 1, Plan-024
-//! §Windows Implementation Gotchas Gotcha 3, Plan-001 P5 CP-001-2
-//! (cwd-translator, the daemon-layer counterpart).
 
 #![cfg(target_os = "windows")]
 
 /// Pass a path through verbatim — byte-identical input == output.
 ///
-/// This function is the **enforcement boundary** for I-024-3. The
-/// dispatcher routes `SpawnRequest.cwd` (and any other path-carrying
-/// field) through this function before forwarding to `portable-pty`.
-/// The function is intentionally trivial — it returns its input
-/// unchanged — so that the unit tests can assert byte-for-byte
-/// identity over a representative WSL path corpus and catch any
-/// future refactor that introduces path translation.
+/// The dispatcher routes `SpawnRequest.cwd` (and any other
+/// path-carrying field) through this function before forwarding to
+/// `portable-pty`. The function is intentionally trivial — it
+/// returns its input unchanged — so that the unit tests can assert
+/// byte-for-byte identity over a representative WSL path corpus and
+/// catch any future refactor that introduces path translation.
 ///
 /// # Why borrow + return owned?
 ///
@@ -61,14 +54,13 @@
 pub fn pass_through(path: &str) -> String {
     // INTENTIONALLY trivial — see module rustdoc. Adding logic here
     // (normalization, slash-flipping, wslpath invocation, etc.) is
-    // a Plan-024 I-024-3 violation. The unit tests below assert
-    // byte-identity over a WSL2 path corpus; any deviation from
-    // identity will trip those tests.
+    // a violation. The unit tests below assert byte-identity over a
+    // WSL2 path corpus; any deviation from identity will trip those
+    // tests.
     //
     // If a future requirement DEMANDS path normalization at the
-    // sidecar layer (it should not — the daemon owns this per
-    // CP-001-2), the change must:
-    //   1. Update Plan-024 I-024-3 + ADR-019 §Decision item 1
+    // sidecar layer (it should not — the daemon owns this), the
+    // change must:
     //   2. Update the unit tests below to assert the new contract
     //   3. Update the dispatcher's caller to opt in
     // Doing it silently is the failure mode this module exists to
@@ -80,12 +72,12 @@ pub fn pass_through(path: &str) -> String {
 mod tests {
     use super::*;
 
-    // I-024-3 verification — feeding the sidecar WSL2 paths in their
-    // various canonical shapes MUST result in byte-identical output.
-    // The test corpus covers:
+    // Verification — feeding the sidecar WSL2 paths in their various
+    // canonical shapes MUST result in byte-identical output. The
+    // test corpus covers:
     //   - `\\wsl.localhost\Ubuntu\home\foo` (modern WSL2 UNC path,
-    //     post Windows 11 22H2 — primary case Plan-024 I-024-3 test
-    //     description names verbatim)
+    //     post Windows 11 22H2 — primary case test description
+    //     names verbatim)
     //   - `\\wsl$\Ubuntu\home\foo` (legacy WSL2 UNC path, still
     //     functional on older Windows builds)
     //   - `/mnt/c/Users/foo` (POSIX path style as seen from inside
@@ -100,10 +92,9 @@ mod tests {
 
     #[test]
     fn passes_through_modern_wsl_localhost_unc() {
-        // Plan-024 I-024-3 names this exact path shape verbatim:
-        // "feeds the sidecar a `\\wsl.localhost\Ubuntu\home\foo`
-        // path and asserts the path is forwarded to `portable-pty`
-        // byte-identical".
+        // Names this exact path shape verbatim: "feeds the sidecar
+        // a `\\wsl.localhost\Ubuntu\home\foo` path and asserts the
+        // path is forwarded to `portable-pty` byte-identical".
         let input = r"\\wsl.localhost\Ubuntu\home\foo";
         assert_eq!(pass_through(input), input);
     }
@@ -122,9 +113,9 @@ mod tests {
         // `/mnt/c/Users/foo` is the POSIX-style path WSL exposes for
         // mounted Windows drives. The sidecar MUST NOT translate
         // this to `C:\Users\foo` — that translation is a daemon-
-        // layer step (CP-001-2 cwd-translator). If the sidecar
-        // translated, a child running INSIDE WSL would receive a
-        // Windows path it cannot stat.
+        // layer step (cwd-translator). If the sidecar translated, a
+        // child running INSIDE WSL would receive a Windows path it
+        // cannot stat.
         let input = "/mnt/c/Users/foo";
         assert_eq!(pass_through(input), input);
     }
@@ -187,15 +178,12 @@ mod tests {
 
     #[test]
     fn passes_through_path_with_embedded_nul() {
-        // Security-relevant: NUL bytes inside path strings can desync
-        // C-string consumers (the standard `path → CStr` boundary) and
-        // are commonly weaponized in path-injection attacks. The
-        // sidecar's contract is "forward verbatim" — the daemon's
-        // wire-validation layer (CP-001-2 cwd-translator + boundary
-        // schema) is responsible for rejecting NULs at the trust
-        // boundary. This test pins the pass-through behavior so a
-        // future "let's strip NULs in the sidecar" change has to
-        // explicitly update the contract.
+        // The sidecar's contract is "forward verbatim" — the daemon's
+        // wire-validation layer (cwd-translator + boundary schema) is
+        // responsible for rejecting NULs at the trust boundary. This
+        // test pins the pass-through behavior so a future "let's strip
+        // NULs in the sidecar" change has to explicitly update the
+        // contract.
         let input = "\0before\0after";
         assert_eq!(pass_through(input), input);
         assert_eq!(pass_through(input).as_bytes(), input.as_bytes());

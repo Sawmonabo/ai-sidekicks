@@ -3,7 +3,7 @@
 // FOUR CASES OVER ONE BRANCH, and each is the other's negative control: a renderer
 // that reserved unconditionally would swallow a body on the day it lands, one that
 // rendered the body unconditionally would crash on a seat that has none, one that
-// printed the seat's contract would put a governance identifier on a participant's
+// printed the seat's contract would put a governance identifier on a user's
 // screen, and one that produced nothing at all would satisfy every `not.toContain`
 // there is.
 //
@@ -32,7 +32,7 @@ describe("a settings page whose body another plan authors", () => {
   const RESERVED: OwnerSlotPage = {
     slot: {
       contract: {
-        owningTask: "Plan-999 (the registry test's own seat)",
+        owningTask: "the registry test's own seat",
         mountObligation: "the page frame and the page context",
         deleteShellIn: "the task that fills this slot",
       },
@@ -64,7 +64,7 @@ describe("a settings page whose body another plan authors", () => {
   it("puts none of the seat's contract on screen", () => {
     // A slot contract is developer-facing and reaches no screen. The rule is
     // repository-wide: governance identifiers live in comments, never in a string
-    // a participant reads.
+    // a user reads.
     const rendered = JSON.stringify(renderOwnerSlotPage(RESERVED, CONTEXT));
     expect(rendered).not.toContain(RESERVED.slot.contract.owningTask);
     expect(rendered).not.toContain(RESERVED.slot.contract.deleteShellIn);

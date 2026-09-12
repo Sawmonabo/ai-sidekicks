@@ -13,8 +13,8 @@ export const REFRESH_DEBOUNCE_MS = 120;
  * Absolute deadline from the FIRST event of a burst. The scheduler fires at
  * `min(lastEvent + REFRESH_DEBOUNCE_MS, firstEvent + REFRESH_MAX_WAIT_MS)`, so a
  * continuous stream cannot starve the trailing debounce forever — the failure
- * mode a bare debounce has and the reason `Spec-023 §Console Design (Meridian)`
- * §The eight rules names an absolute deadline.
+ * mode a bare debounce has, and the reason the console's refresh rules name an
+ * absolute deadline.
  */
 export const REFRESH_MAX_WAIT_MS = 1000;
 

@@ -54,8 +54,8 @@ describe("the growth signature table — composed from planes, closed as one set
     expectTypeOf<GrowthOperationSignatures["workflowRunRead"]["request"]>().toEqualTypeOf<{
       readonly workflowRunId: string;
     }>();
-    expectTypeOf<GrowthOperationSignatures["callerParticipantRead"]["value"]>().toEqualTypeOf<{
-      readonly participantId: string;
+    expectTypeOf<GrowthOperationSignatures["callerUserRead"]["value"]>().toEqualTypeOf<{
+      readonly userId: string;
     }>();
     expectTypeOf<GrowthOperationSignatures["agentList"]["request"]>().toEqualTypeOf<{
       readonly sessionId: string;

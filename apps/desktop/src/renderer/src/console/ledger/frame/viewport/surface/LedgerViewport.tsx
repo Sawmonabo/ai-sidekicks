@@ -34,8 +34,8 @@
 //     height the virtualizer writes, it names nothing, and left in the tree it
 //     stands between the feed and the rows it is supposed to own.
 //
-// `Spec-023 §The four bars`, Elegance: "Attention is steered by luminance and the
-// two-hue rule, never by motion." A lane taking catch-up rate is marked with a class the
+// Attention is steered by luminance and the two-hue rule, never by motion. A lane taking
+// catch-up rate is marked with a class the
 // stylesheet answers in luminance; nothing here animates, and nothing pulses.
 
 import { WindowAbsences } from "../../../../primitives/index.js";
@@ -53,7 +53,7 @@ export interface LedgerViewportProps {
    *
    * TAKEN rather than minted. `useLedgerViewport` builds a controller, a scroll
    * chokepoint, a reading anchor, and a virtualizer, and a viewport that minted its
-   * own would give the surrounding surface a SECOND set: the cast bar's follow seat
+   * own would give the surrounding surface a SECOND set: the session header's follow seat
    * would report a state nobody is scrolling, and `jumpToRow` would scroll a virtualizer
    * with no element under it. One binding per ledger is the whole invariant, and
    * requiring it as a prop is what makes a second one unrepresentable rather than
@@ -181,9 +181,9 @@ export function LedgerViewport(props: LedgerViewportProps): React.JSX.Element {
         {/*
          * The two ways this window's own DRAWING falls short of the log it holds,
          * in the console's shared sentences rather than in a pair this family
-         * wrote. Both are residuals of what `Spec-023 §Console Libraries`'
-         * timeline-virtualization row asks of an own-built window — stable keys,
-         * and a ceiling under the height Chromium will place an element at — and
+         * wrote. Both are residuals of what the virtualization adoption asks of
+         * an own-built window — stable keys, and a ceiling under the height
+         * Chromium will place an element at — and
          * both are invisible until somebody scrolls to exactly the wrong place.
          *
          * Here rather than beside the window model's four absences one directory

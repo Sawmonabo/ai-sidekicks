@@ -1,20 +1,18 @@
-// Plan-001 Phase 5 T5.2 (Lane C) — SessionBootstrap renderer unit suite.
+// SessionBootstrap renderer unit suite.
 //
-// Spec-001 §Acceptance Criteria coverage:
-//   • AC1 (call site): asserted via `expect(daemonCall).toHaveBeenCalledWith(...)`
-//     inside the resolve/reject tests — proves the component fired
-//     `daemon.call("session.create", {})` on mount.
-// The reject-branch tests cover task AC T5.2(d) (renders the error envelope
-// on reject), not Spec-001 AC4 — see `docs/plans/001-shared-session-core.md §T5.2 — apps/desktop/src/renderer/src/session-bootstrap/ renderer wiring`.
+// The call site itself is asserted via
+// `expect(daemonCall).toHaveBeenCalledWith(...)` inside the resolve/reject
+// tests — proving the component fired `daemon.call("session.create", {})` on
+// mount.
 //
-// Four-case coverage (per T5.2 acceptance criteria f + sync-throw defense):
+// Four-case coverage, the last of them the sync-throw defense:
 //   1. pending — promise never settles; placeholder visible.
 //   2. resolved — promise resolves to a deterministic `SessionCreateResponse`;
 //      session id visible.
-//   3. rejected (async) — promise rejects with `NotImplementedAtTier1Error`;
+//   3. rejected (async) — promise rejects with `NotImplementedError`;
 //      error envelope visible with name + message.
 //   4. rejected (sync throw) — bridge call throws synchronously (matches the
-//      production Tier 1 `createTier1Bridge` shape); error envelope visible.
+//      production `createStubBridge` shape); error envelope visible.
 //
 // Vitest 4 `globals: true` (apps/desktop/vitest.config.ts) makes
 // `describe` / `it` / `expect` / `vi` / `afterEach` available without
@@ -26,7 +24,7 @@
 
 import { render, screen } from "@testing-library/react";
 
-import { NotImplementedAtTier1Error } from "@ai-sidekicks/contracts";
+import { NotImplementedError } from "@ai-sidekicks/contracts";
 import type { SidekicksBridge } from "@ai-sidekicks/contracts";
 
 import { SessionBootstrap, type SessionBootstrapProps } from "../SessionBootstrap.js";
@@ -52,7 +50,6 @@ function installMockBridge(call: ReturnType<typeof vi.fn>): void {
     bridge as unknown as SidekicksBridge;
 }
 
-// Component under test: `SessionBootstrap` (Plan-001 Phase 5 T5.2 Lane C).
 describe("SessionBootstrap", () => {
   afterEach(() => {
     // RTL auto-cleanup runs because `vitest/globals: true` lets
@@ -79,15 +76,13 @@ describe("SessionBootstrap", () => {
   });
 
   it("renders the session id on resolve", async () => {
-    // Deterministic resolve payload — `sessionId` is the only field T5.2
-    // renders (per acceptance criterion c, minimum scope at Tier 1). The
-    // remaining fields match the `SessionCreateResponse` contract shape (see
-    // `packages/contracts/src/session.ts` §SessionCreate) so the
-    // `as SessionCreateResponse` cast in `SessionBootstrap.tsx` is
-    // type-honest, not just type-suppressed: `state` is the bare
-    // `SessionState` string-union, NOT a nested `{ status, createdAt,
-    // updatedAt }` object — that latter shape belongs to `SessionSnapshot`,
-    // not the create-response surface.
+    // Deterministic resolve payload — `sessionId` is the only field the component
+    // renders. The remaining fields match the `SessionCreateResponse` contract shape
+    // declared in `packages/contracts/src/session.ts`, so the `as
+    // SessionCreateResponse` cast in `SessionBootstrap.tsx` is type-honest, not just
+    // type-suppressed: `state` is the bare `SessionState` string-union, NOT a nested `{
+    // status, createdAt, updatedAt }` object — that latter shape belongs to
+    // `SessionSnapshot`, not the create-response surface.
     const knownSessionId = "11111111-2222-3333-4444-555555555555";
     const daemonCall = vi.fn().mockResolvedValue({
       sessionId: knownSessionId,
@@ -107,11 +102,11 @@ describe("SessionBootstrap", () => {
   });
 
   it("renders the error envelope on reject", async () => {
-    // The Tier 1 production branch: every Tier-1 bridge method throws
-    // `NotImplementedAtTier1Error`. Mocking exactly this error class proves
-    // task AC T5.2(d) — the renderer surfaces the rejection without crashing.
-    const tier1Error = new NotImplementedAtTier1Error("session.create");
-    const daemonCall = vi.fn().mockRejectedValue(tier1Error);
+    // The placeholder-bridge production branch: every stub bridge method
+    // throws `NotImplementedError`. Mocking exactly this error class
+    // proves the renderer surfaces the rejection without crashing.
+    const stubError = new NotImplementedError("session.create");
+    const daemonCall = vi.fn().mockRejectedValue(stubError);
     installMockBridge(daemonCall);
 
     render(<SessionBootstrap />);
@@ -120,24 +115,22 @@ describe("SessionBootstrap", () => {
     expect(errorBanner).toBeDefined();
     // The component renders `<name>: <message>`. Both substrings must
     // appear in the rendered text.
-    expect(errorBanner.textContent).toContain("NotImplementedAtTier1Error");
-    expect(errorBanner.textContent).toContain(
-      "SidekicksBridge.session.create is not implemented at Tier 1",
-    );
+    expect(errorBanner.textContent).toContain("NotImplementedError");
+    expect(errorBanner.textContent).toContain("SidekicksBridge.session.create is not implemented");
   });
 
   it("renders the error envelope when the bridge throws synchronously", async () => {
-    // Production-shape parity: at Tier 1, `createTier1Bridge` (see
-    // `packages/contracts/src/desktop-bridge.ts:346`) wires every method to
-    // `() => tier1Throw(...)` — a SYNCHRONOUS throw, not an async rejection.
+    // Production-shape parity: `createStubBridge` (in
+    // `packages/contracts/src/desktop-bridge.ts`) wires every method to
+    // `() => stubThrow(...)` — a SYNCHRONOUS throw, not an async rejection.
     // A regression in the renderer effect (or a contracts-side change to the
     // stub) that bypasses the sync-throw normalization in `SessionBootstrap`
     // would leave the component pinned in `kind: "pending"`. This case uses
     // `vi.fn(() => { throw error })` to model that exact shape so the
     // sync-throw branch is covered alongside the async-rejection branch above.
-    const tier1Error = new NotImplementedAtTier1Error("session.create");
+    const stubError = new NotImplementedError("session.create");
     const daemonCall = vi.fn(() => {
-      throw tier1Error;
+      throw stubError;
     });
     installMockBridge(daemonCall);
 
@@ -145,7 +138,7 @@ describe("SessionBootstrap", () => {
 
     const errorBanner = await screen.findByRole("alert");
     expect(errorBanner).toBeDefined();
-    expect(errorBanner.textContent).toContain("NotImplementedAtTier1Error");
+    expect(errorBanner.textContent).toContain("NotImplementedError");
     expect(errorBanner.textContent).toContain("session.create");
   });
 
@@ -185,9 +178,7 @@ describe("SessionBootstrap", () => {
       // A create that refused produced no session, and a callback carrying an empty
       // id would be a name for something that does not exist. The console surface
       // above reads this arm as "navigate nowhere".
-      const daemonCall = vi
-        .fn()
-        .mockRejectedValue(new NotImplementedAtTier1Error("session.create"));
+      const daemonCall = vi.fn().mockRejectedValue(new NotImplementedError("session.create"));
       installMockBridge(daemonCall);
       const created: string[] = [];
 

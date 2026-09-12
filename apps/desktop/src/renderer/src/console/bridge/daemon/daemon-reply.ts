@@ -29,9 +29,9 @@
 // already cost, and it is the half a per-site parse always skipped.
 //
 // NO REFUSED VALUE EVER REACHES THE DETAIL SENTENCE. A schema failure knows exactly
-// what it rejected, and what it rejected can be a participant's message, a repo
-// path, or an invite token. `Spec-023 §Console Design (Meridian)` rule 9 already
-// forbids putting a refused value in a refusal's detail, so this module composes
+// what it rejected, and what it rejected can be a user's message, a repo
+// path, or a credential. A refused value never reaches a refusal's detail, so
+// this module composes
 // its own sentence from the METHOD and, at most, the member PATHS that failed —
 // structural names the wire itself publishes. It never renders the validator's
 // message, which quotes received values. Both per-family parsers this replaces
@@ -40,7 +40,7 @@
 // THE TWO SEAMS, AND WHY THERE ARE TWO. This module answers for methods the corpus
 // has REGISTERED: a shape exists, `daemon-reply-registry.ts` binds it, and a reply
 // is checkable against it. The growth port next door (`growth-port.ts`) answers for
-// the wires `Plan-023`'s growth slate names and the corpus has not registered: no
+// the wires the growth slate names and the corpus has not registered: no
 // shape exists to check against, so those operations are typed by the console's own
 // signature table and every one of them refuses by name under the live bridge,
 // telling the reader which document owes the wire. They are not two spellings of
@@ -176,7 +176,7 @@ export function abandonedReadRefusal(method: string): ConsoleRefusal {
  * same key. A caller never names a schema, so a caller never names the wrong one.
  *
  * `async` and total. An `async` function's synchronous throw is already a
- * rejection, which matters against the bridge that actually ships: the Tier-1
+ * rejection, which matters against the bridge that actually ships: the stub
  * preload stub throws from every method in the caller's own frame, so a non-`async`
  * wrapper would put that throw outside the promise and past every `.catch` the
  * console has.
@@ -209,9 +209,9 @@ export async function callDaemon<MethodName extends ConsoleDaemonMethod>(
     return abandonedRead(method);
   }
 
-  // THE SUPERVISOR BLOCK, ENFORCED ONCE AND HERE. `Spec-023 §Daemon Supervision
-  // Lifecycle` step 3 blocks mutating operations while the supervisor is not serving
-  // and keeps reads live, and before this guard existed the rule was applied by
+  // THE SUPERVISOR BLOCK, ENFORCED ONCE AND HERE. Mutating operations are blocked
+  // while the supervisor is not serving and reads stay live, and before this guard
+  // existed the rule was applied by
   // whichever surfaces remembered to ask: a run control, a repo write, or a composer
   // send pressed during an outage went out through a stopped supervisor and came back
   // as a transport refusal the design says it must never send. Enforced at the door,
@@ -243,7 +243,7 @@ export async function callDaemon<MethodName extends ConsoleDaemonMethod>(
   let reply: unknown;
   try {
     // The one widening of the bridge's generic door in the whole console. The
-    // brand `DaemonMethod` stands in for Plan-007's method union and resolves to
+    // brand `DaemonMethod` stands in for the daemon's method union and resolves to
     // `never`-shaped `string`, so every caller has to widen it once; widened here,
     // it is widened once for the console rather than once per surface.
     const call = bridge.sidekicks.daemon.call as (
@@ -268,7 +268,7 @@ export async function callDaemon<MethodName extends ConsoleDaemonMethod>(
       // rejection carrying a code of its own keeps it and only one that carries
       // none reaches this sentence. It names the method and stops there — the
       // rejected value is not quoted into it, because a rejection off the wire can
-      // carry participant content as readily as a schema failure can.
+      // carry user content as readily as a schema failure can.
       refusal: normalizeWireRejection(DAEMON_REPLY_REFUSAL_ORIGIN, rejection, {
         code: "call-rejected" satisfies DaemonReplyRefusalCode,
         detail: `${method} was rejected.`,

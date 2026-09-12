@@ -1,7 +1,7 @@
 // Keeping the application's chords alive inside a page the application does not own.
 //
-// `Spec-023 §Console Design (Meridian)` 12.4. Nothing here renders: correct behaviour
-// on this surface is the absence of a complaint. Four rules, and each one is a
+// Nothing here renders: correct behaviour on this surface is the absence of a
+// complaint. Four rules, and each one is a
 // decision about who wins a keystroke:
 //
 //   • **A chord is claimed only when it carries control, meta, or alt AND the mirror
@@ -55,9 +55,9 @@
 // than from a hand-written stand-in that could answer differently from the one that
 // is dispatched a line later.
 //
-// WHAT IS NOT INVENTED HERE. 12.4 names `browser.onAccelerator`, an arm of
-// `browser.subscribe`, as the handback carrier, and it is on `Plan-023 §Console growth
-// slate` row `browser-pane-namespace` with no growth-port operation registered. So
+// WHAT IS NOT INVENTED HERE. The handback carrier is `browser.onAccelerator`, an arm
+// of `browser.subscribe`, and it is on the growth slate under `browser-pane-namespace`
+// with no growth-port operation registered. So
 // this family owns the two halves that are the renderer's either way — the PROJECTION
 // a main-process mirror is built from, and the REPLAY a claimed chord arrives at —
 // and names no method string. The projection is deliberately handed a chord LIST

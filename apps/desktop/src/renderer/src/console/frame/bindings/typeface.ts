@@ -1,13 +1,12 @@
 // The console's faces, self-hosted.
 //
-// `Spec-023 §Console Design (Meridian)` sets UI text in a humanist grotesque and
-// every wire-true figure in mono, and both that rule and `§Console Libraries` name
-// IBM Plex Sans and IBM Plex Mono, VARIABLE builds, from the foundry's own
-// packages. Until this module existed the two families were named in
-// `tokens/typography.ts` and nowhere loaded, so the console rendered in whichever
-// face the host happened to carry — which makes the type scale, the ledger's fixed
-// gutter, and every screenshot reference a property of the operator's machine
-// rather than of the design.
+// UI text is set in a humanist grotesque and every wire-true figure in mono, and the
+// two families are IBM Plex Sans and IBM Plex Mono, VARIABLE builds, from the foundry's
+// own packages. Until this module existed the two families were named in
+// `tokens/typography.ts` and nowhere loaded, so the console rendered in whichever face
+// the host happened to carry — which makes the type scale, the ledger's fixed gutter,
+// and every screenshot reference a property of the operator's machine rather than of
+// the design.
 //
 // WHY THIS IS A MODULE AND NOT A STYLESHEET. It was a `.css` file first, and a
 // `.css` file cannot state this dependency in a way any tool can read: a bare
@@ -48,7 +47,7 @@
 //      context (`browser/pane/chrome/chrome.css`, the `--unnamed` rule, which
 //      inherits mono from `.meridian-browser-tabs__context` above it). Everything
 //      else is SANS: all three diff italics set the sans family explicitly and say
-//      so, and the markdown, cast-bar, pane-chrome, and remaining chrome rules
+//      so, and the markdown, session-header, pane-chrome, and remaining chrome rules
 //      resolve to the body's sans stack. A family that declared only its upright
 //      face would not lose those runs: the browser would SLANT the outlines and paint a
 //      faux italic, a shear of the wrong drawing rather than the italic the
@@ -91,7 +90,7 @@
 //      property of IBM Plex Mono and reaches nothing a mono rule does not select.
 //      It was declared on `body` first, and that could not hold the scoping:
 //      `font-feature-settings` INHERITS, so one root declaration put a slashed zero
-//      on every participant name, repo path, and branch name in the console —
+//      on every user name, repo path, and branch name in the console —
 //      spending the design's own mark for a wire figure on prose — and CSS Fonts 4
 //      gives the property precedence over the features `font-variant-*` computes,
 //      so once it was on the root no descendant could narrow the feature again. As
@@ -221,8 +220,7 @@ type TypefaceStyle = "normal" | "italic";
  *
  * `zero` is a real substitution here — both variable builds carry it in `GSUB`,
  * read out of the shipped files on 2026-09-09 — and it belongs to mono alone,
- * because `Spec-023 §Console Design (Meridian)` rule 4 makes mono the signature
- * that a number came from the wire. `tnum` is deliberately absent: neither family
+ * because mono is the signature that a number came from the wire. `tnum` is deliberately absent: neither family
  * carries `tnum` OR `pnum` in `GSUB` or `GPOS`, and every digit in both measures
  * 600/1000 em, so there are no proportional figures to switch away from and the
  * setting would be a feature declared against a face that offers none.

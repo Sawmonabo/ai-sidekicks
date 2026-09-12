@@ -2,7 +2,7 @@
 //
 // The card is audited as a component rather than through a destination, because the
 // host that mounts an agent roster has not landed — the same position the three
-// sidebar surfaces in this tier's collaboration file are in, and the family's
+// sidebar surfaces in this tier's channels file are in, and the family's
 // stylesheet is imported for the same reason: contrast is measured on the rendered
 // composition rather than on the token table, so a card audited unstyled would
 // report a palette nobody ships.

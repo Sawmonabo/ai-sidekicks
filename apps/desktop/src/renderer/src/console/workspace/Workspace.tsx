@@ -1,7 +1,7 @@
-// The session workspace: the cast bar, the deck, and the composer's seat.
+// The session workspace: the session header, the deck, and the composer's seat.
 //
 // This is what a person is looking at when they are looking at a session. It
-// composes three things it does not own — `CastBar` (this family's), the deck's
+// composes three things it does not own — `SessionHeader` (this family's), the deck's
 // panes (six families', through one mount door), and the composer (the composer
 // family's, through its seat) — and owns exactly one thing itself: the arrangement.
 //
@@ -27,7 +27,7 @@
 //     grammar renders a refusal of that reach as a BANNER across the workspace when
 //     it changes what the whole room can do.
 //   • **The sidebar is the outer split, and the deck's own group is untouched.**
-//     The workspace is a cast bar on top, the deck of panes below it, and a
+//     The workspace is a session header on top, the deck of panes below it, and a
 //     collapsible session sidebar. Two
 //     nested panel groups rather than one: the deck owns the arrangement of its panes
 //     and this surface owns the split between the deck and the sidebar, so a sidebar
@@ -63,7 +63,7 @@ import {
   SIDEBAR_COLLAPSED_WIDTH_PX,
   SIDEBAR_MINIMUM_WIDTH_PERCENT,
 } from "./workspace-bounds.js";
-import { CastBar } from "./cast-bar/CastBar.js";
+import { SessionHeader } from "./session-header/SessionHeader.js";
 import { WorkspaceBannerRow } from "./banners/WorkspaceBannerRow.js";
 import { useAuxiliaryPanes } from "./auxiliary/auxiliary-panes.js";
 import { Deck } from "./deck/Deck.js";
@@ -262,7 +262,7 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
           onDismiss={dismiss}
         />
       ))}
-      <CastBar sessionId={sessionId} sessionStore={props.sessionStore} />
+      <SessionHeader sessionId={sessionId} sessionStore={props.sessionStore} />
       <Group
         className="meridian-workspace__split"
         elementRef={splitReference}

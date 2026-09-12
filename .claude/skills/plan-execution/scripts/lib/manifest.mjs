@@ -25,7 +25,7 @@
 //
 // An operator-ratified list of merged PR numbers that carry this plan's
 // `Plan-NNN` token in their TITLE but shipped no task of it — so preflight
-// Gate 6 (manifest freshness) must not demand a `shipped[]` entry for them.
+// manifest reconciliation must not demand a `shipped[]` entry for them.
 // The key is additive and optional; it does NOT bump the schema version, and
 // `shipped[]` remains the sole record of shipped work.
 //
@@ -33,7 +33,7 @@
 // accident. The 2026-08-15 case: PR #216 `chore(repo): retire Plan-007/025
 // compact-inline cite exemptions` is a tooling-lane PR that shipped no
 // Plan-007 task, yet `Plan-007` is a genuine title token inside the compound
-// `Plan-007/025` (`/` is a word boundary). Gate 6 flagged it as an unrecorded
+// `Plan-007/025` (`/` is a word boundary). manifest reconciliation flagged it as an unrecorded
 // shipment while the manifest schema had no honest entry shape for it — every
 // `shipped[]` entry requires a `phase`/`task` pair that PR does not have.
 //
@@ -210,7 +210,7 @@ function parseYaml(yamlSource) {
   // enumeration, and the docs-corpus presence guard for a shape no plan has.
   // Left unchecked it is not inert: `rebuild-shipment-manifest.mjs` skips
   // ratified PRs AHEAD of its existing-entry reuse path, so a PR in both keys
-  // silently vanishes from the `--dry-run` stream — the stream Gate 6's own
+  // silently vanishes from the `--dry-run` stream — the stream manifest reconciliation's own
   // halt text tells the operator to apply back to the plan file.
   const shippedPrs = new Set(shipped.map((entry) => entry.pr));
   const contradictions = nonShipmentPrs.filter((pullRequestNumber) =>
@@ -233,7 +233,7 @@ function parseYaml(yamlSource) {
 // `non_shipment_prs` must be a list of positive integers. Fail closed on every
 // other shape — a permissive read (coercing "216", accepting a bare scalar,
 // treating an empty key as an empty list) would let a typo silently widen a
-// Gate 6 exemption, and a silently-widened exemption is invisible in review.
+// manifest reconciliation exemption, and a silently-widened exemption is invisible in review.
 function validateNonShipmentPrs(value) {
   if (!Array.isArray(value)) {
     return {
@@ -602,7 +602,7 @@ export function serializeEntry(entry) {
 // Emitted as an inline flow array — the form `parseInlineScalar` round-trips
 // and the form the plan corpus uses. A tool that rewrites a whole manifest
 // block must call this for any non-empty `nonShipmentPrs` it parsed: dropping
-// the key would silently re-arm the Gate 6 halt the operator ratified away.
+// the key would silently re-arm the manifest reconciliation halt the operator ratified away.
 // `appendManifestEntry` needs no such call — it splices into the existing
 // lines, so unrelated top-level keys survive untouched.
 export function serializeNonShipmentPrs(nonShipmentPrs) {

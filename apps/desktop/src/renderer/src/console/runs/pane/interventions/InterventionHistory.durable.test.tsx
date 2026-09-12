@@ -60,7 +60,7 @@ describe("the durable record is the run's, not this window's", () => {
     // dropped the label fails here. Both labels appear, so a surface that rendered one
     // of them for every row would fail too.
     const rendered = container.textContent ?? "";
-    expect(rendered).toContain("participant");
+    expect(rendered).toContain("user");
     expect(rendered).toContain("system");
   });
 

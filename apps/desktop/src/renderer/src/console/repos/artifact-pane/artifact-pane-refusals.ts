@@ -92,9 +92,9 @@ export type ArtifactPaneRefusalCode = (typeof ARTIFACT_PANE_REFUSAL_CODES)[numbe
  * that said nothing machine-readable.
  *
  * THE REJECTED VALUE IS NOT QUOTED INTO THE SENTENCE. It names the leg and stops
- * there — a rejection off the wire can carry participant content as readily as a
- * schema failure can, which is the rule `Spec-023 §Console Design (Meridian)` rule 9
- * sets and which the copy this replaces broke by interpolating the message into it.
+ * there — a rejection off the wire can carry user content as readily as a
+ * schema failure can, which is the rule the copy this replaces broke by interpolating
+ * the message into it.
  *
  * THE RETURN TYPE IS THE NORMALIZER'S OWN. `WireRefusal` is a `ConsoleRefusal`
  * widened by the optional retry hint a rate-limit envelope registers, so every
@@ -113,7 +113,7 @@ export function readFailureRefusal(error: unknown): WireRefusal {
  * The refusal a second payload fetch becomes while the first is still on the wire.
  *
  * NAMED RATHER THAN SILENT, and it names the artifact the pane is actually waiting
- * on rather than the one that was pressed: a participant told "something is in
+ * on rather than the one that was pressed: a user told "something is in
  * flight" cannot tell what. The control that produced it is held while a fetch is
  * pending, so this is structurally unreachable from the pane — and recorded anyway,
  * for `repos/proposals/proposal-gate-actions.ts`'s reason: a press that produced nothing at all

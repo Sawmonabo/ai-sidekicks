@@ -119,7 +119,7 @@ export class BindWorkspaceController extends ActSurfaceController<
     this.askPrerequisite(CAPABILITIES_QUESTION, "subscribe");
   }
 
-  /** Ask again after a refused read. The participant-driven one of the four. */
+  /** Ask again after a refused read. The user-driven one of the four. */
   public retryCapabilities(): void {
     this.retryPrerequisite();
   }

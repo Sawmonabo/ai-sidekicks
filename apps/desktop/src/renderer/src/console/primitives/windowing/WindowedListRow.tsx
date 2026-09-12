@@ -35,7 +35,7 @@
 // FAIL-CLOSED ON AN INDEX THAT IS NOT A POSITION, ON EVERY MEMBER THAT CARRIES ONE.
 // A row index outside the enumeration cannot be clamped into a neighbour's position
 // — that would attribute the row to a place in the list it does not hold, which is
-// the same error as clamping a participant hue into someone else's colour. The row
+// the same error as clamping a user hue into someone else's colour. The row
 // instead declares the set size UNKNOWN, which `aria-setsize="-1"` means exactly,
 // and claims no position at all. A reader is told less rather than told something
 // false.

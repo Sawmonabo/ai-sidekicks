@@ -2,7 +2,7 @@
 // carries in both directions.
 //
 // WHY A REGISTRY AND NOT A PARSE AT EACH CALL SITE. `SidekicksBridge.daemon.call`
-// is one generic door: a branded method name in, `unknown` out, until Plan-007
+// is one generic door: a branded method name in, `unknown` out, until the daemon
 // lands its own method-to-result mapping. Every caller therefore has to widen the
 // signature and then narrow the reply, and a caller that widens and forgets to
 // narrow gets a fulfilled promise carrying `unknown` — which reads as success. The
@@ -23,7 +23,7 @@
 //
 // WHAT IS IN THE SET, STATED AS AN ADMISSION RULE. A method belongs here when a
 // console surface calls it, `@ai-sidekicks/contracts` publishes BOTH its request and
-// its response shape, and `Plan-023`'s growth slate does not claim it. All three
+// its response shape, and the growth slate does not claim it. All three
 // conjuncts do work. Without the second there is nothing to parse against and the
 // registry would be inventing shapes. Without the third the console would hold two
 // answers for one method — `session.read` has published payloads AND a growth row,

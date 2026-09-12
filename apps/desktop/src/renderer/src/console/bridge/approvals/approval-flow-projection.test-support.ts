@@ -45,7 +45,7 @@ export function storeOver(
   store.initialise({
     cursor: Math.min(...sequences) - 1,
     entities: [],
-    participantJoinLog: [...APPROVALS_SCENARIO.participantIdsInJoinOrder],
+    userJoinLog: [...APPROVALS_SCENARIO.userIdsInJoinOrder],
   });
   store.applyBatch([
     ...APPROVALS_SCENARIO.beats.map((beat) => beat.event as ConsoleSessionEvent),

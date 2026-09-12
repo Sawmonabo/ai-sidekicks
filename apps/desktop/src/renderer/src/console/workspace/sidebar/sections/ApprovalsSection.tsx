@@ -1,12 +1,11 @@
 // The approvals section — what this session is waiting on a person for.
 //
-// `Spec-023 §The surface set` makes each sidebar section "a composition of its own
-// read, opening panes", and this one was reserved rather than stubbed while the
-// section had no owner. The seat's own header states why an approvals PANE is not a
-// substitute for it: the pane is a whole surface a person navigates to, the frame's
-// approval banner is room-wide attention, and the section is the sidebar's own
-// independently loaded read of what this session is waiting on. This file is that
-// read.
+// Each sidebar section is a composition of its own read that opens panes, and this
+// one was reserved rather than stubbed while the section had no owner. The seat's own
+// header states why an approvals PANE is not a substitute for it: the pane is a whole
+// surface a person navigates to, the frame's approval banner is room-wide attention,
+// and the section is the sidebar's own independently loaded read of what this session
+// is waiting on. This file is that read.
 //
 // THE READ IS THE SESSION STORE, NOT A SECOND CALL. `bridge/approvals/` owns the fold
 // over the seven approval-flow event kinds, and the renderer shell's composition root

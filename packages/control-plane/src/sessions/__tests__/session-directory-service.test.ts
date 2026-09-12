@@ -1,4 +1,4 @@
-// P1/P2/P3: SessionDirectoryService — Plan-001 PR #4 acceptance gates.
+// SessionDirectoryService acceptance gates.
 //
 // P1: SessionCreate returns stable session id and persists to directory.
 // P2: Second SessionCreate by same client does not silently fork — the
@@ -7,9 +7,8 @@
 // Migration-runner coverage: matches the runtime-daemon test shape for
 // `applyMigrations` idempotency (re-call on a migrated handle is a no-op,
 // schema_migrations rows stay stable at the registered MIGRATIONS set).
-// Post Plan-002 Amendment 2 (PR #102) and Plan-003 Phase 3 (PR #145) the
-// canonical-path applies v1, v2, and v3; the dedicated
-// `migration-runner.test.ts` test file pins the R1+R2
+// The canonical path applies v1, v2, and
+// v3; the dedicated `migration-runner.test.ts` test file pins the R1+R2
 // canonical-path properties directly, while THIS file's idempotency block
 // proves the composition-level integration (running the migration runner
 // through the directory-service test fixture preserves the same shape).
@@ -20,14 +19,14 @@
 // Database lifecycle: each test gets a fresh ephemeral PGlite instance
 // (in-memory mode — no tmpdir cleanup needed). PGlite is single-connection
 // per instance, which matches our service's stateless query pattern; the
-// production wiring (Plan-001 PR #5) composes a `Querier` from `pg.Pool`
-// where the per-call connection checkout is automatic.
+// production wiring composes a `Querier` from `pg.Pool` where the
+// per-call connection checkout is automatic.
 
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import type { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ParticipantId, SessionId } from "@ai-sidekicks/contracts";
+import type { UserId, SessionId } from "@ai-sidekicks/contracts";
 
 import { applyMigrations, type Querier } from "../migration-runner.js";
 import {
@@ -41,15 +40,12 @@ import {
 // Test fixtures
 // ----------------------------------------------------------------------------
 
-// UUID v4 fixtures — these stand in for the daemon-assigned UUID v7 values
-// per BL-069 (the v4 schema validator in `EventCursorSchema`/`SessionIdSchema`
-// accepts any RFC 9562 UUID). Real UUID v7 generation is daemon-side; the
-// service treats the id as opaque.
+// UUID v4 fixtures — these stand in for the daemon-assigned UUID v7 values.
+// Real UUID v7 generation is daemon-side; the service treats the id as opaque.
 const SESSION_ID: SessionId = "01970000-0000-7000-8000-00000000a001" as SessionId;
 const SECOND_SESSION_ID: SessionId = "01970000-0000-7000-8000-00000000a002" as SessionId;
-const OWNER_PARTICIPANT_ID: ParticipantId = "01970000-0000-7000-8000-00000000b001" as ParticipantId;
-const SECOND_PARTICIPANT_ID: ParticipantId =
-  "01970000-0000-7000-8000-00000000b002" as ParticipantId;
+const OWNER_USER_ID: UserId = "01970000-0000-7000-8000-00000000b001" as UserId;
+const SECOND_USER_ID: UserId = "01970000-0000-7000-8000-00000000b002" as UserId;
 
 // ----------------------------------------------------------------------------
 // PGlite -> Querier adapter
@@ -82,7 +78,7 @@ function adaptPGlite(pg: PGlite): Querier {
 //
 // Nested `tx.transaction(...)` is intentionally not allowed (Postgres does
 // not support nested transactions without SAVEPOINTs and we have no such
-// requirement in PR #4); calling it throws at runtime — see the Querier
+// requirement here); calling it throws at runtime — see the Querier
 // docstring in migration-runner.ts.
 function wrap(handle: PGlite | Transaction): Querier {
   return {
@@ -148,7 +144,7 @@ function isPGlite(handle: PGlite | Transaction): handle is PGlite {
 //
 // `exec` is forwarded through the underlying querier without capture
 // because no test currently asserts on the exec stream and the migration
-// runner is the only `exec()` caller in PR #4. If a future test needs to
+// runner is the only `exec()` caller here. If a future test needs to
 // assert on multi-statement batches, extend the proxy to push `exec`
 // payloads as a sentinel entry.
 interface CapturedQuery {
@@ -208,7 +204,7 @@ beforeEach(async () => {
   // In-memory PGlite (no `dataDir` argument) — fresh schema per test.
   // PGlite is single-connection-per-instance; that matches Postgres
   // semantics for a single checkout from a pool, which is sufficient for
-  // every test here (no concurrent-write coverage in PR #4).
+  // every test here, with no concurrent-write coverage.
   const pg: PGlite = new PGlite();
   // PGlite emits a `ready` event but `await new PGlite()` doesn't directly
   // resolve to a ready state — the first `query` implicitly awaits. We
@@ -237,17 +233,17 @@ afterEach(async () => {
 
 describe("SessionDirectoryService — P1 (create persists with stable id)", () => {
   it("createSession with a daemon-supplied UUID v7 returns the same id and persists a sessions row", async () => {
-    // BL-069: the daemon mints UUID v7 locally and passes it on the create
-    // call. The control-plane row's id MUST equal the supplied id (no
+    // The daemon mints UUID v7 locally and passes it on the create call.
+    // The control-plane row's id MUST equal the supplied id (no
     // server-side regeneration).
     const input: CreateSessionInput = {
       sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
+      ownerUserId: OWNER_USER_ID,
       config: { greeting: "hello" },
       metadata: { tag: "p1" },
     };
     // The owning user must exist before the session's owner FK can resolve.
-    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [OWNER_PARTICIPANT_ID]);
+    await ctx.querier.query("INSERT INTO users (id) VALUES ($1)", [OWNER_USER_ID]);
 
     const response = await ctx.service.createSession(input);
 
@@ -273,7 +269,7 @@ describe("SessionDirectoryService — P1 (create persists with stable id)", () =
     expect(row).toBeDefined();
     if (row === undefined) return;
     expect(row.id).toBe(SESSION_ID);
-    expect(row.owner_user_id).toBe(OWNER_PARTICIPANT_ID);
+    expect(row.owner_user_id).toBe(OWNER_USER_ID);
     expect(row.state).toBe("provisioning");
   });
 
@@ -287,10 +283,10 @@ describe("SessionDirectoryService — P1 (create persists with stable id)", () =
     // that swaps the JSONB hydration order (config <-> metadata) surfaces
     // here as well as in P2 — the read-side proof should mirror the
     // read surface across both fields.
-    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [OWNER_PARTICIPANT_ID]);
+    await ctx.querier.query("INSERT INTO users (id) VALUES ($1)", [OWNER_USER_ID]);
     await ctx.service.createSession({
       sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
+      ownerUserId: OWNER_USER_ID,
       config: { greeting: "hello" },
       metadata: { tag: "round-trip" },
     });
@@ -308,7 +304,7 @@ describe("SessionDirectoryService — P1 (create persists with stable id)", () =
     expect(read.session.updatedAt).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
     // The placeholder cursor is intentionally NOT asserted on its
     // contents — see `SessionDirectoryService.readSession` docstring;
-    // the SDK layer (PR #5) overrides this with a real cursor.
+    // the SDK layer overrides this with a real cursor.
     expect(read.timelineCursors.latest).toBeDefined();
   });
 
@@ -318,7 +314,7 @@ describe("SessionDirectoryService — P1 (create persists with stable id)", () =
   });
 
   it("createSession refuses an owner who is not a registered user and leaves no session row", async () => {
-    // `sessions.owner_user_id` carries a FK to `participants(id)` and no
+    // `sessions.owner_user_id` carries a FK to `users(id)` and no
     // DEFAULT, so a create naming an unregistered owner fails at the database
     // rather than materializing a session nobody owns. The refusal happens on
     // the session INSERT itself, inside the transaction, so nothing commits.
@@ -330,12 +326,12 @@ describe("SessionDirectoryService — P1 (create persists with stable id)", () =
     if (beforeRow === undefined) return;
     expect(Number.parseInt(beforeRow.count, 10)).toBe(0);
 
-    // Note: OWNER_PARTICIPANT_ID is intentionally NOT inserted — the session
-    // row's owner FK against `participants(id)` will throw.
+    // Note: OWNER_USER_ID is intentionally NOT inserted — the session
+    // row's owner FK against `users(id)` will throw.
     await expect(
       ctx.service.createSession({
         sessionId: SESSION_ID,
-        ownerParticipantId: OWNER_PARTICIPANT_ID,
+        ownerUserId: OWNER_USER_ID,
       }),
     ).rejects.toThrow();
 
@@ -356,15 +352,15 @@ describe("SessionDirectoryService — P1 (create persists with stable id)", () =
 
 describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", () => {
   it("a second createSession with the same sessionId returns the same row, not a new one", async () => {
-    // BL-069: idempotent upsert via `ON CONFLICT (id) DO UPDATE SET
-    // updated_at = sessions.updated_at RETURNING *`. A retry-after-crash
-    // (network blip mid-create, daemon restart between request send and
-    // ack) MUST yield the same row, not a sibling.
-    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [OWNER_PARTICIPANT_ID]);
+    // Idempotent upsert via `ON CONFLICT (id) DO UPDATE SET updated_at =
+    // sessions.updated_at RETURNING *`. A retry-after-crash (network
+    // blip mid-create, daemon restart between request send and ack) MUST
+    // yield the same row, not a sibling.
+    await ctx.querier.query("INSERT INTO users (id) VALUES ($1)", [OWNER_USER_ID]);
 
     const first = await ctx.service.createSession({
       sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
+      ownerUserId: OWNER_USER_ID,
       config: { phase: "first" },
       metadata: { phase: "first" },
     });
@@ -375,7 +371,7 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
     // first-call's payload.
     const second = await ctx.service.createSession({
       sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
+      ownerUserId: OWNER_USER_ID,
       config: { phase: "second" },
       metadata: { phase: "second" },
     });
@@ -405,7 +401,7 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
     const persisted = persistedRow.rows[0];
     expect(persisted).toBeDefined();
     if (persisted === undefined) return;
-    expect(persisted.owner_user_id).toBe(OWNER_PARTICIPANT_ID);
+    expect(persisted.owner_user_id).toBe(OWNER_USER_ID);
     expect(persisted.config).toEqual({ phase: "first" });
     expect(persisted.metadata).toEqual({ phase: "first" });
   });
@@ -416,15 +412,15 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
     // that's the normal multi-session case, not a fork. This test pins
     // the boundary so a future regression that keys idempotency on
     // owner instead of sessionId surfaces immediately.
-    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [OWNER_PARTICIPANT_ID]);
+    await ctx.querier.query("INSERT INTO users (id) VALUES ($1)", [OWNER_USER_ID]);
 
     const a = await ctx.service.createSession({
       sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
+      ownerUserId: OWNER_USER_ID,
     });
     const b = await ctx.service.createSession({
       sessionId: SECOND_SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
+      ownerUserId: OWNER_USER_ID,
     });
 
     expect(a.sessionId).not.toBe(b.sessionId);
@@ -440,20 +436,20 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
   it("createSession with an existing sessionId but a different owner is rejected", async () => {
     // The owner-mismatch guard inside `createSession`'s transaction. Owner
     // identity is bound at the first create, so a second create with the same
-    // `sessionId` but a DIFFERENT `ownerParticipantId` is NOT a retry — it is
+    // `sessionId` but a DIFFERENT `ownerUserId` is NOT a retry — it is
     // an attempt to take over someone else's session. Without the guard the
     // upsert's conflict clause would silently leave the original owner in place
     // and report success, so the caller would believe it owned a session it
     // does not.
-    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1), ($2)", [
-      OWNER_PARTICIPANT_ID,
-      SECOND_PARTICIPANT_ID,
+    await ctx.querier.query("INSERT INTO users (id) VALUES ($1), ($2)", [
+      OWNER_USER_ID,
+      SECOND_USER_ID,
     ]);
 
     // First create binds the owner.
     await ctx.service.createSession({
       sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
+      ownerUserId: OWNER_USER_ID,
     });
 
     // Second create: same sessionId, DIFFERENT user. MUST throw. The error
@@ -462,7 +458,7 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
     await expect(
       ctx.service.createSession({
         sessionId: SESSION_ID,
-        ownerParticipantId: SECOND_PARTICIPANT_ID,
+        ownerUserId: SECOND_USER_ID,
       }),
     ).rejects.toThrow(SESSION_ID);
 
@@ -477,13 +473,13 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
     const persistedOwner = probe.rows[0];
     expect(persistedOwner).toBeDefined();
     if (persistedOwner === undefined) return;
-    expect(persistedOwner.owner_user_id).toBe(OWNER_PARTICIPANT_ID);
+    expect(persistedOwner.owner_user_id).toBe(OWNER_USER_ID);
 
     // Same-owner retry must still be idempotent — the guard does NOT turn into
     // a "first-create-only" gate.
     const retry = await ctx.service.createSession({
       sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
+      ownerUserId: OWNER_USER_ID,
     });
     expect(retry.sessionId).toBe(SESSION_ID);
 
@@ -522,7 +518,7 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
   // boundary, so two genuinely concurrent transactions on the same sessionId
   // cannot be simulated without a multi-connection harness.
   it("createSession issues ONE session statement inside the transaction and reads the owner from its RETURNING clause", async () => {
-    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [OWNER_PARTICIPANT_ID]);
+    await ctx.querier.query("INSERT INTO users (id) VALUES ($1)", [OWNER_USER_ID]);
 
     // Wrap the test querier in a logging proxy that captures every SQL
     // statement issued — including queries inside `transaction(...)` (the
@@ -539,7 +535,7 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
 
     await service.createSession({
       sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
+      ownerUserId: OWNER_USER_ID,
     });
 
     // The single load-bearing statement, identified by a stable SQL fragment.
@@ -596,12 +592,12 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
       [SESSION_ID],
     );
     expect(probe.rows).toHaveLength(1);
-    expect(probe.rows[0]?.owner_user_id).toBe(OWNER_PARTICIPANT_ID);
+    expect(probe.rows[0]?.owner_user_id).toBe(OWNER_USER_ID);
   });
 
   it("createSession with same logical owner but UPPERCASE UUID is idempotent", async () => {
     // The owner-mismatch guard compares the persisted `owner_user_id` against
-    // `input.ownerParticipantId`. Postgres canonicalizes UUIDs to lowercase on
+    // `input.ownerUserId`. Postgres canonicalizes UUIDs to lowercase on
     // storage and return (RFC 9562 admits both cases as valid input), so under
     // strict string equality a caller that passes the same logical owner UUID
     // with uppercase hex digits on retry would falsely trip the "different
@@ -609,24 +605,24 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
     // whose id source happens to use uppercase. Both sides are normalized via
     // `.toLowerCase()` before equality. A regression that dropped the
     // normalization would surface here as a thrown error.
-    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [OWNER_PARTICIPANT_ID]);
+    await ctx.querier.query("INSERT INTO users (id) VALUES ($1)", [OWNER_USER_ID]);
 
     // First create: owner UUID in canonical lowercase form (the
-    // `OWNER_PARTICIPANT_ID` fixture is already lowercase).
+    // `OWNER_USER_ID` fixture is already lowercase).
     await ctx.service.createSession({
       sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
+      ownerUserId: OWNER_USER_ID,
     });
 
     // Second create: same sessionId + same logical owner UUID, but
     // UPPERCASED. RFC 9562 admits both cases; the brand has no runtime
     // case-validator. Without the .toLowerCase() normalization in the
     // owner-mismatch guard, this call throws.
-    const uppercaseOwner: ParticipantId = OWNER_PARTICIPANT_ID.toUpperCase() as ParticipantId;
+    const uppercaseOwner: UserId = OWNER_USER_ID.toUpperCase() as UserId;
     await expect(
       ctx.service.createSession({
         sessionId: SESSION_ID,
-        ownerParticipantId: uppercaseOwner,
+        ownerUserId: uppercaseOwner,
       }),
     ).resolves.not.toThrow();
 
@@ -641,7 +637,7 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
     const persistedSession = ownerProbe.rows[0];
     expect(persistedSession).toBeDefined();
     if (persistedSession === undefined) return;
-    expect(persistedSession.owner_user_id).toBe(OWNER_PARTICIPANT_ID);
+    expect(persistedSession.owner_user_id).toBe(OWNER_USER_ID);
   });
 });
 
@@ -674,12 +670,12 @@ describe("applyMigrations — idempotency", () => {
     const probe = await ctx.querier.query<{ version: number }>(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    expect(probe.rows).toEqual([{ version: 1 }, { version: 3 }, { version: 4 }]);
+    expect(probe.rows).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }]);
   });
 
   it("applyMigrations is concurrency-safe — concurrent calls on the same fresh database serialize via advisory lock (Codex R8)", async () => {
     // Codex R8 (P2): the prior runner observed "not applied" at the outer
-    // probe, opened the transaction, and ran `CREATE TABLE participants`
+    // probe, opened the transaction, and ran `CREATE TABLE users`
     // unconditionally. Two concurrent racers under shared Postgres (rolling
     // deploys, multi-replica daemons) could both pass the unguarded outer
     // probe and both proceed into the transaction; the second would then
@@ -719,15 +715,15 @@ describe("applyMigrations — idempotency", () => {
     // We pin two assertions against PGlite, both load-bearing here:
     //
     //   (a) End-state correctness — `Promise.all([apply, apply])` on a
-    //       fresh DB resolves with no throw; each migration lands
-    //       exactly once (`schema_migrations` carries v1 + v2 + v3 anchor
-    //       rows post Plan-003 PR #145; `participants` table exists from v1).
-    //       This IS load-bearing on PGlite: empirically, the pre-R8
-    //       broken shape (no advisory lock around the transaction) DOES
-    //       throw `relation "participants" already exists` on PGlite
-    //       under `Promise.all`, because both outer probes race to
-    //       false and both transactions execute the unguarded
-    //       `CREATE TABLE`. Removing the lock would crash this assertion.
+    //       fresh DB resolves with no throw; each migration lands exactly
+    //       once (`schema_migrations` carries v1 + v2 + v3 anchor rows;
+    //       `users` table exists from v1). This IS
+    //       load-bearing on PGlite: empirically, the pre-R8 broken shape (no
+    //       advisory lock around the transaction) DOES throw `relation
+    //       "users" already exists` on PGlite under `Promise.all`,
+    //       because both outer probes race to false and both transactions
+    //       execute the unguarded `CREATE TABLE`. Removing the lock would
+    //       crash this assertion.
     //
     //   (b) Lock-query presence — the captured SQL stream MUST contain
     //       `pg_advisory_xact_lock(...)`. This is the explicit-emission
@@ -765,15 +761,15 @@ describe("applyMigrations — idempotency", () => {
       const migrationsProbe = await pg.query<{ version: number }>(
         "SELECT version FROM schema_migrations ORDER BY version",
       );
-      expect(migrationsProbe.rows).toEqual([{ version: 1 }, { version: 3 }, { version: 4 }]);
+      expect(migrationsProbe.rows).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }]);
 
-      const participantsProbe = await pg.query<{ exists: boolean }>(
+      const usersProbe = await pg.query<{ exists: boolean }>(
         `SELECT EXISTS (
            SELECT 1 FROM information_schema.tables
-            WHERE table_schema = 'public' AND table_name = 'participants'
+            WHERE table_schema = 'public' AND table_name = 'users'
          ) AS exists`,
       );
-      expect(participantsProbe.rows[0]?.exists).toBe(true);
+      expect(usersProbe.rows[0]?.exists).toBe(true);
 
       // (b) Lock-query presence: the runner that entered each version's
       // transaction issued the advisory lock. Assert "at least one"
@@ -802,7 +798,7 @@ describe("applyMigrations — idempotency", () => {
     await expect(
       ctx.querier.query("INSERT INTO sessions (id, owner_user_id, state) VALUES ($1, $2, $3)", [
         SESSION_ID,
-        OWNER_PARTICIPANT_ID,
+        OWNER_USER_ID,
         "not_a_real_state",
       ]),
     ).rejects.toThrow();
@@ -810,13 +806,13 @@ describe("applyMigrations — idempotency", () => {
 });
 
 // ----------------------------------------------------------------------------
-// createPgPoolQuerier — pool-checkout-and-release path (Plan-001 T5.5)
+// createPgPoolQuerier — pool-checkout-and-release path
 // ----------------------------------------------------------------------------
 //
 // Phase 4 shipped `SessionDirectoryService` typed against `Querier`, with the
-// PGlite-backed concretion exercised in the P1/P2/P3 blocks above. T5.5 lands
-// the `pg.Pool`-backed concretion that production wiring will use; this
-// describe block pins the adapter contract:
+// PGlite-backed concretion exercised in the P1/P2/P3 blocks above. lands the
+// `pg.Pool`-backed concretion that production wiring will use; this describe
+// block pins the adapter contract:
 //
 //   * `query()` and `exec()` route through `pool.query()` (one-shot
 //     auto-checkout-and-release), NOT through `pool.connect()`. Using
@@ -834,7 +830,7 @@ describe("applyMigrations — idempotency", () => {
 //   * The inner `Querier` passed to `fn` routes ALL three methods through
 //     the held client, not back through the pool. Recursive `transaction`
 //     throws — Postgres has no native nested transactions without
-//     SAVEPOINTs and Plan-001 has no SAVEPOINT requirement.
+//     SAVEPOINTs and has no SAVEPOINT requirement.
 //
 //   * `client.release()` runs in a `finally` so the connection returns to
 //     the pool whether the path terminated in COMMIT success, application
@@ -850,26 +846,26 @@ describe("applyMigrations — idempotency", () => {
 // Test substrate choice — hand-rolled mock pool, not pg-mem or real PG:
 //
 //   The behavioral correctness of the service SQL (the `createSession`
-//   four-statement sequence, the join's two-statement sequence) is already
-//   proven in the PGlite path above. T5.5's load-bearing claim is the
-//   ADAPTER CONTRACT — that `transaction()` holds one connection across
+//   four-statement sequence) is already
+//   proven in the PGlite path above. the load-bearing claim is the ADAPTER
+//   CONTRACT — that `transaction()` holds one connection across
 //   BEGIN/COMMIT and releases on every exit, that `query()`/`exec()` route
 //   through the pool's one-shot path, and that the in-transaction inner
 //   Querier routes through the held client. Mock spies prove this directly
 //   and precisely. A pg-mem swap would only PARTIALLY validate (pg-mem
 //   doesn't implement `pg_advisory_xact_lock` faithfully), and a real
-//   Postgres-in-CI substrate is out of scope for this PR (would require
-//   CI workflow changes).
+//   Postgres-in-CI substrate is out of scope for this PR (would require CI
+//   workflow changes).
 //
-//   The Spec-001 AC1 / AC2 / AC4 assertions are routed through the same
-//   mock substrate: the service body runs against `createPgPoolQuerier(
-//   mockPool)`, and we assert the AC-load-bearing behavior at the
-//   service-response shape level (one session id, one membership, COMMIT
-//   issued before resolve, idempotent membership id on rejoin).
+//   Assertions are routed through the same mock substrate: the service
+//   body runs against `createPgPoolQuerier(mockPool)`, and we assert the
+//   AC-load-bearing behavior at the service-response shape level (one
+//   session id, COMMIT issued before resolve, the same id on an idempotent
+//   re-create).
 //
 //   If a future PR needs deeper validation against a real Postgres — in
-//   particular T5.6's lock-ordering strengthening — that PR adds the
-//   substrate. T5.5 lands the composer and the adapter-contract tests.
+//   particular the lock-ordering strengthening — that PR adds the
+//   substrate. lands the composer and the adapter-contract tests.
 
 // ----------------------------------------------------------------------------
 // MockPool / MockPoolClient — canned-response substrate
@@ -1067,7 +1063,7 @@ function cannedRowsForCreateSession(): CannedResponse[] {
       rows: [
         {
           id: SESSION_ID,
-          owner_user_id: OWNER_PARTICIPANT_ID,
+          owner_user_id: OWNER_USER_ID,
           state: "provisioning",
           config: {},
           metadata: {},
@@ -1187,9 +1183,9 @@ describe("createPgPoolQuerier — pool-checkout-and-release path", () => {
     // `pool.query()` (which checks out a different pooled client per call)
     // would leave the inner SQL running OUTSIDE the BEGIN/COMMIT span — the
     // transaction boundary would only enclose BEGIN and COMMIT themselves,
-    // and any FOR UPDATE / advisory lock acquired by inner SQL would land
-    // on the wrong connection. This is the central correctness concern
-    // T5.6's lock-ordering test (next PR) discriminates more aggressively.
+    // and any FOR UPDATE / advisory lock acquired by inner SQL would land on
+    // the wrong connection. This is the central correctness concern the
+    // lock-ordering test (next PR) discriminates more aggressively.
     const pool = makeMockPool();
     const querier = createPgPoolQuerier(pool);
 
@@ -1214,10 +1210,10 @@ describe("createPgPoolQuerier — pool-checkout-and-release path", () => {
   });
 
   it("transaction(fn) inner Querier rejects nested transaction()", async () => {
-    // Postgres has no native nested transactions without SAVEPOINTs and
-    // Plan-001 has no SAVEPOINT requirement. The PGlite test adapter throws
-    // on nested call (see `wrap()` at the top of this file); the pg.Pool
-    // adapter matches — same failure mode across substrates.
+    // Postgres has no native nested transactions without SAVEPOINTs and has
+    // no SAVEPOINT requirement. The PGlite test adapter throws on nested
+    // call (see `wrap()` at the top of this file); the pg.Pool adapter
+    // matches — same failure mode across substrates.
     const pool = makeMockPool();
     const querier = createPgPoolQuerier(pool);
 
@@ -1383,16 +1379,15 @@ describe("createPgPoolQuerier — pool-checkout-and-release path", () => {
 
   // --------------------------------------------------------------------------
   // Broken-client destruction — defends against pool poisoning when the
-  // underlying socket breaks mid-transaction. The adapter subscribes a
-  // `'error'` listener at acquire; the listener trips a `tainted` flag;
-  // the `finally` then calls `client.release(error)` (truthy first arg)
-  // instead of `client.release()`. node-postgres treats the truthy arg
-  // as "disconnect and destroy" rather than "return to idle pool", per
-  // https://github.com/brianc/node-postgres/blob/master/docs/pages/apis/pool.mdx
-  // §releasing clients. Statement-position classification alone is
-  // unreliable — a healthy client can fail COMMIT on a deferred-constraint
-  // violation, and a broken client can surface only via the listener
-  // after the in-flight query rejected.
+  // underlying socket breaks mid-transaction. The adapter subscribes a `'error'`
+  // listener at acquire; the listener trips a `tainted` flag; the `finally` then
+  // calls `client.release(error)` (truthy first arg) instead of
+  // `client.release()`. node-postgres treats the truthy arg as "disconnect and
+  // destroy" rather than "return to idle pool", per
+  // https://github.com/brianc/node-postgres/blob/master/docs/pages/apis/pool.mdx.
+  // Statement-position classification alone is unreliable — a healthy client can
+  // fail COMMIT on a deferred-constraint violation, and a broken client can
+  // surface only via the listener after the in-flight query rejected.
   // --------------------------------------------------------------------------
 
   it("transaction(fn) destroys the client when the 'error' event fires mid-transaction", async () => {
@@ -1531,7 +1526,7 @@ describe("createPgPoolQuerier — pool-checkout-and-release path", () => {
   });
 
   // --------------------------------------------------------------------------
-  // Spec-001 AC1 — createSession through pg.Pool yields stable shape
+  // CreateSession through pg.Pool yields stable shape
   // --------------------------------------------------------------------------
 
   it("createSession through the pg.Pool-backed Querier yields one stable session id and an empty default channel list", async () => {
@@ -1558,7 +1553,7 @@ describe("createPgPoolQuerier — pool-checkout-and-release path", () => {
 
     const response = await service.createSession({
       sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
+      ownerUserId: OWNER_USER_ID,
     });
 
     // Contract-shape assertions: one stable id and a default (empty) channels
@@ -1580,19 +1575,19 @@ describe("createPgPoolQuerier — pool-checkout-and-release path", () => {
   });
 
   // --------------------------------------------------------------------------
-  // Spec-001 AC2 — durability (COMMIT before resolve)
+  // Durability (COMMIT before resolve)
   // --------------------------------------------------------------------------
 
-  it("Spec-001 AC2: COMMIT is awaited before the createSession promise resolves (session is committed before caller observes the response)", async () => {
-    // AC2 says "session record is durable (committed) through the pg.Pool
-    // transaction substrate before any caller observes the response".
-    // The adapter contract guarantees this: `transaction(fn)` awaits
+  it("COMMIT is awaited before the createSession promise resolves (session is committed before caller observes the response)", async () => {
+    // Says "session record is durable (committed) through the pg.Pool
+    // transaction substrate before any caller observes the response". The
+    // adapter contract guarantees this: `transaction(fn)` awaits
     // `client.query("COMMIT")` BEFORE returning the result. A regression
     // that issued COMMIT after the return — or fire-and-forgot the COMMIT
     // — would let the caller observe the response with the row still
     // sitting in the transaction's uncommitted snapshot; a concurrent
-    // reader (or a crash before the deferred COMMIT lands) would lose
-    // the row. This test pins the awaiting-COMMIT contract.
+    // reader (or a crash before the deferred COMMIT lands) would lose the
+    // row. This test pins the awaiting-COMMIT contract.
     let commitCompleted = false;
     // `commitResolvedAt` is written from inside the stamped `client.query`
     // mock below (asynchronously, during `COMMIT`); `let ... | undefined`
@@ -1661,7 +1656,7 @@ describe("createPgPoolQuerier — pool-checkout-and-release path", () => {
 
     await service.createSession({
       sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
+      ownerUserId: OWNER_USER_ID,
     });
     const createResolvedAt = performance.now();
 

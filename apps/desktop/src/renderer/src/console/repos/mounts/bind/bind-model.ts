@@ -1,12 +1,12 @@
 // What a bind form holds, what makes it sendable, and which modes it may offer.
 //
 // PURE, AND SEPARATE FROM THE ACT FOR THAT REASON. Everything here is a function of what
-// a participant typed and what the mount-scoped capabilities read answered; nothing
+// a user typed and what the mount-scoped capabilities read answered; nothing
 // reaches a bridge or holds a lifetime.
 //
 // THE CONSOLE OFFERS WHAT THE MOUNT ADMITS AND WITHHOLDS NOTHING SILENTLY. The read
-// carries `availableModes` and a sparse `restrictions` map, and `Spec-009 §Fallback
-// Behavior` requires the capability gap stated rather than substituted — so an excluded
+// carries `availableModes` and a sparse `restrictions` map, and the capability gap is
+// stated rather than substituted — so an excluded
 // mode is rendered, disabled, and never dropped from the list, carrying the mount's own
 // reason beside it WHEN THE REPLY SENT ONE. The map is sparse, so a mode can be
 // excluded with no reason on file, and `BindModePicker` then draws the row and no
@@ -33,7 +33,7 @@ export interface BindFormState {
   /** Exactly what was typed, or empty for the mount root. Never normalised here. */
   readonly directory: string;
   /**
-   * The mode a participant PICKED, or none picked yet.
+   * The mode a user PICKED, or none picked yet.
    *
    * NEVER THE DAEMON'S DEFAULT. That default is derived per read by
    * {@link resolveBindForm} from the capabilities on screen, so a reopened dialog gets

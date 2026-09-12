@@ -7,14 +7,13 @@
 // healthy console; the marker without the forward leaves the finding in the window
 // that is about to be closed.
 //
-// THE MARKER IS THE PART THE CORPUS ASKS FOR BY NAME, and the other two are this
-// module's own shape for delivering it. `Spec-023 §Console Design (Meridian)` rule 8,
-// "Kinds of nothing", holds _not checked_ and _empty_ to be different absences and
-// closes with "A renderer that collapses two of these into one is wrong" — and a probe
-// the console cannot read is _not checked_, which is a value and not a gap in a
-// stream. That rule is about what a SURFACE renders; carrying the distinction off the
-// machine at all is what this module adds, and the batching and the forward are not
-// stated anywhere in that spec.
+// THE MARKER IS THE PART THE RULES ASK FOR BY NAME, and the other two are this
+// module's own shape for delivering it. The kinds-of-nothing rule holds _not checked_
+// and _empty_ to be different absences, and a renderer that collapses two of them into
+// one is wrong — a probe the console cannot read is _not checked_, which is a value
+// and not a gap in a stream. That rule is about what a SURFACE renders; carrying the
+// distinction off the machine at all is what this module adds, and the batching and
+// the forward are this module's own.
 //
 // ALWAYS ON, IN EVERY BUILD. This is the one observability module the fixture define
 // does not fold: the perf meters next door measure a console an author is watching,
@@ -27,10 +26,6 @@
 // the bridge and not at the DAG floor — `core/` imports nothing above it. And an
 // auxiliary window is its own renderer process with its own capture and its own
 // forwarder, so the seam has to be installable rather than resolved at import.
-//
-// OWNER. The measurement task of Plan-023 Phase 1C, T-023p-1C-8, on the same reading
-// as the perf meters: no task's text names an always-on capture, and the tier that
-// would read one is that task's.
 //
 // NOTHING HERE SCHEDULES. A batch leaves when a batch is full or when a caller
 // flushes, never on a timer: a capture that woke an idle process to check whether it
@@ -326,8 +321,8 @@ function boundedDetail(detail: string): string {
  * It has one producer and no forwarder. `tripwire-diagnostic-route.ts` routes this
  * process's tripwire registry into it and the composition site arms that route, so
  * every invariant breach a window detects is captured; the forwarder that would carry
- * a batch to the daemon's band is the shell's, and the READING surface — a diagnostics
- * page — is the measurement task's, T-023p-1C-8. Until one of those installs a
+ * a batch to the daemon's band is the shell's, and the READING surface is a
+ * diagnostics page neither of them has built yet. Until one of those installs a
  * forwarder the capture marks its own forward seam blind and holds what it has under
  * the pending bound, which is the state its marker exists to make legible.
  */

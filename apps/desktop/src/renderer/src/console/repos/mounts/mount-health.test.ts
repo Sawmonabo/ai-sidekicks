@@ -44,8 +44,8 @@ describe("mount-health — the health axis", () => {
 
 describe("mount-health — the third verdict", () => {
   it("reads `identity_mismatch` as its own verdict rather than a second unreachable", () => {
-    // `Spec-009 §Repo Mount Health (V1 Definition)` registers three statuses. Before
-    // the contract carried the third, this reading did not exist and a drifted mount
+    // Mount health has three statuses. Before the contract carried the third, this
+    // reading did not exist and a drifted mount
     // could not be rendered at all.
     const drifted = mountHealthReading({
       status: "identity_mismatch",
@@ -102,8 +102,8 @@ describe("mount-health — the capability axis", () => {
   it("marks a plain-directory mount as reduced rather than broken", () => {
     const plain = mountVcsReading("none");
     expect(plain.tone).toBe("attention");
-    // `Spec-009 §Acceptance Criteria`: such a workspace stays usable; the git-only
-    // features are unavailable rather than pretended.
+    // Such a workspace stays usable; the git-only features are unavailable rather
+    // than pretended.
     expect(plain.sentence).toContain("stays usable");
     expect(mountVcsReading("git").tone).toBe("neutral");
   });

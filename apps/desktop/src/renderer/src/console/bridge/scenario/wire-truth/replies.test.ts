@@ -72,7 +72,7 @@ describe("scenario wire truth — a call the corpus registers nowhere", () => {
     // The one shape that is manifestly not a method string, and it is admitted for a
     // growth row that has no name to transcribe. A row that DOES declare one is
     // scripted under that name, because the live transport sends that name.
-    expect(findScenarioWireTruthDefects([scenarioAnswering("growth:callerParticipantRead")])) //
+    expect(findScenarioWireTruthDefects([scenarioAnswering("growth:callerUserRead")])) //
       .toStrictEqual([]);
 
     const wrongKey = findScenarioWireTruthDefects([scenarioAnswering("growth:sessionRead")]);

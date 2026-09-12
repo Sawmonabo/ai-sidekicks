@@ -1,7 +1,6 @@
 // Tests for `selectPtyHost` — `AIS_PTY_BACKEND` env-var grammar and
 // the Phase 3 platform-default contract.
 //
-// What we assert (Plan-024 §Implementation Step 9 + F-024-2-07)
 // -------------------------------------------------------------
 //
 //   * Default platform (env unset) → `NodePtyHost` on every platform
@@ -34,8 +33,6 @@
 // mutated, no real `console.warn` is invoked, neither real backend's
 // lazy loaders are reached, and no real sidecar binary is spawned.
 //
-// Refs: Plan-024 §Implementation Step 9, §F-024-2-02, §F-024-2-07;
-// ADR-019 §Decision item 1.
 
 import { describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
@@ -155,11 +152,10 @@ describe("selectPtyHost — env unset, Phase 2 default-Node on all platforms", (
   });
 
   it("returns NodePtyHost on platform=win32 when env-var is undefined (Phase 2 default-Node holds on Windows too)", () => {
-    // Load-bearing for the `Plan-024 §Implementation Steps` step-9 selector bullet: at Phase 2 the
-    // Windows path MUST still return NodePtyHost. The selector default-
-    // flip to `RustSidecarPtyHost` is Phase 5 work; if a future change
-    // accidentally adds the platform branch early, this test breaks
-    // the build deliberately.
+    // Load-bearing for step-9 selector bullet: at Phase 2 the Windows path MUST
+    // still return NodePtyHost. The selector default- flip to `RustSidecarPtyHost`
+    // is Phase 5 work; if a future change accidentally adds the platform branch
+    // early, this test breaks the build deliberately.
     const { ctx, deps } = buildDeps({ platform: "win32", envValue: undefined });
 
     const host = selectPtyHost(deps);
@@ -200,11 +196,10 @@ describe("selectPtyHost — AIS_PTY_BACKEND=node-pty", () => {
 
 describe("selectPtyHost — AIS_PTY_BACKEND=rust-sidecar (Phase 3 wiring)", () => {
   it("returns the RustSidecarPtyHost from the factory and does NOT warn", () => {
-    // Phase 3 wiring (per the `Plan-024 §Implementation Steps` step-9
-    // selector bullet + F-024-2-02): the env-var IS honored, and the
-    // rust-sidecar branch routes through the factory rather than
-    // throwing. The previous Phase 2 "not yet wired" assertion is
-    // replaced by this round-trip identity check.
+    // Phase 3 wiring (step-9 selector bullet +): the env-var IS
+    // honored, and the rust-sidecar branch routes through the factory
+    // rather than throwing. The previous Phase 2 "not yet wired"
+    // assertion is replaced by this round-trip identity check.
     const { ctx, deps } = buildDeps({ envValue: "rust-sidecar" });
 
     const host = selectPtyHost(deps);
@@ -336,7 +331,7 @@ describe("selectPtyHost — AIS_PTY_BACKEND=rust-sidecar (Phase 3 wiring)", () =
 
 describe("selectPtyHost — unrecognized AIS_PTY_BACKEND values fall back with warn", () => {
   const UNRECOGNIZED_CASES: ReadonlyArray<{ value: string; reason: string }> = [
-    { value: "Rust-Sidecar", reason: "mixed case — F-024-2-07 is case-sensitive lowercase" },
+    { value: "Rust-Sidecar", reason: "mixed case — is case-sensitive lowercase" },
     { value: "RUST-SIDECAR", reason: "uppercase — case-sensitive lowercase" },
     { value: "rust", reason: "truncated typo of 'rust-sidecar'" },
     { value: "sidecar", reason: "truncated typo of 'rust-sidecar'" },
@@ -344,10 +339,10 @@ describe("selectPtyHost — unrecognized AIS_PTY_BACKEND values fall back with w
     { value: "nodepty", reason: "no-hyphen typo of 'node-pty'" },
     {
       value: " node-pty",
-      reason: "leading whitespace — F-024-2-07 grammar is verbatim, no trimming",
+      reason: "leading whitespace — grammar is verbatim, no trimming",
     },
     { value: "invalid", reason: "arbitrary unrecognized value" },
-    { value: "", reason: "empty string is unrecognized per Plan-024 §Implementation Steps" },
+    { value: "", reason: "empty string is unrecognized" },
   ];
 
   for (const { value, reason } of UNRECOGNIZED_CASES) {
@@ -360,8 +355,8 @@ describe("selectPtyHost — unrecognized AIS_PTY_BACKEND values fall back with w
       expect(host).toBe(NODE_PTY_SENTINEL);
       expect(ctx.createNodePtyHost).toHaveBeenCalledTimes(1);
 
-      // Load-bearing: warn fires with the canonical message format
-      // documented in the `Plan-024 §Implementation Steps` step-9 selector bullet:
+      // Load-bearing: warn fires with the canonical message format documented
+      // step-9 selector bullet:
       //   `AIS_PTY_BACKEND='<value>' unrecognized; falling back to platform default`
       expect(ctx.warn).toHaveBeenCalledTimes(1);
       expect(ctx.warn).toHaveBeenCalledWith(

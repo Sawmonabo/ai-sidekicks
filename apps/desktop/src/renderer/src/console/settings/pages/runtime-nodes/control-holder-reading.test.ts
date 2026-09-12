@@ -8,13 +8,13 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { ParticipantId, RuntimeNodeRosterResponse } from "@ai-sidekicks/contracts";
+import type { UserId, RuntimeNodeRosterResponse } from "@ai-sidekicks/contracts";
 
 import type { ConsoleRefusal } from "../../../core/index.js";
 import type { NodeRosterObservation } from "../../../seats/index.js";
 import { controlHolderReadingOf } from "./control-holder-reading.js";
 
-const HOLDER = "019b7892-1c00-79a4-8110-cca0117a0550" as ParticipantId;
+const HOLDER = "019b7892-1c00-79a4-8110-cca0117a0550" as UserId;
 
 const REFUSAL: ConsoleRefusal = {
   code: "roster-unscripted",
@@ -23,7 +23,7 @@ const REFUSAL: ConsoleRefusal = {
 };
 
 /** A roster reply carrying one holder reading and no rows, which is a real reply. */
-function replyHolding(controlHolder: ParticipantId | null): RuntimeNodeRosterResponse {
+function replyHolding(controlHolder: UserId | null): RuntimeNodeRosterResponse {
   return { nodes: [], controlHolder };
 }
 
@@ -55,7 +55,7 @@ describe("control holder reading", () => {
   it("reads a holder as held, carrying the identity verbatim", () => {
     expect(controlHolderReadingOf(observationOf(replyHolding(HOLDER)))).toEqual({
       kind: "held",
-      participantId: HOLDER,
+      userId: HOLDER,
     });
   });
 

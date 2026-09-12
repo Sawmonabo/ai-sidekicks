@@ -1,6 +1,6 @@
 // Per-session daemon signing-key custody — the one module that holds
 // daemon-private key material, and the one site where key bytes enter the type
-// system (Plan-006 T2.7).
+// system.
 //
 // Every `session_events` row carries a `daemon_signature` minted by
 // `signer.ts`'s `signRow`, which takes its key as a PARAMETER and constructs,
@@ -14,12 +14,10 @@
 // The public/private split, and exactly how much of it the types enforce
 // ----------------------------------------------------------------------------
 //
-// CP-006-7's provisioning caller registers the daemon's PUBLIC key in the
-// session participant roster (leg B — the post-attach control-plane
-// registration, Plan-006 T4.10 per CP-003-5) — the key a verifier later
-// resolves by `NodeId` per `Spec-006 §Canonical Serialization Rules`. It has no business holding the
-// private half, and the Plan-006 T2.7 row says so: daemon-private signing
-// material never crosses the provisioning boundary.
+// The provisioning caller registers the daemon's PUBLIC key in the session user
+// roster (leg B — the post-attach control-plane registration) — the key a verifier later
+// resolves by `NodeId`. It has no business holding the private half, and row says so:
+// daemon-private signing material never crosses the provisioning boundary.
 //
 // STRUCTURALLY ENFORCED. {@link DaemonSigningKeyProvisioner} declares `create`
 // and NOTHING else, and `create` resolves to `{ publicKey }` only. Code holding
@@ -30,15 +28,15 @@
 // A CALLER OBLIGATION, AND NAMED HERE BECAUSE IT IS NOT ENFORCED. TypeScript is
 // structurally typed, so the ONE
 // {@link OsKeystoreSealedDaemonSigningKeySource} instance the composition root
-// builds satisfies both interfaces at once. Nothing forces CP-006-7's
-// provisioning call-site to ANNOTATE what it receives as the narrow type —
-// handed the instance under the wide {@link DaemonSigningKeySource}
-// annotation, or under an inferred type, it can call `read`. The obligation
-// therefore lands on the composition root that wires the daemon's
+// builds satisfies both interfaces at once. Nothing forces the provisioning
+// call-site to ANNOTATE what it receives as the narrow type — handed the
+// instance under the wide {@link DaemonSigningKeySource} annotation, or
+// under an inferred type, it can call `read`. The obligation therefore
+// lands on the composition root that wires the daemon's
 // session-establishment path: declare that parameter
-// `DaemonSigningKeyProvisioner`. What the split buys is that
-// upholding it is one annotation rather than a review convention, and that
-// breaking it is visible in a signature rather than buried in a call.
+// `DaemonSigningKeyProvisioner`. What the split buys is that upholding it
+// is one annotation rather than a review convention, and that breaking it
+// is visible in a signature rather than buried in a call.
 //
 // ----------------------------------------------------------------------------
 // Where key material enters the type system
@@ -52,59 +50,48 @@
 // below: TWO casts, one per brand, and no third anywhere in the workspace.
 //
 // Both VALIDATE the 32-byte width before narrowing, and that is not
-// belt-and-braces. `signer.ts`'s `verifyEd25519` names "T2.7's unvalidated
-// `as Ed25519PublicKey` cast" as one of the ways a wrong-shaped public key
-// reaches it, and its guard THROWS on that rather than returning
-// `signature_mismatch`, precisely because a mis-plumbed key is a
-// key-resolution bug and reporting it as a tamper would raise
-// `audit_integrity_failed` on every row it touches. Validating here refuses the
-// bad key at the boundary that produced it, where the diagnostic still names
-// the cause.
+// belt-and-braces. `signer.ts`'s `verifyEd25519` names "the unvalidated `as
+// Ed25519PublicKey` cast" as one of the ways a wrong-shaped public key reaches
+// it, and its guard THROWS on that rather than returning `signature_mismatch`,
+// precisely because a mis-plumbed key is a key-resolution bug and reporting it
+// as a tamper would raise `audit_integrity_failed` on every row it touches.
+// Validating here refuses the bad key at the boundary that produced it, where
+// the diagnostic still names the cause.
 //
 // ----------------------------------------------------------------------------
 // What is NOT here: the seal itself
 // ----------------------------------------------------------------------------
 //
-// This module performs no cryptography beyond Ed25519 key generation and the
-// public-key derivation `read` checks an unsealed seed against. The seal
-// and unseal of the private half are an INJECTED boundary
-// ({@link DaemonSigningKeySealer}), for a reason that is a corpus fact rather
-// than a preference: no byte format for `daemon_signing_keys.sealed_private_key`
-// is specified anywhere. `Spec-022 §Daemon Master Key` specifies the MASTER
-// key's own custody (the OS-keystore tier-1 ladder, the KEK derivation, the
-// 98-byte envelope) and Plan-022 specifies the wrap for
-// `participant_keys.encrypted_key_blob` (XChaCha20-Poly1305, AAD
-// `participant_id || "ais.master-wrap.v1" || key_version`) — neither covers
-// this column. Inventing a third format here would pre-commit every later
-// reader of the column, including whatever re-wrap a master-key rotation
-// needs, on a guess. So the OPERATION is declared and the FORMAT ships with the
-// implementor, the same seam Plan-006 already uses twice: T2.4's `PiiEncryptor`
-// (interface here, implementation owned by Plan-022 per CP-006-1) and T3.2's
-// injected `RollbackAttributionSource`.
+// The seal and unseal of the private half are an INJECTED boundary ({@link
+// DaemonSigningKeySealer}), for a reason that is a corpus fact rather than a
+// preference: no byte format for `daemon_signing_keys.sealed_private_key` is
+// specified anywhere. specifies the MASTER key's own custody (the OS-keystore
+// keystore ladder, the KEK derivation, the 98-byte envelope) and specifies the
+// wrap for `user_keys.encrypted_key_blob` (XChaCha20-Poly1305, AAD
+// `user_id || "ais.master-wrap.v1" || key_version`) — neither covers this
+// column. Inventing a third format here would pre-commit every later reader of
+// the column, including whatever re-wrap a master-key rotation needs, on a
+// guess. So the OPERATION is declared and the FORMAT ships with the implementor,
+// the same seam already uses twice: the `PiiEncryptor` (interface here,
+// implementation) and the injected `RollbackAttributionSource`.
 //
-// That obligation is REGISTERED, not merely described: `Plan-006 §Cross-Plan
-// Obligations` CP-006-11 binds Plan-022 Tier 5 to ship the implementation AND
-// to specify this column's byte format, and carries the `sessionId` AAD
-// binding as an obligation there — this interface, having fixed no format, can
-// ask for that binding but cannot require it.
+// That obligation is REGISTERED, not merely described: binds a later phase to ship
+// the implementation AND to specify this column's byte format, and carries the
+// `sessionId` AAD binding as an obligation there — this interface, having
+// fixed no format, can ask for that binding but cannot require it.
 //
-// That keeps the module self-contained against Plan-022 at Tier 5 with no tier
-// inversion — the property the `daemon_signing_keys` row in
-// `docs/architecture/cross-plan-dependencies.md §1. Table Ownership Map`
-// requires — and it keeps `@napi-rs/keyring` OUT of this module's import graph.
-// That second effect is load-bearing on its own: the keyring binding is a
-// native module, so importing it here would pull a native dependency into
-// every consumer of the append path, on CI legs where a headless Linux box has
-// no Secret Service and `Spec-023 §Native Keystore` requires the keystore layer
-// to detect the no-keystore case and refuse rather than silently fall back.
+// That keeps the module self-contained with no dependency inversion — the
+// property the `daemon_signing_keys` row requires — and it keeps
+// `@napi-rs/keyring` OUT of this module's import graph. That second effect is
+// load-bearing on its own: the keyring binding is a native module, so importing
+// it here would pull a native dependency into every consumer of the append
+// path, on CI legs where a headless Linux box has no Secret Service and
+// requires the keystore layer to detect the no-keystore case and refuse rather
+// than silently fall back.
 //
 // In-package surface for now: `src/index.ts` does not re-export this module,
-// matching T2.1 and T2.2.
+// matching.
 //
-// Refs: `Spec-022 §Daemon Master Key`, `ADR-004 §Decision`,
-// `Spec-006 §Canonical Serialization Rules`,
-// `docs/architecture/security-architecture.md §Per-Event Daemon Signature`,
-// `docs/architecture/schemas/local-sqlite-schema.md §Audit Log Crypto Tables (Plan-006)`.
 import type { SessionId } from "@ai-sidekicks/contracts";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { equalBytes } from "@noble/curves/utils.js";
@@ -113,7 +100,7 @@ import type { Database, Statement } from "better-sqlite3";
 import type { Ed25519PrivateKey, Ed25519PublicKey } from "./signer.js";
 
 /**
- * The RFC 8032 §5.1.5 width of BOTH Ed25519 halves — the public key, and the
+ * The RFC 8032 section 5.1.5 width of BOTH Ed25519 halves — the public key, and the
  * secret SEED that `signer.ts` types as `Ed25519PrivateKey`. One constant
  * rather than two because one number is being spelled: the schema comment on
  * `daemon_signing_keys.public_key` says "Ed25519 32-byte public key", and
@@ -126,9 +113,6 @@ const ED25519_KEY_LENGTH = 32;
 // --------------------------------------------------------------------------
 
 /**
- * Seals and unseals a daemon signing key's private half under the OS-keystore-
- * managed daemon master key, whose custody ladder is `Spec-022 §Daemon Master
- * Key`.
  *
  * DECLARED HERE, IMPLEMENTED ELSEWHERE — see the header's "What is NOT here"
  * note for why the byte format is not this module's to fix. The contract this
@@ -140,11 +124,11 @@ const ED25519_KEY_LENGTH = 32;
  *
  * `sessionId` IS PASSED ON BOTH SIDES, AND WHAT THAT DOES AND DOES NOT MEAN.
  * It is passed so an implementation CAN bind it as AEAD associated data, which
- * is the shape Plan-022's participant wrap already uses (its AAD leads with
- * `participant_id`); with the binding, a `sealed_private_key` blob copied from
+ * is the shape the user wrap already uses (its AAD leads with
+ * `user_id`); with the binding, a `sealed_private_key` blob copied from
  * one row to another fails to unseal instead of silently authenticating the
- * wrong session's rows. This interface does NOT claim the binding happens —
- * it cannot, having fixed no format — so an implementation that ignores the
+ * wrong session's rows. This interface does NOT claim the binding happens — it
+ * cannot, having fixed no format — so an implementation that ignores the
  * argument satisfies these types.
  *
  * WHAT SUCH AN IMPLEMENTATION NO LONGER DOES IS DEFEAT THAT PROPERTY SILENTLY.
@@ -157,12 +141,11 @@ const ED25519_KEY_LENGTH = 32;
  * where the check downstream produces it and then refuses. Naming the parameter
  * is what makes that obligation reviewable at the implementation site.
  *
- * ASYNCHRONOUS BECAUSE UNSEALING CAN BLOCK ON A HUMAN.
- * `Spec-022 §Daemon Master Key` wipes the in-memory master on an idle timer and
- * re-unwraps "via keystore + PRF assertion (desktop) or passphrase prompt
- * (CLI) on next access", so the first `unseal` after an idle wipe can await a
- * WebAuthn ceremony. A synchronous signature would foreclose that ladder
- * outright.
+ * ASYNCHRONOUS BECAUSE UNSEALING CAN BLOCK ON A HUMAN. wipes the in-memory
+ * master on an idle timer and re-unwraps "via keystore + PRF assertion
+ * (desktop) or passphrase prompt (CLI) on next access", so the first `unseal`
+ * after an idle wipe can await a WebAuthn ceremony. A synchronous signature
+ * would foreclose that ladder outright.
  */
 export interface DaemonSigningKeySealer {
   /**
@@ -193,10 +176,10 @@ export interface DaemonSigningKeySealer {
 // --------------------------------------------------------------------------
 
 /**
- * The PUBLIC-KEY-ONLY half of daemon signing-key custody — the type CP-006-7's
+ * The PUBLIC-KEY-ONLY half of daemon signing-key custody — the type the
  * provisioning call-sites are annotated with (the composition-root
  * session-establishment caller, leg A; the post-attach roster registrar
- * consumes its return, leg B per CP-003-5).
+ * consumes its return, leg B).
  *
  * This is the narrow surface the header's structural argument rests on: it
  * declares `create` and nothing else, so a holder cannot reach
@@ -207,18 +190,17 @@ export interface DaemonSigningKeyProvisioner {
   /**
    * Generates this session's Ed25519 keypair, seals the private half, persists
    * both to `daemon_signing_keys`, and resolves to the PUBLIC key — which the
-   * caller registers in the session participant roster per
-   * `docs/architecture/security-architecture.md §Per-Event Daemon Signature`.
+   * caller registers in the session user roster.
    *
    * EXACTLY ONCE PER SESSION, ENFORCED BY THE SCHEMA. `session_id` is the
    * table's PRIMARY KEY, so a second `create` for a live session raises a
    * SQLite constraint error rather than re-keying. That is the whole reason
-   * the Plan-006 T2.7 row classes this task `manual_reconcile_only`: a fresh
-   * keypair is not a retry of the previous one, and quietly replacing the row
-   * would strand every `daemon_signature` already written under the old key —
-   * they would verify against a public key the roster no longer holds, i.e.
-   * an untampered log that fails forever. Failing loudly leaves the operator
-   * an intact chain to reconcile.
+   * row classes this task `manual_reconcile_only`: a fresh keypair is not a
+   * retry of the previous one, and quietly replacing the row would strand
+   * every `daemon_signature` already written under the old key — they would
+   * verify against a public key the roster no longer holds, i.e. an
+   * untampered log that fails forever. Failing loudly leaves the operator an
+   * intact chain to reconcile.
    *
    * REJECTS A SEAL RESULT IT CANNOT PERSIST SAFELY, for that same reason read
    * in reverse. An empty or non-`Uint8Array` blob from the injected
@@ -234,9 +216,8 @@ export interface DaemonSigningKeyProvisioner {
  * Full daemon signing-key custody: provisioning plus the signer-local unseal
  * path.
  *
- * Wire ONLY the signing side to this type — the append path (T3.1), the
- * compactor's `stub_signature` minting (T3.2), and the Merkle-anchor service's
- * `root_signature` (T3.3). Everything else takes
+ * Wire ONLY the signing side to this type — the append path, the compactor's
+ * `stub_signature` minting, and the Merkle-anchor service's `root_signature`.
  * {@link DaemonSigningKeyProvisioner}.
  */
 export interface DaemonSigningKeySource extends DaemonSigningKeyProvisioner {
@@ -297,28 +278,23 @@ interface DaemonSigningKeyRow {
  * halves persisted to the local-SQLite `daemon_signing_keys` table.
  *
  * NAMED FOR THE CUSTODY MODEL IT COMPOSES OVER, NOT FOR CODE IT CONTAINS. The
- * "OsKeystoreSealed" prefix is the Plan-006 T2.7 row's own name for this class
- * and describes where the sealing master key comes from — the OS-keystore
- * tier-1 rung of `Spec-022 §Daemon Master Key`, reached through the sealer the
- * composition root injects. This class holds NO keystore code: no
- * `@napi-rs/keyring` import, no backend probe, no AEAD, no master key. Read the
- * header's "What is NOT here" note before adding any.
+ * "OsKeystoreSealed" prefix is row's own name for this class and describes
+ * where the sealing master key comes from — the OS-keystore rung of
+ * reached through the sealer the composition root injects. This class holds NO
+ * keystore code: no `@napi-rs/keyring` import, no backend probe, no AEAD, no
+ * master key. Read the header's "What is NOT here" note before adding any.
  *
- * LOCAL SQLITE, NOT SHARED POSTGRES, per `ADR-004 §Decision`. A daemon signing
- * key attests that THIS node emitted a row, so replicating it would defeat the
- * attestation and put daemon-private material in the control plane. The
- * canonical DDL is
- * `docs/architecture/schemas/local-sqlite-schema.md §Audit Log Crypto Tables (Plan-006)`,
- * mirrored by `migrations/0005-daemon-signing-keys.ts`.
+ * LOCAL SQLITE, NOT SHARED POSTGRES. A daemon signing key attests that THIS node emitted
+ * a row, so replicating it would defeat the attestation and put daemon-private material
+ * in the control plane. The canonical DDL is mirrored by
+ * `migrations/0005-daemon-signing-keys.ts`.
  *
  * NO ROTATE OPERATION IN V1. `daemon_signing_keys.rotated_at` exists in the
  * canonical DDL as reserved storage for a rotation ceremony no V1 document
- * specifies (V1's rotation policy is refusal, per
- * `docs/architecture/security-architecture.md §Per-Event Daemon Signature`;
- * ADR-010 governs CLI-identity custody, not daemon session keys), and
- * nothing here writes it — consistent with `participant_keys.rotated_at`, which
- * `Spec-022 §Participant Keys` pins NULL for V1 (I-022-10). Rotating a signing
- * key is not a re-key in isolation: it needs a roster update and a rule for
+ * specifies (V1's rotation policy is refusal governs CLI-identity custody, not
+ * daemon session keys), and nothing here writes it — consistent with
+ * `user_keys.rotated_at`, which pins NULL for V1. Rotating a signing key
+ * is not a re-key in isolation: it needs a roster update and a rule for
  * verifying rows signed under the superseded key, neither of which V1
  * specifies.
  */
@@ -378,9 +354,9 @@ export class OsKeystoreSealedDaemonSigningKeySource implements DaemonSigningKeyS
 
       // THE SEALER IS AN INJECTED SEAM AND ITS DECLARED RETURN TYPE IS A CLAIM
       // NOTHING HERE CHECKED — the stance `pii-indirection.ts` takes toward its
-      // own CP-006-1 encryptor result, for a worse failure. This boundary is
-      // CP-006-11: Plan-022 owns the implementation at Tier 5, this module does
-      // not import it, and that registration contemplates a stub in the interim.
+      // own encryptor result, for a worse failure. This boundary is: owns the
+      // implementation lives elsewhere, this module does not import it, and that
+      // registration contemplates a stub in the interim.
       //
       // AN UNGUARDED BAD RESULT IS NOT RECOVERABLE, WHICH IS WHAT SETS IT APART
       // FROM THE SIBLING'S. It does not fail the write: `sealed_private_key` is
@@ -413,16 +389,16 @@ export class OsKeystoreSealedDaemonSigningKeySource implements DaemonSigningKeyS
       // too. The message carries a length or a `typeof` and never a byte.
       if (!(sealedPrivateKey instanceof Uint8Array) || sealedPrivateKey.length === 0) {
         throw new Error(
-          `DaemonSigningKeySealer.seal must return a non-empty Uint8Array for daemon_signing_keys.sealed_private_key; received ${describeByteShape(sealedPrivateKey)}. That is an injection bug at the CP-006-11 boundary, not a tampered row. No row was written, so create remains retriable once the sealer is fixed — persisting this value would have occupied the session_id PRIMARY KEY with a row whose private half cannot be recovered.`,
+          `DaemonSigningKeySealer.seal must return a non-empty Uint8Array for daemon_signing_keys.sealed_private_key; received ${describeByteShape(sealedPrivateKey)}. That is an injection bug boundary, not a tampered row. No row was written, so create remains retriable once the sealer is fixed — persisting this value would have occupied the session_id PRIMARY KEY with a row whose private half cannot be recovered.`,
         );
       }
 
       // A NO-OP SEALER IS THE WORSE FAILURE AT THIS SAME SEAM, AND EVERY CHECK
       // ABOVE ADMITS IT. A stub that hands its input straight back — the shape a
-      // wired-but-unimplemented CP-006-11 boundary most plausibly takes —
-      // returns a non-empty 32-byte `Uint8Array`, which the shape guard accepts
-      // and the INSERT persists. What lands is not a stranded session but a
-      // KEY-CUSTODY BREACH: the Ed25519 secret seed written to
+      // wired-but-unimplemented boundary most plausibly takes — returns a
+      // non-empty 32-byte `Uint8Array`, which the shape guard accepts and the
+      // INSERT persists. What lands is not a stranded session but a KEY-CUSTODY
+      // BREACH: the Ed25519 secret seed written to
       // `daemon_signing_keys.sealed_private_key` in cleartext, under a column
       // every reader of this table treats as sealed. Refusing the empty blob
       // while admitting this one would guard the lesser harm at this seam and
@@ -447,7 +423,7 @@ export class OsKeystoreSealedDaemonSigningKeySource implements DaemonSigningKeyS
       // a message naming the library rather than the sealer.
       if (equalBytes(sealedPrivateKey, keyPair.secretKey)) {
         throw new Error(
-          `DaemonSigningKeySealer.seal returned the private key unchanged for daemon_signing_keys.sealed_private_key, which would persist the Ed25519 secret seed in cleartext under a column every reader treats as sealed. That is an injection bug at the CP-006-11 boundary — a no-op or not-yet-implemented sealer — and no row was written. The check is identity-only: it cannot attest that a non-matching blob is sealed.`,
+          `DaemonSigningKeySealer.seal returned the private key unchanged for daemon_signing_keys.sealed_private_key, which would persist the Ed25519 secret seed in cleartext under a column every reader treats as sealed. That is an injection bug boundary — a no-op or not-yet-implemented sealer — and no row was written. The check is identity-only: it cannot attest that a non-matching blob is sealed.`,
         );
       }
 
@@ -476,10 +452,10 @@ export class OsKeystoreSealedDaemonSigningKeySource implements DaemonSigningKeyS
       // HONEST LIMIT — this is hygiene, not a guarantee, and the ways it falls
       // short are all outside this line's reach. V8 may have copied the buffer
       // during a GC move, the page is not `sodium_mlock`ed so it can reach
-      // swap (`Spec-022 §Daemon Master Key` scopes mlock to the master key,
-      // not to per-session keys), and a sealer that retained a reference to
-      // the array keeps its own copy. Shrinking that last one is the
-      // implementor's obligation, not something these types can express.
+      // swap (scopes mlock to the master key, not to per-session keys), and a
+      // sealer that retained a reference to the array keeps its own copy.
+      // Shrinking that last one is the implementor's obligation, not something
+      // these types can express.
       keyPair.secretKey.fill(0);
     }
 
@@ -490,7 +466,7 @@ export class OsKeystoreSealedDaemonSigningKeySource implements DaemonSigningKeyS
     const row = this.#selectKeyRowStmt.get(sessionId) as DaemonSigningKeyRow | undefined;
     if (row === undefined) {
       throw new Error(
-        `No daemon signing key for session ${sessionId}: DaemonSigningKeyProvisioner.create must run at the daemon's local session-establishment (CP-006-7) before any row is signed. Reading does not mint a key — a second keypair would produce signatures the roster-registered public key cannot verify.`,
+        `No daemon signing key for session ${sessionId}: DaemonSigningKeyProvisioner.create must run at the daemon's local session-establishment before any row is signed. Reading does not mint a key — a second keypair would produce signatures the roster-registered public key cannot verify.`,
       );
     }
 
@@ -520,7 +496,7 @@ export class OsKeystoreSealedDaemonSigningKeySource implements DaemonSigningKeyS
     const sealedPrivateKey = row.sealed_private_key;
     if (!(sealedPrivateKey instanceof Uint8Array) || sealedPrivateKey.length === 0) {
       throw new Error(
-        `daemon_signing_keys.sealed_private_key for session ${sessionId} is not a non-empty BLOB: got ${describeByteShape(sealedPrivateKey)}. The column is declared BLOB NOT NULL and create refuses an empty seal result, so a non-byte or zero-length value means the row was written or altered outside this module — or by a build predating that refusal. Unsealing it cannot produce this session's key, and the row cannot be re-provisioned over: reconcile it per the T2.7 manual_reconcile_only register.`,
+        `daemon_signing_keys.sealed_private_key for session ${sessionId} is not a non-empty BLOB: got ${describeByteShape(sealedPrivateKey)}. The column is declared BLOB NOT NULL and create refuses an empty seal result, so a non-byte or zero-length value means the row was written or altered outside this module — or by a build predating that refusal. Unsealing it cannot produce this session's key, and the row cannot be re-provisioned over: reconcile it manual_reconcile_only register.`,
       );
     }
 
@@ -546,13 +522,13 @@ export class OsKeystoreSealedDaemonSigningKeySource implements DaemonSigningKeyS
     }
 
     // BOTH COLUMN GUARDS RUN AHEAD OF THE UNSEAL, WHICH IS A COST ARGUMENT AND
-    // NOT ONLY A DIAGNOSTIC ONE. `Spec-022 §Daemon Master Key` wipes the
-    // in-memory master on an idle timer and re-unwraps via a keystore + PRF
-    // assertion or a passphrase prompt on next access, so the first `unseal`
-    // after a wipe can await a human. Prompting for a ceremony to open a row
-    // that is going to be refused either way is the wrong trade — the same
-    // register in which `pii-indirection.ts` refuses a mis-shaped key before its
-    // encrypt step so a rejected append costs no AES-256-GCM nonce.
+    // NOT ONLY A DIAGNOSTIC ONE. wipes the in-memory master on an idle timer and
+    // re-unwraps via a keystore + PRF assertion or a passphrase prompt on next
+    // access, so the first `unseal` after a wipe can await a human. Prompting
+    // for a ceremony to open a row that is going to be refused either way is the
+    // wrong trade — the same register in which `pii-indirection.ts` refuses a
+    // mis-shaped key before its encrypt step so a rejected append costs no
+    // AES-256-GCM nonce.
     const unsealedSeed: Uint8Array = await this.#sealer.unseal(sessionId, sealedPrivateKey);
 
     // ------------------------------------------------------------------
@@ -577,25 +553,22 @@ export class OsKeystoreSealedDaemonSigningKeySource implements DaemonSigningKeyS
     // a key the roster does not hold for this node.
     //
     // WHY THAT ROUTES THE WRONG HUMAN. Unrefused, the failure surfaces at the
-    // verifier as `signature_mismatch` per
-    // `docs/architecture/security-architecture.md §Verification Rules` rule 2 —
-    // on every row signed with the wrong key — which is the possible-tampering
-    // verdict that warrants security incident response. Unlike `signer.ts`'s
-    // `verifyEd25519` public-key throw, the premise here is NOT "a plumbing bug,
-    // not a tamper": a copied blob IS an at-rest edit, so tampering is one of
-    // the live causes. What the refusal buys is the OBSERVABLE. At the verifier
-    // the two causes are one indistinguishable verdict arriving a session's
-    // worth of rows later; here the diagnostic names the row and the column that
-    // produced it, before a single unverifiable row is written.
+    // verifier as `signature_mismatch` rule 2 — on every row signed with the
+    // wrong key — which is the possible-tampering verdict that warrants security
+    // incident response. Unlike `signer.ts`'s `verifyEd25519` public-key throw,
+    // the premise here is NOT "a plumbing bug, not a tamper": a copied blob IS
+    // an at-rest edit, so tampering is one of the live causes. What the refusal
+    // buys is the OBSERVABLE. At the verifier the two causes are one
+    // indistinguishable verdict arriving a session's worth of rows later; here
+    // the diagnostic names the row and the column that produced it, before a
+    // single unverifiable row is written.
     //
     // WHAT IT DOES NOT CLOSE. An adversary who rewrites BOTH columns installs a
     // coherent foreign keypair and passes this check. Nothing local can refuse
     // that row — it is self-consistent — and what refuses it is the roster,
-    // which is separate storage: `create`'s returned public key is what CP-006-7
-    // registers per
-    // `docs/architecture/security-architecture.md §Per-Event Daemon Signature`,
-    // and a verifier resolves THAT copy by `NodeId`. This check binds the seed
-    // to its row; it does not make the row self-authenticating.
+    // which is separate storage: `create`'s returned public key is what
+    // registers and a verifier resolves THAT copy by `NodeId`. This check binds
+    // the seed to its row; it does not make the row self-authenticating.
     //
     // THE WIDTH ASSERT IS THE FIRST OF THREE ON THIS VALUE AND EARNS ITS PLACE.
     // It runs here because `ed25519.getPublicKey` refuses a wrong-width seed
@@ -606,27 +579,25 @@ export class OsKeystoreSealedDaemonSigningKeySource implements DaemonSigningKeyS
     // would make the brand's guarantee rest on a check a dozen lines up in its
     // only current caller.
     //
-    // COST AND FREQUENCY, TRACED RATHER THAN ASSUMED. `read` has no non-test
-    // consumer in this workspace today; the unlanded ones this module's notes
-    // name are T3.1's append path, T3.2's compactor and T3.3's anchor service,
-    // and under this interface's own "do not cache it" obligation an append path
-    // calls `read` once per row. So price it per row: one fixed-base scalar
-    // multiplication (RFC 8032 §5.1.5's `A = [s]B`), the same shape of operation
-    // `ed25519.sign` already performs once per row for its own `R = [r]B`
-    // (§5.1.6) — on a path that has just awaited an unseal the note above allows
-    // to block on a WebAuthn ceremony.
+    // COST AND FREQUENCY, TRACED RATHER THAN ASSUMED. `read` has no non-test consumer
+    // in this workspace today; the unlanded ones this module's notes name are the
+    // append path, the compactor and the anchor service, and under this interface's own
+    // "do not cache it" obligation an append path calls `read` once per row. So price
+    // it per row: one fixed-base scalar multiplication (RFC 8032 section 5.1.5's `A =
+    // [s]B`), the same shape of operation `ed25519.sign` already performs once per row
+    // for its own `R = [r]B` — on a path that has just awaited an unseal the note above
+    // allows to block on a WebAuthn ceremony.
     //
-    // `equalBytes` AND DELIBERATELY NOT `timingSafeEqual`. Both operands
-    // are public: the stored one is a column held in the clear whose value
-    // `create` hands the roster registrar (CP-006-7 leg B), and the derived one is
-    // by construction the public half of the key, so neither is a secret a timing
-    // channel could leak and holding either grants no signing ability. The
-    // primitive is still the right default — `equalBytes` accumulates across the
-    // whole array rather than early-exiting on the first differing byte — and it
-    // keeps this module on `signer.ts`'s one byte-utility source with no
-    // `node:crypto` import. `node:crypto.timingSafeEqual` would additionally
-    // THROW on a length mismatch, resting its no-throw property on the two
-    // guards above rather than on itself.
+    // `equalBytes` AND DELIBERATELY NOT `timingSafeEqual`. Both operands are
+    // public: the stored one is a column held in the clear whose value `create`
+    // hands the roster registrar (leg B), and the derived one is by construction
+    // the public half of the key, so neither is a secret a timing channel could
+    // leak and holding either grants no signing ability. The primitive is still
+    // the right default — `equalBytes` accumulates across the whole array rather
+    // than early-exiting on the first differing byte — and it keeps this module on
+    // `signer.ts`'s one byte-utility source with no `node:crypto` import.
+    // `node:crypto.timingSafeEqual` would additionally THROW on a length mismatch,
+    // resting its no-throw property on the two guards above rather than on itself.
     //
     // The message carries no key bytes, matching `pii-indirection.ts`'s rule for
     // its own refusals: the columns are named, the values are not.
@@ -634,7 +605,7 @@ export class OsKeystoreSealedDaemonSigningKeySource implements DaemonSigningKeyS
     const derivedPublicKey: Uint8Array = ed25519.getPublicKey(unsealedSeed);
     if (!equalBytes(derivedPublicKey, storedPublicKey)) {
       throw new Error(
-        `daemon_signing_keys.sealed_private_key for session ${sessionId} unsealed to a key whose public half is not this row's public_key. Signing with it would mint daemon_signature values that fail against the NodeId-resolved roster key per Spec-006 §Canonical Serialization Rules, reported as signature_mismatch on every row signed with it. The row is inconsistent: a sealed blob copied from another row unseals cleanly under a sealer that does not bind sessionId as AEAD associated data, and an unseal that returns some other 32 bytes lands here identically.`,
+        `daemon_signing_keys.sealed_private_key for session ${sessionId} unsealed to a key whose public half is not this row's public_key. Signing with it would mint daemon_signature values that fail against the NodeId-resolved roster key reported as signature_mismatch on every row signed with it. The row is inconsistent: a sealed blob copied from another row unseals cleanly under a sealer that does not bind sessionId as AEAD associated data, and an unseal that returns some other 32 bytes lands here identically.`,
       );
     }
 
@@ -729,21 +700,18 @@ function toEd25519PublicKey(bytes: Uint8Array): Ed25519PublicKey {
  * `signRow` ITSELF is synchronous, so a borrow around the sign call alone would
  * close within one synchronous call — but reaching that shape from the PII write
  * path means changing what `writeEventWithPii` takes (this SOURCE rather than a
- * key), which is a SECOND published-signature change, on T2.4's surface rather
- * than this one. As written, T2.4's `writeEventWithPii` takes the key as a
- * PARAMETER and holds it across `await encryptor.encrypt(...)` before it reaches
- * `signRow`, so a borrow wrapping that consumer takes an async callback whose
- * `finally` waits on an injected, Plan-022-owned AEAD to settle. That is the
- * async-caller shape the copy argument above already rests on, and the seam
- * survives it: a lexical scope would bound the borrow where this signature
- * leaves the key's lifetime to a caller obligation. Price the reversal at an
- * encrypt, not at one synchronous call. Nor is the migration expensive TODAY —
+ * key), which is a SECOND published-signature change, on the surface rather than
+ * this one. That is the async-caller shape the copy argument above already rests
+ * on, and the seam survives it: a lexical scope would bound the borrow where
+ * this signature leaves the key's lifetime to a caller obligation. Price the
+ * reversal at an encrypt, not at one synchronous call. Nor is the migration
+ * expensive TODAY
  * {@link DaemonSigningKeySource} has no non-test consumer at all
- * (`writeEventWithPii` consumes the KEY, not this interface), T3.1's append
- * path, T3.2's compactor, and T3.3's anchor service being unlanded — and that
- * cost is monotonic in consumers, so it only rises from here. Deliberately NOT
- * taken in this round: the interface is a published contract surface, and its
- * shape is not a comment's to change.
+ * (`writeEventWithPii` consumes the KEY, not this interface), the append path,
+ * the compactor, and the anchor service being unlanded — and that cost is
+ * monotonic in consumers, so it only rises from here. Deliberately NOT taken
+ * in this round: the interface is a published contract surface, and its shape
+ * is not a comment's to change.
  *
  * WHERE THE SEALER TREATS ITS BUFFER AS SCRATCH — the "THE BYTES ARE COPIED"
  * premise above, and the whole reason this copy exists — THIS COPY IS THE
@@ -784,7 +752,7 @@ function toEd25519PrivateKey(bytes: Uint8Array): Ed25519PrivateKey {
 function assertEd25519KeyWidth(value: unknown, role: string): void {
   if (!(value instanceof Uint8Array) || value.length !== ED25519_KEY_LENGTH) {
     throw new Error(
-      `Ed25519 ${role} must be ${ED25519_KEY_LENGTH} bytes per RFC 8032 §5.1.5; received ${describeByteShape(value)}.`,
+      `Ed25519 ${role} must be ${ED25519_KEY_LENGTH} bytes per RFC 8032 section 5.1.5; received ${describeByteShape(value)}.`,
     );
   }
 }

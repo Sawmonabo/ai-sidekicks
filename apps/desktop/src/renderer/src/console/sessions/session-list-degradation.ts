@@ -1,12 +1,12 @@
 // What the destination says, and stops offering, while this window is not following
 // the daemon.
 //
-// `Spec-023 §Console Design (Meridian)` §All-sessions list: "while the daemon is
-// unreachable the list renders from its last read, labeled as such, and create and
-// join are disabled with the cause named". Two claims, and they are separate: the
-// list is still worth showing — a stale list a person can read beats an empty one —
-// and an ACT is not, because create and join are writes and a write sent into a
-// stream this window has lost is a session nobody can watch being made.
+// While the daemon is unreachable the list renders from its last read, labeled as
+// such, and create and join are disabled with the cause named. Two claims, and they
+// are separate: the list is still worth showing — a stale list a person can read
+// beats an empty one — and an ACT is not, because create and join are writes and a
+// write sent into a stream this window has lost is a session nobody can watch being
+// made.
 //
 // WHERE THE FACT COMES FROM. `store/degradation.ts` is the console's one degradation
 // vocabulary and every open session store carries a cause from it. The destination

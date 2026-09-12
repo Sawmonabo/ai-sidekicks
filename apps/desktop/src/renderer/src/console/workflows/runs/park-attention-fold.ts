@@ -5,9 +5,9 @@
 // run dispatching against it, and the engine says so by stamping each of those parked
 // phases with the same `parkAttentionKey`. Drawn one entry per run that is one fact
 // reported N times — six lines saying the same account is out of capacity, none of
-// them saying it is one account. `Spec-017 §Park integrity and cancellability (SA-42)`
-// mints the key for exactly this, and until this module nothing read it: the key
-// reached `WorkflowParkedPhase`, travelled through the projection, and stopped.
+// them saying it is one account. The engine mints the key for exactly this, and until
+// this module nothing read it: the key reached `WorkflowParkedPhase`, travelled
+// through the projection, and stopped.
 //
 // THE FOLD IS OVER PARKED PHASES AND THE COUNT IS OVER RUNS. Those are two different
 // collections and conflating them is the easy defect here: a run whose fan-out parked
@@ -26,7 +26,8 @@
 // THE FOLD GATES NOTHING. It is a reading for a person, not an input to a control:
 // cancel, resume, re-pin and start are the daemon's adjudications and an attention
 // entry never suppresses, delays, or enables one. Nor does it notify — this surface
-// mints no OS notification, which is `Spec-019`'s to decide and not a run list's.
+// mints no OS notification, which is the notifications surface's to decide and not a
+// run list's.
 //
 // ORDER IS FIRST ENCOUNTER OVER ROWS THE PROJECTION ALREADY SORTED. The rows arrive
 // attention-first and newest-first inside a band, so walking them gives a stable

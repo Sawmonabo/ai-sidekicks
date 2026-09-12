@@ -1,5 +1,5 @@
 // What a send would carry, held to the two rules that decide it: only settled ingests
-// mint a reference, and the participant's own order is the one that survives.
+// mint a reference, and the user's own order is the one that survives.
 
 import { describe, expect, it } from "vitest";
 

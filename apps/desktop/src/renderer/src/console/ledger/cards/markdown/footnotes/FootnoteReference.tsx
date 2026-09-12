@@ -12,8 +12,8 @@
 // a disabled button: a control that cannot be pressed still says a control is there, and
 // a reader who reaches it by keyboard has been sent somewhere with nothing to do.
 //
-// THE PRESS IS THE LIBRARY'S. `Spec-023 §Console Libraries` adopts `@base-ui/react` as
-// the one widget family, and its popover carries the whole of what a popover owes:
+// THE PRESS IS THE LIBRARY'S. `@base-ui/react` is the console's one adopted widget
+// family, and its popover carries the whole of what a popover owes:
 // keyboard reachability (the trigger is a native button), Escape, outside press, focus
 // returned to the marker that opened it, and positioning against that marker. The
 // `handle` is what makes one popup serve every marker in the card — the family's own

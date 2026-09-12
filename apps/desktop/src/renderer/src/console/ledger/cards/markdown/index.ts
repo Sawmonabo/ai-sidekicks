@@ -8,10 +8,10 @@
 // protocol, the language set, and the code theme). They are one module because they are
 // useless apart — a segmenter with no parse decides nothing, and a mapper with no segmenter
 // re-parses the world. The count is named by the sub-modules rather than restated as a
-// number, so it cannot go stale the way §Module shape warns a roster does.
+// number, so it cannot go stale the way a hand-written roster does.
 //
 // NONE OF THE FOUR CARRIES A DOOR OF ITS OWN, and that is what keeps the sheet where it is.
-// §Module shape: a directory owns its own sub-directories that carry no `index.ts`, so
+// A directory owns its own sub-directories that carry no `index.ts`, so
 // `markdown.css` stays the property of this directory and enters through this line. It is
 // also what keeps the graph acyclic: a `footnotes/index.ts` would publish both
 // `FootnoteReference` (which `nodes/MarkdownNodes.tsx` reads) and `FootnotePopoverHost`

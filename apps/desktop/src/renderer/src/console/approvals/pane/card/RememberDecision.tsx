@@ -19,7 +19,7 @@
 //     a defined meaning on the wire (category-wide) and an empty `pattern` has none,
 //     which is the same reason an untouched control omits `rememberedScope` whole.
 //   • **The text is sent verbatim, whitespace included.** Trimming a pattern would
-//     send the daemon something other than what the participant typed, and what a
+//     send the daemon something other than what the user typed, and what a
 //     pattern matches is the daemon's to decide.
 //
 // Its own module rather than more of `ApprovalCard.tsx`: the card was at the file
@@ -40,12 +40,12 @@ import {
 } from "../../../bridge/index.js";
 import { type ApprovalResolveRequest } from "../approvals-wire.js";
 
-/** What the participant has said about remembering this answer, so far. */
+/** What the user has said about remembering this answer, so far. */
 export interface RememberedGrantIntent {
   /** False until the opt-in is checked. An unengaged intent sends nothing. */
   readonly isRemembering: boolean;
   readonly kind: RememberedScopeKind;
-  /** Verbatim, as typed. Empty means the participant narrowed nothing. */
+  /** Verbatim, as typed. Empty means the user narrowed nothing. */
   readonly pattern: string;
 }
 
@@ -126,9 +126,8 @@ export function RememberDecision(props: RememberDecisionProps): React.JSX.Elemen
             <Select.Value />
           </Select.Trigger>
           {/* The anchored list is the primitive's, which is what puts it in the
-              window's airspace (`Spec-023 §Console Design (Meridian)` 12.3): a card
-              that mounted its own portal would be a popup a native browser-pane view
-              paints over. */}
+              window's airspace: a card that mounted its own portal would be a popup a
+              native browser-pane view paints over. */}
           <OverlaySelectPopup className="meridian-approval-card__scope-popup">
             {REMEMBERED_SCOPE_KINDS.map((kind) => (
               <Select.Item className="meridian-approval-card__scope-item" key={kind} value={kind}>

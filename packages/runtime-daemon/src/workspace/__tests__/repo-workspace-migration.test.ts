@@ -1,35 +1,28 @@
-// repo-workspace-migration.test.ts — version-10 migration shape (Plan-009 T2.1).
+// repo-workspace-migration.test.ts — version-10 migration shape.
 //
 // Pins the column set, NOT NULL flags, primary-key shape, DEFAULT clauses,
 // index shape (including the partial-unique `idx_repo_mounts_active_root`), and
-// the behavioral CHECK / UNIQUE / FK enforcement of the two Plan-009 Local
-// SQLite tables (`repo_mounts`, `workspaces`). Schema source-of-truth is
-// `docs/architecture/schemas/local-sqlite-schema.md`
-// §"Workspace and Git Tables (Plan-009, Plan-010, Plan-011)" /
+// the behavioral CHECK / UNIQUE / FK enforcement of the two Local SQLite tables
+// (`repo_mounts`, `workspaces`). Schema source-of-truth is
 // `migrations/0010-repo-workspaces.ts`.
 //
 // Asserted via PRAGMA table_info / index_list / index_info (explicit
 // field-by-field) plus behavioral rejection inserts, NOT `toMatchSnapshot`, so
-// this file adds no entries to the Plan-001 immutability `.snap` file. The
-// cross-migration table census, the `schema_version` version walk, and
-// `applyMigrations` idempotency against a direct re-call are pinned by
-// `session/__tests__/migration-shape.test.ts` and are deliberately not
-// duplicated here; what IS re-asserted below is the version-10 anchor row's own
-// description and durability across a real-file `openDatabase` reopen.
+// this file adds no entries to immutability `.snap` file.
 //
 // Shape-checkable cites:
-//   * `Spec-009 §State And Data Implications` — repo mount records persist
-//     canonical root, owner node, and lifecycle state (the `node_id` /
-//     `canonical_root` NOT NULL pair and the `state` CHECK below); workspace
-//     records persist execution root, repo association, and health (`fs_root`,
-//     the `repo_mount_id` FK, and the `state` CHECK).
-//   * I-009-5 — every `repo_mounts` row stores the user-entered attach path
+//   * repo mount records persist canonical root, owner node, and lifecycle
+//     state (the `node_id` / `canonical_root` NOT NULL pair and the `state`
+//     CHECK below); workspace records persist execution root, repo
+//     association, and health (`fs_root`, the `repo_mount_id` FK, and the
+//     `state` CHECK).
+//   * Every `repo_mounts` row stores the user-entered attach path
 //     (`local_path`, provenance) ALONGSIDE the resolver-produced
 //     `canonical_root`, plus the owning `node_id` and a lifecycle state from
 //     the closed set. The DDL half is that both path columns are NOT NULL and
 //     distinct, and that `idx_repo_mounts_active_root` keys deduplication off
 //     `canonical_root` rather than `local_path`. That the WRITER puts the
-//     resolver's output in `canonical_root` is T2.3's assertion, not this
+//     resolver's output in `canonical_root` is the assertion, not this
 //     file's.
 //
 // Every value asserted below was read out of SQLite's own introspection rather
@@ -71,15 +64,15 @@ const FIXTURE_CANONICAL_ROOT: string = "/repos/acme-payments";
 // Vocabulary sources for the CHECK loops below, bound EXHAUSTIVE-BY-TYPE to the
 // canonical contracts unions rather than spelled as bare string literals. The
 // DDL enum and the wire union are two encodings of ONE vocabulary and only the
-// wire half is type-checked, so an ADR-018-lawful MINOR addition to
-// `RepoMountState` / `WorkspaceState` / `VcsType` / `ExecutionMode` that omitted
-// the paired CHECK edit in `migrations/0010-repo-workspaces.ts` would leave a
-// literal-driven loop green here and surface only at persist time, as a runtime
-// CHECK failure on a value the wire had already accepted. `Record<T, true>`
-// moves that to typecheck: a new union member is a missing property here, a
-// renamed one an excess property. Keys are read back with `Object.keys`, so
-// declaring the member is also what adds its accept arm — and if the CHECK was
-// not widened with it, that arm fails loudly.
+// wire half is type-checked, so an -lawful MINOR addition to `RepoMountState` /
+// `WorkspaceState` / `VcsType` / `ExecutionMode` that omitted the paired CHECK
+// edit in `migrations/0010-repo-workspaces.ts` would leave a literal-driven loop
+// green here and surface only at persist time, as a runtime CHECK failure on a
+// value the wire had already accepted. `Record<T, true>` moves that to
+// typecheck: a new union member is a missing property here, a renamed one an
+// excess property. Keys are read back with `Object.keys`, so declaring the
+// member is also what adds its accept arm — and if the CHECK was not widened
+// with it, that arm fails loudly.
 const REPO_MOUNT_STATES: Record<RepoMountState, true> = {
   attached: true,
   detached: true,
@@ -104,7 +97,7 @@ describe("0010-repo-workspaces migration shape", () => {
   let db: DatabaseType;
 
   beforeEach(() => {
-    // Canonical factory (Plan-001): ":memory:" is better-sqlite3's in-memory
+    // Canonical factory: ":memory:" is better-sqlite3's in-memory
     // database-path spelling, so `openDatabase` composes the pinned
     // applyPragmas → applyMigrations order here too — the pragma/migration
     // order is never re-derived in a test.
@@ -138,8 +131,8 @@ describe("0010-repo-workspaces migration shape", () => {
       overrides.sessionId ?? "session-1",
       overrides.nodeId ?? "node-alpha",
       // The ENTERED path is deliberately a subdirectory of the canonical root:
-      // the two columns must be able to disagree (I-009-5), and a helper that
-      // wrote the same value into both would hide a schema collapsing them.
+      // the two columns must be able to disagree, and a helper that wrote the
+      // same value into both would hide a schema collapsing them.
       `${overrides.canonicalRoot ?? FIXTURE_CANONICAL_ROOT}/src/services`,
       overrides.canonicalRoot ?? FIXTURE_CANONICAL_ROOT,
       overrides.vcsType ?? "git",
@@ -218,12 +211,12 @@ describe("0010-repo-workspaces migration shape", () => {
       expect(other.pk).toBe(0);
     }
 
-    // I-009-5: BOTH path columns are mandatory. `local_path` is the
-    // user-entered provenance value and `canonical_root` the resolver output;
-    // a nullable `canonical_root` would let an unresolved mount persist, and a
-    // nullable `local_path` would discard the provenance the invariant names.
-    // `node_id` is mandatory for the same reason — a mount with no owning node
-    // is unroutable.
+    // BOTH path columns are mandatory. `local_path` is the user-entered
+    // provenance value and `canonical_root` the resolver output; a nullable
+    // `canonical_root` would let an unresolved mount persist, and a nullable
+    // `local_path` would discard the provenance the invariant names. `node_id`
+    // is mandatory for the same reason — a mount with no owning node is
+    // unroutable.
     for (const required of [
       "session_id",
       "node_id",
@@ -237,12 +230,12 @@ describe("0010-repo-workspaces migration shape", () => {
     ]) {
       expect(byName.get(required)?.notnull).toBe(1);
     }
-    // `id` is EXCLUDED from that loop: the canonical block declares it
-    // `id TEXT PRIMARY KEY` with no explicit `NOT NULL`, and SQLite does not
-    // imply NOT NULL on a non-INTEGER PRIMARY KEY column — the same documented
-    // quirk the 0003 / 0004 / 0005 / 0008 blocks in
+    // `id` is EXCLUDED from that loop: the canonical block declares it `id
+    // TEXT PRIMARY KEY` with no explicit `NOT NULL`, and SQLite does not imply
+    // NOT NULL on a non-INTEGER PRIMARY KEY column — the same documented quirk
+    // the 0003 / 0004 / 0005 / 0008 blocks in
     // `session/__tests__/migration-shape.test.ts` call out. The discipline on
-    // `id` is upheld at the write seam (T2.3 always supplies a generated id).
+    // `id` is upheld at the write seam (always supplies a generated id).
     expect(byName.get("id")?.notnull).toBe(0);
 
     // DEFAULT clauses. SQLite reports the default as the literal DDL text,
@@ -305,7 +298,7 @@ describe("0010-repo-workspaces migration shape", () => {
 
     // Read-only is the ROW default (a freshly-bound workspace is read-only
     // until a writable mode is explicitly selected) — which is NOT the same
-    // value as ADR-006's default WRITABLE run mode.
+    // value as the default WRITABLE run mode.
     expect(byName.get("execution_mode")?.dflt_value).toBe("'read-only'");
     expect(byName.get("state")?.dflt_value).toBe("'provisioning'");
     expect(byName.get("metadata")?.dflt_value).toBe("'{}'");
@@ -343,11 +336,11 @@ describe("0010-repo-workspaces migration shape", () => {
       .all() as ReadonlyArray<{ name: string }>;
     expect(sessionIndexColumns.map((column) => column.name)).toEqual(["session_id"]);
 
-    // D-009-7 dedupe key: UNIQUE + partial over (session_id, node_id,
-    // canonical_root). Column ORDER and MEMBERSHIP are both load-bearing —
-    // keying on `local_path` instead of `canonical_root` would let two entered
-    // aliases of one repository both attach, and dropping `node_id` would make
-    // one absolute path attachable on only one runtime node.
+    // Dedupe key: UNIQUE + partial over (session_id, node_id, canonical_root).
+    // Column ORDER and MEMBERSHIP are both load-bearing — keying on
+    // `local_path` instead of `canonical_root` would let two entered aliases
+    // of one repository both attach, and dropping `node_id` would make one
+    // absolute path attachable on only one runtime node.
     expect(byIndexName.get("idx_repo_mounts_active_root")?.unique).toBe(1);
     expect(byIndexName.get("idx_repo_mounts_active_root")?.partial).toBe(1);
     const activeRootColumns = db
@@ -401,8 +394,7 @@ describe("0010-repo-workspaces migration shape", () => {
   });
 
   it("enforces the state CHECK on `repo_mounts`", () => {
-    // Behavioral proof that SQLite enforces the closed lifecycle set I-009-5
-    // names.
+    // Behavioral proof that SQLite enforces the closed lifecycle set names.
     for (const state of Object.keys(REPO_MOUNT_STATES)) {
       expect(() => {
         insertRepoMountRow({
@@ -466,8 +458,8 @@ describe("0010-repo-workspaces migration shape", () => {
 
   it("enforces the execution_mode CHECK on `workspaces`", () => {
     insertRepoMountRow({ id: "mount-1" });
-    // The four canonical modes (ADR-006). NOTE 'ephemeral clone' is spelled
-    // with a SPACE in the DDL enum.
+    // The four canonical modes. NOTE 'ephemeral clone' is spelled with a
+    // SPACE in the DDL enum.
     for (const executionMode of Object.keys(EXECUTION_MODES)) {
       expect(() => {
         insertWorkspaceRow({
@@ -525,9 +517,8 @@ describe("0010-repo-workspaces migration shape", () => {
   it("admits an active mount that differs in exactly one key column", () => {
     // Each accept varies ONE member of the index key and holds the other two
     // fixed, so the test cannot pass for the wrong reason: a different node is
-    // a different node-local filesystem (D-009-7), a different session is a
-    // different envelope, and a different canonical root is a different
-    // repository.
+    // a different node-local filesystem, a different session is a different
+    // envelope, and a different canonical root is a different repository.
     insertRepoMountRow({ id: "mount-baseline" });
     expect(() => {
       insertRepoMountRow({ id: "mount-other-node", nodeId: "node-beta" });
@@ -566,7 +557,7 @@ describe("0010-repo-workspaces migration shape", () => {
     // The reverse transition: the arbiter must fire on the index-entry INSERT
     // an UPDATE drives, not only on row INSERT. A resurrect-on-retry bug would
     // otherwise put two active mounts on one canonical root — exactly the
-    // duplicate-attach state D-009-7 exists to prevent.
+    // duplicate-attach state exists to prevent.
     insertRepoMountRow({ id: "mount-active" });
     insertRepoMountRow({ id: "mount-detached", state: "detached" });
     // Column-qualified to the key triple, the same bar the INSERT counterpart
@@ -583,9 +574,9 @@ describe("0010-repo-workspaces migration shape", () => {
   });
 
   it("stores the entered path and the canonical root as independent values", () => {
-    // I-009-5's storage half: the two columns hold different strings on the
-    // same row, so a schema that collapsed them (or a writer that could only
-    // ever store one) is observable here.
+    // The storage half: the two columns hold different strings on the same
+    // row, so a schema that collapsed them (or a writer that could only ever
+    // store one) is observable here.
     insertRepoMountRow({ id: "mount-1" });
     const row = db
       .prepare("SELECT local_path, canonical_root, metadata FROM repo_mounts WHERE id = ?")
@@ -598,7 +589,7 @@ describe("0010-repo-workspaces migration shape", () => {
     expect(row.metadata).toBe("{}");
   });
 
-  it("anchors the version-10 schema_version row with its Plan-009 description", () => {
+  it("anchors the version-10 schema_version row with its description", () => {
     const anchorRows = db
       .prepare("SELECT description FROM schema_version WHERE version = 10")
       .all() as ReadonlyArray<{ description: string }>;

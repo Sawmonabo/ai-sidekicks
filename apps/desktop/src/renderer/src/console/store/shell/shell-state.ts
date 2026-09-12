@@ -21,14 +21,13 @@
 // `shell-mutation-block.ts`, the subscription that fills the value lives in
 // `frame/shell-state/`, and the fold over open session stores lives there too.
 //
-// THE UNREPORTED ARM IS THE ONE THAT MAKES THIS HONEST. No bridge namespace carries
-// the shell's status yet (`Plan-023 §Console growth slate`), so the ordinary state of
-// a shipped window is "nobody has said". That is not `connected` and it is not
-// `offline`: a window that synthesised `connected` from a call that happened to
-// succeed would be doing exactly what `Spec-023 §Trust Stance` forbids, and one that
-// assumed `offline` would disable every mutating control in a console that works.
-// So the arm exists, it renders as the _not checked_ kind of nothing, and it blocks
-// nothing.
+// THE UNREPORTED ARM IS THE ONE THAT MAKES THIS HONEST. No bridge namespace carries the
+// shell's status yet, so the ordinary state of a shipped window is "nobody has said".
+// That is not `connected` and it is not `offline`: a window that synthesised
+// `connected` from a call that happened to succeed would be doing exactly what the
+// console's trust stance forbids, and one that assumed `offline` would disable every
+// mutating control in a console that works. So the arm exists, it renders as the _not
+// checked_ kind of nothing, and it blocks nothing.
 
 import type { ConsoleRoute } from "../../routing/index.js";
 import type { SessionDegradedCause } from "../degradation.js";
@@ -39,7 +38,7 @@ import type { SessionDegradedCause } from "../degradation.js";
  * The members are the ack's own (`packages/contracts/src/jsonrpc-negotiation.ts`):
  * whether the daemon called this build compatible, the version it chose, its full
  * supported set where it sent one, and the reason string on the incompatible arm.
- * The console renders them and compares nothing — `Spec-023`'s version banner is a
+ * The console renders them and compares nothing — the version banner is a
  * rendering of a verdict the daemon reached, and a floor comparison performed here
  * would be the second source of truth the corpus forbids.
  */
@@ -58,14 +57,14 @@ export interface ShellNegotiation {
 /**
  * Where this window stands with its local runtime.
  *
- * THE ONLY ENUMERATION OF THE SUPERVISOR'S STATES. A tuple beside this union would be
- * a second closed set free to disagree with it, and the union is the one a surface
- * actually narrows on. `Spec-023 §Daemon Supervision Lifecycle` numbers six steps and
- * these are its arms: `probing` is step 1's startup probe, `starting` step 2's spawn
- * and ten-second readiness wait, `version-incompatible` step 3, `connected` step 4's
- * live heartbeat, `reconnecting` step 5's backoff ladder, `offline` that ladder's
- * terminal after the fifth failed attempt, and `stopped` step 6's deliberate
- * shutdown — which is not a failure and does not read as one.
+ * THE ONLY ENUMERATION OF THE SUPERVISOR'S STATES. A tuple beside this union would be a
+ * second closed set free to disagree with it, and the union is the one a surface actually
+ * narrows on. The daemon supervision lifecycle numbers six steps and these are its arms:
+ * `probing` is step 1's startup probe, `starting` step 2's spawn and ten-second readiness
+ * wait, `version-incompatible` step 3, `connected` step 4's live heartbeat,
+ * `reconnecting` step 5's backoff ladder, `offline` that ladder's terminal after the
+ * fifth failed attempt, and `stopped` step 6's deliberate shutdown — which is not a
+ * failure and does not read as one.
  *
  * A discriminated union rather than a state plus optional fields, because the fields
  * are not optional per state: a reconnecting window HAS an attempt and a connected

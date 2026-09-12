@@ -6,14 +6,14 @@
 // which beat follows which, and why.
 //
 // WHAT IT CAN SCRIPT, AND WHY IT IS MORE THAN THE BROWSER'S. The terminal's own
-// renderer surface is unregistered (`Plan-023 §Console growth slate` row 3), but the
+// renderer surface is unregistered on the growth slate, but the
 // lease is not: `pty.control_changed` is a registered event type with a closed
 // five-member reason vocabulary, and the holder is a field on it. So the transitions
 // this scenario scripts are wire-true today, and it is the terminal output — the
 // bytes, the scrollback, the resize — that has no type to carry it and is absent
 // here rather than invented.
 //
-// THE FIVE REASONS ARE THE POINT. `Spec-023 §Console Design (Meridian)` 8.8 requires
+// THE FIVE REASONS ARE THE POINT. The console's design language requires
 // every transition to render as a ledger line naming its reason, with the three
 // automatic reasons kept distinct — the holder disconnected, the holder lost
 // authorization, or the acquiring agent run left its running state. A fixture that
@@ -26,7 +26,7 @@
 // run-idle release below is preceded by the acquisition it releases: the agent's run
 // queued, started, and reached `running`; an AGENT-PATH take bound to that run; the
 // run leaving `running`; and only then `auto_released_run_idle` for that holder.
-// `Spec-003 §Required Behavior` makes this release the acquiring run's first
+// The lease design makes this release the acquiring run's first
 // lifecycle transition out of `running` after an agent-path take, and it leaves a
 // client-acquired human hold alone — so releasing a human who had simply pressed
 // Claim was a beat with no producer, and the tests and baselines reading it were
@@ -48,8 +48,8 @@
 // unheld and read-only under one line naming the node. There is deliberately NO
 // `pty.control_changed` for it — the roster read SUPPRESSES `controlHolder` to null
 // while the producing node reads offline and writes nothing, so nothing transitioned
-// and a read authors no events (`api-payload-contracts.md §Session Terminal-Control
-// Method Registry`). The only wire signal a departed host emits is its presence
+// and a read authors no events. The only wire signal a departed host emits is its
+// presence
 // transition, so this scenario scripts exactly that — a `runtime_node.offline` beat
 // after the final take — and a surface that derived the unheld rendering from a
 // missing `pty.control_changed` would never reach it, which is also why 8.8's last
@@ -85,7 +85,7 @@ export { TERMINAL_SCENARIO_CAST } from "./cast.js";
 export const TERMINAL_SCENARIO_ID = "terminal";
 
 const OWNER = TERMINAL_SCENARIO_CAST.owner;
-const COLLABORATOR = TERMINAL_SCENARIO_CAST.collaborator;
+const OTHER_DEVICE = TERMINAL_SCENARIO_CAST.otherDevice;
 const AGENT = TERMINAL_SCENARIO_CAST.agent;
 
 export const TERMINAL_SCENARIO: ConsoleScenario = {
@@ -94,14 +94,14 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
   purpose:
     "The session's one shared shell moving between two people and an agent run — the run queued, started, taken on the agent path, and completed, so the run-idle release follows the acquisition it releases — reaching all five transition reasons, ending held, then losing its host so the unheld-and-read-only degraded state is reachable. The output stream is absent until the terminal pane's renderer surface is registered.",
   sessionId: TERMINAL_SCENARIO_SESSION_ID,
-  participantIdsInJoinOrder: [OWNER, COLLABORATOR, AGENT],
+  userIdsInJoinOrder: [OWNER, OTHER_DEVICE, AGENT],
   // The owner is the person at this window. The lease line's `held-by-me` arm —
   // and the handback it offers — is reachable only when the caller read names
   // the holder, and this scenario ends with the owner holding the degraded
-  // lease; without a viewer the pane can only show that the identity is being
+  // lease; without a caller the pane can only show that the identity is being
   // read, which is a true state of the console and not the state this
   // scenario exists to show.
-  viewingParticipantId: OWNER,
+  callerUserId: OWNER,
   startedAtIso: TERMINAL_SCENARIO_STARTED_AT_ISO,
   beats: [
     terminalScenarioBeat({
@@ -165,48 +165,48 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     terminalLeaseTransitionBeat({
       atMs: 400,
       sequence: 5,
-      holderParticipantId: OWNER,
-      previousHolderParticipantId: null,
+      holderUserId: OWNER,
+      previousHolderUserId: null,
       reason: "taken",
       actorId: OWNER,
     }),
     terminalLeaseTransitionBeat({
       atMs: 900,
       sequence: 6,
-      holderParticipantId: null,
-      previousHolderParticipantId: OWNER,
+      holderUserId: null,
+      previousHolderUserId: OWNER,
       reason: "released",
       actorId: OWNER,
     }),
     terminalLeaseTransitionBeat({
       atMs: 1200,
       sequence: 7,
-      holderParticipantId: COLLABORATOR,
-      previousHolderParticipantId: null,
+      holderUserId: OTHER_DEVICE,
+      previousHolderUserId: null,
       reason: "taken",
-      actorId: COLLABORATOR,
+      actorId: OTHER_DEVICE,
     }),
     terminalLeaseTransitionBeat({
       atMs: 1800,
       sequence: 8,
-      holderParticipantId: null,
-      previousHolderParticipantId: COLLABORATOR,
+      holderUserId: null,
+      previousHolderUserId: OTHER_DEVICE,
       reason: "auto_released_disconnect",
-      actorId: COLLABORATOR,
+      actorId: OTHER_DEVICE,
     }),
     terminalLeaseTransitionBeat({
       atMs: 2300,
       sequence: 9,
-      holderParticipantId: OWNER,
-      previousHolderParticipantId: null,
+      holderUserId: OWNER,
+      previousHolderUserId: null,
       reason: "taken",
       actorId: OWNER,
     }),
     terminalLeaseTransitionBeat({
       atMs: 2700,
       sequence: 10,
-      holderParticipantId: null,
-      previousHolderParticipantId: OWNER,
+      holderUserId: null,
+      previousHolderUserId: OWNER,
       reason: "auto_released_authorization_lost",
       actorId: OWNER,
     }),
@@ -230,7 +230,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
       atMs: 3100,
       sequence: 12,
       kind: "run.starting",
-      // No actor: the daemon moves a run through its own states, and a participant
+      // No actor: the daemon moves a run through its own states, and a user
       // id here would attribute a system transition to a person.
       payload: {
         sessionId: TERMINAL_SCENARIO_SESSION_ID,
@@ -255,16 +255,16 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     // THE AGENT-PATH TAKE, with no actor on purpose: the node's own agent runs take
     // through the daemon's in-process lease authority, so nobody pressed a control
     // and the ledger's actor column reads "The daemon". The holder is the
-    // NODE-OWNER participant, which is who an agent-path take holds as: agents are
-    // `AgentId`-keyed domain actors and not `participants` rows, so no
-    // agent-participant exists to hold and the holder surfaces stay participant ids
-    // (`api-payload-contracts.md §Session Terminal-Control Method Registry`). The
+    // NODE-OWNER user, which is who an agent-path take holds as: agents are
+    // `AgentId`-keyed domain actors and not `users` rows, so no
+    // agent-user exists to hold and the holder surfaces stay user
+    // ids, exactly as the terminal-control method registry declares. The
     // roster reply names the same owner.
     terminalLeaseTransitionBeat({
       atMs: 3300,
       sequence: 14,
-      holderParticipantId: OWNER,
-      previousHolderParticipantId: null,
+      holderUserId: OWNER,
+      previousHolderUserId: null,
       reason: "taken",
     }),
     terminalScenarioBeat({
@@ -284,8 +284,8 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     terminalLeaseTransitionBeat({
       atMs: 3700,
       sequence: 16,
-      holderParticipantId: null,
-      previousHolderParticipantId: OWNER,
+      holderUserId: null,
+      previousHolderUserId: OWNER,
       reason: "auto_released_run_idle",
     }),
     // The held-lease steady state. Everything above this beat is history in the
@@ -294,8 +294,8 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     terminalLeaseTransitionBeat({
       atMs: 4100,
       sequence: 17,
-      holderParticipantId: OWNER,
-      previousHolderParticipantId: null,
+      holderUserId: OWNER,
+      previousHolderUserId: null,
       reason: "taken",
       actorId: OWNER,
     }),

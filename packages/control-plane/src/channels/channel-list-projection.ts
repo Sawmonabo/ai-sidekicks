@@ -73,7 +73,7 @@ const MAIN_CHANNEL_STATE: ChannelState = "active";
 // derived channel id never collide).
 
 /**
- * `participantCount` for the bootstrap channel.
+ * `userCount` for the bootstrap channel.
  *
  * One user owns a session and no other person is ever on it, so the count of
  * people present in the channel is the owner alone. It is a constant rather
@@ -82,7 +82,7 @@ const MAIN_CHANNEL_STATE: ChannelState = "active";
  * row and cannot leave. A count of the user's connected DEVICES is a different
  * figure and belongs to the device-presence surface, not here.
  */
-const OWNER_PARTICIPANT_COUNT = 1;
+const OWNER_USER_COUNT = 1;
 
 // --------------------------------------------------------------------------
 // Internal row shapes
@@ -133,7 +133,7 @@ export class ChannelListProjection {
       // `exactOptionalPropertyTypes`.
       name: MAIN_CHANNEL_NAME,
       state: MAIN_CHANNEL_STATE,
-      participantCount: OWNER_PARTICIPANT_COUNT,
+      userCount: OWNER_USER_COUNT,
     };
 
     return { channels: [mainChannel] };

@@ -18,7 +18,7 @@
 // terminal deck's controls against the daemon that owns the lease record; this page
 // reports the projection and offers nothing.
 
-import type { ParticipantId } from "@ai-sidekicks/contracts";
+import type { UserId } from "@ai-sidekicks/contracts";
 
 import type { ConsoleRefusal } from "../../../core/index.js";
 import type { NodeRosterObservation } from "../../../seats/index.js";
@@ -35,7 +35,7 @@ export type ControlHolderReading =
   | { readonly kind: "unread" }
   | { readonly kind: "unreadable"; readonly refusal: ConsoleRefusal }
   | { readonly kind: "unheld" }
-  | { readonly kind: "held"; readonly participantId: ParticipantId };
+  | { readonly kind: "held"; readonly userId: UserId };
 
 /** The opening arm and the free-lease arm, frozen so their identity does not churn. */
 const UNREAD: ControlHolderReading = { kind: "unread" };
@@ -57,5 +57,5 @@ export function controlHolderReadingOf(observation: NodeRosterObservation): Cont
     return { kind: "unreadable", refusal: observation.refusal };
   }
   const { controlHolder } = observation.response;
-  return controlHolder === null ? UNHELD : { kind: "held", participantId: controlHolder };
+  return controlHolder === null ? UNHELD : { kind: "held", userId: controlHolder };
 }

@@ -1,0 +1,80 @@
+/* What the channels family SHARES, and the live line it draws itself.
+ *
+ * The channels sub-family carries its own sheets — `channels/channels.css` and
+ * `channels/create-channel.css`. What is left here is the shape neither owns: the
+ * shell the channel list takes, and the live line, which is the family's own.
+ *
+ * Hand-authored composition over generated values, like every other console sheet —
+ * no literal colour below, and the only literal lengths are the hairlines that
+ * separate rows.
+ *
+ * Three decisions the design forces:
+ *
+ *   • **A channel row is a ledger line, not a list item.** Flush left, one measure,
+ *     the name and its marks on one baseline, and the live line below it in the same
+ *     column rather than pushed to a second block. What makes it a row rather than a
+ *     card is that nothing is boxed: the separation is a hairline, so twelve rows
+ *     read as a log.
+ *   • **The live line takes no space when there is nothing live.** It is a sibling
+ *     that renders or does not; no reserved height, no min-height, so an idle channel
+ *     list has no gaps in it.
+ */
+
+/* The channels family's own styles: channels and the live line.
+ *
+ * Hand-authored composition over generated values, like every other console sheet —
+ * no literal colour below, and the only literal lengths are the hairlines that
+ * separate rows.
+ *
+ * Three decisions the design forces:
+ *
+ *   • **A channel row is a ledger line, not a list item.** Flush left, one measure,
+ *     the name and its marks on one baseline, and the live line below it in the same
+ *     column rather than pushed to a second block. What makes it a row rather than a
+ *     card is that nothing is boxed: the separation is a hairline, so twelve rows
+ *     read as a log.
+ *   • **The live line takes no space when there is nothing live.** It is a sibling
+ *     that renders or does not; no reserved height, no min-height, so an idle
+ *     channel list has no gaps in it.
+ */
+
+.meridian-channels {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  min-width: 0;
+}
+
+.meridian-channels__degraded {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-channels__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ----------------------------------------------------------- the live line */
+
+.meridian-activity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-3);
+  margin: 0;
+  padding-inline: var(--meridian-space-1);
+  padding-block-end: var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-activity__part {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+}

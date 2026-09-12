@@ -33,15 +33,15 @@
 // would. The glyph and the `<h2>` are therefore this file's, and the strip is handed
 // the one line that is the same wherever it stands.
 //
-// WHAT IS RESERVED HERE. Starting a run by talking to it is Plan-017's body, mounted
-// through `ChatStartSlot` — the family's own typed wrapper, and the same one the run
-// pane mounts — and standing empty until that plan fills it. The wrapper rather than
-// the raw slot mount, because the slot's obligation is that every mount supplies the
-// session a start binds to: a mount that carried no payload could only ever be an
-// unfillable shell, and a second one worded here would say the reservation twice. The
-// version chain, the content hash, the schema marker and the parent hash are one
-// click away in the detail pane by design (rule 7's density budget), so none of them
-// appears in this list.
+// WHAT IS RESERVED HERE. Starting a run by talking to it is the workflow engine's
+// body, mounted through `ChatStartSlot` — the family's own typed wrapper, and the same
+// one the run pane mounts — and standing empty until that body arrives. The wrapper
+// rather than the raw slot mount, because the slot's obligation is that every mount
+// supplies the session a start binds to: a mount that carried no payload could only
+// ever be an unfillable shell, and a second one worded here would say the reservation
+// twice. The version chain, the content hash, the schema marker and the parent hash
+// are one click away in the detail pane by design (rule 7's density budget), so none
+// of them appears in this list.
 
 import { useId } from "react";
 

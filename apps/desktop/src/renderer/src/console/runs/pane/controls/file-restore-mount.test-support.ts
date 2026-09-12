@@ -1,6 +1,6 @@
 // The one place anything waits for the file-restore disclosure's chunk.
 //
-// WHY IT IS A MODULE AND NOT A LINE IN A SPEC. `apps/desktop/AGENTS.md` §Tests rejects a
+// WHY IT IS A MODULE AND NOT A LINE IN A SPEC. The package's test standard rejects a
 // per-spec wait, and the reason is exactly this body's shape: three specs that wait and a
 // fourth that races look identical in a diff, and the fourth is the one that mints the
 // reference. One exported function, named where the mount is, and every suite that needs

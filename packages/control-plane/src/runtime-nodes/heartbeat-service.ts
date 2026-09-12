@@ -1,27 +1,26 @@
-// HeartbeatService — Plan-003 Phase 3 (T3.6, runtime-node presence ingestion +
-// sweep-driven degraded/offline transitions).
+// HeartbeatService — runtime-node presence ingestion plus the sweep-driven
+// degraded/offline transitions.
 //
-// Responsibilities (this task, T3.6) — the runtime-node LIVENESS axis on the
+// Responsibilities (this task) — the runtime-node LIVENESS axis on the
 // coordination record `runtime_node_presence`, distinct from the attachment-slot
 // axis (`runtime_node_attachments.state`) that AttachService / detach own:
 //
-//   * ingest — the daemon's periodic 15s heartbeat self-report (`Spec-003 §Default Behavior`).
-//     Upserts the node's `runtime_node_presence` row with the SERVER
-//     clock (`now()`) and the daemon's 2-value self-reported `health_state`
-//     (`online | degraded`). This is also the HYSTERESIS-RECOVERY path: a node
-//     the sweep demoted to `degraded` that resumes heartbeating (reporting
-//     `online`) is restored to `online` and its `last_heartbeat_at` bumped —
-//     recovering WITHOUT ever passing through `offline` (`Spec-003 §Default Behavior`).
+//   * ingest — the daemon's periodic 15s heartbeat self-report. Upserts the
+//     node's `runtime_node_presence` row with the SERVER clock (`now()`) and the
+//     daemon's 2-value self-reported `health_state` (`online | degraded`). This
+//     is also the HYSTERESIS-RECOVERY path: a node the sweep demoted to
+//     `degraded` that resumes heartbeating (reporting `online`) is restored to
+//     `online` and its `last_heartbeat_at` bumped — recovering WITHOUT ever
+//     passing through `offline`.
 //
-//   * sweepStaleness — the periodic, SERVER-DERIVED demotion (`Spec-003 §Default Behavior`).
-//     A single `UPDATE ... RETURNING` that demotes rows whose
-//     `last_heartbeat_at` aged past the thresholds: `degraded` past 30s
-//     (≈2 missed 15s beats), `offline` past 60s (≈4 missed beats). Demotion is
-//     SWEEP-driven, never ingest-driven — a dead node sends nothing, so ingest
-//     cannot demote it. The sweep ONLY demotes (it never restores `online`;
-//     that is ingest's job), and it writes ONLY `runtime_node_presence` — there
-//     is NO durable `runtime_node.*` session event for these transitions in V1
-//     (gated to V1.1 per ADR-017 §Server-Derived Runtime-Node Lifecycle Events).
+//   * sweepStaleness — the periodic, SERVER-DERIVED demotion. RETURNING` that
+//     demotes rows whose `last_heartbeat_at` aged past the thresholds: `degraded`
+//     past 30s (≈2 missed 15s beats), `offline` past 60s (≈4 missed beats).
+//     Demotion is SWEEP-driven, never ingest-driven — a dead node sends nothing,
+//     so ingest cannot demote it. The sweep ONLY demotes (it never restores
+//     `online`; that is ingest's job), and it writes ONLY `runtime_node_presence`
+//     — there is NO durable `runtime_node.*` session event for these transitions
+//     in V1 (gated to V1.1).
 //
 // Why these are single SQL statements (no `Querier.transaction(...)` wrapper):
 //   Each method is ONE statement, which Postgres already executes atomically.
@@ -33,7 +32,7 @@
 // Server clock, not JS `Date`: both methods use SQL `now()` (the Postgres
 // transaction-start timestamp) so `last_heartbeat_at` and the staleness math
 // share ONE clock — consistent with `runtime_node_attachments.attached_at`
-// (0003-runtime-nodes.ts line 111). A JS `Date` passed from the service would
+// (0002-runtime-nodes.ts line 111). A JS `Date` passed from the service would
 // drift against the database clock and split the comparison across two clocks.
 //
 // Dependency injection (mirrors AttachService): the minimal
@@ -42,73 +41,61 @@
 // eventual production surface (`pg.Pool`) stay interchangeable without a runtime
 // branch.
 //
-// Cross-task boundaries (DO NOT CROSS in T3.6):
+// Cross-task boundaries (DO NOT CROSS):
 //   * The PERIODIC INVOCATION of `sweepStaleness()` — the Cloudflare Cron wiring
 //     that calls it every `STALENESS_SWEEP_INTERVAL_MS` on the running host —
-//     requires the production Querier (deferred to Tier 5; host.ts's production
-//     surface throws on Querier use per I-008-2) plus Cloudflare Cron
-//     deployment config (wrangler.toml `[triggers]` + a `scheduled()` Worker
-//     export). It is NOT wired in Plan-003 Phase 3 — a scheduler driving the
-//     sweep against the throwing placeholder Querier would be dead code. This
-//     service ships the callable method + the interval constant ONLY; it has NO
-//     `start()`/`stop()`/`setInterval` lifecycle (Cloudflare Workers are
-//     request-scoped; the scheduling mechanism is environment-specific
-//     deployment wiring, not service logic).
-//   * The tRPC `runtimenode.heartbeat` procedure + router — owned by T3.8.
-//     `ingest` returns `void`; the router maps it to the wire `null`
+//     requires the production Querier (deferred; host.ts's production
+//     surface throws on Querier use) plus Cloudflare Cron deployment config
+//     (wrangler.toml `[triggers]` + a `scheduled()` Worker export). It is NOT
+//     wired — a scheduler driving the sweep against the throwing placeholder
+//     Querier would be dead code. This service ships the callable method + the
+//     interval constant ONLY; it has NO `start()`/`stop()`/`setInterval`
+//     lifecycle (Cloudflare Workers are request-scoped; the scheduling mechanism
+//     is environment-specific deployment wiring, not service logic).
+//   * The tRPC `runtimenode.heartbeat` procedure + router. `ingest`
+//     returns `void`; the router maps it to the wire `null`
 //     (`RuntimeNodeHeartbeatResponseSchema = z.null()`).
 //   * `runtime_node_attachments` (the attachment-slot axis) — owned by attach /
-//     detach (T3.2 / T3.7). This service touches ONLY `runtime_node_presence`.
-//     The read-time roster reconciliation of the two axes
-//     (`presence.health_state` liveness × `attachments.state` slot) is a
-//     separate downstream concern, not T3.6.
-//   * `runtime_node_presence` table DDL — owned by `migrations/0003-runtime-
+//     detach. This service touches ONLY `runtime_node_presence`. The read-time
+//     roster reconciliation of the two axes (`presence.health_state` liveness ×
+//     `attachments.state` slot) is a separate downstream concern, not.
+//   * `runtime_node_presence` table DDL — owned by `migrations/0002-runtime-
 //     nodes.ts`. This service only INSERT/UPDATEs rows; it never ALTERs the
 //     schema.
 //
-// Refs: `Spec-003 §Default Behavior` (15s cadence / ingestion;
-// degraded@30s, offline@60s, hysteresis; server-derived, sweep-driven,
-// coordination-record transition, no durable event); ADR-017 §Server-Derived
-// Runtime-Node Lifecycle Events (V1.1 event gate); docs/architecture/contracts/
-// api-payload-contracts.md §Runtime-Node (RuntimeNodeHeartbeat request/response);
-// `runtime-nodes/attach-service.ts` (the `Querier`-injected service idiom this
-// mirrors).
+// Docs/architecture/contracts/ `runtime-nodes/attach-service.ts` (the
+// `Querier`-injected service idiom this mirrors).
 
 import type { RuntimeNodeHeartbeatRequest } from "@ai-sidekicks/contracts";
 import { RuntimeNodeHeartbeatRequestSchema } from "@ai-sidekicks/contracts";
 
 import type { Querier } from "../sessions/migration-runner.js";
 
-// Staleness sweep interval. EXPORTED for the eventual sweep scheduler (the
-// Cloudflare Cron `scheduled()` wiring is Tier-5/deployment-deferred — see the
-// `sweepStaleness()` cross-task boundary note above) to drive the periodic
-// `sweepStaleness()` invocation. Set to 5s, FINER than the 15s
-// heartbeat cadence (`Spec-003 §Default Behavior`) so a degraded/offline transition is
-// recorded within one sweep of the threshold crossing — the `Spec-003 §Default Behavior`
-// guarantee that a transition is "recorded within one sweep interval of a
-// threshold crossing", with the sweep interval "set finer than the 15s cadence
-// to keep that bound tight" (bounds detection lag to ≤5s).
+// EXPORTED for the eventual sweep scheduler (the Cloudflare Cron `scheduled()`
+// wiring is deployment-deferred — see the `sweepStaleness()` cross-task
+// boundary note above) to drive the periodic `sweepStaleness()` invocation. Set
+// to 5s, FINER than the 15s heartbeat cadence so a degraded/offline transition is
+// recorded within one sweep of the threshold crossing — guarantee that a
+// transition is "recorded within one sweep interval of a threshold crossing",
+// with the sweep interval "set finer than the 15s cadence to keep that bound
+// tight" (bounds detection lag to ≤5s).
 export const STALENESS_SWEEP_INTERVAL_MS = 5_000;
 
-// Demotion thresholds (`Spec-003 §Default Behavior`). A node is demoted to `degraded` once
-// its last heartbeat is older than 30s (≈2 missed 15s beats) and to `offline`
-// once older than 60s (≈4 missed beats). The 30–60s band is deliberate
-// hysteresis: a node whose heartbeats resume within it is restored to `online`
-// by `ingest` WITHOUT passing through `offline`.
+// A node is demoted to `degraded` once its last heartbeat is older than 30s (≈2
+// missed 15s beats) and to `offline` once older than 60s (≈4 missed beats). The
+// 30–60s band is deliberate hysteresis: a node whose heartbeats resume within it
+// is restored to `online` by `ingest` WITHOUT passing through `offline`.
 const DEGRADED_AFTER_SECONDS = 30;
 const OFFLINE_AFTER_SECONDS = 60;
 
 // The two states the sweep is permitted to ASSIGN. The sweep ONLY demotes — it
-// never assigns `online` (restoration to `online` is `ingest`'s job, Spec-003
-// above). `offline` is liveness-death and is SERVER-derived here, never
-// daemon-self-reported (the wire health enum is `online | degraded` only,
-// `Spec-003 §Default Behavior`).
+// never assigns `online` (restoration to `online` is `ingest`'s job above).
 const DEGRADED_STATE = "degraded";
 const OFFLINE_STATE = "offline";
 
 // The narrow result type of `sweepStaleness`: only the two states the sweep can
 // assign, never `online`. Surfaced for the eventual sweep
-// scheduler/observability (Tier-5/deployment-deferred) and the tests.
+// scheduler/observability (deployment-deferred) and the tests.
 export interface SweptTransition {
   readonly nodeId: string;
   readonly healthState: "degraded" | "offline";
@@ -131,14 +118,14 @@ export class HeartbeatService {
   }
 
   /**
-   * Ingest a runtime-node heartbeat (`Spec-003 §Default Behavior`; Plan-003 T3.6).
+   * Ingest a runtime-node heartbeat.
    *
    * Upserts the node's `runtime_node_presence` row with the SERVER clock
    * (`now()`) and the daemon's 2-value self-reported `health_state`. This is the
-   * heartbeat-reception side of the 15s cadence AND the hysteresis-recovery path
-   * (`Spec-003 §Default Behavior`): a `degraded` node that resumes heartbeating with
-   * `healthState: "online"` is restored to `online` and its `last_heartbeat_at`
-   * bumped, recovering WITHOUT passing through `offline`.
+   * heartbeat-reception side of the 15s cadence AND the hysteresis-recovery path:
+   * a `degraded` node that resumes heartbeating with `healthState: "online"` is
+   * restored to `online` and its `last_heartbeat_at` bumped, recovering WITHOUT
+   * passing through `offline`.
    *
    * @param request the heartbeat payload. Validated at the boundary
    *   (`RuntimeNodeHeartbeatRequestSchema.parse`) before any row is written — a
@@ -147,8 +134,8 @@ export class HeartbeatService {
    *   enum rejects) before touching the database, mirroring
    *   AttachService.attach's boundary parse.
    * @returns `void`. The wire response is `null`
-   *   (`RuntimeNodeHeartbeatResponseSchema = z.null()`); the T3.8 router maps
-   *   this `void` to `null`. Deliberately returns no value.
+   *   (`RuntimeNodeHeartbeatResponseSchema = z.null()`) router maps this
+   *   `void` to `null`. Deliberately returns no value.
    */
   async ingest(request: RuntimeNodeHeartbeatRequest): Promise<void> {
     // No version-floor re-check here, and that is deliberate: presence/liveness
@@ -157,13 +144,11 @@ export class HeartbeatService {
     // the capability axis the floor protects. The `min_client_version` floor
     // gates version-SENSITIVE domain writes — the capability declaration, which
     // a below-floor node is refused with `VersionFloorExceededException`
-    // (`VERSION_FLOOR_EXCEEDED`) in `AttachService.updateCapabilities` (T3.9) —
-    // NOT liveness. A below-floor (read-only) node therefore stays present and
+    // (`VERSION_FLOOR_EXCEEDED`) in `AttachService.updateCapabilities` — NOT
+    // liveness. A below-floor (read-only) node therefore stays present and
     // continues to heartbeat; it is denied only the capability WRITE. This holds
     // only while the heartbeat payload stays version-invariant — revisit if a
-    // version-sensitive field is ever added to the heartbeat shape.
-    // Refs: `Spec-003 §Required Behavior` (the version-sensitive-write vs
-    // version-invariant-heartbeat refusal boundary); ADR-018 §Decision #4.
+    // version-sensitive field is ever added to the heartbeat shape..
 
     // Trust-boundary validation — parse rather than trust the caller. Surfaces
     // schema drift (and rejects a daemon-asserted `offline`, unrepresentable in
@@ -188,9 +173,9 @@ export class HeartbeatService {
   }
 
   /**
-   * Sweep stale presence rows and demote them (`Spec-003 §Default Behavior`; Plan-003
-   * T3.6). The periodic, SERVER-DERIVED demotion — NOT ingest-driven (a dead
-   * node sends nothing, so its demotion MUST come from this sweep).
+   * Sweep stale presence rows and demote them. The periodic, SERVER-DERIVED
+   * demotion — NOT ingest-driven (a dead node sends nothing, so its demotion MUST
+   * come from this sweep).
    *
    * A single `UPDATE ... RETURNING`:
    *   - rows aged > 60s are set to `offline`;
@@ -213,10 +198,10 @@ export class HeartbeatService {
    *   `"degraded" | "offline"` (the sweep never assigns `online`). An empty
    *   array means nothing crossed a threshold (or every stale row was already at
    *   its target). Mapped for the eventual sweep scheduler/observability
-   *   (Tier-5/deployment-deferred).
+   *   (deployment-deferred).
    *
-   * Writes ONLY `runtime_node_presence`. Touches NO other table and emits NO
-   * durable event (there is no control-plane event log — ADR-017).
+   * Touches NO other table and emits NO durable event (there is no
+   * control-plane event log).
    */
   async sweepStaleness(): Promise<ReadonlyArray<SweptTransition>> {
     // Scale note: this is a NON-SARGABLE full-table scan run every

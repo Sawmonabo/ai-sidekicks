@@ -142,14 +142,14 @@ const LABEL_CITE_RE = /\b(Spec|Plan|ADR)-(\d{3}):(\d+(?:\s*[,-]\s*\d+)*)/g;
 // widened in the same PR after the corpus census surfaced the § variants):
 //   - spaced colon           `Spec-022 :146`, `Spec-022 §Daemon Master Key :146`
 //   - §-bridged tight colon  `Spec-015 §Resolved Questions:355`
-//   - §-bridged paren colon  `Spec-008 §Relay Negotiation (:176-183, …)`
+//   - §-bridged paren colon  `Spec-NNN §Relay Negotiation (:176-183, …)`
 //   - paren colon, no §      `Spec-022 (:146`
 // Branch A requires the §-bridge and then admits any colon spelling (tight,
 // spaced, or parenthesized); branch B has no bridge and requires whitespace
 // before the (optionally parenthesized) colon, so LABEL_CITE_RE's flush-colon
 // beat (`Spec-022:146`) is never double-reported. The bridge excludes colons,
 // backticks, brackets, and newlines, so a durable backticked §-anchor whose
-// HEADING contains a colon (`` `Plan-008 §Phase 1: Bootstrap (…)` ``) never
+// HEADING contains a colon (`` `Plan-NNN §Phase 1: Bootstrap (…)` ``) never
 // fires — the digits requirement after the colon rejects prose continuations
 // ("…: Bootstrap"). The locator digits must sit FLUSH against the colon: every
 // live line-cite spelling is flush (`:355`, ` :146`, `(:176-183`), while prose
@@ -198,7 +198,7 @@ const LABEL_SPACED_COLON_CITE_RE =
 // rot in another spelling — the anchor half is durable, the appended pin is
 // not. Matching the WHOLE anchor keeps tick parity correct (see the
 // lookbehind rationale above). Flush digits after the colon preserve the
-// value-vs-locator boundary (`` `Spec-025 §Limits`: 25 participants ``
+// value-vs-locator boundary (`` `Spec-021 §Limits`: 25 devices ``
 // quotes a value and never fires). Label form carries the same
 // (m[1], m[2]) group shape as the other label regexes so every scan site
 // resolves the target identically; the path form mirrors
@@ -867,92 +867,11 @@ function sectionViolation(c: Cite, reader: FileContentReader): CiteViolation | n
   };
 }
 
-export function checkLabelCiteTargets(
-  files: string[],
-  reader: FileContentReader = defaultReader,
-): CiteViolation[] {
-  const repoRoot = getRepoRoot();
-  const violations: CiteViolation[] = [];
-  const deniedRawCites = new Set<string>();
-  for (const f of files) {
-    for (const c of extractLabelCitesFrom(f, repoRoot, reader)) {
-      if (c.lineWordDeny) {
-        const deniedKey = `${c.file}:${c.line}:${c.rawTarget}`;
-        if (!deniedRawCites.has(deniedKey)) {
-          deniedRawCites.add(deniedKey);
-          // A rawTarget that already carries a §-anchor (the durable-cite-
-          // plus-appended-locator class) needs only the locator dropped —
-          // rebuilding a `§Heading` suffix around the existing anchor would
-          // prescribe invalid nesting (Codex, PR #195 round 2).
-          const alreadySectioned = c.rawTarget.includes("§");
-          const docsPathForm = c.rawTarget.startsWith("docs/");
-          const remediation = alreadySectioned
-            ? "the §-anchor is already durable — drop the appended line locator"
-            : `use the durable section form ${
-                docsPathForm
-                  ? `\`${c.rawTarget.replace(/(?::\d+|`?\s*\(?\s*lines?[-\s]+.*)$/, "")} §Heading\``
-                  : "`Spec-NNN §Heading` (or `docs/<tree>/<file>.md §Heading` for label-less docs)"
-              }`;
-          violations.push({
-            cite: c,
-            reason: "line-anchored-cite-in-code",
-            detail: `line-word / bare-basename cite '${c.rawTarget}' is gate-invisible and rots silently; ${remediation} (CAT-07 ratchet, 2026-07 sweep)`,
-          });
-        }
-        continue;
-      }
-      if (c.section !== undefined) {
-        const sectionV = sectionViolation(c, reader);
-        if (sectionV) violations.push(sectionV);
-        continue;
-      }
-      // Post-sweep ratchet (2026-07-06): zero raw line-cites remain in code, so
-      // every raw match is NEW — deny with the durable-form remediation.
-      // extractLabelCitesFrom expands range/list cites into one Cite per line
-      // number; dedupe on citing line + resolved doc so `Spec-016:81-83` yields
-      // ONE violation, not three.
-      // Frozen trees keep raw `:NNN` legality (AGENTS.md §Durable-Cite Rule):
-      // archive / reference content never shifts after landing, so a line pin
-      // there cannot rot — and those docs carry no live headings to anchor.
-      // Legality is not blind trust: the pre-ratchet FLOOR still validates the
-      // pin (missing file / out-of-range / blank line), so a typo like
-      // `docs/reference/foo.md:999` fails loudly instead of vanishing from
-      // every check (Codex review, PR #189 round 3). Label tokens never
-      // resolve into these trees (TOKEN_DIRS), so the prefix test on the raw
-      // docs-path form covers every reachable case.
-      if (FROZEN_DOC_PREFIXES.some((prefix) => c.rawTarget.startsWith(prefix))) {
-        const floorViolation = checkCite(c, reader);
-        if (floorViolation) violations.push(floorViolation);
-        continue;
-      }
-      const deniedKey = `${c.file}:${c.line}:${c.targetPath}`;
-      if (!deniedRawCites.has(deniedKey)) {
-        deniedRawCites.add(deniedKey);
-        // Name the durable form that EXISTS for the target: a docs-path raw
-        // cite points at a label-less doc, so recommending `Spec-NNN §Heading`
-        // would prescribe a token the target does not have (Codex, PR #189).
-        const docsPathForm = c.rawTarget.startsWith("docs/");
-        const durableForm = docsPathForm
-          ? `\`${c.rawTarget.replace(/:\d+$/, "")} §Heading\``
-          : "`Spec-NNN §Heading`";
-        violations.push({
-          cite: c,
-          reason: "raw-line-cite-into-governance-doc",
-          detail: `cite the backticked ${durableForm} form instead (AGENTS.md §Durable-Cite Rule) — governance line numbers shift on every amendment`,
-        });
-      }
-    }
-  }
-  return violations;
-}
-
-// Section-anchor verification for MARKDOWN citers. The md lane still must
-// NOT route through checkLabelCiteTargets — its deny copy, docs-path
-// handling, and comment lexing are code-lane-specific — so this narrower
-// walk extracts ONLY the backticked §-anchor forms and verifies the heading,
-// closing the docs-to-docs gap the Durable-Cite Rule promises (Codex review,
-// PR #188). Raw volatile line cites in md are checkMarkdownVolatileCites'
-// beat (deny, post-sweep); frozen-pin floors stay cite-target-existence's.
+// Section-anchor verification for MARKDOWN citers. This walk extracts ONLY
+// the backticked §-anchor forms and verifies the heading, closing the
+// docs-to-docs gap the Durable-Cite Rule promises (Codex review, PR #188).
+// Raw volatile line cites in md are checkMarkdownVolatileCites' beat (deny,
+// post-sweep); frozen-pin floors stay cite-target-existence's.
 export function checkSectionCites(
   files: string[],
   reader: FileContentReader = defaultReader,

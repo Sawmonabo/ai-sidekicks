@@ -1,8 +1,8 @@
 // What the ledger's structure contributes to the palette.
 //
-// `Spec-023 §Signature Feature Composition Sketches`' Timeline View lists the ledger's
-// interactions — "scroll-to-tail, jump-to-event-by-ID, filter-by-participant /
-// event-type" — and find sits beside them under `find-model.ts`. All of them are
+// The timeline view's interactions are scroll-to-tail, jump-to-event-by-ID, and
+// filter-by-user / event-type, with find beside them under `find-model.ts`. All
+// of them are
 // renderer-local offers, and this console registers every one of them as a palette
 // command through `palette/commands/contributions.ts` and never through a second command
 // registry.
@@ -110,7 +110,7 @@ export function ledgerStructureCommands(acts: LedgerStructureActs): readonly Con
       title: "Clear ledger filters",
       group: LEDGER_COMMAND_GROUP,
       when: WHEN_SESSION_ACTIVE,
-      keywords: ["participant", "family", "unfilter"],
+      keywords: ["user", "family", "unfilter"],
       run: acts.clearFilters,
     },
     {

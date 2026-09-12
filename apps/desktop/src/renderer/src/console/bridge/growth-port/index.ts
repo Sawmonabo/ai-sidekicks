@@ -4,7 +4,7 @@
 // WHAT PUTS A MODULE HERE. The port itself, the slate rows its refusals cite, the
 // operation entries that name each one, the prerequisite table, and the outcome
 // vocabulary a served answer or a refusal travels in. Together they are the claim
-// `Plan-023 §Console growth slate` is checkable against: a port whose every
+// the growth slate is checkable against: a port whose every
 // operation refuses plus a manifest that says which slate row each refusal serves.
 //
 // WHY IT IS NOT `growth-operations/`, `growth-signatures/` OR `growth-values/`.

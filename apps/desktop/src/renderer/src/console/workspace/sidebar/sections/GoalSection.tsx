@@ -1,12 +1,12 @@
 // The session's one goal, at the sidebar's density: one line, clamped to one measure.
 //
-// `Spec-023 §The surface set` makes each sidebar section "a composition of its own
-// read, opening panes", and the goal's own density rule is one line here with the
-// editor opening in place on the surface that owns it. So this section STATES the
-// goal and never edits it: the set and clear controls, the draft, the bounded-text
-// validation, and the two mutations all live on the approvals surface's goal card,
-// and a second editor in the sidebar would be a second in-flight mutation over a
-// contract that admits exactly one per session.
+// Each sidebar section is a composition of its own read that opens panes, and the
+// goal's own density rule is one line here with the editor opening in place on the
+// surface that owns it. So this section STATES the goal and never edits it: the set
+// and clear controls, the draft, the bounded-text validation, and the two mutations
+// all live on the approvals surface's goal card, and a second editor in the sidebar
+// would be a second in-flight mutation over a contract that admits exactly one per
+// session.
 //
 // THE READ IS THE LOG, NOT A GOAL STORE. There is no separate goal store anywhere in
 // the corpus: the current goal is whatever the latest goal event says, folded by
@@ -22,10 +22,10 @@
 //
 // AND THE CONTROL SAYS NAVIGATION, BECAUSE THAT IS WHAT IT DOES. It read "Set a goal"
 // / "Change the goal" — an advertised mutation whose destination renders its editor
-// only for a role the goal contract admits, so a viewer or a runtime contributor was
-// promised an act and handed a surface that offers them none. The remedy is the copy
+// only for a role the goal contract admits, so a caller the contract does not admit
+// was promised an act and handed a surface that offers them none. The remedy is the copy
 // rather than a role gate here: gating would need a second reading of the caller's
-// identity beside the card's own, and it would hide the goal from a participant
+// identity beside the card's own, and it would hide the goal from a user
 // entitled to read it. The words are `goal-section-commands.ts`'s and the act is that
 // module's one function, both shared with the palette row — so the button, the row,
 // and the destination cannot come apart.

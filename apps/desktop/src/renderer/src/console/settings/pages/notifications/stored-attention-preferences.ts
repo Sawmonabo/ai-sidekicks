@@ -4,13 +4,13 @@
 // SPLIT OUT OF THE PAGE because they are two jobs: the page decides what a person
 // sees, and this decides what has been asked and when it is asked again. The page had
 // grown to hold both, and the read chain is exactly the half that is reviewed against
-// different failures — a reply landing on the wrong participant, a set going stale
+// different failures — a reply landing on the wrong user, a set going stale
 // behind a window that was away, a write racing its own re-read.
 //
 // THE SET IS RE-READ, AND IT USED TO BE READ ONCE. Both calls fired from an effect
 // keyed on the subject and never again, so a preference changed on another device — or
-// by this same participant in a second window — stood wrong on screen for the life of
-// the window with nothing saying it was old. The preference set is the PARTICIPANT's
+// by this same user in a second window — stood wrong on screen for the life of
+// the window with nothing saying it was old. The preference set is the USER's
 // rather than a session's, so it takes the window's three triggers through
 // `store/read/read-triggers.ts` and neither of the session-scoped two: no session's repair
 // and no session's timeline bear on a record that is global to a person.
@@ -23,8 +23,8 @@
 // put a person's accepted toggle back where it started, and it is not a failure a hook
 // composed of `useState` cells could have seen.
 //
-// WHAT STAYS HERE is the chain and the announcement: which participant this window is,
-// the reading held for that participant, the writer built over it, and the one
+// WHAT STAYS HERE is the chain and the announcement: which user this window is,
+// the reading held for that user, the writer built over it, and the one
 // sentence the settled chain says out loud.
 
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
@@ -41,16 +41,16 @@ import {
 import {
   announcementFor,
   type AttentionPreferenceReading,
-  type CallerParticipantReading,
+  type CallerUserReading,
 } from "./attention-preference-model.js";
 import { AttentionPreferenceRead } from "./attention-preference-read.js";
-import { ScheduledCallerParticipantRead } from "./scheduled-caller-participant-read.js";
+import { ScheduledCallerUserRead } from "./scheduled-caller-user-read.js";
 import { NotificationPreferenceWriter } from "./notification-preference-writer.js";
 import type { SettingsPageContext } from "../../settings-page-registry.js";
 import { type StoredPreferenceBinding } from "./StoredPreferenceValue.js";
 
 /**
- * How a reading whose participant moved is retired, declared once at module scope.
+ * How a reading whose user moved is retired, declared once at module scope.
  *
  * At module scope because the hook holds it on a dependency of its own: a disposal
  * minted per render would restart the lifetime effect underneath a reading that had
@@ -64,7 +64,7 @@ const ATTENTION_PREFERENCE_READ_DISPOSAL: SubjectScopedDisposal<AttentionPrefere
 };
 
 /** The same rule for the identity read in front of it, for the same reason. */
-const CALLER_PARTICIPANT_READ_DISPOSAL: SubjectScopedDisposal<ScheduledCallerParticipantRead> = {
+const CALLER_USER_READ_DISPOSAL: SubjectScopedDisposal<ScheduledCallerUserRead> = {
   dispose: (read) => {
     read.dispose();
   },
@@ -88,15 +88,15 @@ export function useStoredAttentionPreferences(
   // THE IDENTITY READ IS A SCHEDULED READ HELD FOR THE SESSION IT WAS MADE FOR. It was
   // a `useEffect` keyed on the bridge and the session, which is a read that runs ONCE:
   // a transport outage refused it, the dependencies never moved again, and the section
-  // behind it — which takes the participant as its subject — refused every focus and
+  // behind it — which takes the user as its subject — refused every focus and
   // every reconnect for the life of the window. It now declares the same
   // `ReadTriggerTarget` its own set does and takes the same three window triggers, so
   // a later focus asks again and the chain finishes.
   const { value: identityRead } = useSubjectScopedResource(
     bridge,
     retainedSessionId,
-    () => new ScheduledCallerParticipantRead({ bridge, sessionId: retainedSessionId, clock }),
-    CALLER_PARTICIPANT_READ_DISPOSAL,
+    () => new ScheduledCallerUserRead({ bridge, sessionId: retainedSessionId, clock }),
+    CALLER_USER_READ_DISPOSAL,
   );
   useWindowReadTriggers(identityRead, bridge.transportReconnect);
   const subscribeToIdentity = useCallback(
@@ -104,28 +104,28 @@ export function useStoredAttentionPreferences(
     [identityRead],
   );
   const takeIdentitySnapshot = useCallback(() => identityRead.snapshot(), [identityRead]);
-  const participantReading = useSyncExternalStore(
+  const userReading = useSyncExternalStore(
     subscribeToIdentity,
     takeIdentitySnapshot,
     takeIdentitySnapshot,
   );
 
-  const participantId =
-    participantReading?.kind === "answered" && participantReading.outcome.status === "served"
-      ? participantReading.outcome.value.participantId
+  const userId =
+    userReading?.kind === "answered" && userReading.outcome.status === "served"
+      ? userReading.outcome.value.userId
       : undefined;
 
-  // ONE READING PER PARTICIPANT, and the participant rather than the session: a person
+  // ONE READING PER USER, and the user rather than the session: a person
   // reached through two sessions is the same person, and re-seeding their switches
   // because the route moved would report a read nobody needed to make again. Minted by
   // the subject primitive rather than by a memo, because what ends its life is the
-  // PARTICIPANT moving and not the component re-rendering — and the primitive addresses
+  // USER moving and not the component re-rendering — and the primitive addresses
   // during the render, so the first pass that sees a new person reads that person's own
   // empty seed rather than the previous one's switches.
   const { value: read } = useSubjectScopedResource(
     bridge,
-    participantId,
-    () => new AttentionPreferenceRead({ bridge, participantId, clock }),
+    userId,
+    () => new AttentionPreferenceRead({ bridge, userId, clock }),
     ATTENTION_PREFERENCE_READ_DISPOSAL,
   );
   // The window half only: this section holds no session store, so the session half
@@ -153,24 +153,24 @@ export function useStoredAttentionPreferences(
   // comparison, where a drift is a sentence a person hears twice with every test still
   // green. What is said is a property of the settled value, which is what that latch
   // takes — the readings are published by classes that hold no announcer at all.
-  useSettlementAnnouncement(chainSentenceFor(participantReading, preferenceReading));
+  useSettlementAnnouncement(chainSentenceFor(userReading, preferenceReading));
 
-  // Rebuilt when the participant changes, because everything it holds — the queue,
+  // Rebuilt when the user changes, because everything it holds — the queue,
   // the busy records, the refusals — belongs to one person's set. The old writer's
-  // in-flight replies are released with it, so a reply for a participant nobody is
+  // in-flight replies are released with it, so a reply for a user nobody is
   // looking at any more lands nowhere.
   const writer = useMemo(
     () =>
       new NotificationPreferenceWriter({
         port: bridge.growth,
-        participantId,
+        userId,
         // The reading's own read, so a served write's re-read is ordered against every
         // other read of this set rather than only against other writes — and so the
         // set is replaced in place rather than cleared first, which would return the
         // section to its loading shape on every accepted toggle.
         reReadSet: async () => await read.readSet(),
       }),
-    [bridge, participantId, read],
+    [bridge, userId, read],
   );
   useEffect(
     () => () => {
@@ -186,7 +186,7 @@ export function useStoredAttentionPreferences(
   const writes = useSyncExternalStore(subscribeToWrites, readWrites, readWrites);
 
   return {
-    participantReading,
+    userReading,
     preferenceReading,
     isReadInFlight,
     isRecordBusy: (recordKey) => writes.busyRecordKeys.has(recordKey),
@@ -230,21 +230,19 @@ function usePinnedBridgeClock(bridge: ConsoleBridge): ConsoleClock {
  * that is still out.
  */
 function chainSentenceFor(
-  participantReading: CallerParticipantReading | undefined,
+  userReading: CallerUserReading | undefined,
   preferenceReading: AttentionPreferenceReading | undefined,
 ): string | undefined {
   if (preferenceReading !== undefined) {
     return sentenceFor(preferenceReading);
   }
-  if (participantReading === undefined) {
+  if (userReading === undefined) {
     return undefined;
   }
-  if (participantReading.kind === "unreadable") {
-    return participantReading.refusal.detail;
+  if (userReading.kind === "unreadable") {
+    return userReading.refusal.detail;
   }
-  return participantReading.outcome.status === "served"
-    ? undefined
-    : participantReading.outcome.detail;
+  return userReading.outcome.status === "served" ? undefined : userReading.outcome.detail;
 }
 
 /**

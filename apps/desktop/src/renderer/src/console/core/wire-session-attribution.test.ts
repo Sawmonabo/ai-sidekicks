@@ -25,7 +25,7 @@ describe("the required arm — a payload whose contract carries a session", () =
   });
 
   it("refuses a payload naming no session, because the member is required", () => {
-    expect(payloadNamesSession({ participantId: "participant-priya" }, SESSION_ID)).toBe(false);
+    expect(payloadNamesSession({ userId: "user-priya" }, SESSION_ID)).toBe(false);
     expect(payloadNamesSession(undefined, SESSION_ID)).toBe(false);
   });
 
@@ -45,9 +45,7 @@ describe("the contradiction arm — a payload whose contract carries none", () =
     // The arm's whole point, and the case that separates it from the other one: a
     // kind whose registered payload is strict and carries no `sessionId` at all would
     // be refused on every real frame by a fold on the required arm.
-    expect(payloadContradictsSession({ participantId: "participant-priya" }, SESSION_ID)).toBe(
-      false,
-    );
+    expect(payloadContradictsSession({ userId: "user-priya" }, SESSION_ID)).toBe(false);
     expect(payloadContradictsSession(undefined, SESSION_ID)).toBe(false);
   });
 
@@ -71,7 +69,7 @@ describe("the contradiction arm — a payload whose contract carries none", () =
     // Without this the pair could both be the required rule under two names, and every
     // case above would still pass — the admission fold would then refuse every real
     // frame and the roster would be empty in a console that is working.
-    const withoutSession = { participantId: "participant-priya" };
+    const withoutSession = { userId: "user-priya" };
     expect(payloadNamesSession(withoutSession, SESSION_ID)).toBe(false);
     expect(payloadContradictsSession(withoutSession, SESSION_ID)).toBe(false);
   });

@@ -1,10 +1,9 @@
 // When a surface that performs its own reads re-reads, wired to the things that say so.
 //
-// `Spec-023 §Rules every console surface obeys` fixes the policy under "No interval
-// polling": "Reads happen on subscribe, on window focus, on reconnect, and on the
-// terminal events the owning spec names". `subscribe` belongs to the reader — it is
-// the read the reader starts itself — and the other three are observations of things
-// outside it, which is what this class owns.
+// The no-interval-polling policy is fixed: reads happen on subscribe, on window focus, on
+// reconnect, and on the terminal events the owning surface names. `subscribe` belongs to
+// the reader — it is the read the reader starts itself — and the other three are
+// observations of things outside it, which is what this class owns.
 //
 // IT LIVES BESIDE THE SCHEDULER RATHER THAN IN A VIEW FAMILY, because the three
 // observations are the same three whichever surface is reading: a window focus is a

@@ -1,7 +1,7 @@
 // The roster read the console performs for a view it does not own, and the second
 // reader of that same read.
 //
-// `runtime-node-attach/NodeRoster.tsx` is a shipped Tier-1 view the console absorbs by
+// `runtime-node-attach/NodeRoster.tsx` is a pre-console view the console absorbs by
 // import and never edits. It renders five of the wire entry's nine members and neither
 // of the two a settings page needs: the capability map each node declares about itself,
 // and the client version the floor verdict is computed from. It also renders nothing at

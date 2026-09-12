@@ -1,7 +1,7 @@
 // Test K3 — Windows hard-stop tree-kill via `taskkill /T /F`, with a
-// 2 s bounded escalation timer (per I-024-2).
+// 2 s bounded escalation timer.
 //
-// Plan-024 I-024-2 promotes the following obligation to load-bearing:
+// Promotes the following obligation to load-bearing:
 //
 //   * Hard-stop teardown MUST invoke `taskkill /T /F /PID <pid>` so the
 //     entire descendant tree terminates (a single-PID kill leaves
@@ -21,10 +21,8 @@
 // invocation receives the root PID (the OS walks the tree via `/T`
 // once that PID is targeted). The descendant tree is not modeled in
 // this unit test — that's the Phase 3 sidecar-side Test K4 which has
-// access to a real `windows-latest` runner per Plan-024 §I-024-2.
+// access to a real `windows-latest` runner.
 //
-// Refs: Plan-024 §Invariants I-024-2; ADR-019 §Decision item 1;
-// ADR-019 §Failure Mode Analysis row "kill propagation".
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
@@ -47,8 +45,7 @@ import type { SpawnRequest } from "@ai-sidekicks/contracts";
 // Default pid for this suite is 67890 (distinct from the kill-
 // translation suite's 12345 so assertion failures point unambiguously
 // at the failing fixture). See `_fakes.ts` for the helper definition
-// shared with `node-pty-host.kill-translation.test.ts` (R3 review
-// POLISH-2 / POLISH-3).
+// shared with `node-pty-host.kill-translation.test.ts`.
 const TREE_KILL_FIXTURE_PID = 67890;
 
 const SAMPLE_SPAWN: SpawnRequest = {
@@ -114,10 +111,10 @@ afterEach(() => {
 });
 
 // ----------------------------------------------------------------------------
-// I-024-2: 2 s escalation + tree-kill + onExit emission
+// 2 s escalation + tree-kill + onExit emission
 // ----------------------------------------------------------------------------
 
-describe("NodePtyHost — hard-stop escalation to taskkill /T /F (I-024-2)", () => {
+describe("NodePtyHost — hard-stop escalation to taskkill /T /F", () => {
   it("SIGTERM whose child ignores CTRL_BREAK_EVENT escalates to taskkill at the 2 s budget and emits onExit regardless of OS reap status", async () => {
     const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
 
@@ -146,19 +143,19 @@ describe("NodePtyHost — hard-stop escalation to taskkill /T /F (I-024-2)", () 
     // resolves and the post-resolution onExit fire is observable.
     await vi.advanceTimersByTimeAsync(1);
 
-    // Load-bearing assertion: I-024-2 — `taskkill` MUST receive the
-    // root PID with the /T flag implied (the production code spawns
+    // Load-bearing assertion: — `taskkill` MUST receive the root PID
+    // with the /T flag implied (the production code spawns
     // ['taskkill', '/T', '/F', '/PID', String(pid)]; the injected
     // mock receives the pid arg directly so we assert the pid value).
     expect(ctx.mockTaskkill).toHaveBeenCalledTimes(1);
     expect(ctx.mockTaskkill).toHaveBeenCalledWith(67890);
 
-    // Load-bearing assertion: I-024-2 — onExit MUST fire even when
-    // the OS-level reap is opaque (the mockTaskkill resolves
+    // Load-bearing assertion: — onExit MUST fire even when the
+    // OS-level reap is opaque (the mockTaskkill resolves
     // successfully here; the implementation emits anyway, and an
-    // unsuccessful taskkill should also emit per the I-024-2
-    // "MUST emit ExitCodeNotification even if reaping is incomplete"
-    // clause — covered by the next test).
+    // unsuccessful taskkill should also emit "MUST emit
+    // ExitCodeNotification even if reaping is incomplete" clause —
+    // covered by the next test).
     expect(ctx.exitRecorder).toHaveBeenCalledTimes(1);
     const [emittedSessionId, emittedExitCode] = ctx.exitRecorder.mock.calls[0]!;
     expect(emittedSessionId).toBe(session_id);
@@ -166,7 +163,7 @@ describe("NodePtyHost — hard-stop escalation to taskkill /T /F (I-024-2)", () 
   });
 
   // NOTE: A standalone "the 2 s budget is timer-bounded" sanity check
-  // was removed in R3 review POLISH-1. The assertion (`Date.now() -
+  // was removed. The assertion (`Date.now() -
   // start < 1000`) passed trivially under `vi.useFakeTimers()` because
   // Vitest fakes `Date.now()` by default, so the wall-clock comparison
   // had no teeth. The non-blocking property is already proven by the
@@ -197,18 +194,15 @@ describe("NodePtyHost — hard-stop escalation to taskkill /T /F (I-024-2)", () 
   });
 
   it("emits onExit even when taskkill itself fails (OS-level reap stalled)", async () => {
-    // I-024-2: "invoke taskkill with a timeout and emit
-    // ExitCodeNotification even if reaping is incomplete." We exercise
-    // the failure mode by making the mock reject.
+    // "invoke taskkill with a timeout and emit ExitCodeNotification
+    // even if reaping is incomplete." We exercise the failure mode by
+    // making the mock reject.
     ctx.mockTaskkill.mockRejectedValueOnce(new Error("taskkill: access denied"));
 
     const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
     await ctx.host.kill(session_id, "SIGTERM");
     await vi.advanceTimersByTimeAsync(2000);
 
-    // taskkill was attempted (the load-bearing piece of I-024-2 is
-    // that we INVOKED the escalation; whether it succeeded is OS-
-    // dependent and we must still fire onExit).
     expect(ctx.mockTaskkill).toHaveBeenCalledTimes(1);
     expect(ctx.mockTaskkill).toHaveBeenCalledWith(67890);
 
@@ -222,10 +216,10 @@ describe("NodePtyHost — hard-stop escalation to taskkill /T /F (I-024-2)", () 
     const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
     await ctx.host.kill(session_id, "SIGKILL");
 
-    // Per the `Plan-024 §Implementation Steps` step-8 kill bullet: SIGKILL is "taskkill /T /F /PID
-    // <pid> directly, skipping CTRL_BREAK_EVENT". The mock is async
-    // (`mockResolvedValue`); we have already awaited `host.kill` so
-    // by the time we assert the resolution chain has run.
+    // Step-8 kill bullet: SIGKILL is "taskkill /T /F /PID <pid> directly,
+    // skipping CTRL_BREAK_EVENT". The mock is async (`mockResolvedValue`); we
+    // have already awaited `host.kill` so by the time we assert the resolution
+    // chain has run.
     expect(ctx.mockTaskkill).toHaveBeenCalledTimes(1);
     expect(ctx.mockTaskkill).toHaveBeenCalledWith(67890);
 
@@ -239,7 +233,7 @@ describe("NodePtyHost — hard-stop escalation to taskkill /T /F (I-024-2)", () 
 });
 
 // ----------------------------------------------------------------------------
-// R2 review ACTIONABLE-1 — synthetic-exit cache is write-once
+// Synthetic-exit cache is write-once
 // ----------------------------------------------------------------------------
 //
 // When `invokeTaskkill` emits a synthetic onExit (exitCode=1), a later
@@ -251,10 +245,9 @@ describe("NodePtyHost — hard-stop escalation to taskkill /T /F (I-024-2)", () 
 // synthetic 1), not the later OS-reported value (often 0 for clean
 // exits).
 //
-// This test simultaneously covers the dedup branch inside
-// `child.onExit` (POLISH-4 from R2 review — implicit subsumption).
+// This test simultaneously covers the dedup branch inside `child.onExit`.
 
-describe("NodePtyHost — synthetic-exit cache is write-once (R2 ACTIONABLE-1)", () => {
+describe("NodePtyHost — synthetic-exit cache is write-once", () => {
   it("post-synthetic-exit OS exit does not re-fire and does not mutate the cache; subsequent kill() re-emits the synthetic exitCode", async () => {
     const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
 
@@ -277,7 +270,7 @@ describe("NodePtyHost — synthetic-exit cache is write-once (R2 ACTIONABLE-1)",
 
     // Load-bearing: only ONE onExit observed across the whole flow.
     // The real OS exit was de-duped at the cache-guard inside
-    // `child.onExit`. (Pre-R2-ACTIONABLE-1 fix: the cache was mutated
+    // `child.onExit`. (Before the fix the cache was mutated
     // to 0 here, breaking the next assertion.)
     expect(ctx.exitRecorder).toHaveBeenCalledTimes(1);
 
@@ -298,7 +291,7 @@ describe("NodePtyHost — synthetic-exit cache is write-once (R2 ACTIONABLE-1)",
 });
 
 // ----------------------------------------------------------------------------
-// R2 review ACTIONABLE-3 — stale SIGTERM-armed timer must be cleared
+// Stale SIGTERM-armed timer must be cleared
 // when a later kill preempts it
 // ----------------------------------------------------------------------------
 //
@@ -310,7 +303,7 @@ describe("NodePtyHost — synthetic-exit cache is write-once (R2 ACTIONABLE-1)",
 // Windows PID — the canonical "spam-click Stop then Force Stop"
 // real-world trigger.
 
-describe("NodePtyHost — preemption clears stale escalation timer (R2 ACTIONABLE-3)", () => {
+describe("NodePtyHost — preemption clears stale escalation timer", () => {
   it("SIGKILL after SIGTERM clears the pending 2 s escalation timer; mockTaskkill fires exactly once", async () => {
     const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
 
@@ -323,7 +316,7 @@ describe("NodePtyHost — preemption clears stale escalation timer (R2 ACTIONABL
     await vi.advanceTimersByTimeAsync(1000);
     expect(ctx.mockTaskkill).not.toHaveBeenCalled();
 
-    // T+1s: SIGKILL preempts. Without the R2 ACTIONABLE-3 fix the
+    // T+1s: SIGKILL preempts. Without the clear the
     // SIGTERM-armed timer remains pending and would fire at T+2s,
     // invoking `mockTaskkill` a SECOND time. With the fix, the
     // SIGKILL branch calls `clearPendingEscalation` first, so the
@@ -338,13 +331,13 @@ describe("NodePtyHost — preemption clears stale escalation timer (R2 ACTIONABL
     // Load-bearing: mockTaskkill MUST be called EXACTLY ONCE across
     // the whole flow (the SIGKILL invocation only). A second
     // invocation from the orphaned SIGTERM timer would be a
-    // regression of the R2 ACTIONABLE-3 fix.
+    // regression of the clear-on-preempt fix.
     expect(ctx.mockTaskkill).toHaveBeenCalledTimes(1);
     expect(ctx.mockTaskkill).toHaveBeenCalledWith(67890);
   });
 
   it("two consecutive SIGTERMs arm only one live timer; mockTaskkill fires once at T+2s of the SECOND arming", async () => {
-    // Bug scenario B from R2 ACTIONABLE-3: repeated SIGTERMs both
+    // Bug scenario B: repeated SIGTERMs both
     // arm timers; the second overwrites `record.pendingEscalation`
     // without clearing the first, leaving an orphaned timer.
     const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
@@ -374,7 +367,7 @@ describe("NodePtyHost — preemption clears stale escalation timer (R2 ACTIONABL
   });
 
   it("SIGINT after SIGTERM clears the pending escalation timer; mockTaskkill never fires", async () => {
-    // Bug scenario C from R2 ACTIONABLE-3.
+    // Bug scenario C.
     const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
 
     await ctx.host.kill(session_id, "SIGTERM");
@@ -398,11 +391,11 @@ describe("NodePtyHost — preemption clears stale escalation timer (R2 ACTIONABL
 });
 
 // ----------------------------------------------------------------------------
-// R2 review POLISH-4 — wall-clock timeout race in invokeTaskkill
+// Wall-clock timeout race in invokeTaskkill
 // ----------------------------------------------------------------------------
 //
-// I-024-2: "the daemon must not hang on a stuck OS-level operation".
-// If `spawnTaskkill(pid)` never resolves (kernel deadlock, suspended
+// "the daemon must not hang on a stuck OS-level operation". If
+// `spawnTaskkill(pid)` never resolves (kernel deadlock, suspended
 // state, OS bug), the host's `invokeTaskkill` MUST still proceed to
 // fire the synthetic onExit on its own schedule. The fix wraps the
 // `await spawnTaskkill(pid)` in a race against a 5 s fallback timer
@@ -411,11 +404,11 @@ describe("NodePtyHost — preemption clears stale escalation timer (R2 ACTIONABL
 // proves the race is wired correctly — without it, `invokeTaskkill`
 // awaits forever and `onExit` never fires.
 
-describe("NodePtyHost — invokeTaskkill is wall-clock bounded (R2 POLISH-4)", () => {
+describe("NodePtyHost — invokeTaskkill is wall-clock bounded", () => {
   it("SIGKILL with a never-resolving spawnTaskkill still fires onExit after the 5 s fallback timeout", async () => {
     // Build a host with a `spawnTaskkill` mock returning a Promise
-    // that NEVER resolves. Simulates the I-024-2-prohibited "stuck
-    // OS-level operation" failure mode.
+    // that NEVER resolves. Simulates "stuck OS-level operation"
+    // failure mode.
     const { child } = makeFakeChild(12321);
     const neverResolves: Promise<TaskkillResult> = new Promise<TaskkillResult>(() => {
       // intentionally empty — the promise never settles.
@@ -462,14 +455,14 @@ describe("NodePtyHost — invokeTaskkill is wall-clock bounded (R2 POLISH-4)", (
 
     // Load-bearing: onExit MUST fire with the synthetic exitCode=1
     // even though the OS-level reap never completed. This is the
-    // exact property I-024-2 requires.
+    // exact property requires.
     expect(exitRecorder).toHaveBeenCalledTimes(1);
     expect(exitRecorder).toHaveBeenCalledWith(session_id, 1);
   });
 });
 
 // ----------------------------------------------------------------------------
-// R3 review ACTIONABLE-1 — synthetic-exit must not fire on a closed session
+// Synthetic-exit must not fire on a closed session
 // ----------------------------------------------------------------------------
 //
 // `invokeTaskkill` awaits `spawnTaskkill` (or the 5 s fallback) inside
@@ -495,7 +488,7 @@ describe("NodePtyHost — invokeTaskkill is wall-clock bounded (R2 POLISH-4)", (
 // refactor adds a separate fast-path for SIGKILL that forgets to
 // route through the same gate).
 
-describe("NodePtyHost — synthetic onExit gated on live session (R3 ACTIONABLE-1)", () => {
+describe("NodePtyHost — synthetic onExit gated on live session", () => {
   it("SIGTERM: close() during 2 s escalation IIFE suppresses the synthetic onExit when spawnTaskkill resolves post-close", async () => {
     // Externally controllable taskkill resolution so we can interleave
     // close() between "await spawnTaskkill begins" and "spawnTaskkill
@@ -580,7 +573,7 @@ describe("NodePtyHost — synthetic onExit gated on live session (R3 ACTIONABLE-
 
   it("5 s fallback race: close() during a never-resolving spawnTaskkill suppresses the synthetic onExit when the fallback timer wins", async () => {
     // Construct a dedicated host with a never-resolving spawnTaskkill,
-    // mirroring the POLISH-4 wall-clock test above. Close()s during
+    // mirroring the wall-clock test above. Close()s during
     // the wall-clock wait; the 5 s fallback fires, the race settles
     // via the timeout path, and the gate must still suppress the
     // synthetic emit because the session was torn down.
@@ -629,7 +622,7 @@ describe("NodePtyHost — synthetic onExit gated on live session (R3 ACTIONABLE-
 });
 
 // ----------------------------------------------------------------------------
-// Codex P1 (PR #51) — close() on Windows must route through tree-kill path
+// close() on Windows must route through the tree-kill path
 // ----------------------------------------------------------------------------
 //
 // `node-pty.kill(signal)` on Windows targets a single PID via the
@@ -638,18 +631,18 @@ describe("NodePtyHost — synthetic onExit gated on live session (R3 ACTIONABLE-
 // citing microsoft/node-pty#167 and microsoft/node-pty#437). A
 // `close()` on a live Windows session that routes through
 // `record.child.kill()` therefore orphans the descendant tree —
-// exactly the failure mode I-024-1 / I-024-2 exist to prevent.
+// exactly the failure mode exist to prevent.
 //
 // The fix routes Windows `close()` through the same `taskkill /T /F
 // /PID <pid>` path that `kill(SIGKILL)` uses, fire-and-forget so the
 // teardown does not block on OS reap. The synthetic `onExit` that
 // `invokeTaskkill` emits at its tail is gated on the existing
-// `sessions.has(sessionId)` probe (R3 ACTIONABLE-1) and will be
+// `sessions.has(sessionId)` probe and will be
 // suppressed because `close()` calls `sessions.delete(sessionId)`
 // immediately after dispatching the kill — intentional: `close()` is
 // the consumer's signal to stop emitting on this session.
 
-describe("NodePtyHost — close() on Windows routes through taskkill (Codex P1)", () => {
+describe("NodePtyHost — close() on Windows routes through taskkill", () => {
   it("close() on Windows invokes taskkill (not record.child.kill); descendants are reaped via /T /F", async () => {
     const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
 
@@ -666,8 +659,7 @@ describe("NodePtyHost — close() on Windows routes through taskkill (Codex P1)"
     // Load-bearing P1 assertion: close() routed through taskkill /T /F
     // /PID <pid> with the session's root pid. The /T flag (asserted via
     // the production code's spawn args in `defaultSpawnTaskkill`) walks
-    // the descendant tree — which is the load-bearing piece I-024-2
-    // requires.
+    // the descendant tree — which is the load-bearing piece requires.
     expect(ctx.mockTaskkill).toHaveBeenCalledTimes(1);
     expect(ctx.mockTaskkill).toHaveBeenCalledWith(TREE_KILL_FIXTURE_PID);
 
@@ -684,8 +676,8 @@ describe("NodePtyHost — close() on Windows routes through taskkill (Codex P1)"
     expect(ctx.exitRecorder).not.toHaveBeenCalled();
   });
 
-  it("close() on POSIX still uses record.child.kill() — Codex P1 fix is scoped to Windows", async () => {
-    // Build a POSIX host. The Codex finding is specifically scoped to
+  it("close() on POSIX still uses record.child.kill() — the fix is scoped to Windows", async () => {
+    // Build a POSIX host. The hazard is specifically scoped to
     // Windows; POSIX `record.child.kill()` signals the session leader
     // and TTY foreground-process-group semantics propagate to the
     // descendant tree (no orphan-tree failure mode on POSIX).
@@ -750,7 +742,7 @@ describe("NodePtyHost — close() on Windows routes through taskkill (Codex P1)"
 });
 
 // ----------------------------------------------------------------------------
-// Codex P2 (PR #51) — kill(SIGKILL) acks on cascade BEGUN, not COMPLETED
+// kill(SIGKILL) acks on cascade BEGUN, not COMPLETED
 // ----------------------------------------------------------------------------
 //
 // The `KillResponse` contract in
@@ -769,10 +761,10 @@ describe("NodePtyHost — close() on Windows routes through taskkill (Codex P1)"
 // already-`void` SIGTERM escalation timer (line ~725 of
 // `node-pty-host.ts`).
 
-describe("NodePtyHost — kill(SIGKILL) returns once cascade has BEGUN (Codex P2)", () => {
+describe("NodePtyHost — kill(SIGKILL) returns once cascade has BEGUN", () => {
   it("kill(SIGKILL) with a never-resolving spawnTaskkill resolves before the 5 s fallback fires", async () => {
     // Hold the spawnTaskkill promise open via a captured resolver. If
-    // P2 is regressed (i.e., kill() awaits invokeTaskkill), the
+    // this is regressed (i.e., kill() awaits invokeTaskkill), the
     // `await kill()` below would suspend until the 5 s fallback timer
     // fires; with the P2 fix it MUST resolve immediately because the
     // cascade has begun (mockTaskkill was synchronously invoked
@@ -818,7 +810,7 @@ describe("NodePtyHost — kill(SIGKILL) returns once cascade has BEGUN (Codex P2
     expect(ctx.exitRecorder).not.toHaveBeenCalled();
 
     // Now resolve the held-open taskkill: synthetic onExit fires async
-    // when the IIFE completes (R3 ACTIONABLE-1 gate still in place but
+    // when the IIFE completes (the gate is still in place but
     // sessions.has(session_id) is true because we did NOT close).
     resolveTaskkill({ exitCode: 0 });
     await vi.runAllTimersAsync();

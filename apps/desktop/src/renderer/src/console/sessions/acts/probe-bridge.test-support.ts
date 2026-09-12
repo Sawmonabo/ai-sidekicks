@@ -7,7 +7,7 @@
 // it. A second copy of either would let the two disagree about what a press is.
 //
 // `window.sidekicks` AND NOT THE CONSOLE'S OWN BRIDGE, deliberately: the probe is a
-// shipped Tier-1 component that reads the preload directly, which is the whole reason
+// pre-console component that reads the preload directly, which is the whole reason
 // the console guards its mount on the bridge SOURCE rather than handing it one.
 
 import { act } from "@testing-library/react";

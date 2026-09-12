@@ -2,7 +2,7 @@
 //
 // A RUN THAT BRANCHES PARKS MORE THAN ONE PHASE ON A PERSON AT A TIME, and the pane
 // used to resolve the first addressable one and mount its form. The other park cards
-// said the wait "ends when a participant fills in and submits this phase's form" and
+// said the wait "ends when a user fills in and submits this phase's form" and
 // offered no route to that form, so a parallel run could not be advanced from the pane
 // that was showing it — the operator's only move was to answer one branch, wait for the
 // snapshot to change, and hope the next one became first.

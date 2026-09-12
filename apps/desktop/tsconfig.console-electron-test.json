@@ -75,7 +75,7 @@
     // its `src/**` include; this one has to name it.
     "src/renderer/src/console/console-env.d.ts",
     // The same, for the other ambient declaration that graph needs. The seat door
-    // publishes the absorbed Tier-1 mounts, and those three components read
+    // publishes the absorbed pre-console mounts, and those three components read
     // `window.sidekicks` directly — so the moment a console constant this tier
     // names reaches `seats/index.ts`, the preload global's declaration is part of
     // this program's obligations too.

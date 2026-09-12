@@ -2,7 +2,7 @@
 //
 // The reader is driveable with a single payload and no session, which is the whole
 // reason it is a module: every case below states what ONE `pty.control_changed`
-// obliges, without a viewer, a holding node, or an ordering standing between the
+// obliges, without a device, a holding node, or an ordering standing between the
 // payload and the answer. The fold's response to a refusal is `lease-model.test.ts`'s
 // — those are two different claims, and asserting the reader only through the fold is
 // what made the second one carry both.
@@ -24,11 +24,7 @@ import {
   type TerminalLeaseTransition,
   type TerminalLeaseTransitionReason,
 } from "./lease-transition.js";
-import {
-  OTHER_PARTICIPANT,
-  VIEWER_PARTICIPANT,
-  leaseEventWithPayload,
-} from "./lease-model.test-support.js";
+import { OTHER_USER, VIEWER_USER, leaseEventWithPayload } from "./lease-model.test-support.js";
 
 /** Every event below sits at the same position; what varies is the payload on it. */
 const READER_EVENT_SEQUENCE = 1;
@@ -38,9 +34,9 @@ function transitionOf(reason: TerminalLeaseTransitionReason): TerminalLeaseTrans
     sequence: 1,
     occurredAtIso: "2026-01-01T16:40:00.000Z",
     reason,
-    holderParticipantId: reason === "taken" ? OTHER_PARTICIPANT : null,
-    previousHolderParticipantId: reason === "taken" ? null : OTHER_PARTICIPANT,
-    actorId: OTHER_PARTICIPANT,
+    holderUserId: reason === "taken" ? OTHER_USER : null,
+    previousHolderUserId: reason === "taken" ? null : OTHER_USER,
+    actorId: OTHER_USER,
   };
 }
 
@@ -49,27 +45,27 @@ describe("reading one transition — the holder is the wire's, and both halves a
     const transition = readTerminalLeaseTransition(
       leaseEventWithPayload(READER_EVENT_SEQUENCE, {
         reason: "taken",
-        holderParticipantId: OTHER_PARTICIPANT,
-        previousHolderParticipantId: VIEWER_PARTICIPANT,
+        holderUserId: OTHER_USER,
+        previousHolderUserId: VIEWER_USER,
       }),
     );
     expect(transition?.reason).toBe("taken");
-    expect(transition?.holderParticipantId).toBe(OTHER_PARTICIPANT);
-    expect(transition?.previousHolderParticipantId).toBe(VIEWER_PARTICIPANT);
+    expect(transition?.holderUserId).toBe(OTHER_USER);
+    expect(transition?.previousHolderUserId).toBe(VIEWER_USER);
     expect(transition?.sequence).toBe(1);
-    expect(transition?.actorId).toBe(OTHER_PARTICIPANT);
+    expect(transition?.actorId).toBe(OTHER_USER);
   });
 
   it("reads a release as naming nobody, which is the free lease explicitly", () => {
     const transition = readTerminalLeaseTransition(
       leaseEventWithPayload(READER_EVENT_SEQUENCE, {
         reason: "released",
-        holderParticipantId: null,
-        previousHolderParticipantId: OTHER_PARTICIPANT,
+        holderUserId: null,
+        previousHolderUserId: OTHER_USER,
       }),
     );
-    expect(transition?.holderParticipantId).toBeNull();
-    expect(transition?.previousHolderParticipantId).toBe(OTHER_PARTICIPANT);
+    expect(transition?.holderUserId).toBeNull();
+    expect(transition?.previousHolderUserId).toBe(OTHER_USER);
   });
 
   it("refuses a `taken` that names nobody, rather than reading it as the free lease", () => {
@@ -79,14 +75,14 @@ describe("reading one transition — the holder is the wire's, and both halves a
       readTerminalLeaseTransition(
         leaseEventWithPayload(READER_EVENT_SEQUENCE, {
           reason: "taken",
-          holderParticipantId: null,
+          holderUserId: null,
         }),
       ),
     ).toBeUndefined();
   });
 
   it("refuses a release that names a holder, however it was released", () => {
-    // The other expensive direction, in all four of its spellings: the participant a
+    // The other expensive direction, in all four of its spellings: the user a
     // release took the shell FROM travels as the previous holder, so a release naming
     // a holder is a payload contradicting itself.
     for (const reason of TERMINAL_LEASE_TRANSITION_REASONS.filter(
@@ -96,7 +92,7 @@ describe("reading one transition — the holder is the wire's, and both halves a
         readTerminalLeaseTransition(
           leaseEventWithPayload(READER_EVENT_SEQUENCE, {
             reason,
-            holderParticipantId: VIEWER_PARTICIPANT,
+            holderUserId: VIEWER_USER,
           }),
         ),
       ).toBeUndefined();
@@ -108,13 +104,13 @@ describe("reading one transition — the holder is the wire's, and both halves a
       readTerminalLeaseTransition(
         leaseEventWithPayload(READER_EVENT_SEQUENCE, {
           reason: "auto_released_timeout",
-          holderParticipantId: null,
+          holderUserId: null,
         }),
       ),
     ).toBeUndefined();
     expect(
       readTerminalLeaseTransition(
-        leaseEventWithPayload(READER_EVENT_SEQUENCE, { holderParticipantId: OTHER_PARTICIPANT }),
+        leaseEventWithPayload(READER_EVENT_SEQUENCE, { holderUserId: OTHER_USER }),
       ),
     ).toBeUndefined();
     expect(
@@ -127,10 +123,10 @@ describe("reading one transition — the holder is the wire's, and both halves a
     // empty, or absent holder on a take was the same silent normalisation in a second
     // shape. Without this control the cases above would pass against a reader that
     // only ever checked the reason.
-    for (const holderParticipantId of ["", 4, null, undefined]) {
+    for (const holderUserId of ["", 4, null, undefined]) {
       expect(
         readTerminalLeaseTransition(
-          leaseEventWithPayload(READER_EVENT_SEQUENCE, { reason: "taken", holderParticipantId }),
+          leaseEventWithPayload(READER_EVENT_SEQUENCE, { reason: "taken", holderUserId }),
         ),
       ).toBeUndefined();
     }
@@ -138,10 +134,10 @@ describe("reading one transition — the holder is the wire's, and both halves a
       readTerminalLeaseTransition(
         leaseEventWithPayload(READER_EVENT_SEQUENCE, {
           reason: "taken",
-          holderParticipantId: OTHER_PARTICIPANT,
+          holderUserId: OTHER_USER,
         }),
-      )?.holderParticipantId,
-    ).toBe(OTHER_PARTICIPANT);
+      )?.holderUserId,
+    ).toBe(OTHER_USER);
   });
 });
 
@@ -197,8 +193,8 @@ describe("transition sentences — five reasons, five sentences", () => {
     // repeating an identifier back would answer a question nobody asked.
     for (const reason of TERMINAL_LEASE_TRANSITION_REASONS) {
       const sentence = terminalLeaseTransitionSentence(transitionOf(reason));
-      expect(sentence).not.toContain(OTHER_PARTICIPANT);
-      expect(sentence).not.toContain(VIEWER_PARTICIPANT);
+      expect(sentence).not.toContain(OTHER_USER);
+      expect(sentence).not.toContain(VIEWER_USER);
     }
   });
 

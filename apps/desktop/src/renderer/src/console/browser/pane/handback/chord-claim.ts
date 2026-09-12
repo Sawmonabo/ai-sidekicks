@@ -1,9 +1,9 @@
 // What a keystroke IS, and which chords the console is allowed to claim from a page.
 //
-// `Spec-023 §Console Design (Meridian)` 12.4 and 12.2. The half of the handback that
-// is a vocabulary rather than a machine: a keystroke as a DOM-free descriptor, the
-// predicates that read one, the projection a main-process mirror is built from, and
-// the close-tab chord of 12.2. `keyboard-handback.ts` beside it owns the decision and
+// The half of the handback that is a vocabulary rather than a machine: a keystroke as
+// a DOM-free descriptor, the predicates that read one, the projection a main-process
+// mirror is built from, and the pane's close-tab chord. `keyboard-handback.ts` beside
+// it owns the decision and
 // the replay, and imports this; nothing here imports it back.
 //
 // TWO PREDICATES, ONE SUBTRACTION. `carriesApplicationModifier` reads a keystroke and

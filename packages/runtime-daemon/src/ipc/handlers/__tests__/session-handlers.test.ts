@@ -1,57 +1,47 @@
 // Phase 3 `session.*` handler test suite.
 //
-// Spec coverage:
-//   * `Spec-007 §Required Behavior` + `Spec-007 §Interfaces And Contracts`
-//     (docs/specs/007-local-ipc-and-daemon-control.md) — the `session.*`
-//     methods are the V1 vertical-slice surface (`create` / `read` /
-//     `subscribe`); this file exercises the handlers' registry-binding
-//     boundary and the streaming `subscribe` slice's wire-frame emission.
+//   * the `session.*` methods are the V1 vertical-slice surface (`create`
+//     / `read` / `subscribe`); this file exercises the handlers'
+//     registry-binding boundary and the streaming `subscribe` slice's
+//     wire-frame emission.
 //
-// Plan-007 §Tier-1 Implementation Tasks (T-007p-3-4) — write the test
-// suite covering every cross-plan obligation owed by Phase 3 handlers.
+// Write the test suite covering every cross-plan obligation owed by
+// Phase 3 handlers.
 //
-// Invariants verified here (canonical text in
-// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-6 through I-007-9):
-//   * I-007-6 — duplicate method-name registration is rejected at register-
-//     time. T5 below verifies via `registerSessionCreate(...)` called twice
-//     against the same registry.
-//   * I-007-7 — schema-validates-before-dispatch. T2 below verifies via
-//     a malformed `session.create` payload + a mock spy whose call count
-//     remains zero after the throw.
-//   * I-007-8 — sanitized error mapping. T2's malformed-params arm walks
-//     through `mapJsonRpcError` to confirm the wire-level numeric is
-//     `-32602 InvalidParams`; T8's unknown-id arm walks the same
-//     `mapJsonRpcError` path through the new `SessionNotFoundError`
-//     discriminator branch.
+// Invariants verified here (canonical text through):
+//   * Duplicate method-name registration is rejected at register- time. T5
+//     below verifies via `registerSessionCreate(...)` called twice against
+//     the same registry.
+//   * T2 below verifies via a malformed `session.create` payload + a
+//     mock spy whose call count remains zero after the throw.
+//   * T2's malformed-params arm walks through `mapJsonRpcError` to
+//     confirm the wire-level numeric is `-32602 InvalidParams`; T8's
+//     unknown-id arm walks the same `mapJsonRpcError` path through the
+//     new `SessionNotFoundError` discriminator branch.
 //
-// Acceptance Criteria coverage matrix (per the T-007p-3-4 task contract +
-// BL-117 closure for AC-N2/AC-N3):
-//   * I-007-3-T1 — `session.create` round-trip through the registry: mock
-//     `createSession` invoked with parsed params; response matches
-//     `SessionCreateResponseSchema`. Verified by `it("session.create round-trip ...")`.
-//   * I-007-3-T2 — Malformed `session.create` payload routed through
-//     `dispatch()` rejected with JSON-RPC `-32602 InvalidParams`; handler
-//     closure NEVER invoked (I-007-7 via spy). Verified across two `it()`
-//     blocks (registry-side throw + wire-mapping numeric).
-//   * I-007-3-T3 — `session.subscribe` happy path returns `{ subscriptionId }`;
+// Acceptance Criteria coverage matrix (task contract + closure for
+// AC-N2/AC-N3):
+//   * `session.create` round-trip through the registry: mock `createSession` invoked
+//     with parsed params; response matches `SessionCreateResponseSchema`. Verified by
+//     `it("session.create round-trip...")`.
+//   * Malformed `session.create` payload routed through `dispatch()`
+//     rejected with JSON-RPC `-32602 InvalidParams`; handler closure
+//     NEVER invoked (via spy). Verified across two `it()` blocks
+//     (registry-side throw + wire-mapping numeric).
+//   * `session.subscribe` happy path returns `{ subscriptionId }`;
 //     `sub.next(event)` routes as `$/subscription/notify` frames; `sub.cancel()`
-//     drains BOTH `#subscriptions` AND `#subscriptionsByTransport` (verified
-//     via `cancelSubscription` returning `false` post-cancel). Cancel-
-//     idempotency on a fresh subscription verified separately (true → false
-//     across two direct calls). Frame-shape assertions are inline-duplicated
-//     across each `it()` block per the task contract's "no shared helper"
-//     directive.
-//   * I-007-3-T5 — Duplicate `registerSessionCreate(registry, deps)` throws
-//     `RegistryRegistrationError("duplicate_method")` at registration time
-//     (I-007-6).
-//   * I-007-3-T8 (Verifies Spec-007 AC-N2 + I-007-8) — `session.read`
-//     round-trip. Known sessionId returns `SessionRead`-shape projection
-//     (happy path); unknown sessionId throws `SessionNotFoundError` from
+//     drains BOTH `#subscriptions` AND `#subscriptionsByTransport` (verified via
+//     `cancelSubscription` returning `false` post-cancel). Cancel- idempotency
+//     on a fresh subscription verified separately (true → false across two
+//     direct calls). Frame-shape assertions are inline-duplicated across each
+//     `it()` block per the task contract's "no shared helper" directive.
+//   * Duplicate `registerSessionCreate(registry, deps)` throws
+//     `RegistryRegistrationError("duplicate_method")` at registration time.
+//   * Known sessionId returns `SessionRead`-shape projection (happy path);
+//     unknown sessionId throws `SessionNotFoundError` from
 //     `packages/runtime-daemon/src/ipc/session-errors.ts` which
-//     `mapJsonRpcError` discriminates to `-32602 InvalidParams` +
-//     `data.type: "session.not_found"` per
-//     `docs/architecture/contracts/error-contracts.md §JSON-RPC Wire Mapping`
-//     (the §Session row is the HTTP 404 equivalent). Closes BL-117.
+//     `mapJsonRpcError` discriminates to `-32602 InvalidParams` + `data.type:
+//     "session.not_found"`.
 //
 // Test-fixture posture:
 //   * The runtime-daemon's `package.json` deliberately does NOT depend on
@@ -72,7 +62,7 @@
 //   * Streaming-primitive validation invariants beyond T3's frame-shape
 //     check — covered by `streaming-primitive.test.ts` (sibling).
 //
-// Shared-helper directive (per the T-007p-3-4 task contract):
+// Shared-helper directive (task contract):
 //   T3's `$/subscription/notify` frame-shape assertions are INLINE-DUPLICATED
 //   verbatim across each `it()` block; the task contract explicitly forbids
 //   extracting a shared helper. The duplication is load-bearing for
@@ -138,7 +128,7 @@ import { passthroughSchema } from "../../__tests__/__fixtures__/zod-schemas.js";
 // otherwise meaningless.
 
 const TEST_SESSION_ID = "550e8400-e29b-41d4-a716-446655440000" as SessionId;
-const TEST_PARTICIPANT_ID = "660e8400-e29b-41d4-a716-446655440001";
+const TEST_USER_ID = "660e8400-e29b-41d4-a716-446655440001";
 // Additional ID for the session-read fixtures. The value is a static
 // literal chosen for human-readable test failure output; its byte values
 // are otherwise meaningless beyond passing the schema's branded-UUID parse.
@@ -179,7 +169,7 @@ function buildSessionCreatedEvent(): SessionEvent {
     occurredAt: "2026-01-22T19:14:35.000Z",
     category: "session_lifecycle",
     type: "session.created",
-    actor: TEST_PARTICIPANT_ID,
+    actor: TEST_USER_ID,
     version: "1.0" as SessionEvent["version"],
     payload: {
       sessionId: TEST_SESSION_ID,
@@ -190,15 +180,14 @@ function buildSessionCreatedEvent(): SessionEvent {
 }
 
 /**
- * Build a canonical-shape `SessionReadResponse` for the I-007-3-T8 happy-
- * path test. Mirrors the `buildSessionCreateResponse` pattern: every field
- * matches `SessionReadResponseSchema` so the registry's step-4 `safeParse`
+ * Build a canonical-shape `SessionReadResponse` for happy- path test.
+ * Mirrors the `buildSessionCreateResponse` pattern: every field matches
+ * `SessionReadResponseSchema` so the registry's step-4 `safeParse`
  * succeeds and the dispatched value reaches the test assertion intact.
  *
- * `timelineCursors.acknowledged` is intentionally omitted — it is optional
- * per the canonical interface (`docs/architecture/contracts/api-payload-contracts.md §Tier 1: Plan-001 — Shared Session Core (Task 4.2)`) and
- * exercising the absent-key shape catches a regression where a default of
- * `undefined` would slip through and fail `.strict()` parsing.
+ * `timelineCursors.acknowledged` is intentionally omitted — it is optional per the
+ * canonical interface and exercising the absent-key shape catches a regression where a
+ * default of `undefined` would slip through and fail `.strict()` parsing.
  */
 function buildSessionReadResponse(): SessionReadResponse {
   return {
@@ -217,10 +206,10 @@ function buildSessionReadResponse(): SessionReadResponse {
 }
 
 // ----------------------------------------------------------------------------
-// I-007-3-T1 — `session.create` round-trip through the registry
+// `session.create` round-trip through the registry
 // ----------------------------------------------------------------------------
 
-describe("I-007-3-T1 — session.create round-trip through MethodRegistry dispatch", () => {
+describe("session.create round-trip through MethodRegistry dispatch", () => {
   it("dispatches `session.create` to the deps' createSession; returns the canonical response shape", async () => {
     // Arrange — bind a mock `createSession` against a fresh registry.
     const registry = new MethodRegistryImpl();
@@ -266,10 +255,9 @@ describe("I-007-3-T1 — session.create round-trip through MethodRegistry dispat
 });
 
 // ----------------------------------------------------------------------------
-// I-007-3-T2 — malformed `session.create` payload (I-007-7 + I-007-8)
 // ----------------------------------------------------------------------------
 
-describe("I-007-3-T2 — malformed session.create payload (I-007-7 verifies handler NEVER runs; I-007-8 maps to -32602)", () => {
+describe("malformed session.create payload (verifies handler NEVER runs maps to -32602)", () => {
   it("malformed payload rejects with `RegistryDispatchError(invalid_params)`; handler is NEVER invoked", async () => {
     // Arrange — a mock `createSession` whose call count we WILL assert is
     // zero after dispatch. The handler closure registered by
@@ -306,13 +294,13 @@ describe("I-007-3-T2 — malformed session.create payload (I-007-7 verifies hand
       expect(issues.length).toBeGreaterThan(0);
     }
 
-    // CRITICAL I-007-7 ASSERTION — the handler closure must NEVER have
+    // CRITICAL ASSERTION — the handler closure must NEVER have
     // executed. If a regression moved the schema check after handler
     // invocation, this assertion would fail.
     expect(mockCreateSession).not.toHaveBeenCalled();
   });
 
-  it("`invalid_params` registry code maps to JSON-RPC `-32602` on the wire (I-007-8)", () => {
+  it("`invalid_params` registry code maps to JSON-RPC `-32602` on the wire", () => {
     // Sanity — confirm the daemon-internal registry code maps to the
     // canonical JSON-RPC numeric. The mapping is owned by
     // `jsonrpc-error-mapping.ts`; this test verifies the cross-file
@@ -328,10 +316,10 @@ describe("I-007-3-T2 — malformed session.create payload (I-007-7 verifies hand
 });
 
 // ----------------------------------------------------------------------------
-// I-007-3-T3 — `session.subscribe` happy path + cancel idempotency
+// `session.subscribe` happy path + cancel idempotency
 // ----------------------------------------------------------------------------
 
-describe("I-007-3-T3 — session.subscribe happy path + cancel idempotency", () => {
+describe("session.subscribe happy path + cancel idempotency", () => {
   it("dispatches subscribe; returns `{ subscriptionId }`; sub.next(event) routes as `$/subscription/notify` frame", async () => {
     // Arrange — wire a real StreamingPrimitive against a captured `send`
     // mock. The streaming primitive's `createSubscription` allocates a
@@ -400,7 +388,7 @@ describe("I-007-3-T3 — session.subscribe happy path + cancel idempotency", () 
 
     // Act — drive an event through the captured onEvent lambda. The handler
     // routed it to `sub.next(event)` which validates against
-    // `SessionEventSchema` (I-007-7 streaming analog) and emits a
+    // `SessionEventSchema` (streaming analog) and emits a
     // `$/subscription/notify` frame on the captured `send`.
     //
     // Wire-ordering invariant — the handler buffers events fired before the
@@ -571,14 +559,14 @@ describe("I-007-3-T3 — session.subscribe happy path + cancel idempotency", () 
     // init response settles; any pre-response notify is silently dropped
     // (unknown-id branch in `#handleSubscriptionNotify`).
     //
-    // Plan-001 Phase 5's projector contract permits `subscribeToSession` to
-    // perform cursor replay SYNCHRONOUSLY (replay-then-live-tail). This
-    // test models that posture: the deps' `subscribeToSession` calls
-    // `onEvent` 3 times BEFORE returning the unsubscribe handle. The
-    // handler's fix buffers replay events fired during the synchronous
-    // window and flushes them after a `setImmediate` boundary, which runs
-    // in the check phase AFTER the dispatch promise's `.then` microtask
-    // (where `#sendEnvelope` writes the response).
+    // The projector contract permits `subscribeToSession` to perform cursor
+    // replay SYNCHRONOUSLY (replay-then-live-tail). This test models that
+    // posture: the deps' `subscribeToSession` calls `onEvent` 3 times
+    // BEFORE returning the unsubscribe handle. The handler's fix buffers
+    // replay events fired during the synchronous window and flushes them
+    // after a `setImmediate` boundary, which runs in the check phase AFTER
+    // the dispatch promise's `.then` microtask (where `#sendEnvelope`
+    // writes the response).
     //
     // Harness shape: this test reuses the existing direct-dispatch + send-
     // mock pattern (no gateway wired). To verify wire ordering, we capture
@@ -615,8 +603,8 @@ describe("I-007-3-T3 — session.subscribe happy path + cancel idempotency", () 
 
     // Test double — `subscribeToSession` calls `onEvent` 3 times
     // SYNCHRONOUSLY before returning the unsubscribe handle. This is
-    // exactly the cursor-replay-then-live-tail shape Plan-001 Phase 5's
-    // projector contract permits.
+    // exactly the cursor-replay-then-live-tail shape the projector
+    // contract permits.
     const subscribeToSession = vi.fn<SessionSubscribeDeps["subscribeToSession"]>(
       (_sessionId, _afterCursor, onEvent) => {
         for (const event of replayEvents) {
@@ -677,10 +665,10 @@ describe("I-007-3-T3 — session.subscribe happy path + cancel idempotency", () 
 });
 
 // ----------------------------------------------------------------------------
-// Phase D Round 4 F1 — daemon-crash hazard regression on `session.subscribe`
+// Daemon-crash hazard regression on `session.subscribe`
 // ----------------------------------------------------------------------------
 //
-// Codex F1 (P1): `session-subscribe.ts` had two unguarded `sub.next(event)`
+// `session-subscribe.ts` had two unguarded `sub.next(event)`
 // call sites that throw `StreamingValidationError` (per
 // `streaming-primitive.ts:346-352`) when the producer hands the primitive a
 // malformed event. Both sites run on a LATER event-loop turn than the
@@ -711,7 +699,7 @@ describe("I-007-3-T3 — session.subscribe happy path + cancel idempotency", () 
 // requiring `type`/`category`/`sessionId`/etc.). The cast is the standard
 // "test-only narrow" pattern; production code never sees this shape.
 
-describe("Phase D Round 4 F1 — replay-flush + live-tail crash guards (Codex P1 regression)", () => {
+describe("replay-flush + live-tail crash guards", () => {
   // Restore all `vi.spyOn(...)` instances after EACH test so a console.error
   // spy that survives a mid-test assertion failure doesn't leak into the
   // next test's stdout (which would silently swallow legitimate diagnostics).
@@ -745,8 +733,8 @@ describe("Phase D Round 4 F1 — replay-flush + live-tail crash guards (Codex P1
 
     const subscribeToSession = vi.fn<SessionSubscribeDeps["subscribeToSession"]>(
       (_sessionId, _afterCursor, onEvent) => {
-        // Fire SYNCHRONOUSLY — this is the replay window per Plan-001
-        // Phase 5's projector contract. Cast `{}` to `SessionEvent` because
+        // Fire SYNCHRONOUSLY — this is the replay window per the projector
+        // contract. Cast `{}` to `SessionEvent` because
         // `SessionEventSchema.safeParse({})` fails (the schema is a
         // discriminated union and `{}` carries no `type` discriminator).
         onEvent({} as SessionEvent);
@@ -914,16 +902,15 @@ describe("Phase D Round 4 F1 — replay-flush + live-tail crash guards (Codex P1
 });
 
 // ----------------------------------------------------------------------------
-// Plan-007 PR #19 Round 6 F5 — onCancel wire-up: upstream unsubscribe runs
-// when the wire client cancels OR the transport disconnects, so the Plan-001
-// Phase 5 event-source detaches its watcher rather than leaking it for the
-// transport's lifetime. Codex flagged the discarded `unsubscribe` handle in
-// `session-subscribe.ts:273` as ACTIONABLE (Round 6); Path B (extend
-// `LocalSubscriptionProducer<T>` with `onCancel`) closes the gap on the existing
+// onCancel wire-up: upstream unsubscribe runs when the wire client cancels OR
+// the transport disconnects, so the event source detaches its watcher rather
+// than leaking it for the transport's lifetime. The discarded `unsubscribe`
+// handle in `session-subscribe.ts` was the leak; extending
+// `LocalSubscriptionProducer<T>` with `onCancel` closes it on the existing
 // lifecycle interface.
 // ----------------------------------------------------------------------------
 
-describe("PR #19 R6 F5 — session.subscribe wires upstream unsubscribe via sub.onCancel", () => {
+describe("session.subscribe wires upstream unsubscribe via sub.onCancel", () => {
   it("wire-cancel (`$/subscription/cancel` from the same transport) fires the upstream unsubscribe", async () => {
     // Arrange — `subscribeToSession`'s test double returns a vi-fn
     // unsubscribe so we can assert exactly when it ran. The handler-binding
@@ -1032,10 +1019,9 @@ describe("PR #19 R6 F5 — session.subscribe wires upstream unsubscribe via sub.
 });
 
 // ----------------------------------------------------------------------------
-// I-007-3-T5 — duplicate `registerSessionCreate` rejection (I-007-6)
 // ----------------------------------------------------------------------------
 
-describe("I-007-3-T5 — duplicate registerSessionCreate rejected at register-time (I-007-6)", () => {
+describe("duplicate registerSessionCreate rejected at register-time", () => {
   it("calling registerSessionCreate twice throws RegistryRegistrationError(`duplicate_method`)", () => {
     const registry = new MethodRegistryImpl();
     const deps: SessionCreateDeps = {
@@ -1045,9 +1031,9 @@ describe("I-007-3-T5 — duplicate registerSessionCreate rejected at register-ti
     // First call — succeeds and binds `session.create`.
     registerSessionCreate(registry, deps);
 
-    // Second call — must throw at register-time per I-007-6. The throw
-    // surfaces synchronously from `MethodRegistryImpl.register` (no
-    // dispatch / no async tick required).
+    // Second call — must throw at register-time. The throw surfaces
+    // synchronously from `MethodRegistryImpl.register` (no dispatch /
+    // no async tick required).
     let caught: unknown = null;
     try {
       registerSessionCreate(registry, deps);
@@ -1074,17 +1060,14 @@ describe("I-007-3-T5 — duplicate registerSessionCreate rejected at register-ti
 });
 
 // ----------------------------------------------------------------------------
-// I-007-3-T8 — `session.read` round-trip (Spec-007 AC-N2 + I-007-8)
-// (BL-117 closure)
+// `session.read` round-trip (AC-N2 +) (closure)
 // ----------------------------------------------------------------------------
 //
 // AC-N2 has two arms: (a) happy path — a known sessionId returns a
 // `SessionRead`-shape projection; (b) unknown sessionId — the deps throw
 // `SessionNotFoundError`, which `mapJsonRpcError` discriminates to the
 // canonical wire envelope `-32602 InvalidParams` + `data.type:
-// "session.not_found"` per
-// `docs/architecture/contracts/error-contracts.md §JSON-RPC Wire Mapping`
-// (the §Session row is the HTTP 404 equivalent).
+// "session.not_found"`.
 //
 // Wire-mapping check is performed by passing the `RegistryDispatchError`
 // the registry rethrows through `mapJsonRpcError` and asserting the
@@ -1092,7 +1075,7 @@ describe("I-007-3-T5 — duplicate registerSessionCreate rejected at register-ti
 // wire-mapping numeric) but adds the `data.type` projection check that
 // is the load-bearing AC-N2 contract.
 
-describe("I-007-3-T8 — session.read round-trip (Spec-007 AC-N2 + I-007-8)", () => {
+describe("session.read round-trip (AC-N2 +)", () => {
   it("dispatches a known sessionId to the readSession deps and returns SessionRead-shape", async () => {
     // Arrange — bind a mock `readSession` against a fresh registry.
     const registry = new MethodRegistryImpl();
@@ -1169,9 +1152,7 @@ describe("I-007-3-T8 — session.read round-trip (Spec-007 AC-N2 + I-007-8)", ()
     // (`jsonrpc-error-mapping.ts` — added by this PR).
     const envelope = mapJsonRpcError(caught, 7);
 
-    // Assert — the canonical wire envelope per error-contracts.md
-    // §JSON-RPC Wire Mapping (the two-layer envelope: numeric `code` +
-    // `data.type` dotted-namespace projection).
+    // Assert — the canonical wire envelope.
     expect(envelope.id).toBe(7);
     expect(envelope.error.code).toBe(JsonRpcErrorCode.InvalidParams);
     expect(envelope.error.data).toBeDefined();
@@ -1197,9 +1178,9 @@ describe("I-007-3-T8 — session.read round-trip (Spec-007 AC-N2 + I-007-8)", ()
   });
 
   it("registers `session.read` with mutating: false (pre-handshake gate passes through)", () => {
-    // Sanity — `Spec-007 §Fallback Behavior` requires read-only
-    // compatibility to continue across version-mismatch. Flipping this
-    // flag to true would break the read-only-fallback contract.
+    // Sanity — requires read-only compatibility to continue across
+    // version-mismatch. Flipping this flag to true would break the
+    // read-only-fallback contract.
     const registry = new MethodRegistryImpl();
     const deps: SessionReadDeps = {
       readSession: async () => buildSessionReadResponse(),

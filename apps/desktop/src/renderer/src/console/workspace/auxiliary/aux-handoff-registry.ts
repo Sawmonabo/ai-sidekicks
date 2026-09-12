@@ -12,12 +12,11 @@
 //
 // SO THE STATE LIVES AT THE WINDOW'S LIFETIME AND NOT AT A MOUNT'S. The other candidate
 // was to close every held window when the surface goes away, and it is the wrong
-// trade on the product's own terms: `Spec-023 §The surface set` gives an auxiliary
-// window its own bridge instance and its own subscription to the daemon precisely so
-// it is a window in its own right, and a window a person tore off should not be
-// destroyed because the main window navigated to Settings. Preserving the record keeps
-// the promise; closing the windows would make navigation a destructive act on a
-// surface that is not even on screen.
+// trade on the product's own terms: an auxiliary window has its own bridge instance
+// and its own subscription to the daemon precisely so it is a window in its own right,
+// and a window a person tore off should not be destroyed because the main window
+// navigated to Settings. Preserving the record keeps the promise; closing the windows
+// would make navigation a destructive act on a surface that is not even on screen.
 //
 // AND THE SUBJECT-SCOPED HOLDER IS NOT THAT HOME, which its own header says in as many
 // words: "ONE INSTANCE PER MOUNT, held by the hook … nothing here outlives the surface

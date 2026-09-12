@@ -49,7 +49,7 @@ describe("the run's durable intervention record", () => {
     // renders wrongly rather than a case nothing exercises.
     const origins = value.records.map((record) => record.origin);
     expect(origins.filter((origin) => origin === "system")).toHaveLength(1);
-    expect(origins.filter((origin) => origin === "participant")).not.toHaveLength(0);
+    expect(origins.filter((origin) => origin === "user")).not.toHaveLength(0);
   });
 
   it("refuses for a run this scenario declares no record for", async () => {

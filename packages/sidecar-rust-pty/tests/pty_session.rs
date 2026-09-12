@@ -1,24 +1,22 @@
 //! Integration tests for the per-session PTY holder.
 //!
-//! Exercises [`PtySessionRegistry`] against real `/bin/sh` children — the
-//! T-024-1-5 dispatcher smoke test is the next layer of integration coverage,
-//! but these tests are the load-bearing assertions that the Phase 1 holder
-//! actually wires a `portable-pty` child through to `DataFrame` +
+//! Exercises [`PtySessionRegistry`] against real `/bin/sh` children —
+//! dispatcher smoke test is the next layer of integration coverage, but these
+//! tests are the load-bearing assertions that the Phase 1 holder actually
+//! wires a `portable-pty` child through to `DataFrame` +
 //! `ExitCodeNotification` envelopes on the outbound channel.
 //!
 //! ## Platform scope
 //!
 //! These tests are unix-only because:
 //! 1. The holder's `kill()` is unix-only at Phase 1 (Windows arm returns
-//!    [`WindowsKillNotImplemented`] per the audit row's I-024-1/I-024-2
-//!    Phase 3 deferral).
+//!    [`WindowsKillNotImplemented`] per the audit row's deferral).
 //! 2. The spawn shape uses `/bin/sh` which is not a Windows binary path.
 //!
-//! Phase 3 T-024-3-1 will add Windows-specific cases when the kill-
-//! translation arm lands. Module-level `#[cfg(unix)]` gating means the
-//! Windows CI matrix sees zero tests in this file rather than a CI failure.
+//! Phase 3 will add Windows-specific cases when the kill- translation arm
+//! lands. Module-level `#[cfg(unix)]` gating means the Windows CI matrix
+//! sees zero tests in this file rather than a CI failure.
 //!
-//! Plan-024 Phase 1 / T-024-1-4.
 
 #![cfg(unix)]
 
@@ -144,7 +142,7 @@ async fn spawn_echo_emits_data_frame_then_exit() {
     assert_eq!(exit.exit_code, 0);
     assert_eq!(
         exit.signal_code, None,
-        "Phase 1 emits signal_code: None for every exit per module rustdoc §6"
+        "Phase 1 emits signal_code: None for every exit per module rustdoc"
     );
 
     // Concatenated output must contain "hello". PTY canonical mode
@@ -351,8 +349,8 @@ async fn kill_sigterm_terminates_long_running_child() {
     assert_eq!(exit.session_id, session_id);
     // SIGTERM-killed child: exit_code is portable-pty's "signal-
     // terminated" sentinel (1) per the From<std::process::ExitStatus>
-    // implementation in portable-pty 0.9.
-    // signal_code is None at Phase 1 per module rustdoc §6.
+    // implementation in portable-pty 0.9. signal_code is None at
+    // Phase 1 per module rustdoc.
     assert_eq!(
         exit.signal_code, None,
         "Phase 1 always emits signal_code: None"
@@ -408,8 +406,7 @@ async fn write_round_trips_through_cat() {
     // contains the literal "hello" payload. This is the happy-path
     // coverage for the write surface — the existing
     // `write_on_unknown_session_returns_unknown_session_error` test
-    // pins the negative path, but the success path had no coverage
-    // until this test (POLISH 13 from round-2 review).
+    // pins the negative path, and this test pins the success path.
     //
     // PTY canonical-mode echo: the slave-side line discipline echoes
     // every input byte back through the master, so the daemon
@@ -477,8 +474,7 @@ async fn write_round_trips_through_cat() {
 
 #[tokio::test]
 async fn post_exit_kill_returns_unknown_session_not_recycled_pid() {
-    // Pins the race-closing fix from round-2 review (ACTIONABLE):
-    // after a child has exited naturally, the `exited` flag set
+    // Pins the race-closing fix: after a child has exited naturally, the `exited` flag set
     // inside the waiter task's `spawn_blocking` closure must cause
     // subsequent `kill()` calls to short-circuit with
     // `UnknownSession` BEFORE `libc::kill` can fire at a pid the
@@ -568,9 +564,9 @@ async fn post_exit_kill_returns_unknown_session_not_recycled_pid() {
     }
 }
 
-/// Contract test for Plan-024 §Implementation Step 5 ordering: every
-/// `DataFrame` written by the child must arrive on the outbound
-/// channel BEFORE the `ExitCodeNotification` for the same session.
+/// Contract test for `DataFrame` written by the child must arrive on
+/// the outbound channel BEFORE the `ExitCodeNotification` for the
+/// same session.
 ///
 /// The pre-fix waiter emitted `ExitCodeNotification` immediately after
 /// `Child::wait()` returned, without waiting for the reader pump to
@@ -606,12 +602,12 @@ async fn post_exit_kill_returns_unknown_session_not_recycled_pid() {
 /// milliseconds (ConPTY buffers stdout through a separate kernel
 /// pipe with its own flush latency). On Windows the pre-fix shape
 /// would reliably emit `ExitCodeNotification` before the reader
-/// drained, producing the protocol violation. Phase 3 T-024-3-1
-/// brings the Windows test surface up, at which point this test
-/// (compiled and run on Windows) will be the load-bearing bite for
-/// the race. On macOS + Linux it is a positive-coverage contract
-/// pin: the byte-total assertion + last-envelope assertion together
-/// document and lock in the post-fix ordering invariant.
+/// drained, producing the protocol violation. Phase 3 brings the
+/// Windows test surface up, at which point this test (compiled and
+/// run on Windows) will be the load-bearing bite for the race. On
+/// macOS + Linux it is a positive-coverage contract pin: the
+/// byte-total assertion + last-envelope assertion together document
+/// and lock in the post-fix ordering invariant.
 ///
 /// ## Why 256 KiB / 32 chunks
 ///
@@ -720,7 +716,7 @@ async fn exit_notification_arrives_after_final_data_frame() {
 }
 
 /// Regression — registry-drop must terminate idle children so the
-/// writer-task outbound channel closes (Plan-024 Phase 3).
+/// writer-task outbound channel closes.
 ///
 /// Pins the deadlock-closing contract of [`PtySessionRegistry`]'s
 /// `Drop` impl: dropping the registry while at least one session is
@@ -829,7 +825,7 @@ async fn registry_drop_terminates_idle_session_and_closes_outbound_channel() {
 
 /// Regression — registry-drop must terminate **N idle children** so the
 /// writer-task outbound channel closes regardless of how many sessions
-/// are alive at drop time (Plan-024 Phase 3).
+/// are alive at drop time.
 ///
 /// Sibling to `registry_drop_terminates_idle_session_and_closes_outbound_channel`
 /// (the N=1 case). N=2 exercises the [`PtySessionRegistry::drop`] map-
@@ -908,8 +904,8 @@ async fn registry_drop_terminates_two_idle_sessions_and_closes_outbound_channel(
 }
 
 /// Regression — well-behaved children honor SIGHUP within the
-/// natural-EOF window, so the SIGKILL escalation must NOT fire
-/// (Plan-024 Phase 3, F-024-3-01).
+/// natural-EOF window, so the SIGKILL escalation must NOT
+/// fire.
 ///
 /// Sibling discriminator to
 /// `registry_drop_terminates_idle_session_and_closes_outbound_channel`:
@@ -919,13 +915,12 @@ async fn registry_drop_terminates_two_idle_sessions_and_closes_outbound_channel(
 /// SIGHUP path or via the Phase 2 SIGKILL escalation — both would
 /// arrive within 1 s.
 ///
-/// This test pins the (a) clause of F-024-3-01 AC6: with a budget of
-/// 300 ms — well under the 1000 ms escalation deadline — the channel
-/// MUST close via Phase 1 alone. A well-behaved `sleep 30` terminates
-/// on SIGHUP within milliseconds on Linux + macOS, so 300 ms is two
-/// orders of magnitude of headroom for the natural path while
-/// guaranteeing the escalation thread is still sleeping when the
-/// assertion fires.
+/// This test pins the (a) clause of: with a budget of 300 ms — well
+/// under the 1000 ms escalation deadline — the channel MUST close via
+/// Phase 1 alone. A well-behaved `sleep 30` terminates on SIGHUP
+/// within milliseconds on Linux + macOS, so 300 ms is two orders of
+/// magnitude of headroom for the natural path while guaranteeing the
+/// escalation thread is still sleeping when the assertion fires.
 ///
 /// **Under the BUG (escalation fires for ALL children).** If a
 /// future regression collapses the soft-kill arm and unconditionally
@@ -992,15 +987,15 @@ async fn registry_drop_terminates_well_behaved_child_without_escalation() {
 
 /// Regression — children that ignore SIGHUP must still terminate
 /// within the bounded SIGKILL escalation window so registry-drop
-/// completes (Plan-024 Phase 3, F-024-3-01).
+/// completes.
 ///
-/// Pins the (b) clause of F-024-3-01 AC6: with a child that installs
-/// `trap "" HUP` to swallow the Phase 1 soft kill, the registry's
-/// Drop impl must escalate to `libc::kill(pid, SIGKILL)` after
+/// Pins the (b) clause of: with a child that installs `trap "" HUP`
+/// to swallow the Phase 1 soft kill, the registry's Drop impl must
+/// escalate to `libc::kill(pid, SIGKILL)` after
 /// `DROP_KILL_ESCALATION_DEADLINE` (1000 ms) elapses, and the
 /// outbound channel must close within the escalation budget plus a
-/// small jitter window for the actual SIGKILL → child-exit →
-/// EOF → reader-exit → waiter-exit chain.
+/// small jitter window for the actual SIGKILL → child-exit → EOF →
+/// reader-exit → waiter-exit chain.
 ///
 /// **Test budget — 2× DROP_KILL_ESCALATION_DEADLINE.** The constant
 /// is 1000 ms; we wait up to 2000 ms. The expected timeline:

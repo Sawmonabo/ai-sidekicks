@@ -5,10 +5,10 @@
 // renders as a blank line. That is the same discipline the provider-accounts page
 // applies to the contract's own closed sets, applied to this console's.
 //
-// COPY RULES, from `Spec-023 §Console Design (Meridian)` rule 6: sentence case, past
-// tense for receipts, no exclamation marks, no celebration, and no sentence that
-// claims a capability the code does not implement. A probe result says what the host
-// reported and what happens next; it never blames the machine or the person.
+// COPY RULES: sentence case, past tense for receipts, no exclamation marks, no
+// celebration, and no sentence that claims a capability the code does not implement. A
+// probe result says what the host reported and what happens next; it never blames the
+// machine or the person.
 //
 // ONE ARM IS SAID TWICE, ON PURPOSE. The same refusal reason means something
 // different on the way in and during an enrolment — the first ends with nobody
@@ -49,27 +49,27 @@ export const CUSTODY_NOTES: Readonly<Record<WebAuthnCustody, string>> = {
 };
 
 /**
- * What the signed-in card says before it names the participant.
+ * What the signed-in card says before it names the user.
  *
- * A LABEL AND NOT A SENTENCE, because what follows it is a wire figure: the
- * participant id renders verbatim in mono through `WireFigure` (`Spec-023 §Console
- * Design (Meridian)` rule 4), and a sentence with the id pasted into it would be
- * prose paraphrasing a figure. The id is the whole of the identity this build can
- * name — no participant display name is declared anywhere in the corpus — so it is
- * shown rather than summarised.
+ * A LABEL AND NOT A SENTENCE, because what follows it is a wire figure: the user
+ * id renders verbatim in mono through `WireFigure`, and a sentence with the id pasted
+ * into it would be prose paraphrasing a figure. The id is the whole of the identity
+ * this build can name — no user display name is declared anywhere in the corpus
+ * — so it is shown rather than summarised.
  */
 export const SIGNED_IN_AS_LABEL = "Signed in as";
 
 /**
  * The note the signed-out card carries under its one action.
  *
- * It is a standing product fact rather than a state: nothing in `Spec-023` or
- * `Spec-007` makes a control-plane identity a precondition for a local session, and
- * `Spec-026 §Trigger` deliberately does not gate first launch — so a person reading
- * this card is being offered something, never stopped.
+ * It is a standing fact about this build rather than a state: a control-plane identity
+ * is no precondition for a session on this machine, and onboarding deliberately does
+ * not gate first launch. What signing in buys is reach — this person's OTHER devices
+ * can then drive a session running here — so a person reading this card is being
+ * offered something, never stopped.
  */
 export const LOCAL_SESSION_NOTE =
-  "A session on this machine needs no account. Signing in is what lets other people join one.";
+  "A session on this machine needs no account. Signing in is what lets your other devices reach it.";
 
 /** What the browser hand-off is, said before the browser opens. */
 export const DEVICE_GRANT_NOTE =

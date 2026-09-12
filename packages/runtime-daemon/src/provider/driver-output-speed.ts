@@ -1,6 +1,6 @@
 /**
  * The per-driver output-speed value vocabularies — the ONE table every reader
- * of that axis reads (Plan-005 T3.26, `Spec-005 §The output-speed axis`).
+ * of that axis reads.
  *
  * WHY THIS IS A PROVIDER-LEVEL MODULE AND NOT A PAIR OF DRIVER CONSTANTS. The
  * vocabulary has TWO readers, and only one of them holds a driver. The live
@@ -20,7 +20,7 @@
  *
  * SETTABLE is the operative word, and it is why an entry can be narrower than
  * the states its provider can REPORT. A provider may declare a state a
- * participant may not ask for — a rate-limit cooldown the build enters on its
+ * user may not ask for — a rate-limit cooldown the build enters on its
  * own is the shipped example — and `ProviderOutputSpeedState.declared` carries
  * whatever the provider reported VERBATIM, including a value absent from these
  * lists, because that is a real state under version skew and coercing it would
@@ -49,16 +49,16 @@ export const DRIVER_OUTPUT_SPEED_LEVELS: Readonly<Record<FlooredDriverName, read
   Object.freeze({
     // The pinned Claude build declares its state from a three-value vocabulary,
     // of which only these two are requestable — the third is a provider-entered
-    // condition after a rate limit rather than something a participant may ask
+    // condition after a rate limit rather than something a user may ask
     // for.
     claude: Object.freeze(["off", "on"]),
     // EMPTY, and that is the complete declaration the `output_speed: false` flag
     // implies: this provider declares no settable output-speed level vocabulary
     // anywhere (its per-turn `serviceTier` override carries no enumerated level
-    // set and no declared-state read), so `Spec-005 §The output-speed axis`
-    // makes an absent or empty vocabulary the signal that the axis is
-    // unsettable and a caller carrying an `outputSpeed` refuses fail-closed
-    // rather than forwarding an unvalidated value.
+    // set and no declared-state read), so makes an absent or empty vocabulary
+    // the signal that the axis is unsettable and a caller carrying an
+    // `outputSpeed` refuses fail-closed rather than forwarding an unvalidated
+    // value.
     codex: Object.freeze([]),
   });
 

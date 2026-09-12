@@ -68,9 +68,9 @@ import { SettingsSurface } from "./SettingsSurface.js";
  *
  * A `.ts` MODULE COMPOSING WITH `createElement`, like every other chunk root beside it.
  * This file is an entry point rather than a component — it names no component of its
- * own, it holds the family's page roster and its stylesheet edges — and
- * `apps/desktop/AGENTS.md` §Module shape reads a `.tsx` extension as the claim that a
- * module DECLARES the component its filename names. One element in one return is
+ * own, it holds the family's page roster and its stylesheet edges — and a `.tsx`
+ * extension is read as the claim that a module DECLARES the component its filename
+ * names. One element in one return is
  * not worth making that claim falsely.
  */
 export function Body(context: ConsoleSurfaceContext): React.ReactNode {
@@ -97,7 +97,7 @@ export function Body(context: ConsoleSurfaceContext): React.ReactNode {
  * someone adds a page to one of them.
  */
 function registerSettingsPages(registry: SettingsPageRegistry): void {
-  // T-023p-1C-4 L4.6 nodes, notifications, application
+  // Nodes, notifications, application.
   registerRuntimeNodesPage(registry);
   registerNotificationsPage(registry);
   registerApplicationPage(registry);
@@ -105,13 +105,13 @@ function registerSettingsPages(registry: SettingsPageRegistry): void {
   // It is registered from here and composed there, because naming two view families
   // is a composition site's job and this family names only its own.
   registerSidekicksPage(registry);
-  // T-023p-1C-4 L4.7 mounts, diagnostics, data, appearance, keyboard
+  // Mounts, diagnostics, data, appearance, keyboard.
   registerWorkspaceMountsPage(registry);
   registerDiagnosticsPage(registry);
   registerDataErasurePage(registry);
   registerAppearancePage(registry);
   registerKeyboardPage(registry);
-  // T-023p-1C-4 L4.8 accounts, MCP servers, cost
+  // Accounts, MCP servers, cost.
   registerProviderAccountsPage(registry);
   registerMcpServersPage(registry);
   registerCostReceiptPage(registry);

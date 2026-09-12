@@ -1,4 +1,4 @@
-// Tier: endurance — `Spec-023 §Console Test Tiers`.
+// Tier: endurance.
 //
 // Every other tier opens the console, asserts, and closes. A desktop console is
 // not used that way: it is left open for a working day while events arrive, and

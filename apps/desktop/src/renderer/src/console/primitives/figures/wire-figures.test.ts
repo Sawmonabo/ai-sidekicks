@@ -1,9 +1,8 @@
 // The figures the console passes straight through, and the locale property that
 // holds every formatter at once.
 //
-// `Spec-023 §Console Design (Meridian)` §The eight rules splits every figure into
-// two classes and fixes what each may do, so the failures worth testing for are not
-// "wrong output" but "the wrong class was applied":
+// The eight rules split every figure into two classes and fix what each may do, so the
+// failures worth testing for are not "wrong output" but "the wrong class was applied":
 //
 //   • a byte-for-byte string that got transformed — a trimmed id, a normalized
 //     digest — which still renders and is no longer what the daemon said;
@@ -74,9 +73,9 @@ describe("formatWireString — a wire string is never transformed, not even help
 describe("formatCount — grouped, never abbreviated", () => {
   it("groups per locale and spells the number out in full", () => {
     expect(formatCount(1234567, "en-US")).toBe("1,234,567");
-    // The control: compact notation is the tempting alternative, and §The eight
-    // rules admits it "only where the exact figure is one hover away" — which a
-    // bare count is not.
+    // The control: compact notation is the tempting alternative, and the eight rules
+    // admit it only where the exact figure is one hover away — which a bare count is
+    // not.
     expect(formatCount(1234567, "en-US")).not.toBe(
       new Intl.NumberFormat("en-US", { notation: "compact" }).format(1234567),
     );
@@ -101,10 +100,10 @@ describe("formatRate — a derived rate carries its own unit", () => {
 });
 
 describe("every formatted quantity is rendered in the caller's locale", () => {
-  // One property over six formatters. A hand-rolled `toFixed` implementation, or
-  // one that dropped the `locale` parameter on the floor, renders identically in
-  // both columns — so requiring the two to differ IS the control, and it fails for
-  // exactly the defect §The eight rules' `Intl` requirement exists to prevent.
+  // One property over six formatters. A hand-rolled `toFixed` implementation, or one
+  // that dropped the `locale` parameter on the floor, renders identically in both
+  // columns — so requiring the two to differ IS the control, and it fails for exactly
+  // the defect the eight rules' `Intl` requirement exists to prevent.
   const renderings: readonly (readonly [string, string, string])[] = [
     [
       "byte quantity",

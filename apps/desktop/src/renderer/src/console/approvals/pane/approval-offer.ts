@@ -1,13 +1,12 @@
 // Whether one approval can still be answered. One reading, two consumers.
 //
-// The card and the palette row are the same act on two surfaces, and
-// `Spec-023 §Rules every console surface obeys` puts every operator action in the
-// palette — so a row the pane has withdrawn is a row that answers a request nobody
-// is waiting on. Both used to derive that independently and the two derivations
-// disagreed: the card took its two buttons off on a SETTLED refusal
-// (`approval.already_resolved` — somebody else answered) and the row builder never
-// saw a per-record refusal at all, so the palette kept offering a decision the card
-// had already withdrawn.
+// The card and the palette row are the same act on two surfaces, and every operator
+// action is in the palette — so a row the pane has withdrawn is a row that answers a
+// request nobody is waiting on. Both used to derive that independently and the two
+// derivations disagreed: the card took its two buttons off on a SETTLED refusal
+// (`approval.already_resolved` — somebody else answered) and the row builder never saw
+// a per-record refusal at all, so the palette kept offering a decision the card had
+// already withdrawn.
 //
 // SO IT IS ONE FUNCTION RATHER THAN TWO THAT AGREE, on the precedent
 // `runs/pane/controls/run-control-gating.ts` sets for the six run controls: the row

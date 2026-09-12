@@ -14,8 +14,8 @@
 // AND THE WORDS FOR THOSE TWO ARE THE CONSOLE'S, NOT THIS FAMILY'S. Both shapes below
 // are `ReadingState` arms with this family's payload attached, rather than a local
 // union spelling `served` as `measured` or `read` and `refused` as `unmeasured` or
-// `not-read`. `apps/desktop/AGENTS.md` §State and views says a closed set is declared
-// once and every consumer derives from it, and the cost of not doing so is not
+// `not-read`. A closed set is declared once and every consumer derives from it, and
+// the cost of not doing so is not
 // aesthetic: a surface holding one of these can be handed straight to
 // `readingNoticeFor`, so the sentence a person reads about an incomplete listing is
 // the same sentence every other console surface says, and a seventh reading state

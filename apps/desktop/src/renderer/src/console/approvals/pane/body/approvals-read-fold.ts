@@ -9,11 +9,11 @@
 //
 // THE PHASE IS CARRIED, NEVER FLATTENED. `partitionRecords` answers empty arrays for
 // every phase that is not `answered`, and that is correct only because its callers
-// render the PHASE beside the arrays rather than the arrays alone. `Spec-023 §Console
-// Design (Meridian)` rule 8 is the rule being kept: "nobody asked", "the read is in
-// flight", "the read answered and found none", and "the read was refused" are four
-// different next moves, and a section that showed its empty copy for the first, second
-// and fourth would tell an operator that nothing needs them during an outage.
+// render the PHASE beside the arrays rather than the arrays alone. The rule being kept
+// is that "nobody asked", "the read is in flight", "the read answered and found none",
+// and "the read was refused" are four different next moves, and a section that showed
+// its empty copy for the first, second and fourth would tell an operator that nothing
+// needs them during an outage.
 
 import { type ConsoleRefusal } from "../../../core/index.js";
 import { type ApprovalRecord } from "../../../bridge/index.js";

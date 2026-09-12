@@ -1,44 +1,29 @@
-// Plan-003 Phase 1 T1.7 — read-only upstream-schema ANCHOR guard.
+// Read-only upstream-schema ANCHOR guard.
 //
 // (a) What this is
 // ----------------------------------------------------------------------------
-// Plan-003 (Runtime Node Attach) READS and FK-references two Plan-001-owned
-// Postgres surfaces but must NEVER duplicate-CREATE them, and it must NOT
-// prematurely create its OWN Phase-3 Postgres tables during Phase 1. This file
-// is the structural guard for that "reads, does not CREATE" obligation
-// (`docs/plans/003-runtime-node-attach.md §Phase 1 — Node Contracts + Migrations`, T1.7). It is
-// assertion-only: it CREATEs nothing, it introspects the schema the shipped
-// control-plane migrations already produce.
+// This file is the structural guard for that "reads, does not CREATE" obligation. It is
+// assertion-only: it CREATEs nothing, it introspects the schema the shipped control-plane
+// migrations already produce.
 //
 // It pins three facts against the ABSOLUTE post-all-migrations control-plane
 // schema:
 //
-//   (1) Plan-001's identity anchors (`participants`, `sessions`) are present —
-//       Plan-003's `runtime_node_attachments.participant_id REFERENCES
-//       participants(id)` and `.session_id REFERENCES sessions(id)` resolve at
-//       Phase-3 CREATE-time only because Plan-001 ships these first
-//       (docs/architecture/cross-plan-dependencies.md §1 Table Ownership Map;
-//       docs/architecture/schemas/shared-postgres-schema.md §Migration-order
-//       invariant).
-//   (2) `sessions.min_client_version` exists and is TEXT — Plan-003's attach
-//       flow READS the per-session version floor from this Plan-001
-//       forward-declared column (ADR-018 §Decision #4; `Spec-003 §Required Behavior`;
-//       the `sessions` block in `packages/control-plane/src/migrations/0001-initial.ts`).
-//   (3) Plan-003's OWN Postgres tables (`runtime_node_attachments`,
-//       `runtime_node_presence`) are ABSENT after Phase 1 — they are
-//       Plan-003-owned but created by the FORWARD-DECLARED Phase-3 control-plane
-//       migration (`0003-runtime-nodes.ts`), NOT here. See assertion-(3) tripwire
-//       note in (d) below.
+//   (1) the identity anchors (`users`, `sessions`) are present
+//       The `runtime_node_attachments.user_id REFERENCES
+//       users(id)` and `.session_id REFERENCES sessions(id)` resolve at
+//       Phase-3 CREATE-time only because ships these first.
+//       flow READS the per-session version floor from this forward-declared column (the
+//       `sessions` block in `packages/control-plane/src/migrations/0001-initial.ts`).
+//   (3) the OWN Postgres tables (`runtime_node_attachments`,
 //
 // (b) Substrate rationale — why this guard lives in control-plane, NOT daemon
 // ----------------------------------------------------------------------------
-// Every anchor this guard touches — `participants`, `sessions.min_client_version`,
+// Every anchor this guard touches — `users`, `sessions.min_client_version`,
 // and the deferred `runtime_node_attachments` / `runtime_node_presence` — is a
-// POSTGRES / control-plane surface (cross-plan-dependencies.md §1; the
-// runtime_node tables carry `-- Owner: Plan-003` under
-// shared-postgres-schema.md §"Runtime Node Attachments (Plan-003)"). None of
-// them is visible to a SQLite-introspecting test. So the honest home for this
-// guard is the control-plane PGlite suite, and the plan's "co-locate in a
+// POSTGRES / control-plane surface (the runtime_node tables carry `-- Owner: `).
+// None of them is visible to a SQLite-introspecting test. So the honest home for
+// this guard is the control-plane PGlite suite, and the plan's "co-locate in a
 // Phase-1 migration test" is satisfied by THIS control-plane migrations
 // `__tests__/` directory.
 //
@@ -64,39 +49,30 @@
 // "is the upstream contract the runtime-node flow depends on actually
 // shipped?".
 //
-// (d) Lifecycle TRIPWIRE on assertion (3) — RESOLVED in Phase 3 PR #145
+// (d) Lifecycle TRIPWIRE on assertion (3) — RESOLVED in Phase 3
 // ----------------------------------------------------------------------------
 // Assertion (3) was PHASE-1-SCOPED: it asserted `runtime_node_attachments` /
 // `runtime_node_presence` were ABSENT, with the documented expectation that it
-// WOULD — and MUST — fail once Plan-003 Phase 3 shipped the control-plane
-// migration creating those two tables (`0003-runtime-nodes.ts`, registered as
-// v3 in `migration-runner.ts`). That has now happened: Phase 3 PR #145 ships v3,
+// WOULD — and MUST — fail once shipped the control-plane migration creating those
+// two tables (`0002-runtime-nodes.ts`, registered as v2 in
+// `migration-runner.ts`). That has now happened: Phase 3 ships v2,
 // `applyMigrations` in this file's beforeEach materializes both tables, and
 // assertion (3) was flipped ABSENT→PRESENT (it now asserts `.toBe(true)`). The
-// full-schema I-002-3 carve-out the tripwire alluded to ("fold the two tables
-// into a Phase-3 absolute-shape guard") is realized as the new assertion (4):
-// the ONLY durable presence-NAMED table is the sanctioned `runtime_node_presence`
-// liveness record (a DIFFERENT domain from the in-memory collaborative Yjs
-// Awareness presence I-002-3 governs). Assertions (1) and (2) remain permanent —
-// the Plan-001 anchors do not move.
+// full-schema carve-out the tripwire alluded to ("fold the two tables into a
+// Phase-3 absolute-shape guard") is realized as the new assertion (4): the ONLY
+// durable presence-NAMED table is the sanctioned `runtime_node_presence` liveness
+// record (a DIFFERENT domain from the in-memory collaborative Yjs Awareness
+// presence governs). Assertions (1) and (2) remain permanent — anchors do not
+// move.
 //
 // (e) Inline-adapter rationale
 // ----------------------------------------------------------------------------
 // The PGlite→Querier adapter and `snapshotPublicTables` below are inlined, not
 // imported from a shared fixture, because the dispatch contract forbids
 // exporting a new test fixture from `packages/control-plane/`, and the helper
-// is small. Sibling tests do the same — e.g. `migration-shape.test.ts` and
-// `0002-session-invites.test.ts` — each carrying its own local copy. Revisit
+// is small. Sibling tests do the same — e.g. `migration-shape.test.ts` —
+// each carrying its own local copy. Revisit
 // the extraction trade-off if the call-site count grows.
-//
-// Refs: `docs/plans/003-runtime-node-attach.md §Phase 1 — Node Contracts + Migrations` (T1.7);
-// docs/architecture/cross-plan-dependencies.md §1 Table Ownership Map (the
-// `participants` + `sessions.min_client_version` forward-declared-split rows,
-// and the Plan-003 SQLite/Postgres ownership row); docs/architecture/schemas/
-// shared-postgres-schema.md §"Runtime Node Attachments (Plan-003)" (the two
-// `-- Owner: Plan-003` Postgres tables); `migrations/0001-initial.ts`
-// (`participants` line 92, `sessions.min_client_version TEXT` line 104);
-// `migration-shape.test.ts` (the complementary Plan-002 P10 delta guard).
 
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -107,8 +83,8 @@ import { applyMigrations, type Querier } from "../../sessions/migration-runner.j
 // PGlite -> Querier adapter (local copy — see header note (e))
 // ----------------------------------------------------------------------------
 //
-// Mirrors the adapter in `migration-shape.test.ts` /
-// `0002-session-invites.test.ts` (see header note (e)). Inlined here (rather
+// Mirrors the adapter in `migration-shape.test.ts` (see header note (e)).
+// Inlined here (rather
 // than extracted to a shared fixture) because the dispatch contract forbids
 // exporting a new test fixture from `packages/control-plane/`, and the helper
 // is small; revisit the extraction trade-off if the call-site count grows.
@@ -186,22 +162,20 @@ afterEach(async () => {
 });
 
 // ----------------------------------------------------------------------------
-// T1.7 — upstream-anchor structural guard
 // ----------------------------------------------------------------------------
 
-describe("Plan-003 T1.7 upstream-anchor guard (reads, does not CREATE — cross-plan-dependencies.md §1)", () => {
-  it("(1) Plan-001 identity anchors are present: participants + sessions", async () => {
-    // Plan-003's runtime_node_attachments FK-references participants(id) and
+describe("upstream-anchor guard (reads, does not CREATE)", () => {
+  it("(1) identity anchors are present: users + sessions", async () => {
+    // The runtime_node_attachments FK-references users(id) and
     // sessions(id); both must already exist for the Phase-3 CREATE to resolve.
     const tables: Set<string> = await snapshotPublicTables(ctx.querier);
-    expect(tables.has("participants")).toBe(true);
+    expect(tables.has("users")).toBe(true);
     expect(tables.has("sessions")).toBe(true);
   });
 
-  it("(2) sessions.min_client_version exists and is TEXT (Plan-003 reads the floor)", async () => {
-    // Plan-003 attach-time floor check reads the per-session version floor from
-    // this Plan-001 forward-declared column (ADR-018 §Decision #4;
-    // `Spec-003 §Required Behavior`). Assert the column exists exactly once and its canonical
+  it("(2) sessions.min_client_version exists and is TEXT (reads the floor)", async () => {
+    // Attach-time floor check reads the per-session version floor from this
+    // forward-declared column. Assert the column exists exactly once and its canonical
     // information_schema data_type is `text`.
     const columnProbe = await ctx.querier.query<{ data_type: string }>(
       `SELECT data_type FROM information_schema.columns
@@ -214,30 +188,23 @@ describe("Plan-003 T1.7 upstream-anchor guard (reads, does not CREATE — cross-
     expect(column?.data_type).toBe("text");
   });
 
-  it("(3) Plan-003 Postgres tables are PRESENT after Phase 3 (v3 migration shipped)", async () => {
-    // TRIPWIRE RESOLVED (header note (d)): runtime_node_attachments /
-    // runtime_node_presence are Plan-003-OWNED and are now CREATEd by the v3
-    // control-plane migration (`0003-runtime-nodes.ts`, registered as v3 in
-    // `migration-runner.ts`). Phase 3 PR #145 shipped that migration, so
-    // `applyMigrations` in this file's beforeEach now materializes both tables;
-    // this assertion was flipped from ABSENT→PRESENT in PR #145. Assertions (1)
-    // and (2) remain permanent Plan-001-anchor guards.
+  it("(3) Postgres tables are PRESENT after Phase 3 (v2 migration shipped)", async () => {
+    // Phase 3 shipped that migration, so `applyMigrations` in this
+    // file's beforeEach now materializes both tables; this assertion was
+    // flipped from ABSENT→PRESENT then. Assertions (1) and (2) remain
+    // permanent -anchor guards.
     const tables: Set<string> = await snapshotPublicTables(ctx.querier);
     expect(tables.has("runtime_node_attachments")).toBe(true);
     expect(tables.has("runtime_node_presence")).toBe(true);
   });
 
-  it("(4) the only durable presence-NAMED public table is the sanctioned runtime-node one (I-002-3 at full-schema scope)", async () => {
-    // I-002-3 carve-out (Plan-002 invariant, re-verified at full-schema scope).
-    // I-002-3 keeps COLLABORATIVE presence (Yjs Awareness CRDT — cursors/awareness)
-    // in-memory only. runtime_node_presence is a DIFFERENT domain: runtime-node
-    // liveness (heartbeat + health_state), a durable coordination record sanctioned
-    // by Spec-003 §Default Behavior, ADR-017 §Server-Derived Runtime-Node Lifecycle
-    // Events, and shared-postgres-schema.md §Runtime Node Attachments (`-- Owner:
-    // Plan-003`). This pins that the ONLY durable presence-NAMED table is the
-    // sanctioned runtime-node one — a future durable COLLABORATIVE-presence table
-    // would surface here as an extra member and re-fail I-002-3 at full-schema scope
-    // (the coverage the Plan-002 v1→v2 guards intentionally no longer span post-v3).
+  it("(4) the only durable presence-NAMED public table is the sanctioned runtime-node one (at full-schema scope)", async () => {
+    // Carve-out (invariant, re-verified at full-schema scope). keeps COLLABORATIVE
+    // presence (Yjs Awareness CRDT — cursors/awareness) in-memory only. This pins
+    // that the ONLY durable presence-NAMED table is the sanctioned runtime-node one
+    // — a future durable COLLABORATIVE-presence table would surface here as an extra
+    // member and re-fail at full-schema scope, which the narrower per-migration
+    // guards no longer span.
     const tables: Set<string> = await snapshotPublicTables(ctx.querier);
     const presenceTables: string[] = [...tables]
       .filter((tableName) => tableName.toLowerCase().includes("presence"))

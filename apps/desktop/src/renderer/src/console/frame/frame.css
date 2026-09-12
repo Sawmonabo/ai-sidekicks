@@ -238,7 +238,7 @@
 
 /* Amber, and only here: something needs a person. */
 /*
- * The count, not a dot: `Spec-023 §The surface set` asks for a number, and the badge
+ * The count, not a dot: the surface asks for a number, and the badge
  * is sized from its own content with a minimum that keeps a single digit round rather
  * than laid out on a fixed width a two-digit count would overflow.
  */

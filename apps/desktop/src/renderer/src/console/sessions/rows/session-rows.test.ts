@@ -22,7 +22,7 @@ function row(overrides: Partial<SessionListRow> & { readonly sessionId: string }
   return {
     state: "active",
     touchedAtIso: "2026-01-01T10:00:00.000Z",
-    participantIds: [],
+    userIds: [],
     attentionSeverity: undefined,
     ...overrides,
   };

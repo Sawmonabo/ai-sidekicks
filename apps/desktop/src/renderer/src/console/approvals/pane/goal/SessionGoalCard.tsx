@@ -165,7 +165,7 @@ export function SessionGoalCard(props: SessionGoalCardProps): React.JSX.Element 
           </p>
           {isSendable || draftText === "" ? null : (
             // The console's own sentence and never the validator's, which quotes the
-            // value it rejected — and the value here is what a participant typed.
+            // value it rejected — and the value here is what a user typed.
             <p className="meridian-goal__invalid" role="status">
               This goal cannot be sent as written.
             </p>

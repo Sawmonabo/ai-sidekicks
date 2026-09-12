@@ -1,9 +1,9 @@
 // The stuck badge: the daemon's stall reading for one run, at the volume the quiet
 // interval earns.
 //
-// `Spec-023 §Console Design (Meridian)` §Diagnostics and health: "A stuck badge from
-// `health.stuckRunInspect`, appearing at the 60 second threshold and escalating in
-// presentation at 5 minutes." Both thresholds are presentation and `stall-tier.ts`
+// A stuck badge from `health.stuckRunInspect`, appearing at the 60 second threshold
+// and escalating in presentation at 5 minutes. Both thresholds are presentation and
+// `stall-tier.ts`
 // owns them; what decides whether a badge appears AT ALL is `healthSignal`, which is
 // the daemon's.
 //

@@ -16,7 +16,7 @@
 // BOTH OF THOSE FACTS ARE ABOUT A SUBJECT, AND THE SUBJECT IS STAMPED ON THEM.
 // They are renderer-local, not session-local, so nothing outside this hook can tell
 // that a disabled control and a refusal on screen belong to a session the pane has
-// since left. The family's own answer to that is `viewer-identity.ts`'s: a settled
+// since left. The family's own answer to that is the device read's: a settled
 // value is held together with the `(bridge, sessionId)` it was produced for, and the
 // COMPARISON HAPPENS DURING RENDER. An effect that reset the state after the commit
 // was one frame too late — session B's first committed render inherited A's disabled

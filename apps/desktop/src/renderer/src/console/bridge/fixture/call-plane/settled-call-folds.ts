@@ -28,7 +28,7 @@
 // clause inside it would be the first of a list that grows one plane at a time in the
 // one module that is supposed to be generic over all of them.
 
-import { foldChannelDirectoryOverLog } from "../collaboration/channel-directory.js";
+import { foldChannelDirectoryOverLog } from "../session/channel-directory.js";
 import type { ScenarioEngine } from "../../scenario/runtime/index.js";
 
 /** The registered method whose answer is the session's channel directory. */

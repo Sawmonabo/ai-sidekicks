@@ -189,7 +189,7 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
   });
 
   it("returns a refusal for a bridge that throws in the caller's own frame", async () => {
-    // The bridge that actually ships is the Tier-1 preload stub, and it throws
+    // The bridge that actually ships is the stub preload, and it throws
     // synchronously. A non-`async` wrapper would put that throw outside the promise
     // and past every `.catch` in the console.
     //

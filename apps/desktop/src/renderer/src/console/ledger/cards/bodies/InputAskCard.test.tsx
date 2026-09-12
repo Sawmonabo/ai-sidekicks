@@ -1,7 +1,7 @@
 // The ask card: two answer arms, a countdown that settles nothing, four terminals, and
 // what became of the answer a press dispatched.
 //
-// THE DELIVERY CASES READ WHAT A PARTICIPANT WOULD SEE AND WHAT THEY COULD STILL DO.
+// THE DELIVERY CASES READ WHAT A USER WOULD SEE AND WHAT THEY COULD STILL DO.
 // The defect was that a refused answer reached the screen nowhere: the free-text arm
 // emptied itself on dispatch, the option buttons changed not at all, and a run blocked
 // on an unanswered ask looked like one waiting to be typed into. So every case below
@@ -86,7 +86,7 @@ function fieldOf(container: HTMLElement): HTMLTextAreaElement {
   return field;
 }
 
-/** Type an answer into the free-text arm and submit it, as a participant would. */
+/** Type an answer into the free-text arm and submit it, as a user would. */
 function sendFreeText(container: HTMLElement, text: string): void {
   fireEvent.change(fieldOf(container), { target: { value: text } });
   fireEvent.click(container.querySelector(".meridian-input-ask__send") as Element);
@@ -224,7 +224,7 @@ function MountedWithDelivery(props: {
 }
 
 describe("what became of the answer", () => {
-  it("keeps the participant's words on screen when the answer was refused", () => {
+  it("keeps the user's words on screen when the answer was refused", () => {
     // THE DEFECT, EXERCISED. The arm cleared the field the instant the callback
     // returned, so a delivery that never reached the driver left an empty box, a
     // blocked run, and nothing to retry from.

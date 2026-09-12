@@ -52,7 +52,7 @@ export const TERMINAL_SCENARIO_STARTED_AT_ISO: string = terminalScenarioInstantA
 /** The scenario's own event-id prefix, shared by every beat's opaque row id. */
 const TERMINAL_EVENT_ID_PREFIX = "019b7b30-0280-7ea1-8110-e5e0d115";
 
-/** The event kind every lease transition arrives on. `Spec-006`'s registered type. */
+/** The event kind every lease transition arrives on. A registered wire type. */
 const LEASE_TRANSITION_KIND = "pty.control_changed";
 
 /**
@@ -84,7 +84,7 @@ export interface TerminalScenarioBeatInput {
   readonly payload: Readonly<Record<string, unknown>>;
 }
 
-/** What one lease transition says. The payload members are `Spec-006`'s own. */
+/** What one lease transition says. The payload members are the wire's own. */
 export interface TerminalLeaseTransitionBeatInput {
   readonly atMs: number;
   readonly sequence: number;
@@ -92,12 +92,12 @@ export interface TerminalLeaseTransitionBeatInput {
    * Who holds it after this transition.
    *
    * `null` is the free lease, and it is written as an explicit null rather than an
-   * omitted member because `Spec-023 §Console Design (Meridian)` 8.8 makes an unheld
-   * lease an explicit state that reads differently from a suppressed one.
+   * omitted member because an unheld lease is an explicit state that reads
+   * differently from a suppressed one.
    */
-  readonly holderParticipantId: string | null;
-  readonly previousHolderParticipantId: string | null;
-  /** One of the five reasons `Spec-006` closes the set at. */
+  readonly holderUserId: string | null;
+  readonly previousHolderUserId: string | null;
+  /** One of the five reasons the wire closes the set at. */
   readonly reason: string;
   /** Omitted for a take the daemon's own lease authority performed. */
   readonly actorId?: string;
@@ -167,8 +167,8 @@ export function terminalLeaseTransitionBeat(
     ...(transition.actorId === undefined ? {} : { actorId: transition.actorId }),
     payload: {
       sessionId: TERMINAL_SCENARIO_SESSION_ID,
-      holderParticipantId: transition.holderParticipantId,
-      previousHolderParticipantId: transition.previousHolderParticipantId,
+      holderUserId: transition.holderUserId,
+      previousHolderUserId: transition.previousHolderUserId,
       reason: transition.reason,
     },
   });

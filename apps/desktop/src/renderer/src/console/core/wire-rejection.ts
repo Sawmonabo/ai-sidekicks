@@ -30,7 +30,7 @@
 //
 // A DETAIL IS A SENTENCE SOMEBODY WROTE, NEVER A SERIALIZATION OF THE REJECTION.
 // `core/refusal.ts` states the rule this module has to keep — `detail` is "never the
-// refused value itself, which may be participant content" — and a rejection off the
+// refused value itself, which may be user content" — and a rejection off the
 // bridge is `unknown`, so its members are request values, repository paths, headers,
 // or a token as easily as they are prose. Every arm here therefore renders one of
 // exactly three things: a string the producing side wrote AS a sentence (a wire
@@ -179,8 +179,8 @@ export function normalizeWireRejection(
  * found and agree on what may stand in for a sentence, which is the half that drifts
  * when it is written twice. A wire envelope whose `message` is missing or is not a
  * string is a malformed producer, and the console's answer to that is the caller's
- * own sentence or a constant — never `data.fields`, which
- * `error-contracts.md §Rate Limiting` puts request values in by design.
+ * own sentence or a constant — never `data.fields`, which `error-contracts.md` puts
+ * request values in by design.
  *
  * The CODE survives regardless, because it is the half a person acts on:
  * `session.not_found` and a lease conflict are different next moves, and folding

@@ -1,22 +1,16 @@
-// The ordered transcript transform pipeline (Plan-005 Phase 3, T3.19).
+// The ordered transcript transform pipeline.
 //
-// `Spec-005 §Canonical Transcript Export And Replay` states five steps and then
-// states that their ORDER is the contract, with two named failure modes:
-// repairing before stripping repairs pairs the strip then breaks, and mapping
-// identity after rendering renders ids the map has not yet fixed. This module is
-// built so both are observable rather than merely documented — the steps are
-// individually exported and individually pure enough to compose, and a caller
-// that composes them wrongly gets a wrong answer or a thrown error instead of a
-// quietly different one. `TranscriptTransformPipeline` is the only thing that
-// hard-codes the canonical order.
+// states five steps and then states that their ORDER is the contract, with two
+// named failure modes: repairing before stripping repairs pairs the strip then
+// breaks, and mapping identity after rendering renders ids the map has not yet
+// fixed. This module is built so both are observable rather than merely
+// documented — the steps are individually exported and individually pure enough
+// to compose, and a caller that composes them wrongly gets a wrong answer or a
+// thrown error instead of a quietly different one. `TranscriptTransformPipeline`
+// is the only thing that hard-codes the canonical order.
 //
-// Nothing here memoizes. A rendered transcript is a projection of a log that
-// moves, so caching one hands a later caller a conversation the session no
-// longer has (ADR-029).
-//
-// Spec coverage: `Spec-005 §Canonical Transcript Export And Replay` (steps 2-5);
-// `Spec-005 §Pitfalls To Avoid` (no re-minted tool-call ids; no strip-after-repair;
-// no cached render). Verifies invariant I-005-8.
+// A rendered transcript is a projection of a log that moves, so caching one
+// hands a later caller a conversation the session no longer has.
 //
 // The never-re-mint rule binds the IDENTITY MAP absolutely: no call whose
 // identifier is intact is ever given a different one, which is what makes an
@@ -171,7 +165,7 @@ export type RenderedFrameOrigin = OutboundFrameOrigin;
  * One provider-neutral outbound frame. Drivers map these into their own target
  * shapes; the pipeline owns ordering, identity, and loss, not wire encoding.
  *
- * `origin` is present for a replayed PARTICIPANT turn, which the spec classifies
+ * `origin` is present for a replayed USER turn, which the spec classifies
  * explicitly. It is deliberately ABSENT for prior assistant and tool turns: the
  * discriminator classifies turns on the provider's text-input channel, seeded
  * history is not one, and the discriminator's own fail-closed arm already rules
@@ -335,7 +329,7 @@ export const stripNonPortableContent: TranscriptPipelineStep = (state) => {
   //
   // The turn is the right occurrence boundary because it is where enclosure is
   // real: the fold coalesces consecutive assistant rows into one turn and closes
-  // that turn at a turn marker or a participant message, either of which means
+  // that turn at a turn marker or a user message, either of which means
   // the provider exchange ended. A block cited across that boundary was not
   // carrying the result. Such a result therefore survives as provider output,
   // while the private block itself is stripped regardless of turn — reasoning
@@ -687,8 +681,8 @@ export const renderTargetFrames: TranscriptPipelineStep = (state) => {
       }
       return segment;
     });
-    return turn.role === "participant"
-      ? { position: turn.position, role: turn.role, origin: "participant_text", segments }
+    return turn.role === "user"
+      ? { position: turn.position, role: turn.role, origin: "human_text", segments }
       : { position: turn.position, role: turn.role, segments };
   });
 

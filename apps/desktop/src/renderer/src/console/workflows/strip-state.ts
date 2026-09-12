@@ -2,11 +2,10 @@
 //
 // Three surfaces in this family — the definitions browser, the run view, the
 // node-graph builder — each answer the same question before they answer their own:
-// is there anything here yet, and if not, WHICH kind of nothing is it? The design
-// sections give the three the same vocabulary (`Spec-023 §Console Design (Meridian)`
-// rule 8 and rule 9), so the vocabulary is declared once here and the three consume
-// it, rather than each growing its own arm set that agrees until one of them grows
-// a sixth.
+// is there anything here yet, and if not, WHICH kind of nothing is it? The console
+// design gives the three the same vocabulary (rule 8 and rule 9), so it is declared
+// once here and the three consume it, rather than each growing its own arm set that
+// agrees until one of them grows a sixth.
 //
 // WHY THIS IS NOT `NothingKind`. Two of the arms below are not absences. `ready`
 // says a body is mounted, and `refused` carries a daemon refusal, which rule 9

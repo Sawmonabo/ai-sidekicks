@@ -1,4 +1,4 @@
-// NodeRegistry — Plan-003 Phase 2 (T2.1).
+// NodeRegistry behaviour.
 //
 // Exercises durable node identity + the dual-write-with-transaction registration
 // path over a real test SQLite DB (mirrors `node-event-emitter.test.ts` /
@@ -10,56 +10,40 @@
 // connection.
 //
 // Coverage map (cites are the authoritative contract, not just the ACs):
-//   * D1 (Plan-003 T2.1 / `Spec-003 §State And Data Implications` + `Spec-003 §Implementation Notes`, AC1): register a node, CLOSE + REOPEN
-//     the DB handle, build a fresh registry over the reopened DB, `lookup` →
-//     the same node identity is recoverable from the durable row. Proves
-//     identity is SQLite-durable, not in-memory state.
-//   * I-003-3 (registration records a node without mutating membership): a
-//     successful register touches `node_trust_state` + `session_events` ONLY,
+//   * D1: register a node, CLOSE + REOPEN the DB handle, build a fresh registry over
+//     the reopened DB, `lookup` → the same node identity is recoverable from the
+//     durable row. Proves identity is SQLite-durable, not in-memory state.
+//   * A successful register touches `node_trust_state` + `session_events` ONLY,
 //     and the timeline event is the audit-distinct `runtime_node.registered`
-//     type. (Session ownership lives in control-plane Postgres `sessions`,
-//     NOT in the daemon's Local SQLite schema — so the daemon registry is
+//     type. (Session ownership lives in control-plane Postgres `sessions`, NOT
+//     in the daemon's Local SQLite schema — so the daemon registry is
 //     STRUCTURALLY incapable of mutating it: the table is absent here, asserted
-//     below. The end-to-end no-membership-mutation proof is a Phase-3
+//     below. The end-to-end no-ownership-mutation proof is a Phase-3
 //     control-plane concern; P7/P8.)
 //   * Atomicity, two arms — the `nextSequence` injection seam they used to ride
-//     is gone with the T3.1 re-point, so each drives a REAL failure of the real
-//     append path instead. (a) ROLLBACK: the emitter is pinned to an event id
-//     that already exists, so the event INSERT violates `session_events`' PRIMARY
-//     KEY AFTER the upsert prelude ran inside the transaction — the
+//     is gone with re-point, so each drives a REAL failure of the real append
+//     path instead. (a) ROLLBACK: the emitter is pinned to an event id that
+//     already exists, so the event INSERT violates `session_events`' PRIMARY KEY
+//     AFTER the upsert prelude ran inside the transaction — the
 //     `node_trust_state` upsert rolls back (no row). (b) The stronger property
 //     the re-point bought: a signing-key source that REJECTS makes the append
-//     refuse before opening its transaction, so the prelude never runs at all
-//     and there is no partial state to roll back.
+//     refuse before opening its transaction, so the prelude never runs at all and
+//     there is no partial state to roll back.
 //   * Happy-path emit shape: exactly one `runtime_node.registered` row lands in
-//     `session_events` with the `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` payload shape.
-//   * `Spec-003 §Pitfalls To Avoid` (no implicit capability exposure on attach): registering a node
-//     that CARRIES capabilities on the wire writes ZERO `node_capabilities` rows —
-//     only an explicit `declare` (T2.2) makes a capability schedulable, never
-//     `register` (least privilege; the wire capabilities are replay-only).
+//     `session_events` with payload shape.
+//   * registering a node that CARRIES capabilities on the wire writes ZERO
+//     `node_capabilities` rows — only an explicit `declare` makes a capability
+//     schedulable, never `register` (least privilege; the wire capabilities are
+//     replay-only).
 //   * Re-register: a second register preserves `established_at` + `trust_level`
 //     and refreshes only `updated_at` (registration never elevates trust).
-//   * The lifecycle observer seam (the wiring point Plan-005 T3.12 / P2-9 names
-//     for starting and stopping a node's capability/auth refresh cadence):
-//     fires with the node AND session context after a SETTLED register and on
-//     detach; does NOT fire when the registration rolled back inside its
-//     transaction; and a THROWING observer neither fails a register/detach nor
-//     goes unreported.
-//   * T2.5 / D4 (detach + reconnect under stable node identity, I-003-3): detach
-//     emits exactly one `runtime_node.offline` (reason `explicit_shutdown`,
-//     newState `offline`, previousState `online`, non-empty ISO `lastHeartbeatAt`)
-//     and LEAVES the `node_trust_state` row INTACT — so `lookup` still resolves the
-//     node after detach, and a reconnect register resolves the SAME identity with
+//   * D4 (detach + reconnect under stable node identity): detach emits exactly one
+//     `runtime_node.offline` (reason `explicit_shutdown`, newState `offline`,
+//     previousState `online`, non-empty ISO `lastHeartbeatAt`) and LEAVES the
+//     `node_trust_state` row INTACT — so `lookup` still resolves the node after
+//     detach, and a reconnect register resolves the SAME identity with
 //     `established_at` preserved from the first registration.
 //
-// Spec coverage: `Spec-003 §Fallback Behavior` (disconnected node keeps membership; reconnect
-// under same identity — the T2.5 detach path), `Spec-003 §State And Data Implications`
-// (durable runtime-node records), `Spec-003 §Implementation Notes`
-// (node identity stable across reconnect), `Spec-003 §Pitfalls To Avoid`
-// (no implicit capability exposure on attach), and
-// `Spec-003 §Acceptance Criteria` AC1. Verifies invariant: I-003-3
-// (registration records a node without mutating membership; detach does not revoke
-// membership).
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -94,11 +78,11 @@ const SESSION_ID: string = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f00";
 // `NodeId` is a daemon-minted opaque scalar (min 1, max 256), NOT a UUID.
 const NODE_ID: string = "node-01J0ND0000NN5J5J5J5J5J5J";
 // `actor` is the EventEnvelope free-form actor string (here a ULID).
-const PARTICIPANT_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
+const USER_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
 
-// Raw read shape for the persisted `runtime_node.registered` event. The
-// integrity columns are not relevant here (D5 owns them); we read the payload +
-// type to assert the `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` shape.
+// Raw read shape for the persisted `runtime_node.registered` event. The integrity
+// columns are not relevant here (D5 owns them); we read the payload + type to assert
+// shape.
 interface EventRow {
   readonly sequence: bigint;
   readonly type: string;
@@ -128,10 +112,10 @@ function readTrustRows(db: DatabaseType, nodeId: string): ReadonlyArray<NodeTrus
     .all(nodeId) as ReadonlyArray<NodeTrustStateRow>;
 }
 
-// Count `node_capabilities` rows for a node — used to prove that registration
-// does NOT populate the capability table (`Spec-003 §Pitfalls To Avoid`, no implicit capability
-// exposure on attach: declaration is the ONLY path that makes a capability
-// schedulable, never registration, even when `register` carries capabilities).
+// Count `node_capabilities` rows for a node — used to prove that registration does
+// NOT populate the capability table (no implicit capability exposure on attach:
+// declaration is the ONLY path that makes a capability schedulable, never
+// registration, even when `register` carries capabilities).
 function capabilityRowCount(db: DatabaseType, nodeId: string): number {
   const row: { count: number } = db
     .prepare("SELECT COUNT(*) AS count FROM node_capabilities WHERE node_id = ?")
@@ -187,14 +171,14 @@ afterEach(() => {
   rmSync(ctx.tmpDir, { recursive: true, force: true });
 });
 
-// Wire the Phase-2 object graph over the current `ctx.db`: same handle
-// shared by SessionService, the emitter, and the registry. `now` is injectable
-// for deterministic timestamp assertions; the emitter id source is a collision-
-// free counter so multiple emits never violate the `TEXT PRIMARY KEY`. The
-// seam is ASYNC-TRANSACTIONAL post the Plan-006 T3.1 re-point
-// (node-event-emitter.ts's header owns the contract): `EventLogService.append`
-// over the SAME connection backs it, which is what lets the registry's
-// trust-state write travel as a `transactionalPrelude`.
+// Wire the Phase-2 object graph over the current `ctx.db`: same handle shared
+// by SessionService, the emitter, and the registry. `now` is injectable for
+// deterministic timestamp assertions; the emitter id source is a collision-
+// free counter so multiple emits never violate the `TEXT PRIMARY KEY`. The seam
+// is ASYNC-TRANSACTIONAL post re-point (node-event-emitter.ts's header owns the
+// contract): `EventLogService.append` over the SAME connection backs it, which
+// is what lets the registry's trust-state write travel as a
+// `transactionalPrelude`.
 function makeRegistry(now: () => string = () => "2026-06-02T12:00:00.000Z"): NodeRegistry {
   let idCounter: number = 0;
   const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
@@ -205,9 +189,9 @@ function makeRegistry(now: () => string = () => "2026-06-02T12:00:00.000Z"): Nod
 }
 
 /**
- * The production append path over `ctx.db` — Plan-006 T3.1's `EventLogService`,
- * which the T3.1 re-point made this emitter's seam. SAME connection as the
- * registry, which is the wiring contract: the registry's upsert travels as a
+ * The production append path over `ctx.db` — the `EventLogService`, which
+ * re-point made this emitter's seam. SAME connection as the registry, which is
+ * the wiring contract: the registry's upsert travels as a
  * `transactionalPrelude` and must join the append's transaction, and
  * better-sqlite3 transactions are connection-level.
  */
@@ -231,7 +215,7 @@ class FixedDaemonSigningKeySource implements DaemonSigningKeySource {
 }
 
 // ----------------------------------------------------------------------------
-// D1 — durable identity recovered across DB reopen (`Spec-003 §State And Data Implications` + `Spec-003 §Implementation Notes`, AC1)
+// D1 — durable identity recovered across DB reopen
 // ----------------------------------------------------------------------------
 
 describe("NodeRegistry — D1 (durable identity across DB reopen)", () => {
@@ -284,7 +268,7 @@ describe("NodeRegistry — registration does not mutate the session directory", 
     // Capture the row counts of the tables that DO exist before registering, so
     // we can prove registration touched only the two expected tables.
     const beforeSnapshots: number = tableRowCount(ctx.db, "session_snapshots");
-    const beforeParticipantKeys: number = tableRowCount(ctx.db, "participant_keys");
+    const beforeUserKeys: number = tableRowCount(ctx.db, "user_keys");
 
     await registry.register({
       nodeId: NODE_ID,
@@ -295,8 +279,8 @@ describe("NodeRegistry — registration does not mutate the session directory", 
     });
 
     // The node is recorded: a trust row + a single timeline event whose type is
-    // the audit-DISTINCT `runtime_node.registered` (I-003-3's audit-trail clause:
-    // attach surfaces as its own event, never as a membership change).
+    // the audit-DISTINCT `runtime_node.registered` (the audit-trail clause:
+    // attach surfaces as its own event, never as an ownership change).
     expect(readTrustRows(ctx.db, NODE_ID)).toHaveLength(1);
     const events: ReadonlyArray<EventRow> = readEventRows(ctx.db, SESSION_ID);
     expect(events).toHaveLength(1);
@@ -305,25 +289,24 @@ describe("NodeRegistry — registration does not mutate the session directory", 
     // No OTHER Local SQLite table was written — registration is scoped to
     // node_trust_state + session_events.
     expect(tableRowCount(ctx.db, "session_snapshots")).toBe(beforeSnapshots);
-    expect(tableRowCount(ctx.db, "participant_keys")).toBe(beforeParticipantKeys);
+    expect(tableRowCount(ctx.db, "user_keys")).toBe(beforeUserKeys);
   });
 });
 
 // ----------------------------------------------------------------------------
-// Happy-path emit shape (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`) + envelope wiring + `Spec-003 §Pitfalls To Avoid`
-// (no implicit capability exposure on attach)
+// Happy-path emit shape + envelope wiring +
 // ----------------------------------------------------------------------------
 
-describe("NodeRegistry — emits runtime_node.registered (Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`))", () => {
-  it("lands exactly one runtime_node.registered event with the Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`) payload shape and exposes NO capability (`Spec-003 §Pitfalls To Avoid`)", async () => {
+describe("NodeRegistry — emits runtime_node.registered", () => {
+  it("lands exactly one runtime_node.registered event with `runtime_node_lifecycle`) payload shape and exposes NO capability", async () => {
     const registry: NodeRegistry = makeRegistry();
     await registry.register({
       nodeId: NODE_ID,
       sessionId: SESSION_ID,
-      actor: PARTICIPANT_ID,
-      // Register CARRYING capabilities on the wire — the registered event
-      // replays them, but they must NOT be persisted as schedulable
-      // `node_capabilities` rows (`Spec-003 §Pitfalls To Avoid`, asserted below).
+      actor: USER_ID,
+      // Register CARRYING capabilities on the wire — the registered event replays
+      // them, but they must NOT be persisted as schedulable `node_capabilities`
+      // rows (asserted below).
       capabilities: { "provider-driver": { contractVersion: "1.0" } },
       nodeVersion: "1.4.2",
       platform: "darwin-arm64",
@@ -338,25 +321,25 @@ describe("NodeRegistry — emits runtime_node.registered (Spec-006 §Runtime Nod
     expect(event.category).toBe("runtime_node_lifecycle");
 
     const payload = JSON.parse(event.payload) as Record<string, unknown>;
-    // `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` shape: base + {capabilities, nodeVersion, platform}. The
-    // initial lifecycle event carries newState `registering` and NO
-    // `previousState` (registration is the first transition — the schema's
-    // `.optional()` previousState is stripped when omitted).
+    // shape: base + {capabilities, nodeVersion, platform}. The initial lifecycle
+    // event carries newState `registering` and NO `previousState` (registration is
+    // the first transition — the schema's `.optional()` previousState is stripped
+    // when omitted).
     expect(payload).toEqual({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       newState: "registering",
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
       capabilities: { "provider-driver": { contractVersion: "1.0" } },
       nodeVersion: "1.4.2",
       platform: "darwin-arm64",
     });
     expect(payload).not.toHaveProperty("previousState");
 
-    // `Spec-003 §Pitfalls To Avoid` — no implicit capability exposure on attach: even though the
-    // wire `capabilities` carried a "provider-driver" entry, registration wrote
-    // ZERO `node_capabilities` rows. Only an explicit `NodeCapabilityService.declare`
-    // (T2.2) makes a capability schedulable, never `register` (least privilege).
+    // no implicit capability exposure on attach: even though the wire `capabilities`
+    // carried a "provider-driver" entry, registration wrote ZERO `node_capabilities`
+    // rows. Only an explicit `NodeCapabilityService.declare` makes a capability
+    // schedulable, never `register` (least privilege).
     expect(capabilityRowCount(ctx.db, NODE_ID)).toBe(0);
   });
 
@@ -524,11 +507,11 @@ describe("NodeRegistry — atomicity (a failed event write leaves no trust-state
 });
 
 // ----------------------------------------------------------------------------
-// T2.5 / D4 — detach emits offline + leaves registration intact (I-003-3);
-// reconnect resolves the SAME identity under the same node id
+// D4 — detach emits offline + leaves registration intact; reconnect
+// resolves the SAME identity under the same node id
 // ----------------------------------------------------------------------------
 
-describe("NodeRegistry — T2.5/D4 (detach + reconnect under stable node identity, I-003-3)", () => {
+describe("NodeRegistry — D4 (detach + reconnect under stable node identity)", () => {
   it("emits exactly one explicit_shutdown offline event, leaves the trust row intact, and reconnects to the same identity", async () => {
     // An advancing clock so the first registration, the detach's default
     // lastHeartbeatAt, and the reconnect registration carry DISTINCT timestamps —
@@ -578,9 +561,9 @@ describe("NodeRegistry — T2.5/D4 (detach + reconnect under stable node identit
     expect(payload["previousState"]).toBe("online");
     expect(payload["lastHeartbeatAt"]).toBe("2026-06-02T12:05:00.000Z");
 
-    // I-003-3 — detach does NOT revoke membership: the node_trust_state row is left
-    // INTACT, so lookup still resolves the node after detach (the untouched row is
-    // what enables reconnect under the same identity).
+    // Detach does NOT revoke the registration: the node_trust_state row is left INTACT,
+    // so lookup still resolves the node after detach (the untouched row is what
+    // enables reconnect under the same identity).
     const afterDetach: NodeTrustStateRow | undefined = registry.lookup(NODE_ID);
     expect(afterDetach).toBeDefined();
     expect(afterDetach?.node_id).toBe(NODE_ID);
@@ -590,7 +573,7 @@ describe("NodeRegistry — T2.5/D4 (detach + reconnect under stable node identit
 
     // Reconnect under the SAME node id (a fresh register) → lookup resolves the SAME
     // identity: same node_id, and established_at PRESERVED from the first
-    // registration (`Spec-003 §Implementation Notes` — node identity stable across reconnect).
+    // registration (node identity stable across reconnect).
     await registry.register({
       nodeId: NODE_ID,
       sessionId: SESSION_ID,
@@ -609,8 +592,8 @@ describe("NodeRegistry — T2.5/D4 (detach + reconnect under stable node identit
 
 // ----------------------------------------------------------------------------
 // The runtime-node lifecycle observer seam — the sanctioned wiring point the
-// provider subsystem's per-node refresh cadence attaches to (Plan-005 T3.12 /
-// P2-9). Three properties, each with a distinct failure it forecloses.
+// provider subsystem's per-node refresh cadence attaches to. Three
+// properties, each with a distinct failure it forecloses.
 // ----------------------------------------------------------------------------
 
 /** A recording observer plus the failures its throwing variant reports. */

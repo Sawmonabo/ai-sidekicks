@@ -7,9 +7,9 @@
 // `queue-subscription.ts` next door: this module never opens a stream or names a
 // method, and that one never holds a listener.
 //
-// `Spec-023 §Signature Feature Composition Sketches`' Runs View renders "queue
-// contents" and offers "cancel-before-admission (`run.queueCancel`) on the queue",
-// which this read serves in all five states of the closed `QueueItemState`. The
+// The runs view renders queue contents and offers cancel-before-admission
+// (`run.queueCancel`) on the queue, which this read serves in all five states of the
+// closed `QueueItemState`. The
 // composer's queue shelf asks a narrower question of the same rows — "what have I got
 // waiting" — and it used to ask it down a second module with the same file name, the
 // same exported symbols and its own subscription, so a session view holding the runs

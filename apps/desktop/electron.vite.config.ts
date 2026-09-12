@@ -1,21 +1,18 @@
 // electron-vite v5 configuration — three build targets (main / preload / renderer).
 //
-// Per docs/plans/023-desktop-shell-and-renderer.md §Implementation Steps step 3:
-// renderer loads via custom protocol (not file://); sourcemaps are emitted as
-// "hidden" so they are available for Sentry upload but NOT referenced from the
-// shipped bundle. Source-code protection (bytecodePlugin) is deferred to the
-// Tier 8 remainder per Phase 1 partial scope.
+// The renderer loads over a custom protocol (not file://); sourcemaps are
+// emitted as "hidden" so they are available for Sentry upload but NOT
+// referenced from the shipped bundle. Source-code protection (bytecodePlugin)
+// is deferred.
 //
-// Plan-023 Phase 1 T-023p-1-7 activated this config as the active build pipeline
-// (replacing the placeholder `tsc -b` script wired at T-023p-1-3). The module-
-// system choice per target was decided empirically:
+// The module-system choice per target was decided empirically:
 //
 //   • main:    `format: "es"` (entryFileNames: index.js). The package root
 //              has `"type": "module"`; Electron supports ESM main process
 //              since v28, so the 44.x pin carries it too. Keeping main as ESM matches the rest of the
 //              monorepo's module system. `app.requestSingleInstanceLock()`
-//              and `app.exit()` work identically in ESM context (empirically
-//              verified at T-023p-1-7).
+//              and `app.exit()` work identically in an ESM context, verified
+//              empirically.
 //
 //   • preload: `format: "cjs"` (entryFileNames: index.cjs). Electron's
 //              sandboxed preload runtime (`sandbox: true`, locked by
@@ -68,8 +65,8 @@
 //   built bundle. That document does NOT pass through the protocol handler, so
 //   it does not inherit the handler's response headers — without the `server`
 //   block below the dev renderer would run with NO policy at all, and
-//   `Spec-023 §Security Hardening Baseline` holds for every renderer document
-//   and not merely for the packaged one. The dev server therefore emits the
+//   the security-hardening baseline holds for every renderer document and not
+//   merely for the packaged one. The dev server therefore emits the
 //   same policy the handler does, composed from the SAME directive list in
 //   `src/main/renderer-scheme.ts` so the two cannot drift, widened by exactly
 //   one directive: `connect-src` also admits the HMR websocket. `strictPort`
@@ -96,8 +93,8 @@ const ELECTRON_EXTERNAL: readonly (string | RegExp)[] = ["electron", /^electron\
 /**
  * The directories that make up the console's fixture corpus.
  *
- * The first two are the three `Spec-023 §Console Design (Meridian)` §The fixture bridge
- * names, in two entries rather than three: `bridge/scenario/` holds both the scenario
+ * The first two are the three directories the fixture bridge is made of, in two
+ * entries rather than three: `bridge/scenario/` holds both the scenario
  * INSTANCES and — in `runtime/` inside it — the vocabulary and engine a scenario is
  * written in and played by, and `bridge/fixture/` is the bridge that serves them. The
  * runtime carried its own entry while it was a sibling directory; one prefix reaches
@@ -233,8 +230,8 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
       // The console's fixture gate, beside the smoke gate above and for the same
       // reason: a build-time literal, not a runtime flag.
       //
-      // `Spec-023 §Console Design (Meridian)` §The fixture bridge makes the
-      // fixture `define`-gated. A runtime environment variable could not do this
+      // The fixture bridge is `define`-gated. A runtime environment variable
+      // could not do this
       // job — it would ship every scenario, the engine, and the manifest to
       // users, charge them the bytes on every bundle-budget run, and leave a
       // switch that flips the app into fixture data in production. As a literal,
@@ -258,8 +255,8 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
         // reasoning does not survive contact with this package: what shipped was
         // the console's SOURCE TEXT — every comment in this tree, every
         // identifier at full length — and the `renderer-initial-bundle` budget
-        // (`Spec-023 §Console Design (Meridian)` §Budgets row 1, ≤ 450 000 B
-        // gzip) was therefore gating an artifact nobody downloads. Measured on
+        // (≤ 450 000 B gzip) was therefore gating an artifact nobody
+        // downloads. Measured on
         // this branch: 443 585 B unminified against 244 546 B minified, so the
         // budget was reading within 2 % of its ceiling on bytes the shipped app
         // does not have.
@@ -271,9 +268,9 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
         // `.vite/manifest.json` — the chunk graph Rollup already computed to
         // produce the chunks, written out on request. It carries `isEntry`,
         // the STATIC `imports` of every chunk, its `dynamicImports`, its `css`,
-        // and its `assets`, which is exactly the initial-versus-lazy split
-        // `Spec-023 §Console Design (Meridian)` §Budgets row 1 bounds ("≤ 450 kB
-        // gzip, excluding lazy chunks"). `scripts/budget/measure-bundle.mts`
+        // and its `assets`, which is exactly the initial-versus-lazy split the
+        // initial-bundle budget bounds (≤ 450 kB gzip, excluding lazy chunks).
+        // `scripts/budget/measure-bundle.mts`
         // reads it instead of re-deriving the graph from the emitted text: the
         // bundler that made the split is the authority on it, and a second
         // reader over minified output is a heuristic that can only ever agree

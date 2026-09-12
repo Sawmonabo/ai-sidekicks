@@ -14,14 +14,13 @@
 // deep-links to the account registry opened FOR its provider, and this step keeps the
 // unscoped way there beside **Not now**. One handler serves both — `ProviderRow.tsx`
 // says why — and the provider is what tells them apart. The THIRD arm, `sign_in`, has
-// no control at all: `Spec-026 §Provider Authentication (Group B)` has this step
-// display the provider's own invocation and "never run it on the operator's behalf",
-// so the row renders the invocation and the credential home and the person runs it
-// where they can complete it.
+// no control at all: this step displays the provider's own invocation and never runs it
+// on the operator's behalf, so the row renders the invocation and the credential home
+// and the person runs it where they can complete it.
 //
-// AND LEAVING THIS STEP TELLS THE DAEMON NOTHING. Group B "persists nothing: no config
-// key, no partial-state entry, no keystore entry, and no event", so the way out of it
-// is a local hide and not a recorded skip — see `onDismiss` below.
+// AND LEAVING THIS STEP TELLS THE DAEMON NOTHING. The provider group persists nothing:
+// no config key, no partial-state entry, no keystore entry, and no event, so the way out
+// of it is a local hide and not a recorded skip — see `onDismiss` below.
 //
 // NO STALENESS BADGE. `observedAt` is rendered as the wire value it is. The contract
 // carries no read-path age test and no stale arm, so a badge here would be this
@@ -72,14 +71,13 @@ export interface ProviderReadinessStepProps {
   /**
    * **Not now** — put this step away, where there is a way out to put it away into.
    *
-   * A LOCAL EXIT AND NEVER A RECORDED SKIP. `Spec-026 §Provider Authentication (Group
-   * B)` has this group persist "no config key, no partial-state entry, no keystore
-   * entry, and no event", so leaving the step tells the daemon nothing: this handler
-   * closes the walkthrough and writes nowhere, on the invitation shelf's **Not now**
-   * precedent. It used to dispatch `onboarding.stepSkip`, which recorded the provider
-   * step in the daemon's own completed set — a second record of a step whose truth
-   * lives in the account registry, and one that stayed true after every account was
-   * signed out.
+   * A LOCAL EXIT AND NEVER A RECORDED SKIP. This group persists nothing — no config
+   * key, no partial-state entry, no keystore entry, and no event — so leaving the step
+   * tells the daemon nothing: this handler closes the walkthrough and writes nowhere.
+   * It used to dispatch
+   * `onboarding.stepSkip`, which recorded the provider step in the daemon's own
+   * completed set — a second record of a step whose truth lives in the account
+   * registry, and one that stayed true after every account was signed out.
    *
    * OPTIONAL, AND THAT IS THE SINGLE SOURCE — twice over. `step-model.ts` decides
    * which steps a person may leave unanswered, and the overlay decides whether this

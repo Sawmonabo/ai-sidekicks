@@ -1,7 +1,6 @@
 // The send router: ONE resolution, and every send path goes through it.
 //
-// `Spec-023 §Signature Feature Composition Sketches` §The Session Composer: Send
-// "resolves to the one wire call the addressed target admits". There is no send
+// Send resolves to the one wire call the addressed target admits. There is no send
 // verb on the wire — a new turn is `run.queueCreate` and a steer is `run.intervene`
 // with `type: "steer"` — so Send is a ROUTER, and a second router anywhere in the
 // console would be a second answer to "what did that button do".
@@ -26,7 +25,7 @@
 //      resolves identifiers because the resolution is pure and testable without a
 //      bridge, and the door one layer down is what makes the parse unskippable.
 //   3. **A missing comparand refuses.** `expectedRunVersion` is MANDATORY and
-//      fail-closed on the wire (D-004-2). The console has no `run.subscribeState`
+//      fail-closed on the wire. The console has no `run.subscribeState`
 //      projection yet, so the comparand is routinely absent — and the answer to an
 //      absent stale-replay guard is to refuse, never to send a zero, which would be
 //      a guard the caller invented rather than one the daemon verified.
@@ -46,11 +45,11 @@
 //
 // TRIMMING IS A TEST AND NEVER A TRANSFORM. This module used to resolve against
 // `text.trim()` and hand that trimmed value to both request builders, so the daemon
-// received text the participant did not author: pasted code lost its indentation, an
+// received text the user did not author: pasted code lost its indentation, an
 // indentation-sensitive instruction lost its shape, and a deliberately separated
 // Markdown block lost its separation. Blankness is still decided by trimming — that
 // is a question about the text, not an edit of it — and everything that reaches the
-// wire is the participant's own bytes. The slash rules read the RAW text through
+// wire is the user's own bytes. The slash rules read the RAW text through
 // `directive-syntax.ts` for the same reason, which narrows them deliberately: a
 // command opens its line, and indented text beginning with a slash is prose.
 //
@@ -219,7 +218,7 @@ export class ComposerSendRouter {
   }
 
   /**
-   * The slash rules, both paths (Spec-017's C-18 — the reserved slash prefix).
+   * The slash rules, both paths, under the reserved slash prefix.
    *
    * Returns `undefined` when the text carries no leading slash at all, which is the
    * ordinary case and the only one that continues to a send. Silent fall-through to

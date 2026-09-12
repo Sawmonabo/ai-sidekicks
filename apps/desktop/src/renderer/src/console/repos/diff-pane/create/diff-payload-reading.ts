@@ -6,8 +6,8 @@
 // half a person uses to recognise what a payload is. A diff is not previewed — the row
 // renderer virtualizes, so a five-thousand-line change set costs a viewport's worth of
 // rows however long it is — and a patch cut at preview size would lose whole FILES a
-// reader can reach, silently, which is the one thing `Spec-023 §Console Design
-// (Meridian)` rule 8 forbids a surface to do with an answer it received.
+// reader can reach, silently, which is the one thing a surface may never do with an
+// answer it received.
 //
 // SO THE BOUND HERE IS THE PARSER'S AND IT REFUSES RATHER THAN TRUNCATES. Past
 // `DIFF_PATCH_CHARACTER_CAP` the payload is reported as too large for this surface to
@@ -93,7 +93,7 @@ function decodedPatchText(
   }
   let bytes: Uint8Array;
   try {
-    // RFC 4648 §4, the encoding the ingest side uses and the platform's own decoder
+    // RFC 4648 section 4, the encoding the ingest side uses and the platform's own decoder
     // for it.
     const binary = atob(payload);
     bytes = new Uint8Array(binary.length);

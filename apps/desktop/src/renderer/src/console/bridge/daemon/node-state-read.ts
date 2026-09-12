@@ -2,8 +2,8 @@
 //
 // WHY IT IS HERE AND NOT BESIDE THE FOLD THAT USES IT. `NodeState` is a registered
 // wire vocabulary, and narrowing an untyped payload member against it means importing
-// the contract's own schema — which the console admits in `bridge/` and nowhere else
-// (`Spec-023 §Console Design (Meridian)`, the rule the schema chokepoint enforces).
+// the contract's own schema — which the console admits in `bridge/` and nowhere else,
+// the rule the schema chokepoint enforces.
 // `daemon/` inside that family, because narrowing a delivered value against a schema
 // the corpus registers is what puts a module in this directory rather than beside the
 // fixture's answers or the port's refusals.

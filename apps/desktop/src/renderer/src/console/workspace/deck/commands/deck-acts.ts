@@ -9,9 +9,9 @@
 // know a chord — and a second copy written for the palette would have been two answers
 // to what "move the pane" does.
 //
-// EVERY ACT SAYS WHAT HAPPENED. `Spec-023 §Console Design (Meridian)` puts the deck's
-// focus on a ring rather than on DOM focus, so a screen reader follows nothing when
-// the focused pane changes: without a live-region line, cycling the deck is silent.
+// EVERY ACT SAYS WHAT HAPPENED. The deck's focus is a ring rather than DOM focus, so
+// a screen reader follows nothing when the focused pane changes: without a live-region
+// line, cycling the deck is silent.
 // The move act reuses `paneDropAnnouncement` — the drag path's own strings — rather
 // than composing a second sentence for the same outcome, which is what keeps the
 // keyboard path and the pointer path saying the same thing about the same move.
@@ -23,14 +23,13 @@
 // respectively, because only one of them is a fact about the deck.
 //
 // AND CLOSING A PANE THAT IS IN A WINDOW OF ITS OWN IS REFUSED, WITH THE REMEDY NAMED.
-// `Spec-023 §The surface set` keeps a detached pane's slot as the placeholder its
-// window returns INTO, so `layout.close` on one deletes the only thing that could
-// receive the pane back: the shell goes on holding a window whose placeholder is gone,
-// and its eventual return signal names a pane the deck no longer has. The pointer path
-// already agrees — a detached slot renders `DetachedPaneBody`, which offers a focus
-// control and a return control and NO close — so refusing here is what makes the
-// keyboard and palette paths say the same thing that surface does, rather than
-// inventing an act no control offers.
+// A detached pane's slot is the placeholder its window returns INTO, so `layout.close`
+// on one deletes the only thing that could receive the pane back: the shell goes on
+// holding a window whose placeholder is gone, and its eventual return signal names a
+// pane the deck no longer has. The pointer path already agrees — a detached slot
+// renders `DetachedPaneBody`, which offers a focus control and a return control and NO
+// close — so refusing here is what makes the keyboard and palette paths say the same
+// thing that surface does, rather than inventing an act no control offers.
 //
 // REFUSING RATHER THAN CLOSING THE WINDOW FOR THEM. The other candidate was to route
 // the close through the hand-off and take the window down with the slot, and it makes

@@ -8,8 +8,8 @@
 // not true, which is the one failure this family exists to make impossible.
 //
 // They live in `bridge/` because the subject is what crosses the seam: the engine's
-// lifecycle and the port-and-ledger pair that `Plan-023 §Console growth slate` is
-// audited against. The store that receives the delivered events asserts its own
+// lifecycle and the port-and-ledger pair the growth slate is audited against. The
+// store that receives the delivered events asserts its own
 // admission rules in `store/session/failure-modes.test.ts` — the split follows the seam.
 //
 // Where a mode has a "the code should have refused" shape, the assertion is on the

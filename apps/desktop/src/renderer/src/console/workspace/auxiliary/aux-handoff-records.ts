@@ -159,11 +159,11 @@ export class AuxiliaryPaneRecords {
   /**
    * Record that a window was lost rather than closed.
    *
-   * The pane returns to the deck — `Spec-023 §The surface set`: "a crashed auxiliary
-   * window returns the pane to the deck with the crash noted in the pane's error slot"
-   * — and the reason is STORED for that slot in the same act, because a reason handed
-   * back to the caller and nowhere else is one the slot never sees, and a pane that
-   * reappears in silence tells the person nothing about why.
+   * The pane returns to the deck — a crashed auxiliary window returns its pane with
+   * the crash noted in the pane's error slot — and the reason is STORED for that slot
+   * in the same act, because a reason handed back to the caller and nowhere else is
+   * one the slot never sees, and a pane that reappears in silence tells the person
+   * nothing about why.
    */
   public noteWindowLost(
     paneId: string,

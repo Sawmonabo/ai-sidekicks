@@ -5,8 +5,8 @@
 // which is the shell a route mounts into. This is the ledger's own frame: the
 // machinery that decides which rows exist, where they sit, how fast their text
 // appears, and where the reader is standing while all of that changes. The rows
-// themselves belong to Plan-013 and the cards to this family's own card door;
-// nothing in this directory renders a Spec-013 entry type.
+// themselves belong to the timeline subtree and the cards to this family's own card
+// door; nothing in this directory renders a timeline entry type.
 //
 // FIVE SEAMS, FOUR OF THEM IN DIRECTORIES OF THEIR OWN. This was fifty-odd files on
 // one floor with a door over nine names, which is a pile with a door rather than a

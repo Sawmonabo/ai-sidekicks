@@ -16,7 +16,7 @@
 //     prose in `docs/domain/run-state-machine.md`.
 //   • The queue payload's own required member. The five `queue_item.*` kinds are
 //     census-only in the strict layer too, so a beat that omits `state` — which
-//     `Spec-006 §Queue Events` makes required — passes all three schema legs. This
+//     the queue event family makes required — passes all three schema legs. This
 //     is the leg that refuses it, on the same terms as the transition table: a rule
 //     the shipped schemas do not carry, checked against the one module that owns
 //     the mapping rather than against a second reading of it here.
@@ -122,7 +122,7 @@ type UnprojectedRunLifecycleKind = Exclude<RunLifecycleKind, RunStateStreamKind>
 /**
  * The run identity every run-lifecycle payload carries, whichever kind it is.
  *
- * `Spec-006 §Run Lifecycle (run_lifecycle)` puts `{sessionId, runId, runVersion}` at
+ * The run lifecycle puts `{sessionId, runId, runVersion}` at
  * the head of the shared state-transition shape and re-lists all three in each of the
  * three forward, non-state per-type shapes, so it is one fact stated once here rather
  * than three times below. The branded id schemas are the contract's own, imported;
@@ -138,7 +138,7 @@ const runIdentityShape = {
 /**
  * The registered payload of each run kind no stream projects.
  *
- * READ OFF `Spec-006 §Run Lifecycle (run_lifecycle)`, whose per-type rows are the
+ * READ OFF the run lifecycle, whose per-type rows are the
  * only place these four shapes exist: the contracts package registers a Zod variant
  * for none of them, and `RunStateChangeEventSchema` is deliberately the `run.subscribeState`
  * WIRE projection rather than the durable payload — that module says so in as many
@@ -212,8 +212,8 @@ function describeUnprojectedRunPayloadDefect(beat: ScenarioBeat): string | undef
  * no such thing.
  *
  * A rule the strict layer cannot enforce and the census cannot see. The state
- * machine (`docs/domain/run-state-machine.md` §Complete Transition Table — its own
- * "single authoritative reference for every allowed run state transition") has no
+ * machine (`docs/domain/run-state-machine.md`, the single authoritative reference
+ * for every allowed run state transition) has no
  * row whose `From` and `To` are the same state, so a self-transition is an event no
  * daemon produces. It reads as a real one, though: both values are registered
  * members of the vocabulary, the payload variant that would have caught it is not
@@ -244,10 +244,10 @@ function describeSelfTransitionDefect(beat: ScenarioBeat): string | undefined {
 /**
  * A queue beat that names no state, or names one its kind contradicts.
  *
- * `Spec-006 §Queue Events` fixes the queue payload at
+ * The queue event family fixes the queue payload at
  * `{sessionId, queueItemId, channelId?, state}`, and `SessionEventSchema`
  * registers no variant for any of the five `queue_item.*` kinds — so `state` is
- * required by the corpus and enforced by nothing the contracts package ships. A
+ * required by the wire and enforced by nothing the contracts package ships. A
  * beat without it reads as a real queue event, and the queue stream's projection
  * would then have to take the row's state from the KIND alone, which is a summary
  * derived from half its own payload.

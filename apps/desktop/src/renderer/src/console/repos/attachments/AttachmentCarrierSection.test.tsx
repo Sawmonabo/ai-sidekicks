@@ -3,7 +3,7 @@
 // THE CASES DRIVE THE REAL SECTION OVER THE REAL CLIENT, against the scripted port
 // every other ingest case in this family drives. That is the claim worth checking:
 // until this seat existed the Init / Chunk / Complete flow was reachable from tests
-// and from nothing a participant could touch, so a case that drove the client
+// and from nothing a user could touch, so a case that drove the client
 // directly would have gone on passing over a console with no way to attach anything.
 
 import { fireEvent, render, waitFor, within } from "@testing-library/react";
@@ -78,7 +78,7 @@ describe("AttachmentCarrierSection — a picked file reaches the ingest trio", (
       { timeout: INGEST_TIMEOUT_MS },
     );
     // The three legs, in the order the protocol requires, each carrying what the
-    // registered request shape names. The declaration is the participant's file and
+    // registered request shape names. The declaration is the user's file and
     // the completion's normalized name has replaced it on the card above.
     expect(port.initCalls).toHaveLength(1);
     expect(port.initCalls[0]?.fileName).toBe("notes.md");

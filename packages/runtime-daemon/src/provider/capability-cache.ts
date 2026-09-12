@@ -1,5 +1,5 @@
 // DriverCapabilityCache — the read-side capability cache behind
-// `driver.listCapabilities` (Plan-005 Phase 4, T4.5).
+// `driver.listCapabilities`.
 //
 // WHAT THIS IS FOR. `driver.listCapabilities` is a client-facing read that a
 // renderer calls whenever it needs to know which controls to offer. Serving it
@@ -29,16 +29,15 @@
 // indistinguishable from the other.
 //
 // WHAT THE REPLY CARRIES. `GetCapabilitiesResult` carries five members and this
-// report carries two of them plus the driver's name. `Spec-005 §Capability discovery`
-// scopes the client-facing payload to the flags, and `Spec-005 §Required Behavior`
-// rules that the mechanism grades and `cliVersion` alike stop at the driver-side
-// read — a consumer needing provenance or a version reads it through the daemon
-// rather than off this reply. `tools` is a daemon-side ingress concern whose
-// readers are `driver_tools` and the `runtime_node.capability_*` events, and no
-// clause routes it to a client. Composing the whole wrapper here and letting the
-// wire schema strip it would put the carve-out in the wrong place: the schema is
-// `.strict()`, so it REJECTS rather than strips, and the mistake would surface
-// as a failed read rather than as leaked provenance — but the composition is
+// report carries two of them plus the driver's name. scopes the client-facing
+// payload to the flags, and rules that the mechanism grades and `cliVersion` alike
+// stop at the driver-side read — a consumer needing provenance or a version reads it
+// through the daemon rather than off this reply. `tools` is a daemon-side ingress
+// concern whose readers are `driver_tools` and the `runtime_node.capability_*`
+// events, and no clause routes it to a client. Composing the whole wrapper here and
+// letting the wire schema strip it would put the carve-out in the wrong place: the
+// schema is `.strict()`, so it REJECTS rather than strips, and the mistake would
+// surface as a failed read rather than as leaked provenance — but the composition is
 // where the rule belongs, and the schema is the backstop that proves it held.
 //
 // `outputSpeedLevels` IS RE-DERIVED ON EVERY READ AND IS NEVER STORED — the one
@@ -68,10 +67,6 @@
 // stale capability reply is not a cosmetic failure — it is a client offering a
 // control the driver no longer supports.
 //
-// Refs: Plan-005 §Phase 4 / T4.5, `Spec-005 §Capability discovery`,
-// `Spec-005 §Required Behavior`, invariant I-005-2 (undeclared capability =
-// unsupported), `docs/architecture/contracts/error-contracts.md §Driver`
-// (`driver.unavailable`).
 
 import type { DriverCapabilities, DriverCapabilityReport } from "@ai-sidekicks/contracts";
 
@@ -173,11 +168,11 @@ export class DriverCapabilityCache {
    * Both miss causes — never declared on this node, or declared before the
    * version columns existed — land here, because both mean the same thing to
    * this caller: there is no substantiated capability set to report, and
-   * reporting an unsubstantiated one would violate I-005-2 in the direction that
-   * matters (a client must never be told a capability is available when the
-   * daemon cannot show that the driver declared it). Reusing the registry's
-   * existing error class rather than minting a second one keeps the driver
-   * namespace closed at its registered seven codes.
+   * reporting an unsubstantiated one would violate in the direction that matters
+   * (a client must never be told a capability is available when the daemon
+   * cannot show that the driver declared it). Reusing the registry's existing
+   * error class rather than minting a second one keeps the driver namespace
+   * closed at its registered seven codes.
    */
   read(driverName: string): DriverCapabilityReport {
     const capabilities = this.#capabilitiesFor(driverName);
@@ -186,13 +181,12 @@ export class DriverCapabilityCache {
     // header: this is the one member that must not be cached.
     //
     // The guard is `!== true`, not falsiness and not `=== false`, because
-    // `flags` arrives from a durable row and I-005-2 makes an undeclared
-    // capability UNSUPPORTED — the same fail-closed comparison
+    // `flags` arrives from a durable row and makes an undeclared capability
+    // UNSUPPORTED — the same fail-closed comparison
     // `ProviderRegistry.checkCapability` makes. A driver whose `output_speed` is
     // false or missing gets NO vocabulary member at all, which is the encoding
-    // `Spec-005 §The output-speed axis` requires: absent means the axis is
-    // unsettable, and an empty array would instead assert a settable axis with
-    // nothing on it.
+    // requires: absent means the axis is unsettable, and an empty array would
+    // instead assert a settable axis with nothing on it.
     if (capabilities.flags.output_speed !== true) {
       return { driverName, capabilities };
     }

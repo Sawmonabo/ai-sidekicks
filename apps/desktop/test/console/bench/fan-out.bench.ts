@@ -1,12 +1,10 @@
-// Store fan-out micro-benchmark — Plan-023 Phase 1C (T-023p-1C-1), the console
-// bench tier's first arm.
+// Store fan-out micro-benchmark — the console bench tier's first arm.
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // THE CLAIM UNDER TEST
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// `Spec-023 §Console Libraries` (State, storage, forms, search, dates) adopts
-// zustand under a named constraint — "one store per open session, partitioned
+// zustand is adopted under a named constraint — "one store per open session, partitioned
 // entity maps, per-frame event coalescing, per-row selectors" — and justifies
 // the partitioning with a figure: "A flat entity map costs 1.3 ms per event at
 // 20,000 entities and a partitioned one 57 µs."
@@ -53,7 +51,7 @@
 //   • `bench` runs only under `vitest bench`, a separate mode driven by a
 //     `benchmark.include` config rather than `test.include`. Using it would put
 //     this tier on a different invocation from every other console tier, which
-//     `Spec-023 §Console Test Tiers` registers as ordinary Vitest projects.
+//     are registered as ordinary Vitest projects.
 //
 //   • Its statistics come from tinybench 2.9.0, whose `TaskResult` publishes
 //     `p75`, `p99`, `p995`, and `p999` and no `p95` — and reaches the calling
@@ -115,7 +113,7 @@ import {
   type BenchmarkSampleStatistics,
 } from "./ledger.js";
 
-/** The entity count `Spec-023 §Console Libraries` states its figure at. */
+/** The entity count the adoption figure is stated at. */
 const BENCHMARK_ENTITY_COUNT = 20_000;
 
 /** Applies timed inside one sample. Large enough to swamp timer resolution. */
@@ -238,7 +236,7 @@ export function buildConsoleEntities(entityCount: number): readonly ConsoleEntit
       id: `${kind}-${String(ordinal).padStart(6, "0")}`,
       state: "active",
       touchedAt: "2026-09-01T00:00:00.000Z",
-      attributedTo: `participant-${String(ordinal % 12).padStart(2, "0")}`,
+      attributedTo: `user-${String(ordinal % 12).padStart(2, "0")}`,
       body: { sequence: ordinal },
     });
   }
@@ -380,8 +378,8 @@ test(
     expect(
       speedup,
       `Partitioning bought ${speedup.toFixed(1)}× against a floor of ${MINIMUM_PARTITIONING_SPEEDUP}×. ` +
-        "Either the console's own partition merge lost its partitioning, or the claim in " +
-        "`Spec-023 §Console Libraries` (State row) no longer holds and the spec's cost model needs re-deriving.",
+        "Either the console's own partition merge lost its partitioning, or the " +
+        "store-adoption claim no longer holds and its cost model needs re-deriving.",
     ).toBeGreaterThanOrEqual(MINIMUM_PARTITIONING_SPEEDUP);
   },
 );

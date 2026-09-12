@@ -1,16 +1,11 @@
-// Plan-008 §Phase 1: SSE `retry:` field wire-frame contract.
+// `retry:` field wire-frame contract.
 //
-// Asserts the wire frame ratified at
-// docs/architecture/contracts/api-payload-contracts.md §SSE Wire Frame
-// (Tier 1 Ratified): `retry: 5000` MUST appear before any
-// `event: connected` / `data:` / `id:` line so reconnecting EventSource
-// clients honor the documented 5-second backoff. tRPC v11's
-// `sseStreamProducer` does not emit `retry:` natively — the substrate at
+// Asserts the wire frame): `retry: 5000` MUST appear before any `event:
+// connected` / `data:` / `id:` line so reconnecting EventSource clients
+// honor the documented 5-second backoff. tRPC v11's `sseStreamProducer`
+// does not emit `retry:` natively — the substrate at
 // `sse-retry-prefix.ts` injects it via TransformStream.
 //
-// Refs: docs/architecture/contracts/api-payload-contracts.md §SSE Wire Frame,
-//       docs/plans/008-control-plane-relay-and-session-join.md §I-008-3 #1,
-//       packages/control-plane/src/server/sse-retry-prefix.ts.
 
 import {
   type EventCursor,
@@ -97,7 +92,7 @@ async function readLeadingBytes(response: Response, byteLimit: number): Promise<
   return accumulated;
 }
 
-describe("§SSE Wire Frame retry hint precedes the first event", () => {
+describe("", () => {
   it("emits `retry: <SSE_RETRY_HINT_MS>` before the connected frame", async () => {
     const handler = buildControlPlaneFetchHandler({
       ...makeRefusalAssertingDeps(),
@@ -124,7 +119,7 @@ describe("§SSE Wire Frame retry hint precedes the first event", () => {
   });
 });
 
-describe("§SSE Wire Frame: non-SSE responses pass through unmodified", () => {
+describe("", () => {
   it("does not inject `retry:` into a 503 gate-refusal body", async () => {
     const handler = buildControlPlaneFetchHandler({
       ...makeRefusalAssertingDeps(),
@@ -230,7 +225,7 @@ describe("prefixSseRetry unit", () => {
     expect(await wrapped.text()).toBe('{"ok":true}');
   });
 
-  // Per RFC 9110 §8.3, media-type type/subtype tokens are case-insensitive.
+  // Per RFC 9110 section 8.3, media-type type/subtype tokens are case-insensitive.
   // An upstream that emits `Text/Event-Stream` (or `TEXT/EVENT-STREAM`,
   // `text/Event-Stream; charset=utf-8`, etc.) is RFC-valid SSE — the
   // wrapper MUST apply. A regression that reverted the `.toLowerCase()`

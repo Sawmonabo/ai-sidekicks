@@ -1,12 +1,12 @@
 // The documented line parses, and the dotted one it replaced is nobody's command.
 //
-// `Spec-017 §Chat-start surface (SA-38)` fixes the surface: one command root,
-// `workflow`, one V1 verb, `start`, and the line `/workflow start <name>`. The
-// end-to-end case below is what makes that a claim about the SHIPPED path rather than
-// about this module — the same recogniser the send bar hands the router, the real
-// router, and the real executor over the real console registry — and its negative
-// control is the defect it was written for: with the dotted id registered instead, the
-// documented line reaches the router as an unregistered name.
+// The surface is fixed: one command root, `workflow`, one verb, `start`, and the line
+// `/workflow start <name>`. The end-to-end case below is what makes that a claim about
+// the SHIPPED path rather than about this module — the same recogniser the send bar
+// hands the router, the real router, and the real executor over the real console
+// registry — and its negative control is the defect it was written for: with the dotted
+// id registered instead, the documented line reaches the router as an unregistered
+// name.
 
 import { afterEach, describe, expect, it } from "vitest";
 

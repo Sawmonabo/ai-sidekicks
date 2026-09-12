@@ -12,8 +12,8 @@
 // NodeRoster's. Two halves of one view's suite are one subject, and `apps/desktop`
 // AGENTS.md gives one role one home.
 //
-// WHERE RETURN-TYPE DRIFT IS ACTUALLY CAUGHT — and where it is NOT (PR #355 Codex
-// round 1). The bridge declares `call<P extends CpProcedure>(procedure, input):
+// WHERE RETURN-TYPE DRIFT IS ACTUALLY CAUGHT — and where it is NOT. The bridge
+// declares `call<P extends CpProcedure>(procedure, input):
 // Promise<CpOutput<P>>`, and `CpOutput<P>` is the deferred conditional `P extends
 // CpProcedure ? unknown : never`, i.e. `unknown`. So NO typing of the mock arm can
 // constrain what the call resolves to — measured, not assumed: `vi.fn<Arm["call"]>()`
@@ -33,7 +33,7 @@ import type { Mock } from "vitest";
 import type {
   EventEnvelopeVersion,
   NodeId,
-  ParticipantId,
+  UserId,
   RuntimeNodeAttachRequest,
   RuntimeNodeAttachResponse,
   SessionId,
@@ -65,12 +65,12 @@ export const TARGET_SESSION_ID = "01970000-0000-7000-8000-0000000000a1" as Sessi
 export const OTHER_SESSION_ID = "01970000-0000-7000-8000-0000000000a2" as SessionId;
 export const ATTACHING_NODE_ID = "01970000-0000-7000-8000-0000000000c1" as NodeId;
 export const OTHER_NODE_ID = "01970000-0000-7000-8000-0000000000c2" as NodeId;
-// Not exported: no case names the owning participant directly — it reaches the
+// Not exported: no case names the owning user directly — it reaches the
 // assertions only through the draft below.
-const OWNING_PARTICIPANT_ID = "01970000-0000-7000-8000-0000000000b1" as ParticipantId;
+const OWNING_USER_ID = "01970000-0000-7000-8000-0000000000b1" as UserId;
 
 export const ATTACH_DRAFT: RuntimeNodeAttachDraft = {
-  participantId: OWNING_PARTICIPANT_ID,
+  userId: OWNING_USER_ID,
   nodeId: ATTACHING_NODE_ID,
   clientVersion: "2.0" as EventEnvelopeVersion,
   capabilities: { "shell.exec": true, "worktree.write": { maxConcurrency: 2 } },

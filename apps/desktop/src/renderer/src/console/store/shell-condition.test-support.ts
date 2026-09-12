@@ -1,9 +1,9 @@
 // The shell conditions a mutating surface is driven under.
 //
 // BESIDE THE MODULE THAT DERIVES THE BLOCK, which is the lowest family every reader
-// sits above. It began at the collaboration family's root, on `repos/
-// pane-contexts.test-support.ts`' reasoning — both `invites/` and `members/` dispatch a
-// daemon write and both disable their controls from the same seam, so a second copy of
+// sits above. It began at the channels family's root, on `repos/
+// pane-contexts.test-support.ts`' reasoning — several surfaces dispatch a daemon write
+// and all of them disable their controls from the same seam, so a second copy of
 // "the supervisor said it is stopped" would let two suites disagree about which
 // condition they are asserting against. The ledger's ask answer is the third dispatcher
 // on that seam and view families are siblings, so it could not reach a helper living in

@@ -6,8 +6,8 @@
 // and what the act that made it answered with — and a reader looking for either one
 // finds it by its own name.
 //
-// `Spec-023 §Console Design (Meridian)` 12.6 Density: "One artifact row per produced
-// object, collapsed to name, kind, and size, with the preview one click away." Name,
+// One artifact row per produced object, collapsed to name, kind, and size, with the
+// preview one click away. Name,
 // kind, and size live on the artifact manifest, which the console reads through an
 // operation the growth port refuses today — so this row renders what the log actually
 // carries and says plainly that the rest is unread, rather than putting the artifact

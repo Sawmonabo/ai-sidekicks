@@ -39,7 +39,7 @@ import { isAuxiliaryRouteName, type AuxiliaryRouteName } from "./auxiliary-route
  * on that route is not a partial descriptor, it is an incoherent one.
  *
  * The bare-route arm is the menu-bar shape — no pane to read context from, so
- * the auxiliary renderer's own context picker chooses (Phase 1C).
+ * the auxiliary renderer's own context picker chooses.
  *
  * `windowId` IS THE SHELL'S HANDLE FOR THIS WINDOW, AND A DIFFERENT AXIS FROM
  * THE CONTEXT. The context says what the window is a view OF; the handle says

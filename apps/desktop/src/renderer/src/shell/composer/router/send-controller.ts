@@ -5,11 +5,11 @@
 // class; this hook is where they are BUILT and where the interaction state that
 // binds them lives, which leaves `ComposerSendBar.tsx` as markup over one value.
 //
-// FOUR STATES, AND EACH ONE IS OBSERVABLE. `Spec-023 §Console Design (Meridian)`
-// gives the composer Idle, Typing, Sending, Sent, and Refused. Sending locks the
-// line and marks the control busy — deliberately, so a second Enter cannot queue a
-// second turn — and Sent is the wire's own row appearing in the ledger rather than
-// a row this hook draws, which is why there is no `sent` member here to render.
+// FOUR STATES, AND EACH ONE IS OBSERVABLE. The composer has Idle, Typing, Sending,
+// Sent, and Refused. Sending locks the line and marks the control busy — deliberately,
+// so a second Enter cannot queue a second turn — and Sent is the wire's own row
+// appearing in the ledger rather than a row this hook draws, which is why there is no
+// `sent` member here to render.
 //
 // EVERY OPERATION STATE IS KEYED TO THE ADDRESS THE ACT WAS ISSUED AT, and the
 // latch is not the status. `status` is what the surface RENDERS, and a handler
@@ -38,15 +38,14 @@
 // composer has moved on, while the READING it would have published is dropped —
 // that reading describes an act at an address this composer is no longer on.
 //
-// THE DISCLOSURE IS MADE WHERE IT IS TRUE. The store arms a sentence about unsent
-// text — "not saved between restarts" — and the composer used to render it from the
-// moment it mounted, so every composer nobody had touched carried a line about text
-// nobody had typed, on every window and in every captured pixel. `Spec-023 §Console
-// Design (Meridian)` §Persistence has the composer "say so on first focus after a
-// restart", so first focus is what ARMS it and the line holding unsent text is what
-// shows it: the sentence appears when there is something for it to be about. The
-// store's flag is still consumed at that first focus, so a window tells one composer
-// and no other repeats it.
+// THE DISCLOSURE IS MADE WHERE IT IS TRUE. The store arms a sentence about unsent text
+// — "not saved between restarts" — and the composer used to render it from the moment
+// it mounted, so every composer nobody had touched carried a line about text nobody had
+// typed, on every window and in every captured pixel. The composer says so on first
+// focus after a restart, so first focus is what ARMS it and the line holding unsent
+// text is what shows it: the sentence appears when there is something for it to be
+// about. The store's flag is still consumed at that first focus, so a window tells one
+// composer and no other repeats it.
 //
 // STOP HAS ITS OWN SLOT AND NOT THE SEND ONE. `driver.interruptRun` is not
 // idempotent: a second press issues a second interrupt, and once the first has

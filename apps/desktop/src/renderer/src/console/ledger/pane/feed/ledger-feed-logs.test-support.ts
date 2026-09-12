@@ -48,16 +48,16 @@ export function ledgerFixtureEventId(sequence: number): string {
 }
 
 /**
- * The first of two participants whose PREFERRED wheel step is the same, so which of
+ * The first of two users whose PREFERRED wheel step is the same, so which of
  * them takes it is decided by admission order and by nothing else.
  *
  * The collision is the instrument: with distinct preferred steps both orders agree
  * and the cases that use this pair would pass over either allocator.
  */
-export const EARLY_JOINER = "participant-alba";
+export const EARLY_JOINER = "user-alba";
 
 /** The second of that pair — the one whose preferred step is already taken. */
-export const LATE_JOINER = "participant-enzo";
+export const LATE_JOINER = "user-saga";
 
 /**
  * A real store with a base state, no events, and one projected session row.
@@ -79,7 +79,7 @@ export function openEmptySessionStore(peerInvocationEnabled?: boolean): SessionS
         body: peerInvocationEnabled === undefined ? {} : { peerInvocationEnabled },
       },
     ],
-    participantJoinLog: [],
+    userJoinLog: [],
   });
   return sessionStore;
 }
@@ -87,7 +87,7 @@ export function openEmptySessionStore(peerInvocationEnabled?: boolean): SessionS
 /** A real store holding a log of `count` run events, oldest first. */
 export function openSessionStoreWithFeedLog(count: number): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
+  sessionStore.initialise({ cursor: -1, entities: [], userJoinLog: [] });
   sessionStore.applyBatch(
     Array.from({ length: count }, (_unused, index) => ({
       id: ledgerFixtureEventId(index),
@@ -107,7 +107,7 @@ export function openStoreWhereJoinOrderIsNotEventOrder(): SessionStore {
   sessionStore.initialise({
     cursor: -1,
     entities: [],
-    participantJoinLog: [EARLY_JOINER, LATE_JOINER],
+    userJoinLog: [EARLY_JOINER, LATE_JOINER],
   });
   sessionStore.applyBatch([
     {
@@ -168,7 +168,7 @@ export function filterableRowId(sequence: number): string {
 }
 
 /**
- * A log with two participants, two event families, and a rollback boundary.
+ * A log with two users, two event families, and a rollback boundary.
  *
  * Built for the narrowing cases, and shaped so the load-bearing rule can fail: the
  * boundary carries a DIFFERENT actor from the run it belongs to, so admitting the
@@ -181,7 +181,7 @@ export function openSessionStoreWithFilterableLog(): SessionStore {
   sessionStore.initialise({
     cursor: -1,
     entities: [],
-    participantJoinLog: [EARLY_JOINER, LATE_JOINER],
+    userJoinLog: [EARLY_JOINER, LATE_JOINER],
   });
   sessionStore.applyBatch([
     {
@@ -224,9 +224,9 @@ export function openSessionStoreWithFilterableLog(): SessionStore {
 export const FIXTURE_ASK_ID = "ask-1";
 
 /**
- * A driver ask raised by one participant and settled by ANOTHER, on one run.
+ * A driver ask raised by one user and settled by ANOTHER, on one run.
  *
- * The split actor is the instrument: a participant facet admitting the requester
+ * The split actor is the instrument: a user facet admitting the requester
  * admits the request row and excludes the row that answered it, which is the exact
  * shape a terminal fold taken downstream of the facet bar gets wrong — the request
  * finds no terminal and offers answer controls for an ask the log has already
@@ -240,7 +240,7 @@ export function openSessionStoreWithSplitActorAsk(settled: boolean): SessionStor
   sessionStore.initialise({
     cursor: -1,
     entities: [],
-    participantJoinLog: [EARLY_JOINER, LATE_JOINER],
+    userJoinLog: [EARLY_JOINER, LATE_JOINER],
   });
   sessionStore.applyBatch([
     {
@@ -290,7 +290,7 @@ export function openSessionStoreWithSplitActorAsk(settled: boolean): SessionStor
  */
 export function openSessionStoreWithToolRows(count: number): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
+  sessionStore.initialise({ cursor: -1, entities: [], userJoinLog: [] });
   sessionStore.applyBatch(
     Array.from({ length: count }, (_unused, index) => ({
       id: ledgerFixtureEventId(index),
@@ -312,7 +312,7 @@ export function openSessionStoreWithToolRows(count: number): SessionStore {
 /** A log of general rows, so no chapter is open and the cap may actually apply. */
 export function openSessionStoreWithGeneralLog(count: number): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
+  sessionStore.initialise({ cursor: -1, entities: [], userJoinLog: [] });
   sessionStore.applyBatch(
     Array.from({ length: count }, (_unused, index) => ({
       id: ledgerFixtureEventId(index),

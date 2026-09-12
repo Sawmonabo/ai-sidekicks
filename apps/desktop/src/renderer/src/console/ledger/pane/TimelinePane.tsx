@@ -2,16 +2,16 @@
 // plan's rows go.
 //
 // THE CHROME IS NOT THIS FAMILY'S AND IT IS NOT PASSED IN EITHER. `seats/` draws
-// every pane's frame — `Spec-023 §The surface set` fixes its contents, and six
-// families each drawing their own would be six spacings and six answers to where the
+// every pane's frame — its contents are fixed, and six families each drawing their own
+// would be six spacings and six answers to where the
 // focus ring goes. It sits in `seats/` rather than in the deck for the reason every
 // other seat does: the deck is a SIBLING view family and a sibling may not be
 // imported, so the one frame six families share lives in the family whose whole job
 // is holding contracts siblings share. What this pane supplies is what genuinely
 // differs — its kind, the address its trail reads, and the hue it is attributed to.
 //
-// THE ROWS ARE NOT THIS FAMILY'S EITHER. The row vocabulary of `Spec-013 §Timeline
-// Entry Types` is authored in `renderer/src/timeline/`, which the console imports
+// THE ROWS ARE NOT THIS FAMILY'S EITHER. The timeline row vocabulary is authored in
+// `renderer/src/timeline/`, which the console imports
 // through no path — it reaches this pane by CALLING `registerTimelineRowRenderer`. So
 // the body here is a slot that reads the seat, and a row body written under
 // `console/` for one of those entry types would be this family authoring somebody
@@ -44,12 +44,11 @@ import { TimelineRowHost } from "./feed/surface/TimelineRowHost.js";
  * empty state below names the FEATURE that has not been built while this names the
  * people building it.
  *
- * AND THE GOVERNANCE IDS LIVE IN THIS COMMENT RATHER THAN IN THE VALUES. The owner
- * is Plan-013 Phase 4, authoring the `Spec-013 §Timeline Entry Types` vocabulary in
- * `renderer/src/timeline/`, and that is what every member below is about — but the
- * repository's standing rule keeps those ids out of runtime strings, because a
- * string is one bad render away from a participant's screen and a comment is not.
- * The suite beside this file asserts the absence rather than trusting it.
+ * AND EVERY MEMBER NAMES ITS SUBJECT IN ENGLISH. The owner is the work that authors
+ * the timeline row vocabulary in `renderer/src/timeline/`, and that is what every member
+ * below is about — said in plain words, because a string is one bad render away from a
+ * user's screen. The suite beside this file asserts the absence rather than
+ * trusting it.
  */
 export const TIMELINE_ROW_SLOT: OwnerSlotContract = {
   owningTask: "the timeline row vocabulary, authored in renderer/src/timeline/",
@@ -78,8 +77,7 @@ export interface TimelinePaneProps {
   readonly context: TimelinePaneContext;
   /** Supplied by whatever owns this pane's lifetime. Absent, no close is offered. */
   readonly onClose?: () => void;
-  /** Supplied where a host can open the pane in a window of its own
-   * (`Spec-023 §The surface set`, auxiliary windows). */
+  /** Supplied where a host can open the pane in an auxiliary window of its own. */
   readonly onOpenInWindow?: () => void;
 }
 

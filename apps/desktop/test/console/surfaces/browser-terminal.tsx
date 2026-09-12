@@ -29,7 +29,7 @@ import { renderSettled } from "../console-harness.js";
 import { registerBrowserPanes } from "../../../src/renderer/src/console/browser/index.js";
 import { BrowserCaptureCard } from "../../../src/renderer/src/console/browser/cards/CaptureCard.js";
 import { TERMINAL_SCENARIO } from "../../../src/renderer/src/console/bridge/scenario/terminal/terminal.js";
-import { fixtureSessionSnapshot } from "../../../src/renderer/src/console/bridge/fixture/collaboration/session-snapshot.js";
+import { fixtureSessionSnapshot } from "../../../src/renderer/src/console/bridge/fixture/session/session-snapshot.js";
 import { BROWSER_SCENARIO } from "../../../src/renderer/src/console/bridge/scenario/browser.js";
 import {
   createFixtureBridge,

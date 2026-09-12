@@ -125,12 +125,12 @@ const buildValidChannelListRequest = () => ({
 
 // Minimum-valid PER-ELEMENT shape. `name` is optional (the bootstrap default
 // channel may be unnamed); omitting it keeps the .strict() reject-extra-key
-// test focused on the REQUIRED base shape. `participantCount: 0` is the
+// test focused on the REQUIRED base shape. `userCount: 0` is the
 // canonical empty-channel value.
 const buildValidChannelListResponseChannel = () => ({
   id: CHANNEL_ID,
   state: "active" as ChannelState,
-  participantCount: 0,
+  userCount: 0,
 });
 
 const buildValidChannelListResponse = () => ({
@@ -139,7 +139,7 @@ const buildValidChannelListResponse = () => ({
       id: CHANNEL_ID,
       name: "general",
       state: "active" as ChannelState,
-      participantCount: 3,
+      userCount: 3,
     },
   ],
 });
@@ -237,11 +237,12 @@ describe("anti-leakage — no channel-mutation contracts in @ai-sidekicks/contra
 });
 
 // The invite and membership-update wire surfaces are gone: one user owns a
-// session, so there is nobody to invite and no membership to change. These
-// assertions are the standing guard against a re-grow.
+// session, so there is nobody to invite and no membership to change. The symbol
+// names below are the literals this guard asserts against, which is why the
+// deleted vocabulary survives here and nowhere else in the package.
 
 describe("anti-leakage — no invite or membership-update contracts in @ai-sidekicks/contracts", () => {
-  const FORBIDDEN_COLLABORATION_SYMBOLS = [
+  const FORBIDDEN_MULTI_USER_SYMBOLS = [
     "InviteId",
     "InviteIdSchema",
     "InviteState",
@@ -266,7 +267,7 @@ describe("anti-leakage — no invite or membership-update contracts in @ai-sidek
     "MembershipUpdateResponseSchema",
   ] as const;
 
-  it.each(FORBIDDEN_COLLABORATION_SYMBOLS)("does not export deleted symbol: %s", (symbol) => {
+  it.each(FORBIDDEN_MULTI_USER_SYMBOLS)("does not export deleted symbol: %s", (symbol) => {
     expect((contracts as Record<string, unknown>)[symbol]).toBeUndefined();
   });
 });

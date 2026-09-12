@@ -5,8 +5,9 @@
 // unwrappers in `served-value.ts` name the read arm as their fallback, and that
 // module is imported BY the model rather than the other way round — so declaring the
 // set in either one and importing it from the other closes a two-module cycle
-// `no-circular` fails. `apps/desktop/AGENTS.md` §State and views requires the set be
-// declared exactly once, and this is the only placement that satisfies both rules.
+// `no-circular` fails. The state-and-views rule in `apps/desktop/AGENTS.md` requires
+// the set be declared exactly once, and this is the only placement that satisfies both
+// rules.
 
 /**
  * The codes this family mints when a failure carried none of its own.

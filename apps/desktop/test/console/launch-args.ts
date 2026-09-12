@@ -12,7 +12,7 @@
 // `_electron.launch` takes an executable path, not a shell command, so there is no
 // `xvfb-run`-style wrapper a job could inject switches through: whatever GL the
 // renderer gets has to be stated in the array below or it is not stated at all.
-// The tier-1 job stands up one Xvfb and exports `$DISPLAY`, which is a DISPLAY and
+// The `test-node22` job stands up one Xvfb and exports `$DISPLAY`, which is a DISPLAY and
 // not a GL driver — a hosted runner has no GPU and no DRI device behind that
 // socket. And a switch written into the workflow instead would make CI and a
 // developer's headless container two different applications, which is the drift

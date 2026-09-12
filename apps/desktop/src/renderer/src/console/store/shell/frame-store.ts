@@ -1,10 +1,10 @@
 // Window-level state: the route, the scheme, the palette, the banner stack.
 //
 // Kept separate from `SessionStore` on purpose. Session state is per session and
-// arrives from the bridge through the apply chokepoint; frame state is per WINDOW
-// and arrives from the person using it. Folding them together would mean a session
-// switch re-rendering the icon rail, and an auxiliary window — which by I-023-12
-// shares no store with the main one — inheriting a route it does not have.
+// arrives from the bridge through the apply chokepoint; frame state is per WINDOW and
+// arrives from the person using it. Folding them together would mean a session switch
+// re-rendering the icon rail, and an auxiliary window — which shares no store with the
+// main one — inheriting a route it does not have.
 //
 // Nothing here polls, and nothing here holds a copy of anything the session store
 // owns. `activeSessionId` is a route projection, not a second record of which
@@ -38,9 +38,9 @@ import {
 import { SYSTEM_SCHEME_PREFERENCE, type SchemePreference } from "../../tokens/index.js";
 
 /**
- * One frame-level banner — the third of the three refusal RENDERINGS named by
- * `Spec-023 §Console Design (Meridian)` rule 9: a refusal that changes what the
- * whole room can do goes across the workspace rather than inline on a control.
+ * One frame-level banner — the third of the three refusal RENDERINGS: a refusal that
+ * changes what the whole room can do goes across the workspace rather than inline on a
+ * control.
  *
  * The two rendered fields are taken from `ConsoleRefusal` rather than re-declared
  * beside it, so a producer spreads a refusal straight into a banner
@@ -83,14 +83,13 @@ export interface FrameStoreState {
   /**
    * True while a modal surface the frame cannot NAME owns the window.
    *
-   * WHY THE FRAME CANNOT ASK. `Spec-023 §Console Libraries` adopts the dialog family
-   * under `modal="trap-focus"`, which traps focus and leaves inerting the app root to
-   * the shell — so the shell has to know that a dialog is up. It knows that for the
-   * palette, whose open state it owns. It cannot know it for a card a VIEW family
-   * renders: `console-view-family-isolation` forbids the frame from importing one, so
-   * there is no seam for the frame to read and the family has to publish. This is
-   * that seam, and it is on the WINDOW store because that is what the fact is about —
-   * a window with a card up, not a session with one.
+   * WHY THE FRAME CANNOT ASK. The adopted dialog family runs under `modal="trap-focus"`,
+   * which traps focus and leaves inerting the app root to the shell — so the shell has to
+   * know that a dialog is up. It knows that for the palette, whose open state it owns. It
+   * cannot know it for a card a VIEW family renders: `console-view-family-isolation`
+   * forbids the frame from importing one, so there is no seam for the frame to read and
+   * the family has to publish. This is that seam, and it is on the WINDOW store because
+   * that is what the fact is about — a window with a card up, not a session with one.
    *
    * THE PALETTE IS DELIBERATELY NOT RECORDED HERE. Its open state already has an
    * owner one layer up, and a copy of it in this cell would be a second record free
@@ -118,7 +117,7 @@ export interface FrameStoreState {
    * WINDOW STATE AND NOT SESSION STATE, which is why it is here rather than on a
    * session store: the daemon supervisor, the handshake, the transport, and the
    * keystore are facts about this PROCESS, and an auxiliary window — which shares no
-   * store with the main one (I-023-12) — has its own bridge and therefore its own
+   * store with the main one — has its own bridge and therefore its own
    * report.
    *
    * `store/shell/shell-state.ts` owns the vocabulary and the two derivations every reader
@@ -133,11 +132,10 @@ export interface FrameStoreState {
    * `undefined` where nothing is reading the projection.
    *
    * `undefined` IS NOT ZERO, and the distinction is the whole reason this is not a
-   * number. `Spec-023 §The surface set` puts an attention count on the sessions
-   * destination "taken from the daemon's attention projection, never counted in the
-   * renderer", and the design's degraded rule says the count is suppressed while the
-   * projection is unreachable — "the rail says nothing rather than showing a stale
-   * number". A zero would say the daemon answered and nothing needs you.
+   * number. The sessions destination carries an attention count taken from the daemon's
+   * attention projection and never counted in the renderer, and the count is suppressed
+   * while the projection is unreachable — "the rail says nothing rather than showing a
+   * stale number". A zero would say the daemon answered and nothing needs you.
    *
    * The count is PUBLISHED by whoever holds the projection read rather than read
    * here, because the console performs that read exactly once per window and a second
@@ -394,7 +392,7 @@ export class FrameStore {
  * not.
  *
  * PER WINDOW BY CONSTRUCTION. An auxiliary window is its own renderer process with its
- * own document and its own store (I-023-12), so this reads that window's own state and
+ * own document and its own store, so this reads that window's own state and
  * no other's — there is no window identifier to thread and nothing to key on.
  */
 function documentReportsWindowFocus(): boolean {

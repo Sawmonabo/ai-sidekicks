@@ -1,8 +1,4 @@
-// T4.6 — degraded-fallback orchestration tests (Plan-005 Phase 4).
-//
-// Verifies I-005-4 (the degraded intervention envelope) and the client-facing
-// half of I-005-2 (undeclared capability = unsupported), mapping to
-// `Spec-005 §Acceptance Criteria` AC2.
+// Degraded-fallback orchestration tests for the client-facing provider surface.
 //
 // WHERE THIS FILE SITS ON A TWO-SIDED CLAIM. The task names two assertions and
 // they live at two different boundaries, so they are tested at two:
@@ -10,21 +6,19 @@
 //   (1) The CLIENT-FACING path — `driver.applyIntervention` against a run whose
 //       bound driver declares `steer: false` answers `degraded` naming the
 //       daemon's fallback, and that envelope reaches an SDK caller intact. That
-//       is this file. It is the half nothing covered before T4.3 existed, since
+//       is this file. It is the half nothing covered before existed, since
 //       there was no client-facing path to answer through.
 //
 //   (2) The ORCHESTRATION-TO-DRIVER path — `ProviderRegistry.checkCapability`
 //       refuses a capability-bound invocation BEFORE the call reaches the
-//       driver. That gate is daemon-internal by Plan-005 §Phase 4 decision #2
-//       (the lifecycle operations it guards are registered on no client
-//       namespace), so it is asserted against the real class beside it, in the
-//       T4.6 block of
+//       driver. That gate is daemon-internal so it is asserted against the real
+//       class beside it block of
 //       `runtime-daemon/src/provider/__tests__/provider-registry.test.ts`, which
 //       pins the "before the driver" clause by asserting the driver's own call
 //       count is zero on a refusal. Restating it here would mean either widening
 //       another package's public API so a test could import an internal class,
-//       or re-implementing the gate as a double — and a test that
-//       re-implements the guard it is checking proves nothing.
+//       or re-implementing the gate as a double — and a test that re-implements
+//       the guard it is checking proves nothing.
 //
 // WHY A SCRIPTED DAEMON RATHER THAN THE CLAUDE DRIVER ITSELF. This package does
 // not depend on `@ai-sidekicks/runtime-daemon`, and it should not start: that
@@ -62,7 +56,7 @@ import type {
   JsonRpcResponseEnvelope,
   ListProviderCommandsRequest,
   ChannelId,
-  ParticipantId,
+  UserId,
   ProviderCommandListResult,
   RunId,
   SessionEvent,
@@ -103,11 +97,10 @@ const TEST_RUN_ID = "00000000-0000-4000-8000-000000000001" as RunId;
 const TEST_IDEMPOTENCY_KEY = "00000000-0000-4000-8000-000000000002";
 
 /**
- * ADR-011's documented fallback for a provider with no native steer, and the
- * value the Claude driver names. Written as a literal because this package
- * consumes it off the wire rather than producing it; the producer-side value is
- * pinned against this same string by the driver's own tests. See the file
- * header.
+ * The documented fallback for a provider with no native steer, and the value
+ * the Claude driver names. Written as a literal because this package consumes
+ * it off the wire rather than producing it; the producer-side value is pinned
+ * against this same string by the driver's own tests.
  */
 const QUEUE_AND_INTERRUPT = "queue_and_interrupt";
 
@@ -217,7 +210,7 @@ function methodNotFound(id: JsonRpcRequest["id"]): InboundEnvelope {
   };
 }
 
-/** A typed daemon refusal, shaped as the I-007-8 wire mapping delivers it. */
+/** A typed daemon refusal, shaped as wire mapping delivers it. */
 function refusalEnvelope(id: JsonRpcRequest["id"], refusal: WireRefusal): InboundEnvelope {
   return {
     jsonrpc: JSONRPC_VERSION,
@@ -267,10 +260,10 @@ function paramsOf(envelope: OutboundEnvelope | undefined): unknown {
 }
 
 // ----------------------------------------------------------------------------
-// I-005-4 / AC2 — the degraded envelope on the client-facing path
+// The degraded envelope on the client-facing path
 // ----------------------------------------------------------------------------
 
-describe("driver.applyIntervention — degraded fallback across the SDK seam (I-005-4, AC2)", () => {
+describe("driver.applyIntervention — degraded fallback across the SDK seam", () => {
   it("resolves a steer against a no-native-steer driver as degraded with its fallbackAction intact", async () => {
     const degradedAnswer = { status: "degraded", fallbackAction: QUEUE_AND_INTERRUPT };
     const { client, daemon } = buildDriverClient(
@@ -294,7 +287,7 @@ describe("driver.applyIntervention — degraded fallback across the SDK seam (I-
     expect(paramsOf(daemon.sentEnvelopes[0])).toStrictEqual(STEER_AGAINST_NO_NATIVE_STEER_DRIVER);
   });
 
-  it("RESOLVES the degraded answer rather than rejecting — an unsupported intervention is data (ADR-011)", async () => {
+  it("RESOLVES the degraded answer rather than rejecting — an unsupported intervention is data", async () => {
     const { client } = buildDriverClient(
       scriptResult(METHOD_APPLY_INTERVENTION, {
         status: "degraded",
@@ -354,11 +347,11 @@ describe("driver.applyIntervention — degraded fallback across the SDK seam (I-
 
   it("refuses a rollback intervention at the seam BEFORE any wire write", async () => {
     // `ApplyInterventionParamsSchema` is a discriminated union over three arms.
-    // `rollback` is Spec-004 content driven through a different driver
-    // operation, so a caller reaching for it here must fail at the
-    // discriminator rather than reach a handler that would have to invent a
-    // refusal. The cast is the realistic path — a runtime caller composing
-    // params from untyped input, not a TypeScript-detected mismatch.
+    // `rollback` is content driven through a different driver operation, so a
+    // caller reaching for it here must fail at the discriminator rather than
+    // reach a handler that would have to invent a refusal. The cast is the
+    // realistic path — a runtime caller composing params from untyped input,
+    // not a TypeScript-detected mismatch.
     const rollbackParams = {
       type: "rollback",
       targetRunId: TEST_RUN_ID,
@@ -381,10 +374,10 @@ describe("driver.applyIntervention — degraded fallback across the SDK seam (I-
 });
 
 // ----------------------------------------------------------------------------
-// I-005-2 (client-facing half) — a capability refusal reaches the caller typed
+// A capability refusal reaches the caller typed
 // ----------------------------------------------------------------------------
 
-describe("driver.* — a capability refusal surfaces as its registered code (I-005-2, AC2)", () => {
+describe("driver.* — a capability refusal surfaces as its registered code", () => {
   it("surfaces driver.capability_unsupported as a typed remote error, not as a degraded envelope", async () => {
     // The daemon's gate and the driver's degraded answer are DIFFERENT
     // outcomes, and the SDK must keep them distinguishable: a refusal that
@@ -441,7 +434,7 @@ describe("driver.* — a capability refusal surfaces as its registered code (I-0
 // The ratified client surface — what it sends, and what it cannot reach
 // ----------------------------------------------------------------------------
 
-describe("DriverClient — the ratified client-facing surface (Plan-005 §Phase 4 decision #2)", () => {
+describe("DriverClient — the ratified client-facing surface", () => {
   it("sends the registered empty request on all three reads rather than an invented per-driver selector", async () => {
     const emptyRoster = { drivers: [] };
     const { client, daemon } = buildDriverClient({
@@ -476,8 +469,8 @@ describe("DriverClient — the ratified client-facing surface (Plan-005 §Phase 
     // session-or-run domain object. Their ABSENCE is the enforcement: a client
     // holding this object cannot mint runtime state behind the orchestrator's
     // back, because there is no method to call. This is also the client-facing
-    // half of I-005-5 — a failed resume has no route to a replacement session
-    // here, since there is no route to session creation at all.
+    // half of — a failed resume has no route to a replacement session here,
+    // since there is no route to session creation at all.
     for (const lifecycleOperation of [
       "createSession",
       "resumeSession",
@@ -504,12 +497,12 @@ describe("DriverClient — the ratified client-facing surface (Plan-005 §Phase 
     ]);
   });
 
-  it("exposes none of the four R8 parity operations either (T4.8's absence half)", () => {
+  it("exposes none of the four R8 parity operations either (the absence half)", () => {
     // `rollbackTo`, `setSessionGoal`, `clearSessionGoal`, and `probeAuth` are
     // daemon-internal by the same decision #2 principle: each already has its
-    // own client route (rollback via Plan-004's intervention path, goals via
-    // Plan-016's surface, auth probes via the account plane), so a second route
-    // here would fork one operation's authority across two doors.
+    // own client route (rollback via the intervention path, goals via the
+    // surface, auth probes via the account plane), so a second route here would
+    // fork one operation's authority across two doors.
     const { client } = buildDriverClient({});
     for (const parityOperation of [
       "rollbackTo",
@@ -546,10 +539,9 @@ describe("DriverClient — the ratified client-facing surface (Plan-005 §Phase 
 //
 // `subscribeEvents` hands back a `LocalSubscriptionConsumer<DriverEvent>` and
 // validates every delivered frame against `DriverEventSchema`, the
-// contracts-owned narrowing to the seven categories `Plan-005 §Phase 4 —
-// Client SDK exposure + degraded-fallback` decision #4 names. The daemon
-// handler filters the same set BEFORE buffering, so in a correct pairing this
-// schema refuses nothing.
+// contracts-owned narrowing to the seven categories decision #4 names. The
+// daemon handler filters the same set BEFORE buffering, so in a correct
+// pairing this schema refuses nothing.
 //
 // It is here for the incorrect pairing, which is the shape of the finding it
 // closes: a daemon whose filter regressed, or a peer on a version that widened
@@ -562,7 +554,7 @@ describe("DriverClient — the ratified client-facing surface (Plan-005 §Phase 
 /** Low-entropy sentinel ids — see the header note on the secret scanner. */
 const TEST_SUBSCRIPTION_ID = "00000000-0000-4000-8000-000000000003";
 const TEST_SESSION_ID = "00000000-0000-4000-8000-000000000004" as SessionId;
-const TEST_PARTICIPANT_ID = "00000000-0000-4000-8000-000000000005" as ParticipantId;
+const TEST_USER_ID = "00000000-0000-4000-8000-000000000005" as UserId;
 const TEST_CHANNEL_ID = "00000000-0000-4000-8000-000000000006" as ChannelId;
 
 /**
@@ -601,7 +593,7 @@ function buildNonDriverEvent(): SessionEvent {
     occurredAt: "2026-01-22T19:14:36.000Z",
     category: "session_lifecycle",
     type: "channel.created",
-    actor: TEST_PARTICIPANT_ID,
+    actor: TEST_USER_ID,
     version: EVENT_VERSION,
     payload: {
       channelId: TEST_CHANNEL_ID,
@@ -680,7 +672,7 @@ describe("driver.subscribeEvents — the stream is narrowed to driver events", (
 });
 
 // ----------------------------------------------------------------------------
-// T4.9 — the two console-parity verbs across the SDK seam
+// The two console-parity verbs across the SDK seam
 // ----------------------------------------------------------------------------
 
 /** Low-entropy sentinel — see the header note on the secret scanner. */
@@ -704,7 +696,7 @@ const COMMAND_GROUP: ProviderCommandListResult = {
   ],
 };
 
-describe("driver.compactContext / driver.listProviderCommands — the console-parity verbs (T4.9)", () => {
+describe("driver.compactContext / driver.listProviderCommands — the console-parity verbs", () => {
   it("sends the session-addressed compaction request verbatim and resolves a refusal as DATA", async () => {
     // `not_permitted` is the daemon-side adjudication's deny, and it arrives on
     // the operation's OWN refused arm — a resolved value a caller branches on,
@@ -762,8 +754,8 @@ describe("driver.compactContext / driver.listProviderCommands — the console-pa
 
     // The whole reply, compared as a whole: the `(driverName,
     // providerAccountId)` pair on every entry is the routing invariant's
-    // carrier (I-005-13), and an SDK that stripped or flattened it would leave
-    // a renderer unable to keep a Claude-enumerated command off a Codex agent.
+    // carrier, and an SDK that stripped or flattened it would leave a renderer
+    // unable to keep a Claude-enumerated command off a Codex agent.
     expect(result).toStrictEqual(COMMAND_GROUP);
     expect(methodOf(daemon.sentEnvelopes[0])).toBe(METHOD_LIST_PROVIDER_COMMANDS);
     expect(paramsOf(daemon.sentEnvelopes[0])).toStrictEqual({

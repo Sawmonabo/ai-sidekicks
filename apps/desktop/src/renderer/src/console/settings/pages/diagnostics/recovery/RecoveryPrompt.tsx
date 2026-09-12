@@ -1,9 +1,8 @@
 // The recovery prompt: the three actions the request admits, each behind a confirm.
 //
-// `Spec-023 §Console Design (Meridian)` §Diagnostics and health: "A recovery prompt
-// offering `retry`, `interrupt`, and `abandon`. The inspect reply's `escalate`
-// suggestion renders as guidance text, never as a fourth button, because the request
-// contract admits three actions."
+// A recovery prompt offering `retry`, `interrupt`, and `abandon`. The inspect reply's
+// `escalate` suggestion renders as guidance text, never as a fourth button, because the
+// request contract admits three actions.
 //
 // THE CONTROL SET IS THE WIRE VOCABULARY, MAPPED. The buttons are built by walking
 // `GROWTH_RECOVERY_ACTIONS`, so a fourth action registered upstream arrives as a

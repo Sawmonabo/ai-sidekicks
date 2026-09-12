@@ -1,9 +1,8 @@
 // The release artifact's fuse wire, read out of the artifact rather than out of the
 // build script that claims to have flipped it.
 //
-// `Spec-023 §Security Hardening Baseline` names nine fuses and the state each must
-// carry in a packaged build, and `Spec-023 §Console Test Tiers` puts the check beside
-// the end-to-end tier as a SEPARATE one: the end-to-end tier drives the smoke build,
+// Nine fuses have a state each must carry in a packaged build, and the check sits
+// beside the end-to-end tier as a SEPARATE one: the end-to-end tier drives the smoke build,
 // where `EnableNodeCliInspectArguments` is deliberately left on so a harness can
 // attach, so the artifact that tier launches is the one artifact whose fuse wire is
 // expected to differ from the release posture. Reading the release artifact is a
@@ -12,7 +11,7 @@
 // WHY IT READS THE BINARY AND NOT THE CONFIGURATION. A fuse is a byte in a sentinel
 // region of the shipped Electron binary. A packaging config that names the right nine
 // states proves that someone wrote them down; only the binary proves they landed —
-// and the ordering `I-023-3` fixes (flip → digest → sign) is exactly the kind of
+// and the required ordering (flip → digest → sign) is exactly the kind of
 // pipeline where a step can be skipped, reordered, or silently no-op on one platform
 // while the config stays green. `@electron/fuses`' own `getCurrentFuseWire` is the
 // reader, so this file parses no sentinel itself.

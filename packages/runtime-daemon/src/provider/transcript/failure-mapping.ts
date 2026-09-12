@@ -1,25 +1,21 @@
-// Permanent-vs-transient refusal classification (Plan-005 Phase 3, T3.22).
+// Permanent-vs-transient refusal classification.
 //
-// `Spec-005 §Required Behavior` states the rule this module exists to enforce: a
-// structurally invalid history is a PERMANENT refusal, never a retry. A poisoned
-// history — an unpaired tool call, a reasoning item the target forbids — is
-// rejected identically on every subsequent request, so a retry ladder over it
-// buys nothing and spends a provider request per rung. The driver's answer is to
-// classify the refusal permanent, dispose the run's provider binding, and let the
-// caller reconstitute from the canonical transcript.
+// states the rule this module exists to enforce: a structurally invalid history
+// is a PERMANENT refusal, never a retry. A poisoned history — an unpaired tool
+// call, a reasoning item the target forbids — is rejected identically on every
+// subsequent request, so a retry ladder over it buys nothing and spends a
+// provider request per rung. The driver's answer is to classify the refusal
+// permanent, dispose the run's provider binding, and let the caller reconstitute
+// from the canonical transcript.
 //
 // The classifier owns BOTH arms of the distinction, and owning both is the point.
 // A module that only recognized the permanent class would leave "everything else"
 // as an implicit default nobody states, and the transient arm is precisely where
 // the expensive mistake lives: retrying a request the provider may already have
-// APPLIED repeats its spend and duplicates a turn the participant is watching. So
+// APPLIED repeats its spend and duplicates a turn the user is watching. So
 // the transient arm is narrowed here, in writing, to failures that are DEFINITELY
 // UNSENT, and the outcome a connection loss left unknown gets its own arm with
 // its own evidence requirement.
-//
-// Spec coverage: `Spec-005 §Required Behavior` (a structurally invalid history is
-// a permanent refusal, never a retry); `Spec-005 §Fallback Behavior`.
-// Verifies invariant I-005-9.
 //
 // Driver-agnostic on purpose, for the reason the sibling assertion module is:
 // both legs refuse over different transports and both owe the identical verdict,
@@ -29,20 +25,20 @@
 //
 // What this module deliberately does NOT do:
 //
-//   * It never reads a provider message string. `Spec-005 §Pitfalls To Avoid`
-//     prohibits classifying a refusal by matching its text, and a classifier that
-//     accepted prose would make every provider wording change a silent behaviour
-//     change. The permanent arm is reachable only from a TYPED refusal shape the
-//     driver derived from the provider's own enumerated refusal vocabulary.
-//   * It never produces a `RecoveryCondition`. That taxonomy (T3.14) describes
-//     what a RESUME needs; a permanent structural refusal describes a history the
-//     target will never accept, and absorbing it into `recovery-needed` would send
-//     the daemon to re-establish a session whose next request refuses identically.
-//     The two vocabularies stay separate by construction: nothing here imports
-//     that type, and the permanent arm's carrier is this module's own error class.
+//   * It never reads a provider message string. prohibits classifying a refusal
+//     by matching its text, and a classifier that accepted prose would make every
+//     provider wording change a silent behaviour change. The permanent arm is
+//     reachable only from a TYPED refusal shape the driver derived from the
+//     provider's own enumerated refusal vocabulary.
+//   * It never produces a `RecoveryCondition`. That taxonomy describes what a
+//     RESUME needs; a permanent structural refusal describes a history the target
+//     will never accept, and absorbing it into `recovery-needed` would send the
+//     daemon to re-establish a session whose next request refuses identically. The
+//     two vocabularies stay separate by construction: nothing here imports that
+//     type, and the permanent arm's carrier is this module's own error class.
 //   * It never re-enters a replay. Mid-replay ambiguity and replay-interior
-//     refusals are T3.20's target-lifecycle rules (`./replay-assertion.ts`) and
-//     settle on T3.21's memo floor (`./memo-projection.ts`). The "exactly one
+//     refusals are the target-lifecycle rules (`./replay-assertion.ts`) and
+//     settle on the memo floor (`./memo-projection.ts`). The "exactly one
 //     reconstitution" property is kept STRUCTURALLY rather than by a counter: the
 //     ladder below is absent from the replay path, so there is no rung a replay
 //     could climb.
@@ -204,12 +200,11 @@ export function classifyProviderRequestFailure(
  * the run onto the same poisoned session forever.
  *
  * Deliberately NOT a `RecoveryCondition`, and deliberately not convertible to
- * one. `Spec-005 §Required Behavior` keeps the classes distinct, and the
- * distinction is operational rather than taxonomic: `recovery-needed` sends the
- * daemon to re-establish the session, which reproduces this refusal on the first
- * request against the rebuilt history. What this failure asks for is a
- * RECONSTITUTION — a canonical-transcript replay into a fresh target — which is a
- * different act by a different owner.
+ * one. keeps the classes distinct, and the distinction is operational rather than
+ * taxonomic: `recovery-needed` sends the daemon to re-establish the session,
+ * which reproduces this refusal on the first request against the rebuilt history.
+ * What this failure asks for is a RECONSTITUTION — a canonical-transcript replay
+ * into a fresh target — which is a different act by a different owner.
  */
 export class PermanentStructuralRefusalError extends Error {
   readonly providerSessionId: string;
@@ -245,7 +240,7 @@ export class PermanentStructuralRefusalError extends Error {
 // --------------------------------------------------------------------------
 
 /**
- * How many PARTICIPANT-ORIGINATED turns the target holds.
+ * How many USER-ORIGINATED turns the target holds.
  *
  * The role dimension is what distinguishes this port from the two readback ports
  * already shipped beside it. `ReplayTargetReadback` (`./replay-assertion.ts`) and
@@ -262,26 +257,21 @@ export class PermanentStructuralRefusalError extends Error {
  * comparison and the marker scan, neither of which has a use for roles, and would
  * make every existing binding restate a dimension it does not read.
  *
- * A leg that binds no reader answers `unreadable`, and that is a CORRECT
- * SETTLEMENT rather than a gap to be repaired later: `Spec-005 §Fallback Behavior`
- * and the reconcile rule both specify the unreadable target as a first-class arm —
- * nothing is sent and the turn fails visibly. An unbound reader therefore behaves
- * exactly as a reader that answered "I cannot tell you", which is the honest
- * answer when no provider surface can supply the count.
+ * An unbound reader therefore behaves exactly as a reader that answered "I cannot
+ * tell you", which is the honest answer when no provider surface can supply the
+ * count.
  */
-export type ParticipantTurnReadback =
-  | { readonly kind: "counted"; readonly participantOriginatedTurns: number }
+export type UserTurnReadback =
+  | { readonly kind: "counted"; readonly userOriginatedTurns: number }
   | { readonly kind: "unreadable"; readonly reason: string };
 
-/** Reads {@link ParticipantTurnReadback} for one provider session. */
-export type ParticipantTurnReadbackReader = (
-  targetProviderSessionId: string,
-) => Promise<ParticipantTurnReadback>;
+/** Reads {@link UserTurnReadback} for one provider session. */
+export type UserTurnReadbackReader = (targetProviderSessionId: string) => Promise<UserTurnReadback>;
 
 /**
  * What the positional read settled about an ambiguous request.
  *
- *   * `delivered` — the target holds more participant turns than the daemon has
+ *   * `delivered` — the target holds more user turns than the daemon has
  *     acknowledged, so the ambiguous request landed. Nothing is re-sent. The
  *     request still FAILS at the driver boundary: the acknowledgement carried the
  *     turn's identity, so a turn that landed without one is unaddressable, and
@@ -291,32 +281,31 @@ export type ParticipantTurnReadbackReader = (
  *     it did not land and re-sending duplicates nothing.
  *   * `unrecoverable` — the target could not be read. Neither silent option is
  *     admissible: re-sending risks duplicate spend against a turn that landed, and
- *     assuming delivery suppresses a request the participant made. The turn fails
+ *     assuming delivery suppresses a request the user made. The turn fails
  *     visibly instead.
  */
 export type AmbiguousDeliverySettlement =
-  | { readonly settlement: "delivered"; readonly participantOriginatedTurns: number }
-  | { readonly settlement: "cleared-for-retry"; readonly participantOriginatedTurns: number }
+  | { readonly settlement: "delivered"; readonly userOriginatedTurns: number }
+  | { readonly settlement: "cleared-for-retry"; readonly userOriginatedTurns: number }
   | { readonly settlement: "unrecoverable"; readonly reason: string };
 
-/** The reason reported when a leg binds no participant-turn reader at all. */
-export const NO_PARTICIPANT_TURN_READER_BOUND: string =
-  "This driver binds no participant-turn readback for the target session.";
+/** The reason reported when a leg binds no user-turn reader at all. */
+export const NO_USER_TURN_READER_BOUND: string =
+  "This driver binds no user-turn readback for the target session.";
 
 /** The reason reported when the bound reader itself failed to answer. */
-export const PARTICIPANT_TURN_READ_FAILED: string =
-  "The participant-turn readback for the target session did not answer.";
+export const USER_TURN_READ_FAILED: string =
+  "The user-turn readback for the target session did not answer.";
 
 /**
  * Reconciles an ambiguous delivery positionally, and holds the send window open
  * around the caller's response to it.
  *
- * POSITIONAL, NEVER CONTENT-BASED. An ordinary turn carries no identity marker —
- * that carriage is T3.21's memo mechanism, minted for exactly this problem on a
- * path that could afford it — and participant text may legitimately repeat, so
- * matching bodies would settle a participant who asked the same question twice as
- * a duplicate. Counting is the one comparison both sides can perform on the same
- * unit.
+ * An ordinary turn carries no identity marker — that carriage is the memo
+ * mechanism, minted for exactly this problem on a path that could afford it — and
+ * user text may legitimately repeat, so matching bodies would settle a
+ * user who asked the same question twice as a duplicate. Counting is the
+ * one comparison both sides can perform on the same unit.
  *
  * RECONCILE BEFORE SEND, and the ordering is enforced here rather than asked of
  * the caller. {@link AmbiguousDeliveryReconciler.reconcileThenAct} runs the read
@@ -348,25 +337,25 @@ export const PARTICIPANT_TURN_READ_FAILED: string =
  * the count the target answered with at the moment it was asked.
  */
 export class AmbiguousDeliveryReconciler {
-  readonly #readParticipantTurns: ParticipantTurnReadbackReader | undefined;
+  readonly #readUserTurns: UserTurnReadbackReader | undefined;
   /**
    * The TAIL of each target's reconcile queue, keyed by provider session id.
    *
    * Target-scoped rather than request-scoped for the reason the memo
    * coordinator's queue is: the fact being protected is a property of the
-   * conversation — how many participant turns it holds — so two reconciles against
+   * conversation — how many user turns it holds — so two reconciles against
    * one target must not interleave, while reconciles against different targets
    * have nothing to say to each other and must not queue behind one another.
    */
   readonly #reconcileQueueTails: Map<string, Promise<unknown>> = new Map();
 
-  constructor(readParticipantTurns?: ParticipantTurnReadbackReader | undefined) {
-    this.#readParticipantTurns = readParticipantTurns;
+  constructor(readUserTurns?: UserTurnReadbackReader | undefined) {
+    this.#readUserTurns = readUserTurns;
   }
 
   /** Whether this reconciler can read a target back at all. */
-  get canReadParticipantTurns(): boolean {
-    return this.#readParticipantTurns !== undefined;
+  get canReadUserTurns(): boolean {
+    return this.#readUserTurns !== undefined;
   }
 
   /**
@@ -378,14 +367,14 @@ export class AmbiguousDeliveryReconciler {
    * settlement and trusting the caller to act promptly would reopen precisely the
    * window this class exists to close.
    *
-   * `acknowledgedParticipantSends` is the count the daemon has ACKNOWLEDGED — the
+   * `acknowledgedUserSends` is the count the daemon has ACKNOWLEDGED — the
    * ambiguous request itself is excluded, because it is the thing being ruled on.
    * A target holding more than that has the ambiguous turn in it.
    */
   async reconcileThenAct<T>(
     request: {
       readonly targetProviderSessionId: string;
-      readonly acknowledgedParticipantSends: number;
+      readonly acknowledgedUserSends: number;
     },
     act: (settlement: AmbiguousDeliverySettlement) => Promise<T>,
   ): Promise<T> {
@@ -417,21 +406,21 @@ export class AmbiguousDeliveryReconciler {
 
   async #readAndSettle(request: {
     readonly targetProviderSessionId: string;
-    readonly acknowledgedParticipantSends: number;
+    readonly acknowledgedUserSends: number;
   }): Promise<AmbiguousDeliverySettlement> {
-    const readParticipantTurns = this.#readParticipantTurns;
-    if (readParticipantTurns === undefined) {
-      return { settlement: "unrecoverable", reason: NO_PARTICIPANT_TURN_READER_BOUND };
+    const readUserTurns = this.#readUserTurns;
+    if (readUserTurns === undefined) {
+      return { settlement: "unrecoverable", reason: NO_USER_TURN_READER_BOUND };
     }
-    let readback: ParticipantTurnReadback;
+    let readback: UserTurnReadback;
     try {
-      readback = await readParticipantTurns(request.targetProviderSessionId);
+      readback = await readUserTurns(request.targetProviderSessionId);
     } catch {
       // A throwing reader is an unreadable target, not a crash to propagate. The
       // caller is in the middle of settling a turn; converting its ambiguity into
       // a different exception would replace a settlement it can report with one it
       // cannot classify.
-      return { settlement: "unrecoverable", reason: PARTICIPANT_TURN_READ_FAILED };
+      return { settlement: "unrecoverable", reason: USER_TURN_READ_FAILED };
     }
     if (readback.kind === "unreadable") {
       return { settlement: "unrecoverable", reason: readback.reason };
@@ -444,11 +433,11 @@ export class AmbiguousDeliveryReconciler {
     // request, and it lands on the same arm as equality for the reason that arm
     // exists: nothing there proves the ambiguous turn landed, so nothing is
     // suppressed on that basis.
-    return readback.participantOriginatedTurns > request.acknowledgedParticipantSends
-      ? { settlement: "delivered", participantOriginatedTurns: readback.participantOriginatedTurns }
+    return readback.userOriginatedTurns > request.acknowledgedUserSends
+      ? { settlement: "delivered", userOriginatedTurns: readback.userOriginatedTurns }
       : {
           settlement: "cleared-for-retry",
-          participantOriginatedTurns: readback.participantOriginatedTurns,
+          userOriginatedTurns: readback.userOriginatedTurns,
         };
   }
 }

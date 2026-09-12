@@ -1,5 +1,5 @@
 // Node provider plane — the runtime-node lifecycle binder for the provider
-// subsystem (Plan-005 Phase 3, T3.12 / P2-9's sanctioned wiring call).
+// subsystem (the provider subsystem's sanctioned wiring call).
 //
 // The `CapabilityRefreshScheduler` is a lifecycle owner with two lifecycle
 // verbs — `startForNode` on attach, `stopForNode` on detach — and nothing in
@@ -51,10 +51,6 @@
 // `shutdown` is here for the same reason: the daemon shutdown path gets ONE
 // call on the plane rather than reaching through it for the scheduler.
 //
-// Refs: Plan-005 §Phase 3 / T3.12 (P2-9), `Spec-005 §Resolved Questions and V1
-// Scope Decisions` (the bounded refresh cadence per runtime node),
-// `Spec-005 §Required Behavior` (run admission against a driver not probing
-// `authenticated`), `docs/architecture/contracts/error-contracts.md §Driver`.
 
 import type { ProviderDriver } from "@ai-sidekicks/contracts";
 

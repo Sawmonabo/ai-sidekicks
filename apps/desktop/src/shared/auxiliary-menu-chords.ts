@@ -46,9 +46,8 @@ import { type AuxiliaryRouteName } from "./auxiliary-routes.js";
  * accelerator belongs to renders nowhere and nobody has ever pressed it. Electron
  * takes a menu accelerator ahead of the renderer, so shipping both would have made
  * scroll-to-tail stop working the day that entry appeared, with the keyboard page
- * still reporting the binding as installed. And `Spec-023 §Signature Feature
- * Composition Sketches`' Timeline View names scroll-to-tail among the ledger's
- * interactions, while no document anywhere names this entry's shortcut — so moving
+ * still reporting the binding as installed. And scroll-to-tail is a named Timeline
+ * View interaction, while nothing anywhere names this entry's shortcut — so moving
  * the menu costs no stated contract, and moving the ledger would strand every
  * override a person has already recorded against its chord.
  *

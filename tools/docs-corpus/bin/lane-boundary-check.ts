@@ -2,16 +2,16 @@
 // lane-boundary-check — CI guard for the lane-1 title-token boundary
 // (CONTRIBUTING.md §How Code Lands: Work Classification).
 //
-// The plan-execution manifest-freshness gate (G6) recovers shipment drift by
+// The shipment-manifest rebuild tool recovers shipment drift by
 // searching merged PR titles for `Plan-NNN` and counting any hit that touches
 // material paths. That makes a mislabeled title the one way to re-create
 // drift: a lane-2/3 PR carrying the token pollutes recovery. This guard
-// enforces the boundary with G6's own narrowings so the two predicates
+// enforces the boundary with manifest reconciliation's own narrowings so the two predicates
 // cannot disagree:
 //
 //   - token match is case-insensitive (GitHub search is, and
 //     rebuild-shipment-manifest.mjs filters with the `i` flag);
-//   - a docs-only diff passes (G6 counts only PRs touching
+//   - a docs-only diff passes (manifest reconciliation counts only PRs touching
 //     MATERIAL_PATH_PREFIXES, so docs PRs may legitimately name plans);
 //   - a material diff with a title token must DECLARE lane 1 for every
 //     cited plan: either the branch is plan-scoped for that same NNN
@@ -23,9 +23,9 @@
 //     post-merge housekeeping PR (SKILL.md §Phase E, steps 6-8 — Codex P1
 //     on this PR's first review round). The guard checks plan-doc file
 //     presence, not amendment content — a semantic content check cannot
-//     distinguish an amendment from a prose edit, and G6 remains the
+//     distinguish an amendment from a prose edit, and manifest reconciliation remains the
 //     fail-closed backstop for manifest completeness after merge;
-//   - reverts get NO exemption (Codex P2, rounds 3-5): G6 itself has none,
+//   - reverts get NO exemption (Codex P2, rounds 3-5): manifest reconciliation itself has none,
 //     so a merged material revert title carrying the token joins the
 //     freshness population as an unmanifested shipment — the exact
 //     pollution this guard exists to prevent. Both GitHub's default
@@ -38,9 +38,9 @@
 //     cannot stand in for the reconciliation the failure message asks for;
 //   - the INVERSE mislabel fails too (Codex P2, rounds 3 + 5): a material
 //     diff on a `<type>/plan-NNN-*` branch whose title does not cite that
-//     SAME plan is a shipment G6 can never recover (it searches titles,
-//     not branches) — whether the title has no token at all or only other
-//     plans' tokens. A docs-only diff on a plan-shaped branch keeps a
+//     SAME plan is a shipment manifest reconciliation can never recover, since
+//     it searches titles and not branches — whether the title has no token at
+//     all or only other plans' tokens. A docs-only diff on a plan-shaped branch keeps a
 //     log-only advisory.
 //
 // argv: none. Reads PR_TITLE and PR_BRANCH from env and the changed-file
@@ -55,7 +55,7 @@ import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 // Sync contract with `.claude/skills/plan-execution/scripts/preflight.mjs`
-// (G6's MATERIAL_PATH_PREFIXES): the guard must classify "material" exactly
+// (manifest reconciliation's MATERIAL_PATH_PREFIXES): the guard must classify "material" exactly
 // as the gate does or the boundary drifts. Enforced by a deep-equality test
 // in `__tests__/lane-boundary-check.test.ts`, not by this comment.
 export const MATERIAL_PATH_PREFIXES: readonly string[] = [
@@ -66,7 +66,7 @@ export const MATERIAL_PATH_PREFIXES: readonly string[] = [
 ];
 
 // Case-insensitive; `\b` on both sides keeps `workplan-001` and 4-digit
-// `plan-0011` shapes out, matching the 3-digit padded form G6 searches.
+// `plan-0011` shapes out, matching the 3-digit padded form manifest reconciliation searches.
 const TITLE_TOKEN_RE = /\bplan-(\d{3})\b/gi;
 
 // CONTRIBUTING §Topic segment: plan-scoped work embeds `plan-NNN-` in the
@@ -128,7 +128,7 @@ export function checkLaneBoundary(input: LaneBoundaryInput): LaneBoundaryResult 
 
   // Inverse mislabel: a plan-scoped branch whose title does not cite that
   // same plan. With a material diff the branch-declared shipment would be
-  // permanently invisible to G6 (it searches merged TITLES) — hard failure
+  // permanently invisible to manifest reconciliation (it searches merged TITLES) — hard failure
   // whether the title is tokenless or cites only OTHER plans (Codex P2,
   // rounds 3 + 5). Docs-only stays a log-only advisory.
   if (branchPlanNumber !== null && !tokens.includes(branchPlanNumber)) {
@@ -142,7 +142,7 @@ export function checkLaneBoundary(input: LaneBoundaryInput): LaneBoundaryResult 
             `Plan-${branchPlanNumber}` +
             (tokens.length > 0 ? ` (it cites Plan-${tokens.join(", Plan-")})` : ``) +
             ` — a shipment without its title token is invisible to the manifest-freshness ` +
-            `gate (G6 searches titles, not branches). If this ships Plan-${branchPlanNumber} ` +
+            `gate (manifest reconciliation searches titles, not branches). If this ships Plan-${branchPlanNumber} ` +
             `work, put that token in the title (CONTRIBUTING.md §How Code Lands step 3); ` +
             `if not, rename the branch off the plan-scoped shape.`,
         ],
@@ -156,8 +156,8 @@ export function checkLaneBoundary(input: LaneBoundaryInput): LaneBoundaryResult 
     );
   }
   if (tokens.length === 0 || materialFiles.length === 0) {
-    // Tokenless (G6-invisible by design — lanes 2/3) or docs-only (outside
-    // G6's material population): no title-token boundary to enforce.
+    // Tokenless (reconciliation-invisible by design — lanes 2/3) or docs-only (outside
+    // manifest reconciliation's material population): no title-token boundary to enforce.
     return { ok: true, failures: [], advisories };
   }
   const failures: string[] = [];
@@ -169,7 +169,7 @@ export function checkLaneBoundary(input: LaneBoundaryInput): LaneBoundaryResult 
     // post-merge housekeeping PR, never in the shipment PR, because its
     // `sha:` field is this PR's own squash SHA), or a plan-doc edit riding
     // in the same PR (amendment-with-code shape; presence-only by design —
-    // G6 backstops manifest completeness post-merge). Reverts get neither
+    // manifest reconciliation backstops manifest completeness post-merge). Reverts get neither
     // shortcut: the shipped title's token rides ANY revert branch, and the
     // failure message promises manifest RECONCILIATION, so the plan-doc
     // patch must actually touch manifest content (MANIFEST_PATCH_RE); a

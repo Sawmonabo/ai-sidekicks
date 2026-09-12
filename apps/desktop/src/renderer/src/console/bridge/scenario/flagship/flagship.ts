@@ -55,7 +55,7 @@
 //     DESCRIPTION and never the body, which is sealed in `content_payload` and
 //     served by no bridge namespace. The cards render the named absence, which is
 //     the true state of that wire today.
-//   • **A link TYPE on the run thread.** `linkType` is typed by a Plan-016 symbol no
+//   • **A link TYPE on the run thread.** `linkType` is typed by a symbol no
 //     TypeScript in this workspace declares, so the thread carries the two linkage
 //     members that do have types — `parentRunId` and `internalHelper` — and says
 //     nothing about which kind of link it is.
@@ -72,9 +72,9 @@
 //
 // TWO CONSEQUENCES A READER WILL NOTICE FIRST:
 //
-//   • **The identifiers are UUIDs.** `SessionId`, `ParticipantId`, `MembershipId`,
-//     `AgentId`, and `RunId` are branded UUIDs (`§Branded ID Types` in
-//     `docs/architecture/contracts/api-payload-contracts.md`), and the strict layer
+//   • **The identifiers are UUIDs.** `SessionId`, `UserId`, `AgentId`,
+//     and `RunId` are branded UUIDs declared once in the payload
+//     contracts, and the strict layer
 //     refuses anything else. A readable `"agent-scout"` would also have rendered at
 //     a third of the width a real one does, which is a design lie in a fixture
 //     whose whole job is to be measured.
@@ -92,8 +92,8 @@ import {
   AGENT_SCOUT,
   EVENT_ID_STEM,
   FLAGSHIP_AGENTS,
-  PARTICIPANT_PRIYA,
-  PARTICIPANT_YOU,
+  USER_PRIYA,
+  USER_YOU,
   SESSION_ID,
   STARTED_AT_ISO,
   attachedAtIso,
@@ -121,9 +121,9 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
   sessionId: SESSION_ID,
   // Join order IS the hue order. Two people first, then the agents in the order
   // they were attached — which is what a real session's join log looks like.
-  participantIdsInJoinOrder: [
-    PARTICIPANT_YOU,
-    PARTICIPANT_PRIYA,
+  userIdsInJoinOrder: [
+    USER_YOU,
+    USER_PRIYA,
     AGENT_ARCHITECT,
     AGENT_IMPLEMENTER,
     AGENT_REVIEWER,
@@ -132,7 +132,7 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
   // Which of the six this window is. Stated rather than inferred from the head of
   // the join order — that entry is whoever opened the session, on whichever machine,
   // and the two facts coincide here only because this scenario chose to make them.
-  viewingParticipantId: PARTICIPANT_YOU,
+  callerUserId: USER_YOU,
   startedAtIso: STARTED_AT_ISO,
   beats: scriptLedgerBeats({
     sessionId: SESSION_ID,
@@ -165,7 +165,7 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
     {
       // The node's health, which is a MEASUREMENT and so is scripted rather than
       // folded out of beats: nothing in a session's log says whether the node's
-      // storage is healthy. Two components, one of them not — so the cast bar's
+      // storage is healthy. Two components, one of them not — so the session header's
       // compact mark has something to say. A scenario that scripts no reading gets
       // a refusal rather than a healthy verdict, which is why this one has to say
       // what it measured: the fixture invents no health for anybody.
@@ -189,13 +189,13 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
     // is to reach every state a surface renders.
     //
     // Nothing is drawn from this reply in this window: the agreeing arm renders no
-    // banner and no version line, which is the whole of what `Spec-023` asks for when
+    // banner and no version line, which is the whole of what is asked for when
     // the two builds met. It is scripted so the fixture HAS the agreeing outcome —
     // the negative control for a surface that only ever appears on the other one.
     AGREED_NEGOTIATION_REPLY,
     {
       // The accountant's own committed figure — the ONE source of a spend number for
-      // every surface, and the reason the cast bar sums nothing. `priced` because
+      // every surface, and the reason the session header sums nothing. `priced` because
       // every debit this session's four lanes raised was priced; the unpriced arm is
       // a different session's story and a different scenario's to tell.
       call: "orchestration.budgetRead",

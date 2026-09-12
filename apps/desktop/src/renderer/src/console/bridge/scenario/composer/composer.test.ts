@@ -14,7 +14,7 @@
 //   2. The run streams are fed. `run.subscribeState` and `run.subscribeQueue` route
 //      by KIND, so a scenario with no `queue_item.*` beat leaves the queue
 //      subscriber silent for the life of the window and its live half unreachable.
-//   3. The stated viewer is stated. The fixture answers the caller-identity read
+//   3. The caller is stated. The fixture answers the caller-identity read
 //      from that field alone and refuses when it is absent.
 
 import { describe, expect, it } from "vitest";
@@ -182,41 +182,41 @@ describe("the runs scenario feeds both run subscriptions", () => {
   });
 });
 
-describe("every scenario states which participant this window is", () => {
-  it.each(FAMILY_SCENARIOS)("$id names a viewer inside its own roster", (scenario) => {
-    expect(scenario.viewingParticipantId).toBeDefined();
-    expect(scenario.participantIdsInJoinOrder).toContain(scenario.viewingParticipantId);
+describe("every scenario states which user this window is", () => {
+  it.each(FAMILY_SCENARIOS)("$id names a caller inside its own roster", (scenario) => {
+    expect(scenario.callerUserId).toBeDefined();
+    expect(scenario.userIdsInJoinOrder).toContain(scenario.callerUserId);
   });
 
   it("negative control: the caller-identity read refuses when none is stated", async () => {
-    // The state a scenario without a viewer leaves every role-resolving surface in,
+    // The state a scenario without a caller leaves every role-resolving surface in,
     // driven through the real port so the assertion is about the shipped rule.
     // Spelled out rather than spread-with-`undefined`: `exactOptionalPropertyTypes`
     // makes an explicit `undefined` a different thing from an absent member, and the
     // absent one is the state under test.
-    const withoutViewer: ConsoleScenario = {
-      id: `${COMPOSER_SCENARIO.id}-viewerless`,
+    const withoutCaller: ConsoleScenario = {
+      id: `${COMPOSER_SCENARIO.id}-callerless`,
       label: COMPOSER_SCENARIO.label,
       purpose: COMPOSER_SCENARIO.purpose,
       sessionId: COMPOSER_SCENARIO.sessionId,
-      participantIdsInJoinOrder: COMPOSER_SCENARIO.participantIdsInJoinOrder,
+      userIdsInJoinOrder: COMPOSER_SCENARIO.userIdsInJoinOrder,
       beats: COMPOSER_SCENARIO.beats,
       replies: COMPOSER_SCENARIO.replies,
       startedAtIso: COMPOSER_SCENARIO.startedAtIso,
     };
-    const port = createFixtureBridge({ scenario: withoutViewer }).growth;
-    const outcome = await port.callerParticipantRead({ sessionId: COMPOSER_SCENARIO.sessionId });
+    const port = createFixtureBridge({ scenario: withoutCaller }).growth;
+    const outcome = await port.callerUserRead({ sessionId: COMPOSER_SCENARIO.sessionId });
 
     expect(outcome.status).toBe("unavailable");
   });
 
   it("answers the caller-identity read when one is stated", async () => {
     const port = createFixtureBridge({ scenario: COMPOSER_SCENARIO }).growth;
-    const outcome = await port.callerParticipantRead({ sessionId: COMPOSER_SCENARIO.sessionId });
+    const outcome = await port.callerUserRead({ sessionId: COMPOSER_SCENARIO.sessionId });
 
     expect(outcome.status).toBe("served");
-    expect(outcome.status === "served" ? outcome.value.participantId : undefined).toBe(
-      COMPOSER_SCENARIO.viewingParticipantId,
+    expect(outcome.status === "served" ? outcome.value.userId : undefined).toBe(
+      COMPOSER_SCENARIO.callerUserId,
     );
   });
 });

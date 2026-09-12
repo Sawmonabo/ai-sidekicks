@@ -11,13 +11,13 @@
 // session id IS this terminal's identity in the console's own request shapes; it is not
 // a fabricated key, it is the name of the session's single shell.
 //
-// THE VIEWER IS READ, NOT ASSUMED. `callerParticipantRead` is the port's answer to which
+// THE DEVICE IS READ, NOT ASSUMED. `callerUserRead` is the port's answer to which
 // window this is, and the fold takes it as the input that tells a hold this window has
 // from one it does not. It used to take a hard-coded `undefined`, which made every take
 // read as somebody else's: the window the daemon had just granted the shell to kept
 // seeing Claim, could not release, and typed into nothing. While the read is out — or
 // when it is refused — the claim control is WITHHELD rather than offered on a guess, and
-// the fold still gets no viewer, so the fail-closed direction is unchanged.
+// the fold still gets no device identity, so the fail-closed direction is unchanged.
 //
 // THE HOST'S REACHABILITY IS PROJECTED, NOT ASSUMED. The degraded state is a hold whose
 // node has gone offline, and the lease events carry no node — so this pane folds the
@@ -98,22 +98,21 @@ export function BoundTerminalPane(props: BoundTerminalPaneProps): React.JSX.Elem
     [timeline],
   );
 
-  // The viewer the fold compares the holder against, and only on the READ arm: a
+  // The device the fold compares the holder against, and only on the READ arm: a
   // pending or refused identity passes `undefined`, which keeps every held lease at
   // `held-by-another` and the emulator read-only. The claim control is withheld on
   // those same two arms, so the surface never offers an act it could not attribute.
-  const viewerParticipantId =
-    viewerIdentity.status === "read" ? viewerIdentity.participantId : undefined;
+  const viewerUserId = viewerIdentity.status === "read" ? viewerIdentity.userId : undefined;
 
   const lease: TerminalLeaseState = useMemo(
     () =>
       projectTerminalLease(timeline, {
-        viewerParticipantId,
+        viewerUserId,
         // Omitted rather than passed as `undefined`, because the member's absence is
         // what the fold reads as "nothing was checked".
         ...(holdingNode === undefined ? {} : { holdingNode }),
       }),
-    [timeline, holdingNode, viewerParticipantId],
+    [timeline, holdingNode, viewerUserId],
   );
 
   // The aside is a sentence about the step-in control, so it renders where that

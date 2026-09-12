@@ -1,12 +1,12 @@
 // The `when` clause — the console's visibility language, and what one MEANS.
 //
-// `Spec-023 §Console Design (Meridian)` names it once, in the settings surface
-// bullet: "a Keyboard page offers rebinding with conflict detection over the
-// console's when-scoped chord grammar". This module is that scope language's
-// TYPE and SEMANTICS — a parsed clause, what it evaluates to, which keys it
-// reads, and how it prints. The syntax that produces one lives beside it in
-// `when-clause-parser.ts`, the conflict question in `when-clause-overlap.ts`,
-// and the per-source memo in `when-clause-cache.ts`.
+// The console names it once, in the settings surface: a Keyboard page offers
+// rebinding with conflict detection over the console's when-scoped chord
+// grammar. This module is that scope language's TYPE and SEMANTICS — a parsed
+// clause, what it evaluates to, which keys it reads, and how it prints. The
+// syntax that produces one lives beside it in `when-clause-parser.ts`, the
+// conflict question in `when-clause-overlap.ts`, and the per-source memo in
+// `when-clause-cache.ts`.
 //
 // The clause is shared by the command registry (which commands are offered at
 // all) and the keybinding table (which chord is live right now), which is why the
@@ -26,13 +26,12 @@
 // THE FAIL-CLOSED RULE THIS MODULE OWNS: an UNKNOWN CONTEXT KEY IS UNKNOWN, and
 // an unknown CLAUSE is false — never "assume true". A clause names the state
 // under which a control is safe to offer. If the frame has not supplied that key,
-// the console does not know whether the state holds — and `Spec-023 §Console
-// Design (Meridian)`'s "Absent, not disabled" and "Fail-closed projection" rules
-// both resolve an unknown to the conservative arm. Offering a control on a key
-// nobody computed would be the renderer guessing at eligibility, which is
-// precisely what that spec forbids. (The other fail-closed rule — a clause that
-// does not parse hides its command — belongs to the parser and the cache, and is
-// stated there.)
+// the console does not know whether the state holds — and the absent-not-disabled
+// and fail-closed-projection rules both resolve an unknown to the conservative
+// arm. Offering a control on a key nobody computed would be the renderer guessing
+// at eligibility, which the console forbids. (The other fail-closed rule — a
+// clause that does not parse hides its command — belongs to the parser and the
+// cache, and is stated there.)
 //
 // WHY UNKNOWN IS A THIRD VALUE AND NOT JUST `false`. Substituting `false` for an
 // absent key reads as fail-closed and is not: `!sessionActve` — one transposed

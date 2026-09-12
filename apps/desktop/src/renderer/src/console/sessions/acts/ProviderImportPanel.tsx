@@ -7,11 +7,11 @@
 // the primary act.
 //
 // IT IS BUILT ON THE GROWTH PORT AND SAYS SO. `providerSessionImportBegin` and
-// `providerSessionImportSubscribe` are on `Plan-023 §Console growth slate` under the
-// `provider-session-import` row, owned by a spec that does not exist yet. Against the
-// live bridge both refuse `wire-unregistered`, and the refusal names the document that
-// owes the wire — so the panel renders the console's honest "nobody asked" rather than
-// a form that silently does nothing.
+// `providerSessionImportSubscribe` are on the console growth slate under the
+// `provider-session-import` row, owned by a document that does not exist yet. Against
+// the live bridge both refuse `wire-unregistered`, and the refusal names what owes the
+// wire — so the panel renders the console's honest "nobody asked" rather than a form
+// that silently does nothing.
 //
 // TWO CALLS, TWO RENDERINGS. The begin settles once and its arms are the act's; the
 // subscription is a stream and its arms are its own. They are rendered in sequence

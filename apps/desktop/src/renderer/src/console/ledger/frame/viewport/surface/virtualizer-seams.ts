@@ -1,8 +1,8 @@
 // The option object the virtualizer is constructed with, and nothing else.
 //
-// `Spec-023 §Console Libraries` adopts `@tanstack/react-virtual` because it is "the
-// only candidate whose scroller we own (`getScrollElement`, `scrollToFn`,
-// `observeElementOffset`)". This module is that ownership, stated once: every way
+// `@tanstack/react-virtual` is adopted because it is the only candidate whose scroller
+// we own — `getScrollElement`, `scrollToFn`, `observeElementOffset`. This module is that
+// ownership, stated once: every way
 // the library can reach the outside world, pointed back at machinery this frame
 // already has. Each default it replaces is named beside it, because what the default
 // would have done is the reason the override exists.

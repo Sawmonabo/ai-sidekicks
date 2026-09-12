@@ -2,7 +2,7 @@
 //
 // The console's other scenarios all start from nothing or from a session already
 // running. This one is the third opening the sessions surface has to draw and the one
-// no script reached: a participant who has a provider CLI transcript on disk, or an
+// no script reached: a user who has a provider CLI transcript on disk, or an
 // identifier for a session somebody else is already in, and wants the console to pick
 // up from there rather than from an empty composer.
 //
@@ -41,7 +41,7 @@ import { requestedIdentifier } from "./computed-reply.js";
 export const BRING_YOUR_HISTORY_SCENARIO_ID = "bring-your-history";
 
 const SESSION_ID = "019b78c9-0a80-7b31-9c40-4f0a0b6d1100";
-const PARTICIPANT_YOU = "019b78c9-0a80-7b31-9c40-4f0a0b6d1101";
+const USER_YOU = "019b78c9-0a80-7b31-9c40-4f0a0b6d1101";
 
 /** The reply key the shell's notification-permission reading is scripted under. */
 export const SHELL_NOTIFICATION_PERMISSION_CALL = "growth:shellNotificationPermissionRead";
@@ -129,10 +129,10 @@ export const BRING_YOUR_HISTORY_SCENARIO: ConsoleScenario = {
   id: BRING_YOUR_HISTORY_SCENARIO_ID,
   label: "Bring your history",
   purpose:
-    "A participant arriving with work that already exists — a session identifier to join and a provider transcript to import — with the refusing arm of each and a machine that will not show OS notifications.",
+    "A user arriving with work that already exists — a session identifier to join and a provider transcript to import — with the refusing arm of each and a machine that will not show OS notifications.",
   sessionId: SESSION_ID,
-  participantIdsInJoinOrder: [PARTICIPANT_YOU],
-  viewingParticipantId: PARTICIPANT_YOU,
+  userIdsInJoinOrder: [USER_YOU],
+  callerUserId: USER_YOU,
   startedAtIso: "2026-01-01T09:00:00.000Z",
   beats: [
     {
@@ -143,7 +143,7 @@ export const BRING_YOUR_HISTORY_SCENARIO: ConsoleScenario = {
         sequence: 1,
         kind: "session.created",
         occurredAt: "2026-01-01T09:00:00.000Z",
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
       },
     },

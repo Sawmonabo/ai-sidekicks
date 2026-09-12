@@ -1,10 +1,10 @@
 // The keyboard page: every chord this window installs, what the service says about
 // them, and the one place a person changes one.
 //
-// `Spec-023 §Console Design (Meridian)` §Keyboard: "One row per command with its
-// chord, its command id, and the when-grammar expression that scopes it …
-// Conflict detection against the same when-scope, naming the command that already
-// holds the chord … Never writes a binding to a wire; the map is renderer-local."
+// One row per command with its chord, its command id, and the when-grammar expression
+// that scopes it. Conflict detection runs against the same when-scope and names the
+// command that already holds the chord. A binding is never written to a wire; the map
+// is renderer-local.
 //
 // WHERE A REBINDING GOES
 //
@@ -54,7 +54,7 @@ import {
 import type { SettingsPageRegistry } from "../../settings-page-registry.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
-const OWNER = "collaboration-settings-keyboard";
+const OWNER = "settings-keyboard";
 
 /** The filter field's id, so its label points at it rather than wrapping it. */
 const FILTER_FIELD_ID = "meridian-keyboard-filter";

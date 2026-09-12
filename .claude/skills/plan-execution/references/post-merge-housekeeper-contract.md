@@ -1,251 +1,73 @@
 # post-merge-housekeeper Contract
 
-The plan-execution housekeeper subagent and its companion script (`scripts/post-merge-housekeeper.mjs`) implement Phase E's auto-housekeeping per Spec [docs/superpowers/specs/2026-05-03-plan-execution-housekeeper-design.md](../../../../docs/superpowers/specs/2026-05-03-plan-execution-housekeeper-design.md).
+`scripts/post-merge-housekeeper.mjs` runs in Phase E after the feature PR squash-merges. It proposes the plan's own `### Shipment Manifest` YAML entry for that PR and writes it into a JSON manifest; the orchestrator enriches the proposal with the DAG's audit-derived fields and performs the plan-file write. The script edits no document and shells out to nothing.
 
 ## Manifest schema
 
+Written to `.agents/tmp/housekeeper-manifest-PR<N>.json`:
+
 ```json
 {
-  "generated_at": "2026-05-03T14:32:11Z",
+  "generated_at": "2026-05-03T00:00:00Z",
   "pr_number": 30,
   "plan": "024",
   "phase": "1",
-  "task_id": null,
+  "task_id": "T-024-1-1",
   "script_exit_code": 0,
-
-  "// — written by script —": "",
-  "matched_entry": {
-    "ns_id": "NS-01",
-    "heading": "### NS-01: Plan-024 Phase 1 — Rust crate scaffolding",
-    "shape": "single-pr",
-    "file": "docs/architecture/cross-plan-dependencies.md",
-    "heading_line": 342
-  },
-  "mechanical_edits": {
-    "status_flip": {
-      "ns_id": "NS-01",
-      "from_line": "- Status: `todo`",
-      "to_line": "- Status: `completed` (resolved 2026-05-03 via PR #30 — <TODO subagent prose>)",
-      "computed_via": "single-pr direct flip"
-    },
-    "prs_block_ticks": [],
-    "mermaid_class_swap": {
-      "ns_id": "NS-01",
-      "from": ":::ready",
-      "to": ":::completed",
-      "node_line": 285
-    }
-  },
-  "schema_violations": [],
-  "verification_failures": [],
-  "affected_files": [
-    "docs/architecture/cross-plan-dependencies.md",
-    "docs/plans/024-rust-pty-sidecar.md"
-  ],
-  "semantic_work_pending": [
-    "compose_status_completion_prose",
-    "ready_set_re_derivation",
-    "line_cite_sweep",
-    "set_quantifier_reverification",
-    "ns_auto_create_evaluation",
-    "unannotated_referenced_files_check",
-    "plan_done_checklist_evaluation"
-  ],
-  "warnings": [],
-  "_script_stage": {
-    "// script-stage snapshot — see §_script_stage snapshot + orchestrator plumbing —": "",
-    "affected_files": [
-      "docs/architecture/cross-plan-dependencies.md",
-      "docs/plans/024-rust-pty-sidecar.md"
-    ],
-    "schema_violations": [],
-    "verification_failures": [],
-    "semantic_work_pending": [
-      "compose_status_completion_prose",
-      "ready_set_re_derivation",
-      "line_cite_sweep",
-      "set_quantifier_reverification",
-      "ns_auto_create_evaluation",
-      "unannotated_referenced_files_check",
-      "plan_done_checklist_evaluation"
-    ]
-  },
   "proposed_manifest_entry": {
-    "// — see §Proposed shipment-manifest entry —": "",
     "phase": 1,
     "task": "T-024-1-1",
     "pr": 30,
-    "sha": "deadbee",
-    "merged_at": "2026-05-05",
-    "files": ["packages/runtime-daemon/src/foo.rs"],
+    "sha": "abc1234",
+    "merged_at": "2026-05-03",
+    "files": ["packages/runtime-daemon/src/index.ts"],
     "verifies_invariant": [],
     "spec_coverage": []
-  },
-
-  "// — written by subagent (null/empty until subagent fills) —": "",
-  "subagent_completed_at": null,
-  "semantic_edits": {},
-  "concerns": [],
-  "result": null
+  }
 }
 ```
 
-For multi-PR shape, `matched_entry.shape` is `"multi-pr"`, `mechanical_edits.status_flip.computed_via` is `"prs-matrix recompute"` with the matrix-row that fired, and `mechanical_edits.prs_block_ticks` carries the per-tick details.
-
-For multi-candidate runs (`--candidate-ns NS-XX,NS-YY` — comma-list dispatched against multiple NS entries in one Phase E run), the script swaps the singular keys for plural arrays carrying one entry per processed NS:
-
-- `matched_entry: null` and `matched_entries: [...]` carries per-NS metadata (one entry per NS in the comma list).
-- `mechanical_edits.status_flip` and `mechanical_edits.mermaid_class_swap` are absent (omitted from the JSON entirely, not null) and the plural `mechanical_edits.status_flips: [...]` and `mechanical_edits.mermaid_class_swaps: [...]` arrays carry one entry per processed NS.
-- `mechanical_edits.prs_block_ticks` retains its array shape across both single- and multi-candidate runs (it was already an array).
-
-Subagent consumers detect multi-candidate by checking `Array.isArray(manifest.matched_entries)`; the canonical fixture for this shape is `scripts/__tests__/fixtures/14-multi-candidate-happy-path/expected-manifest.json`. The plural shape is independent of the per-NS multi-PR variation above — a multi-candidate run can include NS entries that are themselves multi-PR (each emits its own `status_flips[]` entry with `computed_via: "prs-matrix recompute"`).
-
-Stage 1 (script) writes the file with subagent fields stubbed. Stage 2 (subagent) reads, fills in its fields (including replacing the `<TODO subagent prose>` placeholders in `Status:` lines via direct file edits, then echoing the composed prose into `semantic_edits.completion_prose`), writes back.
-
-**`plan_done_checklist_evaluation`.** Evaluation-shaped, mirroring `ns_auto_create_evaluation`: the subagent decides whether the plan's document-level `## Done Checklist` is due a tick for the phase that just shipped, and records the decision either way under `semantic_edits.plan_done_checklist_evaluation`. Due → tick the row with the evidence those rows carry (PR #, squash SHA, merge date). Not due → record `not due — phase N of M`. The checklist is plan-scoped, so "not due" is the common case on a mid-plan phase ship, and recording it IS the completed work — a `concerns` entry is owed only when the subagent genuinely cannot decide. The script does not tick this checklist and never has (see §Exit codes, code 3).
-
-The "not due" branch resolves to **no edit of the plan file at all**, and that is the conformant outcome rather than a skipped duty. The `semantic_edits` payload is the whole deliverable on that branch: the validator requires a non-empty payload per pending item, so the decision is recorded whether or not any file changed, and the subagent additionally names every untouched in-scope file in its report per `.claude/agents/plan-execution-housekeeper.md` § Report format. Nothing anywhere requires an `Edit` per `affected_files` member. The only per-file machine gate is the `<TODO subagent prose>` placeholder scan (§ Validation invariants), and the script writes that token solely into files that genuinely need prose composed — never into a plan file, under which it writes nothing at all.
-
-The item is emitted on both dispatch modes — a phase shipped either way, so the question is live whether or not an NS entry existed pre-merge — but within each mode only on **plan-bound** runs, meaning those carrying both `--plan` and `--phase`. Cleanup, governance and tier-range-audit invocations legally carry neither (they record `plan: null, phase: null`); there is no plan whose checklist could be due, so asking would produce an unanswerable item, and since every pending item must pair to a `semantic_edits` entry or a `concerns` entry, it would make `DONE_WITH_CONCERNS` the verdict on an otherwise clean run.
-
-Whenever the item IS emitted, the resolved plan file is declared in `affected_files` alongside the §6 corpus. The two move together: `affected_files` hard-bounds the subagent's edit scope from above — it authorizes the tick the evaluation MAY resolve to, without obliging one — so an emitted-but-undeclared item asks for a tick the contract forbids, costing a sprawl round-trip and an `affected_files_extension` concern, while a declared-but-unemitted file widens that scope for nothing.
-
-## Warnings
-
-`warnings` carries non-fatal anomalies the script noticed but did not halt on. It is script-stage output only (never mirrored into `_script_stage`, never written by the subagent) and no pending item pairs to it, so it never gates `RESULT`.
-
-**How a warning reaches a human.** The orchestrator passes the array to `decideHousekeeperRouting({ scriptExitCode, warnings })` in Phase E step 4. When it is non-empty the returned decision carries `warnings` plus a `surfacePromptTemplate` relay block, which SKILL.md step 4 already instructs the orchestrator to relay verbatim — on a halt the block is appended to the halt prose rather than replacing it. `action` is never affected: routing is a pure function of the exit code, because a warning is by construction something the script chose not to halt on. The dispatched subagent repeats the entries independently per `.claude/agents/plan-execution-housekeeper.md` § Report format — a second reader of the same array, and the one actor whose first action is a transcript-validated `Read` of the manifest.
-
-This wiring is deliberate rather than decorative. A `plan_file_unresolved` warning rides an exit-0 run whose manifest is otherwise clean, so it is the only evidence that a plan-bound run skipped its checklist evaluation; left unread it would be a write-only diagnostic — the same silent-failure shape as the never-firing checklist tick retired in this PR. What the wiring guarantees is that the payload reaches the orchestrator inside a value it must consume to route at all. It cannot guarantee a human read the relayed text; that leg is LLM-mediated.
-
-**Why a warning creates no subagent obligation.** Every obligation in `.claude/agents/plan-execution-housekeeper.md` keys off a field that is not `warnings`: § Manifest contents and § Mindset bind the work to `semantic_work_pending`; § Hard rules pairs each pending item to a `semantic_edits` or `concerns` entry, routes exit-5 `schema_violations` to `concerns` + `RESULT: BLOCKED`, and routes unannotated-NS PRs to `concerns` + `RESULT: DONE_WITH_CONCERNS`. None of them names `warnings`, and the § Report format duty above is explicitly reporting-only. That separation is what keeps `RESULT: DONE` reachable on a run whose sole anomaly is a warning — the alternative, an item the subagent cannot discharge, would make `DONE_WITH_CONCERNS` the default verdict on an otherwise-clean run, which is the failure mode this channel was added to report on rather than reproduce. Pinned by `__tests__/post-merge-housekeeper-orchestrator-helpers.test.mjs` § "DONE stays reachable when the manifest carries a warning".
-
-| `kind` | Fields | Meaning |
-| --- | --- | --- |
-| `plan_file_unresolved` | `plan`, `glob` | A plan-bound run whose plan file did not resolve to exactly one path: `docs/plans/` is absent, nothing matches `glob`, or several files do. `plan_done_checklist_evaluation` is dropped for that run and no plan path is declared — declaring a path that does not exist on disk is a hard validator gap, strictly worse than this warning. The §6 mechanical work is unaffected and the run still exits 0. |
-
 ## Proposed shipment-manifest entry
 
-`proposed_manifest_entry` is the script's draft of the `### Shipment Manifest` YAML entry the orchestrator appends to the plan body in Phase E step 6 (replacing the prior prose-Progress-Log append). The schema mirrors the `lib/manifest.mjs` validator (`MANIFEST_SCHEMA_VERSION = 1`):
+`proposed_manifest_entry` is the script's draft of the `### Shipment Manifest` YAML entry the orchestrator appends to the plan body. The schema mirrors the `lib/manifest.mjs` validator (`MANIFEST_SCHEMA_VERSION = 1`):
 
 | Field | Source | Notes |
 | --- | --- | --- |
-| `phase` | `--phase` flag (script) | Coerced to integer; null if non-numeric (Tier-A) — script returns `proposed_manifest_entry: null` in that case. |
+| `phase` | `--phase` flag (script) | Coerced to integer; a non-numeric phase (Tier-A style) makes the script return `proposed_manifest_entry: null`. |
 | `task` | `--task` flag (script) | String form; legacy multi-task PRs use array form (Plan-007 PR #19). |
-| `pr` | `--pr` flag (script) | Integer. |
+| `pr` | positional `<PR#>` (script) | Integer. |
 | `sha` | `--squash-sha` flag (orchestrator-supplied) | Abbreviated hex (7+ chars). Source: `git rev-parse --short HEAD` in Phase D.5 step 5. |
 | `merged_at` | `--merged-at` flag (orchestrator-supplied) | ISO date `YYYY-MM-DD`. Source: `gh pr view <PR#> --json mergedAt -q .mergedAt \| cut -dT -f1`. |
-| `files` | `diffTouchedFiles` from `git diff --name-only` (orchestrator-supplied) | Array; defaults to `[]` when caller didn't supply. |
-| `verifies_invariant` | Always `[]` at script stage | Audit-derived; orchestrator merges in DAG-task value via `enrichEntryWithDag` (lib/housekeeper-orchestrator-helpers.mjs). |
-| `spec_coverage` | Always `[]` at script stage | Same — DAG-task merge in step 6. |
+| `files` | `--touched-files-path` file contents (orchestrator-supplied) | Array; defaults to `[]` when the caller didn't supply one. |
+| `verifies_invariant` | Always `[]` at script stage | Audit-derived; the orchestrator merges in the DAG-task value via `enrichEntryWithDag` (lib/housekeeper-orchestrator-helpers.mjs). |
+| `spec_coverage` | Always `[]` at script stage | Same — DAG-task merge at manifest-append time. |
 
-**Graceful degradation.** If the orchestrator omits `--squash-sha` or `--merged-at` (legacy callers, fixture tests, Phase E configuration bugs), the script emits `proposed_manifest_entry: null` rather than a partial entry. The orchestrator's `extractProposedEntry` helper returns null in that case, and step 6 halts with a configuration gap surfaced to the user — never a silent no-op manifest write.
+**Graceful degradation.** If the orchestrator omits `--squash-sha` or `--merged-at`, or the run carries no plan / phase / task identity, the script emits `proposed_manifest_entry: null` rather than a partial entry. The orchestrator's `extractProposedEntry` helper returns null in that case, and the manifest-append step halts with a configuration gap surfaced to the user — never a silent no-op manifest write.
 
-**Plan Invariant I-3 boundary.** The script does NOT touch the plan-file's `### Shipment Manifest` block itself (no git imports, no plan-file writes — see `__tests__/post-merge-housekeeper-orchestrator-helpers.test.mjs § I-3 invariant`). The script's job is to PROPOSE; the orchestrator's job is to enrich (DAG fields) + WRITE (via `appendManifestEntry` from `scripts/lib/manifest.mjs`). Pattern B — script proposes, orchestrator writes — per the shipment-manifest refactor design.
+**Ownership boundary.** The script does NOT touch the plan file's `### Shipment Manifest` block (no git imports, no plan-file writes — pinned by the `I-3 invariant` test in `__tests__/post-merge-housekeeper-orchestrator-helpers.test.mjs`). The script proposes; the orchestrator enriches and writes via `appendManifestEntry` from `scripts/lib/manifest.mjs`.
 
-**Idempotency.** `appendManifestEntry` is keyed on the `pr` field — re-running Phase E step 6 with the same proposed entry is a no-op (per `__tests__/manifest.test.mjs § appendManifestEntry: idempotency on pr`).
+**Idempotency.** `appendManifestEntry` is keyed on the `pr` field — re-running the append with the same proposed entry is a no-op (per `__tests__/manifest.test.mjs § appendManifestEntry: idempotency on pr`).
 
 ## Exit codes
 
 ```
-Exit codes:  0  success
-                   --candidate-ns mode: candidate verified + mechanical edits applied
-                   --auto-create  mode: next free NS-NN reserved + manifest stub written
-                                        (subagent composes the new entry's body in stage 2)
-             1  --candidate-ns NS-XX not found in §6 (orchestrator misdispatch — halt)
-             2  candidate verification failed (Type-signature / file-overlap / plan-identity
-                   mismatch — halt BLOCKED via subagent surfacing of `verification_failures`)
-             3  reserved — retired 2026-07-27; no longer produced by this script
-                   (was: plan §Done Checklist not found / already fully ticked; the
-                    checklist is now the subagent's `plan_done_checklist_evaluation`.
-                    Still routed — see the dispatch/halt table below)
-             4  candidate is multi-PR shape but `--task <task-id>` arg missing (--candidate-ns mode only)
-             5  schema violation: candidate has malformed `PRs:` block / missing required
-                   sub-field (--candidate-ns) OR auto-create would duplicate an existing
-                   heading title (--auto-create) — subagent dispatched to surface as BLOCKED
+Exit codes:  0  success — manifest written
              ≥6 crash / IO error / arg-validation failure
 ```
 
-**Dispatch / halt routing.** The orchestrator does NOT dispatch the housekeeper subagent on every exit code. The mapping is encoded in `lib/housekeeper-orchestrator-helpers.mjs` → `decideHousekeeperRouting({ scriptExitCode })` and pinned by 10 unit tests in `scripts/__tests__/post-merge-housekeeper-orchestrator-helpers.test.mjs`. SKILL.md Phase E step 4 calls the helper and switches on the returned `action`:
+**Proceed / halt routing.** The mapping is encoded in `lib/housekeeper-orchestrator-helpers.mjs` → `decideHousekeeperRouting({ scriptExitCode })` and pinned by unit tests in `scripts/__tests__/post-merge-housekeeper-orchestrator-helpers.test.mjs`. Phase E calls the helper and switches on the returned `action`:
 
 | Exit | `action` | `exitClass` | Rationale |
 | --- | --- | --- | --- |
-| 0 | `dispatch` | `subagent-handled` | success — subagent completes semantic work |
-| 1 | `halt` | `orchestrator-misdispatch` | NS-XX not in §6 — orchestrator dispatched with bad flags |
-| 2 | `dispatch` | `subagent-handled` | verification failed — subagent surfaces `verification_failures` as BLOCKED |
-| 3 | `dispatch` | `subagent-handled` | reserved, no longer produced — the branch stays so a stray 3 from a stale in-session manifest soft-continues here instead of falling to the default arm's `unknown-exit-code` hard-halt |
-| 4 | `halt` | `orchestrator-misdispatch` | multi-PR shape, `--task` arg missing — orchestrator dispatch bug |
-| 5 | `dispatch` | `subagent-handled` | schema_violations — subagent surfaces as BLOCKED |
-| ≥6 | `halt` | `script-crash` | crash / IO / arg-validation — script-stage failure, operator inspects stderr |
+| 0 | `proceed` | — | success — continue to the manifest-entry append |
+| ≥6 | `halt` | `script-crash` | crash / IO / arg-validation — operator inspects stderr |
 | (other) | `halt` | `unknown-exit-code` | defensive fallback — default-deny posture |
 
-**Why a helper, not prose.** An unconditional dispatch routes a script-stage crash or orchestrator misdispatch into the subagent, where the LLM is forced to interpret a malformed/absent manifest and emit a `RESULT:` tag based on hallucinated state — incorrect routing + wasted round-trips. Encoding the mapping in a tested helper (rather than re-deriving it from prose each Phase E run) prevents the prose-to-runtime drift this bug class exploits, follows the same encoding-in-code pattern the validator's preservation/iteration checks use (move enforcement OUT of prose, INTO validators with unit tests), and makes future audit scripts delegate to the same source.
-
-## Validation invariants
-
-**Validation invariants (orchestrator):**
-
-- After script: `mechanical_edits` populated per `script_exit_code` (exit 1 → `matched_entry` and `status_flip` may be absent; exit 5 → `schema_violations` non-empty + edits aborted; multi-candidate runs emit plural `matched_entries`/`status_flips`/`mermaid_class_swaps` in place of the singular keys per the multi-candidate-shape paragraph above). `semantic_work_pending` non-empty. `result === null`.
-- After subagent: `result !== null`. Every item in `semantic_work_pending` appears in EITHER `semantic_edits.<item-key>` OR `concerns[]` with `addressing: <item-key>` matching the exact pending-item key (waived when `result === "BLOCKED"` or `"NEEDS_CONTEXT"`, since the subagent halted before completing semantic work). Every entry in `schema_violations` appears in `concerns` with matching `kind` (the violation's own kind verbatim — typically `"schema_violation"` for missing-required-field shapes, but the script also emits singletons like `"auto_create_title_seed_underivable"` with no `field`/`ns_id`), plus matching `field` and `ns_id` when the violation carries them, AND `result === "BLOCKED"`. When `verification_failures` is non-empty (script exit-2 halt path — Type-signature / file-overlap / plan-identity mismatch or `multi_pr_task_not_in_block`), `result === "BLOCKED"` (mirrors the schema_violations rule — surfacing alone is insufficient; the BLOCKED state is load-bearing for the orchestrator's halt/routing-path determinism). No `<TODO subagent prose>` placeholders remain in any file under `affected_files`. `affected_files` ⊇ files actually edited (subagent did not sprawl outside declared scope; extensions to `affected_files` are documented in `concerns` with `kind: affected_files_extension`; deletion of a declared file is a contract violation surfaced by the validator's missing-file gap). That containment is one-directional and deliberately so: a declared file carrying no edit is conformant — the placeholder scan above is the only per-file edit obligation, and it binds exactly the files the script stubbed. Proper-subset is the ordinary shape on a plan-bound mid-phase run, where `plan_done_checklist_evaluation` resolves to "not due" and the declared plan file is authorized but untouched.
-
-If validation fails, orchestrator halts Phase E and surfaces the gap (script-stage failure) OR round-trips to the subagent (subagent-stage failure).
-
-### Stage-1 sidecar snapshot (Phase E step 3)
-
-**Snapshot for step-5 baseline (REQUIRED — must run BEFORE step 4 dispatch).** Copy the validated stage-1 manifest to a sidecar `.agents/tmp/housekeeper-stage1-PR<N>.json` NOW, while the manifest is still in script-stage shape:
-
-```bash
-cp .agents/tmp/housekeeper-manifest-PR<N>.json \
-   .agents/tmp/housekeeper-stage1-PR<N>.json
-```
-
-Step 5's validator reads this sidecar as the untamperable baseline for preservation checks (#7/#9/#10/#11). **Step 5 cannot self-heal a missed snapshot** — by the time step 5 runs, the subagent has mutated the manifest in place; re-copying it then would alias the baseline to already-tampered state and silently disable the preservation checks (Codex PR #53 P1). Skipping the snapshot also forces step 5 into a round-trip loop: the validator surfaces a check #12 baseline-trust gap → exit 2 → no advance. If you discover at step 5 that this sidecar is missing, **halt Phase E and re-run from step 2** — re-dispatch the script with the same flags to regenerate a fresh script-stage manifest, then revalidate + snapshot at step 3 and re-dispatch step 4. Do NOT manufacture the sidecar from the post-dispatch manifest, and do NOT re-run step 3 alone: by then the in-place manifest carries the subagent's mutations, so validating + snapshotting it is the same aliasing bypass.
-
-### Subagent narration auto-deviation fallback
-
-Triggered when exit 1 (narration_mode_detected) fires, OR when exit 2 fires on two consecutive rounds without progress. The contract violation (SKILL.md § Hard rules → "You orchestrate; you don't implement") is waived inside this fallback path because the subagent is structurally unable to complete the work — re-dispatching wastes a turn and the deterministic fix is for the orchestrator to apply the semantic edits directly.
-
-1. **Apply the semantic edits directly.** Read each item in `_script_stage.semantic_work_pending`. For each one, perform the edit it resolves to — on the file(s) it names, bounded by `affected_files` — using the orchestrator's own Edit tool. An item that evaluates to no change (`plan_done_checklist_evaluation` reading "not due") produces a `semantic_edits` payload and no file edit, exactly as it would under the subagent; do not manufacture an edit for a declared file that needs none. The composition rules are the same the subagent would have followed: § Status format below pins the NS-12 status-prose shape, § Completion-rule matrix below fixes the `Status:` atomic value that prose annotates, § File-reference extraction heuristic below gives the file resolution that the line-cite sweep and ready-set re-derivation both run on, and the §6 ready-set rules themselves live with the catalog in `docs/architecture/cross-plan-dependencies.md`. There is no per-item recipe list in this document.
-
-2. **Rewrite the manifest.** Set `result` based on the halt-state arrays in `_script_stage`:
-   - If `_script_stage.schema_violations` OR `_script_stage.verification_failures` is non-empty → set `result: "BLOCKED"`. Validator check #8 enforces `result === "BLOCKED"` when either of those arrays carries entries; setting DONE_WITH_CONCERNS here would deterministically re-fail validation and trap the flow in retry loops (Codex PR #53 R4 P2).
-   - Otherwise → set `result: "DONE_WITH_CONCERNS"`.
-
-   Populate `semantic_edits` with one entry per pending item (each carrying a short `summary` of what changed + the file + line), and add a `concerns` entry of the form:
-
-   ```json
-   {
-     "kind": "orchestrator_applied_semantic_edits_due_to_subagent_narration",
-     "addressing": "subagent_dispatch_failure",
-     "summary": "The plan-execution-housekeeper subagent was dispatched <N> time(s) and returned RESULT: DONE / DONE_WITH_CONCERNS with totalToolUseCount: 0 each time (narration mode — emitted Tool: Edit\\n{...} as text content rather than invoking the tool API). The orchestrator applied the <N-items> semantic edits directly under the SKILL.md Phase E auto-deviation fallback. Tracking the agent-definition fix as a separate concern."
-   }
-   ```
-
-   When the result is BLOCKED, ALSO add a `concerns` entry per `_script_stage.schema_violations` / `_script_stage.verification_failures` entry per the standard reconciliation rules (kind+field+ns_id matched), so check #5 and check #10 are satisfied — auto-deviation does not waive halt-state surfacing, only the no-implement contract.
-
-   Preserve `_script_stage` verbatim. Set `subagent_completed_at` to the dispatch's wall-clock end time.
-
-3. **Re-run the validator.** Confirm exit 0 against the rewritten manifest. If gaps remain (e.g., a per-item summary still has a `<TODO>` because the orchestrator's edit missed a placeholder), iterate on the orchestrator-applied edits, NOT on the subagent. The validator is the canonical signal that the manifest is internally consistent before commit.
-
-4. **Advance to step 6** with the orchestrator-applied manifest. The housekeeping commit message can stay as the subagent suggested (or the orchestrator's preferred shape per §commit-msg conventions); the `concerns` entry above carries the auditable trail of why the deviation was necessary.
-
-This fallback is the codified version of the manual workaround applied in PR #51 housekeeping (post-mortem: TaskList #13). The deviation does NOT require user authorization — the validator's exit-1 signal is the gate; the user sees the deviation surfaced via the `concerns` entry in the housekeeping PR description and can elect to revert if the orchestrator's composition is wrong.
-
-### S-class direct-apply mode
-
-For a run whose preflight size class is `S` (SKILL.md § Size-Classed Ceremony), direct-apply substitutes step 4's `action === "dispatch"` OUTCOME (and with it step 5's subagent-stage validation — direct-apply re-runs the validator itself). `decideHousekeeperRouting` over the script exit code runs UNCHANGED first, including every fail-closed halt branch (exit 1/4/≥6): a script-stage failure halts before any edits regardless of class, for the same reason the routing gate exists at all. Only when routing returns `action === "dispatch"` AND the script exit is 0 or 3 does the orchestrator apply the deterministic semantic edits ITSELF (exits 2 / 5 — the subagent-BLOCKED classes — halt for operator action instead: with no subagent to interpret them, direct-applying would rewrite a BLOCKED manifest and ship it) — the same per-item composition recipes as § Subagent narration auto-deviation fallback steps 1-3 (apply edits → rewrite manifest → re-run validator), minus the narration `concerns` entry (there was no failed dispatch to record; no auto-deviation is being invoked). No housekeeper subagent is dispatched. Rationale: an S-class entry's semantic surface is a single task's row — the subagent round-trip costs more than the edit. The housekeeping PR merges on `mergeStateStatus == CLEAN` per the doc-only precedent. M/L runs keep the full script → subagent → validator → gated-PR pipeline.
-
-### `_script_stage` snapshot + orchestrator plumbing
-
-`manifest._script_stage` is the script-embedded snapshot of the four arrays the subagent could otherwise empty to bypass preservation/iteration enforcement: `affected_files`, `schema_violations`, `verification_failures`, `semantic_work_pending`. The script writes this field at script-stage; the orchestrator reads it at SKILL.md step 3 (BEFORE subagent dispatch), stores it in conversation memory, and MUST plumb that stored snapshot forward as the four `scriptXXX` params on every `validateManifestSubagentStage` call at subagent-stage. The orchestrator's stage-1 conversation-memory record IS the untamperable baseline — frozen in context before subagent dispatch, inaccessible to the dispatched subagent which runs in a separated context and cannot rewrite what the orchestrator already saw. Per-field precedence: explicit `scriptXXX` param > `manifest._script_stage[field]` > `null`.
-
-**Snapshot-fallback path is defense-in-depth, not the primary defense.** The validator falls back to `manifest._script_stage` when ANY `scriptXXX` param is null, but that fallback path reads the subagent-emitted snapshot — which the subagent could have tampered with by clearing both the top-level emit field AND the corresponding `_script_stage[field]` while keeping shape intact. The validator surfaces a **baseline-trust gap** whenever the snapshot-fallback path is taken (`manifest._script_stage is subagent-emitted and may be tampered — orchestrator MUST plumb scriptXXX from stage-1 conversation memory …`) so Phase E re-routes through the explicit-plumbing path before a tampered snapshot bypasses preservation checks #7/#9/#10/#11.
-
-**Subagent contract:** `_script_stage` is **READ-ONLY**. The subagent rewrites the manifest end-to-end but MUST preserve `_script_stage` byte-for-byte — touching it (removing the key, replacing with a non-object, swapping any of the four fields for non-array values) is itself a bypass attempt and surfaces in the validator's gap-collection path as a structural-tampering gap (check #12). The structural check fires only on the snapshot-fallback path (any `scriptXXX` null); when ALL four `scriptXXX` are passed (orchestrator-explicit-plumbing), the snapshot source is the orchestrator's stage-1 conversation memory and both the baseline-trust gap and the structural sub-check are skipped — `_script_stage` becomes a redundant integrity signal at that point.
+**Why a helper, not prose.** Encoding the mapping in a tested helper rather than re-deriving it from prose each Phase E run prevents prose-to-runtime drift, and makes future audit scripts delegate to the same source.
 
 ## Recovery diagnostic
 
-If a session ends or the orchestrator crashes mid-pipeline, recovery on next invocation walks **git first, manifest second**:
+If a session ends or the orchestrator crashes mid-pipeline, recovery on the next invocation walks **git first, manifest second**:
 
 ```
 Resume diagnostic (run on Phase E re-entry):
@@ -257,126 +79,33 @@ Resume diagnostic (run on Phase E re-entry):
    └── NO: continue to step 2
 
 2. Is the manifest present at .agents/tmp/housekeeper-manifest-PR<N>.json?
-   ├── NO: re-run script (idempotent — overwrites prior manifest)
-   └── YES: continue to step 3
-
-3. Read manifest.result:
-   ├── null: manifest is script-only — resume the live pipeline; this tree
-   │   never routes dispatch itself. (1) Sidecar absent
-   │   (.agents/tmp/housekeeper-stage1-PR<N>.json): re-run the script (same
-   │   flags — idempotent), then validate + snapshot per SKILL.md Phase E
-   │   step 3 (the crash window between script-write and the step-3 snapshot
-   │   otherwise skips the only safe snapshot point). (2) Sidecar present:
-   │   keep it. Either way, finish by routing per SKILL.md Phase E step 4 —
-   │   decideHousekeeperRouting on script_exit_code decides dispatch XOR halt
-   │   (exits 1 / 4 / ≥6 halt with operator action; they never reach the
-   │   subagent)
-   ├── DONE | DONE_WITH_CONCERNS: skip to "Append Progress Log → git add + commit"
-   ├── NEEDS_CONTEXT | BLOCKED: surface to user (same as fresh halt)
-   └── any other value: treat as malformed, halt
+   ├── NO: re-run the script (idempotent — overwrites the prior manifest)
+   └── YES: route per decideHousekeeperRouting on script_exit_code (0 proceeds,
+            non-zero halts), then append the shipment-manifest entry
 ```
 
-The script is **idempotent on its own output**. Re-dispatching the subagent against an existing manifest is safe because the subagent rewrites the manifest entirely from re-reading file state.
-
-## Completion-rule matrix
-
-The script computes the entry's `Status:` from the `PRs:` block deterministically. Status emits use the canonical backticked-atomic-plus-prose format (per the NS-12 precedent entry in `cross-plan-dependencies.md` §6):
-
-| `PRs:` block state | Upstream blocked-on cite present? | Computed `Status:` line emitted by script |
-| --- | --- | --- |
-| Absent (single-PR entry) | n/a (not affected by housekeeper at this layer) | ``- Status: `completed` (resolved YYYY-MM-DD via PR #<N> — <subagent prose>)`` |
-| All ticks unchecked | no | `` - Status: `todo` `` |
-| All ticks unchecked | yes | `` - Status: `blocked` `` |
-| ≥1 checked, ≥1 unchecked | no | ``- Status: `in_progress` (last shipped: PR #<N>, YYYY-MM-DD)`` |
-| ≥1 checked, ≥1 unchecked | yes | ``- Status: `blocked` (overrides — see Upstream: blocked even after partial PRs landed)`` |
-| All ticks checked | n/a | ``- Status: `completed` (resolved YYYY-MM-DD via PR #<N> — last sub-task; <subagent prose>)`` |
-
-The matrix is exhaustive and total. The script never needs to interpret prose to choose a `Status:` atomic value or framing. The completion rule is exercised by Layer 1 fixture tests (§8.1) — every cell of the matrix gets a fixture.
-
-**Script vs subagent split for the prose annotation.** The script emits the atomic + structural prose (date, PR#, last-shipped reference). The `<subagent prose>` slot is filled in by the subagent stage, which has the context (manifest + diff + cross-plan implications) to compose a one-line resolution narrative matching NS-12's tone. The script writes a placeholder string `<TODO subagent prose>` that the subagent replaces; manifest-stage validation requires the placeholder to be absent before commit.
-
-## File-reference extraction heuristic
-
-Several semantic stages (set-quantifier reverification, line-cite sweep, ready-set re-derivation) need to know which files an NS entry references. There is no structured `Files:` sub-field. The subagent extracts file references from the `References:` and `Summary:` sub-fields using this documented heuristic:
-
-1. **From `References:`:** parse markdown links matching `\[([^\]]+)\]\((\.\./[^)]+\.md)\)(:\d+(-\d+)?)?` to extract relative doc paths and optional line cites. Also parse bare-path tokens matching `[a-zA-Z0-9_./\-]+\.(md|ts|js|mjs|sql|rs|toml|json|ya?ml)(:\d+(,\d+)*(-\d+)?)?` to catch repo-root-relative source-file cites (e.g. NS-11's `packages/runtime-daemon/src/bootstrap/secure-defaults-events.ts` `(former :24,35,59)` — the then-line provenance form). `#symbol` tails and suffix-free bare paths both extract: the bare-path char class excludes `#`, so `secure-defaults-events.ts#registerSecureDefaults` yields the path with the anchor tail dropped.
-2. **From `Summary:`:** apply the same bare-path regex AND the directory-path regex from step 2a below. 2a. **Directory-path extraction.** Apply a separate directory-path regex `[a-zA-Z0-9_./\-]+/` (alphanumeric + `_./\-` ending in `/`) to References + Summary. This catches directory references that have no extension (e.g., `packages/runtime-daemon/src/pty/` from NS-05/07 Summary, `apps/desktop/src/renderer/src/session-bootstrap/` from NS-06 Summary, `.github/workflows/` from a hypothetical NS Summary). Directory paths are tagged separately from file paths in the extracted-references set; the file-overlap check (§5.1 step 3) treats them as **prefix-matchers** (any diff-touched file under the directory counts as overlap), where file paths require **exact match**.
-3. **Brace-expansion handling.** The corpus uses bash-style brace expansion in path literals — NS-01 Summary (`cross-plan-dependencies.md`:349) contains `packages/sidecar-rust-pty/{Cargo.toml,Cargo.lock,src/{main,framing,protocol,pty_session}.rs,tests/{framing_roundtrip,protocol_roundtrip,spawn_smoke}.rs}` (a single token expanding to 9 paths). When the bare-path regex (or directory regex) matches a token containing `{...,...}`, the subagent expands it via the bash brace-expansion algorithm (recursive comma-split inside outermost braces, Cartesian-product against the surrounding literal) and treats each expanded path as a separate reference. Brace-expansion failures (unbalanced braces, empty alternatives) are surfaced in `concerns` with `kind: brace_expansion_malformed` rather than silently producing wrong paths.
-4. **Filesystem resolution filter.** Filter false positives by requiring the path to resolve to a real filesystem entry when checked against the working-copy filesystem (subagent has `Read` + `Glob`). **File paths must resolve to an existing file**; **directory paths must resolve to an existing directory** (trailing `/` is normalized away during the resolve check). Brace-expanded paths are resolved individually. Paths the implementer is creating in this PR exist in the working copy at verify-time because the housekeeper runs on the PR branch with all implementation commits applied (per §6 data flow).
-5. **Deduplicate** across both sources; preserve order of first appearance for stable output. File and directory references are deduped within their respective sets.
-
-   **Scoping note: only `References:` and `Summary:` are scanned.** `Upstream:`, `Type:`, `Status:`, `Priority:`, and `Exit Criteria:` sub-fields are NOT extraction sources, even when they happen to contain source-path tokens. Corpus precedent: NS-04's `Upstream:` field at `cross-plan-dependencies.md`:377 names `packages/contracts/src/pty-host.ts` + `packages/runtime-daemon/src/session/spawn-cwd-translator.ts` inline — these are deliberately discarded by the heuristic. Authors who want source paths surfaced for file-overlap MUST place them in `References:` or `Summary:`.
-
-6. **Subagent surfaces unresolvable paths in `concerns`.** If a path matches the regex but doesn't resolve (post-expansion), that's either a typo or a stale cite — both worth a `concerns` entry with `kind: unresolvable_file_reference` (the kind label uses `file_reference` for both files and directories — the distinction is recorded in the entry's `path_kind` field).
-
-## Status format
-
-NS-12 precedent (`cross-plan-dependencies.md` §6, NS-12 entry):
-
-> ``- Status: `completed` (resolved YYYY-MM-DD via PR #<N> — <one-line resolution narrative>)``
-
-The atomic value is backticked (`` `completed` ``); the parenthetical resolution prose is one line, the same shape NS-12 uses inline. The script writes `<TODO subagent prose>` as a placeholder; the subagent replaces it with composed prose matching NS-12 tone.
+The script is **idempotent on its own output** — re-running it with the same flags overwrites the manifest with the same content.
 
 ## Housekeeping commit landing
 
 The orchestrator lands the housekeeping commit via its own gated squash-merge PR — never via direct push to `develop`. This preserves the SKILL.md § Hard rules → "Invocation as durable authorization" rule ("Direct push to `develop` or `main` outside the PR-merge mechanism is NOT authorized — squash-merge through PR is the only authorized landing path") end-to-end and gives the housekeeping diff the same CI gate (lychee + docs-corpus + lint) that feature PRs receive.
 
-**Branch naming.** `housekeeping/PR<N>` where `<N>` is the merged feature-PR number. Strict format — the orchestrator's Phase E step 7 hard-codes this shape and downstream tooling (resume diagnostic; future audit scripts) keys off it.
+**Branch naming.** `housekeeping/PR<N>` where `<N>` is the merged feature-PR number. Strict format — the orchestrator's Phase E hard-codes this shape and downstream tooling (resume diagnostic; future audit scripts) keys off it.
 
 **PR title.** Identical to the housekeeping commit subject:
 
 ```
-chore(repo): housekeeping for PR #<N> — NS-XX <flip-or-create>
+chore(repo): housekeeping for PR #<N>
 ```
 
-This means the squash-commit subject on `develop` after the gated merge matches what the subagent's manifest suggested — Phase E's commit-message contract holds across both branch-side and develop-side history.
-
-**PR body.** Auto-generated stub with required cross-references:
+**PR body.** Auto-generated stub:
 
 ```
 Auto-generated by /plan-execution Phase E for PR #<N>.
-
-Refs: NS-XX (or NS-NN..NS-MM for range entries; comma-list for multi-NS).
-
-<concerns_block — only if subagent returned DONE_WITH_CONCERNS>
 ```
 
-**Merge mechanics.** Auto-merge is DISABLED on this repository — `gh pr merge --auto` fails with `Auto merge is not allowed for this repository (enablePullRequestAutoMerge)` (verified PR #119). The orchestrator instead waits for required checks (`gh pr checks <housekeeping-pr#> --watch --interval 10`), then polls `gh pr view <housekeeping-pr#> --json mergeStateStatus,headRefOid` until `mergeStateStatus` reads `CLEAN` (required checks `ci-gate` + `docs-corpus-gate` green + zero unresolved threads under `required_conversation_resolution`), and merges the head that same poll observed: `gh pr merge <housekeeping-pr#> --squash --delete-branch --match-head-commit <headRefOid>`. Executable form: SKILL.md § Phase E — Post-merge housekeeping, step 8. Typical wall-clock: 2-3 min on a doc-only diff.
+**Merge mechanics.** Auto-merge is DISABLED on this repository — `gh pr merge --auto` fails with `Auto merge is not allowed for this repository (enablePullRequestAutoMerge)` (verified PR #119). The orchestrator instead waits for required checks (`gh pr checks <housekeeping-pr#> --watch --interval 10`), then polls `gh pr view <housekeeping-pr#> --json mergeStateStatus,headRefOid` until `mergeStateStatus` reads `CLEAN` (required checks `ci-gate` + `docs-corpus-gate` green + zero unresolved threads under `required_conversation_resolution`), and merges the head that same poll observed: `gh pr merge <housekeeping-pr#> --squash --delete-branch --match-head-commit <headRefOid>`. Executable form: SKILL.md § Phase E — Post-merge housekeeping. Typical wall-clock: 2-3 min on a doc-only diff.
 
 Both fields come out of ONE `gh pr view` call, and the sha pin is not optional. `CLEAN` is a claim about a moment, not about a commit: read at poll time it says nothing about what HEAD is at merge time, so a push landing in that window lands an unchecked housekeeping HEAD on `develop`. `--match-head-commit` makes GitHub refuse that merge outright instead of relying on the orchestrator to notice. Fetching the sha in a second call reopens the very window the flag exists to close — pin the `headRefOid` the CLEAN read returned, never a freshly-read HEAD. A rejected pin is the guard working, not a flake: the branch moved mid-poll, so re-poll rather than re-fire.
 
-**CI failure on housekeeping PR.** Halt Phase E and surface to user. Phase E does NOT auto-fix housekeeping CI failures because they almost always indicate one of: (a) a §6-catalog cite that the script-stage `affected_files` superset check missed; (b) a malformed Status: line the subagent composed; (c) a `### Shipment Manifest` entry whose YAML broke the manifest schema parser or whose embedded fields broke a docs-corpus invariant. All three cases need user adjudication — the housekeeping subagent has already returned DONE/DONE_WITH_CONCERNS by this point and is not re-dispatchable for CI-driven failures.
-
-## Canonical Subagent Prompt Template
-
-The script's `buildHousekeeperPrompt` helper (in `lib/housekeeper-orchestrator-helpers.mjs`) emits this prompt verbatim to the `plan-execution-housekeeper` subagent at Phase E dispatch time. The Layer 2 snapshot test in `scripts/__tests__/post-merge-housekeeper-orchestrator-helpers.test.mjs` (Task 4.8 step 1) pins the script's emitted prompt against this fenced block — drift in either direction fails CI (per Plan §Decisions-Locked D-1: this contract is canonical; the script reproduces it verbatim, with `<manifest-path>` / `PR #<N>` / `exit code: <N>` substituted at render time).
-
-```
-You are the plan-execution-housekeeper subagent. Phase E auto-housekeeping for PR #<N> ran with exit code: <N>. Manifest: <manifest-path>.
-
-Your responsibilities (per Spec §5.4 / §6.2):
-
-1. Compose completion-prose — replace every `<TODO subagent prose>` placeholder in the manifest's `mechanical_edits.status_flip.to_line` (single-candidate runs) OR each `mechanical_edits.status_flips[].to_line` entry (multi-candidate `--candidate-ns NS-XX,NS-YY` runs — the script swaps singular keys for plural arrays carrying one entry per processed NS; `mechanical_edits.status_flip` and `mechanical_edits.mermaid_class_swap` are absent in this shape, and `matched_entry` is null with `matched_entries[]` carrying the per-NS metadata), and in any `semantic_edits` field the script left stubbed, with one-line resolution narratives matching the NS-12 precedent shape. Use the merged-commit context (PR title, body, file diff) to ground each narrative.
-
-2. Re-derive set-quantifier claims — read ONLY `docs/architecture/cross-plan-dependencies.md` §6 prose paragraphs (the `## 6. Active Next Steps DAG` section's intro/closing prose plus inline narrative between NS entries; per Plan §Decisions-Locked D-2). For any quantifying claim invalidated by the merge (e.g. "ready set shares no files with X" / "all Y are Z" / "no W in the list does Q"), surface the invalidation in `concerns[]` with `kind: "set_quantifier_drift"`.
-
-3. AUTO-CREATE body — if `manifest.auto_create !== null`, compose the new NS entry's body (Type / Status / Priority / Upstream / References / Summary / Exit Criteria sub-fields) per the AUTO-CREATE allocation rules in spec §5.4.
-
-4. Reconcile schema_violations — every entry in `manifest.schema_violations` MUST surface in `manifest.concerns[]` with the violation's own `kind` verbatim (the script emits `"schema_violation"` for `PRs:` block / missing-required-field shapes and singleton kinds like `"auto_create_title_seed_underivable"` for AUTO-CREATE seed failures), plus matching `field` and `ns_id` when the violation carries them. A single generic concern cannot absorb multiple distinct-kind violations. The script halted with exit ≥1 if any are present; the subagent's job is to surface them, not silently fix them.
-
-5. Reconcile semantic_work_pending — every item in `manifest.semantic_work_pending` MUST be paired to either (a) a `semantic_edits.<item-key>` entry containing the composed output, or (b) a `concerns[]` entry whose `addressing` field equals the exact item key verbatim (e.g. `{kind: "deferred_for_followup", addressing: "set_quantifier_reverification"}`). The validator pairs each pending item via this `addressing` key — `kind` is the subagent's choice; only `addressing` is the match key. Exception: when returning `BLOCKED` or `NEEDS_CONTEXT` (subagent halted before completing semantic work), per-item pairing is waived and the validator skips this check.
-
-6. Bound your edits to `manifest.affected_files` — an upper bound on what you may touch, never an obligation to touch every member. Out-of-scope edits trigger an orchestrator round-trip per `references/failure-modes.md` rule 20 (sprawl routing); to justify a scope expansion, add a `concerns` entry `{kind: affected_files_extension, addressing: <reason>}` and extend `affected_files`. A declared file that responsibility #5's evaluation resolves to no change stays unedited — that is the conformant outcome, not a skipped duty; record the decision in its `semantic_edits` payload and name every untouched file in your report.
-
-7. Write back the updated manifest (overwrite `<manifest-path>`) plus any direct file edits via the Edit tool.
-
-8. Return one of the four canonical exit-states (per Plan Invariant I-2): DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED. No new exit-state.
-
-Hard rules:
-- Do NOT introduce new exit-states.
-- Do NOT edit files outside `manifest.affected_files`.
-- Do NOT leave `<TODO subagent prose>` placeholders intact. Quoting, backtick-wrapping, or otherwise echoing the literal token does NOT count as replacement — composing the resolution narrative does. The literal string `<TODO subagent prose>` MUST NOT appear anywhere in your output: not in any edited file, not in any `semantic_edits` value. The validator rejects every occurrence (inside code spans or not), with one class-keyed exemption: TOP-LEVEL `_`-prefixed `semantic_edits` keys — the meta/attestation namespace, per the `_script_stage` convention — may name the token (e.g. a `_placeholder_sweep` attestation reporting a clean sweep). The exemption does not recurse: a `_`-prefixed key nested inside a required key's payload is scanned like any other value, and responsibility #5's pairing keys are never `_`-prefixed, so required work can neither divert to the namespace nor hide beneath it.
-- Do NOT read NS catalog item BODIES; the §6-prose-only constraint applies to the set-quantifier reverification surface (responsibility #2).
-- Do NOT confuse design-spec §6 ("Data flow") with `cross-plan-dependencies.md` §6 ("Active Next Steps DAG"); D-2 routes to the latter.
-- Do NOT touch `manifest._script_stage`. It is the script-embedded snapshot of the four arrays the validator enforces preservation/iteration on (`affected_files`, `schema_violations`, `verification_failures`, `semantic_work_pending`); when you rewrite the manifest, copy `_script_stage` through verbatim. The orchestrator plumbs its own stage-1 conversation-memory copy of these arrays as the validator's authoritative baseline (see § `_script_stage` snapshot + orchestrator plumbing); the manifest-embedded `_script_stage` is a redundant integrity signal — removing the key, replacing it with a non-object, or swapping any of its four fields for non-array values is itself a bypass attempt and surfaces in the validator as a structural-tampering gap.
-```
+**CI failure on housekeeping PR.** Halt Phase E and surface to the user. Phase E does NOT auto-fix housekeeping CI failures — they almost always mean a `### Shipment Manifest` entry whose YAML broke the manifest schema parser or whose embedded fields broke a docs-corpus invariant, and that needs user adjudication.

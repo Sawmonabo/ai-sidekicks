@@ -1,12 +1,11 @@
 // The provider step displays a sign-in and offers no way to perform one.
 //
-// THE DEFECT THIS CLOSES. `Spec-026 §Provider Authentication (Group B)` holds the five
-// `onboarding.*` methods unchanged in name, count, and shape, and has the sign-in step
-// **display** the provider's own invocation rather than run it on the operator's
-// behalf; `Spec-029 §Brokered interactive sign-in` excludes even the account plane's
-// own login verbs from this flow. This step used to offer a **Sign in to this
-// provider** button that dispatched a growth operation asking the daemon to start the
-// login — a sixth onboarding mutation that neither spec has.
+// THE DEFECT THIS CLOSES. The five `onboarding.*` methods are fixed in name, count, and
+// shape, and the sign-in step **displays** the provider's own invocation rather than
+// running it on the operator's behalf; even the account plane's own brokered login verbs
+// are excluded from this flow. This step used to offer a **Sign in to this provider**
+// button that dispatched a growth operation asking the daemon to start the login — a
+// sixth onboarding mutation that does not exist.
 //
 // WHAT PINS THE REMOVAL is pressing everything the step offers and finding the growth
 // port untouched. A missing method name would prove nothing: it is exactly what a

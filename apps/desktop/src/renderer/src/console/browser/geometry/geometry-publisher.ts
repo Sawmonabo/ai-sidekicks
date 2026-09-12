@@ -1,7 +1,7 @@
-// The half of 12.3 that has to touch a document.
+// The half of pane geometry that has to touch a document.
 //
-// `Spec-023 §Console Design (Meridian)` 12.3, sampling half. `pane-geometry.ts` holds
-// the arithmetic; this module holds the part that cannot be pure — which invalidation
+// The sampling half. `pane-geometry.ts` holds the arithmetic; this module holds the
+// part that cannot be pure — which invalidation
 // sources are armed, when a reading is taken, and when it is allowed to be written.
 // Two rules live here and nowhere else:
 //
@@ -11,11 +11,11 @@
 //   * READ NOW, WRITE NEXT FRAME. Mutating layout from inside resize-observer delivery
 //     drops the remaining notifications on at least one shipped engine.
 //
-// WHAT IS NOT INVENTED HERE. 12.3 names `browser.setRect` as the publish. That method
-// is on `Plan-023 §Console growth slate` row `browser-pane-namespace` with no
-// growth-port operation registered for it — the port carries the five navigation verbs
-// and the navigation subscription, and nothing else — so the publish target is 12.11's
-// host seam in `view-host.ts` rather than a fabricated method string.
+// WHAT IS NOT INVENTED HERE. The publish is `browser.setRect`. That method is on the
+// growth slate under `browser-pane-namespace` with no growth-port operation registered
+// for it — the port carries the five navigation verbs and the navigation subscription,
+// and nothing else — so the publish target is the host seam in `view-host.ts` rather
+// than a fabricated method string.
 
 import {
   Emitter,

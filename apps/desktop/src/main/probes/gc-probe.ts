@@ -1,4 +1,4 @@
-// The window lifecycle-reachability probe — ADR-024, Plan-023 Phase 1B.
+// The window lifecycle-reachability probe.
 //
 // Lives beside the entrypoint for the reason its sibling gives: `index.ts` is
 // the startup ORDER, and a probe body inlined there hides the next step of it.
@@ -15,12 +15,11 @@
 // not fire mid-loop, and the count drops by at least one per window once the
 // windows are closed. That last, per-window delta is what tells the
 // user-created instance apart from the fixed non-instance match a count-only
-// sample cannot identify (`ADR-024 §Antithesis — The Strongest Case Against`):
-// a bare "count >= 1" would still pass with the instance gone and that match
-// remaining.
+// sample cannot identify: a bare "count >= 1" would still pass with the
+// instance gone and that match remaining.
 //
-// Per `ADR-024 §Antithesis — The Strongest Case Against` the load-bearing
-// reachability mechanism is Electron's native-side `BaseWindow::self_ref_`
+// The load-bearing reachability mechanism is Electron's native-side
+// `BaseWindow::self_ref_`
 // (a `v8::Global<v8::Value>` strong-rooted from `InitWith` to native
 // destruction); the user-side module-scope window handle in `index.ts` is
 // defensive consistency with the canonical community pattern, not the GC
@@ -110,8 +109,8 @@ export class GcProbe {
     });
     await closeEveryWindow();
     // Two macrotasks so the `closed` dispatch and its native frames unwind, then
-    // a precise collection — the settling procedure ADR-024's Step 0b probe uses
-    // for its own post-close reading.
+    // a precise collection — the settling procedure a post-close reading needs
+    // to be trustworthy.
     await nextMacrotask();
     await nextMacrotask();
     if (globalGcAvailable) {
@@ -146,9 +145,8 @@ export class GcProbe {
  * A helper rather than a loop in `run()` on purpose: a `for … of` over the
  * windows inside `run()`'s suspended async frame would keep the final iteration
  * binding alive across the post-close sample and root the very wrapper the
- * sample is meant to see released (the loop-frame control in
- * `ADR-024 §References`). Here the `map` callback's frame returns before the
- * caller awaits, and the resolved promises hold no window.
+ * sample is meant to see released. Here the `map` callback's frame returns
+ * before the caller awaits, and the resolved promises hold no window.
  */
 function closeEveryWindow(): Promise<void> {
   const closing = BrowserWindow.getAllWindows().map((browserWindow) => {

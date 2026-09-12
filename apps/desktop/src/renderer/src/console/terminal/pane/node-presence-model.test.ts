@@ -72,7 +72,7 @@ describe("the presence fold — the newest thing the log said about a host", () 
   it("reads a log with no presence event at all as knowing no host", () => {
     expect(
       projectNodePresence([
-        presenceEvent(1, "pty.control_changed", { holderParticipantId: null, reason: "released" }),
+        presenceEvent(1, "pty.control_changed", { holderUserId: null, reason: "released" }),
         presenceEvent(2, "run.completed", { newState: "completed" }),
       ]),
     ).toStrictEqual([]);

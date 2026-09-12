@@ -28,7 +28,7 @@
  *     recorded rather than overridden: a rule for an element that cannot appear is
  *     dead CSS, and dead CSS is how a sheet stops describing what it paints.
  *
- * `Spec-023 §Console Design (Meridian)` governs the rest:
+ * The console design governs the rest:
  *   • rule 3 — every foreground here is a token the contrast tier already measures
  *              against `surface`, so no pair on this surface is unmeasured. The
  *              failed and parked treatments carry their hue in the TEXT and the

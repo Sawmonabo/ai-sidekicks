@@ -23,11 +23,10 @@
 // the view families and an import back closes a cycle. One row for every caller was
 // always the point, and it is a primitive that makes that reachable.
 //
-// What is deliberately NOT shared is the absence beside it. A picker with nothing
-// to offer and a sessions list with nothing to show are different next moves, which
-// `Spec-023 §Console Design (Meridian)` rule 8 makes a distinction rather than a
-// detail, so each caller writes its own — this component renders rows and nothing
-// else, and a caller with no rows does not call it.
+// What is deliberately NOT shared is the absence beside it. A picker with nothing to
+// offer and a sessions list with nothing to show are different next moves, which rule 8
+// makes a distinction rather than a detail, so each caller writes its own — this
+// component renders rows and nothing else, and a caller with no rows does not call it.
 //
 // The identifier renders through `WireFigure`, which is the console's one mono
 // figure: rule 4 makes mono the signature that a value came from the wire, and a

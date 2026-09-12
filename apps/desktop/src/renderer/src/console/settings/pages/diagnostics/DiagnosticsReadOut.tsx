@@ -10,8 +10,7 @@
 // is the transport's, and the run terminals are the session's — bound by the read
 // itself, because only it knows which kinds matter. Each goes through the read's own
 // scheduler, so a burst costs one pass over four wires. There is no fourth SIGNAL and
-// no timer: `Spec-023 §Console Design (Meridian)` §Diagnostics and health forbids a
-// health subscription outright and forbids polling in the next clause.
+// no timer: a health subscription is forbidden outright, and so is polling.
 //
 // A RECEIPT IS NOT A FOURTH SIGNAL. It is this page's own act coming back — the one
 // mutation it offers, answered — and it re-reads for the reason the browser settings
@@ -108,7 +107,7 @@ export function DiagnosticsReadOut(props: {
   // the three signals above are, so a press costs one coalesced pass over four wires
   // and never a read of its own.
   const onRecoveryReceipt = useCallback(() => {
-    diagnosticsRead.refresh("participant-request");
+    diagnosticsRead.refresh("user-request");
   }, [diagnosticsRead]);
 
   const state = usePushDrivenRead(diagnosticsRead);

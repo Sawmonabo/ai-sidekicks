@@ -16,7 +16,7 @@ Define how the product turns session and run state into attention surfaces and n
 
 ## Scope
 
-This spec covers in-app attention state, desktop notifications, invite notifications, and notification degradation paths.
+This spec covers in-app attention state, desktop notifications, cross-device notification delivery, and notification degradation paths.
 
 ## Non-Goals
 
@@ -39,11 +39,10 @@ This spec covers in-app attention state, desktop notifications, invite notificat
 
 - The system must surface attention-worthy session and run states even when the user is not actively watching the timeline.
 - Attention triggers must include at least:
-  - pending approval or participant input
+  - pending approval or required input
   - run completion
   - run failure
-  - invite receipt
-  - mention or direct request from another participant
+  - a sidekick naming the user in a channel (a mention is agent-authored; there is no other person to raise one)
 - Notification emission must be derived from canonical session or run state, not from client heuristics alone.
 - Users must be able to distinguish passive informational notifications from actionable blocking attention.
 - The attention model must support both run-scoped attention and session-scoped aggregate attention derived from canonical state.
@@ -51,16 +50,16 @@ This spec covers in-app attention state, desktop notifications, invite notificat
 ## Default Behavior
 
 - Pending approval or required input is actionable attention by default.
-- Run completion and invite receipt are informational attention by default.
+- Run completion is informational attention by default.
 - When the desktop app is unfocused, actionable attention defaults to OS notification plus in-app badge.
 - When the app is focused, attention defaults to in-app surfaces first.
-- Run-scoped attention defaults to the fine-grained source projection, while session-scoped attention defaults to an aggregate of unresolved run, invite, and participant-request signals.
+- Run-scoped attention defaults to the fine-grained source projection, while session-scoped attention defaults to an aggregate of unresolved run-scoped and session-native signals.
 
 ## Fallback Behavior
 
 - If OS notifications are unavailable or denied, the system must still show in-app badges and attention summaries.
 - If notification delivery is delayed, the session attention projection must still reflect outstanding actionable items.
-- If a participant has muted notifications globally, critical approval-request attention may still surface while informational events remain muted (per-session and per-channel mute is deferred per §Resolved Questions and V1 Scope Decisions; narrowed 2026-09-01 to match that section — the desktop console offers a global mute only).
+- If a user has muted notifications globally, critical approval-request attention may still surface while informational events remain muted (per-session and per-channel mute is deferred per §Resolved Questions and V1 Scope Decisions; narrowed 2026-09-01 to match that section — the desktop console offers a global mute only).
 
 ## Interfaces And Contracts
 
@@ -84,12 +83,12 @@ This spec covers in-app attention state, desktop notifications, invite notificat
 - **Primary path**: the control plane pushes notifications to connected clients via the existing SSE subscription (tRPC subscription, per [ADR-014](../decisions/014-trpc-control-plane-api.md)).
 - **Desktop shell**: receives SSE events and surfaces them as OS-native notifications using the Electron Notification API.
 - **CLI**: receives SSE events and prints notification content to stderr.
-- **Notification filtering**: only events matching the participant's notification preferences (from the `notification_preferences` table, see [shared Postgres schema](../architecture/schemas/shared-postgres-schema.md)) are delivered. Events that do not match are silently dropped at the control plane before emission.
+- **Notification filtering**: only events matching the user's notification preferences (from the `notification_preferences` table, see [shared Postgres schema](../architecture/schemas/shared-postgres-schema.md)) are delivered. Events that do not match are silently dropped at the control plane before emission.
 
 ### Cross-Device Delivery
 
 - **V1**: notifications are delivered only to currently-connected devices via SSE. If no device is connected, notifications are queued in the control plane.
-- **Reconnect catch-up**: on next device connect, queued notifications are delivered as a batch via the SSE catch-up mechanism (replay from last cursor, per Spec-008).
+- **Reconnect catch-up**: on next device connect, queued notifications are delivered as a batch via the SSE catch-up mechanism (replay from last cursor).
 - **V2 (deferred)**: email digest for extended offline (>24h without connection). Push notifications via FCM/APNs for mobile clients.
 - **Queue retention**: undelivered notifications are retained for 7 days, then expired and permanently deleted.
 - **No webhook delivery in V1**: external integrations use the SSE subscription directly rather than a separate webhook endpoint.
@@ -97,7 +96,6 @@ This spec covers in-app attention state, desktop notifications, invite notificat
 ## Example Flows
 
 - Example: A run reaches `waiting_for_approval` while the app is unfocused. The user receives a desktop notification and the session shows a blocking attention badge until the approval is resolved.
-- Example: An owner invites another participant into a live session. The recipient receives an invite notification, and the pending invite remains visible in-app until accepted or dismissed.
 - Example: Two runs in one session require action at the same time. Each run exposes its own actionable attention state, and the session aggregate stays actionable until both are resolved.
 
 ## Implementation Notes

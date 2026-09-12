@@ -22,8 +22,8 @@ import {
   AGENT_REVIEWER,
   CHANNEL_IMPLEMENTATION,
   LEDGER_AGENTS,
-  PARTICIPANT_PRIYA,
-  PARTICIPANT_YOU,
+  USER_PRIYA,
+  USER_YOU,
   RUNTIME_NODE,
   RUN_ARCHITECT,
   RUN_ARCHITECT_CHILD,
@@ -67,17 +67,17 @@ const lane = createLedgerLaneEntries(SESSION_ID);
 export const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
   ...ledgerOpeningEntries({
     sessionId: SESSION_ID,
-    openedBy: PARTICIPANT_YOU,
+    openedBy: USER_YOU,
     cast: LEDGER_AGENTS,
     channel: { channelId: CHANNEL_IMPLEMENTATION, name: "implementation", openedAtMs: 40 },
   }),
   {
     atMs: 280,
     kind: "user.message",
-    // The author is the envelope's actor and the text is not here: participant
-    // prose is sealed per participant in `pii_payload`, and a fixture that put the
+    // The author is the envelope's actor and the text is not here: user
+    // prose is sealed per user in `pii_payload`, and a fixture that put the
     // words on the payload would teach a row to read a member no daemon sets.
-    actorId: PARTICIPANT_PRIYA,
+    actorId: USER_PRIYA,
     payload: { sessionId: SESSION_ID },
   },
 
@@ -87,7 +87,7 @@ export const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
     runVersion: 1,
     newState: "queued",
     agentId: AGENT_IMPLEMENTER,
-    actorId: PARTICIPANT_YOU,
+    actorId: USER_YOU,
   }),
   lane.transition(RUN_IMPLEMENTER, {
     atMs: 400,
@@ -139,7 +139,7 @@ export const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
     runVersion: 1,
     newState: "queued",
     agentId: AGENT_REVIEWER,
-    actorId: PARTICIPANT_PRIYA,
+    actorId: USER_PRIYA,
   }),
   lane.transition(RUN_REVIEWER, {
     atMs: 1_040,
@@ -225,7 +225,7 @@ export const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
     runVersion: 4,
     previousState: "running",
     newState: "paused",
-    actorId: PARTICIPANT_PRIYA,
+    actorId: USER_PRIYA,
   }),
 
   // Lane three — the architect, which is still mid-turn when the script ends.
@@ -234,7 +234,7 @@ export const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
     runVersion: 1,
     newState: "queued",
     agentId: AGENT_ARCHITECT,
-    actorId: PARTICIPANT_YOU,
+    actorId: USER_YOU,
   }),
   lane.transition(RUN_ARCHITECT, {
     atMs: 2_400,
@@ -278,7 +278,7 @@ export const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
     // the POST-rollback progression value, and the turn boundary the run landed
     // at — which is not the boundary row's own position, and is what the
     // superseded band above it is measured against.
-    actorId: PARTICIPANT_YOU,
+    actorId: USER_YOU,
     payload: {
       sessionId: SESSION_ID,
       runId: RUN_IMPLEMENTER,

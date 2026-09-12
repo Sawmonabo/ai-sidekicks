@@ -1,4 +1,4 @@
-// The attention plane: a session's attention projection, and the per-participant
+// The attention plane: a session's attention projection, and the per-user
 // preferences that shape what lands in it.
 //
 // One plane of `GrowthOperationSignatures`, composed into it by `index.ts`. The row
@@ -15,11 +15,11 @@ export interface AttentionGrowthSignatures {
   // field with no caller, minted ahead of its reader.
   attentionProjectionRead: { request: { readonly sessionId: string }; value: AttentionProjection };
   attentionPreferenceRead: {
-    request: { readonly participantId: string };
+    request: { readonly userId: string };
     value: { readonly preferences: readonly GrowthAttentionPreference[] };
   };
   attentionPreferenceUpdate: {
-    request: GrowthAttentionPreference & { readonly participantId: string };
+    request: GrowthAttentionPreference & { readonly userId: string };
     value: { readonly updatedAt: string };
   };
 }

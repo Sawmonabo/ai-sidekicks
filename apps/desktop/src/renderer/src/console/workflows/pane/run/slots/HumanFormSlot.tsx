@@ -1,13 +1,13 @@
 // The human phase's form slot — where the prompt, the schema-derived controls, and the
 // submission that carries the revision they were composed against are mounted.
 //
-// OWNED BY PLAN-017, AND FILLED BY THIS CONSOLE UNTIL THAT BODY ARRIVES. The workflow
-// plan authors the body that finally stands here. What stands here today is the
+// OWNED BY THE WORKFLOW ENGINE, AND FILLED BY THIS CONSOLE UNTIL THAT BODY ARRIVES. The
+// engine authors the body that finally stands here. What stands here today is the
 // console's own fixture shell (`HumanFormShell.tsx`): a real form over the schema the
-// run read carried. THE SHELL DIES IN THE PLAN-017 TASK THAT MOUNTS THE BODY, in the
-// same PR as the mount — which is the same obligation the reserved absence it replaced
-// carried, because a shell is a shell whether it says the feature is unbuilt or answers
-// the question.
+// run read carried. THE SHELL DIES IN THE TASK THAT MOUNTS THE BODY, in the same PR as
+// the mount — which is the same obligation the reserved absence it replaced carried,
+// because a shell is a shell whether it says the feature is unbuilt or answers the
+// question.
 //
 // WHY A SHELL RATHER THAN THE ABSENCE. The absence was true of a build whose run read
 // carried no prompt and no schema: a form composed out of nothing would have been

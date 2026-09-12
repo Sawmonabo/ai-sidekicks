@@ -21,7 +21,7 @@ import {
 } from "./attach-model.js";
 import { rosterEntry } from "./attach-roster.test-support.js";
 
-/** Two nodes the roster is serving, which is a real decision for a participant. */
+/** Two nodes the roster is serving, which is a real decision for a user. */
 const SERVED_NODES: readonly AttachNodeOption[] = attachNodeOptions([
   rosterEntry({ nodeId: "node-1" }),
   rosterEntry({ nodeId: "node-2" }),
@@ -115,7 +115,7 @@ describe("resolveAttachForm — the roster decides which node this form is on", 
 
   it("does not substitute the sole survivor for a node that was picked", () => {
     // The quiet failure the sentence above exists instead of: attaching on whichever
-    // machine happens to be left is not the act the participant asked for.
+    // machine happens to be left is not the act the user asked for.
     const remaining = attachNodeOptions([rosterEntry({ nodeId: "node-1" })]);
     const { verdict } = resolveAttachForm(
       { localPath: "/Users/dev/code", nodeId: "node-2" },
@@ -137,8 +137,8 @@ describe("resolveAttachForm — the roster decides which node this form is on", 
 
 describe("attachNodeOptions — every node the roster named, unfiltered", () => {
   it("offers a revoked, offline, read-only node exactly as the roster gave it", () => {
-    // `Spec-003 §Acceptance Criteria` requires degraded and offline nodes visible and
-    // distinguishable. Dropping them would make a refusable attach look impossible.
+    // Degraded and offline nodes stay visible and distinguishable. Dropping them
+    // would make a refusable attach look impossible.
     const options = attachNodeOptions([
       rosterEntry({ nodeId: "node-a", state: "offline", healthState: "offline" }),
       rosterEntry({ nodeId: "node-b", state: "revoked", readOnly: true }),

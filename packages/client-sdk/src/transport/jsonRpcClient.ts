@@ -1,30 +1,28 @@
-// Typed JSON-RPC client transport — Plan-007 Phase 3 (T-007p-3-2).
+// Typed JSON-RPC client transport
 //
-// This file owns the SDK-side runtime that wraps a pluggable byte-frame
-// transport (`ClientTransport` from `./types.ts`) with typed `call<P, R>` /
-// `subscribe<T>` operations against the daemon's JSON-RPC method-namespace
-// registry. Every outbound payload is Zod-validated BEFORE the wire write,
-// every inbound payload is Zod-validated BEFORE it surfaces to the caller —
-// the SDK does NOT swallow validation errors (per `Plan-007 §Phase 3: session.* Handlers + SDK Zod Layer` T-007p-3-2 / I-007-3-T4).
+// This file owns the SDK-side runtime that wraps a pluggable byte-frame transport
+// (`ClientTransport` from `./types.ts`) with typed `call<P, R>` / `subscribe<T>`
+// operations against the daemon's JSON-RPC method-namespace registry. Every outbound
+// payload is Zod-validated BEFORE the wire write, every inbound payload is Zod-validated
+// BEFORE it surfaces to the caller — the SDK does NOT swallow validation errors.
 //
-// Spec coverage:
-//   * `Spec-007 §Wire Format` — "typed JSON-RPC client transport" surface owed to
-//     desktop renderer + CLI consumers.
-//   * Plan-007 §Cross-Plan Obligations CP-007-4 — `transport/jsonRpcClient.ts`
-//     CREATE (transport-layer + Zod wrapping primitive).
-//   * `Plan-007 §Phase 3: session.* Handlers + SDK Zod Layer` — `JsonRpcClient` class signature contract
-//     (constructor + `call<P, R>` + `subscribe<T>`).
-//   * MCP TypeScript SDK pattern (`Plan-007 §Phase 3: session.* Handlers + SDK Zod Layer` T-007p-3-2 reference; see
-//     https://github.com/modelcontextprotocol/typescript-sdk) — separation
-//     of envelope-layer client from byte-framing transport.
+//   * "typed JSON-RPC client transport" surface owed to desktop renderer + CLI
+//     consumers.
+//   * `transport/jsonRpcClient.ts` CREATE (transport-layer + Zod wrapping
+//     primitive).
+//   * `JsonRpcClient` class signature contract (constructor + `call<P, R>` +
+//     `subscribe<T>`).
+//   * MCP TypeScript SDK pattern (reference; see
+//     https://github.com/modelcontextprotocol/typescript-sdk) — separation of
+//     envelope-layer client from byte-framing transport.
 //
-// Invariants this module enforces at the client boundary (mirrors the
-// daemon-side registry/dispatch invariants from `Plan-007 §I-007-6 — Namespace registry rejects duplicate method-name registration` + `Plan-007 §I-007-9 — Method names conform to the canonical format declared in api-payload-contracts.md`):
+// Invariants this module enforces at the client boundary (mirrors the daemon-side
+// registry/dispatch invariants):
 //   * Caller-side params validation: `paramsSchema.parse(params)` runs
 //     BEFORE the wire envelope is constructed. A caller passing a malformed
 //     `params` value fails fast with a typed `JsonRpcSchemaError` and never
-//     reaches the daemon — the substrate would also reject (I-007-7), but
-//     fail-fast at the SDK boundary keeps the error provenance local.
+//     reaches the daemon — the substrate would also reject, but fail-fast
+//     at the SDK boundary keeps the error provenance local.
 //   * Daemon-side result validation: every successful JSON-RPC response is
 //     validated against the caller-provided `resultSchema` BEFORE the
 //     promise resolves. A response that fails validation surfaces as
@@ -37,16 +35,14 @@
 //     stream with `JsonRpcSchemaError` rejected from pending `next()` calls.
 //
 // What this file does NOT do:
-//   * Implement byte-level framing. `ClientTransport.send` / `onMessage`
-//     handle Content-Length-prefixed LSP framing per Spec-007 §Wire Format.
-//     This module works at the JSON-RPC envelope layer above framing.
+//   * `ClientTransport.send` / `onMessage` handle Content-Length-prefixed
+//     LSP framing. This module works at the JSON-RPC envelope layer above
+//     framing.
 //   * Implement the `daemon.hello` handshake. `opts.protocolVersion` is
-//     attached to every outgoing request envelope per `Spec-007 §Wire Format`
-//     ("every request except health checks must carry it"); the actual
-//     handshake (`call("daemon.hello", ...)`) is the caller's concern,
-//     typically wired by the bootstrap code that instantiates the client.
-//   * Wrap `session.*` methods. Plan-001 Phase 5 owns
-//     `packages/client-sdk/src/sessionClient.ts` per F-007p-3-03 boundary
+//     attached to every outgoing request envelope the actual handshake
+//     (`call("daemon.hello",...)`) is the caller's concern, typically wired
+//     by the bootstrap code that instantiates the client.
+//   * Owns `packages/client-sdk/src/sessionClient.ts` boundary
 //     resolution; that file consumes `JsonRpcClient` from here.
 //   * Re-implement JSON-RPC error mapping. The SDK side does the INVERSE
 //     of `mapJsonRpcError` (daemon-side, in
@@ -54,9 +50,8 @@
 //     receive numeric error codes and surface them as a typed
 //     `JsonRpcRemoteError` with `code` / `message` / optional `data`.
 //
-// `protocolVersion` is an ISO 8601 `YYYY-MM-DD` date-string per
-// api-payload-contracts.md §Tier 1 (cont.): Plan-007 (BL-102 ratified
-// 2026-05-01); mirrors the narrowed `JsonRpcRequest.protocolVersion`.
+// `protocolVersion` is an ISO 8601 `YYYY-MM-DD` date-string): mirrors
+// the narrowed `JsonRpcRequest.protocolVersion`.
 
 import type {
   JsonRpcErrorData,
@@ -84,25 +79,24 @@ import type { ClientTransport, LocalSubscriptionConsumer } from "./types.js";
 
 /**
  * Thrown by the SDK when the daemon returns a JSON-RPC error response. The
- * `code` is the JSON-RPC numeric (one of the values in
- * `JsonRpcErrorCode` from `@ai-sidekicks/contracts`), `message` is the
- * daemon-sanitized human-readable string (per I-007-8), and `data` is the
- * optional structured `{ type, fields? }` envelope per
- * error-contracts.md §JSON-RPC Wire Mapping (BL-103 closed 2026-05-01).
+ * `code` is the JSON-RPC numeric (one of the values in `JsonRpcErrorCode`
+ * from `@ai-sidekicks/contracts`), `message` is the daemon-sanitized
+ * human-readable string, and `data` is the optional structured `{ type,
+ * fields?
  *
  * Distinct from `JsonRpcSchemaError` — this class wraps the wire's `error`
- * branch (the daemon's I-007-8 path), while `JsonRpcSchemaError` flags
+ * branch (the daemon's path), while `JsonRpcSchemaError` flags
  * SDK-internal validation failures (caller bug or server-corruption).
  */
 export class JsonRpcRemoteError extends Error {
-  /** The JSON-RPC numeric error code (spec §5.1; see `JsonRpcErrorCode`). */
+  /** The JSON-RPC numeric error code (spec see `JsonRpcErrorCode`). */
   public readonly code: number;
   /**
    * The structured `{ type, fields? }` envelope from the wire's `error.data`,
    * or `undefined` when the daemon emitted a bare numeric error (an
    * unregistered internal `-32603` carries no `data`). `data.type` is the
-   * canonical dotted discriminator clients switch on per error-contracts.md
-   * §JSON-RPC Wire Mapping — read it instead of the coarse numeric `code`.
+   * canonical dotted discriminator clients switch on — read it instead of the
+   * coarse numeric `code`.
    */
   public readonly data: JsonRpcErrorData | undefined;
 
@@ -125,7 +119,7 @@ export class JsonRpcRemoteError extends Error {
  *
  * The `phase` field discriminates which surface fired so test code (and
  * downstream observability) can route the error appropriately. Phase 3
- * test ID I-007-3-T4 asserts on this class for the result-validation case
+ * test ID asserts on this class for the result-validation case
  * specifically.
  */
 export class JsonRpcSchemaError extends Error {
@@ -248,8 +242,7 @@ interface SubscriptionState<T> {
    * `completeSubscription` / `completeSubscriptionWithError`, so the
    * terminal-status guard at the top of `#cancelSubscription` intercepts
    * subsequent calls before they reach this field — leaving
-   * `cancelInFlight` set after resolution is a safe no-op (closes Codex F3,
-   * Phase D Round 5).
+   * `cancelInFlight` set after resolution is a safe no-op.
    */
   cancelInFlight: Promise<void> | undefined;
 }
@@ -429,14 +422,11 @@ function completeSubscriptionWithError<T>(state: SubscriptionState<T>, error: Er
  */
 export interface JsonRpcClientOptions {
   /**
-   * The protocol version attached to every outgoing JSON-RPC request
-   * envelope per `Spec-007 §Wire Format` ("every request except health checks must
-   * carry it"). ISO 8601 `YYYY-MM-DD` date-string per
-   * api-payload-contracts.md §Tier 1 (cont.): Plan-007 (BL-102 ratified
-   * 2026-05-01).
+   * The protocol version attached to every outgoing JSON-RPC request envelope. ISO
+   * 8601 `YYYY-MM-DD` date-string):.
    *
-   * REQUIRED — the daemon's substrate gate (Fix #4 in
-   * `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts#dispatchFrame`)
+   * REQUIRED — the daemon's substrate gate
+   * (`packages/runtime-daemon/src/ipc/local-ipc-gateway.ts#dispatchFrame`)
    * rejects every non-handshake envelope missing or carrying a malformed
    * `protocolVersion` with `-32600 InvalidRequest /
    * transport.invalid_protocol_version`. The SDK's TypeScript surface
@@ -540,7 +530,7 @@ export class JsonRpcClient {
    *   1. `paramsSchema.parse(params)` — fail-fast on caller-side malformed
    *      input (throws `JsonRpcSchemaError(phase: "params")`).
    *   2. Generate the next request id (monotonic numeric counter; spec
-   *      §4 allows string/number/null — numeric is sufficient).
+   *      — numeric is sufficient).
    *   3. Park a `PendingRequest` keyed by id.
    *   4. Send the framed envelope via `transport.send`.
    *   5. The promise resolves when the inbound dispatcher correlates a
@@ -552,7 +542,7 @@ export class JsonRpcClient {
    *      coalesced inbound frame can be dispatched against the new id.
    *
    * The `protocolVersion` from constructor opts is attached to every
-   * outgoing envelope per `Spec-007 §Wire Format`.
+   * outgoing envelope.
    *
    * @throws JsonRpcSchemaError - When `params` fail caller-side validation
    *   (phase: `"params"`) or `result` fails server-side validation
@@ -570,8 +560,8 @@ export class JsonRpcClient {
     subscriptionInitState: SubscriptionState<unknown> | undefined,
   ): Promise<R> {
     // Step 1: caller-side params validation. Fail-fast before any wire
-    // I/O — the daemon would also reject (I-007-7), but local validation
-    // keeps the error provenance close to the caller.
+    // I/O — the daemon would also reject, but local validation keeps the
+    // error provenance close to the caller.
     const paramsParsed = paramsSchema.safeParse(params);
     if (!paramsParsed.success) {
       throw new JsonRpcSchemaError(
@@ -589,8 +579,7 @@ export class JsonRpcClient {
     }
 
     // Step 2: allocate the request id and envelope. Numeric ids are
-    // monotonically incrementing; spec §4 allows the full string/number/null
-    // space but numeric is the simplest correct discriminator.
+    // monotonically incrementing; spec.
     const id = this.#allocateId();
     const envelope = this.#buildRequestEnvelope(id, method, paramsParsed.data);
 
@@ -604,7 +593,7 @@ export class JsonRpcClient {
       this.#pending.set(id, {
         resolve: (raw: unknown) => {
           // Step 5a: validate result against resultSchema BEFORE resolving
-          // the caller's promise. Server-corruption surface (I-007-3-T4).
+          // the caller's promise.
           const resultParsed = resultSchema.safeParse(raw);
           if (!resultParsed.success) {
             reject(
@@ -646,8 +635,7 @@ export class JsonRpcClient {
           // delete the pending entry while the transport's send may
           // actually have succeeded — leaking the daemon's response on
           // arrival. `Promise.resolve` absorbs any thenable into a
-          // native Promise, so `.catch` is guaranteed to exist (closes
-          // Codex F6, Phase D Round 7).
+          // native Promise, so `.catch` is guaranteed to exist.
           Promise.resolve(sendResult as PromiseLike<void>).catch((err: unknown) => {
             this.#pending.delete(id);
             reject(err instanceof Error ? err : new Error(String(err)));
@@ -667,9 +655,8 @@ export class JsonRpcClient {
    *   1. Construct a `LocalSubscriptionHandle<T>` with empty `subscriptionId`
    *      (Option A — sync return, post-init mutation per advisor analysis).
    *   2. Issue an outbound `call` for `method` with the supplied `params`.
-   *      The daemon's subscribe-handler (Plan-007 Phase 3 sibling, e.g.
-   *      `session.subscribe`) returns `{ subscriptionId }` per T-007p-2-5
-   *      contract.
+   *      The daemon's subscribe-handler (sibling, e.g.
+   *      `session.subscribe`) returns `{ subscriptionId }` contract.
    *   3. When the initial response arrives, mutate the handle's
    *      `subscriptionId` and register the subscription state against
    *      the inbound `$/subscription/notify` dispatcher.
@@ -680,8 +667,8 @@ export class JsonRpcClient {
    *      `$/subscription/cancel` request and awaits ack.
    *
    * The subscribe call's `params` carries no SDK-side schema; the typed
-   * sessionClient wrapper (Plan-001 Phase 5) is responsible for
-   * call-site param validation.
+   * sessionClient wrapper is responsible for call-site param
+   * validation.
    *
    * Note on synchronous return + asynchronous initialization: the
    * `subscriptionId` is empty until the initial response settles. Callers
@@ -693,8 +680,7 @@ export class JsonRpcClient {
    * @param method - The dotted-namespace subscribe method (e.g.
    *   `session.subscribe`).
    * @param params - The subscribe payload. Type-erased at this layer
-   *   (`unknown`) per the `Plan-007 §Phase 3: session.* Handlers + SDK Zod Layer` Tasks contract (T-007p-3-4) — typed wrappers
-   *   (Plan-001 Phase 5) narrow per-method.
+   *   (`unknown`) Tasks contract — typed wrappers narrow per-method.
    * @param valueSchema - Zod schema for the per-notification `value` shape.
    *   Every inbound `$/subscription/notify` is validated against this
    *   schema before reaching the consumer queue.
@@ -722,13 +708,13 @@ export class JsonRpcClient {
     const handle = new LocalSubscriptionHandle<T>(state, () => this.#cancelSubscription(state));
 
     // Issue the subscribe request. Note: we pass an `unknown`-typed
-    // params schema to `call` — the wrappers (Plan-001 Phase 5
-    // sessionClient) construct the typed schemas. At this layer the
-    // contract is "the daemon returns at minimum
-    // `{ subscriptionId: SubscriptionId }`" (UUID-branded — see
-    // `subscribeInitResultSchema` JSDoc / Codex F2 closure) per
-    // T-007p-2-5. We pass `subscribeInitResultSchema` directly to
-    // `#issueRequest` so the brand flows through to the resolved
+    // params schema to `call` — the wrappers (sessionClient)
+    // construct the typed schemas. At this layer the contract is
+    // "the daemon returns at minimum `{ subscriptionId:
+    // SubscriptionId }`" (UUID-branded — see
+    // `subscribeInitResultSchema` JSDoc / Codex F2 closure). We
+    // pass `subscribeInitResultSchema` directly to `#issueRequest`
+    // so the brand flows through to the resolved
     // `result.subscriptionId` consumed below (no widen-down cast).
     const passthroughParams: ZodType<unknown> = passthroughSchema;
 
@@ -793,7 +779,7 @@ export class JsonRpcClient {
         // See `PendingRequest.subscriptionInitState` JSDoc for the full
         // explainer and the regression test
         // `__tests__/jsonRpcClient.test.ts > subscribe-init registers
-        //  #subscriptions synchronously (Codex P1 regression)`.
+        //  #subscriptions synchronously`.
       },
       (err: unknown) => {
         // Subscribe init failed. End the subscription with the error so
@@ -818,8 +804,7 @@ export class JsonRpcClient {
    * Test-only inspection helper — returns the count of in-flight requests.
    * Documented as test-surface; production callers SHOULD NOT rely on this
    * count for application logic. Kept exported because the Phase 3 test
-   * suite (T-007p-3-4) needs to verify pending-entry cleanup on transport
-   * close.
+   * suite needs to verify pending-entry cleanup on transport close.
    */
   public get pendingCount(): number {
     return this.#pending.size;
@@ -844,11 +829,11 @@ export class JsonRpcClient {
 
   #buildRequestEnvelope(id: JsonRpcId, method: string, params: unknown): JsonRpcRequest {
     // Conditional spread for `params` only (a request MAY omit `params`
-    // per spec §4). `protocolVersion` is REQUIRED at construction (Fix #6
-    // — see `JsonRpcClientOptions.protocolVersion` JSDoc for rationale)
-    // so it always appears on the envelope. The substrate's
-    // `daemon.hello` exemption handles the bootstrap-handshake case
-    // where the version on the wire is don't-care.
+    // per spec). `protocolVersion` is REQUIRED at construction (see
+    // `JsonRpcClientOptions.protocolVersion` JSDoc for rationale) so
+    // it always appears on the envelope. The substrate's `daemon.hello`
+    // exemption handles the bootstrap-handshake case where the version on
+    // the wire is don't-care.
     const envelope: JsonRpcRequest = {
       jsonrpc: JSONRPC_VERSION,
       id,
@@ -883,23 +868,22 @@ export class JsonRpcClient {
       return;
     }
 
-    // Subscribe-init synchronous registration. The daemon's wire-ordering
-    // invariant (I-007-10 — the daemon writes the subscribe response
-    // BEFORE the first `$/subscription/notify`) guarantees the response
-    // precedes notifies on the wire, but that is only sufficient if the
-    // SDK installs the subscription dispatcher entry SYNCHRONOUSLY in the
-    // same frame as the response. If the parser delivers the response
-    // and the first notify back-to-back from a single transport read
-    // (normal coalescing on a stream socket), `#handleNotification` runs
-    // immediately after this method returns — BEFORE `subscribe().then`
-    // has had a chance to fire as a microtask. Without sync registration
-    // here, that first notification would hit the unknown-id silent-drop
-    // branch and be lost.
+    // The daemon's wire-ordering invariant (the daemon writes the
+    // subscribe response BEFORE the first `$/subscription/notify`)
+    // guarantees the response precedes notifies on the wire, but that is
+    // only sufficient if the SDK installs the subscription dispatcher
+    // entry SYNCHRONOUSLY in the same frame as the response. If the
+    // parser delivers the response and the first notify back-to-back from
+    // a single transport read (normal coalescing on a stream socket),
+    // `#handleNotification` runs immediately after this method returns —
+    // BEFORE `subscribe().then` has had a chance to fire as a microtask.
+    // Without sync registration here, that first notification would hit
+    // the unknown-id silent-drop branch and be lost.
     //
     // We run `subscribeInitResultSchema.safeParse(env.result)` here
     // (rather than a looser `typeof + length` shape probe) so the
     // synchronous registration gate and the resolve-path Zod parse
-    // CANNOT diverge. Closes Codex F2 (Phase D Round 4): the prior
+    // CANNOT diverge. Before that, the prior
     // shape probe accepted any non-empty string, so a malformed
     // `subscriptionId` (e.g. `"not-a-uuid"`) registered synchronously
     // into `#subscriptions` AHEAD of the schema's tighter UUID check
@@ -1083,8 +1067,8 @@ export class JsonRpcClient {
    *   3. In-flight-cancel guard. If a previous `cancel()` has already
    *      emitted the wire frame and is still awaiting the daemon ack, the
    *      second caller awaits the SAME promise rather than emitting a
-   *      duplicate `$/subscription/cancel` request (closes Codex F3, Phase
-   *      D Round 5). Both callers observe the same outcome — clean
+   *      duplicate `$/subscription/cancel` request. Both callers observe
+   *      the same outcome — clean
    *      teardown via `completeSubscription`, or local error via
    *      `completeSubscriptionWithError` if the daemon nacks. The wire-
    *      emit half is broken out into `#emitCancelRpc` so the public
@@ -1182,19 +1166,19 @@ export class JsonRpcClient {
 const passthroughSchema: ZodType<unknown> = z.unknown();
 
 /**
- * Initial subscribe response shape per T-007p-2-5: at minimum
- * `{ subscriptionId: SubscriptionId }` (UUID-branded per
- * `jsonrpc-streaming.ts:166`). Phase 3 handlers may layer additional
- * fields (e.g. `session.subscribe` could return `{ subscriptionId, cursor }`)
- * — the schema below uses `.loose()` (passthrough-equivalent permissive
- * parsing) to accept additional fields without rejecting. The SDK's
- * subscribe primitive only consumes `subscriptionId`; the typed wrapper at
- * the sessionClient layer is responsible for the full shape.
+ * Initial subscribe response shape: at minimum `{ subscriptionId:
+ * SubscriptionId }` (UUID-branded per `jsonrpc-streaming.ts:166`). Phase 3
+ * handlers may layer additional fields (e.g. `session.subscribe` could return
+ * `{ subscriptionId, cursor }`) — the schema below uses `.loose()`
+ * (passthrough-equivalent permissive parsing) to accept additional fields
+ * without rejecting. The SDK's subscribe primitive only consumes
+ * `subscriptionId`; the typed wrapper at the sessionClient layer is
+ * responsible for the full shape.
  *
  * The `subscriptionId` field uses the canonical `SubscriptionIdSchema`
  * (RFC 9562 UUID, brand-narrowed to `SubscriptionId`) rather than the
- * looser `z.string().min(1)` it carried at first landing. This closes the
- * Codex F2 finding (Phase D Round 4): a daemon corruption / proxy
+ * looser `z.string().min(1)` it carried at first landing. Before that, a
+ * daemon corruption or proxy
  * injection that returns a non-UUID `subscriptionId` was previously
  * registered into `#subscriptions` synchronously by `#handleResponse` and
  * then surfaced via the consumer-side schema rejection — leaving an

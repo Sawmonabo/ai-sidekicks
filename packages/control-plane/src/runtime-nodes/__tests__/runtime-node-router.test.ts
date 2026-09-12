@@ -1,7 +1,6 @@
-// Plan-003 §Phase 3 §T3.8 + §Phase 5 §T5.0c: router-level tRPC tests for the
-// runtime-node sibling router (`runtimenode.attach` / `.heartbeat` /
-// `.capabilityupdate` / `.detach` / `.roster`) against a pglite-backed
-// `Querier`. These pin the NEW transport wiring that no service test covers:
+// `runtimenode.attach` / `.heartbeat` / `.capabilityupdate` / `.detach` /
+// `.roster`) against a pglite-backed `Querier`. These pin the NEW transport
+// wiring that no service test covers:
 //
 //   * Mounting — every procedure resolves under the `runtimenode.*` namespace
 //     (the sibling-router composition) with input -> backing service -> output
@@ -12,15 +11,15 @@
 //     `CONFLICT` (HTTP 409): the attach conflict + revoked refusals and the
 //     capability-update refusal. The services already test the typed throwables
 //     directly (attach-service.test.ts); these tests assert ONLY the
-//     transport-layer code translation, which is T3.8's sole new behavior.
-//   * The roster QUERY registration (T5.0c) — `runtimenode.roster` is the
-//     namespace's FIRST (and only) `query` per the api-payload-contracts.md
-//     Runtime-Node Method-Name Registry (its four siblings are mutations),
-//     its input gated by RuntimeNodeRosterRequestSchema and its output the
-//     schema-valid RuntimeNodeRosterResponse. Roster READ breadth (visibility,
-//     axis independence, derived readOnly, isolation) is the service suite's
-//     domain (attach-service.test.ts) — not re-tested here, mirroring how the
-//     four mutations split service-vs-transport coverage.
+//     transport-layer code translation, which is the sole new behavior.
+//   * The roster QUERY registration — `runtimenode.roster` is the namespace's
+//     FIRST (and only) `query` Runtime-Node Method-Name Registry (its four
+//     siblings are mutations), its input gated by
+//     RuntimeNodeRosterRequestSchema and its output the schema-valid
+//     RuntimeNodeRosterResponse. Roster READ breadth (visibility, axis
+//     independence, derived readOnly, isolation) is the service suite's domain
+//     (attach-service.test.ts) — not re-tested here, mirroring how the four
+//     mutations split service-vs-transport coverage.
 //
 // REAL services over PGlite (not a structural stub): `RuntimeNodeRouterDeps`
 // holds the concrete `AttachService` / `HeartbeatService` classes (nominal,
@@ -32,10 +31,6 @@
 // is a LOCAL copy (sibling tests each carry their own — the dispatch contract
 // forbids exporting a shared test fixture from `packages/control-plane/`).
 //
-// Refs: docs/plans/003-runtime-node-attach.md §T3.8 + §T5.0c, ADR-014,
-//       `docs/architecture/contracts/api-payload-contracts.md §Runtime-Node Method-Name Registry (Tier 3)`
-//       (the roster registry row — query, control-plane tRPC only — and the
-//       procedure-type paragraph).
 
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { TRPCError } from "@trpc/server";
@@ -44,7 +39,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type {
   EventEnvelopeVersion,
   NodeId,
-  ParticipantId,
+  UserId,
   RuntimeNodeAttachRequest,
   SessionId,
 } from "@ai-sidekicks/contracts";
@@ -65,10 +60,10 @@ import { createRuntimeNodeRouter } from "../runtime-node-router.factory.js";
 
 const SESSION_ID: SessionId = "01970000-0000-7000-8000-0000000e0001" as SessionId;
 const OTHER_SESSION_ID: SessionId = "01970000-0000-7000-8000-0000000e0002" as SessionId;
-const PARTICIPANT_ID: ParticipantId = "01970000-0000-7000-8000-0000000f0001" as ParticipantId;
-// A second participant, distinct from the harness's ctx-current PARTICIPANT_ID,
-// used by the attach self-check refusal test (input.participantId !== current).
-const OTHER_PARTICIPANT_ID: ParticipantId = "01970000-0000-7000-8000-0000000f0002" as ParticipantId;
+const USER_ID: UserId = "01970000-0000-7000-8000-0000000f0001" as UserId;
+// A second user, distinct from the harness's ctx-current USER_ID,
+// used by the attach self-check refusal test (input.userId !== current).
+const OTHER_USER_ID: UserId = "01970000-0000-7000-8000-0000000f0002" as UserId;
 const NODE_ID: NodeId = "node-alpha-01" as NodeId;
 const CLIENT_VERSION: EventEnvelopeVersion = "1.4" as EventEnvelopeVersion;
 
@@ -82,7 +77,7 @@ function buildAttachRequest(
 ): RuntimeNodeAttachRequest {
   return {
     sessionId: SESSION_ID,
-    participantId: PARTICIPANT_ID,
+    userId: USER_ID,
     nodeId: NODE_ID,
     clientVersion: CLIENT_VERSION,
     capabilities: CAPABILITIES,
@@ -132,8 +127,8 @@ function isPGlite(handle: PGlite | Transaction): handle is PGlite {
 // exercises — mirrors attach-service.test.ts).
 // ----------------------------------------------------------------------------
 
-async function seedParticipant(querier: Querier, participantId: ParticipantId): Promise<void> {
-  await querier.query("INSERT INTO participants (id) VALUES ($1)", [participantId]);
+async function seedUser(querier: Querier, userId: UserId): Promise<void> {
+  await querier.query("INSERT INTO users (id) VALUES ($1)", [userId]);
 }
 
 async function seedSession(
@@ -146,19 +141,17 @@ async function seedSession(
   // supplied floor seeds the version-floor write-refusal catch-arm test.
   // The owning user must exist before the session's owner FK can resolve, and
   // some tests seed several sessions, so the insert is conflict-tolerant.
-  await querier.query("INSERT INTO participants (id) VALUES ($1) ON CONFLICT DO NOTHING", [
-    PARTICIPANT_ID,
-  ]);
+  await querier.query("INSERT INTO users (id) VALUES ($1) ON CONFLICT DO NOTHING", [USER_ID]);
   if (minClientVersion === undefined) {
     await querier.query(
       "INSERT INTO sessions (id, owner_user_id, state) VALUES ($1, $2, 'active')",
-      [sessionId, PARTICIPANT_ID],
+      [sessionId, USER_ID],
     );
     return;
   }
   await querier.query(
     "INSERT INTO sessions (id, owner_user_id, state, min_client_version) VALUES ($1, $2, 'active', $3)",
-    [sessionId, PARTICIPANT_ID, minClientVersion],
+    [sessionId, USER_ID, minClientVersion],
   );
 }
 
@@ -166,7 +159,7 @@ async function seedAttachment(
   querier: Querier,
   args: {
     sessionId: SessionId;
-    participantId: ParticipantId;
+    userId: UserId;
     nodeId: NodeId;
     state: string;
     clientVersion?: string;
@@ -174,9 +167,9 @@ async function seedAttachment(
 ): Promise<void> {
   await querier.query(
     `INSERT INTO runtime_node_attachments
-       (session_id, participant_id, node_id, capabilities, client_version, state)
+       (session_id, user_id, node_id, capabilities, client_version, state)
      VALUES ($1, $2, $3, $4, $5, $6)`,
-    [args.sessionId, args.participantId, args.nodeId, {}, args.clientVersion ?? "1.0", args.state],
+    [args.sessionId, args.userId, args.nodeId, {}, args.clientVersion ?? "1.0", args.state],
   );
 }
 
@@ -196,12 +189,12 @@ async function buildHarness() {
   const router = createRuntimeNodeRouter({
     attachService: new AttachService(querier),
     heartbeatService: new HeartbeatService(querier),
-    // Tier-1 stub: the ctx-current participant is PARTICIPANT_ID — the same
-    // participant every happy-path / catch-arm test passes as
-    // `input.participantId`, so the attach self-check passes through to the
-    // service. The self-check refusal test below uses OTHER_PARTICIPANT_ID to
+    // Stub: the ctx-current user is USER_ID — the same
+    // user every happy-path / catch-arm test passes as
+    // `input.userId`, so the attach self-check passes through to the
+    // service. The self-check refusal test below uses OTHER_USER_ID to
     // drive the mismatch.
-    resolveCurrentParticipantId: () => PARTICIPANT_ID,
+    resolveCurrentUserId: () => USER_ID,
   });
   const caller = t.createCallerFactory(router)({ requestId: "test-rn-1" });
   return { pg, querier, router, caller };
@@ -224,9 +217,9 @@ afterEach(async () => {
 // routes input -> service -> output.
 // ----------------------------------------------------------------------------
 
-describe("runtime-node router — happy-path mounting (T3.8)", () => {
+describe("runtime-node router — happy-path mounting", () => {
   it("runtimenode.attach mounts and resolves with the attach response (input -> service -> output)", async () => {
-    await seedParticipant(harness.querier, PARTICIPANT_ID);
+    await seedUser(harness.querier, USER_ID);
     await seedSession(harness.querier, SESSION_ID);
 
     const response = await harness.caller.runtimenode.attach(buildAttachRequest());
@@ -262,34 +255,32 @@ describe("runtime-node router — happy-path mounting (T3.8)", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Attach self-check — the acting participant is resolved from `ctx`, and an
-// attach claimed on behalf of a DIFFERENT participant is refused UNAUTHORIZED
-// before the backing service is ever invoked. Tier-1 structural parity with
-// session.join (don't trust caller-supplied identity as the sole authority).
+// Attach self-check — the acting user is resolved from `ctx`, and an
+// attach claimed on behalf of a DIFFERENT user is refused UNAUTHORIZED
+// before the backing service is ever invoked. Structural parity with
+// session.create (don't trust caller-supplied identity as the sole authority).
 // ----------------------------------------------------------------------------
 
-describe("runtime-node router — attach resolves the acting participant from ctx", () => {
-  it("runtimenode.attach refuses UNAUTHORIZED when input.participantId is not the ctx-current participant (service NOT invoked)", async () => {
-    // Seed the INPUT's participant + the session so the attach would SUCCEED if
+describe("runtime-node router — attach resolves the acting user from ctx", () => {
+  it("runtimenode.attach refuses UNAUTHORIZED when input.userId is not the ctx-current user (service NOT invoked)", async () => {
+    // Seed the INPUT's user + the session so the attach would SUCCEED if
     // it reached the service — this makes the no-row assertion discriminating
     // (a regressed guard writes a `registering` row) rather than trivially true.
-    // The harness ctx-current is PARTICIPANT_ID; the input claims
-    // OTHER_PARTICIPANT_ID, so the self-check refuses before the service runs.
-    await seedParticipant(harness.querier, OTHER_PARTICIPANT_ID);
+    // The harness ctx-current is USER_ID; the input claims
+    // OTHER_USER_ID, so the self-check refuses before the service runs.
+    await seedUser(harness.querier, OTHER_USER_ID);
     await seedSession(harness.querier, SESSION_ID);
 
     let caught: TRPCError | undefined;
     try {
-      await harness.caller.runtimenode.attach(
-        buildAttachRequest({ participantId: OTHER_PARTICIPANT_ID }),
-      );
+      await harness.caller.runtimenode.attach(buildAttachRequest({ userId: OTHER_USER_ID }));
     } catch (err) {
       if (err instanceof TRPCError) caught = err;
     }
 
     expect(caught).toBeDefined();
     // The discriminating code: UNAUTHORIZED (the self-check), NOT a service-path
-    // outcome. With the guard absent, a seeded participant + session would let
+    // outcome. With the guard absent, a seeded user + session would let
     // the attach succeed; an unseeded one would FK-throw INTERNAL_SERVER_ERROR.
     expect(caught?.code).toBe("UNAUTHORIZED");
 
@@ -305,13 +296,13 @@ describe("runtime-node router — attach resolves the acting participant from ct
 
 // ----------------------------------------------------------------------------
 // Catch-arms — the typed service exceptions map to tRPC CONFLICT (HTTP 409).
-// This is T3.8's sole NEW behavior (the services raise the typed throwables; the
+// This is the sole NEW behavior (the services raise the typed throwables; the
 // router translates them at the transport boundary).
 // ----------------------------------------------------------------------------
 
-describe("runtime-node router — typed exception -> CONFLICT (T3.8 catch-arms)", () => {
+describe("runtime-node router — typed exception -> CONFLICT (catch-arms)", () => {
   it("runtimenode.attach maps the cross-session conflict (RuntimeNodeAttachConflictException) to CONFLICT", async () => {
-    await seedParticipant(harness.querier, PARTICIPANT_ID);
+    await seedUser(harness.querier, USER_ID);
     await seedSession(harness.querier, SESSION_ID);
     await seedSession(harness.querier, OTHER_SESSION_ID);
     // The node already holds an ACTIVE attachment in ANOTHER session — the
@@ -319,7 +310,7 @@ describe("runtime-node router — typed exception -> CONFLICT (T3.8 catch-arms)"
     // translates to the typed conflict; the router maps it to tRPC CONFLICT.
     await seedAttachment(harness.querier, {
       sessionId: OTHER_SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "online",
     });
@@ -339,14 +330,14 @@ describe("runtime-node router — typed exception -> CONFLICT (T3.8 catch-arms)"
   });
 
   it("runtimenode.attach maps the revoked-row refusal (RuntimeNodeAttachRevokedException) to CONFLICT", async () => {
-    await seedParticipant(harness.querier, PARTICIPANT_ID);
+    await seedUser(harness.querier, USER_ID);
     await seedSession(harness.querier, SESSION_ID);
     // The node's attachment for THIS session is in the terminal `revoked` state;
     // re-attach is refused with the typed revoked exception (the distinct
     // exception branch in the attach catch-arm) -> tRPC CONFLICT.
     await seedAttachment(harness.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "revoked",
     });
@@ -362,7 +353,7 @@ describe("runtime-node router — typed exception -> CONFLICT (T3.8 catch-arms)"
   });
 
   it("runtimenode.capabilityupdate maps the no-active-attachment refusal to CONFLICT (also proves the 4th procedure mounts)", async () => {
-    await seedParticipant(harness.querier, PARTICIPANT_ID);
+    await seedUser(harness.querier, USER_ID);
     await seedSession(harness.querier, SESSION_ID);
     // No active attachment for the node -> the service throws
     // RuntimeNodeCapabilityUpdateConflictException, which the capabilityupdate
@@ -384,18 +375,17 @@ describe("runtime-node router — typed exception -> CONFLICT (T3.8 catch-arms)"
   });
 
   it("runtimenode.capabilityupdate maps the below-floor write-refusal (VersionFloorExceededException) to CONFLICT", async () => {
-    // The version-floor write-refusal catch-arm (T3.4): a below-floor (read-only)
-    // node's capability WRITE is refused with VersionFloorExceededException,
-    // which the capabilityupdate catch-arm maps to tRPC CONFLICT (HTTP 409 per
-    // error-contracts.md §Version) ALONGSIDE the capability-update conflict. A
-    // floored session (floor 2.0) holds the node's active attachment at a
-    // below-floor client_version (1.0) — the read-only verdict the gate
-    // re-derives at write time.
-    await seedParticipant(harness.querier, PARTICIPANT_ID);
+    // The version-floor write-refusal catch-arm: a below-floor (read-only) node's
+    // capability WRITE is refused with VersionFloorExceededException, which the
+    // capabilityupdate catch-arm maps to tRPC CONFLICT (HTTP 409) ALONGSIDE the
+    // capability-update conflict. A floored session (floor 2.0) holds the node's
+    // active attachment at a below-floor client_version (1.0) — the read-only
+    // verdict the gate re-derives at write time.
+    await seedUser(harness.querier, USER_ID);
     await seedSession(harness.querier, SESSION_ID, "2.0");
     await seedAttachment(harness.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "online",
       clientVersion: "1.0",
@@ -430,15 +420,15 @@ describe("runtime-node router — typed exception -> CONFLICT (T3.8 catch-arms)"
 // "does NOT translate a session_id FK violation (23503)").
 // ----------------------------------------------------------------------------
 
-describe("runtime-node router — non-typed error rethrows raw (T3.8 catch-arm discriminates)", () => {
+describe("runtime-node router — non-typed error rethrows raw (catch-arm discriminates)", () => {
   it("runtimenode.attach rethrows a raw session_id FK violation (23503) as INTERNAL_SERVER_ERROR, NOT CONFLICT", async () => {
-    // Seed the participant but DELIBERATELY NOT the session: the NULL-floor read
+    // Seed the user but DELIBERATELY NOT the session: the NULL-floor read
     // tolerates a missing session (no row -> floor = null, no throw), then the
     // INSERT violates the `session_id` FK with SQLSTATE 23503 — an error the
     // service does NOT translate to a typed exception. The catch-arm's
     // `instanceof` guards both miss, so `throw err` rethrows it raw and tRPC
     // wraps it as INTERNAL_SERVER_ERROR.
-    await seedParticipant(harness.querier, PARTICIPANT_ID);
+    await seedUser(harness.querier, USER_ID);
 
     let caught: TRPCError | undefined;
     try {
@@ -464,19 +454,18 @@ describe("runtime-node router — non-typed error rethrows raw (T3.8 catch-arm d
 });
 
 // ----------------------------------------------------------------------------
-// runtimenode.roster — the namespace's FIRST (and only) query (T5.0c)
+// runtimenode.roster — the namespace's FIRST (and only) query
 // ----------------------------------------------------------------------------
 //
-// api-payload-contracts.md §Runtime-Node Method-Name Registry: the roster row
-// registers `runtimenode.roster` as a `query` (its four siblings are
-// mutations), control-plane tRPC ONLY — no daemon JSON-RPC registration. The
-// three tests pin T5.0c's NEW transport wiring: the procedure-TYPE
-// registration (query, not mutation — a registry-conformance property no
-// service test can observe), the input gate (RuntimeNodeRosterRequestSchema),
-// and the input -> AttachService.readRoster -> output round-trip returning the
-// schema-valid RuntimeNodeRosterResponse.
+// `runtimenode.roster` as a `query` (its four siblings are mutations),
+// control-plane tRPC ONLY — no daemon JSON-RPC registration. The three tests
+// pin the NEW transport wiring: the procedure-TYPE registration (query, not
+// mutation — a registry-conformance property no service test can observe), the
+// input gate (RuntimeNodeRosterRequestSchema), and the input ->
+// AttachService.readRoster -> output round-trip returning the schema-valid
+// RuntimeNodeRosterResponse.
 
-describe("runtime-node router — runtimenode.roster registers as the namespace's first query (T5.0c)", () => {
+describe("runtime-node router — runtimenode.roster registers as the namespace's first query", () => {
   it("mounts roster as a QUERY procedure while the four siblings stay mutations (registry conformance)", () => {
     // `_def.type` is the runtime procedure-type discriminator tRPC v11 carries
     // on every built procedure. Asserting all five re-derives the registry
@@ -491,7 +480,7 @@ describe("runtime-node router — runtimenode.roster registers as the namespace'
   });
 
   it("round-trips attach -> roster through the router and returns the schema-valid response", async () => {
-    await seedParticipant(harness.querier, PARTICIPANT_ID);
+    await seedUser(harness.querier, USER_ID);
     await seedSession(harness.querier, SESSION_ID);
     await harness.caller.runtimenode.attach(buildAttachRequest());
 

@@ -1,13 +1,12 @@
 // The keyboard map: which chord runs which command, and how a person's next
 // keystroke becomes one.
 //
-// `Spec-023 §Console Design (Meridian)` §Keyboard: "One row per command with its
-// chord, its command id, and the when-grammar expression that scopes it …
-// Conflict detection against the same when-scope, naming the command that already
-// holds the chord … Never accepts a chord that collides in the same scope without
-// naming the collision. Never silently drops a binding that a platform reserves;
-// it renders as unavailable with the reason. Never writes a binding to a wire; the
-// map is renderer-local."
+// One row per command with its chord, its command id, and the when-grammar expression
+// that scopes it. Conflict detection runs against the same when-scope and names the
+// command that already holds the chord. A chord that collides in the same scope is
+// never accepted without naming the collision, a binding a platform reserves is never
+// silently dropped — it renders as unavailable with the reason — and a binding is never
+// written to a wire; the map is renderer-local.
 //
 // EVERY VERDICT ABOUT A BINDING SET IS THE KEYBINDING SERVICE'S OWN
 //

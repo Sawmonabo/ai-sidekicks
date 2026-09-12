@@ -13,10 +13,9 @@
 // Three consequences a reader will notice first:
 //
 //   • **`agent.attached` carries `name`.** `displayName` is not a member of that
-//     payload anywhere in the corpus.
-//     `Spec-006 §Channel and Agent Lifecycle (session_lifecycle)` registers the full
-//     persona plus the daemon-resolved resulting state, so the `agents` projection
-//     rebuilds from the log alone.
+//     payload anywhere. The agent lifecycle registers the full persona plus the
+//     daemon-resolved resulting state, so the `agents` projection rebuilds from the
+//     log alone.
 //   • **A `run.*` beat is a STATE TRANSITION.** Its payload is
 //     `{sessionId, runId, runVersion, previousState, newState, …}` and not a bare
 //     `{runId}` — `previousState` is absent only on `run.queued`, where the run is
@@ -58,8 +57,8 @@ import {
   AGENT_REVIEWER,
   COMPOSER_AGENTS,
   FIRST_AGENT_SEQUENCE,
-  PARTICIPANT_PRIYA,
-  PARTICIPANT_YOU,
+  USER_PRIYA,
+  USER_YOU,
   RUN_ID,
   SESSION_ID,
 } from "./identifiers.js";
@@ -71,19 +70,14 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
   purpose:
     "A session whose newest run is blocked on a person's next message — the state the composer's target, posture, and send resolution are read against.",
   sessionId: SESSION_ID,
-  // Join order IS hue order (`Spec-023 §Console Design (Meridian)` rule 2): the two
+  // Join order IS hue order: the two
   // people who joined, then the agents in the order they were attached.
-  participantIdsInJoinOrder: [
-    PARTICIPANT_YOU,
-    PARTICIPANT_PRIYA,
-    AGENT_IMPLEMENTER,
-    AGENT_REVIEWER,
-  ],
+  userIdsInJoinOrder: [USER_YOU, USER_PRIYA, AGENT_IMPLEMENTER, AGENT_REVIEWER],
   // Which of the four this window is. Stated rather than read off the head of the
   // join order — that entry is whoever opened the session, on whichever machine, and
   // a surface handed a fabricated identity renders a role gate as though it had been
-  // checked. The fixture answers `callerParticipantRead` from this field alone.
-  viewingParticipantId: PARTICIPANT_YOU,
+  // checked. The fixture answers `callerUserRead` from this field alone.
+  callerUserId: USER_YOU,
   startedAtIso: "2026-01-01T11:05:00.000Z",
   beats: [
     {
@@ -94,7 +88,7 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
         sequence: 1,
         kind: "session.created",
         occurredAt: "2026-01-01T11:05:00.000Z",
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         // The registered shape, verbatim. A session's display name reaches the
         // console from the session read; the creation event carries no title, and
         // its `.strict()` payload rejects one.
@@ -111,7 +105,7 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
         occurredAt: agent.attachedAtIso,
         // The person who attached the agent, not the agent. An agent does not attach
         // itself, and the envelope actor is who acted.
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         payload: {
           sessionId: SESSION_ID,
           agentId: agent.agentId,
@@ -119,7 +113,7 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
           driverName: agent.driverName,
           modelId: agent.modelId,
           state: "ready",
-          actor: PARTICIPANT_YOU,
+          actor: USER_YOU,
         },
       },
     })),
@@ -131,7 +125,7 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
         sequence: 4,
         kind: "run.queued",
         occurredAt: "2026-01-01T11:05:00.260Z",
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         // `previousState` is absent here and only here: a queued run is being born.
         payload: {
           sessionId: SESSION_ID,
@@ -150,7 +144,7 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
         sequence: 5,
         kind: "run.starting",
         occurredAt: "2026-01-01T11:05:00.320Z",
-        // No actor: the daemon moves a run out of `queued`, and a participant id
+        // No actor: the daemon moves a run out of `queued`, and a user id
         // here would attribute a system transition to a person.
         payload: {
           sessionId: SESSION_ID,
@@ -208,7 +202,7 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
         // set it, so the beat carries an actor.
         kind: "session.goal_updated",
         occurredAt: "2026-01-01T11:05:00.540Z",
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         payload: {
           sessionId: SESSION_ID,
           goal: {

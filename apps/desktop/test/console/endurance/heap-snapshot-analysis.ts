@@ -6,7 +6,7 @@
 // bisecting a thirty-minute run by hand to find out is the cost this module
 // removes.
 //
-// TWO ADOPTed TOOLS, EACH DOING THE HALF IT IS FOR, per `Spec-023 §Console Libraries`.
+// TWO ADOPTED TOOLS, EACH DOING THE HALF IT IS FOR.
 // `devtools-protocol` types the CDP traffic: `HeapProfiler.takeHeapSnapshot` and the
 // chunk event it streams back are hand-spelled strings on Playwright's `CDPSession`,
 // so a mistyped parameter is a silent no-op today — the snapshot simply arrives

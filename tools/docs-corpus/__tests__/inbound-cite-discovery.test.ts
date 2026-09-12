@@ -494,7 +494,7 @@ describe("inbound-cite-discovery — subprocess output bounds", () => {
     // TRUNCATED stdout rather than throwing. The index-aware reader's
     // `git show :<path>` carried no explicit bound, so the moment a real
     // governance file crossed 1 MiB (this repo's own
-    // cross-plan-dependencies.md did, in 2026-08) EVERY invocation of the
+    // a plan document does) EVERY invocation of the
     // pre-commit runner that touched it died with an opaque "status null".
     //
     // The fixture is deliberately over the default: a file that fits proves

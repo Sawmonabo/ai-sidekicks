@@ -4,28 +4,29 @@
 // contract, the two implementations (live preload, `define`-gated fixture), the
 // provider and hooks that resolve one of them exactly once at mount, the growth
 // port that refuses every wire the console does not yet have, and the ledger that
-// makes those refusals checkable against `Plan-023 §Console growth slate`.
+// makes those refusals checkable against the growth slate.
 //
 // WHY THE GROWTH LEDGER IS PART OF THIS DOOR. The console is built against wires
 // that do not exist, and the honest way to do that is a port whose every operation
 // refuses by name plus a manifest that says which slate row each refusal serves.
 // A surface consuming `GrowthPort` and a test auditing the ledger are reading one
 // vocabulary; splitting them across two doors would let the port grow an operation
-// the ledger never heard of, which is precisely what I-023-13 exists to catch.
+// the ledger never heard of, which is precisely what the ledger shape test catches.
 //
 // WHAT IS NOT HERE. `scenario/corpus.ts` is the seat board six concurrent family
 // branches each add one line to, and it is reached through `scenario-manifest.js`
 // rather than re-exported here, so a family editing its own seat never touches
 // this file.
 //
-// HOW A CLAIM IS SPELLED HERE. A line published ahead of its importer carries the
-// `// Consumed by T-023p-1C-<n>` line comment and never a `@consumedBy` JSDoc tag —
-// measured rather than chosen: knip does not report a specifier on THIS door at all.
+// HOW A CLAIM IS SPELLED HERE. A line published ahead of its importer carries a
+// line comment naming the surface that will import it, and never a `@consumedBy`
+// JSDoc tag — measured rather than chosen: knip does not report a specifier on THIS
+// door at all.
 // A planted dead type re-exported here raised nothing, where the same type re-exported
 // through `seats/index.ts` was reported at both its declaration and its specifier, so
 // a JSDoc tag here is an unused tag and `--treat-tag-hints-as-errors` fails the run on
-// it. The barrel-door rule in `apps/desktop/AGENTS.md` §Module shape does cover such a
-// line and is read by a person either spelling, so the line comment satisfies it.
+// it. This package's barrel-door rule does cover such a line and is read by a person
+// either spelling, so the line comment satisfies it.
 //
 // Nor is the scripted pane view host — not its type, not its factory, not its
 // transport marker. `console-bridge.ts` names the type on the contract and reaches
@@ -33,7 +34,7 @@
 // `ConsoleBridge.paneViewHostScript` and names the type nowhere; and the modules
 // that assert on the marker take it from the module that declares it. A door line
 // for any of them would be a published name with no importer, which is the class
-// `apps/desktop/AGENTS.md` §Module shape rejects.
+// this package's module rules reject.
 //
 // Nor is `createLiveBridge`. Its one production reader is `BridgeProvider.tsx`
 // beside it, which imports the declaring module, and the harnesses that build a
@@ -251,7 +252,7 @@ export { createFixtureBridge } from "./fixture/call-plane/bridge.js";
 export {
   abandonedReadRefusal,
   callDaemon,
-  // Consumed by T-023p-1C-4
+  // Consumed by the settings family.
   DAEMON_REPLY_REFUSAL_ORIGIN,
 } from "./daemon/daemon-reply.js";
 export type { DaemonReply, DaemonReplyRefusalCode } from "./daemon/daemon-reply.js";
@@ -301,8 +302,8 @@ export { settledGrowthCall } from "./growth-port/growth-port.js";
 // `GrowthPortRefusalCode` stays OFF this door beside it. The closed code union is
 // what the port's own refusal arms are written in, and nothing outside
 // `growth-port/growth-outcome.ts` names it at all, so a door line for it would
-// publish a specifier with no importer — the class `apps/desktop/AGENTS.md` §Module
-// shape rejects.
+// publish a specifier with no importer — the class this package's module rules
+// reject.
 // `createRefusingGrowthPort` is withheld on the same rule from the other side: its
 // one production caller is `live-bridge.ts` inside this family, which takes it
 // through `growth-port/index.js`, the inner door its siblings already read.
@@ -322,7 +323,7 @@ export type { GrowthSessionSummary } from "./growth-values/sessions.js";
 // narrowing an `unknown` it has no schema for.
 export type { GrowthImportProgress } from "./growth-values/sessions.js";
 // The attention projection's own vocabulary. Published because the notification
-// plane NARROWS against it: it used to declare a second copy of these six triggers
+// plane NARROWS against it: it used to declare a second copy of these five triggers
 // and two severities, which is two closed sets that agree until one of them is
 // widened and nothing notices.
 export {
@@ -334,7 +335,7 @@ export {
   type AttentionTrigger,
 } from "./wire-shapes/attention-projection.js";
 // The durable intervention row the corpus registers as columns and no read returns —
-// its origin, the admitting principal on the participant arm, the queue item it
+// its origin, the admitting principal on the user arm, the queue item it
 // admitted, and the directive where the key still opens it. Published from the module
 // that declares it, never through the sub-module door. Its sibling projection — the
 // queue row's run binding — stays off this door: it is folded onto the queue feed
@@ -370,23 +371,19 @@ export { TransportReconnectSignal } from "./transport/transport-reconnect.js";
 export { openObservedSubscription } from "./transport/observed-subscription.js";
 
 // The per-operation request and value table. Published for exactly one reader: the
-// collaboration family's mutation coordinator, which binds a growth WRITE the way it
+// channels family's mutation coordinator, which binds a growth WRITE the way it
 // already binds a daemon method — reading both halves off the registry rather than
 // declaring them at the call site, so a surface naming an operation the slate does not
 // carry, or sending it the wrong payload, does not compile. It travels as a type and
 // carries no port with it, so nothing gains a way to CALL an operation through it.
 export type { GrowthOperationSignatures } from "./growth-signatures/signature-table.js";
 
-// The channel plane's shapes, published because the collaboration family RENDERS
+// The channel plane's shapes, published because the channels family RENDERS
 // them: a create form whose every field is one member of `GrowthChannelConfig`, and
 // the receipts the four lifecycle writes answer with. They leave through the module
 // that DECLARES them rather than through `growth-values/index.js`, on the
-// `console-no-barrel-chain` rule — and the audience vocabulary is here rather than on
-// that inner door because its only reader is outside this family, which is exactly
-// what a sub-module door does not publish.
+// `console-no-barrel-chain` rule.
 export {
-  GROWTH_CHANNEL_AUDIENCES,
-  type GrowthChannelAudience,
   type GrowthChannelConfig,
   type GrowthChannelCreateReceipt,
   type GrowthChannelLifecycleReceipt,
@@ -407,7 +404,7 @@ export type { GrowthPresenceDetail } from "./growth-values/presence.js";
 export type { SidekickDefinition } from "./wire-shapes/sidekick-definition.js";
 
 // The agent plane's reply and request shapes. Published because the agent console
-// and the cast bar RENDER them: they are declared on the substrate rather than in a
+// and the session header RENDER them: they are declared on the substrate rather than in a
 // view family — see `wire-shapes/agent-plane.ts`'s header — so the family that draws
 // a roster card reads its shape through this door like any other cross-family import.
 // They leave through the module that declares them on the same rule as the line
@@ -640,7 +637,7 @@ export type { SchemaMemberPath } from "./wire-shapes/schema-member-path.js";
 // initial import graph and the compiler carries a schema library's JSON-Schema entry
 // point behind it. Its only production readers are inside the schema form seat, which is
 // a loader-backed chunk — so a runtime line for `compileSchemaValidator` assigned that
-// library to the STATIC chunk, on the rule `apps/desktop/AGENTS.md` §Module shape states,
+// library to the STATIC chunk, on the rule this package's module shape states,
 // and put it on the document of every session that never draws a form. Measured, that
 // line alone carried the initial graph past its budget. The loader is one awaited function
 // body; the module's own header says why the deferral is on this side of the door.
@@ -699,7 +696,7 @@ export { stampedExecutionPostureOf } from "./daemon/entity-body-reads.js";
 export { readNodeState } from "./daemon/node-state-read.js";
 
 // The Awareness activity field's readings, through the door because the
-// collaboration family folds a snapshot of them into its indicator registry and a
+// channels family folds a snapshot of them into its indicator registry and a
 // view family may not reach past a barrel into this one. They leave through
 // `growth-values/presence.js`, the module that DECLARES them, on the rule the
 // `GrowthArtifactSummary` line above states.
@@ -724,7 +721,7 @@ export type {
 export {
   readCeremonyOutcome,
   type DeviceGrantHandoff,
-  type ParticipantIdentityClaims,
+  type UserIdentityClaims,
   type WebAuthnCeremonyOutcome,
   type WebAuthnCustody,
   type WebAuthnProbeResult,

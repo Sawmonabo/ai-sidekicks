@@ -6,7 +6,7 @@
 // given or cleared a goal here; beside it sit the surfaces a window has whether or
 // not a session is open —
 // the daemon's own status and control, onboarding, the shell's boolean settings,
-// the invite list, the health stream, the provider-session import a new session can
+// the health stream, the provider-session import a new session can
 // be seeded from, and whether this machine will display an OS notification at all.
 
 import type { NegotiationIncompatibleReason } from "@ai-sidekicks/contracts";
@@ -110,7 +110,7 @@ export interface SessionGrowthSignatures {
   onboardingStepAdvance: { request: { readonly stepId: string }; value: void };
   onboardingStepSkip: { request: { readonly stepId: string }; value: void };
   onboardingComplete: { request: Record<string, never>; value: void };
-  // NO SIGN-IN OPERATION, DELIBERATELY. `Spec-029 §Brokered interactive sign-in` puts
+  // NO SIGN-IN OPERATION, DELIBERATELY. Brokered interactive sign-in puts
   // the brokered login on the provider-management surface and its CLI parity verb, and
   // says in the same breath that it "does not rewire" the first-run step: that step's
   // `providerAccount.*` calls exclude `providerAccount.login` and `loginCancel`, so
@@ -120,18 +120,18 @@ export interface SessionGrowthSignatures {
   // the probe that decides whether it worked.
 
   // The two bridge methods, whose values are what a MAIN-PROCESS dialog answered.
-  // `credentialHandle` is an opaque reference and never a secret: `Spec-026
-  // §Pitfalls To Avoid` records that rendering the admin-token field in the renderer
-  // has already leaked it once, so the token is typed into main's own window and the
+  // `credentialHandle` is an opaque reference and never a secret: rendering the
+  // admin-token field in the renderer has already leaked it once, so the token is
+  // typed into main's own window and the
   // renderer is handed something that only names it.
   //
   // `relayMethodId` travels as a bare `string` deliberately. The three normative
-  // identifiers are `Spec-026 §Three-Way Choice Semantics`', and the console narrows
+  // identifiers belong to the onboarding relay choice, and the console narrows
   // against its own copy of them fail-closed at the step — an id this build does not
   // recognise renders as the unrecognised row rather than as one of the three.
   //
-  // `relayUrl` is on the reply because `Spec-026 §Desktop Surface` declares it there
-  // and `Spec-026 §Persistence` records it as plaintext config rather than a secret —
+  // `relayUrl` is on the reply because the desktop onboarding surface declares it
+  // there and records it as plaintext config rather than a secret —
   // and because Option 1's own required prompt is that the current published relay
   // address is displayed. Without it this console could describe the consequence of a
   // choice and never name the address it resolved to.

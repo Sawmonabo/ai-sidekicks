@@ -1,31 +1,29 @@
-// ClaudeSessionLifecycle — the Claude driver's session + run lifecycle band
-// (Plan-005 Phase 3, T3.6).
+// ClaudeSessionLifecycle — the Claude driver's session + run lifecycle band.
 //
 // Owns five of the fourteen `ProviderDriver` operations for the Claude leg:
 // `createSession`, `resumeSession`, `startRun`, `interruptRun`, `closeSession`.
-// The remaining nine (capabilities / models / modes, the R8 parity operations,
-// `respondToRequest`, `probeAuth`) are authored by sibling Phase-3 tasks and are
-// deliberately absent here rather than stubbed — a stub that throws would be a
-// declared-then-unsupported capability, which is exactly what I-005-2 forbids.
+// The remaining nine (capabilities / models / modes, the parity operations,
+// `respondToRequest`, `probeAuth`) live in sibling modules and are deliberately
+// absent here rather than stubbed — a stub that throws would be a
+// declared-then-unsupported capability, which is exactly what the capability
+// declaration forbids.
 //
-// SPEC COVERAGE
-//   * `Spec-005 §Required Behavior` — the normalized operation surface: the daemon drives
-//     Claude through these methods and never through provider-native calls.
-//   * `Spec-005 §Fallback Behavior` (AC3) — a resume-handle failure surfaces `provider failure`
-//     detail plus a visible `recovery-needed` condition, and MUST NOT silently
-//     create a replacement provider session under the same canonical run.
+// The normalized operation surface is the whole interface: the daemon drives
+// Claude through these methods and never through provider-native calls. A
+// resume-handle failure surfaces `provider failure` detail plus a visible
+// `recovery-needed` condition, and MUST NOT silently create a replacement
+// provider session under the same canonical run.
 //
-// I-005-5 (the load-bearing invariant of this file), realized three ways:
+// THAT LAST RULE — never a silent replacement — is realized three ways:
 //   1. STRUCTURALLY — `DriverResumeResult` is a discriminated union whose
 //      `failed` arm carries no `bindingId`, so "failed" and "resumed" cannot be
-//      conflated. That half ships in `@ai-sidekicks/contracts` (T1.6).
+//      conflated. That half ships in `@ai-sidekicks/contracts`.
 //   2. BY IDENTITY GATE — a resume is `resumed` ONLY when the transport reports
 //      back the SAME provider session id the resume handle names. Claude answers
 //      a resume whose recorded working directory no longer matches by starting a
-//      FRESH session (`docs/reference/provider-wire/claude.md` §Session flags),
-//      and a fresh session announcing its own id through a resume path is
-//      precisely the silent replacement the invariant prohibits. The readback is
-//      a REQUIRED field of `ClaudeResumedSessionAttachment` (never an optional
+//      FRESH session, and a fresh session announcing its own id through a resume
+//      path is precisely the silent replacement the rule prohibits. The readback
+//      is a REQUIRED field of `ClaudeResumedSessionAttachment` (never an optional
 //      one plus a presence check), so a transport that cannot report identity
 //      cannot express a successful resume at all.
 //   3. BY DISPOSAL — every refused attachment is disposed before the `failed`
@@ -34,27 +32,26 @@
 //
 // The DOMAIN half of resume verification — comparing `sessionPosition` against
 // the daemon's RECORDED position, and the divergence reconciliation a mismatch
-// triggers — is Spec-015's, not this layer's: it needs session state this driver
-// does not carry. This file performs the checks it can actually perform.
+// triggers — belongs to the session layer, not here: it needs session state this
+// driver does not carry. This file performs the checks it can actually perform.
 //
 // PORTS, NOT PROCESSES. Every provider-process concern (binary resolution and
-// the version floor gate — T3.23; spawn-environment hygiene and the auth probe —
-// T3.14; per-capability zero-turn detection — T3.24) sits behind the injected
+// the version floor gate, spawn-environment hygiene and the auth probe,
+// per-capability zero-turn detection) sits behind the injected
 // `ClaudeSessionTransport` / `ClaudeSessionChannel` ports declared below. This
 // module spawns nothing, reads no environment variable, and therefore cannot
 // echo, persist, or log a `CLAUDE_CODE_OAUTH_TOKEN`.
 //
 // Typed-error convention: mirrors `provider-registry.ts` — a `readonly code`
-// literal drawn from the `driver.*` namespace already registered in
-// `docs/architecture/contracts/error-contracts.md` §Driver (closed at seven),
+// literal drawn from the registered `driver.*` namespace (closed at seven),
 // plus a structured `fields` bag. Internal validation errors (e.g.
 // `ProviderOutputValidationError`) carry NO code — class identity
 // discriminates; a dotted literal belongs only to registered wire/domain
-// errors. PR-A mints NO new dotted code: `driver.unavailable` carries the
+// errors. Nothing here mints a new dotted code: `driver.unavailable` carries the
 // driver-side refusals to service a session/run operation and
 // `driver.capability_unsupported` carries a provider's typed control-request
-// refusal ("registry membership is not availability"). A finer taxonomy is
-// T3.14's P3-3 to register and re-home.
+// refusal ("registry membership is not availability"). A finer taxonomy would
+// have to be registered first.
 
 import {
   DRIVER_AUTH_DETAIL_MAX_LEN,
@@ -176,18 +173,18 @@ import { mintUuidV7 } from "../../../ids/uuid-v7.js";
 // span's CONTENT is not knowable at the driver boundary — the driver sees a
 // refused attach, never the work the previous leg performed — and
 // `unclassifiable` is the fail-closed member the consumer must handle exactly as
-// `irreversible`. T3.14's resume-failure taxonomy (P3-3) is where a finer
-// reading, if one is ever justified, belongs.
+// `irreversible`. A finer resume-failure taxonomy, if one is ever justified,
+// belongs with the auth-probe band rather than here.
 const CLAUDE_RESUME_SPAN_CLASSIFICATION = "unclassifiable" as const;
 
 const UNDESCRIBED_FAILURE_DETAIL =
   "The Claude provider transport failed the resume with no describable detail.";
 
 // --------------------------------------------------------------------------
-// Console-parity constants — `Spec-005 §Desktop Console Parity Surfaces`
+// Console-parity constants
 // --------------------------------------------------------------------------
 
-// THE DECLARED BOUND for one participant-triggered compaction on this driver.
+// THE DECLARED BOUND for one user-triggered compaction on this driver.
 //
 // "Declared" means exactly this: the driver states, up front, how long it will
 // wait for the provider's own typed compaction evidence before reporting the
@@ -221,7 +218,7 @@ const CLAUDE_COMPACTION_COMMAND_TEXT = `/${CLAUDE_COMPACTION_COMMAND_NAME}`;
 // Minted from a LITERAL, in the module that composes the frame, which is the
 // discipline `OutboundTextFrameWriter` requires of the `driver_command` arm: the
 // arm is exempt from the text-neutralization tripwire, so a value that could be
-// forwarded from a caller would let participant words reach the provider under a
+// forwarded from a caller would let user words reach the provider under a
 // driver's exemption. Nothing outside this module can name it.
 const CLAUDE_COMPACTION_FRAME_ORIGIN = "driver_command";
 
@@ -229,7 +226,7 @@ const CLAUDE_COMPACTION_FRAME_ORIGIN = "driver_command";
 // Transport ports — the seam between this driver band and the provider process
 // --------------------------------------------------------------------------
 
-// A single outbound participant-authored text frame.
+// A single outbound user-authored text frame.
 //
 // Now the SHARED branded frame rather than a local shape, which is what makes
 // the neutralization structural instead of conventional: `OutboundTextFrame`
@@ -278,7 +275,7 @@ export type ClaudeUserTextWriteAttempt =
     };
 
 /**
- * One failed user-text write, normalized for the shared classifier (T3.22).
+ * One failed user-text write, normalized for the shared classifier.
  *
  * A two-member mapping onto a three-member vocabulary, and the missing member is
  * the point. `consumed-and-refused` is unreachable from this seam BY
@@ -303,35 +300,35 @@ export function observeClaudeUserTextFailure(
 
 // The one control-request subtype this band drives. `interrupt` is censused at
 // the pin; `cancel` is NOT a control-request subtype at all
-// (`docs/reference/provider-wire/claude.md` §Control-request registry), which is
-// why the cancel intent rides `cancelQueued` on this same request instead of a
-// second subtype the CLI would refuse. `cancelQueued` is REQUIRED so a caller
-// states the intent explicitly; realizing it against a build whose
-// `system/init` capability tokens do not include `interrupt_cancel_queued_v1` is
-// the transport's job (per-capability detection is T3.24).
+// in the pinned control-request registry, which is why the cancel intent rides
+// `cancelQueued` on this same request instead of a second subtype the CLI would
+// refuse. `cancelQueued` is REQUIRED so a caller states the intent explicitly;
+// realizing it against a build whose `system/init` capability tokens do not
+// include `interrupt_cancel_queued_v1` is the transport's job, through
+// per-capability detection.
 export interface ClaudeInterruptControlRequest {
   readonly subtype: "interrupt";
   readonly cancelQueued: boolean;
 }
 
-// Widened by later Phase-3 tasks as they take ownership of further subtypes
-// (T3.15's parity operations, T3.14's interactive-request plumbing). A closed
-// union is the point: an unrouted subtype must not typecheck.
+// Widened by the sibling bands as they take ownership of further subtypes (the
+// parity operations, the interactive-request plumbing). A closed union is the
+// point: an unrouted subtype must not typecheck.
 export type ClaudeControlRequest = ClaudeInterruptControlRequest;
 
 // The already-correlated `control_response` payload. Request/response id
 // correlation and read-to-EOF framing belong to the transport; this band sees
 // only the settled answer, because what it must classify is the TYPED REFUSAL
 // ("Unsupported control request subtype: ...", or a dispatcher arm reporting the
-// callback is not registered) that the wire reference requires every driver to
-// feature-detect at call time rather than infer from a version number.
+// callback is not registered) that every driver must feature-detect at call
+// time rather than infer from a version number.
 export type ClaudeControlResponse =
   | { readonly subtype: "success"; readonly response?: Record<string, unknown> | undefined }
   | { readonly subtype: "error"; readonly error: string };
 
 // Why a channel is being torn down. Passed to the transport so an INTENDED close
-// is distinguishable from a crash — the seam T3.14's intended-close terminal
-// suppression (P1-1) consumes. This band never suppresses an event itself.
+// is distinguishable from a crash — the seam the intended-close terminal
+// suppression consumes. This band never suppresses an event itself.
 export type ClaudeChannelDisposalReason =
   | "session_closed"
   | "spawn_identity_diverged"
@@ -384,7 +381,7 @@ export interface ClaudeHandshakeDeclaration {
    * The provider itself separates these from `slash_commands`, and the reason is
    * load-bearing: they run in the provider's own terminal UI and are NOT
    * interactively invocable over the programmatic surface this driver drives.
-   * Merging them into the invocable set would offer a participant a control that
+   * Merging them into the invocable set would offer a user a control that
    * silently does nothing; dropping them would hide a surface the provider
    * really does publish. They are therefore carried, and the distinction is
    * recorded on the entry rather than erased (see `scope` below).
@@ -471,7 +468,7 @@ export interface ClaudeSessionChannel {
   readonly isClosed: boolean;
 
   /**
-   * Writes one participant-authored text frame and REPORTS the outcome.
+   * Writes one user-authored text frame and REPORTS the outcome.
    *
    * TRANSPORT OBLIGATION — a failure MUST be reported as a `failed` attempt
    * carrying the delivery classification, NOT raised as a rejection. The
@@ -507,11 +504,10 @@ export interface ClaudeSessionChannel {
    * retires the route so that interrupt refuses instead.
    *
    * The hook carries the terminal frame BODY, untyped and untrusted — the
-   * "future caller" its previous no-payload form named, arrived. T3.18's
-   * runtime tripwire has to ask whether a model turn demonstrably happened, and
-   * that answer lives in typed members of this exact frame (`num_turns`,
-   * `modelUsage`, `duration_api_ms`, `total_cost_usd`; see
-   * `docs/reference/provider-wire/claude.md`).
+   * "future caller" its previous no-payload form named, arrived. The runtime
+   * text-neutralization tripwire has to ask whether a model turn demonstrably
+   * happened, and that answer lives in typed members of this exact frame
+   * (`num_turns`, `modelUsage`, `duration_api_ms`, `total_cost_usd`).
    *
    * The band's no-frame-vocabulary discipline is PRESERVED rather than
    * abandoned: this module does not read a single member of the value. It
@@ -531,7 +527,7 @@ export interface ClaudeSessionChannel {
    * returned {@link ThreadFrameRoute}'s decision appears in the DELIVER column
    * below. A transport that observed after projecting, or that ignored the
    * decision, would put a child thread's output in the parent's timeline — the
-   * fabricated transcript I-005-12 forbids.
+   * fabricated transcript this routing rule exists to prevent.
    *
    * DELIVER — the frame reaches the normalize consumer:
    *
@@ -616,12 +612,12 @@ export interface ClaudeSessionChannel {
 export interface ClaudeSpawnBoundLegs {
   readonly sessionId: SessionId;
   /**
-   * The session goal, rendered to text by the daemon (T3.15 leg 2, EMULATED).
+   * The session goal, rendered to text by the daemon (EMULATED).
    *
    * TRANSPORT OBLIGATION — a present goal is realized as the CLI's system-prompt
    * append on this spawn. It is not a user turn and MUST NOT be delivered as
    * one: the goal is daemon-authored standing instruction, and injecting it into
-   * the participant's message stream would put words in a participant's mouth
+   * the user's message stream would put words in a user's mouth
    * and put them in the transcript.
    *
    * Rides the SPAWN-BOUND shape rather than a live control request because this
@@ -642,7 +638,7 @@ export interface ClaudeSpawnBoundLegs {
    */
   readonly subagentPolicy: SubagentPolicy | undefined;
   /**
-   * The definitions withheld from `subagentPolicy` and why (T3.15 leg 4).
+   * The definitions withheld from `subagentPolicy` and why.
    *
    * Carried BESIDE the policy rather than folded into it, because a transport
    * that received only the surviving definitions could not tell a policy that
@@ -651,8 +647,8 @@ export interface ClaudeSpawnBoundLegs {
    */
   readonly withheldSubagentDefinitions: readonly ClaudeWithheldSubagentDefinition[];
   /**
-   * The `--settings` sandbox document composed from `executionPosture` (T3.15
-   * leg 5), or `undefined` when the session declares no posture.
+   * The `--settings` sandbox document composed from `executionPosture`, or
+   * `undefined` when the session declares no posture.
    *
    * Composed by the DRIVER and handed over ready to write: the posture-to-flag
    * mapping is a normalization decision the driver contract owns, and leaving it
@@ -666,7 +662,7 @@ export interface ClaudeSpawnBoundLegs {
     | undefined;
   /**
    * The daemon-hosted ephemeral MCP server the admitted `callbackTools` are
-   * served through (T3.15 leg 3), or `undefined` when none are served.
+   * served through, or `undefined` when none are served.
    *
    * TRANSPORT OBLIGATION — realized as `--mcp-config` with this server's tools,
    * and the provider-facing names are taken from the descriptor rather than
@@ -675,14 +671,14 @@ export interface ClaudeSpawnBoundLegs {
    * `CallbackToolInvocation`, so the daemon-side host is always asked about a
    * name its own registry holds.
    *
-   * PRESENT ONLY when `onCallbackToolCall` is bound. That pairing is the leg-3
+   * PRESENT ONLY when `onCallbackToolCall` is bound. That pairing is the
    * fail-closed spawn rule made structural: a registry served with no dispatcher
    * would offer the model tools whose invocations nothing could answer.
    */
   readonly callbackToolServer: ClaudeCallbackMcpServerDescriptor | undefined;
   /**
-   * The daemon boundary that serializes beyond-cap subagent tool calls (T3.15
-   * leg 4), or `undefined` when the session declares no enabled subagent policy.
+   * The daemon boundary that serializes beyond-cap subagent tool calls, or
+   * `undefined` when the session declares no enabled subagent policy.
    */
   readonly subagentAdmission: ClaudeSubagentAdmissionPort | undefined;
   readonly onMcpServerStatus: McpServerStatusProducer | undefined;
@@ -691,7 +687,7 @@ export interface ClaudeSpawnBoundLegs {
    * for this CLI, its documented auto-update opt-out.
    *
    * NOT the child environment. The curated base and the run-provisioned
-   * variables are the transport's per the P0-4 obligation on `spawnSession`, and
+   * variables are the transport's own obligation on `spawnSession`, and
    * so is the deny strip, because the transport is what resolves the
    * `credentialPolicyRef` this shape already carries on `sandboxSettings`. What
    * rides here is the other half of that composition: the pairs the daemon
@@ -742,7 +738,7 @@ export interface ClaudeSessionResumeRequest extends ClaudeSpawnBoundLegs {
 }
 
 /**
- * A conversation rewind (T3.15 leg 1). Composed, on this provider, from
+ * A conversation rewind. Composed, on this provider, from
  * `--resume-session-at <message-uuid>` + `--fork-session`, with
  * `--replay-user-messages` so message-uuid rewind targets appear on the wire at
  * all.
@@ -781,9 +777,8 @@ export interface ClaudeSessionAttachment {
 }
 
 export interface ClaudeResumedSessionAttachment extends ClaudeSessionAttachment {
-  // REQUIRED, per I-005-5: a resume without a comparable position is
-  // structurally inexpressible, so a transport cannot report a success it cannot
-  // evidence.
+  // REQUIRED: a resume without a comparable position is structurally
+  // inexpressible, so a transport cannot report a success it cannot evidence.
   readonly sessionPosition: number;
 }
 
@@ -797,7 +792,7 @@ export interface ClaudeResumedSessionAttachment extends ClaudeSessionAttachment 
  * `sessionPosition` is REQUIRED and is the position the fork actually landed on,
  * not the one that was asked for. Reporting the request back would make a
  * boundary the transport silently adjusted indistinguishable from one it hit
- * exactly, which is the same evidence gap I-005-5 closes on resume.
+ * exactly, which is the same evidence gap the resume identity gate closes.
  */
 export interface ClaudeRewoundSessionAttachment extends ClaudeSessionAttachment {
   readonly sessionPosition: number;
@@ -817,8 +812,8 @@ export interface ClaudeAuthProbeReading {
    * answered.
    *
    * MUST NOT carry credential material or a seat email. The pinned CLI's
-   * `CLAUDE_CODE_OAUTH_TOKEN` is a credential the wire reference says is never
-   * to be echoed, persisted, or written to a workspace, and a probe detail is
+   * `CLAUDE_CODE_OAUTH_TOKEN` is a credential that must never be echoed,
+   * persisted, or written to a workspace, and a probe detail is
    * all three waiting to happen. The driver contract bounds this at
    * `DRIVER_AUTH_DETAIL_MAX_LEN` and treats it as diagnostics only: `status`
    * alone carries the fail-closed admission decision.
@@ -850,7 +845,7 @@ export interface ClaudeAuthProbeRequest {
    * costs most. A probe runs on a cadence and its child is short-lived, so an
    * unsuppressed probe can UPDATE THE INSTALLATION underneath the very version
    * and capability readings the next admission is decided against — drift with
-   * no participant action anywhere behind it, produced by the check that exists
+   * no user action anywhere behind it, produced by the check that exists
    * to make admission safe.
    */
   readonly mandatedEnvironment: readonly SpawnEnvPair[];
@@ -885,7 +880,7 @@ export interface ClaudeSessionTransport {
   /**
    * Whether THIS transport realizes the callback-tool registration — writing
    * `--mcp-config` for `callbackToolServer` so the model actually sees the
-   * tools (T3.15 leg 3, the Claude half).
+   * tools (the Claude half).
    *
    * WHY THE PORT DECLARES IT RATHER THAN THE DRIVER ASSUMING IT. The Codex half
    * of this leg can settle the same question by reading the pinned protocol —
@@ -912,7 +907,7 @@ export interface ClaudeSessionTransport {
   /**
    * Starts a provider process for a new session.
    *
-   * SPAWN-ENVIRONMENT OBLIGATION (P0-4), owned here for the same reason the auth
+   * SPAWN-ENVIRONMENT OBLIGATION, owned here for the same reason the auth
    * probe is: THIS BAND SPAWNS NOTHING, so the only place the rule can bind is
    * the port. The child environment is CONSTRUCTED, never inherited — the
    * transport composes it from the curated base plus the run-provisioned
@@ -962,7 +957,7 @@ export interface ClaudeSessionTransport {
    * than applies, so a transport that folded under the policy's value would be
    * reintroducing exactly the case the builder rejects.
    *
-   * AUTH-FAILURE OBLIGATION, shared with `resumeSession` below (P3-3): a
+   * AUTH-FAILURE OBLIGATION, shared with `resumeSession` below: a
    * DETERMINATE logged-out failure throws `ClaudeAuthenticationRequiredError`,
    * and every other failure throws anything else. That typed distinction is the
    * only route by which this band reports `reauth-required` instead of
@@ -981,7 +976,7 @@ export interface ClaudeSessionTransport {
   resumeSession(request: ClaudeSessionResumeRequest): Promise<ClaudeResumedSessionAttachment>;
   /**
    * Forks the session at a rewind target, producing a new provider session whose
-   * history stops at that boundary (T3.15 leg 1).
+   * history stops at that boundary.
    *
    * A SEPARATE method rather than an optional member on `resumeSession`: the two
    * differ in their answer as well as their flags — a resume that lands on a
@@ -994,11 +989,11 @@ export interface ClaudeSessionTransport {
    */
   rewindSession(request: ClaudeSessionRewindRequest): Promise<ClaudeRewoundSessionAttachment>;
   /**
-   * The zero-turn authentication probe (P0-5), owned by the transport because
+   * The zero-turn authentication probe, owned by the transport because
    * THIS BAND SPAWNS NOTHING.
    *
-   * The pinned wire reference records that no authless protocol probe exists for
-   * this provider: reaching a working `system/init` IS the authentication
+   * No authless protocol probe exists for this provider, which is measured
+   * rather than assumed: reaching a working `system/init` IS the authentication
    * evidence, and only the layer that can start a process can obtain it. So the
    * probe is a port obligation rather than a method here, and this band supplies
    * the classification instead.
@@ -1035,21 +1030,21 @@ export interface ClaudeSessionTransport {
 // --------------------------------------------------------------------------
 
 /**
- * The origin a run's opening frame is written under (T3.18).
+ * The origin a run's opening frame is written under.
  *
  * A CONSTANT rather than a port member. The text this driver opens a run with
- * is the participant's own message, composed by the daemon's run pipeline, so
+ * is the user's own message, composed by the daemon's run pipeline, so
  * the origin is a fact of the code path and not a claim a resolver gets to make.
  */
-const RUN_OPENING_FRAME_ORIGIN: CallerDeclaredFrameOrigin = "participant_text";
+const RUN_OPENING_FRAME_ORIGIN: CallerDeclaredFrameOrigin = "human_text";
 
 // `StartRunParams` carries `runId` / `channelId` / `agentConfig` and NEITHER the
 // owning `sessionId` NOR the run's opening text. Both are daemon-owned facts:
-// the run-to-binding mapping lives in `runtime_bindings` (T2.2) and the opening
+// the run-to-binding mapping lives in `runtime_bindings` and the opening
 // content is composed by the daemon's run pipeline. Reading either out of the
-// untyped `agentConfig` record would invent a key the corpus has not ratified,
-// so this band asks for them through an injected port instead. The daemon wires
-// the implementation; T3.18's frame writer later takes over composing the text.
+// untyped `agentConfig` record would invent an unratified key, so this band asks
+// for them through an injected port instead. The daemon wires the
+// implementation; the outbound frame writer composes the text.
 export interface ClaudeRunDispatch {
   readonly sessionId: SessionId;
   readonly openingText: string;
@@ -1059,15 +1054,15 @@ export interface ClaudeRunDispatchResolver {
   resolveRunDispatch(params: StartRunParams): Promise<ClaudeRunDispatch | undefined>;
 }
 
-// The read the intervention dispatcher (T3.7) needs, and the only coupling
+// The read the intervention dispatcher needs, and the only coupling
 // between the two bands — narrowed to one method so `intervention.ts` cannot
 // reach session state it has no business mutating.
 //
-// THREE outcomes, not two, since T3.18: a live channel, `undefined` for a run
+// THREE outcomes, not two: a live channel, `undefined` for a run
 // with no route, and a THROWN refusal for a run whose provider binding a
 // text-neutralization trip disposed. The third is deliberately not folded into
 // the second — "this run has no channel yet" invites a retry, and a retry into
-// a process that has already swallowed a participant's words is the one
+// a process that has already swallowed a user's words is the one
 // response that must not happen. A caller that treats every non-channel answer
 // as absence will now see the refusal escape instead, which is the intended
 // direction: it names the real cause rather than a plausible wrong one.
@@ -1076,7 +1071,7 @@ export interface ClaudeRunChannelLookup {
 }
 
 // --------------------------------------------------------------------------
-// Typed errors (both codes already registered in error-contracts.md §Driver)
+// Typed errors (both codes already registered in the driver namespace)
 // --------------------------------------------------------------------------
 
 export type ClaudeSessionUnavailableReason =
@@ -1140,9 +1135,9 @@ export interface ClaudeSessionUnavailableContext {
 }
 
 // Every driver-side refusal to service a session or run operation. Rides the
-// REGISTERED `driver.unavailable` (503) rather than minting a code, because
-// `error-contracts.md` is not this task's to edit and no registered member names
-// a finer condition. The `reason` field carries the distinction operators need.
+// REGISTERED `driver.unavailable` (503) rather than minting a code, because no
+// registered member names a finer condition and the namespace is closed. The
+// `reason` field carries the distinction operators need.
 export class ClaudeSessionUnavailableError extends Error {
   readonly code = "driver.unavailable" as const;
   readonly fields: ClaudeSessionUnavailableFields;
@@ -1191,14 +1186,13 @@ export class ClaudeControlRequestRefusedError extends Error {
 // a resume reports `reauth-required` instead of `recovery-needed` — two
 // conditions with two different operator actions, which is why the classification
 // must come from a typed signal and never from message-substring sniffing. The
-// producing side is T3.14's auth probe / mid-run reauth route; this band is the
+// producing side is the auth probe / mid-run reauth route; this band is the
 // consumer. Rides the registered `driver.not_authenticated` (409).
 /**
- * Thrown when a replay is asked of a build whose transcript-replay probe refused
- * (T3.20).
+ * Thrown when a replay is asked of a build whose transcript-replay probe refused.
  *
- * A REFUSAL and not a fault. `Spec-005 §Fallback Behavior` makes a `false`
- * `transcript_replay` a supported declaration: the caller catches this, settles
+ * A REFUSAL and not a fault. A `false` `transcript_replay` is a supported
+ * declaration: the caller catches this, settles
  * on the memo projection, and reports `degraded` with
  * `conversation_history_summarized` declared. Throwing rather than returning
  * `degraded` from here is the same distinction the sibling Codex leg draws — the
@@ -1207,7 +1201,7 @@ export class ClaudeControlRequestRefusedError extends Error {
  */
 /**
  * Thrown when a replay against a build that DOES carry a seeding surface fails
- * (T3.20) — a malformed frame, a non-fresh target, an interior refusal, or an
+ * — a malformed frame, a non-fresh target, an interior refusal, or an
  * ambiguous delivery.
  *
  * Its own class rather than `ClaudeSessionUnavailableError`, whose `reason` is a
@@ -1225,7 +1219,7 @@ export class ClaudeTranscriptReplayFailedError extends Error {
 
 /**
  * Calls a replay-target readback reader and converts a rejection into the
- * `unreadable` arm (T3.20).
+ * `unreadable` arm.
  *
  * That conversion is the seam's own contract — "rejecting is equivalent to
  * answering `unreadable`" — realized once so neither call site can forget it and
@@ -1243,8 +1237,7 @@ async function readReplayTargetSafely(
 }
 
 /**
- * Parses one exported transcript frame for the Claude replay leg, fail-closed
- * (T3.20).
+ * Parses one exported transcript frame for the Claude replay leg, fail-closed.
  *
  * Deliberately a sibling of the Codex leg's parser rather than a shared helper:
  * the two driver trees are import-independent by design, so neither can break
@@ -1271,7 +1264,7 @@ function readRenderedTranscriptFrameForClaudeReplay(frame: unknown): SeededTrans
       "A transcript frame handed to the Claude replay leg carried no integer position.",
     );
   }
-  if (role !== "participant" && role !== "assistant") {
+  if (role !== "user" && role !== "assistant") {
     throw new ClaudeTranscriptReplayFailedError(
       `A transcript frame at position ${String(position)} carried the unrecognized role "${String(role)}".`,
     );
@@ -1557,7 +1550,7 @@ function digestOutputSchema(outputSchema: Record<string, unknown>): string {
 }
 
 // --------------------------------------------------------------------------
-// Execution posture + subagent policy -> Claude spawn config (T3.15 legs 4 + 5)
+// Execution posture + subagent policy -> Claude spawn config
 // --------------------------------------------------------------------------
 
 /**
@@ -1575,7 +1568,7 @@ function digestOutputSchema(outputSchema: Record<string, unknown>): string {
 const CLAUDE_SUPERVISED_ALLOWS_UNSANDBOXED_COMMANDS = false;
 
 /**
- * The subagent depth ceiling this driver clamps to (T3.15 leg 4).
+ * The subagent depth ceiling this driver clamps to.
  *
  * A CEILING, not a default: a policy asking for less gets what it asked for. It
  * exists because subagent depth multiplies a run's blast radius geometrically
@@ -1592,9 +1585,9 @@ export const CLAUDE_SUBAGENT_MAX_DEPTH_CEILING: number = 5;
  * editorial: the daemon interposes at the permission prompt, so a definition
  * whose mode SKIPS that prompt has no interception point and its beyond-cap tool
  * calls cannot be held at a boundary that is not there. An UNRECOGNIZED mode is
- * treated the same way for the I-005-2 reason — a capability is present only
- * when explicitly declared, never inferred from a string this driver does not
- * know.
+ * treated the same way for the same reason a capability declaration is total —
+ * a capability is present only when explicitly declared, never inferred from a
+ * string this driver does not know.
  *
  * An ABSENT mode is mediatable: it inherits the session's own mode, which this
  * driver pins to the always-armed prompt above.
@@ -1618,7 +1611,7 @@ export interface ClaudeSubagentPolicyRealization {
 
 /**
  * Admits the subagent definitions this driver can boundary-mediate and withholds
- * the rest (T3.15 leg 4's fail-closed rule).
+ * the rest (the fail-closed rule).
  *
  * Withheld rather than downgraded. Rewriting an unmediatable definition's
  * permission mode would hand the agent a subagent that runs under a
@@ -1665,7 +1658,7 @@ export function realizeClaudeSubagentPolicy(
 }
 
 // --------------------------------------------------------------------------
-// Subagent concurrency: the daemon-side boundary serialization (T3.15 leg 4)
+// Subagent concurrency: the daemon-side boundary serialization
 // --------------------------------------------------------------------------
 
 /**
@@ -1719,7 +1712,7 @@ export interface ClaudeSubagentAdmissionPort {
 
 /**
  * Holds beyond-cap subagent tool calls at the daemon boundary, and records the
- * breaches it could not hold (T3.15 leg 4).
+ * breaches it could not hold.
  *
  * TWO SURFACES, and the split is the honest part. `admit` is ENFORCEMENT: a
  * call arriving with every slot taken waits in arrival order until one frees,
@@ -1732,7 +1725,7 @@ export interface ClaudeSubagentAdmissionPort {
  *
  * FIFO rather than a bare counter. A waiter set resolved in arbitrary order
  * starves whichever subagent is unlucky, and a starved subagent inside a run
- * with a wall-clock budget is a run that fails for a reason no participant did.
+ * with a wall-clock budget is a run that fails for a reason no user did.
  */
 export class ClaudeSubagentConcurrencyGate implements ClaudeSubagentAdmissionPort {
   readonly #sessionId: SessionId;
@@ -1865,7 +1858,7 @@ export class ClaudeSubagentConcurrencyGate implements ClaudeSubagentAdmissionPor
 }
 
 // --------------------------------------------------------------------------
-// Callback tools: the daemon-hosted ephemeral MCP server (T3.15 leg 3)
+// Callback tools: the daemon-hosted ephemeral MCP server
 // --------------------------------------------------------------------------
 
 /**
@@ -1879,7 +1872,7 @@ export const CLAUDE_CALLBACK_MCP_SERVER_NAME: string = "sidekicks";
 
 /**
  * Why a spawn served the provider no callback-tool registry even though the
- * daemon admitted one and bound a dispatcher (T3.15 leg 3, the Claude half).
+ * daemon admitted one and bound a dispatcher (the Claude half).
  *
  * The mirror of `CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL` on the
  * axis this provider's uncertainty actually lives on. There the registration
@@ -1949,8 +1942,8 @@ export function composeClaudeCallbackMcpServer(
 }
 
 /**
- * The `--settings` sandbox document one execution posture composes to (T3.15
- * leg 5, native-partial and Bash-scoped).
+ * The `--settings` sandbox document one execution posture composes to
+ * (native-partial and Bash-scoped).
  *
  * `credentialPolicyRef` rides through as the REFERENCE it is. Expanding it here
  * would put the installation's denied-credential list inside the driver, which
@@ -2018,7 +2011,7 @@ export function composeClaudeSandboxSettings(posture: ExecutionPosture): ClaudeS
 }
 
 /**
- * One session's routing and metering band (T3.11).
+ * One session's routing and metering band.
  *
  * The two halves are one record because they are one lifetime: the router's
  * thread registry and the accountant's base registers answer the same question
@@ -2086,8 +2079,7 @@ interface LiveClaudeSession {
    */
   readonly spawnBoundLegs: ClaudeSpawnBoundLegs;
   /**
-   * Which base-establishment arm this leg takes, and whose sum it bases on
-   * (T3.11).
+   * Which base-establishment arm this leg takes, and whose sum it bases on.
    *
    * A daemon-created session bases its usage registers at ZERO. A resume — and
    * a rewind, which is a fresh spawn continuing a session whose spend the
@@ -2095,7 +2087,7 @@ interface LiveClaudeSession {
    *
    * The resume arm carries `priorEmittedThreadId` because the thread to base
    * FROM is not always the thread being established. A provider-native resume
-   * answers with the id it was handed (I-005-5's identity gate refuses anything
+   * answers with the id it was handed (the identity gate refuses anything
    * else), so the two coincide there. A REWIND forks: the successor announces a
    * brand-new provider session id that the daemon has never emitted a single
    * token against, so keying the lookup on it would resolve to nothing on every
@@ -2105,7 +2097,7 @@ interface LiveClaudeSession {
   readonly establishment: ClaudeUsageEstablishment;
   /**
    * The provider account the daemon ADMITTED this process against, or `null`
-   * when the request named none (T3.17).
+   * when the request named none.
    *
    * CAPTURED, NEVER RESOLVED. It is copied off `CreateSessionParams` /
    * `ResumeSessionParams` at establishment and held as an OPAQUE string: never
@@ -2182,7 +2174,7 @@ type ClaudeSessionSlot =
 
 /**
  * Normalizes the typed provider-account member a request carries into the value
- * the session record holds (T3.17).
+ * the session record holds.
  *
  * TWO ARMS AND NO THIRD. An ABSENT member is the ordinary case — the account
  * plane is not shipped, so most requests name nothing — and becomes `null`, the
@@ -2200,8 +2192,8 @@ type ClaudeSessionSlot =
  *
  * REFUSED BY THE CALLER rather than here, because the two establishment paths
  * have different failure channels — `createSession` throws and `resumeSession`
- * owes the typed `failed` arm (I-005-5) — and a helper that threw would force the
- * resume path to catch its own precondition.
+ * owes the typed `failed` arm — and a helper that threw would force the resume
+ * path to catch its own precondition.
  */
 function isUnusableAdmittedProviderAccountId(requested: string | undefined): boolean {
   return requested !== undefined && requested.length === 0;
@@ -2215,7 +2207,7 @@ export interface ClaudeSessionLifecycleDependencies {
   readonly transport: ClaudeSessionTransport;
   readonly runDispatchResolver: ClaudeRunDispatchResolver;
   /**
-   * The daemon-wide diagnostic band (T3.11).
+   * The daemon-wide diagnostic band.
    *
    * REQUIRED. The parity legs owe a RECORD on each of their fail-closed paths —
    * a withheld subagent definition, a withheld callback-tool registry, an
@@ -2225,7 +2217,7 @@ export interface ClaudeSessionLifecycleDependencies {
   readonly diagnostics: DriverDiagnosticsEmitter;
   /**
    * The daemon's own prior-emitted cumulative token sums for one provider
-   * session, used to base a PROVIDER-NATIVE RESUME or a REWIND (T3.11).
+   * session, used to base a PROVIDER-NATIVE RESUME or a REWIND.
    *
    * `threadId` is the thread the sums were emitted UNDER, which on a rewind is
    * the predecessor rather than the successor being established. Answering
@@ -2240,25 +2232,25 @@ export interface ClaudeSessionLifecycleDependencies {
     | ((sessionId: SessionId, threadId: string) => CumulativeAxisReadings | undefined)
     | undefined;
   /**
-   * Receives each metered per-turn usage delta (T3.11). PRODUCER-ONLY: the
+   * Receives each metered per-turn usage delta. PRODUCER-ONLY: the
    * driver states what was spent and the emission pipeline mints the
    * `usage_telemetry` envelope, so no driver mints a session event.
    */
   readonly onMeteredUsage?: ((sessionId: SessionId, delta: MeteredUsageDelta) => void) | undefined;
   /**
-   * This leg's declared text-neutrality parity grade (T3.18), defaulting to the
-   * grade `Spec-005 §Parity Capability Mechanism Grades` records for it.
+   * This leg's declared text-neutrality parity grade, defaulting to the grade
+   * the parity mechanism table records for it.
    *
    * Injectable because the grade is a behavioral INPUT: a leg re-graded
    * `native` by amendment flips this value, and no code path branches on the
    * provider's name to decide it.
    */
   readonly textNeutralityMechanismGrade?: TextNeutralityMechanismGrade | undefined;
-  /** Correlation minting for outbound text frames (T3.18). Injectable for tests. */
+  /** Correlation minting for outbound text frames. Injectable for tests. */
   readonly mintOutboundFrameCorrelationId?: (() => string) | undefined;
   /**
    * Receives the run terminal a text-neutralization tripwire trip produces
-   * (T3.18). PRODUCER-ONLY, exactly like the sibling callbacks above: the
+   *. PRODUCER-ONLY, exactly like the sibling callbacks above: the
    * driver states that the run failed and why, and the emission pipeline mints
    * the envelope.
    *
@@ -2275,13 +2267,13 @@ export interface ClaudeSessionLifecycleDependencies {
   ) => void;
   /**
    * Receives the `subagent.started` / `subagent.completed` pair for each
-   * provider-attributed child (T3.11). PRODUCER-ONLY, and the child's ONLY
+   * provider-attributed child. PRODUCER-ONLY, and the child's ONLY
    * timeline presence: a registered child's content and lifecycle frames are
    * transcript-suppressed, so this pair survives the suppression rather than
    * sharing it.
    */
   /**
-   * Reads the installed build's transcript-replay surface (T3.20).
+   * Reads the installed build's transcript-replay surface.
    *
    * The SAME reading `ClaudeCapabilityReporterDependencies.transcriptReplayProbe`
    * turns into the `transcript_replay` flag — a composed daemon binds this as a
@@ -2298,7 +2290,7 @@ export interface ClaudeSessionLifecycleDependencies {
     | undefined;
   /**
    * Receives the routing decision for a frame that was RELEASED from a pending
-   * hold rather than routed inside the observer call (T3.11).
+   * hold rather than routed inside the observer call.
    *
    * REQUIRED FOR CORRECTNESS ON THE HELD PATH, optional only because a
    * deployment binding no consumer for released frames is already choosing not
@@ -2383,9 +2375,9 @@ export interface ClaudeSessionLifecycleDependencies {
    *     must not launder into a correct-looking binding, and two resolvers
    *     disagreeing about a billing identity is a wiring fault rather than a
    *     precedence question.
-   *   * RECORD NAMES NONE — this port's answer, unchanged. A pre-T3.17 caller
-   *     that omits the typed member leaves the registry as the only source there
-   *     has ever been, and that path is preserved exactly.
+   *   * RECORD NAMES NONE — this port's answer, unchanged. A caller that omits
+   *     the typed member leaves the registry as the only source there has ever
+   *     been, and that path is preserved exactly.
    *
    * THE SIBLING IMPLEMENTATION IS THE CODEX BAND'S `resolveBoundProviderAccountId`,
    * which applies the same ratified rule — the identity reported is the one the
@@ -2465,7 +2457,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   // a single-threaded runtime.
   readonly #sessionSlots: Map<SessionId, ClaudeSessionSlot> = new Map();
   readonly #sessionIdByRunId: Map<RunId, SessionId> = new Map();
-  // The P1-1 producer half. One gate per session, installed at establishment
+  // The intended-close producer half. One gate per session, installed at establishment
   // and signalled at the top of `closeSession`; the terminal-emission boundary
   // in `event-normalizer.ts` is the CONSUMER that stamps the flag, because that
   // is the module that owns the terminal frame.
@@ -2476,10 +2468,9 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   // during an establishment is exactly the case where mis-reading a clean
   // shutdown as a crash would be most misleading.
   readonly #terminalEmissionGates: Map<SessionId, ClaudeTerminalEmissionGate> = new Map();
-  // The T3.11 child-routing and usage-delta band, one instance of each per
-  // provider session and held for that session's lifetime — the state
-  // `Spec-005 §Interfaces And Contracts` describes as driver-session state, so
-  // it is constructed here rather than composed from outside.
+  // The child-routing and usage-delta band, one instance of each per provider
+  // session and held for that session's lifetime. It is driver-session state,
+  // so it is constructed here rather than composed from outside.
   // ONE map, so the router and the accountant are created and released
   // together. Two maps let a caller resurrect one half of a band the other half
   // had already been released from, which is a routing decision made against a
@@ -2489,8 +2480,8 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     | ((sessionId: SessionId, threadId: string) => CumulativeAxisReadings | undefined)
     | undefined;
   readonly #onMeteredUsage: ((sessionId: SessionId, delta: MeteredUsageDelta) => void) | undefined;
-  // T3.18. The writer is the ONLY composer of provider-bound text bytes on this
-  // leg; the tripwire correlates each written frame with the turn that settles
+  // The writer is the ONLY composer of provider-bound text bytes on this leg;
+  // the tripwire correlates each written frame with the turn that settles
   // it; the quarantine holds bindings a trip disposed. Constructed here rather
   // than injected as a unit because all three are driver-session state whose
   // lifetime is this object's.
@@ -2504,7 +2495,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   ) => void;
   readonly #transcriptReplaySurfaceReader: ClaudeTranscriptReplaySurfaceReader | undefined;
   /**
-   * Replay targets this driver has burned (T3.20). Keyed by PROVIDER session id
+   * Replay targets this driver has burned. Keyed by PROVIDER session id
    * for the same reason the sibling Codex ledger is: the rule is about the
    * provider-side conversation, and a caller reaching a burned target does so
    * through the handle it still holds.
@@ -2521,7 +2512,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       ) => void)
     | undefined;
   /**
-   * The daemon-stored session goals (T3.15 leg 2's emulation, driver half).
+   * The daemon-stored session goals (the emulation's driver half).
    *
    * DRIVER-HELD, never durable truth: the goal's record of record is the
    * session's own `goal_updated` / `goal_cleared` events, and the daemon
@@ -2577,8 +2568,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     this.#outboundTextFrameWriter = new OutboundTextFrameWriter({
       // `emulated` is this leg's grade at the pin: the provider's own
       // programmatic input surface intercepts command-shaped text client-side,
-      // measured first-party and recorded in
-      // `docs/reference/provider-wire/claude.md`.
+      // measured first-party against the pinned build.
       mechanismGrade: dependencies.textNeutralityMechanismGrade ?? "emulated",
       mintCorrelationId: dependencies.mintOutboundFrameCorrelationId,
     });
@@ -2719,8 +2709,8 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
 
   async #establishResumedSession(params: ResumeSessionParams): Promise<DriverResumeResult> {
     // BEFORE THE SPAWN, and through the `failed` ARM rather than a throw: resume's
-    // contractual failure channel is that arm (I-005-5), and a raw rejection here
-    // would reach a caller with no arm for it.
+    // contractual failure channel is that arm, and a raw rejection here would
+    // reach a caller with no arm for it.
     if (isUnusableAdmittedProviderAccountId(params.providerAccountId)) {
       return this.#buildResumeFailure(
         "recovery-needed",
@@ -2738,7 +2728,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       return this.#buildResumeFailure(classifyRecoveryCondition(error), describeFailure(error));
     }
 
-    // I-005-5's identity gate. Claude answers a resume it cannot honour (a
+    // The identity gate. Claude answers a resume it cannot honour (a
     // working-directory mismatch is the documented case) by starting a FRESH
     // session, which announces its own id. Adopting that session would be the
     // silent replacement.
@@ -2831,10 +2821,10 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       throw new ClaudeSessionUnavailableError("run_dispatch_unresolved", { runId: params.runId });
     }
 
-    // T3.18, and BEFORE the live-session lookup so the cause survives. A trip
+    // Asked BEFORE the live-session lookup so the cause survives. A trip
     // disposes the session's channel, so a quarantined session fails that lookup
     // too — with `no_live_session`, a plausible wrong cause that reads as a race
-    // and invites a retry into the process that swallowed the participant's
+    // and invites a retry into the process that swallowed the user's
     // words. Asked here, the refusal names the neutralization instead. Released
     // at establishment, so the promised recovery — a fresh spawn under this id —
     // is the thing that lifts it.
@@ -2856,7 +2846,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     // under the same key `UNRECOGNIZED_TURN_EVIDENCE`, which trips. Registering
     // a second opening frame for a run whose first has not settled would
     // therefore quarantine this session over a duplicate dispatch, not over a
-    // swallowed participant. Refused HERE, before compose and register, so the
+    // swallowed user. Refused HERE, before compose and register, so the
     // duplicate mutates nothing; the first dispatch's frame, route, and pending
     // turn all stand exactly as they were. Deliberately NOT keyed on the run
     // route (`#sessionIdByRunId`): `#ruleFailedOpeningFrame`'s dead-channel arm
@@ -2888,8 +2878,8 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       });
     }
 
-    // T3.22. The write is attempted inside a bounded ladder rather than once,
-    // and the ladder is entered on ONE classification only. The shared
+    // The write is attempted inside a bounded ladder rather than once, and the
+    // ladder is entered on ONE classification only. The shared
     // classifier rules, so this leg cannot drift from the Codex one about what a
     // failure means; what it can supply is narrower — see
     // `observeClaudeUserTextFailure` for why the refusal arm is unreachable at
@@ -2919,7 +2909,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       // claim about bytes: the provider saw nothing, so there is no turn to
       // duplicate and no spend to repeat. The other arm reaching here is
       // `reconcile-ambiguous-delivery`, which on this leg has no positional read
-      // available — this driver holds no acknowledged-participant-send ledger and
+      // available — this driver holds no acknowledged-user-send ledger and
       // the provider publishes no turn readback — so it settles the way an
       // unreadable target settles everywhere: nothing is re-sent, nothing is
       // assumed delivered, and the turn fails visibly on the run's existing
@@ -2937,7 +2927,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    * Composes one run-opening frame, admits it to the tripwire, and binds the run
    * route — the three steps that must happen together for every dispatch attempt.
    *
-   * Extracted so a re-attempt (T3.22) reconstitutes ALL of them. A retry that
+   * Extracted so a re-attempt reconstitutes ALL of them. A retry that
    * re-composed without re-registering would write an unwatched frame, and a turn
    * that settles against no correlated frame PASSES — the silent swallow the
    * tripwire exists to catch.
@@ -2946,19 +2936,19 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     dispatch: ClaudeRunDispatch,
     params: StartRunParams,
   ): ClaudeUserTextFrame {
-    // T3.18. The bytes are composed HERE and nowhere else: this band cannot
+    // The bytes are composed HERE and nowhere else: this band cannot
     // build a `ClaudeUserTextFrame` itself, so the neutralization is on the only
     // path to the wire rather than on a path a reviewer has to remember to
     // check. Composed before the registration because the registration is keyed
     // by the frame it admits.
     //
     // The origin is MINTED from a literal and is deliberately not a member of
-    // `ClaudeRunDispatch`. A run's opening text is the participant's own
+    // `ClaudeRunDispatch`. A run's opening text is the user's own
     // message, composed by the daemon's run pipeline, so the origin is a fact of
     // this code path rather than a claim the resolver gets to make — and the arm
     // a resolver could otherwise have named, `driver_command`, is the one that
     // delivers command-shaped bytes verbatim AND exempts the turn from the
-    // tripwire, so a wrong value there would swallow the participant's words and
+    // tripwire, so a wrong value there would swallow the user's words and
     // report the turn completed. A port that cannot state it cannot get it wrong.
     //
     // A re-attempt therefore composes a FRESH frame rather than re-offering the
@@ -3023,8 +3013,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   /**
-   * Decides what a failed opening frame is owed, by how far its bytes got
-   * (T3.18).
+   * Decides what a failed opening frame is owed, by how far its bytes got.
    *
    * UNSENT — owed nothing. No turn will ever account for the frame, and leaving
    * it registered would let it consume the evidence of the NEXT run on this
@@ -3085,7 +3074,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    * ambiguous frame consumes the settling evidence and the later run is ruled
    * against none — so the trip is reported against the wrong run. That is the
    * fail-closed direction: the session is quarantined and disposed either way,
-   * and the participant is protected. The alternative — dropping the ambiguous
+   * and the user is protected. The alternative — dropping the ambiguous
    * frame so the attribution reads cleanly — is a SILENT PASS on the exact case
    * this tripwire exists for.
    *
@@ -3151,7 +3140,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   /**
-   * Zero-turn authentication probe (P0-5). NEVER throws.
+   * Zero-turn authentication probe. NEVER throws.
    *
    * The classification, and nothing else: the transport owns the observation
    * (this band spawns no process and reads no environment variable, which is why
@@ -3221,7 +3210,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   /**
-   * Rewinds a session's conversation to a recorded position (T3.15 leg 1).
+   * Rewinds a session's conversation to a recorded position.
    *
    * CONVERSATION ONLY. Working-tree restore is the daemon's turn-snapshot leg;
    * this provider's own `--rewind-files` is deliberately not used, because its
@@ -3273,8 +3262,8 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     const rewoundSpawnBoundLegs: ClaudeSpawnBoundLegs = {
       // The predecessor's OWN legs, re-realized verbatim. Rebuilding them from
       // anything else would relaunch the session under a configuration nobody
-      // chose — the failure mode CP-005-1 names for resume, reached here by a
-      // path that carries no params to rebuild from.
+      // chose — the same failure mode a resume guards against, reached here by
+      // a path that carries no params to rebuild from.
       ...predecessor.spawnBoundLegs,
       goalText: this.#sessionGoals.get(params.sessionId),
       // A FRESH gate, never the predecessor's. A rewind relaunches the process,
@@ -3361,8 +3350,8 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
         // under — the fork's brand-new id resolves to nothing by construction.
         //
         // Whether the provider's counter CONTINUES across `--fork-session` is
-        // deliberately unrecorded in the pinned wire reference, which states
-        // only that the flag mints a new session id on resume. Both readings
+        // deliberately unmeasured at the pin, which establishes only that the
+        // flag mints a new session id on resume. Both readings
         // are handled and they are not symmetric. If the counter continues,
         // this base is exact. If it restarts, the successor's readings fall
         // BELOW this base and the accountant's decrease-floor rule floors the
@@ -3438,7 +3427,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   /**
-   * Records the session goal (T3.15 leg 2, EMULATED on this provider).
+   * Records the session goal (EMULATED on this provider).
    *
    * ALWAYS `degraded` against a live session, and that is the honest answer
    * rather than a limitation being papered over. This provider exposes no
@@ -3468,7 +3457,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   /**
-   * Clears the session goal (T3.15 leg 2, EMULATED on this provider).
+   * Clears the session goal (EMULATED on this provider).
    *
    * `applied` ONLY when no goal was recorded. That is not a technicality: the
    * post-condition this operation promises is that the session carries no goal,
@@ -3495,16 +3484,16 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   // ------------------------------------------------------------------------
-  // Console parity — `Spec-005 §Desktop Console Parity Surfaces`
+  // Console parity
   // ------------------------------------------------------------------------
 
   /**
-   * Triggers a participant-requested context compaction (EMULATED on this
+   * Triggers a user-requested context compaction (EMULATED on this
    * provider).
    *
    * THE MECHANISM. This CLI publishes no compaction request on its programmatic
    * surface; what it publishes is its own `/compact` command, in the same
-   * enumeration a participant would pick it from. So the driver sends that
+   * enumeration a user would pick it from. So the driver sends that
    * command as a `driver_command` frame — the FIRST V1 producer of one — and the
    * two guards below are what make sending provider-interpreted text safe. They
    * are independent and neither substitutes for the other.
@@ -3535,7 +3524,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    * evidence something this driver authored.
    *
    * THE FRAME IS NOT REGISTERED WITH THE OUTBOUND TRIPWIRE, and that is a
-   * decision rather than an omission. It carries no participant words, so there
+   * decision rather than an omission. It carries no user words, so there
    * is nothing for the tripwire to rule; and `startRun`'s session-serialization
    * guard refuses a run while this scope holds a pending frame, so registering
    * one here would make a compaction block every subsequent run on the session
@@ -3578,7 +3567,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       const frame = this.#outboundTextFrameWriter.compose({
         text: CLAUDE_COMPACTION_COMMAND_TEXT,
         // A module-level LITERAL, per the frame writer's rule for this arm: a
-        // value forwarded from a caller could carry participant words under a
+        // value forwarded from a caller could carry user words under a
         // driver's tripwire exemption.
         origin: CLAUDE_COMPACTION_FRAME_ORIGIN,
       });
@@ -3615,7 +3604,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       //
       // The armed wait is WITHDRAWN, not left to time out. Withdrawal is
       // per-waiter and is not a settlement: settling would be per-key and would
-      // report this caller's write failure to a CONCURRENT participant waiting on
+      // report this caller's write failure to a CONCURRENT user waiting on
       // the same binding, while withdrawing cancels exactly this wait's timer and
       // forgets exactly its registration. Left registered, it would hold an armed
       // timer for the whole of `CLAUDE_COMPACTION_WAIT_MS` after its caller
@@ -3682,7 +3671,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    * `skills` differ in KIND and are reported as such. `terminal_slash_commands`
    * are published by the provider under a separate member because they run in
    * its own terminal UI and are not invocable over this transport; merging them
-   * into the commands would offer a participant a control that silently does
+   * into the commands would offer a user a control that silently does
    * nothing, and dropping them would hide a surface the provider really
    * publishes. They are therefore carried with `scope: "terminal"` — the
    * distinction recorded on the entry rather than erased — while the invocable
@@ -3704,7 +3693,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    * it says no tail was dropped, which is true of an empty list — so it is not
    * repurposed to mean "not yet known". A refusal was considered and rejected:
    * the pre-first-turn palette read is an answerable question, and this
-   * provider's declaring handshake rides a turn-bearing exchange the participant
+   * provider's declaring handshake rides a turn-bearing exchange the user
    * has not yet produced.
    */
   async listProviderCommands(
@@ -3757,7 +3746,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
 
   /**
    * Answers which provider account an enumeration's routing binding is stamped
-   * with (T3.17).
+   * with.
    *
    * ONE INVARIANT: the account stamped is the account this process actually runs
    * under. The session record holds it because the daemon admitted the process
@@ -3772,7 +3761,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    * REFUSING IS THE ONLY SAFE ANSWER TO A DISAGREEMENT, and it is safe in a way
    * neither candidate is. Stamping the record's would publish an identity the
    * daemon's own registry contradicts; stamping the registry's would route a
-   * participant's command enumeration onto an account this process never
+   * user's command enumeration onto an account this process never
    * authenticated as — the same identity divergence the sibling band refuses at
    * its spawn seam. A refusal is the only answer that cannot move a session's
    * billing identity without saying so, and this call is a READ: refusing it
@@ -3814,7 +3803,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    *
    * `declared` is carried VERBATIM. The pinned provider reports `on`, `cooldown`,
    * and `off`, while the settable vocabulary this driver publishes as
-   * `outputSpeedLevels` is `off` and `on` — a participant may not REQUEST a
+   * `outputSpeedLevels` is `off` and `on` — a user may not REQUEST a
    * cooldown, but the provider may certainly REPORT one. Coercing a reported
    * level into the settable set would fabricate a state the provider is not in.
    *
@@ -3912,7 +3901,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   // than admitted by an omission.
   //
   // A REJECTED ENTRY IS DROPPED, NEVER SILENTLY AND NEVER FATALLY. Dropping is
-  // per-entry so one unusable name cannot empty a participant's palette, and the
+  // per-entry so one unusable name cannot empty a user's palette, and the
   // diagnostic is what keeps the drop findable. The sibling driver reports the
   // same condition on the same kind: its module-level composer stays pure and
   // RETURNS what it refused, and the manager seam that holds the emitter and the
@@ -4026,12 +4015,12 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
 
   /**
    * Reconstitutes the canonical transcript into a FRESH provider session, and
-   * returns only after the target's own answer confirms it (T3.20, I-005-8).
+   * returns only after the target's own answer confirms it.
    *
    * ## This leg refuses on every published build, and that is the answer
    *
-   * `Spec-005`'s Claude cell for `transcript_replay` is `probe`, not a constant,
-   * because no stable prior-turn seeding contract is published for this
+   * The Claude capability cell for `transcript_replay` is `probe`, not a
+   * constant, because no stable prior-turn seeding contract is published for this
    * provider. The control-request census carries no seeding subtype, and the
    * resume family (`--resume`, `--fork-session`, `--resume-session-at`) resumes
    * the CLI's own stored sessions, whose on-disk format is not a contract this
@@ -4170,7 +4159,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   async closeSession(params: CloseSessionParams): Promise<void> {
-    // P1-1, FIRST and unconditionally — before the chaining loop, not inside
+    // The intended-close latch, FIRST and unconditionally — before the chaining loop, not inside
     // it. The daemon has expressed the intent by calling this method at all, so
     // every terminal from this point on belongs to a clean shutdown: the ones a
     // chained close only reaches after another transition settles, and the ones
@@ -4285,7 +4274,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   findChannelForRun(runId: RunId): ClaudeSessionChannel | undefined {
-    // T3.18. A binding a tripwire trip disposed is refused rather than answered
+    // A binding a tripwire trip disposed is refused rather than answered
     // with `undefined`: the two states mean different things to the caller, and
     // a quiet `undefined` would read as "this run has no channel yet" — the one
     // reading that invites a retry into the same swallow. The refusal carries
@@ -4299,7 +4288,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   /**
-   * The terminal-emission gate for one session (T3.14 P1-1 / P1-2-driver).
+   * The terminal-emission gate for one session.
    *
    * The emission pipeline reads it to stamp `intendedClose` and to suppress a
    * duplicate terminal for an already-settled `(runId, runVersion)` epoch. Read
@@ -4313,7 +4302,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
 
   /**
    * The thread-frame router for one session, or `undefined` when this session
-   * holds no routing band (T3.11).
+   * holds no routing band.
    *
    * NON-CREATING, unlike the emission gate beside it. The band is per-provider-
    * session state built at registration and released with the session, so a
@@ -4334,7 +4323,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
 
   /**
    * The usage-delta accountant for one session, or `undefined` when this
-   * session holds no routing band (T3.11). Non-creating for the same reason
+   * session holds no routing band. Non-creating for the same reason
    * {@link ClaudeSessionLifecycle.frameRouterFor} is.
    */
   usageAccountantFor(sessionId: SessionId): UsageDeltaAccountant | undefined {
@@ -4498,7 +4487,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     // thread id, so an absent subagent identity IS the session's own thread; a
     // child's handshake or a child's compaction says nothing about the parent
     // binding, and recording either against the session would answer a palette
-    // read with a subagent's surface or settle a participant's compaction on a
+    // read with a subagent's surface or settle a user's compaction on a
     // boundary they did not ask for.
     if (observation.subagentId === null) {
       if (observation.handshake !== null) {
@@ -4542,8 +4531,8 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
             // accountant refuses an unestablished thread outright, so a child
             // whose spend was never established would carve out of the parent's
             // transcript and then be dropped on the floor — the child's cost
-            // vanishing rather than being scoped, which is not what I-005-12
-            // asks for.
+            // vanishing rather than being scoped, which the routing rule
+            // forbids.
             band.accountant.establishThread(registration.childThreadId, { mode: "fresh" });
             this.#onSubagentLifecycle?.(sessionId, {
               eventType: "subagent.started",
@@ -4730,8 +4719,9 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    * can answer an invocation against it.
    *
    * TWO OWNERS, ONE DECISION EACH — see `CallbackToolHost`'s wiring note. The
-   * host owns admission (is there a Plan-012 seam? did the daemon offer tools?)
-   * and hands the composition root the admitted list; this driver owns the
+   * host owns admission (is there an approval seam? did the daemon offer
+   * tools?) and hands the composition root the admitted list; this driver owns
+   * the
    * STRUCTURAL PAIRING it alone can enforce — a registry is advertised to the
    * provider only when a dispatcher is bound to answer it. The two cannot
    * disagree because they decide different questions, and the driver's check is
@@ -4826,17 +4816,16 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   // Each check is ONE-DIRECTIONAL, keyed on what the RUN declares. A run that
   // declares nothing on an axis is not constrained on it.
   #assertSpawnBoundRealization(params: StartRunParams, live: LiveClaudeSession): void {
-    // `Spec-016 §Cost Derivation And Absent-Cost Semantics` states this rule in
-    // exactly one direction: "a native-cap run **starts only inside a provider
-    // session spawned with the matching cap**: an existing uncapped (or
-    // differently-capped) process forces a capped relaunch ... never a start
-    // inside an uncapped process." The converse — a run carrying NO cap inside a
-    // capped session — is deliberately not prohibited: the same section wires the
-    // native cap "as defense-in-depth beneath this accountant, never as the
-    // accountant", so the daemon accountant is the enforcement, and a provider
-    // stop on such a run surfaces as an ordinary visible provider stop. Refusing
-    // it here would permanently strand every capless run in a capped session,
-    // forcing relaunches no spec sentence orders.
+    // The cost-cap rule runs in exactly one direction: a native-cap run starts
+    // only inside a provider session spawned with the matching cap, so an
+    // existing uncapped (or differently-capped) process forces a capped
+    // relaunch and never a start inside an uncapped process. The converse — a
+    // run carrying NO cap inside a capped session — is deliberately not
+    // prohibited: the native cap is defense-in-depth beneath the daemon
+    // accountant and never the accountant itself, so the accountant is the
+    // enforcement, and a provider stop on such a run surfaces as an ordinary
+    // visible provider stop. Refusing it here would permanently strand every
+    // capless run in a capped session, forcing relaunches nothing asks for.
     const runCostCapCents = params.admittedCostCapCents;
     if (
       runCostCapCents !== undefined &&
@@ -4924,8 +4913,8 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     // process". Stated here it is a property of establishment; inferred from the
     // disposal call sites it is a coincidence of four of them, and the one
     // replacement the read-side stamp below cannot catch is a RESUME: the
-    // I-005-5 identity gate refuses any resume whose announced id differs from
-    // the handle, so a successful resume announces the SAME `providerSessionId`
+    // identity gate refuses any resume whose announced id differs from the
+    // handle, so a successful resume announces the SAME `providerSessionId`
     // its predecessor had and a record that outlived the predecessor by any
     // route would compare EQUAL to the successor's stamp.
     //
@@ -4962,7 +4951,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       }
       throw error;
     }
-    // T3.18. Released only on a registration that SUCCEEDED, so a failed
+    // Released only on a registration that SUCCEEDED, so a failed
     // adoption cannot lift a refusal the failed leg never replaced. The
     // quarantine names a BINDING, not an identifier: a fresh channel now answers
     // for this session id, so the refusal a prior trip installed has outlived
@@ -4991,7 +4980,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       if (this.#findLiveSession(live.sessionId)?.channel !== live.channel) {
         return;
       }
-      // T3.18, BEFORE the retirement. The tripwire is keyed by run id, and
+      // Ruled BEFORE the retirement. The tripwire is keyed by run id, and
       // `#retireRunRoutes` is what empties the map those ids are read from — so
       // ruling after retiring would rule on nothing and let every swallowed turn
       // through.
@@ -5178,7 +5167,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   // fusing them is what previously let a close free the slot as a side effect of
   // clearing routes.
   /**
-   * Rules the text-neutralization tripwire on a settling turn (T3.18).
+   * Rules the text-neutralization tripwire on a settling turn.
    *
    * Claude serializes turns per session and its terminal frame names no run, so
    * the run that just ended is the one routed to this session — the same
@@ -5260,7 +5249,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   /**
-   * Rules every frame a condemned binding leaves unsettled, fail-closed (T3.18).
+   * Rules every frame a condemned binding leaves unsettled, fail-closed.
    *
    * The gap this closes is a SIBLING's, not the ruled run's. Both callers of
    * {@link ClaudeSessionLifecycle.prototype} `#disposeQuarantinedSession` rule
@@ -5311,7 +5300,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   /**
-   * Tears down the channel a tripwire trip condemned (T3.18).
+   * Tears down the channel a tripwire trip condemned.
    *
    * Reuses `#disposeHeldChannel` rather than inventing a second teardown: this
    * is the same close every other disposal performs, so the slot transitions,
@@ -5368,9 +5357,9 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
 
   /**
    * Fails the runs whose frames a REWIND superseded before the provider settled
-   * them (T3.18).
+   * them.
    *
-   * The visible-failure guarantee this closes: a participant's text that
+   * The visible-failure guarantee this closes: a user's text that
    * provably may not have reached the model never silently vanishes. A rewind
    * replaces the binding those frames were written on and keeps the session id
    * live, so no terminal for them can ever arrive — the successor's terminal

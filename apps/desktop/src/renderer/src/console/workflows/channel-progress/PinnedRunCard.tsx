@@ -48,7 +48,7 @@ export function PinnedRunCard(props: PinnedRunCardProps): React.JSX.Element {
           The run's own state word, as the wire spells it. Neutral always: the amber in
           this card belongs to a park that is waiting on a person, and a second thing
           wearing attention beside it would spend the palette's one loud mark twice for
-          one situation (`Spec-023 §Console Design (Meridian)` rule 3).
+          one situation (rule 3).
         */}
         <Chip tone="neutral" glyph="workflow" label={row.run.state} />
       </div>

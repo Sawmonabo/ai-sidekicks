@@ -1,4 +1,4 @@
-// NodePtyHost shutdown drain tests — Plan-001 §CP-001-1 polymorphic axis.
+// NodePtyHost shutdown drain tests
 //
 // What this asserts:
 //
@@ -29,14 +29,10 @@
 //   exit at the moment the test scenario demands (graceful vs.
 //   timeout vs. pre-shutdown).
 //
-// Refs:
-//   • Plan-001 §Cross-Plan Obligations CP-001-1 — drain orchestration
-//     contract.
 //   • `packages/contracts/src/pty-host.ts` — `PtyHost.shutdown` +
 //     `DrainResult` interface declarations.
-//   • ADR-019 §Decision item 8 — backend polymorphism (in-process
-//     backend has no sidecar process to drain, hence vacuous host
-//     fields).
+//   • Backend polymorphism (in-process backend has no sidecar
+//     process to drain, hence vacuous host fields).
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
@@ -123,7 +119,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("NodePtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", () => {
+describe("NodePtyHost.shutdown — polymorphic drain", () => {
   it("with no active sessions returns a vacuous DrainResult (0/0, host clean)", async () => {
     const result: DrainResult = await ctx.host.shutdown({
       perSessionTimeoutMs: 100,
@@ -291,7 +287,6 @@ describe("NodePtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", () => {
     //       new PTY child is still running (the orphan condition
     //       the `PtyHost.shutdown` JSDoc forbids).
     //
-    // Refs:
     //   • `packages/contracts/src/pty-host.ts` `PtyHost.shutdown` —
     //     "Shutdown is TERMINAL for the host instance: after
     //     `shutdown()` resolves, the host MUST refuse new `spawn()`
@@ -372,7 +367,6 @@ describe("NodePtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", () => {
     // `ptySpawn(spec.command, ...)` invocation, i.e., on the
     // post-await branch.
     //
-    // Refs:
     //   • `RustSidecarPtyHost` `resolveOutstanding` spawn_response
     //     re-check (rust-sidecar-pty-host.ts, around line 2508) —
     //     the sister-backend precedent that closes the equivalent
@@ -476,8 +470,7 @@ describe("NodePtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Codex P2 (PR #83 thread `PRRT_kwDOSCycWc6DZEKP`):
-//   `NodePtyHost.drainSingleSession` Windows-only race where a
+// `NodePtyHost.drainSingleSession` Windows-only race where a
 //   `taskkill`-killed session was miscounted as `sessionsDrained`
 //   instead of `sessionsForcedKilled`.
 //
@@ -508,7 +501,7 @@ describe("NodePtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", () => {
 // tree-kill tests pin).
 // ----------------------------------------------------------------------------
 
-describe("NodePtyHost.shutdown — Windows taskkill-escalation race (Codex P2 PRRT_kwDOSCycWc6DZEKP)", () => {
+describe("NodePtyHost.shutdown — Windows taskkill-escalation race", () => {
   it("counts a session under sessionsForcedKilled when the 2 s SIGTERM-escalation timer fires before perSessionTimeoutMs", async () => {
     // Headline regression: pre-fix this would assert
     // `sessionsDrained === 1`, miscounting the taskkill-killed session.
@@ -589,8 +582,8 @@ describe("NodePtyHost.shutdown — Windows taskkill-escalation race (Codex P2 PR
     expect(winTaskkill).toHaveBeenCalledWith(70000);
 
     // The synthetic `onExit(s-0, 1, undefined)` fired exactly once —
-    // emitted by `invokeTaskkill` per I-024-2 even when the OS-level
-    // reap is opaque.
+    // emitted by `invokeTaskkill` even when the OS-level reap is
+    // opaque.
     expect(winExitRecorder).toHaveBeenCalledTimes(1);
     expect(winExitRecorder).toHaveBeenCalledWith(expect.any(String), 1);
 

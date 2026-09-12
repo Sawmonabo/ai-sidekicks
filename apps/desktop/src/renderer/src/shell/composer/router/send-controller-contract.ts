@@ -81,7 +81,7 @@ export interface SendController {
   /**
    * The store's restart disclosure, while it is armed and there is text to lose.
    *
-   * The sentence is the store's own — fixed text carrying no participant content —
+   * The sentence is the store's own — fixed text carrying no user content —
    * so the composer renders what the store says rather than a second wording of it.
    */
   readonly restartNotice: string | undefined;

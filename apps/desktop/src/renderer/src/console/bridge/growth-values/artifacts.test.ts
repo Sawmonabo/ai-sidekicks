@@ -138,9 +138,9 @@ describe("negative control — the shapes the registration now refuses", () => {
 
   it("refuses a bare manifest, which leaves a pane no way to reach the bytes", () => {
     // The first of the three impossible shapes three independent optionals admitted.
-    // `Spec-014 §Interfaces And Contracts` requires a read to answer with "manifest
-    // plus retrievable payload handle or inline content", so a reply carrying neither
-    // is one a pane enters its served path holding and can do nothing with.
+    // A read answers with a manifest plus a retrievable payload handle or inline
+    // content, so a reply carrying neither is one a pane enters its served path
+    // holding and can do nothing with.
     // @ts-expect-error — neither arm: the deferred one requires a handle, the inline
     // one requires the bytes.
     const unreachable: GrowthArtifactRead = { manifest: MANIFEST };

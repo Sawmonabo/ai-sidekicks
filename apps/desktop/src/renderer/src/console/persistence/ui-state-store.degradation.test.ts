@@ -1,10 +1,9 @@
 // No durable store means a visible degradation, not a silent one.
 //
-// A renderer whose scheme was not registered privileged runs on the in-memory
-// adapter and SAYS SO (I-023-11), on the quota gauge as well as in prose — a surface
-// that reads only the gauge must not see three empty numbers and report a silent
-// nothing. The five kinds of nothing are distinct here too: an unread gauge is not
-// an empty one.
+// A renderer whose scheme was not registered privileged runs on the in-memory adapter and
+// SAYS SO, on the quota gauge as well as in prose — a surface that reads only the gauge
+// must not see three empty numbers and report a silent nothing. The five kinds of nothing
+// are distinct here too: an unread gauge is not an empty one.
 //
 // The clock is frozen, so a stamped record is evidence rather than a coincidence.
 //
@@ -93,8 +92,8 @@ describe("no durable store means a visible degradation, not a silent one", () =>
 
   it("falls all the way back to memory when the window has no database API", async () => {
     // The composition root's own path, end to end: `opening()` attempts the
-    // durable open, this host has no database API (I-023-11's failing arm), and
-    // the store that comes back works — it just says it is not durable.
+    // durable open, this host has no database API, and the store that comes back
+    // works — it just says it is not durable.
     const clock = new ManualClock(1_000);
     const store = UiStateStore.opening({ clock });
 

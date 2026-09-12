@@ -1,10 +1,8 @@
 // Conditional-type test against the `TimelineRow` narrowing guarantee.
 //
-// Verifies (Plan-013 T1.1; `Plan-013 §Invariants` I-013-1 and I-013-3):
-//   `Plan-013 §API And Transport Changes` — "every timeline surface returns
-//   the `TimelineRow` union, genuinely discriminated on the literal `kind`
-//   field … consumers narrow structurally on `row.kind`, never probing the
-//   free-form `type`".
+//   "every timeline surface returns the `TimelineRow` union, genuinely
+//   discriminated on the literal `kind` field … consumers narrow
+//   structurally on `row.kind`, never probing the free-form `type`".
 //
 // The runtime suite (`__tests__/timeline.test.ts`) proves the SCHEMA refuses a
 // partial run row. That is a different claim from the one asserted here, and
@@ -22,7 +20,7 @@
 //      not optional-and-usually-missing.
 //   3. Narrowing on `kind === "rollback_boundary"` yields a typed
 //      `RunRolledBackEvent` payload, so `payload.targetPosition` is a `number`
-//      reachable without a cast (I-013-5).
+//      reachable without a cast.
 //   4. Narrowing on `kind === "general"` yields a type carrying NO attribution
 //      member, so a consumer cannot read a run identity off the non-run arm.
 //
@@ -74,7 +72,7 @@ type RollbackBoundaryArm = Extract<TimelineRow, { kind: "rollback_boundary" }>;
 type GeneralArm = Extract<TimelineRow, { kind: "general" }>;
 
 // ---------------------------------------------------------------------------
-// Claim 1 — the run arm's attribution triple is required, all-or-none (I-013-1)
+// Claim 1 — the run arm's attribution triple is required, all-or-none
 // ---------------------------------------------------------------------------
 
 type _RunArmAttributionIsRequired = AssertExtends<
@@ -86,7 +84,7 @@ type _RunArmAttributionIsRequired = AssertExtends<
 type _RunArmPositionIsNumber = AssertExtends<number, RunArm["position"]>;
 type _RunArmEpochIsNumber = AssertExtends<number, RunArm["epoch"]>;
 
-/** The marker is optional — absence is what "current" means (I-013-3). */
+/** The marker is optional — absence is what "current" means. */
 type _SupersededMarkerIsOptional = AssertNever<Extract<RequiredKeys<RunArm>, "superseded">>;
 
 /** …and single-field: `targetPosition` is the whole of it. */
@@ -142,7 +140,7 @@ type _GeneralArmHasNoAttribution = AssertNever<
 >;
 
 // ---------------------------------------------------------------------------
-// The read window's continuation cursor is reachable without a guard (T1.3)
+// The read window's continuation cursor is reachable without a guard
 // ---------------------------------------------------------------------------
 
 type ContinuingWindow = Extract<TimelineReadResponse, { hasMore: true }>;
@@ -227,7 +225,7 @@ export function nextExpansionCursorOf(expansion: ChildRunExpandResponse): EventC
 }
 
 // ---------------------------------------------------------------------------
-// The incompleteness marker narrows the same way (T1.2, I-013-10)
+// The incompleteness marker narrows the same way
 // ---------------------------------------------------------------------------
 
 type CompleteArm = Extract<ChildRunCompleteness, { state: "complete" }>;
@@ -256,13 +254,12 @@ export function retryabilityOf(summary: ChildRunSummary): "n/a" | "retryable" | 
   }
   switch (summary.completeness.cause) {
     case "detail_fetch_failed":
-    case "pending_backfill":
       return "retryable";
     case "compacted":
       // Terminal: no retry recovers a compacted row.
       return "terminal";
     default: {
-      // Exhaustiveness: a fourth cause added without a case here fails to compile.
+      // Exhaustiveness: a third cause added without a case here fails to compile.
       const unreachable: never = summary.completeness.cause;
       return unreachable;
     }

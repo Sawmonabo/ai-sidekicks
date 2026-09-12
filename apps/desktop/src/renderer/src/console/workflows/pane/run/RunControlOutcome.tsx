@@ -8,10 +8,10 @@
 // matter here are reached from a call rather than from a field.
 //
 // THE CONTROL STAYS. Every arm below renders BESIDE the button rather than in place
-// of it: `Spec-023 §Console Design (Meridian)` rule 9 is that nothing changed, the act
-// did not happen, and the control stays beside its refusal. A refusal that replaced
-// the control would leave an operator with nothing to press once the daemon's answer
-// stopped applying, and the surface would have to guess when to put it back.
+// of it: rule 9 is that nothing changed, the act did not happen, and the control stays
+// beside its refusal. A refusal that replaced the control would leave an operator with
+// nothing to press once the daemon's answer stopped applying, and the surface would
+// have to guess when to put it back.
 //
 // AND THE REFUSAL IS RENDERED VERBATIM. Whatever raised it — the growth port for a
 // wire this build does not carry, the daemon for an act it will not admit, this

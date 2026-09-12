@@ -9,9 +9,9 @@
 export interface GrowthSessionSummary {
   readonly sessionId: string;
   /**
-   * Optional because a session may genuinely have no name, and
-   * `Spec-023 §Console Design (Meridian)` says what happens then: it renders by its
-   * identifier, never by an invented title. A required member would force every
+   * Optional because a session may genuinely have no name, and what happens then is
+   * settled: it renders by its identifier, never by an invented title. A required
+   * member would force every
    * producer to supply one, and the only value a producer without a title can
    * supply is a fabrication.
    */

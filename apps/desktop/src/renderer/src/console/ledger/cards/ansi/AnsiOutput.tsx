@@ -1,7 +1,7 @@
 // Command output — ANSI spans, rendered.
 //
-// `Spec-023 §Console Design (Meridian)` names command output as one of the tool card's
-// bodies, under "#### The surface set". The whole of the styling decision lives in
+// Command output is one of the tool card's bodies. The whole of the styling decision
+// lives in
 // `ansi-spans.ts`; this component turns the spans it produced into elements and holds
 // one piece of state, which is what keeps the mapper testable without a DOM and this
 // file short enough to read.

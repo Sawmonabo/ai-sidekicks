@@ -43,7 +43,7 @@ This spec covers local persistence, shared coordination persistence, recovery ru
 
 - Each runtime node must persist canonical local execution state in a durable local store.
 - The default local execution store must be SQLite with WAL and foreign keys enabled.
-- The default shared collaboration store must be Postgres or an equivalent relational control-plane store.
+- The default shared control-plane store must be Postgres or an equivalent relational store.
 - Canonical local execution data must include session events, queue state, approvals, runtime bindings, and command receipts.
 - Restart recovery must attempt:
   1. projection rebuild from canonical events
@@ -63,7 +63,7 @@ This spec covers local persistence, shared coordination persistence, recovery ru
 - If a persisted driver handle cannot be resumed, the affected run must transition to `failed` with visible recovery failure detail rather than silently disappearing or restarting as a new run.
 - On a resume that succeeds (`DriverResumeResult.status: 'resumed'` — a resume that fails follows the preceding bullet), the driver-reported normalized `sessionPosition` ([Spec-005 §Fallback Behavior](005-provider-driver-contract-and-capabilities.md#fallback-behavior), campaign B3) is compared against the daemon's recorded position; on divergence the local log is authoritative ([ADR-017 Decision Log, 2026-07-02](../decisions/017-shared-event-sourcing-scope.md#decision-log)) and the run halts for human action (campaign B5): it enters `waiting_for_input` carrying a `recovery-needed` `RecoveryCondition` payload together with a `RecoverySpanClassification` of what the diverged span contains (`read_only | idempotent_write | irreversible | unclassifiable` — `unclassifiable` handled exactly as `irreversible`, the fail-closed default; V1 consumes the field as audit metadata only, every divergence halts, and recording it makes tiered auto-resolution a future policy flip gated on the Plan-015 CI divergence-injection tests with a firing negative control, campaign B14), the halt surfaces on the existing owner-visible channels — the [Spec-013](013-live-timeline-visibility-and-reasoning-surfaces.md) `run.blocked` status row (the run enters `waiting_for_input`) and `RecoveryStatusRead`'s `blocked` state (§Interfaces And Contracts) — never a new notification surface, and the daemon never silently re-emits locally recorded events into the provider session and never silently discards provider-side events.
 - If projection rebuild fails, the daemon may enter degraded read-only mode while exposing repair signals.
-- If shared control-plane storage is unavailable, local execution may continue for already attached local sessions, but shared membership and invite operations must fail explicitly.
+- If shared control-plane storage is unavailable, local execution may continue for already attached local sessions, but operations that write shared control-plane state must fail explicitly.
 
 ## Interfaces And Contracts
 
@@ -203,7 +203,7 @@ Session events carry two timestamps: `occurred_at` (RFC 3339 wall-clock UTC) for
 
 **Semantics.** `monotonic_ns` is not a UNIX timestamp. Its zero point is unspecified and changes on every daemon restart. It serves exactly two purposes: (a) stable within-daemon event ordering when the wall clock jumps (NTP step, VM resume, manual operator edit); (b) precise duration measurements between events produced by the same daemon process.
 
-**Out-of-scope explicitly.** `monotonic_ns` is **not** a cross-daemon ordering primitive. See [data-architecture.md §Event-Sourcing Scope](../architecture/data-architecture.md#event-sourcing-scope) on why per-daemon `sequence` and `monotonic_ns` do not induce a total order across daemons. Hybrid Logical Clocks (HLC) are tracked under [BL-076](../archive/backlog-archive.md) and are out-of-scope for V1 per [ADR-017](../decisions/017-shared-event-sourcing-scope.md) (V1 chose Option B — daemon-authoritative per-participant ordering, no shared event log to order against).
+**Out-of-scope explicitly.** `monotonic_ns` is **not** a cross-daemon ordering primitive. See [data-architecture.md §Event-Sourcing Scope](../architecture/data-architecture.md#event-sourcing-scope) on why per-daemon `sequence` and `monotonic_ns` do not induce a total order across daemons. Hybrid Logical Clocks (HLC) are tracked under [BL-076](../archive/backlog-archive.md) and are out-of-scope for V1 per [ADR-017](../decisions/017-shared-event-sourcing-scope.md) (V1 chose Option B — daemon-authoritative per-user ordering, no shared event log to order against).
 
 ### Wall-Clock Format
 
@@ -299,7 +299,7 @@ Mainstream ORM/migration tools surveyed — Django 5.1 migrations, Rails 8.1 Act
 
 ### Master-Key Separation
 
-The daemon master key wrapping participant AES-GCM keys is deliberately excluded from all backups per [Spec-022 §Daemon Master Key](022-data-retention-and-gdpr.md#daemon-master-key) and the [Local Persistence Repair And Restore §Backup Constraints](../operations/local-persistence-repair-and-restore.md#backup-constraints) runbook. The SQLite Online Backup API copies only database pages; it cannot pick up sibling files. `daemon-master.enc` is therefore trivially excluded from `.backup()` output. Operators running tar/rsync-style backups over the daemon's filesystem root MUST follow the runbook's OS-specific exclusion rules to preserve crypto-shred correctness.
+The daemon master key wrapping user AES-GCM keys is deliberately excluded from all backups per [Spec-022 §Daemon Master Key](022-data-retention-and-gdpr.md#daemon-master-key) and the [Local Persistence Repair And Restore §Backup Constraints](../operations/local-persistence-repair-and-restore.md#backup-constraints) runbook. The SQLite Online Backup API copies only database pages; it cannot pick up sibling files. `daemon-master.enc` is therefore trivially excluded from `.backup()` output. Operators running tar/rsync-style backups over the daemon's filesystem root MUST follow the runbook's OS-specific exclusion rules to preserve crypto-shred correctness.
 
 ### Restore SLO
 
@@ -341,7 +341,7 @@ Data staleness on restore is bounded at **≤ 24 hours** (worst case = crash 23h
 
 - Treating client cache as sufficient for recovery
 - Silently dropping in-flight run state after restart
-- Using one undifferentiated store for both local execution and shared collaboration truth
+- Using one undifferentiated store for both local execution and shared control-plane truth
 
 ## Acceptance Criteria
 

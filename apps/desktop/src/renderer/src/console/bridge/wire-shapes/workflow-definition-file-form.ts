@@ -14,8 +14,8 @@
 // reason, and never the reading that produced one. `approvals/approval-records.ts` is
 // the same call made for the same reason one directory over.
 //
-// WHAT THE FILE IS. YAML, and one dialect of it. `Spec-017 §Definition file form —
-// export and import (C-17)` gives a definition exactly one canonical file form and
+// WHAT THE FILE IS. YAML, and one dialect of it. The definition file form gives a
+// definition exactly one canonical file form and
 // requires the round trip to close in both directions — builder to file to CLI, and CLI
 // to file back to the builder — so a file the SDK writes as ordinary block mappings has
 // to import here, and a file written here has to parse in a conforming CLI. JSON is

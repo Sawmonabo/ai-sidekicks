@@ -28,7 +28,7 @@ import type { ScenarioReply } from "./reply.js";
 import type { ConsoleScenario } from "./vocabulary.js";
 import { STAND_IN_SESSION_ID, scenarioNamed } from "./vocabulary.test-support.js";
 import { SCRIPTED_REPLY_REFUSAL_CODES } from "./scripted-reply.js";
-import { createTier1Bridge } from "@ai-sidekicks/contracts";
+import { createStubBridge } from "@ai-sidekicks/contracts";
 
 /**
  * The scenario every case below varies one member of.
@@ -287,7 +287,7 @@ describe("the fixture growth port's scripted reads — served, refused, or named
     // both would let a surface ship one rendering for two different facts — nobody
     // asked, versus we asked and the answer never came.
     const outcome =
-      await createLiveBridge(createTier1Bridge()).growth.gitflowBranchContextRead(
+      await createLiveBridge(createStubBridge()).growth.gitflowBranchContextRead(
         BRANCH_CONTEXT_REQUEST,
       );
 

@@ -1,7 +1,7 @@
 // The facet bar — the only surface that can narrow this ledger.
 //
-// `Spec-023 §Console Design (Meridian)` names filtering by participant and by event
-// family as a timeline interaction over the loaded window. `filters.ts` has held the
+// Filtering by user and by event family is a timeline interaction over the
+// loaded window. `filters.ts` has held the
 // whole narrowing model since it was written; this is the control that reaches it,
 // and until it existed the model was unreachable from anywhere in the application.
 //
@@ -26,7 +26,7 @@ import {
   UNFILTERED_LEDGER,
   isLedgerFiltered,
   withToggledCategory,
-  withToggledParticipant,
+  withToggledUser,
   type LedgerFacets,
   type LedgerFilter,
 } from "./filters.js";
@@ -41,7 +41,7 @@ export interface LedgerFilterBarProps {
 
 export function LedgerFilterBar(props: LedgerFilterBarProps): React.JSX.Element | null {
   const { facets, filter, onFilterChange } = props;
-  if (facets.participants.length === 0 && facets.categories.length === 0) {
+  if (facets.users.length === 0 && facets.categories.length === 0) {
     // Nothing to narrow on is not an empty bar: a control offering no choices is
     // chrome that teaches a person the ledger cannot be filtered.
     return null;
@@ -49,11 +49,11 @@ export function LedgerFilterBar(props: LedgerFilterBarProps): React.JSX.Element 
   return (
     <div className="meridian-ledger-filter" role="group" aria-label="Narrow the ledger">
       <LedgerFacetGroup
-        label="Participant"
-        facets={facets.participants}
-        isAdmitted={(value) => filter.participantIds.includes(value)}
+        label="User"
+        facets={facets.users}
+        isAdmitted={(value) => filter.userIds.includes(value)}
         onToggle={(value) => {
-          onFilterChange(withToggledParticipant(filter, value));
+          onFilterChange(withToggledUser(filter, value));
         }}
       />
       <LedgerFacetGroup

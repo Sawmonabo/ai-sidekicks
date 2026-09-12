@@ -1,9 +1,9 @@
 // The producer half of the diff family: unified patch text in, `ConsoleDiffModel`
 // out, plus the intraline word diff one changed line pair is segmented by.
 //
-// `Spec-023 §Console Libraries`' Diff viewer row splits this surface in two and
-// this file is the half it says to ADOPT: `diff` 9.0.0 (jsdiff, BSD-3-Clause) for
-// "parse and intraline compute", against an OWN-BUILT virtualized row renderer for
+// The diff viewer splits in two and this file is the ADOPTED half: `diff` 9.0.0
+// (jsdiff, BSD-3-Clause) for parse and intraline compute, against an OWN-BUILT
+// virtualized row renderer for
 // the pane and the inline card. So `parsePatch` and `diffWordsWithSpace` are called
 // here and nowhere else in the console, and `DiffRows` / `hunk-virtualization.ts`
 // stay first-party — the row renderer is the half the row says to own, because no
@@ -17,15 +17,15 @@
 // 5,000-line patch measured 831 ms on its own, 2026-09-02). A parsed line therefore
 // carries ONE whole-line segment, which is its text; `intraline-segments.ts` derives
 // the split when a row is materialised, memoised and size-bounded. `intralineSegments`
-// below is still this module's, because it is the adopted library's seam and
-// `Spec-023 §Console Libraries` puts "parse and intraline compute" on one side of it.
+// below is still this module's, because it is the adopted library's seam and parse
+// and intraline compute sit on one side of it.
 //
 // WHY A PARSER EXISTS BEFORE ITS WIRE DOES. `diff-model.ts`'s header records the
 // obligation this file discharges: the module that turns a unified patch into the
 // model "lands with the first caller that has patch bytes to give it, in the PR that
 // adds that dependency". The dependency is added here. The caller that hands it daemon bytes is `gitflow.diffArtifactCreate`,
-// a `Plan-023 §Console growth slate` row (`gitflow-actions`, owned by Spec-011) that
-// no namespace serves yet — so today the callers are `diff-fixture.test-support.ts`, which builds
+// a growth-slate row (`gitflow-actions`) that no namespace serves yet — so today the
+// callers are `diff-fixture.test-support.ts`, which builds
 // the surfaces' and the endurance tier's subjects THROUGH this module rather than
 // beside it, and this module's own tests. That ordering is the point: when the wire
 // lands it calls a parser the tiers have already been exercising, rather than a
@@ -40,11 +40,10 @@
 //     hunk's own leading context would move lines a reader can already see into a
 //     collapsed gap and claim the gap had revealed them.
 //   • `DiffLine.agentAttribution` comes from the `Agent-Run:` and `Co-authored-by:`
-//     trailers `Spec-011 §Required Behavior` names, which live on the COMMIT and not
-//     in the patch body. This module reads none and guesses none.
-//   • The attribution mode and the compared refs are the create call's own answer
-//     (`Spec-011 §Interfaces And Contracts`), so they are parameters here rather than
-//     anything scraped out of the patch's headers.
+//     trailers, which live on the COMMIT and not in the patch body. This module reads
+//     none and guesses none.
+//   • The attribution mode and the compared refs are the create call's own answer, so
+//     they are parameters here rather than anything scraped out of the patch's headers.
 //
 // AND ONE THING THE LIBRARY KEEPS, WHICH THIS FILE USED TO THROW AWAY. A git patch
 // states a rename, a copy, a mode change, and a binary change in the extended headers

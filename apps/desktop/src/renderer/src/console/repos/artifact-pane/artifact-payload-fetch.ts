@@ -70,7 +70,7 @@ export class ArtifactPayloadFetches {
   }
 
   /**
-   * Ask for one artifact's bytes, because the participant pressed for them.
+   * Ask for one artifact's bytes, because the user pressed for them.
    *
    * THE SAME METHOD AS `readManifest`, TOLD APART BY `includePayload`. That member is
    * the wire's own discriminator, so this is not a second operation and there is no

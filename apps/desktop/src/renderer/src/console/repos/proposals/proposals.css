@@ -321,7 +321,7 @@
   cursor: pointer;
 }
 
-/* One primary act: preparation is what a participant came here to approve. */
+/* One primary act: preparation is what a user came here to approve. */
 .meridian-proposal-gate__act--primary {
   border-color: var(--meridian-accent);
   color: var(--meridian-accent-text);

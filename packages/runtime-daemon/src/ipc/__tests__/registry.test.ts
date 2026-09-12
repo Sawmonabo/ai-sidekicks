@@ -1,35 +1,26 @@
-// W-007p-2-T7 + T9 — MethodRegistryImpl test suite (T-007p-2-6).
+// MethodRegistryImpl test suite.
 //
-// Spec coverage:
-//   * Plan-007 §Cross-Plan Obligations CP-007-3
-//     (docs/plans/007-local-ipc-and-daemon-control.md) — the registry
-//     surface owed to Plan-026 and Tier 4 namespace plans.
-//
-// Invariants verified here (canonical text in
-// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`):
-//   * I-007-6 — duplicate method-name registration MUST be rejected at
+// Invariants verified here (canonical text):
+//   * Duplicate method-name registration MUST be rejected at
 //     register-time (synchronous), not at dispatch-time.
-//   * I-007-7 — schema validation runs BEFORE handler dispatch. Handler
-//     is NEVER invoked on a malformed payload — `safeParse` short-
-//     circuits dispatch with `RegistryDispatchError("invalid_params")`.
-//   * I-007-9 — method names conform to the canonical regex set (every
-//     segment starts lowercase and may carry camelCase, the namespace root
-//     included since the 2026-09-05 root widening):
-//     `METHOD_NAME_FORMAT` (the single source exported from
-//     `@ai-sidekicks/contracts`, canonical per
-//     docs/architecture/contracts/api-payload-contracts.md §JSON-RPC
-//     Method-Name Registry) ∪ `METHOD_NAME_LSP_REGEX` (daemon-local
-//     LSP-style `$/`-prefixed; separate follow-up).
+//   * Schema validation runs BEFORE handler dispatch. Handler is NEVER
+//     invoked on a malformed payload — `safeParse` short- circuits
+//     dispatch with `RegistryDispatchError("invalid_params")`.
+//   * Method names conform to the canonical regex set (every segment
+//     starts lowercase and may carry camelCase, the namespace root
+//     included): `METHOD_NAME_FORMAT`
+//     (the single source exported from `@ai-sidekicks/contracts`,
+//     canonical) ∪ `METHOD_NAME_LSP_REGEX` (daemon-local LSP-style
+//     `$/`-prefixed; separate follow-up).
 //
-// W-tests covered here (per `Plan-007 §Phase 2 — Wire Substrate (W-007p-2-T1..T11)`):
-//   * W-007p-2-T7 — Method-not-found namespace-isolation. Invoking an
-//                   unregistered method (e.g. `not.registered`) returns
+//   * Method-not-found namespace-isolation. Invoking an
+//                   `not.registered`) returns
 //                   `RegistryDispatchError("method_not_found")` which
-//                   maps to JSON-RPC `-32601` per F-007p-2-04.
-//   * W-007p-2-T9 — Schema-validates-before-dispatch. Malformed payload
+//                   maps to JSON-RPC `-32601`.
+//   * Schema-validates-before-dispatch. Malformed payload
 //                   throws `RegistryDispatchError("invalid_params")`
 //                   (mapping to JSON-RPC `-32602`); handler is NEVER
-//                   invoked. (I-007-7 verification.)
+//                   invoked.
 //
 // The registry tests run synchronously without binding any listener —
 // dispatch is a direct method call against the registry instance with a
@@ -64,10 +55,9 @@ import { passthroughSchema, rejectingSchema } from "./__fixtures__/zod-schemas.j
 const directCtx: HandlerContext = {};
 
 // ----------------------------------------------------------------------------
-// W-007p-2-T9 — schema-validates-before-dispatch (I-007-7)
 // ----------------------------------------------------------------------------
 
-describe("W-007p-2-T9 — schema validates before dispatch (I-007-7)", () => {
+describe("schema validates before dispatch", () => {
   it("malformed params throw `invalid_params`; handler is NEVER invoked", async () => {
     const registry = new MethodRegistryImpl();
     const handler = vi.fn<(p: unknown, c: HandlerContext) => Promise<unknown>>(async () => ({
@@ -94,7 +84,7 @@ describe("W-007p-2-T9 — schema validates before dispatch (I-007-7)", () => {
       const issues = caught.issues ?? [];
       expect(issues.length).toBeGreaterThan(0);
     }
-    // Critical I-007-7 assertion — the handler must NEVER have run.
+    // Critical assertion — the handler must NEVER have run.
     expect(handler).not.toHaveBeenCalled();
   });
 
@@ -153,10 +143,10 @@ describe("W-007p-2-T9 — schema validates before dispatch (I-007-7)", () => {
 });
 
 // ----------------------------------------------------------------------------
-// W-007p-2-T7 — method-not-found namespace isolation (F-007p-2-04 + I-007-9)
+// method-not-found namespace isolation
 // ----------------------------------------------------------------------------
 
-describe("W-007p-2-T7 — method-not-found namespace isolation", () => {
+describe("method-not-found namespace isolation", () => {
   it("dispatching an unregistered method throws `method_not_found` and never falls through", async () => {
     const registry = new MethodRegistryImpl();
     // Register a different method so the registry isn't empty.
@@ -186,11 +176,10 @@ describe("W-007p-2-T7 — method-not-found namespace isolation", () => {
     const envelope = mapJsonRpcError(err, 7);
     expect(envelope.error.code).toBe(JsonRpcErrorCode.MethodNotFound);
     expect(envelope.id).toBe(7);
-    // Two-layer envelope per error-contracts.md §JSON-RPC Wire Mapping
-    // (BL-103 closed 2026-05-01): the registry's stable string code
-    // projects into `data.type` so downstream observability can
-    // discriminate on the canonical project identifier without parsing
-    // the human-readable message.
+    // Two-layer envelope): the registry's stable string code projects
+    // into `data.type` so downstream observability can discriminate on
+    // the canonical project identifier without parsing the
+    // human-readable message.
     expect(envelope.error.data).toEqual({ type: "method_not_found" });
   });
 
@@ -228,10 +217,10 @@ describe("W-007p-2-T7 — method-not-found namespace isolation", () => {
 });
 
 // ----------------------------------------------------------------------------
-// I-007-6 — duplicate-method registration rejected at register-time
+// Duplicate-method registration rejected at register-time
 // ----------------------------------------------------------------------------
 
-describe("I-007-6 — duplicate method registration rejected at register-time", () => {
+describe("duplicate method registration rejected at register-time", () => {
   it("registering the same method twice throws `RegistryRegistrationError(`duplicate_method`)`", () => {
     const registry = new MethodRegistryImpl();
     registry.register(
@@ -279,10 +268,9 @@ describe("I-007-6 — duplicate method registration rejected at register-time", 
 });
 
 // ----------------------------------------------------------------------------
-// I-007-9 — method-name format validation
 // ----------------------------------------------------------------------------
 
-describe("I-007-9 — method-name format validation", () => {
+describe("method-name format validation", () => {
   // Exhaustive each-table over the dotted-camelCase + LSP-style accepts.
   const ACCEPTED = [
     "session.create",
@@ -290,9 +278,6 @@ describe("I-007-9 — method-name format validation", () => {
     "session.subscribe",
     "presence.subscribe",
     "run.stream.notify",
-    // camelCase tails (BL-142), per
-    // `docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name Registry (Tier 1 Ratified)`
-    // (names `settings.effectiveRead` / `driver.listCapabilities` as permitted).
     "settings.effectiveRead",
     "driver.listCapabilities",
     // camelCase ROOT — admitted by the 2026-09-05 first-segment widening in
@@ -368,34 +353,33 @@ describe("I-007-9 — method-name format validation", () => {
     }
   });
 
-  // BL-142: the deployed registry regex must accept the camelCase-tailed
-  // method strings the Tier-6/7 namespace plans register. Before the tail-
-  // class fix (`[a-z0-9]` → `[a-zA-Z0-9]`), every one threw
+  // The deployed registry regex must accept the camelCase-tailed method
+  // strings later namespace surfaces register. Before the tail- class fix
+  // (`[a-z0-9]` → `[a-zA-Z0-9]`), every one threw
   // `RegistryRegistrationError("invalid_method_name")` at daemon boot,
-  // blocking the Plan-009/010/012/016 Phase 3 registrations. Each pairs a
-  // lowercase root with a camelCase tail per the canonical
-  // `METHOD_NAME_FORMAT` (api-payload-contracts.md §JSON-RPC Method-Name
-  // Registry), whose 2026-09-05 root widening additionally admits a camelCase
-  // root such as `providerAccount.list`.
+  // blocking 010/012/016 Phase 3 registrations. Each pairs a lowercase root
+  // with a camelCase tail per the canonical `METHOD_NAME_FORMAT`, whose
+  // 2026-09-05 root widening additionally admits a camelCase root such as
+  // `providerAccount.list`.
   const BL142_CAMELCASE_TAILS = [
-    "repo.mountRead", // Plan-009
-    "repo.executionModeSelect", // Plan-010
-    "approval.requestCreate", // Plan-012
-    "channel.rosterRead", // Plan-016
-    "orchestration.runCreate", // Plan-016
-    "orchestration.childRunLinkRead", // Plan-016
-    "orchestration.budgetRead", // Plan-016
-    "orchestration.budgetUpdate", // Plan-016
-    "agent.configUpdate", // Plan-016
+    "repo.mountRead",
+    "repo.executionModeSelect",
+    "approval.requestCreate",
+    "channel.rosterRead",
+    "orchestration.runCreate",
+    "orchestration.childRunLinkRead",
+    "orchestration.budgetRead",
+    "orchestration.budgetUpdate",
+    "agent.configUpdate",
   ];
   it.each(BL142_CAMELCASE_TAILS)(
-    "accepts camelCase-tailed V1 method name `%s` (BL-142 unblock)",
+    "accepts camelCase-tailed V1 method name `%s` (unblock)",
     (name) => {
       expect(isCanonicalMethodName(name)).toBe(true);
     },
   );
 
-  it("registers a camelCase-tailed method without throwing (BL-142 end-to-end)", () => {
+  it("registers a camelCase-tailed method without throwing (end-to-end)", () => {
     const registry = new MethodRegistryImpl();
     expect(() => {
       registry.register(

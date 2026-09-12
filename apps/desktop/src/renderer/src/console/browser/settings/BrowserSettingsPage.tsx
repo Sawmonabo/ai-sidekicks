@@ -1,10 +1,9 @@
-// Chapter 13.16 — the whole of the browser in settings.
+// The whole of the browser in settings.
 //
-// `Spec-023 §Console Design (Meridian)` 13.16 fixes the contents exactly: the file
-// boundary switch, the page tools switch, and "the per-session site-data partitions
-// this node holds, with their sizes in mono, and a clear-site-data control per
-// partition that closes the pane first". Nothing else about the browser is placed
-// here, and no policy row is placed anywhere else.
+// The contents are fixed exactly: the file boundary switch, the page tools switch, and
+// the per-session site-data partitions this node holds, with their sizes in mono, and a
+// clear-site-data control per partition that closes the pane first. Nothing else about
+// the browser is placed here, and no policy row is placed anywhere else.
 //
 // WHERE THIS PAGE IS MOUNTED. On the settings board, as the `browser` section. The
 // console's surface registry is keyed by SLOT and `settings` is one slot for the whole

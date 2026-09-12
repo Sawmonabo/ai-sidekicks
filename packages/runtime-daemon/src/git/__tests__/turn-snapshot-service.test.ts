@@ -1,7 +1,7 @@
-// Plan-010 Phase 5 — T5.1, the turn-snapshot CAPTURE leg; T5.2, the two-phase
-// RESTORE leg (`resolveRestoreTarget` + `restoreToTurn`); and T5.3, the
-// window-based RETENTION prune (`sweepPrunableRuns` + `pruneSnapshotsForRun`)
-// with its sanctioned `../../bootstrap/index.ts` wiring seam.
+// Turn-snapshot service coverage: the CAPTURE leg; the two-phase RESTORE leg
+// (`resolveRestoreTarget` + `restoreToTurn`); and the window-based RETENTION prune
+// (`sweepPrunableRuns` + `pruneSnapshotsForRun`) with its sanctioned
+// `../../bootstrap/index.ts` wiring seam.
 //
 // REAL GIT, NO MOCKS. Every case drives `../turn-snapshot-service.ts` over a git
 // repository in a temporary directory, and the service's `git` seam is left at
@@ -30,64 +30,33 @@
 //
 // Coverage map (the cites are the contract, not just the ACs):
 //
-//   * `Spec-010 §Turn-Boundary Snapshots` — the capture temp-index recipe: the
-//     single base OID reused for tree base and recorded parent; `git add -A`
-//     tree equivalence including the untracked-embedded-repo `160000` gitlink;
-//     the embedded repository skipped and enumerated when its `HEAD` yields no
-//     OID the superproject index can hold — commitless, and the MIXED OBJECT
-//     FORMAT case in both directions, which is a healthy repository whose OID is
-//     simply the wrong width; ignore
-//     semantics (project-declared rules only, tracking wins over ignoring); the
-//     `core.autocrlf` / `core.attributesFile` / `i18n.commitEncoding` pins and
-//     the `core.excludesFile` non-consultation that make the OID host-
-//     independent, plus the `core.safecrlf` pin that makes capture's SUCCESS
-//     host-independent — against the project's own `text` attribute a host
-//     `true` is otherwise fatal, and an uncaptured turn is an unrollbackable
-//     one; the `core.eol` NON-pin on this leg, driven as its own case rather
-//     than left as an assumption — two captures either side of a host
-//     `core.eol=crlf` produce the identical tree OID, which is the evidence
-//     behind the service's disposition table calling that knob checkout-only;
-//     the create-only `update-ref` and its per-epoch idempotence;
-//     the writable-modes-only applicability rule, exercised across ALL THREE
-//     writable modes and the one non-applicable mode; and the out-of-worktree
-//     scratch index, asserted against the execution root's OWN index rather than
-//     only against stray worktree content.
-//   * `Spec-004 §Required Behavior` — the execution epoch is the CALLER's value
-//     (`0` before any rollback, advanced with each accepted `run.rolled_back`),
-//     placed in the ref verbatim and never derived here (CP-010-12).
-//   * `Spec-010 §Turn-Boundary Snapshots` — the RETENTION prune, driven over a
-//     REAL migrated SQLite database rather than a stubbed row source, because
-//     the claim is about a predicate over `run_execution_contexts` and a fake
-//     table would assert it against the fake: terminal-but-inside-the-window
-//     refs survive (the case that makes "prunes at terminal" fail), an elapsed
-//     window prunes while a still-open run — `released_at IS NULL` — survives
-//     beside it, and the window boundary is driven to the exact millisecond in
-//     both directions. The `git_common_dir` leg is exercised against a REAL
-//     linked worktree that is then really removed, which is the only fixture in
-//     which "the refs outlive the execution root" is a fact rather than a
-//     stipulation; the ephemeral-clone disposal boundary against a real clone,
-//     asserted non-vacuously (the canonical repository is shown NEVER to have
-//     held those refs, so "the sweep found nothing" is a statement about the
-//     clone's store and not about an empty fixture); and the skip enumeration
-//     against a pass whose FIRST candidate is unusable, so "never fatal" is
-//     asserted as the later candidates still being pruned.
+//   * the execution epoch is the CALLER's value (`0` before any rollback,
+//     advanced with each accepted `run.rolled_back`), placed in the ref
+//     verbatim and never derived here.
+//   * the RETENTION prune, driven over a REAL migrated SQLite database rather
+//     than a stubbed row source, because the claim is about a predicate over
+//     `run_execution_contexts` and a fake table would assert it against the
+//     fake: terminal-but-inside-the-window refs survive (the case that makes
+//     "prunes at terminal" fail), an elapsed window prunes while a still-open
+//     run — `released_at IS NULL` — survives beside it, and the window boundary
+//     is driven to the exact millisecond in both directions.
 //
-//   * `Spec-010 §Turn-Boundary Snapshots` — the amended capture bullet's
-//     SPARSE-AWARE STAGING (T6.1). Detection is the `core.sparseCheckout` bit
-//     ALONE, driven through all four quadrants of the bit×rules-file matrix: the
-//     ordinary sparse root, the bit-set-rules-vanished root that must reach the
-//     sparse arm and fail closed, the stale-rules-file-with-the-bit-false root
-//     that must run the non-sparse pipeline byte-identically, and the plain
-//     non-sparse root. Partition is git's own `sparse-checkout check-rules -z`
-//     oracle in its live-rules form, asserted through the fixture where a
-//     gitignore-based reimplementation gives the WRONG answer (`/*` plus a nested
-//     negation) rather than only where the two agree. Seeding is a copy of the
-//     LIVE index taken under git's own `<index>.lock`, driven for round-trip
-//     content on BOTH legs — the capture records the staged blob, and the restore
-//     writes it back to disk once the cone widens over the path — for lock
-//     contention in a main checkout AND in a linked worktree (whose index lives
-//     under `.git/worktrees/<id>/`), and for the `worktree`-mode sparse
-//     INHERITANCE that makes the second fixture reachable at all.
+//   * the amended capture bullet's SPARSE-AWARE STAGING. Detection is the
+//     `core.sparseCheckout` bit ALONE, driven through all four quadrants of the
+//     bit×rules-file matrix: the ordinary sparse root, the bit-set-rules-vanished
+//     root that must reach the sparse arm and fail closed, the
+//     stale-rules-file-with-the-bit-false root that must run the non-sparse
+//     pipeline byte-identically, and the plain non-sparse root. Partition is
+//     git's own `sparse-checkout check-rules -z` oracle in its live-rules form,
+//     asserted through the fixture where a gitignore-based reimplementation gives
+//     the WRONG answer (`/*` plus a nested negation) rather than only where the
+//     two agree. Seeding is a copy of the LIVE index taken under git's own
+//     `<index>.lock`, driven for round-trip content on BOTH legs — the capture
+//     records the staged blob, and the restore writes it back to disk once the
+//     cone widens over the path — for lock contention in a main checkout AND in a
+//     linked worktree (whose index lives under `.git/worktrees/<id>/`), and for
+//     the `worktree`-mode sparse INHERITANCE that makes the second fixture
+//     reachable at all.
 //
 //     DOCUMENTED RESIDUAL, driven by its own case rather than left to be
 //     discovered: under an UNCHANGED cone that staged blob is captured but never
@@ -153,10 +122,9 @@
 //     absence the other two protections cannot cover: when a boundary path and a
 //     snapshot path want the same place on disk, `read-tree --reset -u` takes it at
 //     exit 0 — before the delete pass runs, and with no index entry for the
-//     pre-drop to remove. All three destructive shapes are driven — the set
-//     mirrors Spec-010's measured collision taxonomy for ignored paths, which is
-//     the same checkout meeting the same mechanism — and so is each plausible
-//     false positive:
+//     pre-drop to remove. All three destructive shapes are driven — the set mirrors
+//     the measured collision taxonomy for ignored paths, which is the same checkout
+//     meeting the same mechanism — and so is each plausible false positive:
 //
 //       - A boundary FILE where the snapshot needs a DIRECTORY, from an ordinary
 //         capture (index cached `cone-out/foo/bar`; disk held a file at
@@ -302,32 +270,31 @@
 //
 // Verifies invariant:
 //
-//   * I-010-24 — sparse-faithful capture and restore. The load-bearing claim is
-//     that a sparse execution root's capture is EQUIVALENT TO PORCELAIN and its
-//     restore re-projects a full tree through the live cone, and the suite
-//     asserts the first against `git add -A` under the same config (never against
-//     a hand-written expectation) across a matrix of cone, non-cone
-//     positive-pattern, top-level-negation and nested-negation definitions, in
-//     both a clean and a materialized worktree state. The second is asserted as
-//     git's own disposition codes — the out-of-cone path stays `S`, the in-cone
-//     one is `H`, and `git status --porcelain` is EMPTY afterwards, which is the
-//     precise observable the pre-closure loss broke. Fail-closed is driven at
-//     both floors: on the capture side by injecting the below-2.41
-//     unknown-subcommand failure through the git seam (never by requiring an old
-//     binary), and on the restore side at `derive-enumerations`, pre-mutation,
-//     asserted as a byte-identical worktree census. The DELETE PASS has a
-//     pre-mutation floor of its own and it is driven too: a deletable entry whose
-//     decoded spelling could address some path other than the one adjudicated
-//     deletable refuses the WHOLE pass before any removal in it runs, so
-//     boundary-time content cannot be destroyed through a decode-identical sibling.
-//   * I-010-21 — snapshot refs live only under `refs/sidekicks/runs/…`, never
-//     `refs/heads/`, and are invisible to branch history. Asserted as ground
-//     truth (`for-each-ref refs/heads/` byte-identical across the capture,
-//     `branch --contains <snapshot>` empty, `HEAD` unmoved), at the namespace
-//     boundary (a `runId` that would escape is refused before any git call) and
-//     on the environment channel the ref-path guard cannot reach (a capture run
-//     under an ambient `GIT_DIR` + `GIT_OBJECT_DIRECTORY` still lands in the
-//     EXECUTION ROOT's own store, with the decoy repository empty).
+//   * Sparse-faithful capture and restore. The load-bearing claim is that a sparse
+//     execution root's capture is EQUIVALENT TO PORCELAIN and its restore
+//     re-projects a full tree through the live cone, and the suite asserts the
+//     first against `git add -A` under the same config (never against a
+//     hand-written expectation) across a matrix of cone, non-cone positive-pattern,
+//     top-level-negation and nested-negation definitions, in both a clean and a
+//     materialized worktree state. The second is asserted as git's own disposition
+//     codes — the out-of-cone path stays `S`, the in-cone one is `H`, and `git
+//     status --porcelain` is EMPTY afterwards, which is the precise observable the
+//     pre-closure loss broke. Fail-closed is driven at both floors: on the capture
+//     side by injecting the below-2.41 unknown-subcommand failure through the git
+//     seam (never by requiring an old binary), and on the restore side at
+//     `derive-enumerations`, pre-mutation, asserted as a byte-identical worktree
+//     census. The DELETE PASS has a pre-mutation floor of its own and it is driven
+//     too: a deletable entry whose decoded spelling could address some path other
+//     than the one adjudicated deletable refuses the WHOLE pass before any removal
+//     in it runs, so boundary-time content cannot be destroyed through a
+//     decode-identical sibling.
+//   * Asserted as ground truth (`for-each-ref refs/heads/` byte-identical
+//     across the capture, `branch --contains <snapshot>` empty, `HEAD`
+//     unmoved), at the namespace boundary (a `runId` that would escape is
+//     refused before any git call) and on the environment channel the ref-path
+//     guard cannot reach (a capture run under an ambient `GIT_DIR` +
+//     `GIT_OBJECT_DIRECTORY` still lands in the EXECUTION ROOT's own store,
+//     with the decoy repository empty).
 //
 //     The ref-component predicate is driven through BOTH halves of its rule and
 //     against over-narrowing. The refusal rows include the four DOT shapes an
@@ -359,44 +326,31 @@
 //     would escape the namespace is refused before any git call, from the sweep
 //     as well as from the primitive; and a fabricated `for-each-ref` listing
 //     naming `refs/heads/main` is DROPPED rather than deleted.
-//   * I-010-22 — create-only, PER-EPOCH refs. The discriminating case mutates
-//     the worktree between two captures of the same `(runId, epoch, turnOrdinal)`
-//     and asserts the ref did not move, which is what "never repoints an existing
-//     ref at later file state" means; the epoch case then asserts the superseded
-//     epoch's ref SURVIVES beside the fresh one.
-//   * I-010-23 — fail-closed, two-phase restore. The resolver's non-mutation is
-//     asserted as a byte census of the whole worktree plus the raw index file, on
-//     a REFUSED and an ACCEPTED resolve alike (the index fingerprint carrying its
-//     own negative control, so "unchanged" is a claim about the resolver rather
-//     than about the helper); the precondition is refused at ALL FOUR of its
-//     checks, each with the property that distinguishes it — a `HEAD` advanced
-//     before the resolve; the entry re-verify, asserted to have spawned exactly
-//     one invocation, so the refusal costs no derivation; a `HEAD` moving DURING
-//     the derivation, asserted byte-identical, since the later check would refuse
-//     too but only after rewriting the tree; and a `HEAD` moving after the
-//     checkout, which is a `partial_restore` at `close-index` with the index
-//     proven to still hold the SNAPSHOT tree rather than closed against the moved
-//     `HEAD`. That last guard is driven by BOTH of its causes, since they share an
-//     arm and a `failedStep` but not a recovery property — the moved `HEAD` and an
+//   * The discriminating case mutates the worktree between two captures of the
+//     same `(runId, epoch, turnOrdinal)` and asserts the ref did not move, which
+//     is what "never repoints an existing ref at later file state" means; the
+//     epoch case then asserts the superseded epoch's ref SURVIVES beside the
+//     fresh one.
+//   * That last guard is driven by BOTH of its causes, since they share an arm and
+//     a `failedStep` but not a recovery property — the moved `HEAD` and an
 //     unreadable one, separated only by the diagnostic detail, each asserted to
 //     carry its own wording and not the other's. Both fail-closed `null` arms are
 //     driven (an unreadable recorded parent, an unreadable `HEAD` on the
 //     destructive leg). The lineage walk is driven across a two-epoch fixture
 //     including the inheritance boundary at the rewind base, with the gap case
-//     asserting the superseded epoch's
-//     same-ordinal ref STILL EXISTS and was still not resolved; the
-//     partial-restore enumerations are asserted against on-disk ground truth on
-//     an injected mid-sequence failure, on a real in-command `read-tree` failure,
-//     and on a pre-mutation failure whose fixture deliberately HAS both a
-//     collision and a divergent gitlink — so the empty pair is a statement about
-//     what was applied rather than about what the fixture happened to contain;
-//     the COLLISION enumeration is driven through all three shapes the checkout
-//     destroys through — the shared path, a snapshot file replacing a directory
-//     of ignored content, and an ignored file squatting a directory the snapshot
-//     needs — each against on-disk ground truth, and each beside a control that
-//     shares CHARACTERS without sharing a segment boundary (`collidex/…` under a
-//     tracked `collide`, an ignored `sibling` under a tracked
-//     `sibling-prefix.txt`) or shares a directory without obstructing it;
+//     asserting the superseded epoch's same-ordinal ref STILL EXISTS and was still
+//     not resolved; the partial-restore enumerations are asserted against on-disk
+//     ground truth on an injected mid-sequence failure, on a real in-command
+//     `read-tree` failure, and on a pre-mutation failure whose fixture
+//     deliberately HAS both a collision and a divergent gitlink — so the empty
+//     pair is a statement about what was applied rather than about what the
+//     fixture happened to contain; the COLLISION enumeration is driven through all
+//     three shapes the checkout destroys through — the shared path, a snapshot
+//     file replacing a directory of ignored content, and an ignored file squatting
+//     a directory the snapshot needs — each against on-disk ground truth, and each
+//     beside a control that shares CHARACTERS without sharing a segment boundary
+//     (`collidex/…` under a tracked `collide`, an ignored `sibling` under a
+//     tracked `sibling-prefix.txt`) or shares a directory without obstructing it;
 //     the collision fingerprint is driven as a TYPE-AWARE observation, through the
 //     two shapes a bytes-only one could not see and which are therefore each
 //     asserted with an in-case control that reproduces the blindness: an ignored
@@ -405,35 +359,12 @@
 //     dropped the loss out of the report), and an ignored LIVE SYMLINK replaced by
 //     a byte-identical regular file (the bytes through the link are asserted equal
 //     to the restored bytes, so only the entry TYPE distinguishes them — the
-//     `lstat`-not-`stat` corner). Both drive an induced mid-sequence failure,
-//     because the `restored` arm reports the prospective set verbatim and never
-//     consults the comparison;
-//     and a target the service never minted is refused with nothing mutated —
-//     twice over, by a cast object literal and by a `Reflect.construct` that
-//     really does reach the erased-at-emit private constructor, which is the
-//     forgery a brand FIELD would have admitted — against the negative control of
-//     a genuine one that is accepted.
+//     `lstat`-not-`stat` corner).
 //
-// Several behaviours are pinned as GIT FACTS this suite established rather than
-// reasoned about, measured on git 2.50.1 unless the item says otherwise: the
-// delete pass's two BEHAVIOURAL non-fixpoint exits (the no-progress detection
-// naming its stuck path, and the pass ceiling driven to its exact count by a seam
-// whose removals keep minting new content — the third exit, the pre-mutation
-// round-trip refusal, is a check on the listing entry rather than a measured
-// behaviour and is covered above); `ls-files -o` declining to descend into a
-// path the index holds as a `160000` gitlink — so post-boundary content inside a
-// snapshot-gitlink path survives the restore, asserted beside the control that
-// identical content outside it does not; a `run-A/` enumeration pattern not
-// matching a sibling `run-AB`; and both halves of the `--no-deref` measurement —
-// unflagged, `update-ref -d` on an in-namespace symref deletes its REFERENT (a
-// branch) at exit 0, and an unflagged create-only CAS through a DANGLING one
-// mints the branch it points at, the latter measured on git 2.50.1 and on git
-// 2.54.0 alike (which is why that case's `refs/heads/` assertions sit outside its
-// version branch). The FLAGGED forms act on the validated name and leave
-// `refs/heads/` alone on every git measured, and that is the half each case
-// asserts; what the flagged CREATE then REPORTS is version-dependent, and the
-// case accepts either answer — see the I-010-21 entry above for the split, rather
-// than a second copy of it here.
+// The FLAGGED forms act on the validated name and leave `refs/heads/` alone on
+// every git measured, and that is the half each case asserts; what the flagged
+// CREATE then REPORTS is version-dependent, and the case accepts either answer —
+// entry above for the split, rather than a second copy of it here.
 //
 // The RESTORE checkout's obstruction handling is measured the same way, because
 // the collision enumeration is a claim about what `read-tree --reset -u` destroys
@@ -485,10 +416,10 @@
 // asserting that a sparse root's out-of-cone content was dropped from the
 // snapshot tree at capture and then deleted from the worktree by a restore that
 // still reported `restored` — the residual the service's disposition table
-// recorded. T6.1 closed it, so that case now asserts RETENTION and porcelain
+// recorded. closed it, so that case now asserts RETENTION and porcelain
 // equivalence at the same observables, and the suite carries exactly one reading
-// of this behaviour. The sparse block below is described in the
-// `Spec-010 §Turn-Boundary Snapshots` coverage entry and the I-010-24 entry.
+// of this behaviour. The sparse block below is described coverage entry and
+// entry.
 
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -1002,7 +933,7 @@ interface ServiceOverrides {
   readonly filesystem?: TurnSnapshotFilesystem;
   readonly now?: () => string;
   readonly emitDiagnostic?: (diagnostic: TurnSnapshotDiagnostic) => void;
-  /** T5.3 only. The capture and restore cases construct WITHOUT one (CP-010-12). */
+  /** only. The capture and restore cases construct WITHOUT one. */
   readonly database?: DatabaseType;
   readonly retentionWindowMs?: number;
 }
@@ -1147,7 +1078,6 @@ function expectCaptured(
 const CAPTURE_DEFAULTS = { runId: RUN_ID, epoch: 0, turnOrdinal: 1, mode: "worktree" } as const;
 
 // ----------------------------------------------------------------------------
-// Restore harness (T5.2)
 // ----------------------------------------------------------------------------
 
 /** Capture a turn against the fixture repository and narrow to the `captured` arm. */
@@ -1166,8 +1096,8 @@ async function captureTurn(
 
 /**
  * Resolver inputs against the fixture repository. The default lineage is a run
- * that has never been rolled back — `Spec-004 §Required Behavior`'s epoch `0`,
- * whose rewind base is the position it rewound from, which is nothing.
+ * that has never been rolled back — the epoch `0`, whose rewind base is the
+ * position it rewound from, which is nothing.
  */
 function buildResolveInput(
   overrides: Partial<ResolveRestoreTargetInput> = {},
@@ -1356,7 +1286,7 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
       }),
     );
 
-    // The ref path is spelled LITERALLY — `Spec-010 §Turn-Boundary Snapshots`'s
+    // The ref path is spelled LITERALLY — the
     // `refs/sidekicks/runs/<runId>/epoch-<E>/turn-<N>` — rather than derived from
     // the service, so a builder that changed shape is caught here rather than
     // agreeing with itself.
@@ -1381,7 +1311,7 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
     ).toBe("AI Sidekicks <snapshots@ai-sidekicks.invalid>|1767225600 +0000");
   });
 
-  it("keeps snapshot refs out of branch history entirely (I-010-21)", async () => {
+  it("keeps snapshot refs out of branch history entirely", async () => {
     const repository: FixtureRepository = fixture.repository;
     applyTurnEffects();
     const branchesBefore: string = await repository.refListing("refs/heads/");
@@ -1405,7 +1335,7 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
     // Half two — the load-bearing one: INVISIBLE TO BRANCH HISTORY. No branch
     // contains the snapshot commit, and `HEAD` did not move (neither its
     // symbolic target nor the commit it resolves to), so branch history, PR
-    // preparation and diff attribution see nothing (Spec-011 no-impact).
+    // preparation and diff attribution see nothing (no-impact).
     expect(await repository.git(["branch", "--contains", result.snapshotCommit])).toBe("");
     expect(await repository.git(["rev-parse", "HEAD"])).toBe(headBefore);
     expect(await repository.git(["symbolic-ref", "HEAD"])).toBe(symbolicHeadBefore);
@@ -1708,9 +1638,9 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
     const service: TurnSnapshotService = buildService();
 
     // The 99% capture: no skip, so the message must still be exactly the fixed
-    // subject `Spec-010 §Turn-Boundary Snapshots` specifies. This is the
-    // determinism guarantee the trailer had to be designed around — a trailer on
-    // every capture would have changed every snapshot OID in the repository.
+    // subject specifies. This is the determinism guarantee the trailer had to be
+    // designed around — a trailer on every capture would have changed every
+    // snapshot OID in the repository.
     const clean: TurnSnapshotCaptured = await captureTurn(service);
     expect(await repository.git(["cat-file", "commit", clean.snapshotCommit])).toMatch(
       /\n\nsidekicks: turn-boundary snapshot$/,
@@ -2025,7 +1955,7 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
     expect(pinned.exitCode).toBe(0);
   });
 
-  it("returns the recorded OID and leaves the ref unmoved on a duplicate capture (I-010-22)", async () => {
+  it("returns the recorded OID and leaves the ref unmoved on a duplicate capture", async () => {
     const repository: FixtureRepository = fixture.repository;
     applyTurnEffects();
     const service: TurnSnapshotService = buildService();
@@ -2054,7 +1984,7 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
     expect(fixture.diagnostics).toEqual([]);
   });
 
-  it("mints a fresh ref for the same turn ordinal under a new epoch (I-010-22)", async () => {
+  it("mints a fresh ref for the same turn ordinal under a new epoch", async () => {
     const repository: FixtureRepository = fixture.repository;
     applyTurnEffects();
     const service: TurnSnapshotService = buildService();
@@ -2084,14 +2014,12 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
     );
   });
 
-  it("places the caller-supplied epoch in the ref verbatim (Spec-004 §Required Behavior)", async () => {
+  it("places the caller-supplied epoch in the ref verbatim", async () => {
     const repository: FixtureRepository = fixture.repository;
     applyTurnEffects();
 
-    // The fixture has no rollback history of ANY kind — no prior epoch ref, no
-    // durable record this service could read even if it wanted to. `7` can only
-    // have come from the caller, which is CP-010-12's pure-callee property and
-    // `Spec-004 §Required Behavior`'s "supplied, never derived".
+    // `7` can only have come from the caller, which is the pure-callee property
+    // and the "supplied, never derived".
     const result = expectCaptured(
       await buildService().captureTurnSnapshot({
         ...CAPTURE_DEFAULTS,
@@ -2128,9 +2056,9 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
           ...CAPTURE_DEFAULTS,
           mode,
           turnOrdinal,
-          // The execution root's PROVENANCE is the caller's business under
-          // CP-010-12 — a clone and a shared checkout are both just a path
-          // here — so the mode value is the only variable in this loop.
+          // The execution root's PROVENANCE is the caller's business — a
+          // clone and a shared checkout are both just a path here — so the
+          // mode value is the only variable in this loop.
           executionRoot: repository.root,
         }),
       );
@@ -2229,10 +2157,8 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
     expect(advanced).toBe(true);
     const movedHead: string = await repository.git(["rev-parse", "HEAD"]);
     expect(movedHead).not.toBe(base);
-    // Self-consistent: the recorded parent is the base whose tree was read, NOT
-    // the branch tip the capture finished against. A later restore therefore
-    // draws T5.2's typed `head_moved` refusal instead of anti-diffing the landed
-    // commit's files into the worktree.
+    // A later restore therefore draws the typed `head_moved` refusal instead of
+    // anti-diffing the landed commit's files into the worktree.
     expect(result.baseCommit).toBe(base);
     expect(await repository.git(["rev-parse", `${result.ref}^`])).toBe(base);
     expect(await repository.git(["rev-parse", `${result.ref}^`])).not.toBe(movedHead);
@@ -2288,8 +2214,8 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
     // Only the compare-and-swap is induced to fail. The existence probe behind it
     // runs for REAL and finds nothing, because no ref was ever written — the
     // double-failure branch. Rethrowing is the only honest exit: reporting
-    // `already-captured` here would hand T5.2 a snapshot OID for a snapshot that
-    // does not exist. (This case pins the rethrow and the `write-ref` cursor; the
+    // `already-captured` here would hand a snapshot OID for a snapshot that does
+    // not exist. (This case pins the rethrow and the `write-ref` cursor; the
     // probe's exact-read flags are defense in depth behind the runner's
     // exit-status check and `#requireObjectId`, per the service header.)
     let updateRefAttempts = 0;
@@ -2593,7 +2519,7 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
     ]);
   });
 
-  it("refuses every unusable ref component before any git call (I-010-21)", async () => {
+  it("refuses every unusable ref component before any git call", async () => {
     const repository: FixtureRepository = fixture.repository;
     applyTurnEffects();
     const refsBefore: string = await repository.refListing();
@@ -2740,9 +2666,8 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
 
     // Built WITHOUT `emitDiagnostic`, which every other case injects — so the
     // default sink is exercised rather than described. TRIPWIRE: this is the
-    // interim `console.warn` standing in for the OTel diagnostic `Spec-010
-    // §Turn-Boundary Snapshots` names; when the daemon grows a telemetry
-    // substrate, this case moves to it.
+    // interim `console.warn` standing in for the OTel diagnostic names; when
+    // the daemon grows a telemetry substrate, this case moves to it.
     const service = new TurnSnapshotService({
       executionRootsDirectory: fixture.executionRootsDirectory,
       now: () => FIXED_INSTANT,
@@ -2835,7 +2760,7 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
     expect(existsSync(hijackedObjectDirectory)).toBe(false);
   });
 
-  it("never touches refs/heads when a DANGLING symref squats the capture path (I-010-21)", async () => {
+  it("never touches refs/heads when a DANGLING symref squats the capture path", async () => {
     const repository: FixtureRepository = fixture.repository;
     applyTurnEffects();
 
@@ -2861,9 +2786,9 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
       executionRoot: repository.root,
     });
 
-    // I-010-21 FIRST and UNBRANCHED, because it is the one claim that does not
-    // depend on which git is running — and because it is the assertion that kills
-    // a dropped `--no-deref` on every version. Unflagged, this same create writes
+    // FIRST and UNBRANCHED, because it is the one claim that does not depend on
+    // which git is running — and because it is the assertion that kills a dropped
+    // `--no-deref` on every version. Unflagged, this same create writes
     // `refs/heads/evil` at the snapshot commit and exits 0 (git transfers the
     // must-not-exist check to the referent), reporting a successful capture: a
     // daemon write outside the namespace, silent. Measured unflagged on BOTH of
@@ -2946,7 +2871,7 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
     }
   });
 
-  it("prepends the hook-neutralization flags to every invocation (D-010-10)", async () => {
+  it("prepends the hook-neutralization flags to every invocation", async () => {
     const repository: FixtureRepository = fixture.repository;
     applyTurnEffects();
     await createEmbeddedRepository("embedded");
@@ -3009,10 +2934,9 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
 
       // IN-CASE PORCELAIN CONTROL, and the whole reason this is a residual and
       // not a defect: `git add -A` under the SAME host config records exactly
-      // the same `100644`. `Spec-010 §Turn-Boundary Snapshots` asks for add -A
-      // tree equivalence, so honoring the knob keeps the contract while pinning
-      // it `true` would have broken it — see this describe's tracked-file case
-      // for the half that pin got wrong.
+      // the same `100644`. asks for add -A tree equivalence, so honoring the
+      // knob keeps the contract while pinning it `true` would have broken it —
+      // see this describe's tracked-file case for the half that pin got wrong.
       const porcelainTree: string = await repository.porcelainAddAllTree(
         join(fixture.fixtureRoot, "filemode-created.index"),
       );
@@ -3121,15 +3045,15 @@ describe("TurnSnapshotService.resolveRestoreTarget", () => {
     expect(readIndexFingerprint(repository.root)).not.toBe(indexBefore);
   });
 
-  it("refuses a HEAD advanced past the snapshot, with no mutation (I-010-23)", async () => {
+  it("refuses a HEAD advanced past the snapshot, with no mutation", async () => {
     const repository: FixtureRepository = fixture.repository;
     applyTurnEffects();
     const service: TurnSnapshotService = buildService();
     const captured: TurnSnapshotCaptured = await captureTurn(service);
 
-    // A reviewed Spec-011 commit lands in the execution root after the turn.
-    // Reading the older snapshot tree against this newer `HEAD` would leave the
-    // commit in branch history while anti-diffing its files into the worktree.
+    // A reviewed commit lands in the execution root after the turn. Reading the
+    // older snapshot tree against this newer `HEAD` would leave the commit in
+    // branch history while anti-diffing its files into the worktree.
     await repository.git(["commit", "-q", "--allow-empty", "-m", "landed after the snapshot"]);
     const movedHead: string = await repository.git(["rev-parse", "HEAD"]);
     const censusBefore: string = collectWorktreeCensus(repository.root);
@@ -3208,7 +3132,7 @@ describe("TurnSnapshotService.resolveRestoreTarget", () => {
     expect(reversed.ref).toBe(epochOneSix.ref);
   });
 
-  it("refuses a gap in the owning epoch rather than falling through to its parent (I-010-23)", async () => {
+  it("refuses a gap in the owning epoch rather than falling through to its parent", async () => {
     const repository: FixtureRepository = fixture.repository;
     const service: TurnSnapshotService = buildService();
 
@@ -3418,10 +3342,10 @@ describe("TurnSnapshotService.restoreToTurn", () => {
     const status: string = (await repository.gitCapturing(["status", "--porcelain"])).stdout;
     expect(status).toBe(" D doomed.txt\n M tracked.txt\n?? created.txt\n?? nested/\n");
 
-    // I-010-21 on the restore leg: it writes no refs at all — the whole listing
-    // is unchanged, `refs/heads/` included, and `HEAD` did not move. Restoring a
+    // On the restore leg: it writes no refs at all — the whole listing is
+    // unchanged, `refs/heads/` included, and `HEAD` did not move. Restoring a
     // turn is a WORKTREE operation; branch history, PR preparation and diff
-    // attribution see nothing (Spec-011 no-impact).
+    // attribution see nothing (no-impact).
     expect(await repository.refListing()).toBe(refsAtCapture);
     expect(await repository.refListing("refs/heads/")).toBe(branchesAtCapture);
     expect(await repository.git(["rev-parse", "HEAD"])).toBe(headAtCapture);
@@ -4091,10 +4015,10 @@ describe("TurnSnapshotService.restoreToTurn", () => {
     );
     const restored: TurnSnapshotRestored = expectRestored(await service.restoreToTurn(target));
 
-    // The deletion-loss path is closed BY CONSTRUCTION: T5.1 records the
-    // embedded repository as a `160000` gitlink, so the restored index tracks it
-    // and the untracked-delete pass never lists it. A restore that deleted it
-    // would take the repository's whole object store with it.
+    // The deletion-loss path is closed BY CONSTRUCTION: records the embedded
+    // repository as a `160000` gitlink, so the restored index tracks it and the
+    // untracked-delete pass never lists it. A restore that deleted it would take
+    // the repository's whole object store with it.
     expect(existsSync(join(repository.root, "embedded", ".git"))).toBe(true);
     expect(readFileSync(join(repository.root, "embedded", "inner.txt"), "utf8")).toBe("inner\n");
     expect(
@@ -4406,15 +4330,15 @@ describe("TurnSnapshotService.restoreToTurn", () => {
     },
   );
 
-  it("RETAINS out-of-cone content across a sparse capture/restore pair (I-010-24)", async () => {
+  it("RETAINS out-of-cone content across a sparse capture/restore pair", async () => {
     const repository: FixtureRepository = fixture.repository;
-    // THE INVERTED CASE. This case used to characterize the loss the service's
-    // disposition table recorded as an open residual — the out-of-cone path
-    // dropped from the snapshot tree at capture and then deleted from the
-    // worktree by the restore, reported `restored` with both enumerations empty.
-    // T6.1 closed that residual, so the case now asserts the closure at exactly
-    // the observables it used to assert the loss at, and the suite carries ONE
-    // reading of this behaviour rather than two.
+    // This case used to characterize the loss the service's disposition table
+    // recorded as an open residual — the out-of-cone path dropped from the
+    // snapshot tree at capture and then deleted from the worktree by the
+    // restore, reported `restored` with both enumerations empty. closed that
+    // residual, so the case now asserts the closure at exactly the observables
+    // it used to assert the loss at, and the suite carries ONE reading of this
+    // behaviour rather than two.
     repository.write("cone-in/kept.txt", "in-cone content\n");
     repository.write("cone-out/excluded.txt", "out-of-cone content\n");
     await repository.git(["add", "-A"]);
@@ -4442,10 +4366,10 @@ describe("TurnSnapshotService.restoreToTurn", () => {
     expect(snapshotPaths).toContain("cone-in/kept.txt");
     expect(snapshotPaths).toContain("cone-out/excluded.txt");
 
-    // PORCELAIN EQUIVALENCE, which is the equivalence `Spec-010 §Turn-Boundary
-    // Snapshots` actually asks for and the one the loss used to break: what
-    // `git add -A` would stage from this sparse worktree, staged against a copy
-    // of the real index, is exactly what the capture recorded.
+    // PORCELAIN EQUIVALENCE, which is the equivalence actually asks for and the
+    // one the loss used to break: what `git add -A` would stage from this
+    // sparse worktree, staged against a copy of the real index, is exactly what
+    // the capture recorded.
     expect(await repository.git(["rev-parse", `${captured.ref}^{tree}`])).toBe(
       await repository.porcelainAddAllTree(join(fixture.fixtureRoot, "porcelain-sparse.index")),
     );
@@ -4644,7 +4568,7 @@ describe("TurnSnapshotService.restoreToTurn", () => {
 
     expect(result.failedStep).toBe("delete-untracked" satisfies TurnSnapshotRestoreStep);
     // Both enumerations are REQUIRED on `partial_restore`, empty-when-none — a
-    // failure arm that omits one is exactly the shape T3.13's identity mapping
+    // failure arm that omits one is exactly the shape the identity mapping
     // cannot carry. This fixture has no ignored collision and no gitlink, so
     // empty here is the truth rather than an empty-wash.
     expect(result.overwrittenIgnoredPaths).toEqual([]);
@@ -4716,7 +4640,7 @@ describe("TurnSnapshotService.restoreToTurn", () => {
     },
   );
 
-  it("runs every restore invocation hook-neutralized, with the pinned recipe argv (D-010-10)", async () => {
+  it("runs every restore invocation hook-neutralized, with the pinned recipe argv", async () => {
     const repository: FixtureRepository = fixture.repository;
     applyTurnEffects();
     const service: TurnSnapshotService = buildService();
@@ -5365,8 +5289,8 @@ describe("TurnSnapshotService.restoreToTurn", () => {
   it("preserves a COMMITLESS skipped repository through the restore, payload included", async () => {
     const repository: FixtureRepository = fixture.repository;
     applyTurnEffects();
-    // The other skip class, and the one `Spec-010 §Turn-Boundary Snapshots` names
-    // by hand: an unborn `HEAD` has no commit id to record as a gitlink.
+    // The other skip class, and the one names by hand: an unborn `HEAD` has no
+    // commit id to record as a gitlink.
     await createCommitlessEmbeddedRepository("unborn");
     writeFileSync(join(repository.root, "unborn", "work-in-progress.txt"), "not yet committed\n");
     const service: TurnSnapshotService = buildService();
@@ -5499,7 +5423,6 @@ describe("TurnSnapshotService.restoreToTurn", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Sparse-root harness (T6.1)
 // ----------------------------------------------------------------------------
 //
 // The sparse cases need one thing the rest of this suite does not: a way to put
@@ -5543,8 +5466,7 @@ async function applyNonConeSparseDefinition(
  * genuinely git's to define. A literal expectation would encode this suite's
  * model of what a given sparse definition admits — the very reimplementation the
  * service refuses to do — and would go version-fragile the moment git changed a
- * matcher corner. The comparative form holds wherever the two agree, which is the
- * property `Spec-010 §Turn-Boundary Snapshots` actually asks for.
+ * matcher corner.
  */
 async function expectCapturePorcelainEquivalent(
   repository: FixtureRepository,
@@ -5693,7 +5615,7 @@ function buildLegFailingRunner(
   };
 }
 
-describe("TurnSnapshotService sparse execution roots (T6.1, I-010-24)", () => {
+describe("TurnSnapshotService sparse execution roots", () => {
   it(
     "matches porcelain across cone, non-cone and NEGATION definitions, clean and materialized",
     async () => {
@@ -6297,8 +6219,7 @@ describe("TurnSnapshotService sparse execution roots (T6.1, I-010-24)", () => {
     // paths the matcher admits; it never decides which paths are ignorable. An
     // implementation that replaced the exclude pipeline with the cone test — or
     // that ran the cone test on the wrong side of it — would capture this
-    // project-declared disposable file, which `Spec-010 §Turn-Boundary Snapshots`
-    // says it must not.
+    // project-declared disposable file, which says it must not.
     repository.write("cone-in/kept.txt", "in cone\n");
     repository.write("cone-in/ignored-file.txt", "in cone AND project-declared disposable\n");
     await repository.git(["add", "cone-in/kept.txt"]);
@@ -6676,8 +6597,8 @@ describe("TurnSnapshotService sparse execution roots (T6.1, I-010-24)", () => {
     const repository: FixtureRepository = fixture.repository;
     // `derive-enumerations` covers three things now — the object reads, the
     // vintage gate and the index pre-drop — and the restore step vocabulary is
-    // frozen at five members by Plan-004's wire mapping. So the drop is
-    // attributed through the diagnostic `detail`, exactly as the multi-reachable
+    // frozen at five members by the wire mapping. So the drop is attributed
+    // through the diagnostic `detail`, exactly as the multi-reachable
     // `close-index` distinguishes its three causes, and this case asserts that
     // attribution rather than accepting a bare step name.
     repository.write("cone-in/kept.txt", "in cone\n");
@@ -6725,8 +6646,8 @@ describe("TurnSnapshotService sparse execution roots (T6.1, I-010-24)", () => {
     // The ORDERING guard for the pre-drop, and the reason it is a sparse case of
     // its own: the base suite's "HEAD moves during the enumeration derivation"
     // arm runs in a NON-sparse fixture, where the drop never fires, so it cannot
-    // see this. `head_moved` is frozen by Plan-004's wire mapping as the answer
-    // that refuses with NOTHING applied. The pre-drop is the sequence's first
+    // see this. `head_moved` is frozen by the wire mapping as the answer that
+    // refuses with NOTHING applied. The pre-drop is the sequence's first
     // mutation, so it has to sit on the far side of the post-derivation `HEAD`
     // read — enumerated with the listings, applied after the window closes.
     repository.write("cone-in/kept.txt", "in cone\n");
@@ -7677,7 +7598,7 @@ describe("TurnSnapshotService sparse execution roots (T6.1, I-010-24)", () => {
     // the assertion a per-entry skip fails.
     expect(removalRequests).toEqual([]);
     // …so the protected file still holds its boundary-time bytes, which is
-    // I-010-24's own sentence about this fixture.
+    // its own sentence about this fixture.
     expect(readFileSync(join(repository.root, "cone-out", boundaryName), "utf8")).toBe(
       "existed at the boundary\n",
     );
@@ -8152,9 +8073,9 @@ describe("TurnSnapshotService sparse execution roots (T6.1, I-010-24)", () => {
     // than exotic. `cone-out/shadowed` is TRACKED, so narrowing the cone marks it
     // skip-worktree and takes it off disk — leaving the path free for the turn to
     // `mkdir` over and write beneath. The index keeps its cached blob there the
-    // whole time, which is exactly what I-010-24 requires of out-of-cone cached
-    // entries, so the snapshot tree carries a blob at a proper ANCESTOR of a
-    // recorded boundary path.
+    // whole time, which is exactly what requires of out-of-cone cached entries, so
+    // the snapshot tree carries a blob at a proper ANCESTOR of a recorded boundary
+    // path.
     //
     // NEGATIVE CONTROL — measured on git 2.50.1 before this guard existed: the
     // restore PROCEEDED (shape 1 looks beneath the boundary path and finds nothing;
@@ -8276,7 +8197,6 @@ describe("TurnSnapshotService sparse execution roots (T6.1, I-010-24)", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Retention harness (T5.3)
 // ----------------------------------------------------------------------------
 //
 // A REAL migrated SQLite database, not a stubbed row source. The retention leg's
@@ -8642,7 +8562,7 @@ describe("TurnSnapshotService retention prune", () => {
     );
   });
 
-  it("deletes only the named run's namespace — heads and a sibling run survive (I-010-21)", async () => {
+  it("deletes only the named run's namespace — heads and a sibling run survive", async () => {
     const repository: FixtureRepository = fixture.repository;
     const database: DatabaseType = openRetentionDatabase();
     const service: TurnSnapshotService = buildRetentionService(database);
@@ -8687,7 +8607,7 @@ describe("TurnSnapshotService retention prune", () => {
     );
   });
 
-  it("deletes a SYMBOLIC ref planted in the run namespace, never its target branch (I-010-21)", async () => {
+  it("deletes a SYMBOLIC ref planted in the run namespace, never its target branch", async () => {
     const repository: FixtureRepository = fixture.repository;
     const database: DatabaseType = openRetentionDatabase();
     const service: TurnSnapshotService = buildRetentionService(database);
@@ -8742,7 +8662,7 @@ describe("TurnSnapshotService retention prune", () => {
     expect(fixture.diagnostics).toEqual([]);
   });
 
-  it("refuses a namespace-escaping run id from the SWEEP before any git call (I-010-21)", async () => {
+  it("refuses a namespace-escaping run id from the SWEEP before any git call", async () => {
     const repository: FixtureRepository = fixture.repository;
     const database: DatabaseType = openRetentionDatabase();
     const invocations: string[][] = [];
@@ -8865,18 +8785,16 @@ describe("TurnSnapshotService retention prune", () => {
     expect(fixture.diagnostics).toEqual([]);
   });
 
-  it("drops a listing entry outside the run prefix instead of deleting it (I-010-21)", async () => {
+  it("drops a listing entry outside the run prefix instead of deleting it", async () => {
     const repository: FixtureRepository = fixture.repository;
     const database: DatabaseType = openRetentionDatabase();
     const headCommit: string = await repository.git(["rev-parse", "HEAD"]);
     const deletions: string[][] = [];
 
-    // An I-010-21 channel a validated `runId` cannot cover: git's own pattern
-    // matching. The enumeration is FABRICATED to name a branch, which is what a
+    // An channel a validated `runId` cannot cover: git's own pattern matching.
+    // The enumeration is FABRICATED to name a branch, which is what a
     // `for-each-ref` that matched more than it was asked for would look like from
-    // this module's side. This case pins the PARSER — the entry never reaches an
-    // argv — so it is not evidence about what `update-ref -d` does with an entry
-    // that passes; the symref cases carry that.
+    // this module's side.
     const hostileListingRunner: TurnSnapshotGitRunner = async (argv, options) => {
       if (argv.includes("for-each-ref")) {
         return { stdout: Buffer.from(`${headCommit} refs/heads/main\n`, "utf8"), stderr: "" };
@@ -8962,8 +8880,8 @@ describe("TurnSnapshotService retention prune", () => {
     const worktreeRoot: string = join(fixture.fixtureRoot, "linked-worktree");
     await repository.git(["worktree", "add", "-q", "-b", "feature/run", worktreeRoot]);
 
-    // What the T3.2 gate records at context creation, read the way it reads it —
-    // not hardcoded, so the fixture cannot agree with the service by accident.
+    // What gate records at context creation, read the way it reads it — not
+    // hardcoded, so the fixture cannot agree with the service by accident.
     const recordedCommonDirectory: string = await repository.git(
       ["rev-parse", "--path-format=absolute", "--git-common-dir"],
       { cwd: worktreeRoot },
@@ -8986,7 +8904,7 @@ describe("TurnSnapshotService retention prune", () => {
       releasedAt: RELEASED_LONG_AGO,
     });
 
-    // T2.2's physical retirement: the execution root is GONE while the window is
+    // The physical retirement: the execution root is GONE while the window is
     // still open. A sweep that pruned through `execution_root` would find
     // nothing here and leak these refs forever.
     rmSync(worktreeRoot, { recursive: true, force: true });
@@ -9097,9 +9015,9 @@ describe("TurnSnapshotService retention prune", () => {
       releasedAt: RELEASED_LONG_AGO,
     });
 
-    // `on_run_complete` disposal (T2.3) removes the clone root, and the snapshot
-    // refs go with it: they lived in the clone's object store. Campaign B2's
-    // ruling — the refs do not relocate, and a later rollback of this run is
+    // `on_run_complete` disposal removes the clone root, and the snapshot refs
+    // go with it: they lived in the clone's object store. Campaign B2's ruling —
+    // the refs do not relocate, and a later rollback of this run is
     // conversation-only.
     rmSync(cloneRoot, { recursive: true, force: true });
 
@@ -9227,7 +9145,7 @@ describe("TurnSnapshotService retention prune", () => {
   });
 
   it("throws from both retention entry points when constructed without a database", async () => {
-    // The capture/restore wiring CP-010-12 describes: no database at all.
+    // The capture/restore wiring describes: no database at all.
     const service: TurnSnapshotService = buildService();
 
     // A mis-wired daemon must not be indistinguishable from a daemon with
@@ -9655,16 +9573,16 @@ describe("TurnSnapshotService retention prune", () => {
     applyPostSnapshotEffects();
     expect(collectWorktreeCensus(repository.root)).not.toBe(censusAtCapture);
 
-    // Phase one of I-010-23, taken while the ref is still there.
+    // Phase one of taken while the ref is still there.
     const target: TurnSnapshotRestoreTarget = expectResolved(
       await service.resolveRestoreTarget(buildResolveInput()),
     );
 
     // …and the retention leg then deletes that very ref inside the two-phase
-    // window. This is the T5.2/T5.3 interleave neither task owns: the sweep
-    // takes no lock against a rollback already in flight (the service header's
-    // retention residuals record that), so the ordering is reachable and the
-    // only open question is what it produces.
+    // window. This is interleave neither task owns: the sweep takes no lock
+    // against a rollback already in flight (the service header's retention
+    // residuals record that), so the ordering is reachable and the only open
+    // question is what it produces.
     insertRunExecutionContext(database, {
       runId: RUN_ID,
       executionMode: "worktree",
@@ -9707,7 +9625,7 @@ describe("TurnSnapshotService retention prune", () => {
     expect(collectWorktreeCensus(repository.root)).toBe(censusAtCapture);
     expect(await repository.git(["diff", "--cached", "--name-only"])).toBe("");
     // The restore writes no refs, so the prune's deletion still stands and
-    // branch history is untouched on both sides of the interleave (I-010-21).
+    // branch history is untouched on both sides of the interleave.
     expect(await repository.refListing("refs/sidekicks/")).toBe("");
     expect(await repository.refListing("refs/heads/")).toBe(branchesAtCapture);
     expect(await repository.git(["rev-parse", "HEAD"])).toBe(headAtCapture);
@@ -9733,16 +9651,13 @@ describe("TurnSnapshotService retention prune", () => {
 });
 
 // ----------------------------------------------------------------------------
-// The sanctioned bootstrap wiring seam (T5.3)
+// The sanctioned bootstrap wiring seam
 // ----------------------------------------------------------------------------
 //
-// Lives in THIS file rather than in `../../bootstrap/__tests__/`, because the
-// seam is Plan-010's obligation inside a Plan-007-owned file — the wiring call
-// is sanctioned, a test surface there is not. The first case drives the seam
-// over the REAL service and a real database, which is what makes "startup
-// reconciles and the interval fires the sweep" an end-to-end claim; the rest
-// drive injected callables, because their subject is the seam's containment and
-// lifecycle rather than the sweep.
+// The first case drives the seam over the REAL service and a real database,
+// which is what makes "startup reconciles and the interval fires the sweep" an
+// end-to-end claim; the rest drive injected callables, because their subject is
+// the seam's containment and lifecycle rather than the sweep.
 //
 // `setInterval` / `clearInterval` are the ONLY faked timers. `execFile`'s own
 // timeout uses `setTimeout`, and faking that would freeze every real git
@@ -9780,9 +9695,7 @@ describe("registerTurnSnapshotRetentionSweep", () => {
 
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
     // Through the REAL bootstrap call — the sanctioned wiring edit — rather than
-    // through the registrar it wraps. Nothing here constructs the service: the
-    // wiring does, from daemon config, which is the clause of the T5.3 row this
-    // case is the evidence for.
+    // through the registrar it wraps.
     const handle = wireTurnSnapshotRetentionSweep({
       turnSnapshot: {
         executionRootsDirectory: fixture.executionRootsDirectory,
@@ -9837,7 +9750,7 @@ describe("registerTurnSnapshotRetentionSweep", () => {
     // The mis-wire the service itself can only report once an hour. The wiring
     // call knows at construction that a sweeper without a handle can do nothing
     // but complain, so it refuses there — the service's own optionality (a
-    // turn-boundary service holds no handle, CP-010-12) is untouched.
+    // turn-boundary service holds no handle) is untouched.
     //
     // BOTH refusals are pinned here, and the `@ts-expect-error` is half the
     // assertion rather than a nuisance suppression: it fails the typecheck if the
@@ -10099,8 +10012,6 @@ describe("registerTurnSnapshotRetentionSweep", () => {
   it("takes the exported cadence default when the daemon configures none", async () => {
     let sweepCount = 0;
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
-    // An ABSENT cadence is config, not a refusal: the default is Plan-010's, the
-    // same way the retention window's is.
     const handle = registerTurnSnapshotRetentionSweep({
       runRetentionSweep: (): Promise<void> => {
         sweepCount += 1;

@@ -31,7 +31,7 @@ const NUL_CODE_POINT = "\u0000";
  * What a valid goal is, refused client-side on the daemon's own rule.
  *
  * A `refine` rather than `trim().min(1)` because the value SENT is what the
- * participant typed: trimming before validating would silently send text they did
+ * user typed: trimming before validating would silently send text they did
  * not write, and the console never rewrites a bounded field to make it fit. The NUL
  * rejection is explicit for the same reason — a control character that survived to
  * the daemon would come back as a refusal a person cannot act on.

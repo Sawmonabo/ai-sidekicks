@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define the system's durable storage model and the boundary between local runtime state and shared collaboration state.
+Define the system's durable storage model and the boundary between local runtime state and shared control-plane state.
 
 ## Scope
 
@@ -10,12 +10,12 @@ This document covers durable stores, event logs, projections, artifacts, and rec
 
 ## Context
 
-The product requires durable replay and recovery while keeping local execution private and machine-scoped. That requires a deliberate split between local runtime storage and shared collaboration storage.
+The product requires durable replay and recovery while keeping local execution private and machine-scoped. That requires a deliberate split between local runtime storage and shared control-plane storage.
 
 ## Responsibilities
 
 - persist runtime events, receipts, projections, and recovery handles locally
-- persist session directory, membership, invite, and presence history in shared storage
+- persist the session directory, the device registry, and device / node liveness history in shared storage
 - support replay and projection rebuild
 - preserve artifact provenance and audit history
 
@@ -24,19 +24,19 @@ The product requires durable replay and recovery while keeping local execution p
 | Store | Responsibility |
 | --- | --- |
 | `Local SQLite Store` | Canonical node-local event log, command receipts, runtime bindings, queue state, run projections, and approval records needed for local recovery. V1 driver pin: `better-sqlite3` **13.0.3** exact (Node-API; moved from `^12.9.0` on 2026-09-01 with the Electron-44 pin move per [ADR-022 §Decision Log](../decisions/022-v1-toolchain-selection.md#decision-log) and [Spec-015 §Driver Pin](../specs/015-persistence-recovery-and-replay.md#driver-pin)) — on a single-writer worker thread (see [Spec-015 §Writer Concurrency](../specs/015-persistence-recovery-and-replay.md#writer-concurrency)). |
-| `Shared Postgres Store` | Shared session metadata, invites, memberships, presence history, session directory, and cross-node coordination records. |
+| `Shared Postgres Store` | Session metadata, the device registry, device and node liveness history, session directory, and cross-node coordination records. |
 | `Artifact Storage` | Durable artifact payloads and manifests, split between `local-only` and shared-visible artifacts according to policy. |
 | `Projection Layer` | Read-optimized materializations derived from canonical event streams and shared coordination records. |
 
-Artifact Storage uses an OCI-inspired manifest envelope with content-addressable storage (CAS) keyed by SHA-256 for deduplication. Locally, artifacts are stored on the filesystem. For shared artifacts, the relay eagerly pins participant-encrypted ciphertext in a digest-addressed, TTL-bounded relay blob store at publish time — so cross-node fetch works while the publishing node is offline — threat-model-scoped 2026-08-08 and time-bounded 2026-08-26 ([ADR-015 §Decision Log](../decisions/015-v1-feature-scope-definition.md#decision-log)): given an operational relay, not against a compromised node of the fetching participant, and only while the relay pin is live — `state = 'pinned'` AND `expires_at` still in the future, ending at the artifact's retention TTL — with coordination rows and per-`(participant, node)` wrapped CEKs in Postgres (`artifact_relay_*`) and never payload bytes — wrapped to durable per-node artifact-encryption keys held daemon-local (`artifact_encryption_keys`, Spec-022 master-key custody), never to session-ephemeral keys; see [Spec-014 §Cross-Node Artifact Relay](../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1).
+Artifact Storage uses an OCI-inspired manifest envelope with content-addressable storage (CAS) keyed by SHA-256 for deduplication. Locally, artifacts are stored on the filesystem. For shared artifacts, the relay eagerly pins user-encrypted ciphertext in a digest-addressed, TTL-bounded relay blob store at publish time — so cross-node fetch works while the publishing node is offline — threat-model-scoped 2026-08-08 and time-bounded 2026-08-26 ([ADR-015 §Decision Log](../decisions/015-v1-feature-scope-definition.md#decision-log)): given an operational relay, not against a compromised node of the fetching user, and only while the relay pin is live — `state = 'pinned'` AND `expires_at` still in the future, ending at the artifact's retention TTL — with coordination rows and per-`(user, node)` wrapped CEKs in Postgres (`artifact_relay_*`) and never payload bytes — wrapped to durable per-node artifact-encryption keys held daemon-local (`artifact_encryption_keys`, Spec-022 master-key custody), never to session-ephemeral keys; see [Spec-014 §Cross-Node Artifact Relay](../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1).
 
-Presence data is ephemeral. It is maintained as a Yjs Awareness CRDT in memory only and is NOT persisted to any durable store. In V1, cross-node fan-out for presence uses Postgres LISTEN/NOTIFY.
+Liveness data is ephemeral. A device or runtime node records a heartbeat row that decays to `offline` when heartbeats stop; nothing about liveness is canonical, and no reader replays it. There is no shared presence CRDT — liveness answers only which of the user's own endpoints are currently reachable.
 
 ## Data Flow
 
 1. Local execution state changes append to the local event log.
 2. Local projections update from those events for fast reads and replay safety.
-3. Shared collaboration actions write to the shared relational store.
+3. Device registration, liveness, and relay coordination write to the shared relational store.
 4. Artifact manifests record provenance and visibility; payloads are stored locally or shared according to policy.
 5. Clients read merged projections from local and shared stores.
 
@@ -46,11 +46,11 @@ Governed by [ADR-017: Shared Event-Sourcing Scope](../decisions/017-shared-event
 
 V1 scopes event-sourcing to per-daemon local event logs. Each daemon owns an authoritative `session_events` table in its Local SQLite (Plan-001 owner; see [local-sqlite-schema.md](./schemas/local-sqlite-schema.md)). There is no shared session event log in Postgres; shared-postgres-schema.md contains coordination records only.
 
-**Cross-participant event delivery.** When Alice's daemon emits an event, the event payload is pairwise-encrypted per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md) and distributed via the relay to every session participant. Each receiving daemon validates the sender signature, decrypts the payload, and appends the event to its own local `session_events` table with its own per-session monotonic sequence number. Alice's sequence and Bob's sequence for the same event payload will differ.
+**Cross-device event delivery.** When the runtime node's daemon emits an event, the event payload is pairwise-encrypted per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md) and distributed via the relay to the user's connected devices and to any other daemon of that user attached to the session. Each receiving daemon validates the sender signature, decrypts the payload, and appends the event to its own local `session_events` table with its own per-session monotonic sequence number. Two daemons' sequence numbers for the same event payload will differ.
 
-**Federated audit model (accepted trade-off).** Cross-participant audit — "what happened in session X across all participants between T1 and T2?" — spans multiple daemons. There is no single Postgres query that returns a canonical cross-participant event list. Audit export collects log exports from every participant's daemon and merges them. This is the explicit accepted cost of V1's zero-knowledge relay.
+**Federated audit model (accepted trade-off).** Audit that spans more than one of the user's machines — "what happened in session X between T1 and T2?" when the session moved between nodes — spans multiple daemons. There is no single Postgres query that returns a canonical cross-node event list, because the control plane holds no event payloads. Audit export collects log exports from each daemon and merges them. This is the explicit accepted cost of V1's zero-knowledge relay.
 
-**Per-daemon sequence semantics (accepted consequence).** Per-daemon `sequence` is monotonic only within that daemon's own log. Daemons may disagree on the ordering of concurrent events that arrived from different peers at overlapping wall-clock times. Consumers that need cross-daemon ordering must use wall-clock timestamps with origin-participant-id tiebreakers, or Hybrid Logical Clocks (BL-076). Raw `sequence` is not a cross-daemon ordering primitive.
+**Per-daemon sequence semantics (accepted consequence).** Per-daemon `sequence` is monotonic only within that daemon's own log. Daemons may disagree on the ordering of concurrent events that arrived from different senders at overlapping wall-clock times. Consumers that need cross-daemon ordering must use wall-clock timestamps with origin-node-id tiebreakers, or Hybrid Logical Clocks (BL-076). Raw `sequence` is not a cross-daemon ordering primitive.
 
 **Within-daemon ordering primitive.** For ordering events emitted by a single daemon across wall-clock discontinuities (NTP step, VM resume, operator clock edit), the authoritative primitive is `session_events.monotonic_ns` — a BIGINT produced by `process.hrtime.bigint()` per [Spec-015 §Clock Handling](../specs/015-persistence-recovery-and-replay.md#clock-handling). Its zero point is unspecified and resets on every daemon restart, so it is strictly a within-process ordering primitive, never a cross-daemon one.
 
@@ -59,18 +59,18 @@ V1 scopes event-sourcing to per-daemon local event logs. Each daemon owns an aut
 ## Trust Boundaries
 
 - Local SQLite stores machine-scoped execution truth and recovery data.
-- Shared Postgres stores collaboration truth, not local code-execution authority.
+- Shared Postgres stores coordination truth, not local code-execution authority.
 - Artifact replication across that boundary must respect visibility and trust policy.
 
 ## Privacy and Data Protection
 
-PII fields in session events are stored in a separate encrypted column (`pii_payload`) using per-participant AES-256-GCM keys — a discipline the `interventions` table mirrors for the Spec-004 rollback composite's staged replacement-send body (its own `pii_payload` under the same per-participant key). This enables crypto-shredding for GDPR deletion: destroying a participant's key renders their PII unrecoverable — both copies at once — without affecting the rest of the event log.
+PII fields in session events are stored in a separate encrypted column (`pii_payload`) using per-user AES-256-GCM keys — a discipline the `interventions` table mirrors for the Spec-004 rollback composite's staged replacement-send body (its own `pii_payload` under the same per-user key). This enables crypto-shredding for GDPR deletion: destroying a user's key renders their PII unrecoverable — both copies at once — without affecting the rest of the event log.
 
 ## Schema References
 
 - [Local SQLite Schema](./schemas/local-sqlite-schema.md) — canonical DDL for daemon-local tables
 - [Shared Postgres Schema](./schemas/shared-postgres-schema.md) — canonical DDL for control plane tables
-- [Cross-Plan Dependency Graph](./cross-plan-dependencies.md) — table ownership map (which plan owns CREATE vs ALTER for each table)
+- [Cross-Plan Dependency Graph](./cross-plan-dependencies.md) — the forward build order for plan phases that have not shipped yet
 
 ## Migration Strategy
 
@@ -88,9 +88,9 @@ PII fields in session events are stored in a separate encrypted column (`pii_pay
 
 ## Cross-Version Compatibility
 
-DDL schema migration (above) is distinct from **wire-format** compatibility between participants running different client versions. Schema migration answers "how does one node upgrade its own storage?" Wire-format compatibility answers "how do nodes at different versions interoperate during a session?"
+DDL schema migration (above) is distinct from **wire-format** compatibility between a user's own devices and machines running different client versions. Schema migration answers "how does one node upgrade its own storage?" Wire-format compatibility answers "how do a phone, a laptop app, and a runtime node at different versions interoperate during a session?"
 
-AI Sidekicks is peer-to-peer multi-node with independent upgrade cadences per [ADR-020: V1 Deployment Model and OSS License](../decisions/020-v1-deployment-model-and-oss-license.md). Mixed-version participation within a single session is the normal case, not an edge case. The wire format carried between participants — `EventEnvelope` defined in [Spec-006](../specs/006-session-event-taxonomy-and-audit-log.md) — is therefore evolved under a versioning contract specified in [ADR-018: Cross-Version Compatibility](../decisions/018-cross-version-compatibility.md).
+A user updates each device and each machine on its own schedule, and a self-hosted deployment updates on yet another per [ADR-020: V1 Deployment Model and OSS License](../decisions/020-v1-deployment-model-and-oss-license.md), so a session driven from a stale device against a freshly updated runtime node is the normal case, not an edge case. The wire format carried between a user's endpoints — `EventEnvelope` defined in [Spec-006](../specs/006-session-event-taxonomy-and-audit-log.md) — is therefore evolved under a versioning contract specified in [ADR-018: Cross-Version Compatibility](../decisions/018-cross-version-compatibility.md).
 
 Key properties the rest of the architecture depends on:
 
@@ -124,7 +124,7 @@ See [ADR-018 §Decision](../decisions/018-cross-version-compatibility.md#decisio
 
 ## Related Architecture Docs
 
-- [Cross-Plan Dependency Graph and Ownership Map](./cross-plan-dependencies.md) — table ownership, package path ownership, build order, and inter-plan dependency declarations
+- [Cross-Plan Dependency Graph](./cross-plan-dependencies.md) — the forward build order and the dependency edges between unshipped plan phases
 
 ## Related ADRs
 

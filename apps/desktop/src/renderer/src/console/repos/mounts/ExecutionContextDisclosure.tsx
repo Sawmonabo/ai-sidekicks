@@ -7,16 +7,16 @@
 // surface that has read can answer. The `<details>` is native for that module's
 // reasons too — keyboard reachable, labelled, and focus-visible with no code.
 //
-// EXCEPT ON A `stale` WORKSPACE, WHERE IT OPENS ITSELF. `Spec-023 §Console Design
-// (Meridian)` fixes this family's density: the three paths collapse behind one
-// disclosure, expanded by default only while the workspace is `stale`. That is the one
+// EXCEPT ON A `stale` WORKSPACE, WHERE IT OPENS ITSELF. This family's density is
+// fixed: the three paths collapse behind one disclosure, expanded by default only
+// while the workspace is `stale`. That is the one
 // position where the roots are the question rather than reference detail — writable
 // runs are blocked until repair and which root stopped answering is the next thing a
 // person looks at.
 //
 // THE DEFAULT IS A TRANSITION RULE, NOT A RENDER RULE, and the asymmetry is deliberate:
 // the edge INTO `stale` opens the disclosure, whether it arrives at mount or at a later
-// read, and no other transition touches it. So a participant who closes it on a stale
+// read, and no other transition touches it. So a user who closes it on a stale
 // row stays closed — the section re-reads on four separate reasons and a control that
 // reopened on each of them is a control nobody can put away — and a row that RECOVERS
 // never slams shut on the person reading it. The rule is stated in
@@ -28,8 +28,8 @@
 //
 // THE BADGE IS OUTSIDE THE DISCLOSURE AND THE PATHS ARE INSIDE IT. A substituted
 // execution mode is a fact about the row that a person must not have to open anything
-// to see: `Spec-010 §Fallback Behavior` requires it marked distinctly from the mode
-// that was asked for, and a marker behind a summary is not marked. The three paths are
+// to see: it is marked distinctly from the mode that was asked for, and a marker
+// behind a summary is not marked. The three paths are
 // reference detail — correct, needed when something looks wrong, and noise on every
 // row where all three agree — so they sit behind the summary.
 //

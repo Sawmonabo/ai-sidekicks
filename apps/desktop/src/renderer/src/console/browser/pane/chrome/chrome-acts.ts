@@ -1,9 +1,9 @@
 // What each control in the pane's chrome dispatches, in one place.
 //
-// `Spec-023 §Console Design (Meridian)` 12.2 Offers: "Every control dispatches one
-// verb … over a closed twelve-member action set … One dispatch verb and twelve
-// actions is the whole human side, and it is deliberately the same page registry the
-// tool set drives, reached through a differently authorized surface." The strip, the
+// Every control dispatches one verb over a closed twelve-member action set. One
+// dispatch verb and twelve actions is the whole human side, and it is deliberately the
+// same page registry the tool set drives, reached through a differently authorized
+// surface. The strip, the
 // picker, the overflow control, and the address field are four components; if each
 // composed its own call the "one registry" claim would be four claims, and the day one
 // of them acquired a second path nobody would notice.

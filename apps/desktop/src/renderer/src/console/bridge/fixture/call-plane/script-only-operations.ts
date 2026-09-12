@@ -11,7 +11,7 @@
 // see the difference: both arms answer through the same port method, and what separates
 // them is whether an empty answer would be a lie.
 
-import { FIXTURE_SERVED_COLLABORATION_OPERATION_IDS } from "../collaboration/collaboration-reads.js";
+import { FIXTURE_SERVED_CHANNEL_OPERATION_IDS } from "../session/channel-reads.js";
 import type { FixtureServedGrowthOperationId } from "./served-operations.js";
 
 /**
@@ -53,7 +53,7 @@ export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGro
   "terminalAcquireWriteLease",
   "terminalReleaseWriteLease",
   "workspaceExecutionContextRead",
-  ...FIXTURE_SERVED_COLLABORATION_OPERATION_IDS,
+  ...FIXTURE_SERVED_CHANNEL_OPERATION_IDS,
   // It has no honest empty answer: "No run is working anywhere" is a claim about
   // the room that nothing checked.
   "presenceActivityRead",

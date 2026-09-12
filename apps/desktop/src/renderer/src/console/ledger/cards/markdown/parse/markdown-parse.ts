@@ -1,8 +1,8 @@
 // The parse — micromark through `mdast-util-from-markdown`, with GFM, once per block.
 //
-// `Spec-023 §Console Libraries`, streaming-markdown row: "ADOPT micromark +
-// `mdast-util-from-markdown` with GFM; ADOPT-with-constraints remend (tail only)". The
-// GFM extensions are the pair that row names — `micromark-extension-gfm` for the syntax
+// Micromark plus `mdast-util-from-markdown` with GFM is the adopted parse, with remend
+// adopted under one constraint: tail only. The GFM extensions are a pair —
+// `micromark-extension-gfm` for the syntax
 // and `mdast-util-gfm` for the tree — and they are what make footnotes, tables,
 // strikethrough, task list items, and autolinks reachable at all.
 //

@@ -109,7 +109,7 @@ describe("IconRail — absent, never disabled", () => {
 
 // The attention count.
 //
-// `Spec-023 §The surface set` asks for a COUNT on the sessions destination, and the
+// The surface set asks for a COUNT on the sessions destination, and the
 // rail used to render a dot for a boolean nothing produced. What is asserted here is
 // the three things that make a count honest: the number is on screen, it is in the
 // button's accessible NAME so a reader is told it without seeing the badge, and an

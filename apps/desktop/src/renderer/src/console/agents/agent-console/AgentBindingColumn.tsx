@@ -150,7 +150,7 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
   // Keyed on the `agentId` PROP rather than on the agent the roster resolved: the
   // prop is what this console is pointed at, while the resolved row comes and goes
   // with a read that can refuse and refresh, and a round abandoned by a roster
-  // refresh would be a mutation dropped for no act of the participant's.
+  // refresh would be a mutation dropped for no act of the user's.
   useEffect(() => {
     bindingAttempt.supersede();
     publishBindingMove(undefined);
@@ -232,7 +232,7 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
     // the subscription first where it is not held and requests the read either way.
     // A branch here would be a second reading of a decision the read already makes,
     // and the branch this replaced could only be right while both halves agreed.
-    models.roster.refresh("participant-request");
+    models.roster.refresh("user-request");
   }, [models]);
   // THE OTHER TWO READS THIS COLUMN OWNS. Both are rendered by forms below that hold
   // no stream — the switch draws the catalog's refusal, the attach dialog draws the
@@ -240,10 +240,10 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
   // where the model is, and handed down beside the state it belongs to. Without it a
   // catalog that refused once left the switch reading as permanently broken.
   const reopenCatalog = useCallback(() => {
-    models.driverCatalog.refresh("participant-request");
+    models.driverCatalog.refresh("user-request");
   }, [models]);
   const reopenDefinitions = useCallback(() => {
-    models.definitions.refresh("participant-request");
+    models.definitions.refresh("user-request");
   }, [models]);
 
   const agents = rosterState.kind === "loaded" ? rosterState.value.agents : [];

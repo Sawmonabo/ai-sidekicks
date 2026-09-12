@@ -33,7 +33,7 @@ export type RepoWorkspaceRow = WorkspaceListResponse["workspaces"][number];
  * SPLIT BY WHO PRODUCED THE ENTRY, WHICH IS THE ONLY SPLIT THAT SURVIVES A RE-READ. One
  * map cannot hold both: the read rebuilds its half from the capabilities loop on every
  * pass, and a mode-switch refusal recorded a moment earlier sat in that same map, so the
- * next lifecycle-triggered read erased the participant's own failed press — the picker
+ * next lifecycle-triggered read erased the user's own failed press — the picker
  * silently dropping the sentence that said why nothing happened. Carrying entries
  * forward does not fix it either, because after a served roster read EVERY workspace key
  * is one the read answered for, so a carry-then-merge deletes exactly the same entry.
@@ -60,8 +60,8 @@ export interface WorkspaceRefusals {
  *
  * THE MODE TRAVELS WITH THE REFUSAL BECAUSE ONE CODE'S RECOVERY IS A WIRE STRING.
  * `workspace.mode_unsupported` is paired with the mount's own reason for the mode that
- * was refused (`Spec-009 §Fallback Behavior` makes the capability gap explicit rather
- * than silently substituted), and that reason lives on the capabilities reply keyed by
+ * was refused (the capability gap is explicit rather than silently substituted), and
+ * that reason lives on the capabilities reply keyed by
  * mode. The pending-mode map cannot supply it: the entry is deleted in the `finally`
  * that follows the settle, so by the time a surface renders the refusal the mode it was
  * about is already gone. A refusal that arrived without its subject would leave the
@@ -113,8 +113,8 @@ export interface RepoMountsReading {
    * The instant this reading was taken, on the reader's own clock.
    *
    * Carried here rather than read off the wall clock by the cards that render an age,
-   * because `Spec-023 §Rules every console surface obeys` forbids interval polling:
-   * an age moves when the surface RE-READS and at no other time, where a card reading
+   * because interval polling is forbidden: an age moves when the surface RE-READS and
+   * at no other time, where a card reading
    * `Date.now()` in its render body would move it on any unrelated re-render. Zero
    * before the first read, which no card renders against — every one is behind `read`.
    */
@@ -150,7 +150,7 @@ export interface RepoMountsReading {
    * Per workspace: the mode a switch is on the wire for, where one is.
    *
    * THE MODE AND NOT A BOOLEAN, because the picker has to SAY which switch it is
-   * holding for — a group that greyed out while a participant watched, over a row still
+   * holding for — a group that greyed out while a user watched, over a row still
    * showing the mode the workspace is bound as now, reports nothing at all about what
    * was pressed. A workspace with no entry is a workspace with nothing on the wire.
    *
@@ -165,7 +165,7 @@ export interface RepoMountsReading {
 /**
  * The one refusal a workspace row renders, where it has one.
  *
- * THE SELECTION REFUSAL WINS, because it is about what the participant just did and the
+ * THE SELECTION REFUSAL WINS, because it is about what the user just did and the
  * capabilities refusal is about a read they did not ask for. A row showing "this
  * workspace's modes could not be read" over "the switch you pressed was refused" answers
  * a question nobody put and hides the one they did.

@@ -173,7 +173,7 @@ export function useDriverCatalogReading(bridge: ConsoleBridge): DriverCatalogHol
   }, [read]);
   const catalog = usePushDrivenRead(read);
   const reopen = useCallback((): void => {
-    read.refresh("participant-request");
+    read.refresh("user-request");
   }, [read]);
   return { catalog, reopen };
 }

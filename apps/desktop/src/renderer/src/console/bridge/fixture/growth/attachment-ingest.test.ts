@@ -1,9 +1,9 @@
 // The ingest stand-in, held to the protocol rather than to its own answers.
 //
-// Every case here is a rule `Spec-014` states and the console's own client depends on:
+// Every case here is a rule the daemon states and the console's own client depends on:
 // the running total the next chunk's offset is read from, the replay that is
 // acknowledged without being appended, the completion that replays verbatim, and the
-// four refusals raised at the enforcement points that spec names. The negative controls
+// four refusals raised at the enforcement points the contract names. The negative controls
 // are what keep a stand-in that simply said `served` from passing.
 
 import { describe, expect, it } from "vitest";

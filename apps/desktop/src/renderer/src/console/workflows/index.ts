@@ -1,12 +1,12 @@
 // The workflows family's door.
 //
-// The family is the workflows destination's own surface — the definitions browser
-// — plus the two pane kinds `Spec-023 §Console Design (Meridian)` reserves for it,
-// `workflow-run` and `workflow-builder`. Both pane BODIES live under `./pane/`,
-// inside the family that owns them: `console/panes/` is the deck's composition site
-// and holds composition files only, so a body there would be one directory's while
-// the vocabulary it is built from was another's. Each body has its own sub-module
-// door, reached from here by a deep intra-family specifier.
+// The family is the workflows destination's own surface — the definitions browser — plus
+// the two pane kinds the console design reserves for it, `workflow-run` and
+// `workflow-builder`. Both pane BODIES live under `./pane/`, inside the family that owns
+// them: `console/panes/` is the deck's composition site and holds composition files only,
+// so a body there would be one directory's while the vocabulary it is built from was
+// another's. Each body has its own sub-module door, reached from here by a deep
+// intra-family specifier.
 //
 // WHAT LEAVES THE FAMILY IS TWO REGISTRATIONS AND ONE SEAT LOADER. Not the surface,
 // not the panes, not the chrome: the console composes this family by calling
@@ -117,13 +117,13 @@ const WORKFLOWS_OWNER = "workflows";
 /**
  * Both pane kinds this family claims.
  *
- * NO TEAR-OFF ANSWER TRAVELS WITH THEM, deliberately: whether a kind may be torn off
- * into an auxiliary window is `seats/pane/pane-kinds.ts`'s `isDetachablePaneKind`, derived
- * from the window model's own closed set. `Spec-023 §Console Design (Meridian)` ships
- * exactly two auxiliary windows, `timeline` and `agent-console`, and neither of these
- * is one — but a boolean stated here would be asked of each descriptor independently,
- * so a kind could advertise a detach path the window model cannot serve and neither
- * this registration nor the type system would notice.
+ * NO TEAR-OFF ANSWER TRAVELS WITH THEM, deliberately: whether a kind may be torn off into
+ * an auxiliary window is `seats/pane/pane-kinds.ts`'s `isDetachablePaneKind`, derived
+ * from the window model's own closed set. The console ships exactly two auxiliary
+ * windows, `timeline` and `agent-console`, and neither of these is one — but a boolean
+ * stated here would be asked of each descriptor independently, so a kind could advertise
+ * a detach path the window model cannot serve and neither this registration nor the type
+ * system would notice.
  *
  * THE NARROWING AND ITS REFUSAL ARE THE SEAT'S, NOT THIS FAMILY'S. The registry hands
  * every body the whole context union and only one arm is each pane's; the mismatched
@@ -149,8 +149,8 @@ const WORKFLOW_PANES: readonly ConsolePaneRegistration[] = [
     // Keeping the body eager hid the coupling instead of removing it. The class has one
     // owner now: this family's block is `meridian-workflow-run-controls` and the runs
     // family keeps the name it was already declaring, so no bundle boundary decides how
-    // either surface looks. `apps/desktop/AGENTS.md` §Module shape is the rule that
-    // keeps a second collision from landing unnoticed, and review is what reads it.
+    // either surface looks. The module-shape rule in `apps/desktop/AGENTS.md` keeps a
+    // second collision from landing unnoticed, and review is what reads it.
     body: () => import("./pane/workflow-run-pane-body.js"),
   },
   {

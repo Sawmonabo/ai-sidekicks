@@ -27,7 +27,7 @@ export interface SessionStoreState {
    *
    * Append-only at the TAIL, which is where the subscription writes. It also grows at
    * the HEAD, and only there and only through `prependEarlierEvents`: a session's
-   * stream is replayed from the position this participant was last acknowledged at, so
+   * stream is replayed from the position this user was last acknowledged at, so
    * the log below that position exists and this window has never been sent it.
    */
   readonly timeline: readonly ConsoleSessionEvent[];
@@ -67,8 +67,8 @@ export interface SessionSnapshot {
   readonly cursor: number;
   /** Entities the read response carried. */
   readonly entities: readonly ConsoleEntity[];
-  /** Participants in join-log order — the order the hue wheel is allocated in. */
-  readonly participantJoinLog: readonly string[];
+  /** Users in join-log order — the order the hue wheel is allocated in. */
+  readonly userJoinLog: readonly string[];
   /** Events the read response carried, ordered by sequence. */
   readonly timeline?: readonly ConsoleSessionEvent[];
   /**

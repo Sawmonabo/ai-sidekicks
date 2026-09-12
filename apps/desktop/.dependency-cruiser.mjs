@@ -1,4 +1,4 @@
-// Layering gate for `apps/desktop` (`Spec-023 §Console Libraries`, structure-enforcement row).
+// Layering gate for `apps/desktop` — one of the two structure-enforcement legs.
 //
 // It answers one question the type system cannot: which module is allowed to import which.
 // ESLint's `no-restricted-imports` already owns the renderer-untrusted specifier bans, and it
@@ -152,8 +152,8 @@ export default {
         "A plan-owned subtree whose owner MOUNTS INTO the console reaches the frame by calling " +
         "`registerConsoleSurface`, which is a call and not an import — so the console imports " +
         "it through no path, and this rule takes no exception. It is deliberately not a ban on " +
-        "every sibling subtree: Plan-023's Phase-1C rule has the console absorb the shipped " +
-        "Tier-1 components (`session-bootstrap/`, `runtime-node-attach/`) " +
+        "every sibling subtree: the console absorbs the shipped legacy renderer " +
+        "components (`session-bootstrap/`, `runtime-node-attach/`) " +
         "by import, and a gate stricter than its own plan is a defect. A later plan whose page " +
         "mounts into the console adds its subtree to this list.",
       severity: "error",
@@ -187,7 +187,7 @@ export default {
       comment:
         "A renderer subtree OUTSIDE the console deep-imported a console module. Every layering " +
         "rule here is `from`-scoped to `console/`, so an importer that lives beside the console " +
-        "rather than inside it matches none of them — which is how a Tier-1 subtree came to hold " +
+        "rather than inside it matches none of them — which is how a renderer subtree came to hold " +
         "`console/store/subject-scoped/subject-scoped-state.js` while three gates reported clean " +
         "and the door the symbol is published from could have been deleted without one of them " +
         "noticing. " +
@@ -202,7 +202,7 @@ export default {
         "hoisting is no answer either, because the symbol is test-only and has no home below " +
         "the family whose fixture it drives. Measured on the composer family: six such " +
         "modules, thirteen edges, five door lines, seven census findings when the names were " +
-        "published. The rule was written against a production defect (a Tier-1 subtree holding " +
+        "published. The rule was written against a production defect (a renderer subtree holding " +
         "`subject-scoped-state.js`) and its silence about test support was an omission rather " +
         "than a decision; production modules outside the console are still held to the door, " +
         "which is the claim that matters.",
@@ -238,7 +238,7 @@ export default {
       comment:
         "One VIEW family imported another. View families are siblings, not a ladder: the rule " +
         "above only forbids a LAYER family reaching up into a view family, so without this one " +
-        "`collaboration/` → `repos/` stayed green and the six concurrent family branches could " +
+        "`channels/` → `repos/` stayed green and the six concurrent family branches could " +
         "grow edges into each other that no ordering could ever untangle. Hoist the shared " +
         "contract into `seats/` — that is what `seats/` is for — or into the lowest layer " +
         "family that needs it. The two composition sites are the only files that name more " +
@@ -318,7 +318,7 @@ export default {
       name: "console-cross-family-deep-import",
       comment:
         "A console family reached into another family's module instead of its door. " +
-        "`apps/desktop/AGENTS.md` §Module shape: cross-family imports go through the " +
+        "The module-shape rules in `apps/desktop/AGENTS.md`: cross-family imports go through the " +
         "family door, intra-family imports are deep. The two rules above order the " +
         "families and keep view families apart; neither says anything about HOW a " +
         "permitted edge is written, so a downward edge past a barrel — the shape a " +

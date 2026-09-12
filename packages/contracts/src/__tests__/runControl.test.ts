@@ -1,19 +1,17 @@
-// Plan-004 T1.1–T1.3, T1.6, T1.7 plus the three CP-004-3 shapes no Phase-1
-// task names — the `runControl.ts` contract surface: queue items, the
-// intervention request union, the state-split intervention response, the
-// run-state change event, the forward rolled-back event, the pause/resume
-// triggers, the two `run.subscribe*` request shapes, and the run-read
-// accessor shape.
+// Plus the three shapes no Phase-1 task names — the `runControl.ts`
+// contract surface: queue items, the intervention request union, the
+// state-split intervention response, the run-state change event, the
+// forward rolled-back event, the pause/resume triggers, the two
+// `run.subscribe*` request shapes, and the run-read accessor shape.
 //
-// Backstops `Spec-004 §Interfaces And Contracts` and the invariants these
-// contracts carry:
-//   • I-004-4 — the MANDATORY `expectedRunVersion` comparand. Every arm of
-//     the intervention union is pinned to reject its absence, so the
+// Backstops and the invariants these contracts carry:
+//   • The MANDATORY `expectedRunVersion` comparand. Every arm of the
+//     intervention union is pinned to reject its absence, so the
 //     stale-replay guard cannot be bypassed by omitting the field.
-//   • I-004-7 — the same guard extended to the orchestration-layer pause and
-//     resume verbs, which hold no `InterventionType` membership.
-//   • I-004-20 / I-004-21 — the settlement-time boundary reclassification and
-//     the committed-then-failed composite. Both are pinned through the shapes
+//   • The same guard extended to the orchestration-layer pause and resume
+//     verbs, which hold no `InterventionType` membership.
+//   • The settlement-time boundary reclassification and the
+//     committed-then-failed composite. Both are pinned through the shapes
 //     that make them legible: `newestBoundaryPosition` required-and-nullable,
 //     and `resendDisposition` REQUIRED on the composite-only arm.
 //
@@ -21,17 +19,11 @@
 //   • Every member of every enum parses and an out-of-set value is rejected,
 //     so each pin is a real accept/reject boundary rather than a one-sided
 //     smoke test.
-//   • The `InterventionRequestPayload` union is driven against the IMPORTED
-//     `InterventionType`, so a widening of that Plan-005-owned union without a
-//     matching arm here fails at compile time rather than at a consumer.
 //   • Every parse refusal the contract claims is exercised WITH its positive
 //     control: a class-crossing `resendDisposition`, a disposition-less
 //     terminal, a state/disposition mismatch, a `result` on a non-disposition
 //     state, a `rejected` response with no cause, and a rollback whose
 //     `targetPosition` is a float or negative.
-//   • `ExecutionPosture` is validated through the module-private parser this
-//     module composes over the Plan-005-owned type — both network arms against
-//     both mode arms, plus the two shapes the intersection forbids.
 //   • The three canonical `RunStateChangeEvent` members this module cannot yet
 //     type (`agentId`, `linkType`, `effectiveRunConfig`) are pinned as
 //     REJECTED, so their absence is a recorded decision rather than a silent
@@ -46,7 +38,7 @@
 //     client-side) and a replay cursor (`run.*` is local-IPC JSON-RPC, so no
 //     `Last-Event-ID` is injected pre-validation).
 //   • The `index.ts` barrel re-exports every symbol this task provides — the
-//     barrel-gap regression Plan-001 GitHub PR-#30 round-1 caught.
+//     barrel-gap regression.
 import { describe, expect, it } from "vitest";
 
 import * as contracts from "../index.js";
@@ -98,7 +90,7 @@ const PARENT_RUN_ID = "0f2b4d5e-7777-4777-8777-777777777777";
 const NODE_ID = "0f2b4d5e-8888-4888-8888-888888888888";
 const IDEMPOTENCY_KEY = "0f2b4d5e-9999-4999-8999-999999999999";
 // Two DISTINCT artifact ids, so an order assertion over the steer carrier can
-// tell the elements apart (CP-014-7).
+// tell the elements apart.
 const FIRST_ARTIFACT_ID = "0f2b4d5e-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const SECOND_ARTIFACT_ID = "0f2b4d5e-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const TIMESTAMP = "2026-08-31T12:00:00.000Z";
@@ -178,7 +170,6 @@ describe("run-control shared enums", () => {
 });
 
 // --------------------------------------------------------------------------
-// T1.1 — Queue item contracts
 // --------------------------------------------------------------------------
 
 describe("QueueItemCreateRequest", () => {
@@ -296,7 +287,6 @@ describe("QueueItemCancel", () => {
 });
 
 // --------------------------------------------------------------------------
-// T1.2 — InterventionRequestPayload
 // --------------------------------------------------------------------------
 
 const guards = {
@@ -306,11 +296,6 @@ const guards = {
 } as const;
 
 describe("InterventionRequestPayload", () => {
-  // Driven against the IMPORTED Plan-005-owned union through an exhaustive
-  // keyed record: a member added there without an arm here is a missing
-  // property (TS2739), so the drift guard fails at compile time rather than
-  // silently shrinking coverage (an array of union members would still
-  // compile with an arm missing).
   const armPayloads: Record<InterventionType, Record<string, unknown>> = {
     steer: { ...guards, type: "steer", content: "please use the async client" },
     interrupt: { ...guards, type: "interrupt", reason: "wrong branch" },
@@ -326,8 +311,8 @@ describe("InterventionRequestPayload", () => {
   });
 
   it.each(arms)("refuses the %s arm without its mandatory comparand", (_type, payload) => {
-    // I-004-4. An optional comparand would let a caller bypass the
-    // stale-replay guard by omitting it, so absence must refuse on EVERY arm.
+    // An optional comparand would let a caller bypass the stale-replay guard
+    // by omitting it, so absence must refuse on EVERY arm.
     const { expectedRunVersion: _omitted, ...withoutComparand } = payload;
     expect(() => InterventionRequestPayloadSchema.parse(withoutComparand)).toThrow();
   });
@@ -395,8 +380,8 @@ describe("InterventionRequestPayload", () => {
     expect(InterventionRequestPayloadSchema.parse(payload)).toEqual(payload);
   });
 
-  describe("the steer attachments element type (CP-014-7)", () => {
-    // The arm was `unknown[]` until the 2026-09-08 CP-014-7 discharge, and an
+  describe("the steer attachments element type", () => {
+    // The arm was `unknown[]` until the 2026-09-08 discharge, and an
     // `unknown[]` arm can enforce neither the carrier count cap, nor order
     // preservation, nor the unresolved-marker contract — it cannot even carry
     // an id a resolver could look up. These are the negative controls that make
@@ -419,11 +404,10 @@ describe("InterventionRequestPayload", () => {
     });
 
     it("REFUSES a string that is not an artifact id", () => {
-      // `ArtifactId` is UUID-shaped because `Spec-014 §Required Behavior` ratifies
-      // it as an RFC 9562 UUID the daemon mints at manifest creation, not because
-      // this seam chose a shape: a caller-supplied id reaching a manifest lookup
-      // must not be a path or a store-key fragment, and a bare `z.string()`
-      // element would admit both.
+      // `ArtifactId` is UUID-shaped because ratifies it as an RFC 9562 UUID the
+      // daemon mints at manifest creation, not because this seam chose a shape: a
+      // caller-supplied id reaching a manifest lookup must not be a path or a
+      // store-key fragment, and a bare `z.string()` element would admit both.
       expect(() =>
         InterventionRequestPayloadSchema.parse(steerCarrying(["../../etc/passwd"])),
       ).toThrow();
@@ -435,9 +419,9 @@ describe("InterventionRequestPayload", () => {
     });
 
     it("accepts the empty carrier and preserves declared order", () => {
-      // Order preservation is the daemon's delivery obligation (I-014-13) and
-      // not something a schema can assert; what the parse must not do is
-      // REORDER or DROP, so the round-trip pins the sequence it was handed.
+      // Order preservation is the daemon's delivery obligation and not
+      // something a schema can assert; what the parse must not do is REORDER
+      // or DROP, so the round-trip pins the sequence it was handed.
       expect(InterventionRequestPayloadSchema.parse(steerCarrying([]))).toEqual(steerCarrying([]));
       const ordered = [SECOND_ARTIFACT_ID, FIRST_ARTIFACT_ID];
       expect(
@@ -513,7 +497,7 @@ describe("InterventionRequestPayload", () => {
     });
 
     it("refuses an attachment member on replacementSend", () => {
-      // No attachment member in V1: the leg replaces a participant message body
+      // No attachment member in V1: the leg replaces a user message body
       // and nothing else, so an unregistered field must fail closed rather than
       // be silently dropped.
       expect(() =>
@@ -528,7 +512,6 @@ describe("InterventionRequestPayload", () => {
 });
 
 // --------------------------------------------------------------------------
-// T1.3 — Rollback result vocabulary
 // --------------------------------------------------------------------------
 
 const RESTORED_ENUMERATIONS = {
@@ -549,8 +532,8 @@ describe("RollbackAppliedResult", () => {
   });
 
   it("requires both never-silent enumerations on files-restored", () => {
-    // Spec-010's turn-boundary snapshot mandate: absence is a parse failure, so
-    // a consumer can never mistake absence for none.
+    // The turn-boundary snapshot mandate: absence is a parse failure, so a
+    // consumer can never mistake absence for none.
     expect(() => RollbackAppliedResultSchema.parse({ disposition: "files-restored" })).toThrow();
     expect(() =>
       RollbackAppliedResultSchema.parse({
@@ -714,7 +697,6 @@ describe("RollbackInterventionResult", () => {
 });
 
 // --------------------------------------------------------------------------
-// T1.3 — InterventionRequestResponse
 // --------------------------------------------------------------------------
 
 const responseBase = {
@@ -801,13 +783,12 @@ describe("InterventionRequestResponse", () => {
     // The composite's four structural refusal guards, typed so a renderer maps
     // guard -> remedy by an exhaustive switch. `rejectionReason` is a
     // machine-readable cause and not prose (see the module comment), but its
-    // vocabulary is OPEN — `error-contracts.md` §Intervention registers no code
-    // for an intervention outcome — so it can be shown and not switched on.
-    // Every fixture below therefore carries an identifier, never a sentence.
+    // vocabulary is OPEN — so it can be shown and not switched on. Every
+    // fixture below therefore carries an identifier, never a sentence.
     const guards = [
       "no-active-turn",
       "no-pending-send",
-      "participant-authored-target",
+      "user-authored-target",
       "resumable-target",
     ] as const;
 
@@ -953,7 +934,6 @@ describe("InterventionRequestResponse", () => {
 });
 
 // --------------------------------------------------------------------------
-// T1.3 — RunStateChangeEvent
 // --------------------------------------------------------------------------
 
 const minimalRunStateChange = {
@@ -977,7 +957,7 @@ describe("RunStateChangeEvent", () => {
       recoveryCondition: "reauth-required",
       recoverySpanClassification: "irreversible",
       healthSignal: "stuck-suspected",
-      providerFailureDetail: "driver.text_neutralization_failed origin=participant_text",
+      providerFailureDetail: "driver.text_neutralization_failed origin=human_text",
       completionKind: "turn",
       intendedClose: true,
       executionPosture: { networkAccess: "none", writableRoots: ["/w"], mode: "trusted" },
@@ -991,17 +971,16 @@ describe("RunStateChangeEvent", () => {
     expect(RunStateChangeEventSchema.parse(full)).toEqual(full);
   });
 
-  it("carries every member of both Plan-005 recovery vocabularies", () => {
-    // Driven from the IMPORTED arrays, not from a list written out here, and
-    // for the same reason the `InterventionType` fan-out above is: this module
-    // is the second of the four surfaces `Plan-005 §Phase 4 — Client SDK exposure + degraded-fallback` T4.8 P3-4 binds to
-    // REFERENCE the hoisted vocabularies rather than restate them. It used to
-    // restate them, as two module-private `z.enum` mirrors, and the
-    // `z.ZodType<T>` annotations that were said to hold those mirrors in
-    // lockstep do not: `ZodType` is covariant in its output, so a mirror
-    // NARROWER than the imported union compiles clean. A member added upstream
-    // must reach this carrier, and if a mirror ever returns here it will not —
-    // this test goes red instead of the member dead-lettering at parse.
+  it("carries every member of both recovery vocabularies", () => {
+    // Driven from the IMPORTED arrays, not from a list written out here, and for
+    // the same reason the `InterventionType` fan-out above is: this module is the
+    // second of the four surfaces bound to REFERENCE the hoisted vocabularies
+    // rather than restate them. It used to restate them, as two module-private
+    // `z.enum` mirrors, and the `z.ZodType<T>` annotations that were said to hold
+    // those mirrors in lockstep do not: `ZodType` is covariant in its output, so a
+    // mirror NARROWER than the imported union compiles clean. A member added
+    // upstream must reach this carrier, and if a mirror ever returns here it will
+    // not — this test goes red instead of the member dead-lettering at parse.
     for (const recoveryCondition of RECOVERY_CONDITIONS) {
       for (const recoverySpanClassification of RECOVERY_SPAN_CLASSIFICATIONS) {
         const stateChange = {
@@ -1052,11 +1031,11 @@ describe("RunStateChangeEvent", () => {
   });
 
   it("refuses the three orchestration-linkage members this module cannot type", () => {
-    // `agentId`, `linkType`, and `effectiveRunConfig` are typed by Plan-016
-    // symbols no TypeScript in this workspace declares. Their absence is a
-    // recorded decision, so a producer that emits one must FAIL rather than
-    // have it silently dropped — and the fix is to add them here, never to
-    // relax the strict shape at a consumer.
+    // `agentId`, `linkType`, and `effectiveRunConfig` are typed symbols no
+    // TypeScript in this workspace declares. Their absence is a recorded
+    // decision, so a producer that emits one must FAIL rather than have it
+    // silently dropped — and the fix is to add them here, never to relax
+    // the strict shape at a consumer.
     //
     // DELETE THIS CASE in the same diff that adds the three members. It asserts
     // a temporary gap, not designed behaviour: left standing, it is a passing
@@ -1172,7 +1151,6 @@ describe("RunStateChangeEvent", () => {
 });
 
 // --------------------------------------------------------------------------
-// CP-004-3 — RunRolledBackEvent
 // --------------------------------------------------------------------------
 
 const minimalRolledBack = {
@@ -1251,7 +1229,7 @@ describe("RunRolledBackEvent", () => {
 });
 
 // --------------------------------------------------------------------------
-// T1.6 — Pause / resume triggers
+// Pause / resume triggers
 // --------------------------------------------------------------------------
 
 describe("run pause and resume", () => {
@@ -1268,8 +1246,8 @@ describe("run pause and resume", () => {
     ["RunPauseRequestSchema", RunPauseRequestSchema],
     ["RunResumeRequestSchema", RunResumeRequestSchema],
   ] as const)("%s refuses a request with no comparand", (_name, schema) => {
-    // I-004-7: D-004-2's guard extended to the orchestration-layer verbs, which
-    // hold no InterventionType membership and so inherit nothing implicitly.
+    // The guard extended to the orchestration-layer verbs, which hold no
+    // InterventionType membership and so inherit nothing implicitly.
     expect(() => schema.parse({ targetRunId: RUN_ID })).toThrow();
   });
 
@@ -1289,7 +1267,6 @@ describe("run pause and resume", () => {
 });
 
 // --------------------------------------------------------------------------
-// CP-004-3 — Subscription request shapes
 // --------------------------------------------------------------------------
 
 describe("run-control subscription requests", () => {
@@ -1326,7 +1303,6 @@ describe("run-control subscription requests", () => {
 });
 
 // --------------------------------------------------------------------------
-// T1.7 — Run-read accessor shape
 // --------------------------------------------------------------------------
 
 describe("RunReadSnapshot", () => {
@@ -1352,7 +1328,7 @@ describe("RunReadSnapshot", () => {
 // Barrel-gap regression
 // --------------------------------------------------------------------------
 
-describe("index.ts re-exports the Plan-004 run-control contracts", () => {
+describe("index.ts re-exports run-control contracts", () => {
   // A module can be complete and still invisible to consumers if the
   // `export * from "./runControl.js"` line is missing or dropped in a later
   // refactor. Importing through `../index.js` (not `../runControl.js`) is what

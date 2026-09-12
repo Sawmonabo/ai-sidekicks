@@ -2,9 +2,8 @@
 // mode it asked for.
 //
 // WHY THREE PATHS AND NOT ONE. A workspace card today renders `fsRoot`, and `fsRoot`
-// alone is ambiguous in exactly the case that matters. `Spec-009 §Repo Identity And
-// Common-Directory Keying (V1 Definition)` makes the mount's `canonicalRoot` the
-// resolver's output and the key the trust envelope is built on; the workspace's BOUND
+// alone is ambiguous in exactly the case that matters. The mount's `canonicalRoot` is
+// the resolver's output and the key the trust envelope is built on; the workspace's BOUND
 // root is where this binding executes, which under `branch` mode is that same checkout
 // and under `worktree` mode is somewhere else entirely; and the NORMALIZED CHECKOUT
 // ROOT is a third value the turn-snapshot service operates on, captured per run and
@@ -19,9 +18,9 @@
 // BYTE equality between two strings the daemon sent — which is a fact about the reply
 // rather than a fact about the filesystem, and is labelled as one.
 //
-// AND THE FALLBACK MARKER IS NOT A DERIVATION EITHER. `Spec-010 §Fallback Behavior`
-// requires an execution mode the daemon SUBSTITUTED to be marked distinctly from one
-// the participant chose, and the workspace list carries no member that says so — its
+// AND THE FALLBACK MARKER IS NOT A DERIVATION EITHER. An execution mode the daemon
+// SUBSTITUTED is marked distinctly from one the user chose, and the workspace
+// list carries no member that says so — its
 // `executionMode` is the mode in force and reads identically either way. So the marker
 // travels on the execution-context read, and a reading that carries none means the
 // binding is running the mode it was asked for.
@@ -212,7 +211,7 @@ const DISCLOSING_WORKSPACE_STATE: WorkspaceState = "stale";
  *
  * The second member is what makes this a rule about a TRANSITION rather than about a
  * render: without it every render while the workspace is `stale` would re-open a
- * disclosure the participant had just closed, and the `<details>` would be a control
+ * disclosure the user had just closed, and the `<details>` would be a control
  * that does not stay where it is put.
  */
 export interface ExecutionRootsDisclosure {
@@ -255,7 +254,7 @@ export function initialExecutionRootsDisclosure(
  *   • A workspace that goes `stale` under a card already on screen opens it, exactly as
  *     one that was `stale` when the card mounted. The fact that arrived is the reason
  *     to look, and it arrives after the mount as often as before it.
- *   • A participant's own toggle then wins until the next such edge, so closing this on
+ *   • A user's own toggle then wins until the next such edge, so closing this on
  *     a `stale` row keeps it closed — a control that reopened itself on the section's
  *     next scheduled read would be a control nobody can put away.
  *   • RECOVERY IS NOT AN EDGE THIS ACTS ON. A workspace leaving `stale` keeps whatever
@@ -281,7 +280,7 @@ export function executionRootsDisclosureAfterWorkspaceState(
 }
 
 /**
- * The disclosure after the participant moved it themselves.
+ * The disclosure after the user moved it themselves.
  *
  * Beside the rule above rather than inside the component, so the one place that decides
  * what `isOpen` may become is this module. Returns the value it was handed where the
@@ -307,7 +306,7 @@ export function toggledExecutionRootsDisclosure(
  * THE LABEL NAMES THE REQUESTED MODE RATHER THAN THE MODE IN FORCE, because the mode
  * in force is already on the row — the workspace card's own `executionMode` chip — and
  * a badge repeating it would say nothing the row does not. What is not on the row
- * anywhere is what the participant asked for, which is the whole of what the marker
+ * anywhere is what the user asked for, which is the whole of what the marker
  * carries.
  */
 export function fallbackBadgeFor(context: WorkspaceExecutionContext): FallbackBadge | undefined {

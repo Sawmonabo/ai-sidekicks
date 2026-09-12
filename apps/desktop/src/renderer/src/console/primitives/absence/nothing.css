@@ -12,12 +12,12 @@
  * `console/tokens/palette.ts` and carries only VALUES; this carries only COMPOSITION
  * and reads every value back out as a custom property.
  *
- * `Spec-023 §Console Design (Meridian)` rules that govern this sheet: rule 8 — five
- * absences render as five different shapes, never collapsed.
- * a kind supplies copy, a glyph, and a tone, and the PLACEMENT supplies the box
- * those are carried in. So every layout rule below is scoped to one shape and every
- * colour rule to neither — which is what lets `not-checked` keep the dotted boundary
- * rule 8 names for it while standing in for a whole pane rather than a value.
+ * Design-language rules that govern this sheet: rule 8 — five absences render as five
+ * different shapes, never collapsed. A kind supplies copy, a glyph, and a tone, and the
+ * PLACEMENT supplies the box those are carried in. So every layout rule below is scoped
+ * to one shape and every colour rule to neither — which is what lets `not-checked` keep
+ * the dotted boundary rule 8 names for it while standing in for a whole pane rather
+ * than a value.
  *
  * `--block`: an absence standing in for a surface that is not there. It carries only
  * what all five blocks share; the measure each kind sits on is scoped beside it.

@@ -10,8 +10,8 @@
 // thing that changed. Nothing on screen said which reading it was showing.
 //
 // SO EVERY TRIGGER GOES THROUGH `store/read/refresh-scheduler.ts` AND NOTHING ELSE.
-// `apps/desktop/AGENTS.md` §Chokepoints: "every refresh goes through
-// `console/store/read/refresh-scheduler.ts`". That scheduler coalesces a burst of reasons into one
+// Every refresh goes through `console/store/read/refresh-scheduler.ts` and nowhere
+// else. That scheduler coalesces a burst of reasons into one
 // read and SERIALIZES what it fires, so a reason raised while a read is outstanding
 // becomes the NEXT read rather than a parallel one — which is what makes the overlap
 // above unrepresentable rather than merely unlikely. No sequence number appears below,
@@ -25,7 +25,7 @@
 // no per-read cancel — so a superseded answer is IGNORED rather than stopped, which is
 // exactly what the latch expresses.
 //
-// WHY IT IS A CLASS AND THE BLOCK IS NOT. `apps/desktop/AGENTS.md` §State and views:
+// WHY IT IS A CLASS AND THE BLOCK IS NOT. Stateful logic is an encapsulated class:
 // the schedule, the round, and the rule that decides which settlement installs are
 // state, and a React body renders. {@link useStoreStateReading} is the binding and
 // holds nothing of its own.
@@ -204,9 +204,9 @@ const STORE_STATE_READ_DISPOSAL: SubjectScopedDisposal<StoreStateRead> = {
  * store's for one frame.
  *
  * THE CLOCK IS THE WINDOW'S, through `useConsoleClock` rather than a `RealClock` of
- * this reading's own. The scheduler arms a timeout, and `Spec-023 §Console Design
- * (Meridian)` fixes the fixture clock as the only clock a renderer reads in fixture
- * mode — a second time base here would leave this one read debouncing on wall time
+ * this reading's own. The scheduler arms a timeout, and the fixture clock is the only
+ * clock a renderer reads in fixture mode — a second time base here would leave this
+ * one read debouncing on wall time
  * while every other schedule in the window ran on frozen time. That hook also holds
  * the pin the read needs: a clock read straight from a render body has a new identity
  * every pass, and this reading is built around one.

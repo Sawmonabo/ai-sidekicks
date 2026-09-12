@@ -1,4 +1,4 @@
-// Plan-006 T3.2 — the audit-log compactor: three retention triggers, the
+// The audit-log compactor: three retention triggers, the
 // anchor-before-compaction protocol, and the per-row audit-stub commitment.
 //
 // Compaction replaces a full event payload with a bounded audit stub. It is the
@@ -6,16 +6,13 @@
 // append-only log, which is why almost every line below is a constraint rather
 // than a mechanism. Three properties carry the design:
 //
-//   1. NEVER-COMPACTED CATEGORIES (I-006-3-01, layer 1). The candidate selector
-//      excludes `audit_integrity` and `event_maintenance` in SQL, so a row of
-//      either family is never even read as a candidate. This is the first of the
-//      three layers the invariant names; the verifier and the shred path own the
-//      other two.
-//   2. ANCHOR BEFORE STUB (I-006-3-03; `Spec-006 §Post-Compaction Integrity`).
-//      A covering Merkle anchor must exist over the whole to-be-compacted range
-//      BEFORE any row's payload is mutated, because compaction destroys the
-//      bytes `row_hash` and `daemon_signature` commit to. If the anchor cannot
-//      be obtained, the session's pass refuses with ZERO rows mutated.
+//   1. NEVER-COMPACTED CATEGORIES (layer 1). The candidate selector excludes
+//      `audit_integrity` and `event_maintenance` in SQL, so a row of either
+//      family is never even read as a candidate. This is the first of the three
+//      layers the invariant names; the verifier and the shred path own the other
+//      two.
+//   2. If the anchor cannot be obtained, the session's pass refuses with ZERO
+//      rows mutated.
 //   3. SIGN-EXACT-BYTES. The stub projection is canonicalized ONCE to `B`,
 //      `stub_signature = Ed25519(B)`, and that same `B` is what lands in
 //      `payload`. No re-serialization sits between signing and storing, so the
@@ -40,12 +37,9 @@
 // Locking: what is held, and what is deliberately not
 // ----------------------------------------------------------------------------
 //
-// Per-row attribute-and-stub runs inside `withSessionAppendLock` — one hold per
-// row — so the Plan-004 admission-side span-check-plus-intervention-write and
-// this side's attribute-and-stub serialize and never interleave. The attribution
-// call is INSIDE the hold on purpose: serializing against admission is the whole
-// point of the hold, and an attribution resolved before the hold could be
-// invalidated by an intervention admitted in the gap.
+// The attribution call is INSIDE the hold on purpose: serializing against
+// admission is the whole point of the hold, and an attribution resolved before
+// the hold could be invalidated by an intervention admitted in the gap.
 //
 // Everything that can block on foreign I/O is hoisted OUT of the hold: the
 // signing key is resolved once per session before the row loop (an unseal may
@@ -82,8 +76,8 @@
 // anchor forced for a range that will never be compacted queues an upload the
 // pass has no use for.
 //
-// BEHAVIORAL CONSEQUENCE of check 2, stated plainly: until CP-006-7 provisions
-// the sentinel session's signing key, compaction is INERT — every triggered pass
+// BEHAVIORAL CONSEQUENCE of check 2, stated plainly: until provisions the
+// sentinel session's signing key, compaction is INERT — every triggered pass
 // refuses, nothing is reclaimed, and the triggers keep firing. That is the
 // deliberate trade. An inert compactor is a storage problem; a compactor that
 // destroys payloads it cannot record is an audit-integrity problem, and only one
@@ -104,21 +98,14 @@
 // Scheduling: "never runs during active runs" is the CALLER's precondition
 // ----------------------------------------------------------------------------
 //
-// `Spec-006 §Event Compaction Policy` states that compaction "runs as a
-// background daemon task during idle periods. It never runs during active
-// runs." That is a property of WHEN `tick()` is invoked, and this module
-// deliberately does not invent a run-state seam to enforce it: no run-state
-// source exists in this package at Tier 4, and declaring one here would be a
-// premature interface that Plan-004's run registry would then have to displace.
-// The idle scheduler that owns `tick()` owns the precondition.
+// states that compaction "runs as a background daemon task during idle periods.
+// It never runs during active runs." That is a property of WHEN `tick()` is
+// invoked, and this module deliberately does not invent a run-state seam to
+// enforce it: no run-state source exists in this package yet, and
+// declaring one here would be a premature interface that run registry would
+// then have to displace. The idle scheduler that owns `tick()` owns the
+// precondition.
 //
-// Spec coverage: `Spec-006 §Event Compaction Policy` (the three trigger
-// thresholds), `Spec-006 §Compacted Event Format` (the audit-stub projection),
-// `Spec-006 §Post-Compaction Integrity` (anchor-before-compaction),
-// `Spec-006 §Event Maintenance (event_maintenance)` (`event.compacted`; never
-// compacted), `Spec-006 §Audit Integrity (audit_integrity)` (never compacted).
-// Refs: Plan-006 T3.2, invariants I-006-3-01 and I-006-3-03,
-// `migrations/0009-retention-class-and-stub-signature.ts`.
 
 import {
   CONTENT_LENGTH_PAYLOAD_KEY,
@@ -162,7 +149,6 @@ import type { DaemonSigningKeySource } from "./signing-key-source.js";
 import { mintUuidV7 } from "../ids/uuid-v7.js";
 
 // --------------------------------------------------------------------------
-// Trigger thresholds — `Spec-006 §Event Compaction Policy`
 // --------------------------------------------------------------------------
 //
 // The three spec-valued defaults. Exported (with explicit type annotations, per
@@ -172,22 +158,22 @@ import { mintUuidV7 } from "../ids/uuid-v7.js";
 // days to observe a threshold would not test the thresholds at all, it would
 // test its own fixture's patience.
 
-/** 50,000 events per session — `Spec-006 §Event Compaction Policy`. */
+/** 50,000 events per session — ``. */
 export const COMPACTION_EVENT_COUNT_THRESHOLD: number = 50_000;
 
-/** 90 days — `Spec-006 §Event Compaction Policy`. */
+/** 90 days — ``. */
 export const COMPACTION_AGE_THRESHOLD_DAYS: number = 90;
 
-/** 500 MB of live payload per session — `Spec-006 §Event Compaction Policy`. */
+/** 500 MB of live payload per session — ``. */
 export const COMPACTION_STORAGE_THRESHOLD_BYTES: number = 500 * 1024 * 1024;
 
 /** The `retention_class` value a compacted row carries. */
 export const AUDIT_STUB_RETENTION_CLASS = "audit_stub" as const;
 
 /**
- * The two categories compaction NEVER touches — layer 1 of I-006-3-01's
- * three-layer enforcement, applied as a SQL exclusion so a row of either family
- * is never read as a candidate in the first place.
+ * The two categories compaction NEVER touches — layer 1 of the three-layer
+ * enforcement, applied as a SQL exclusion so a row of either family is never
+ * read as a candidate in the first place.
  *
  * `audit_integrity` rows are the tamper-evidence record itself; compacting them
  * would discard the evidence a verification failure consists of.
@@ -208,9 +194,9 @@ export const NON_COMPACTABLE_EVENT_CATEGORIES: readonly EventCategory[] = [
  * they occupied positional slots whose index depended on where the shared WHERE
  * fragment happened to sit inside each statement's SQL, so reordering a clause
  * in any one of six call sites would silently rebind the categories onto some
- * other predicate's slot — and layer 1 of I-006-3-01 would stop holding with no
- * error anywhere. These are compile-time constants, not input: `EventCategory`
- * is a closed union of bare identifiers, so there is no quote to escape and no
+ * other predicate's slot — and layer 1 of would stop holding with no error
+ * anywhere. These are compile-time constants, not input: `EventCategory` is a
+ * closed union of bare identifiers, so there is no quote to escape and no
  * injection surface. Derived from the array above so the two can never drift.
  */
 const NON_COMPACTABLE_CATEGORY_SQL_LIST: string = NON_COMPACTABLE_EVENT_CATEGORIES.map(
@@ -225,7 +211,7 @@ const RUN_ID_PAYLOAD_KEY = "runId" as const;
 
 /**
  * Payload members preserved VERBATIM into the stub whenever the source payload
- * carries them, per `Spec-006 §Compacted Event Format`.
+ * carries them.
  *
  * A single preserve-when-present rule discharges every clause the spec states
  * per row family, and under-preserving is the direction with teeth:
@@ -238,9 +224,6 @@ const RUN_ID_PAYLOAD_KEY = "runId" as const;
  *     `run.running` rows. `credentialPolicyRef` is preserved only when present:
  *     a `mode: 'trusted'` row carries a posture and no credential ref, and the
  *     stub neither requires nor fabricates one.
- *   * `targetPosition` — the rewind cutoff on accepted `run.rolled_back` rows,
- *     which the Plan-004 supersede projection rebuilds each epoch's boundary
- *     from.
  *   * `sourceEpoch` + `sourcePosition` — the cross-cutting epoch stamp, kept so
  *     a compacted stale-epoch row stays attributed to its source epoch.
  *   * `contentLength` + `contentTruncated` — the machine-authored body's SHAPE.
@@ -251,7 +234,7 @@ const RUN_ID_PAYLOAD_KEY = "runId" as const;
  *     commits to ciphertext this UPDATE destroys, so preserving it would leave
  *     every compacted body-bearing row asserting a binding to bytes that no
  *     longer exist — the failure the 2026-07-27 owner-stamp amendment fixed
- *     retroactively for `pii_participant_id`, stated here at mint time instead.
+ *     retroactively for `pii_user_id`, stated here at mint time instead.
  *
  * Enforcement, not narration, for the first pair: `trg_run_terminal_key_update`
  * fires on this module's `UPDATE OF payload` and ABORTs a stub that dropped,
@@ -279,7 +262,7 @@ const COMPACTOR_EVENT_VERSION: EventEnvelopeVersion = EventEnvelopeVersionSchema
 
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 
-// Ed25519 signatures are 64 bytes (RFC 8032 §5.1.6). Module-local rather than
+// Ed25519 signatures are 64 bytes (RFC 8032 section 5.1.6). Module-local rather than
 // imported: `signer.ts` and `merkle-anchor-service.ts` each already keep their
 // own copy of this constant, and reaching across to either would import a
 // private for no benefit. The check it guards mirrors the one `anchorRange`
@@ -287,7 +270,7 @@ const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 const ED25519_SIGNATURE_LENGTH = 64;
 
 // --------------------------------------------------------------------------
-// The rollback-attribution seam (Plan-006-owned; Plan-004 T3.14 implements)
+// The rollback-attribution seam (-owned implements)
 // --------------------------------------------------------------------------
 
 /** The row an attribution is being asked about. */
@@ -329,16 +312,15 @@ export type RollbackAttribution =
 
 /**
  * How the compactor asks whether a run-scoped row belongs to the surviving
- * timeline. Declared here because Plan-006 owns the seam and this task is its
- * first consumer; Plan-004 T3.14's supersede projection implements it and its
- * composition-root wiring replaces the vacuous default below (the CP-006-1
- * `PiiEncryptor` precedent, composition root included).
+ * timeline. Declared here because owns the seam and this task is its first
+ * consumer; the supersede projection implements it and its composition-root
+ * wiring replaces the vacuous default below (`PiiEncryptor` precedent,
+ * composition root included).
  *
  * Consulted ONLY for run-scoped rows — rows whose payload carries `runId`. Epoch
- * attribution and rewind spans are run-local, and the
- * `Spec-004 §Required Behavior` rewind-span check's detection keys are `runId`
- * plus `originPosition`, so a row with no run identity has nothing an attribution
- * could answer about.
+ * attribution and rewind spans are run-local, and rewind-span check's detection
+ * keys are `runId` plus `originPosition`, so a row with no run identity has
+ * nothing an attribution could answer about.
  */
 export interface RollbackAttributionSource {
   attributeAtCompaction(request: RollbackAttributionRequest): Promise<RollbackAttribution>;
@@ -348,8 +330,8 @@ export interface RollbackAttributionSource {
  * The vacuous default: every row is `current`, with no resolved position, and
  * never `defer`.
  *
- * Correct until Plan-004 lands, and correct for a precise reason rather than as
- * a placeholder: with no rollback implementation there is no accepted
+ * Correct until lands, and correct for a precise reason rather than as a
+ * placeholder: with no rollback implementation there is no accepted
  * `run.rolled_back` event and no dispatched intervention, so no row can be
  * superseded and none can be inside an unconcluded rewind span. It answers no
  * `position` because it has no epoch model to resolve one from — which is
@@ -367,8 +349,8 @@ export const VACUOUS_CURRENT_ROLLBACK_ATTRIBUTION_SOURCE: RollbackAttributionSou
 // --------------------------------------------------------------------------
 
 /**
- * The field set of `Spec-006 §Compacted Event Format`, plus the
- * preserved/stamped members that section's compaction paragraph adds.
+ * The field set of plus the preserved/stamped members that section's
+ * compaction paragraph adds.
  *
  * The explicit `[preservedKey: string]: unknown` index signature is the
  * load-bearing member, and it is here because the preserved and stamped members
@@ -400,7 +382,7 @@ export type AuditStubProjection = {
 // Pass results
 // --------------------------------------------------------------------------
 
-/** The closed trigger vocabulary of `Spec-006 §Event Compaction Policy`. */
+/** The closed trigger vocabulary of ``. */
 export type CompactionReason = EventCompactedPayload["compactionReason"];
 
 /** What one session's pass did — or refused to do, and why. */
@@ -559,7 +541,7 @@ export interface CompactionPassResult {
 // --------------------------------------------------------------------------
 
 /**
- * The durable append seam for `event.compacted`, typed against T3.1's own
+ * The durable append seam for `event.compacted`, typed against its own
  * parameter and return types so a signature change there fails THIS compile.
  *
  * Structural, naming no concrete class — the `SessionEventLog` seam in
@@ -576,8 +558,8 @@ export interface CompactionEventLog {
 }
 
 /**
- * The force-fire seam of `Spec-006 §Post-Compaction Integrity` step 2, typed
- * against T3.3's own request type and return payload.
+ * The force-fire seam of step 2, typed against its own request type and
+ * return payload.
  *
  * The compactor does NOT re-implement step 1's coverage query. `anchorRange`
  * already owns that exact predicate as its idempotency pre-check
@@ -630,8 +612,8 @@ export interface CompactorDeps {
   readonly haltSource?: IngestHaltSource;
   /**
    * Rollback attribution. Defaults to
-   * {@link VACUOUS_CURRENT_ROLLBACK_ATTRIBUTION_SOURCE}; Plan-004 T3.14's
-   * composition-root wiring replaces it.
+   * {@link VACUOUS_CURRENT_ROLLBACK_ATTRIBUTION_SOURCE}; the composition-root
+   * wiring replaces it.
    */
   readonly rollbackAttributionSource?: RollbackAttributionSource;
   /**
@@ -641,11 +623,11 @@ export interface CompactorDeps {
    * compaction happened. Defaults to `new Date()`.
    */
   readonly now?: () => Date;
-  /** Override for `Spec-006`'s 50,000-events-per-session count trigger. */
+  /** Override for ``'s 50,000-events-per-session count trigger. */
   readonly eventCountThreshold?: number;
-  /** Override for `Spec-006`'s 90-day age trigger. */
+  /** Override for ``'s 90-day age trigger. */
   readonly ageThresholdDays?: number;
-  /** Override for `Spec-006`'s 500 MB-per-session storage trigger. */
+  /** Override for ``'s 500 MB-per-session storage trigger. */
   readonly storageThresholdBytes?: number;
   /** Mints the per-pass `operationId`. Defaults to the daemon-wide `mintUuidV7`. */
   readonly operationIdFactory?: () => string;
@@ -730,18 +712,18 @@ class CompactionRefusal extends Error {
  * ### Trigger evaluation
  *
  * Each trigger contributes its own CANDIDATE SET, exactly as the Description
- * column of `Spec-006 §Event Compaction Policy`'s trigger table defines it, and
- * the pass compacts the UNION. Count and storage describe oldest-first prefixes
- * and share one prefix bound; age describes a per-row property and carries its
- * own (see the RETENTION FLOOR note on the trigger statements for why age can
- * NOT be collapsed into a prefix).
+ * column of the trigger table defines it, and the pass compacts the UNION.
+ * Count and storage describe oldest-first prefixes and share one prefix bound;
+ * age describes a per-row property and carries its own (see the RETENTION FLOOR
+ * note on the trigger statements for why age can NOT be collapsed into a
+ * prefix).
  *
  * The anchor span `[fromSequence, cutoffSequence]` is the enclosing range, not
  * the candidate set: it is contiguous over STORED rows, which is what
  * `anchorRange` requires (it hard-refuses a range whose stored-row count does
  * not match the span length). The candidate set is free to be sparse inside it —
- * it already is, since layer 1 of I-006-3-01 leaves a hole at every
- * never-compacted row — and a wider-than-necessary anchor is always sound.
+ * it already is, since layer 1 of leaves a hole at every never-compacted row —
+ * and a wider-than-necessary anchor is always sound.
  *
  * When several triggers fire at once, `compactionReason` reports the
  * highest-precedence one: **storage > count > age**. The order is deliberate and
@@ -821,9 +803,9 @@ export class Compactor {
     this.#operationIdFactory = deps.operationIdFactory ?? mintUuidV7;
     this.#newEventId = deps.newEventId ?? mintUuidV7;
 
-    // LAYER 1 of I-006-3-01, spelled once and shared by every candidate-facing
-    // statement below: the two never-compacted categories are excluded in SQL,
-    // and `retention_class IS NULL` restricts the pass to rows not already
+    // LAYER 1 of spelled once and shared by every candidate-facing statement
+    // below: the two never-compacted categories are excluded in SQL, and
+    // `retention_class IS NULL` restricts the pass to rows not already
     // stubbed. The second half is what makes a crashed mid-pass tick resumable
     // (`compensable`): re-entry simply does not see the rows it already wrote.
     const liveCompactableWhere = `retention_class IS NULL
@@ -861,9 +843,9 @@ export class Compactor {
     // THE RETENTION FLOOR — how each trigger's candidate set is bounded
     // ----------------------------------------------------------------------
     //
-    // `Spec-006 §Event Compaction Policy`'s trigger table carries a Description
-    // column, and that column is normative for each trigger's CANDIDATE SET,
-    // not merely for what makes it fire:
+    // the trigger table carries a Description column, and that column is
+    // normative for each trigger's CANDIDATE SET, not merely for what makes it
+    // fire:
     //
     //   * count   — "Oldest events beyond this are compaction candidates."
     //               Self-limiting: the newest 50,000 are never candidates,
@@ -882,14 +864,13 @@ export class Compactor {
     //   * storage — "When session DB exceeds this, compact oldest events
     //               first." A pressure valve; the only bound is oldest-first.
     //
-    // ADJUDICATION (`Spec-006 §Retention Windows`). That summary table's "90
-    // days or 50K events (whichever is more generous)" row reads, taken as a
-    // per-row conjunction, as a floor over BOTH windows at once: compact only
-    // what is older than 90 days AND beyond the newest 50K. That reading is
-    // refuted by the mechanism section it summarizes. Under it the age
-    // trigger's candidate set becomes identical to the count trigger's, so age
-    // could never name a candidate count would not — dead code for every
-    // session, not just small ones. (`§Event Compaction Policy` separately
+    // That summary table's "90 days or 50K events (whichever is more
+    // generous)" row reads, taken as a per-row conjunction, as a floor over
+    // BOTH windows at once: compact only what is older than 90 days AND beyond
+    // the newest 50K. That reading is refuted by the mechanism section it
+    // summarizes. Under it the age trigger's candidate set becomes identical
+    // to the count trigger's, so age could never name a candidate count would
+    // not — dead code for every session, not just small ones. (separately
     // declares "Any one of the following triggers initiates compaction"; that
     // governs the fire condition rather than the candidate set, so it is
     // context here and not the argument.) The conjunction also degrades the
@@ -1011,35 +992,34 @@ export class Compactor {
           AND ${liveCompactableWhere}`,
     );
 
-    // The mutation of `Spec-006 §Post-Compaction Integrity` step 5, and its SET
-    // list is exhaustive BY OMISSION as much as by inclusion. `payload` is
-    // REWRITTEN, never nulled (the column is NOT NULL, and replay must still be
-    // able to surface the visible stub). `pii_participant_id` joins the NULLed
-    // set alongside `pii_payload` per the 2026-07-27 PII-owner-stamp amendment:
-    // the stub projection carries no PII owner, so a surviving stamp would name
-    // a participant for a row whose ciphertext is gone and I-006-2-12's
-    // read-side check would report `pii_owner_stamp_unbound` on every compacted
-    // row. `content_payload` joins the same NULLed set: the machine-authored
-    // body is destroyed here exactly as the PII ciphertext is, and its digest is
-    // dropped from the stub rather than preserved (see PRESERVED_PAYLOAD_KEYS),
-    // so a compacted row asserts no binding to bytes this statement removed.
-    // There is no `content_owner_stamp` counterpart to NULL — the content
-    // partition is session-scoped, and `session_id` is already canonical and
-    // signed. NOT in the SET list, and load-bearing that they are not:
-    // `prev_hash`, `row_hash`, `daemon_signature`,
-    // `monotonic_ns`, `version` (I-006-3-03 freezes the chain commitment) and
-    // `category` / `type` (naming them would trip the de-scope leg of
-    // `trg_run_terminal_key_update`, and the scalar-binding check reads them as
-    // the stub projection's counterparts). The `retention_class IS NULL` guard
-    // in the WHERE makes a re-entered UPDATE a zero-row no-op rather than a
-    // double-stub.
+    // The mutation of step 5, and its SET list is exhaustive BY OMISSION as much
+    // as by inclusion. `payload` is REWRITTEN, never nulled (the column is NOT
+    // NULL, and replay must still be able to surface the visible stub).
+    // `pii_user_id` joins the NULLed set alongside `pii_payload` per the
+    // 2026-07-27 PII-owner-stamp amendment: the stub projection carries no PII
+    // owner, so a surviving stamp would name a user for a row whose
+    // ciphertext is gone and the read-side check would report
+    // `pii_owner_stamp_unbound` on every compacted row. `content_payload` joins
+    // the same NULLed set: the machine-authored body is destroyed here exactly
+    // as the PII ciphertext is, and its digest is dropped from the stub rather
+    // than preserved (see PRESERVED_PAYLOAD_KEYS), so a compacted row asserts no
+    // binding to bytes this statement removed. There is no `content_owner_stamp`
+    // counterpart to NULL — the content partition is session-scoped, and
+    // `session_id` is already canonical and signed. NOT in the SET list, and
+    // load-bearing that they are not: `prev_hash`, `row_hash`,
+    // `daemon_signature`, `monotonic_ns`, `version` (freezes the chain
+    // commitment) and `category` / `type` (naming them would trip the de-scope
+    // leg of `trg_run_terminal_key_update`, and the scalar-binding check reads
+    // them as the stub projection's counterparts). The `retention_class IS NULL`
+    // guard in the WHERE makes a re-entered UPDATE a zero-row no-op rather than
+    // a double-stub.
     this.#stubUpdateStmt = deps.db.prepare(
       `UPDATE session_events
           SET payload = ?,
               correlation_id = NULL,
               causation_id = NULL,
               pii_payload = NULL,
-              pii_participant_id = NULL,
+              pii_user_id = NULL,
               content_payload = NULL,
               retention_class = ?,
               stub_signature = ?
@@ -1247,13 +1227,13 @@ export class Compactor {
       // never force-fires an anchor upload on its behalf.
       await this.#probeSentinelSigningKey();
 
-      // STEPS 1-3 of `Spec-006 §Post-Compaction Integrity`, delegated whole to
-      // `anchorRange` — its coverage pre-check IS step 1, its force-fire is
-      // step 2, and it returns only once the row is durably queued, which is
-      // step 3. What cannot be delegated is the CHECK that the anchor it handed
-      // back actually spans the range: a payload covering less than
-      // `[fromSequence, toSequence]` would leave part of the range with no
-      // original-existence proof after its bytes are destroyed.
+      // STEPS 1-3 of delegated whole to `anchorRange` — its coverage pre-check
+      // IS step 1, its force-fire is step 2, and it returns only once the row
+      // is durably queued, which is step 3. What cannot be delegated is the
+      // CHECK that the anchor it handed back actually spans the range: a
+      // payload covering less than `[fromSequence, toSequence]` would leave
+      // part of the range with no original-existence proof after its bytes are
+      // destroyed.
       //
       // AC RECONCILIATION. The acceptance criterion phrases step 1 as "a
       // covering anchor exists in `pending_anchor_uploads` OR
@@ -1275,7 +1255,7 @@ export class Compactor {
         throw new CompactionRefusal(
           `anchor [${String(anchor.startSequence)}, ${String(anchor.endSequence)}] does not cover ` +
             `the compaction range [${String(fromSequence)}, ${String(toSequence)}]; refusing to ` +
-            "mutate any row (Spec-006 anchor-before-compaction).",
+            "mutate any row (anchor-before-compaction).",
         );
       }
 
@@ -1419,10 +1399,7 @@ export class Compactor {
    * Resolve the DAEMON-SCOPE SENTINEL's signing key and immediately discard it,
    * refusing the session's pass when it cannot be resolved.
    *
-   * WHY A SEPARATE KEY AT ALL. The stubs are signed with the SESSION's key,
-   * resolved further down; `event.compacted` is appended on the sentinel session
-   * (`Spec-006 §Daemon-Scope Event Binding And Node-Scope Anchoring`) and is
-   * signed with the SENTINEL's. They are different rows of `daemon_signing_keys`
+   * WHY A SEPARATE KEY AT ALL. They are different rows of `daemon_signing_keys`
    * and either can be resolvable while the other is not — so a session key that
    * resolved says nothing about whether this pass will be able to record itself.
    *
@@ -1554,7 +1531,7 @@ export class Compactor {
    * → canonicalize → sign → UPDATE.
    *
    * The attribution await is inside the hold BY DESIGN: serializing the
-   * compactor's attribute-and-stub against the Plan-004 admission side's
+   * compactor's attribute-and-stub admission side's
    * span-check-plus-intervention-write is the reason the hold exists, and an
    * attribution resolved outside it could be invalidated by an intervention
    * admitted in the gap — producing an unstamped stub for a row that a rollback
@@ -1562,15 +1539,15 @@ export class Compactor {
    *
    * ### Per-row commits, and the "one transaction" the spec asks for
    *
-   * `Spec-006 §Post-Compaction Integrity` step 5 says "ONLY THEN mutate the rows
-   * in one transaction", and I-006-3-03 repeats it. This module instead commits
-   * ONE ROW PER HOLD, and the deviation is forced rather than chosen: the plan
-   * mandates one append-lock hold per row and forbids holding across I/O, while
-   * the attribution call is an await that must happen inside the hold (above).
-   * A single transaction spanning every row would therefore have to span every
-   * attribution round-trip too — one hold across N foreign calls, which is the
-   * exact shape the locking rule exists to forbid, and on a 50,000-row pass it
-   * would stall every producer on the session for the whole pass.
+   * step 5 says "ONLY THEN mutate the rows in one transaction", and repeats it.
+   * This module instead commits ONE ROW PER HOLD, and the deviation is forced
+   * rather than chosen: the plan mandates one append-lock hold per row and
+   * forbids holding across I/O, while the attribution call is an await that must
+   * happen inside the hold (above). A single transaction spanning every row
+   * would therefore have to span every attribution round-trip too — one hold
+   * across N foreign calls, which is the exact shape the locking rule exists to
+   * forbid, and on a 50,000-row pass it would stall every producer on the
+   * session for the whole pass.
    *
    * What the "one transaction" phrasing protects is that no row is ever left
    * half-compacted — payload replaced but signature or discriminator missing —
@@ -1644,7 +1621,7 @@ export class Compactor {
       //
       // The decode step is sound because `canonicalizeJson` refuses a projection
       // containing a lone surrogate (`canonicalizer.ts`'s well-formed-strings
-      // guard, RFC 8785 §3.2.2.2). That guard is load-bearing HERE and not only
+      // guard, RFC 8785 section 3.2.2.2). That guard is load-bearing HERE and not only
       // there: relaxing it would let `B` hold an unpaired surrogate, the
       // TextDecoder would substitute U+FFFD on the way to the column, and every
       // `stub_signature` written for such a row would fail verification against
@@ -1784,11 +1761,10 @@ export class Compactor {
    *
    * `fromSeq` / `toSeq` are session-scoped sequence bounds, so a single event
    * spanning several sessions could not name a meaningful range — which is why
-   * `Spec-006 §Event Maintenance (event_maintenance)` grants a single-session
-   * pass the option of carrying that session's real id. The row binds the
-   * daemon-scope sentinel at the ENVELOPE (it is a daemon-scope maintenance
-   * event, and its own category is never compacted) while the payload carries
-   * the real session.
+   * grants a single-session pass the option of carrying that session's real
+   * id. The row binds the daemon-scope sentinel at the ENVELOPE (it is a
+   * daemon-scope maintenance event, and its own category is never compacted)
+   * while the payload carries the real session.
    *
    * ### What `fromSeq` / `toSeq` mean here
    *
@@ -1803,11 +1779,10 @@ export class Compactor {
    * rows and deferred rows can sit inside it and remain live. A consumer that
    * needs the count reads `tombstoneCount`; one that needs per-row truth reads
    * `retention_class`. Narrowing is safe for the integrity path because nothing
-   * locates a covering anchor through this event —
-   * `Spec-006 §Post-Compaction Integrity`'s verifier reads the anchor from
-   * `pending_anchor_uploads` / `event_log_anchors` keyed on the row's own
-   * sequence, and the anchor obtained by this pass covers the wider scanned
-   * span, so it covers every narrowed row a fortiori.
+   * locates a covering anchor through this event — the verifier reads the
+   * anchor from `pending_anchor_uploads` / `event_log_anchors` keyed on the
+   * row's own sequence, and the anchor obtained by this pass covers the wider
+   * scanned span, so it covers every narrowed row a fortiori.
    */
   async #emitCompacted(input: {
     readonly sessionId: SessionId;
@@ -1983,8 +1958,8 @@ function optionalFiniteNumber(value: unknown): number | undefined {
 }
 
 /**
- * The human-readable one-liner `Spec-006 §Compacted Event Format` requires,
- * generated at compaction time from the original payload.
+ * The human-readable one-liner requires, generated at compaction time from
+ * the original payload.
  *
  * Deliberately composed from the row's SHAPE (category, type, field count, byte
  * count) and never from payload VALUES. A stub carries no PII — `pii_payload`
@@ -2012,9 +1987,9 @@ function buildStubSummary(
 
 /**
  * Canonicalize a stub projection under the append path's
- * `EVENT_CANONICAL_BYTES_MAX` bound (`Spec-006 §Compacted Event Format`,
- * 2026-08-12 amendment), truncating the locally-minted `summary` toward the
- * bound and REFUSING when the projection stays oversized with `summary` gone.
+ * `EVENT_CANONICAL_BYTES_MAX` bound, truncating the
+ * locally-minted `summary` toward the bound and REFUSING when the projection
+ * stays oversized with `summary` gone.
  *
  * Why this can fire at all: the append path enforces the same ceiling on
  * every row it writes, but this module reads rows straight off SQLite — rows
@@ -2022,15 +1997,15 @@ function buildStubSummary(
  * and the preserve-when-present loop copies payload members into the
  * projection verbatim. `summary` is the one member minted HERE, locally
  * generated prose rather than signed origin content, so it is the one member
- * a bound may lawfully shorten (the same reasoning by which `Spec-006
- * §Compacted Event Format` names it the truncation target). Everything else
- * is either a verifier-checked scalar counterpart or preserved attribution
- * content whose loss would strand a later rollback or entitlement check —
- * truncating those would trade an unservable stub for a corrupt one — so a
- * projection still over the bound with an empty summary throws
+ * a bound may lawfully shorten (the same reasoning by which names it the
+ * truncation target). Everything else is either a verifier-checked scalar
+ * counterpart or preserved attribution content whose loss would strand a
+ * later rollback or entitlement check — truncating those would trade an
+ * unservable stub for a corrupt one — so a projection still over the bound
+ * with an empty summary throws
  * {@link CompactionRefusal}: the row stays live, the pass reports the
  * refusal, and the next pass re-encounters it loudly rather than this one
- * signing a stub the Spec-008 backfill seam can never carry.
+ * signing a stub backfill seam can never carry.
  *
  * Truncation is measured on CANONICAL BYTES, never on string length: the
  * overage is a byte figure, and each round cuts at least that many CODE
@@ -2041,7 +2016,7 @@ function buildStubSummary(
  * impossible). Cutting by code points via `Array.from` rather than by UTF-16
  * units is load-bearing, not style: `type` is caller-supplied and embedded in
  * the summary, and a `.slice` that split a surrogate pair would turn a bound
- * violation into a hard `canonicalizeJson` refusal (the RFC 8785 §3.2.2.2
+ * violation into a hard `canonicalizeJson` refusal (the RFC 8785 section 3.2.2.2
  * well-formed-strings guard) on the very next round.
  */
 function canonicalizeBoundedStubProjection(
@@ -2070,7 +2045,7 @@ function canonicalizeBoundedStubProjection(
       `audit-stub projection for event ${eventId} is ${String(canonicalStubBytes.length)} ` +
         `canonical bytes with its summary already emptied — over the ` +
         `${String(EVENT_CANONICAL_BYTES_MAX)}-byte EVENT_CANONICAL_BYTES_MAX bound every ` +
-        `stored payload must satisfy (Spec-006 §Compacted Event Format). Refusing to stub: ` +
+        `stored payload must satisfy. Refusing to stub:` +
         `every remaining member is a verifier-checked scalar or preserved attribution ` +
         `content this pass may not shorten.`,
     );

@@ -18,7 +18,7 @@ PRAGMA busy_timeout = 5000;
 ## Session Events (Plan-001, extended by Plans 006, 008, 015)
 
 ```sql
--- Owner: Plan-001 | Extended by: Plan-006 (event taxonomy + integrity protocol), Plan-008 (received-row provenance marker), Plan-015 (replay cursors)
+-- Owner: Plan-001 | Extended by: Plan-006 (event taxonomy + integrity protocol), Plan-031 (received-row provenance marker), Plan-015 (replay cursors)
 CREATE TABLE session_events (
   id                     TEXT PRIMARY KEY,           -- ULID or UUID
   session_id             TEXT NOT NULL,              -- real session ULID/UUID, or a reserved node-scope sentinel for daemon-scope events (no FK; see Spec-006 §Security Events + Plan-022 D-022-8)
@@ -27,11 +27,11 @@ CREATE TABLE session_events (
   monotonic_ns           INTEGER NOT NULL,           -- process.hrtime.bigint() at emit; within-daemon ordering only (see Spec-015 §Clock Handling, BL-062)
   category               TEXT NOT NULL,              -- e.g. 'run_lifecycle', 'assistant_output', 'tool_activity'
   type                   TEXT NOT NULL,              -- specific event type within category
-  actor                  TEXT,                       -- participant_id or agent_id or NULL for system
+  actor                  TEXT,                       -- user_id or agent_id or NULL for system
   payload                TEXT NOT NULL DEFAULT '{}', -- JSON event payload
-  pii_payload            BLOB,                       -- encrypted per-participant AES-256-GCM (GDPR); NOT hashed/signed
-  pii_participant_id     TEXT,                       -- PII owner stamp (Plan-006 T3.1): the participant whose key encrypts pii_payload. NULL on every row with no pii_payload. Deliberately no NOT NULL, no CHECK, and NO FK to participant_keys — Spec-022 crypto-shred DELETEs the key row, and this stamp must OUTLIVE the key it names so I-006-2-12 can compare it against the same id signed into the canonical payload under PII_PARTICIPANT_ID_PAYLOAD_KEY (divergence is the tamper the read-side reports, not an error state the writer handles). Compaction CLEARS it alongside pii_payload: the audit-stub projection carries no PII and no PII owner, so a surviving stamp would name a participant for a row whose encrypted payload is gone.
-  content_payload        BLOB,                       -- Assistant- and tool-generated prose (Spec-006 §Assistant Output + §Tool Activity): the assistant message body, the reasoning-update body, and tool-call arguments / result / error bodies. Sealed AES-256-GCM under the SESSION-scoped content key, AAD = session_id || event_id, stored iv || ciphertext || tag. That key is NOT derived from anything: it is a random 32-byte DEK looked up by session_id in session_content_keys and unwrapped under the daemon master key (Plan-006 I-006-3-08). Deriving it — the pre-2026-08-30 design — recreates the defect that finding fixed: the next rotate-on-shred destroys the old master and every existing content_payload on the daemon becomes permanently unreadable. NOT hashed/signed: excluded from the canonical bytes exactly as pii_payload is, with contentCiphertextDigest (BLAKE3 over the ciphertext) embedded in the signed payload instead, so the signature commits to these bytes without carrying them and survives their destruction. Deliberately NO owner-stamp sibling column: the sealing key is session-scoped and session_id is already a canonical signed member, so there is nothing left to bind — this is why the durable home for machine-authored prose costs one column and not two. NULL by construction on every audit_integrity and event_maintenance row (Plan-006 §Audit Integrity Invariant: never-compacted, never-shredded categories carry no destroyable content), and NULL on every row whose event type carries no prose. Compaction CLEARS it alongside pii_payload. Distinct from pii_payload, which holds PARTICIPANT-authored text under a per-participant key and is a crypto-shred path; this column is machine-authored session work product and is deliberately NOT a per-participant erasure path (Spec-022 §PII Data Map, the artifact-payload posture).
+  pii_payload            BLOB,                       -- encrypted per-user AES-256-GCM (GDPR); NOT hashed/signed
+  pii_user_id     TEXT,                       -- PII owner stamp (Plan-006 T3.1): the user whose key encrypts pii_payload. NULL on every row with no pii_payload. Deliberately no NOT NULL, no CHECK, and NO FK to user_keys — Spec-022 crypto-shred DELETEs the key row, and this stamp must OUTLIVE the key it names so I-006-2-12 can compare it against the same id signed into the canonical payload under PII_USER_ID_PAYLOAD_KEY (divergence is the tamper the read-side reports, not an error state the writer handles). Compaction CLEARS it alongside pii_payload: the audit-stub projection carries no PII and no PII owner, so a surviving stamp would name a user for a row whose encrypted payload is gone.
+  content_payload        BLOB,                       -- Assistant- and tool-generated prose (Spec-006 §Assistant Output + §Tool Activity): the assistant message body, the reasoning-update body, and tool-call arguments / result / error bodies. Sealed AES-256-GCM under the SESSION-scoped content key, AAD = session_id || event_id, stored iv || ciphertext || tag. That key is NOT derived from anything: it is a random 32-byte DEK looked up by session_id in session_content_keys and unwrapped under the daemon master key (Plan-006 I-006-3-08). Deriving it — the pre-2026-08-30 design — recreates the defect that finding fixed: the next rotate-on-shred destroys the old master and every existing content_payload on the daemon becomes permanently unreadable. NOT hashed/signed: excluded from the canonical bytes exactly as pii_payload is, with contentCiphertextDigest (BLAKE3 over the ciphertext) embedded in the signed payload instead, so the signature commits to these bytes without carrying them and survives their destruction. Deliberately NO owner-stamp sibling column: the sealing key is session-scoped and session_id is already a canonical signed member, so there is nothing left to bind — this is why the durable home for machine-authored prose costs one column and not two. NULL by construction on every audit_integrity and event_maintenance row (Plan-006 §Audit Integrity Invariant: never-compacted, never-shredded categories carry no destroyable content), and NULL on every row whose event type carries no prose. Compaction CLEARS it alongside pii_payload. Distinct from pii_payload, which holds USER-authored text under a per-user key and is a crypto-shred path; this column is machine-authored session work product and is deliberately NOT a per-user erasure path (Spec-022 §PII Data Map, the artifact-payload posture).
   correlation_id         TEXT,                       -- links related events
   causation_id           TEXT,                       -- parent event that caused this one
   version                TEXT NOT NULL DEFAULT '1.0'
@@ -45,8 +45,6 @@ CREATE TABLE session_events (
   -- Compaction (Plan-006 Tier 4 Phase 3): typed retention discriminator + post-compaction stub commitment
   retention_class        TEXT CHECK (retention_class IS NULL OR retention_class = 'audit_stub'), -- NULL = live row (per-row chain-verified); 'audit_stub' = compacted (anchor + stub_signature verified). Column-level CHECK closes the discriminator domain; it is ALTER-ADD-COLUMN-addable (references only this column; NULL-permitting so pre-migration rows pass). Co-presence (audit_stub ⟺ non-NULL stub_signature) is a two-column invariant that cannot be an ALTER-added table-level CHECK without a 12-step table rebuild; it is instead enforced at the verification layer per Spec-006 §Post-Compaction Integrity (NULL stub_signature on an audit_stub row → stub_signature_invalid; surviving scalar columns category/type/actor/occurred_at bound to the signed payload projection → stub_scalar_mismatch on divergence).
   stub_signature         BLOB,                       -- 64 bytes; Ed25519 over canonical_bytes(audit-stub projection); NULL for live rows. Authenticates the post-compaction stub representation per Spec-006 §Post-Compaction Integrity (frozen row_hash/daemon_signature commit only to the now-discarded pre-compaction bytes)
-  -- Received-row provenance (Plan-008 Tier 5 R4 backfill task; Spec-006 §Canonical Serialization Rules, 2026-08-11 amendment)
-  received_from_node_id  TEXT,                       -- Origin NodeId whose roster key verified this row's origin-signed bytes before the local re-sequenced, re-signed append (Spec-008 live relay or peer history backfill). NULL on every origin-authored row. Mirrored into the receiver-signed canonical bytes as the conditional receivedFromNodeId member, so clearing it (to fake origin authorship) or planting it (to dodge the PII binding checks) fails the ordinary signature_mismatch mode while the row is live, and preserved in the signed audit-stub projection after compaction, where rule 4's scalar binding catches a flip as stub_scalar_mismatch — no new verification mode in either retention class. Doubles as the backfill serving selector (a daemon serves only its received_from_node_id IS NULL rows — Spec-008 possession-scoped serving) and as the dispatch key for the fourteenth + fifteenth PII binding checks: the four-state compare on origin rows, a require-absent arm on received rows (both PII columns MUST be NULL — a received row never held the partition, so a planted value is reported unbound, never compared).
   UNIQUE(session_id, sequence)
 );
 
@@ -87,17 +85,17 @@ END;
 
 **Integrity protocol.** `prev_hash`, `row_hash`, and `daemon_signature` are required on every row. For un-compacted rows (`retention_class IS NULL`) the verifier recomputes the per-row chain hash + signature over the live `payload`. After compaction (`retention_class = 'audit_stub'`) the original canonical bytes are discarded, so `row_hash`/`daemon_signature` freeze as a commitment to the (now-gone) pre-compaction state and the **`stub_signature`** authenticates the surviving audit-stub bytes; range existence is additionally witnessed by the covering Merkle anchor in `pending_anchor_uploads` / `event_log_anchors`. The canonical serialization (RFC 8785 JCS) and the full verification order are specified in [Security Architecture § Audit Log Integrity](../security-architecture.md#audit-log-integrity) and [Spec-006 § Integrity Protocol](../../specs/006-session-event-taxonomy-and-audit-log.md#integrity-protocol) + [§ Post-Compaction Integrity](../../specs/006-session-event-taxonomy-and-audit-log.md#post-compaction-integrity). The `idx_session_events_run_terminal_once` partial unique index is the schema-level terminal-exactly-once backstop (Plan-006, campaign B11): a duplicate terminal `run_lifecycle` row for the same `(runId, runVersion)` epoch fails loud with a `UNIQUE` violation; NULL `runId`/`runVersion` rows bypass it (SQLite NULL-distinctness), so the Plan-004 terminal emitter (campaign B9) enforces the non-null-key precondition this index backstops. The engine semantics this backstop relies on are load-bearing, and each is cited to the official SQLite documentation: [expression indexes](https://sqlite.org/expridx.html) (the index keys on `json_extract(payload, …)` expressions), [partial indexes](https://sqlite.org/partialindex.html) (the `WHERE category = 'run_lifecycle' AND type IN (…)` filter), [UNIQUE-index enforcement](https://sqlite.org/lang_createindex.html#unique_indexes), and [NULL-distinctness](https://sqlite.org/nulls.html) (two NULLs are distinct for UNIQUE purposes, so NULL-key rows bypass the constraint). It ships via the additive migration `0006-run-lifecycle-terminal-backstop-index.ts`. The same migration installs the `trg_run_terminal_key_insert` / `trg_run_terminal_key_update` / `trg_run_terminal_key_promote` trigger trio — the projection-level CHECK-equivalent Spec-006's at-most-once-terminal-emission rule assigns to this schema work — which aborts terminal `run_lifecycle` writes whose `runId` / `runVersion` key is NULL **or the wrong storage class** (`json_type` must be `'text'` for `runId` and `'integer'` for `runVersion`, per the `RunId` string / any-run-progression-counter payload contract in [Spec-006 §Run Lifecycle](../../specs/006-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle) — a `"7"`-vs-`7` type-drifted key would otherwise bypass the storage-class-keyed UNIQUE index for exactly the malformed rows the backstop exists to catch). The INSERT leg closes the NULL-distinctness bypass the UNIQUE index cannot catch; the UPDATE leg (`BEFORE UPDATE OF payload, category, type`, keyed off `OLD` so a row that WAS terminal cannot escape by mutation) additionally aborts a **value-changing key rewrite** (`NEW` key `IS NOT` `OLD`, null-safe — a compactor bug rewriting `(R,7)` to another non-null pair would otherwise free the index slot for a duplicate terminal) and a **`category`/`type` de-scope** (flipping a terminal row out of the guarded set is the same escape), enforcing stub-preservation against the compactor across the row's whole retention life. The promote leg closes the inverse escape: an UPDATE re-typing a non-terminal row INTO the guarded set is rejected outright — terminal rows are INSERT-only — so a null-keyed promotion cannot slip past the OLD-keyed update leg and the NULL-distinct UNIQUE index (campaign B11 schema work, hardened by the W2.5 re-audit).
 
-**Content payload (machine-authored prose).** `content_payload` is the durable encrypted home for the prose the _machine_ side of a session produces — the assistant message body, the reasoning-update body, and tool-call arguments / result / error bodies. It exists because [ADR-029](../../decisions/029-canonical-transcript-is-authoritative.md) rules the daemon's canonical transcript authoritative for the content of a provider session, and a projection rebuilt from `session_events` can only be authoritative for content the rows actually hold. It is a **sibling of `pii_payload`, not a replacement**: the two columns partition one row's text by authorship, `pii_payload` carrying participant-authored text under that participant's own key (a crypto-shred path) and `content_payload` carrying machine-authored session work product under a session-scoped stored key (deliberately not a per-participant erasure path — [Spec-022 §PII Data Map](../../specs/022-data-retention-and-gdpr.md#pii-data-map), the artifact-payload posture). A row may carry both, one, or neither.
+**Content payload (machine-authored prose).** `content_payload` is the durable encrypted home for the prose the _machine_ side of a session produces — the assistant message body, the reasoning-update body, and tool-call arguments / result / error bodies. It exists because [ADR-029](../../decisions/029-canonical-transcript-is-authoritative.md) rules the daemon's canonical transcript authoritative for the content of a provider session, and a projection rebuilt from `session_events` can only be authoritative for content the rows actually hold. It is a **sibling of `pii_payload`, not a replacement**: the two columns partition one row's text by authorship, `pii_payload` carrying user-authored text under that user's own key (a crypto-shred path) and `content_payload` carrying machine-authored session work product under a session-scoped stored key (deliberately not a per-user erasure path — [Spec-022 §PII Data Map](../../specs/022-data-retention-and-gdpr.md#pii-data-map), the artifact-payload posture). A row may carry both, one, or neither.
 
-**Sealing.** The session content key is a **random 32-byte AES-256 key generated once per session and stored wrapped**, never a value derived from the daemon master key. It lives in `session_content_keys` below as an XChaCha20-Poly1305 envelope under that master key — byte-for-byte the `participant_keys.encrypted_key_blob` custody shape, over the master key whose ladder is [Spec-022 §Daemon Master Key](../../specs/022-data-retention-and-gdpr.md#daemon-master-key). **Stored-and-wrapped rather than derived is load-bearing, not stylistic** (2026-08-30, Codex PR #383 round 1): [Spec-022 §Retention Policies](../../specs/022-data-retention-and-gdpr.md)' rotate-on-shred generates a fresh master `M'`, re-wraps the stored key rows, and destroys `M`. A key _derived_ from `M` cannot be recovered once `M` is gone, so every existing body on the daemon would become permanently unreadable the first time any unrelated participant exercised erasure — destroying co-owned session work product that the erasure request has no claim on, and doing it silently. A stored key is re-wrappable, so it survives rotation unchanged; only its envelope changes. Sealing is AES-256-GCM with a fresh 96-bit IV per write and AAD = `session_id || event_id`, the same record-binding `pii_payload` uses, so a ciphertext cannot be replayed onto another row or another session.
+**Sealing.** The session content key is a **random 32-byte AES-256 key generated once per session and stored wrapped**, never a value derived from the daemon master key. It lives in `session_content_keys` below as an XChaCha20-Poly1305 envelope under that master key — byte-for-byte the `user_keys.encrypted_key_blob` custody shape, over the master key whose ladder is [Spec-022 §Daemon Master Key](../../specs/022-data-retention-and-gdpr.md#daemon-master-key). **Stored-and-wrapped rather than derived is load-bearing, not stylistic** (2026-08-30, Codex PR #383 round 1): [Spec-022 §Retention Policies](../../specs/022-data-retention-and-gdpr.md)' rotate-on-shred generates a fresh master `M'`, re-wraps the stored key rows, and destroys `M`. A key _derived_ from `M` cannot be recovered once `M` is gone, so every existing body on the daemon would become permanently unreadable the first time any unrelated user exercised erasure — destroying co-owned session work product that the erasure request has no claim on, and doing it silently. A stored key is re-wrappable, so it survives rotation unchanged; only its envelope changes. Sealing is AES-256-GCM with a fresh 96-bit IV per write and AAD = `session_id || event_id`, the same record-binding `pii_payload` uses, so a ciphertext cannot be replayed onto another row or another session.
 
 **Bound and truncation.** Unlike `pii_payload`, whose size is bounded in practice by human typing, `content_payload` admits machine-scale text: a tool result is routinely a file dump or a command's whole stdout. It is therefore bounded — `CONTENT_PAYLOAD_PLAINTEXT_MAX = 262144` bytes (256 KiB) of UTF-8 plaintext per row — and an over-bound body is **truncated at a codepoint boundary, never refused and never dropped**, because refusing the append would lose the turn entirely and dropping it would misreport that the turn never happened. Truncation is recorded, never silent: the signed `payload` carries `contentTruncated: true` and keeps `contentLength` at the **pre-truncation** byte length, so the size of what was dropped stays recoverable from the audit log, and no invisible or zero-width sentinel is written into the text ([Spec-005 §Required Behavior](../../specs/005-provider-driver-contract-and-capabilities.md#required-behavior)'s prohibition, applied unchanged). The full pre-truncation bytes remain reachable for `≤ 7` days in the bounded-retention diagnostic tier (`driver_raw_events` / `tool_traces`) and nowhere after that; the canonical prefix is what outlives them. The per-row bound governs one row only — a session's aggregate is governed by the existing [Spec-006 §Event Compaction Policy](../../specs/006-session-event-taxonomy-and-audit-log.md#event-compaction-policy) triggers, and **those triggers must count this column's bytes** (2026-08-30, Codex PR #383 round 1). The shipped compactor sums `payload` + `pii_payload` only, in both of its byte-accounting statements — the per-session `live_bytes` summary and the storage cutoff's running total — so without this obligation a content-bearing session compacts on the 50,000-event count trigger alone: at 256 KiB per row the store can reach roughly 12.5 GiB before the count fires, twenty-five times past the 500 MB threshold the policy claims. Both statements therefore add `COALESCE(LENGTH(content_payload), 0)`. Naming the two rather than saying _every accounting query_ is deliberate — it makes the obligation checkable by count. The thresholds themselves do not change; the triggers stay independent and a pass compacts their union.
 
-**Compaction.** Compaction CLEARS `content_payload` alongside `pii_payload`, for the same reason: the audit-stub projection is a non-PII, non-content commitment and a surviving ciphertext would outlive the payload that describes it. The `contentCiphertextDigest` member does **not** survive, and does not need a stub field of its own: it is a commitment to bytes this same act destroys, and a commitment to nothing verifies nothing. Its two **descriptive** siblings do survive — the stub preserves `contentLength` and `contentTruncated` verbatim whenever the source payload carries them (2026-08-30, Codex PR #383 round 1). The distinction is the principle, not a compromise: an audit stub exists to record _what_ was destroyed, so how much the machine said and whether the log ever held all of it are exactly its business, while a digest of the destroyed bytes is not. Without them the pre-truncation-length guarantee two paragraphs above would silently expire at compaction. They ride the conditional-stub-member shape `channelId` already uses — payload-derived, not durable columns — so the [§Post-Compaction Integrity](../../specs/006-session-event-taxonomy-and-audit-log.md#post-compaction-integrity) scalar binding is untouched. That disposition is stated rather than left implicit — the corpus paid a dated amendment (2026-07-27) for leaving the `pii_participant_id` compaction case implicit, and this column does not repeat it. Post-compaction integrity is unaffected: `row_hash` / `daemon_signature` were already frozen commitments to the discarded pre-compaction bytes, and `stub_signature` authenticates the surviving projection.
+**Compaction.** Compaction CLEARS `content_payload` alongside `pii_payload`, for the same reason: the audit-stub projection is a non-PII, non-content commitment and a surviving ciphertext would outlive the payload that describes it. The `contentCiphertextDigest` member does **not** survive, and does not need a stub field of its own: it is a commitment to bytes this same act destroys, and a commitment to nothing verifies nothing. Its two **descriptive** siblings do survive — the stub preserves `contentLength` and `contentTruncated` verbatim whenever the source payload carries them (2026-08-30, Codex PR #383 round 1). The distinction is the principle, not a compromise: an audit stub exists to record _what_ was destroyed, so how much the machine said and whether the log ever held all of it are exactly its business, while a digest of the destroyed bytes is not. Without them the pre-truncation-length guarantee two paragraphs above would silently expire at compaction. They ride the conditional-stub-member shape `channelId` already uses — payload-derived, not durable columns — so the [§Post-Compaction Integrity](../../specs/006-session-event-taxonomy-and-audit-log.md#post-compaction-integrity) scalar binding is untouched. That disposition is stated rather than left implicit — the corpus paid a dated amendment (2026-07-27) for leaving the `pii_user_id` compaction case implicit, and this column does not repeat it. Post-compaction integrity is unaffected: `row_hash` / `daemon_signature` were already frozen commitments to the discarded pre-compaction bytes, and `stub_signature` authenticates the surviving projection.
 
-**Relay disposition — the column is node-local.** `content_payload` is **never relayed and never backfilled**, exactly as `pii_payload` is never relayed (2026-08-30, Codex PR #383 round 1). It follows by construction rather than by a new filter: Spec-008 §Peer History Backfill On Join (V1) carries only the origin daemon's **canonical bytes**, and this column is excluded from those bytes. A receiving daemon therefore holds the row's signed `contentCiphertextDigest`, `contentLength`, and `contentTruncated` — which ride the canonical payload — with the ciphertext itself absent, and its `content_payload` MUST be NULL. That is the same digest-present-ciphertext-gone shape the received-row provenance amendment already settled for `pii_payload`, so it takes the same two-arm resolution rather than a new one: the sixteenth verification mode dispatches on `received_from_node_id`, comparing on origin rows and **requiring absence** on received rows ([Spec-006 §Canonical Serialization Rules](../../specs/006-session-event-taxonomy-and-audit-log.md#canonical-serialization-rules)).
+**Relay disposition — the column is node-local.** `content_payload` is **never relayed**, exactly as `pii_payload` is never relayed (2026-08-30, Codex PR #383 round 1). It follows by construction rather than by a new filter: the column is excluded from the canonical bytes, so no path that carries a row's signed bytes carries its machine-authored body ([Spec-006 §Canonical Serialization Rules](../../specs/006-session-event-taxonomy-and-audit-log.md#canonical-serialization-rules)).
 
-**What a peer's projection shows, stated rather than implied.** On a node that received a row rather than authoring it, the body is not available, and the canonical-transcript fold reports `'turn_content_unavailable'` for that turn. This is a **named residual, not a solved problem**: it is bounded to multi-node sessions, it is honest at the wire (the peer knows a body existed, how long it was, and that it cannot read it, rather than seeing a turn that looks empty), and the amendment that closes it is the one that distributes the session content key. That amendment is now _possible_ — and this is the second reason the key is stored rather than derived: a stored key is a distributable object that the established pairwise ciphertext envelope can carry as an application payload, exactly as [Spec-014](../../specs/014-artifacts-files-and-attachments.md)'s artifact-key attestations already travel, whereas a key derived from a node's own master key is by construction underivable anywhere else. Registering that distribution leg — its ordering against row append, its behaviour for a row whose key has not yet arrived, and its mid-session-join semantics — is owed by the swap that ships it, and is deliberately not sketched here: a mechanism named without a producer is the defect this PR's own follow-up commit was paid to fix.
+**A second node holding a body is unreachable in V1.** A session executes on exactly one bound runtime node ([Spec-031 §Required Behavior](../../specs/031-remote-control.md#required-behavior)), and every row in that session's log is authored and sealed by that node. No other daemon holds a row of this session, so there is no projection anywhere that would show a body it cannot read, and the sealing key never needs to leave the node that minted it. The stored-rather-than-derived key remains a distributable object should a later design ever need it to be one, but nothing in V1 distributes it and no distribution leg is sketched here.
 
 ### Session Content Keys (Plan-006)
 
@@ -105,20 +103,20 @@ END;
 -- Owner: Plan-006
 CREATE TABLE session_content_keys (
   session_id         TEXT NOT NULL PRIMARY KEY,
-  encrypted_key_blob BLOB NOT NULL,           -- XChaCha20-Poly1305-wrapped AES-256 session content key under the daemon master key. 24-byte random nonce, wire: nonce || ciphertext || tag, AAD = session_id || "ais.session-content-wrap.v1" || key_version — the participant_keys.encrypted_key_blob custody shape, domain-separated by its own info string
+  encrypted_key_blob BLOB NOT NULL,           -- XChaCha20-Poly1305-wrapped AES-256 session content key under the daemon master key. 24-byte random nonce, wire: nonce || ciphertext || tag, AAD = session_id || "ais.session-content-wrap.v1" || key_version — the user_keys.encrypted_key_blob custody shape, domain-separated by its own info string
   key_version        INTEGER NOT NULL DEFAULT 1,
   created_at         TEXT NOT NULL,
   rotated_at         TEXT
 );
 ```
 
-The wrapped home of the key that seals every `content_payload` in one session — deliberately a mirror of `participant_keys` rather than a new custody idea, so the machinery that already re-wraps that table covers this one. Keyed by session, because the body is session work product co-owned by every member and has no participant to key on ([Spec-022 §PII Data Map](../../specs/022-data-retention-and-gdpr.md#pii-data-map), the artifact-payload posture). The row is created lazily on the session's first content-bearing append, so a session that never runs an agent stores no key.
+The wrapped home of the key that seals every `content_payload` in one session — deliberately a mirror of `user_keys` rather than a new custody idea, so the machinery that already re-wraps that table covers this one. Keyed by session, because the body is machine-authored session work product rather than anything a person typed, so there is no per-user erasure axis to key it on ([Spec-022 §PII Data Map](../../specs/022-data-retention-and-gdpr.md#pii-data-map), the artifact-payload posture). The row is created lazily on the session's first content-bearing append, so a session that never runs an agent stores no key.
 
-**The wrap binds session and key version, and the AAD is what does it** (2026-08-30, Codex PR #383 round 3). The envelope is XChaCha20-Poly1305 with a 24-byte random nonce and `AAD = session_id || "ais.session-content-wrap.v1" || key_version`, the exact form [Spec-022 §Participant Keys](../../specs/022-data-retention-and-gdpr.md#participant-keys) uses for `participant_keys` (`participant_id || "ais.master-wrap.v1" || key_version`), with its own info string so the two wrap domains can never be confused. Without the AAD the envelope authenticates on the master key **alone**, so two rows' `encrypted_key_blob` values could be swapped, or one replayed under a different `key_version`, and both would unwrap cleanly — the wrong key would then simply fail to open that session's bodies, surfacing as ordinary `'turn_content_unavailable'` while the ciphertext-digest verifier stayed green, because the event ciphertext was never touched. That is a silent key-substitution attack wearing the costume of a routine unreadable turn, which is precisely the confusion the sixteenth verification mode exists to prevent on the event side. Binding `key_version` additionally forecloses rollback to a superseded wrap. Plan-006 T3.6 owns the format and **must test both negatives** — a blob moved to another session's row and a blob replayed under another `key_version` each fail the unwrap — the obligation [Plan-022 I-022-9](../../plans/022-data-retention-and-gdpr.md#invariants) carries for the participant wrap.
+**The wrap binds session and key version, and the AAD is what does it** (2026-08-30, Codex PR #383 round 3). The envelope is XChaCha20-Poly1305 with a 24-byte random nonce and `AAD = session_id || "ais.session-content-wrap.v1" || key_version`, the exact form [Spec-022 §User Keys](../../specs/022-data-retention-and-gdpr.md#user-keys) uses for `user_keys` (`user_id || "ais.master-wrap.v1" || key_version`), with its own info string so the two wrap domains can never be confused. Without the AAD the envelope authenticates on the master key **alone**, so two rows' `encrypted_key_blob` values could be swapped, or one replayed under a different `key_version`, and both would unwrap cleanly — the wrong key would then simply fail to open that session's bodies, surfacing as ordinary `'turn_content_unavailable'` while the ciphertext-digest verifier stayed green, because the event ciphertext was never touched. That is a silent key-substitution attack wearing the costume of a routine unreadable turn, which is precisely the confusion the sixteenth verification mode exists to prevent on the event side. Binding `key_version` additionally forecloses rollback to a superseded wrap. Plan-006 T3.6 owns the format and **must test both negatives** — a blob moved to another session's row and a blob replayed under another `key_version` each fail the unwrap — the obligation [Plan-022 I-022-9](../../plans/022-data-retention-and-gdpr.md#invariants) carries for the user wrap.
 
-**It joins rotate-on-shred's existing transaction rather than following it.** [Spec-022](../../specs/022-data-retention-and-gdpr.md)' rotation step 2 re-wraps `participant_keys` inside a single `BEGIN EXCLUSIVE` alongside the `rotation_in_progress` sentinel, and its guarantee is that _either every row is under `M'` after commit or every row remains under `M`_. This table is re-wrapped **in that same transaction**, not in a step of its own: a separate re-wrap pass would falsify that all-or-nothing claim, leaving a crash window in which participant keys are under `M'` while content keys are still under `M` and the destroyed master is the only thing that could read them. The inner AES-256 key is unchanged by rotation — only the envelope moves — so no ciphertext is rewritten and no body is re-sealed.
+**It joins rotate-on-shred's existing transaction rather than following it.** [Spec-022](../../specs/022-data-retention-and-gdpr.md)' rotation step 2 re-wraps `user_keys` inside a single `BEGIN EXCLUSIVE` alongside the `rotation_in_progress` sentinel, and its guarantee is that _either every row is under `M'` after commit or every row remains under `M`_. This table is re-wrapped **in that same transaction**, not in a step of its own: a separate re-wrap pass would falsify that all-or-nothing claim, leaving a crash window in which user keys are under `M'` while content keys are still under `M` and the destroyed master is the only thing that could read them. The inner AES-256 key is unchanged by rotation — only the envelope moves — so no ciphertext is rewritten and no body is re-sealed.
 
-**Erasure disposition.** This key is **not** a per-participant erasure path and destroying it is not a shred: it seals content that every session member co-owns. It dies with its session — at session purge, when the last of the session's rows is compacted away, or with daemon master-key destruction — and the row carries `key_version` / `rotated_at` so a future rotation is representable. V1 does **not** re-key on membership change; a removed member is cut off by the relay ceasing to address them rather than by cryptographic revocation, which is a forward-secrecy guarantee this corpus defers to its MLS era ([ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md)) and does not claim here.
+**Erasure disposition.** This key is **not** a per-user erasure path and destroying it is not a shred: it seals the session's own machine-authored work product. It dies with its session — at session purge, when the last of the session's rows is compacted away, or with daemon master-key destruction — and the row carries `key_version` / `rotated_at` so a future rotation is representable. Revoking one of the user's devices does **not** re-key the session: the revoked device is cut off because its identity key stops authenticating and the relay stops carrying its frames, not because anything it already holds becomes unreadable. Cryptographic revocation of already-delivered content is a forward-secrecy guarantee this corpus defers to its MLS era ([ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md)) and does not claim here.
 
 ## Session Snapshots (Plan-001, extended by Plans 006, 015)
 
@@ -146,7 +144,7 @@ CREATE INDEX idx_session_snapshots_session ON session_snapshots(session_id, as_o
 
 ```sql
 -- Owner: Plan-004 (the Spec-004 2026-08-18 admission-path + queue-PII amendment adds the
--- pii_payload / pii_participant_id pair and admitting_intervention_id)
+-- pii_payload / pii_user_id pair and admitting_intervention_id)
 CREATE TABLE queue_items (
   id              TEXT PRIMARY KEY,
   session_id      TEXT NOT NULL,
@@ -155,29 +153,29 @@ CREATE TABLE queue_items (
                   CHECK(state IN ('queued', 'admitted', 'superseded', 'canceled', 'expired')),
   priority        INTEGER NOT NULL DEFAULT 0, -- higher = more urgent
   payload         TEXT NOT NULL DEFAULT '{}', -- JSON: NON-PII members only — context, metadata, and the
-                                              -- non-PII identifiers. A participant-authored send's body
+                                              -- non-PII identifiers. A user-authored send's body
                                               -- never rides this column (it encrypts into pii_payload;
                                               -- Spec-004 §Required Behavior at-rest split, 2026-08-18
                                               -- amendment). Orchestration-authored content (a workflow
                                               -- phase input, an orchestrated child-run prompt) is session
-                                              -- work product, not participant PII, and stays here in
+                                              -- work product, not user PII, and stays here in
                                               -- plaintext with both PII columns NULL — the system arm has
-                                              -- no participant DEK to encrypt under (CP-004-10's
+                                              -- no user DEK to encrypt under (CP-004-10's
                                               -- NULL-for-system actor). Every drain-selection field is its
                                               -- own column (state, priority, target_run_id, channel_id,
                                               -- session_id), so the split costs no queryability.
-  pii_payload     BLOB,                       -- encrypted per-participant AES-256-GCM via Plan-006's
-                                              -- PiiEncryptor (CP-006-1): the participant-authored send
+  pii_payload     BLOB,                       -- encrypted per-user AES-256-GCM via Plan-006's
+                                              -- PiiEncryptor (CP-006-1): the user-authored send
                                               -- body (Plan-004 T1.4, Spec-004 2026-08-18 amendment).
                                               -- Same-key parity with session_events.pii_payload and
                                               -- interventions.pii_payload, so one Plan-022 Path-1 key
                                               -- deletion shreds every copy of the same send identically
                                               -- (Spec-022 §PII Data Map row). NULL on rows carrying no
-                                              -- participant-authored body.
-  pii_participant_id TEXT,                    -- PII owner stamp: the authoring participant whose key
+                                              -- user-authored body.
+  pii_user_id TEXT,                    -- PII owner stamp: the authoring user whose key
                                               -- encrypts pii_payload — the erasure/export selector this
                                               -- table otherwise lacks entirely (no other column names a
-                                              -- participant, so without it the GDPR fan-out cannot address
+                                              -- user, so without it the GDPR fan-out cannot address
                                               -- these rows); NULL on rows carrying no PII leg
   target_run_id   TEXT,                       -- run-bound admission arm (Plan-004 T1.4, 2026-08-16
                                               -- rewind-hardening amendment round-2 fold): NULL on
@@ -188,7 +186,7 @@ CREATE TABLE queue_items (
                                               -- never converting into a new run
   admitting_intervention_id TEXT,             -- row-anchored linkage to the interventions row whose
                                               -- admission created this item (Plan-004 T1.4, Spec-004
-                                              -- 2026-08-18 amendment): NULL on ordinary participant sends,
+                                              -- 2026-08-18 amendment): NULL on ordinary user sends,
                                               -- stamped beside target_run_id in T3.17's single durable
                                               -- transaction. T3.5's drain reads it to resolve the
                                               -- intervention that admitted the item — a run accumulates
@@ -201,11 +199,11 @@ CREATE TABLE queue_items (
 CREATE INDEX idx_queue_items_session_state ON queue_items(session_id, state);
 CREATE INDEX idx_queue_items_target_run ON queue_items(target_run_id) WHERE target_run_id IS NOT NULL;
 CREATE INDEX idx_queue_items_channel ON queue_items(channel_id) WHERE channel_id IS NOT NULL;
--- No index on pii_participant_id, matching the interventions.pii_participant_id sibling: the Plan-022
+-- No index on pii_user_id, matching the interventions.pii_user_id sibling: the Plan-022
 -- Path-1 erasure/export selector is a V1.1 maintenance scan, never a hot path, and both tables carry the
 -- stamp unindexed for the same reason.
 
--- Owner: Plan-004 (campaign B9 adds rejection_reason; the Spec-004 2026-08-16 rewind-hardening amendment adds the pii_payload / pii_participant_id pair; the Spec-004/Spec-012 2026-08-18 admission-path amendment adds origin; the Spec-004 2026-09-06 typed-composite-guard amendment adds rejection_guard, this table's first post-ship column and therefore Plan-004's own next-ordinal migration rather than an edit of the shipped 0015) | Extended by: Spec-005 campaign B3 (client_idempotency_key intervention dedupe); Spec-004 campaign B2 (rollback type — targetPosition rides the payload JSON, no new column)
+-- Owner: Plan-004 (campaign B9 adds rejection_reason; the Spec-004 2026-08-16 rewind-hardening amendment adds the pii_payload / pii_user_id pair; the Spec-004/Spec-012 2026-08-18 admission-path amendment adds origin; the Spec-004 2026-09-06 typed-composite-guard amendment adds rejection_guard, this table's first post-ship column and therefore Plan-004's own next-ordinal migration rather than an edit of the shipped 0015) | Extended by: Spec-005 campaign B3 (client_idempotency_key intervention dedupe); Spec-004 campaign B2 (rollback type — targetPosition rides the payload JSON, no new column)
 CREATE TABLE interventions (
   id                     TEXT PRIMARY KEY,
   target_run_id          TEXT NOT NULL,
@@ -215,11 +213,11 @@ CREATE TABLE interventions (
                          CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired')),
   payload                TEXT NOT NULL DEFAULT '{}', -- JSON: type-specific NON-PII fields only — neither a rollback's replacementSend body nor a steer's directive text rides this column (both encrypt into pii_payload; Spec-004 §Required Behavior at-rest split, 2026-08-16 amendment as widened to steer content 2026-08-18)
   expected_run_version   INTEGER NOT NULL,           -- MANDATORY fail-closed comparand (Spec-004 §Interfaces And Contracts / Plan-004 D-004-2)
-  client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (participant client or daemon system-origination); replay-or-conflict intervention dedupe (Spec-005 §Required Behavior, campaign B3)
-  pii_payload            BLOB,                       -- encrypted per-participant AES-256-GCM via Plan-006's PiiEncryptor (CP-006-1): the participant-authored intervention body — the rollback replacementSend body (Plan-004 T1.4, Spec-004 2026-08-16 amendment) and, from the 2026-08-18 amendment, the steer directive text; same-key parity with session_events.pii_payload, so the Plan-022 Path-1 key deletion shreds every copy identically; NULLed by the daemon retention pass past the Spec-022 90-day full-retention bound (Spec-022 §PII Data Map row — no digest binding attaches, unlike session_events)
-  pii_participant_id     TEXT,                       -- PII owner stamp: the requesting participant whose key encrypts pii_payload; NULL on rows carrying no PII leg
-  origin                 TEXT NOT NULL               -- daemon-resolved admission-path discriminator (D-004-4 / D-012-20, 2026-08-18): 'participant' for a request admitted over an identity-carrying transport, 'system' for the in-process orchestration entrypoint below the wire authz boundary (CP-004-10's budget / idle / moderation interventions). NO DEFAULT by design — a default would fail OPEN for the system path, so every insert site declares.
-                         CHECK(origin IN ('participant', 'system')),
+  client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (user client or daemon system-origination); replay-or-conflict intervention dedupe (Spec-005 §Required Behavior, campaign B3)
+  pii_payload            BLOB,                       -- encrypted per-user AES-256-GCM via Plan-006's PiiEncryptor (CP-006-1): the user-authored intervention body — the rollback replacementSend body (Plan-004 T1.4, Spec-004 2026-08-16 amendment) and, from the 2026-08-18 amendment, the steer directive text; same-key parity with session_events.pii_payload, so the Plan-022 Path-1 key deletion shreds every copy identically; NULLed by the daemon retention pass past the Spec-022 90-day full-retention bound (Spec-022 §PII Data Map row — no digest binding attaches, unlike session_events)
+  pii_user_id     TEXT,                       -- PII owner stamp: the requesting user whose key encrypts pii_payload; NULL on rows carrying no PII leg
+  origin                 TEXT NOT NULL               -- daemon-resolved admission-path discriminator (D-004-4 / D-012-20, 2026-08-18): 'user' for a request admitted over an identity-carrying transport, 'system' for the in-process orchestration entrypoint below the wire authz boundary (CP-004-10's budget / idle / moderation interventions). NO DEFAULT by design — a default would fail OPEN for the system path, so every insert site declares.
+                         CHECK(origin IN ('user', 'system')),
   result                 TEXT,                       -- JSON: outcome details
   rejection_reason       TEXT,                       -- machine-readable rejected cause (driver.capability_unsupported foremost) — replay-durable: the wire contract forbids result on rejected, so an idempotent replay reconstructs rejectionReason from this column (Plan-004 T1.4/T3.12, campaign B9)
   -- Plan-004 EXTEND of its own SHIPPED CREATE (additive nullable, landing by its own next-ordinal
@@ -261,14 +259,14 @@ CREATE TABLE interventions (
   -- is not part of the contract (the 0017-command-receipt-mcp-task-handle.ts convention).
   --
   -- No Spec-022 reciprocal is owed: the value is a daemon-minted member of a closed four-literal
-  -- vocabulary, carries no participant content, and identifies no participant, so it takes no PII
+  -- vocabulary, carries no user content, and identifies no user, so it takes no PII
   -- data-map row, no export disposition, and no erasure selector -- unlike the pii_payload /
-  -- pii_participant_id pair above.
+  -- pii_user_id pair above.
   rejection_guard        TEXT                        -- NULL default; which composite guard refused
                          CHECK(rejection_guard IS NULL
                                OR (type = 'rollback' AND state = 'rejected'
                                    AND rejection_guard IN ('no-active-turn', 'no-pending-send',
-                                                           'participant-authored-target',
+                                                           'user-authored-target',
                                                            'resumable-target'))),
   created_at             TEXT NOT NULL,
   resolved_at            TEXT,
@@ -297,7 +295,7 @@ CREATE TABLE command_receipts (
   -- manual_reconcile_only halt. Spec-015 recovery reads this handle and polls tasks/get + tasks/result
   -- instead of halting. Landed by Plan-005 T5.1, which also activated the T3.13 receipt-write seam, in
   -- packages/runtime-daemon/src/migrations/0017-command-receipt-mcp-task-handle.ts#COMMAND_RECEIPT_MCP_TASK_HANDLE_MIGRATION_SQL
-  -- (see also cross-plan-dependencies.md §1 command_receipts EXTEND row). Bounded like every persisted
+  -- (see also cross-plan-dependencies.md command_receipts EXTEND row). Bounded like every persisted
   -- provider-declared string (the runtime_bindings defense-in-depth convention): the taskId is untrusted
   -- remote-peer output, so the CHECK bounds the SQLite-expressible part and the T5.1 write seam mirrors
   -- the same 256 — in CODE POINTS, since length(X) returns "the number of Unicode code points (not bytes)
@@ -471,37 +469,20 @@ The build-metadata rejection above is grounded in the SemVer specification itsel
 -- kSecAttrAccessibleWhenUnlockedThisDeviceOnly on macOS / CRED_TYPE_GENERIC
 -- CRED_PERSIST_LOCAL_MACHINE on Windows / Secret Service via libsecret +
 -- kwallet6 + keyutils fallback on Linux). Public key is registered in the
--- session participant roster at join time per security-architecture.md
--- §Per-Event Daemon Signature. Sealed-key storage
+-- session verification-key roster when the daemon establishes the session,
+-- per security-architecture.md §Per-Event Daemon Signature. Sealed-key storage
 -- lives in local SQLite (NOT shared-Postgres sessions) per ADR-004 SQLite-
 -- local-state boundary — daemon-private secrets are per-machine.
 -- rotated_at is reserved and unwritten in V1: no daemon signing-key rotation
 -- ceremony is specified anywhere (a different-key registration is refused per
 -- security-architecture.md §Per-Event Daemon Signature); only a future
 -- rotation extension writes it.
--- Store lineage (Plan-008 EXTEND, CP-008-15 — 2026-08-12, Codex PR #323 round 3):
--- one row per NodeId this store has ever been registered under, so the
--- Spec-008 §Peer History Backfill serving selector can durably label
--- origin-authored (received_from_node_id NULL) rows in a carried-forward
--- store. At succession the registering daemon stamps the predecessor row's
--- superseded_at_sequence with the store's highest session_events.sequence
--- and inserts its own active (NULL-watermark) row: a NULL-marker row's
--- origin is the lineage row whose watermark window covers its sequence,
--- the open tail belonging to the active NodeId. The predecessor's
--- sealed_private_key is dead weight after carry (OS-keystore sealing is
--- per-machine, deliberately unrecoverable elsewhere); its public_key and
--- watermark are the durable lineage record. Additive migration: node_id
--- backfills to the daemon's current NodeId, PK widens (session_id) ->
--- (session_id, node_id) via SQLite table rebuild.
 CREATE TABLE daemon_signing_keys (
-  session_id          TEXT NOT NULL,
-  node_id             TEXT NOT NULL,         -- NodeId this row's keypair was registered under (CP-008-15)
+  session_id          TEXT PRIMARY KEY,
   public_key          BLOB NOT NULL,         -- Ed25519 32-byte public key
   sealed_private_key  BLOB NOT NULL,         -- Ed25519 private key sealed via OS keystore master key
   created_at          TEXT NOT NULL,
-  rotated_at          TEXT,                  -- reserved; see rotation note above
-  superseded_at_sequence INTEGER,            -- NULL = active row; else the succession watermark (CP-008-15)
-  PRIMARY KEY (session_id, node_id)
+  rotated_at          TEXT                   -- reserved; see rotation note above
 );
 
 -- Owner: Plan-006 | Migration: 0008-pending-anchor-uploads.ts (Tier 4 Phase 3)
@@ -684,7 +665,7 @@ CREATE UNIQUE INDEX idx_branch_contexts_worktree_workspace ON branch_contexts(wo
 -- column except checkout_root shipped in the version-4 four-table CREATE (Plan-010 T1.3, PR #253); checkout_root
 -- lands via the Phase-3 table-rebuild migration (create successor -> copy omitting the column -> drop -> rename ->
 -- recreate the index; `lang_altertable` §8 — Plan-010 T3.2, its only writer; 2026-08-17 amendment, shape corrected at
--- the NS-69 PR's round-1 fold), after which PRAGMA table_info order matches this block exactly.
+-- the PR's round-1 fold), after which PRAGMA table_info order matches this block exactly.
 CREATE TABLE run_execution_contexts (
   run_id             TEXT PRIMARY KEY,
   session_id         TEXT NOT NULL,                  -- event-sourced session id (no FK, matching session_id columns elsewhere)
@@ -692,7 +673,7 @@ CREATE TABLE run_execution_contexts (
   execution_mode     TEXT NOT NULL
                      CHECK(execution_mode IN ('read-only', 'branch', 'worktree', 'ephemeral clone')),
   execution_root     TEXT NOT NULL,
-  checkout_root      TEXT NOT NULL,                  -- the enclosing working tree's top level for execution_root, captured at context creation by the Plan-010 T3.2 gate from workspaces.metadata.checkoutRoot (absent on pre-amendment workspace rows → derived at the gate from the just-materialized execution root's top level, the carrier healed — never canonical_root, the bind-time checkout; Codex PR #346 round 2): the durable normalized root CP-010-15 restore consumes, so rollback survives the turn deleting a nested execution_root. Same durable-capture-at-context-creation pattern as git_common_dir, and likewise mode-agnostic — read-only rows carry it too, because the CP-010-4 checkout-keyed run tenancy and the I-010-14 gate are both mode-agnostic. Under CP-010-12 the caller reads it from this row (beside execution_root and execution_mode) and passes it to the pure capture/restore callees, which never read workspace state themselves. Added by the Phase-3 table-rebuild migration that lands T3.2, not by the version-4 four-table CREATE (2026-08-17 amendment; shape corrected at the NS-69 PR's round-1 fold — the ALTER documentation refuses ADD COLUMN ... NOT NULL without a default unconditionally, and the empty-table allowance the bundled engine exhibits is undocumented, so the rebuild's documented semantics replace it): the successor table declares this column with no sentinel default, and the copy step omits it, so any pre-existing row fails the engine-enforced NOT NULL at copy time rather than back-filling a lie — vacuously clean in practice, since no writer of this table has ever shipped and every deployed instance holds it row-less. Declared here in its LOGICAL position beside execution_root, which after the rebuild is also its physical PRAGMA table_info position — no retention_class-style CID-last divergence; the migration-shape column pin asserts the identical order
+  checkout_root TEXT NOT NULL, -- the enclosing working tree's top level for execution_root, captured at context creation by the Plan-010 T3.2 gate from workspaces.metadata.checkoutRoot (absent on pre-amendment workspace rows → derived at the gate from the just-materialized execution root's top level, the carrier healed — never canonical_root, the bind-time checkout; Codex PR #346 round 2): the durable normalized root CP-010-15 restore consumes, so rollback survives the turn deleting a nested execution_root. Same durable-capture-at-context-creation pattern as git_common_dir, and likewise mode-agnostic — read-only rows carry it too, because the CP-010-4 checkout-keyed run tenancy and the I-010-14 gate are both mode-agnostic. Under CP-010-12 the caller reads it from this row (beside execution_root and execution_mode) and passes it to the pure capture/restore callees, which never read workspace state themselves. Added by the Phase-3 table-rebuild migration that lands T3.2, not by the version-4 four-table CREATE (2026-08-17 amendment; shape corrected at the PR's round-1 fold — the ALTER documentation refuses ADD COLUMN... NOT NULL without a default unconditionally, and the empty-table allowance the bundled engine exhibits is undocumented, so the rebuild's documented semantics replace it): the successor table declares this column with no sentinel default, and the copy step omits it, so any pre-existing row fails the engine-enforced NOT NULL at copy time rather than back-filling a lie — vacuously clean in practice, since no writer of this table has ever shipped and every deployed instance holds it row-less. Declared here in its LOGICAL position beside execution_root, which after the rebuild is also its physical PRAGMA table_info position — no retention_class-style CID-last divergence; the migration-shape column pin asserts the identical order
   git_common_dir     TEXT NOT NULL,                  -- `git rev-parse --git-common-dir` (absolute) captured at context creation: the surviving canonical git dir for snapshot-ref ops, so Plan-010 T5.3 ref pruning outlives a worktree retirement of execution_root (worktree mode → main repo git dir; branch/read-only → <root>/.git; ephemeral clone → the clone's own git dir, refs sharing the clone's disposal lifecycle)
   worktree_id        TEXT REFERENCES worktrees(id),
   ephemeral_clone_id TEXT REFERENCES ephemeral_clones(id),
@@ -752,7 +733,7 @@ CREATE INDEX idx_pr_preparations_branch ON pr_preparations(branch_context_id);
 
 ```sql
 -- Owner: Plan-014
--- Tier-7 audit (NS-19): + subject, size_bytes, annotations realize the OCI manifest envelope (D-014-1, D-014-2);
+-- Tier-7 audit: + subject, size_bytes, annotations realize the OCI manifest envelope (D-014-1, D-014-2);
 --   + replication_status realizes the Spec-014 §Fallback Behavior manifest-first replication surface (A-014-3) — nullable;
 --   the multi-state CHECK the audit deferred (anti-fabrication) arrived 2026-07-08: the cross-node relay
 --   amendment spec-names the full value set (Spec-014 §Cross-Node Artifact Relay (V1)); see note below;
@@ -761,7 +742,7 @@ CREATE TABLE artifact_manifests (
   id                 TEXT PRIMARY KEY,
   session_id         TEXT NOT NULL,
   run_id             TEXT,
-  created_by         TEXT,                       -- participant_id of the publishing caller; NULL for a daemon-produced artifact with no attributable caller. The permission-matrix Delete own-artifacts scope evaluates this column FAIL-CLOSED: NULL matches no collaborator, so only the owner role deletes it (PR #341 round 2 — a rule the store carries no data to evaluate is prose, not policy)
+  created_by         TEXT,                       -- user_id of the publishing caller; NULL for a daemon-produced artifact with no attributable caller. The permission-matrix Delete own-artifacts scope evaluates this column FAIL-CLOSED: a NULL matches no caller, so an unattributed artifact is never reached through that scope (PR #341 round 2 — a rule the store carries no data to evaluate is prose, not policy)
   artifact_type      TEXT NOT NULL              -- Spec-014 §Interfaces And Contracts discriminator (D-014-4)
                      CHECK(artifact_type IN ('file', 'diff', 'summary', 'log', 'design', 'workflow_output')),
   subject            TEXT REFERENCES artifact_manifests(id),  -- OCI `subject`: NULL for originals; a derivative (redacted/summarized shareable form) points to its source manifest, never an in-place UPDATE of the original (I-014-2, Spec-014 §State And Data Implications, A-014-4)
@@ -774,7 +755,7 @@ CREATE TABLE artifact_manifests (
   annotations        TEXT NOT NULL DEFAULT '{}', -- OCI `annotations`: JSON-encoded string→string map (first-class OCI manifest property, not freeform `metadata`) — D-014-1, D-014-2
   replication_status TEXT                        -- A-014-3 surface; value set spec-named by the 2026-07-08 relay amendment (mirrors ArtifactManifest.replicationStatus?: pending_replication while payload transfer is pending; pinned once every chunk is relay-acknowledged — the offline-availability guarantee attaches only to a LIVE relay pin (state = 'pinned' AND expires_at > now(), Spec-014 §TTL sweep disposition (V1), bounded 2026-08-26) and ends at the artifact's retention TTL, so this row can still read pinned after the relay has released the bytes, which is exactly why the fetch-path write-back below exists; over_cap / quota_exceeded = honest publisher-local degradation; expired = payload not obtainable from the relay, written on THIS node by its own fetch path on EITHER refusal that establishes it — artifact.relay_expired (410) at the mint, a chunk GET, or a resume; or a zero-row artifact.no_access_key (404), which is where a fetch lands once a GC path has removed the blob row and its recipient rows have cascaded away with it — refcount-zero delete, watermark eviction, or a TTL tombstone already purged past relay_tombstone_grace, while a TTL-swept blob still inside that grace takes the typed 410 instead (narrowed 2026-08-26) — because the relay's TTL sweep and watermark eviction run past the node boundary and emit no event, so a recipient learns of expiry only by fetching; every node holds its own row under manifest-first replication and its daemon is that row's only writer, the transition applies only to a pinned row, is idempotent, and an ordinary re-publish re-pin returns it to pinned, so the column tracks availability rather than latching (writer named 2026-08-17 by the ingest-protocol hardening amendment — the value was already in the CHECK below and had no recipient-side writer, which left the unresolved-attachment marker's expired cause unreachable). NULL = local-only artifact with no replication surface.
                      CHECK(replication_status IN ('pending_replication', 'pinned', 'over_cap', 'quota_exceeded', 'expired')),
-  relay_cek_ciphertext BLOB,                  -- publisher-retained CEK for the relay pin, wrapped by the Spec-022 daemon master key; NULL for local-only artifacts, set at the first relay-bound publish — before any pin: a solo-session publish uploads nothing and stays pending_replication yet retains the CEK, so the first re-publish performs the initial pin under the SAME CEK. Re-publish re-wraps this SAME CEK for new recipients (the pinned ciphertext is under it; the relay holds only recipient-wrapped copies) — without it the publisher could not extend late-join access except by re-encrypting + re-uploading under a fresh key. Deliberately not a per-participant erasure target: dies with the manifest row or the daemon master key (Spec-022 §PII Data Map artifact-payload posture). Spec-014 Publish step 1.
+  relay_cek_ciphertext BLOB,                  -- publisher-retained CEK for the relay pin, wrapped by the Spec-022 daemon master key; NULL for local-only artifacts, set at the first relay-bound publish — before any pin: a solo-session publish uploads nothing and stays pending_replication yet retains the CEK, so the first re-publish performs the initial pin under the SAME CEK. Re-publish re-wraps this SAME CEK for new recipients (the pinned ciphertext is under it; the relay holds only recipient-wrapped copies) — without it the publisher could not extend late-join access except by re-encrypting + re-uploading under a fresh key. Deliberately not a per-user erasure target: dies with the manifest row or the daemon master key (Spec-022 §PII Data Map artifact-payload posture). Spec-014 Publish step 1.
   metadata           TEXT NOT NULL DEFAULT '{}', -- JSON: freeform daemon-side provenance/media-type/etc. — distinct from the OCI `annotations` map (own column above)
   created_at         TEXT NOT NULL,
   CHECK(subject IS NULL OR subject <> id)        -- I-014-2: a derivative points to a *distinct* source manifest, never itself (no self-referential subject; same guard pattern as run_links parent<>child)
@@ -802,35 +783,35 @@ CREATE INDEX idx_artifact_payload_refs_manifest ON artifact_payload_refs(manifes
 CREATE INDEX idx_artifact_payload_refs_storage_path ON artifact_payload_refs(storage_path);
 
 -- Owner: Plan-014 (2026-07-09 cross-node relay amendment)
--- The daemon-local durable artifact-encryption keypair — one row per participant on this node
+-- The daemon-local durable artifact-encryption keypair — one row per user on this node
 -- (node scoping is the database itself: each daemon holds its own store). Relay CEKs are wrapped
 -- to this key, NEVER to the ADR-010 session-ephemeral X25519 keys (those are zeroed at session
 -- end — wrapping to them would orphan every relay-held CEK on the first restart and silently
 -- void the offline-fetch guarantee). The private half is wrapped by the Spec-022 daemon master
--- key (same custody + backup-exclusion posture as participant_keys); the public half is announced
+-- key (same custody + backup-exclusion posture as user_keys); the public half is announced
 -- in-session as an Ed25519-identity-signed attestation (Spec-014 Publish step 3). Rotation
 -- RETIRES rather than replaces: a rotated-out key stays in this table (retired_at set, never used
 -- for new wraps) until every artifact_relay_recipients row bearing its thumbprint is delivered or
 -- TTL-expired — bounded by the 30 d 'extended'-tier ceiling — because a within-TTL pinned blob
 -- wrapped to it must stay fetchable while the publisher is offline. Hence one row per
--- (participant, key_thumbprint), not one per participant; exactly one active row per participant.
--- Erasure is participant-keyed, so it destroys active and retired keys together (Spec-022 Path 1).
+-- (user, key_thumbprint), not one per user; exactly one active row per user.
+-- Erasure is user-keyed, so it destroys active and retired keys together (Spec-022 Path 1).
 CREATE TABLE artifact_encryption_keys (
-  participant_id        TEXT NOT NULL,
+  user_id        TEXT NOT NULL,
   key_thumbprint        TEXT NOT NULL,   -- matches artifact_relay_recipients.key_thumbprint (post-restart/rotation key selection)
   encrypted_private_key BLOB NOT NULL,   -- X25519 private half, master-key-wrapped (nonce || ciphertext || tag — the D-022-2 wire form)
   public_key            BLOB NOT NULL,   -- X25519 public half (attested to session peers)
   created_at            TEXT NOT NULL,
   retired_at            TEXT,            -- NULL = the active key; non-NULL = retained for undelivered/within-TTL blobs only
-  PRIMARY KEY (participant_id, key_thumbprint)
+  PRIMARY KEY (user_id, key_thumbprint)
 );
 
--- Exactly one active (non-retired) artifact key per participant on this node.
+-- Exactly one active (non-retired) artifact key per user on this node.
 CREATE UNIQUE INDEX idx_artifact_encryption_keys_active
-  ON artifact_encryption_keys(participant_id) WHERE retired_at IS NULL;
+  ON artifact_encryption_keys(user_id) WHERE retired_at IS NULL;
 ```
 
-> **Tier-7 audit (NS-19) — ratified design (Plan-014 → `approved`).** `artifact_manifests.subject` (OCI `subject`, self-referential FK — derivative-not-mutation per I-014-2, guarded by a table-level `CHECK(subject IS NULL OR subject <> id)` so no manifest is its own subject — a derivative must point to a _distinct_ source, the same self-reference guard pattern as `run_links` parent≠child), `artifact_manifests.size_bytes` (OCI manifest-descriptor `size`), and `artifact_manifests.annotations` (OCI `annotations`, a first-class string→string map per the [OCI image-manifest spec](https://github.com/opencontainers/image-spec/blob/main/manifest.md)) realize the OCI envelope per D-014-1. **`content_hash`/`size_bytes` are `NOT NULL`:** a content-addressed manifest's `digest` is intrinsic to its identity (I-014-1), and each producer (Plan-014 Task 2 AttachmentIngest, Task 3 ArtifactPublish) computes the SHA-256 + byte length from its own payload and inserts its manifest with both columns set in the same transaction as the payload-ref — the two are independent producers, each writing its own manifest (so the `artifactId` AttachmentIngest returns resolves from the ingest-written manifest, not a later publish), so neither is ever NULL and no payload-less manifest is ever read — this is 1:1 with the **required** `digest`/`size` fields on the `ArtifactManifest` wire shape ([api-payload-contracts.md](../contracts/api-payload-contracts.md)). **D-014-2 (OCI `annotations` reciprocity):** `annotations` is its own column rather than riding inside `metadata` JSON, so the at-rest shape is 1:1 with the wire — `ArtifactReadResponse.annotations` is a field distinct from `metadata` in [api-payload-contracts.md](../contracts/api-payload-contracts.md) — and consistent with `subject`/`size_bytes` getting dedicated columns; `metadata` stays purely freeform. `artifact_manifests.replication_status` (A-014-3) realizes the `Spec-014 §Fallback Behavior` manifest-first replication surface — the column exists (spec-required: shared artifacts replicate manifest-first with deferred payload, `Spec-014 §Resolved Questions and V1 Scope Decisions` + `Spec-014 §Fallback Behavior`), nullable, and V1 writes the spec-named `pending_replication` while a shared artifact awaits payload transfer; it surfaces on the wire as the optional `ArtifactManifest.replicationStatus?` field (1:1 at-rest↔wire). It carried **no multi-state `CHECK`** at the audit: `Spec-014 §Fallback Behavior` named only `pending_replication` ("or equivalent"), so terminal/failed values were a deferred owner refinement — none was invented there (anti-fabrication). This schema edit + the `api-payload-contracts.md` artifact-wire edit + Plan-014 CP-014-1 landed as one ratified bundle in the NS-19 audit swap. **(2026-07-08: the deferred refinement arrived — the [Spec-014 §Cross-Node Artifact Relay (V1)](../../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) amendment spec-names the full value set `pending_replication | pinned | over_cap | quota_exceeded | expired`, so the CHECK above now exists; the wire mirror stays `ArtifactManifest.replicationStatus?`.)**
+> **Tier-7 audit — ratified design (Plan-014 → `approved`).** `artifact_manifests.subject` (OCI `subject`, self-referential FK — derivative-not-mutation per I-014-2, guarded by a table-level `CHECK(subject IS NULL OR subject <> id)` so no manifest is its own subject — a derivative must point to a _distinct_ source, the same self-reference guard pattern as `run_links` parent≠child), `artifact_manifests.size_bytes` (OCI manifest-descriptor `size`), and `artifact_manifests.annotations` (OCI `annotations`, a first-class string→string map per the [OCI image-manifest spec](https://github.com/opencontainers/image-spec/blob/main/manifest.md)) realize the OCI envelope per D-014-1. **`content_hash`/`size_bytes` are `NOT NULL`:** a content-addressed manifest's `digest` is intrinsic to its identity (I-014-1), and each producer (Plan-014 Task 2 AttachmentIngest, Task 3 ArtifactPublish) computes the SHA-256 + byte length from its own payload and inserts its manifest with both columns set in the same transaction as the payload-ref — the two are independent producers, each writing its own manifest (so the `artifactId` AttachmentIngest returns resolves from the ingest-written manifest, not a later publish), so neither is ever NULL and no payload-less manifest is ever read — this is 1:1 with the **required** `digest`/`size` fields on the `ArtifactManifest` wire shape ([api-payload-contracts.md](../contracts/api-payload-contracts.md)). **D-014-2 (OCI `annotations` reciprocity):** `annotations` is its own column rather than riding inside `metadata` JSON, so the at-rest shape is 1:1 with the wire — `ArtifactReadResponse.annotations` is a field distinct from `metadata` in [api-payload-contracts.md](../contracts/api-payload-contracts.md) — and consistent with `subject`/`size_bytes` getting dedicated columns; `metadata` stays purely freeform. `artifact_manifests.replication_status` (A-014-3) realizes the `Spec-014 §Fallback Behavior` manifest-first replication surface — the column exists (spec-required: shared artifacts replicate manifest-first with deferred payload, `Spec-014 §Resolved Questions and V1 Scope Decisions` + `Spec-014 §Fallback Behavior`), nullable, and V1 writes the spec-named `pending_replication` while a shared artifact awaits payload transfer; it surfaces on the wire as the optional `ArtifactManifest.replicationStatus?` field (1:1 at-rest↔wire). It carried **no multi-state `CHECK`** at the audit: `Spec-014 §Fallback Behavior` named only `pending_replication` ("or equivalent"), so terminal/failed values were a deferred owner refinement — none was invented there (anti-fabrication). This schema edit + the `api-payload-contracts.md` artifact-wire edit + Plan-014 CP-014-1 landed as one ratified bundle in the audit swap. **(2026-07-08: the deferred refinement arrived — the [Spec-014 §Cross-Node Artifact Relay (V1)](../../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) amendment spec-names the full value set `pending_replication | pinned | over_cap | quota_exceeded | expired`, so the CHECK above now exists; the wire mirror stays `ArtifactManifest.replicationStatus?`.)**
 
 ---
 
@@ -845,7 +826,7 @@ CREATE TABLE approval_requests (
   session_id            TEXT NOT NULL,        -- owning session (Spec-012 line 58; Spec-006 §Approval Flow payload; projection key);
                                               -- no local FK target (sessions are control-plane rows per ADR-004)
   run_id                TEXT NOT NULL,        -- no REFERENCES: run state is event-sourced (ADR-017; interventions precedent)
-  requested_by          TEXT NOT NULL,        -- requester actor (participant or agent actor id; Spec-012 line 58)
+  requested_by          TEXT NOT NULL,        -- requester actor (user or agent actor id; Spec-012 line 58)
   category              TEXT NOT NULL
                         CHECK(category IN (
                           'tool_execution', 'file_write', 'network_access', 'destructive_git',
@@ -893,7 +874,7 @@ CREATE TABLE approval_resolutions (
                                               -- A D-012-19 multi-principal conjunction spans one such row per member
                                               -- request; the wait-for-all aggregate settles across rows, never as
                                               -- multiple resolutions on one row
-  approver_id              TEXT NOT NULL,     -- participant recorded as approver (D-012-12: node-owner binding on the
+  approver_id              TEXT NOT NULL,     -- user recorded as approver (D-012-12: node-owner binding on the
                                               -- local socket; verified PASETO sub on authenticated surfaces; Spec-012 line 97)
   decision                 TEXT NOT NULL
                            CHECK(decision IN ('approved', 'rejected')),
@@ -910,9 +891,9 @@ CREATE TABLE approval_resolutions (
 CREATE TABLE remembered_approval_rules (
   id                         TEXT PRIMARY KEY,
   session_id                 TEXT NOT NULL,   -- rules are session-scoped (Spec-012 line 82)
-  participant_id             TEXT NOT NULL,   -- the GRANTOR (approver who opted in); audit key AND the actor-axis
+  user_id             TEXT NOT NULL,   -- the GRANTOR (approver who opted in); audit key AND the actor-axis
                                               -- match key: a rule matches only when the adjudicating turn's effective principal equals it, so
-                                              -- one participant's grant never authorizes another's direction (D-012-10; Spec-012 §Required Behavior).
+                                              -- one user's grant never authorizes another's direction (D-012-10; Spec-012 §Required Behavior).
                                               -- Grantor = beneficiary by construction: the request was addressed to that principal (D-012-12)
   node_id                    TEXT NOT NULL,   -- executing node whose trust envelope the grant rides; node-trust-invalidation key (Spec-012 line 91)
   run_id                     TEXT,            -- originating run; NOT NULL iff scope_kind = 'run' (the Spec-012 line 111 'this run only' binding)
@@ -926,7 +907,7 @@ CREATE TABLE remembered_approval_rules (
   scope_kind                 TEXT NOT NULL
                              CHECK(scope_kind IN ('run', 'session')),  -- explicit enum, not free-form (Spec-012 line 118)
   scope_pattern              TEXT,            -- resource-matching pattern within the kind boundary; NULL = category-wide within
-                                              -- (session, node, participant, kind); semantics are category-derived (D-012-10)
+                                              -- (session, node, user, kind); semantics are category-derived (D-012-10)
   granted_at                 TEXT NOT NULL,
   revoked_at                 TEXT,            -- nullable; set when rule is invalidated
   invalidation_trigger       TEXT
@@ -936,7 +917,7 @@ CREATE TABLE remembered_approval_rules (
   CHECK((scope_kind = 'run') = (run_id IS NOT NULL))             -- run-kind rules bind to their originating run
 );
 
-CREATE INDEX idx_remembered_rules_participant ON remembered_approval_rules(participant_id, category);
+CREATE INDEX idx_remembered_rules_user ON remembered_approval_rules(user_id, category);
 CREATE INDEX idx_remembered_rules_session ON remembered_approval_rules(session_id) WHERE revoked_at IS NULL;
 CREATE INDEX idx_remembered_rules_node ON remembered_approval_rules(node_id) WHERE revoked_at IS NULL;
 ```
@@ -986,8 +967,8 @@ CREATE TABLE cross_node_dispatch_approvals (
   session_id            TEXT NOT NULL,
   local_role            TEXT NOT NULL
                         CHECK(local_role IN ('caller', 'target')),
-  caller_participant_id TEXT NOT NULL,
-  target_participant_id TEXT NOT NULL,
+  caller_user_id TEXT NOT NULL,
+  target_user_id TEXT NOT NULL,
   target_node_id        TEXT NOT NULL,
   capability            TEXT NOT NULL,
   request_body_hash     TEXT NOT NULL CHECK(request_body_hash GLOB 'b3:*'),
@@ -1107,7 +1088,7 @@ CREATE TABLE workflow_definitions (
                        CHECK(schema_version GLOB '[0-9]*.[0-9]*'),
   definition_body      TEXT NOT NULL,                  -- JSON (canonicalized per RFC 8785); full author-supplied definition
   created_at           TEXT NOT NULL,
-  created_by           TEXT,                           -- participant_id
+  created_by           TEXT,                           -- user_id
   -- Only 'shared' is daemon-wide and therefore ref-free; 'session' and 'project'
   -- REQUIRE a ref. Mirrors the Spec-028 binding CHECK idiom as defense in depth
   -- behind the schema-layer validation.
@@ -1140,7 +1121,7 @@ CREATE TABLE workflow_versions (
   definition_body      TEXT NOT NULL,                  -- JSON (canonicalized per RFC 8785); THIS version's full definition body — name, entry record, and the phase-definitions array (each phase entry carrying the per-phase dependsOn list and join-phase parallelJoinPolicy when the definition declares explicit topology, Spec-017 §Graph model — nodes, ports, and edges (SA-32)) — the BLAKE3 preimage of content_hash, so a version read serves name/entry/phaseDefinitions parsed from this body and read -> export reproduces the canonical bytes verbatim (PR #318 review round: was phase_definitions, which stored the array alone and left later versions' name/entry unreconstructable against content_hash; not a duplicate of workflow_definitions.definition_body above — that row carries the definition's current author-supplied body, each version row snapshots its own immutable bytes)
   author_note          TEXT,                           -- opt-in changelog message
   created_at           TEXT NOT NULL,
-  created_by           TEXT,                           -- participant_id
+  created_by           TEXT,                           -- user_id
   UNIQUE(definition_id, version_number),
   UNIQUE(definition_id, content_hash)                  -- per-definition: one definition never stores the same bytes as two versions; copy-on-write and project -> shared promotion reuse a hash under a new definition id by design (Spec-017 §Definition scope in the builder (SA-36))
 );
@@ -1176,11 +1157,11 @@ CREATE TABLE workflow_runs (
   failure_reason            TEXT,                       -- null unless status in ('failed','cancelled')
   failure_detail            TEXT,                       -- JSON; includes cancellation_reason per Spec-017 §Workflow Timeline Integration
   created_at                TEXT NOT NULL,
-  -- participant_id at V1: the entry node's only V1 start mode is manual, so every run
-  -- is participant-initiated (Spec-017 §Entry node and the V1 trigger surface (SA-37)).
+  -- user_id at V1: the entry node's only V1 start mode is manual, so every run
+  -- is user-initiated (Spec-017 §Entry node and the V1 trigger surface (SA-37)).
   -- The 'or trigger' arm is the forward-compatible hook for a firing engine, which V1
   -- does not ship — the persistence seam exists so no schema change is owed when one does.
-  created_by                TEXT,                       -- participant_id or trigger
+  created_by                TEXT,                       -- user_id or trigger
   CHECK(phase_transitions_count <= max_phase_transitions),
   CHECK(max_duration_ms > 0)
 );
@@ -1392,7 +1373,7 @@ CREATE TABLE workflow_gate_resolutions (
   -- Resolution
   outcome                    TEXT NOT NULL
                              CHECK(outcome IN ('approved','rejected','timed_out','withdrawn','admin_override')),
-  approver_id                TEXT,                      -- participant_id; NULL for 'timed_out' / 'withdrawn'
+  approver_id                TEXT,                      -- user_id; NULL for 'timed_out' / 'withdrawn'
   approver_capability        TEXT,                      -- Cedar capability string (C-14 typed capability)
   resolved_at                TEXT NOT NULL,
   -- Policy-at-resolution-time (C-13: replays use at-execution-time policy, not current)
@@ -1402,7 +1383,7 @@ CREATE TABLE workflow_gate_resolutions (
   prev_hash                  BLOB NOT NULL,             -- 32 bytes; row_hash of prior entry; zero-filled at sequence=1
   row_hash                   BLOB NOT NULL,             -- 32 bytes; BLAKE3(prev_hash || JCS-canonical(row_body))
   daemon_signature           BLOB NOT NULL,             -- 64 bytes; Ed25519 over same canonical bytes
-  approver_signature         BLOB,                      -- 64 bytes; Ed25519 from approver's participant key; NULL for 'timed_out'
+  approver_signature         BLOB,                      -- 64 bytes; Ed25519 from approver's user key; NULL for 'timed_out'
   UNIQUE(workflow_run_id, sequence)
 );
 
@@ -1480,14 +1461,14 @@ CREATE INDEX idx_workflow_channels_channel ON workflow_channels(channel_id);
 CREATE TABLE human_phase_form_state (
   id                      TEXT PRIMARY KEY,           -- ULID
   phase_run_id            TEXT NOT NULL REFERENCES workflow_phase_states(id),
-  participant_id          TEXT NOT NULL,              -- who's drafting (implicit-claim on first open)
+  user_id          TEXT NOT NULL,              -- who's drafting (implicit-claim on first open)
   draft_json              TEXT NOT NULL DEFAULT '{}', -- JSON: current form field values
   draft_version           INTEGER NOT NULL DEFAULT 1, -- bumps on each autosave tick; optimistic-concurrency token
   submitted               INTEGER NOT NULL DEFAULT 0  -- boolean; 1 terminal
                           CHECK(submitted IN (0,1)),
   created_at              TEXT NOT NULL,
   updated_at              TEXT NOT NULL,
-  UNIQUE(phase_run_id, participant_id)                -- one draft slot per (phase, participant)
+  UNIQUE(phase_run_id, user_id)                -- one draft slot per (phase, user)
 );
 
 CREATE INDEX idx_human_phase_form_state_phase ON human_phase_form_state(phase_run_id)
@@ -1502,7 +1483,7 @@ CREATE INDEX idx_human_phase_form_state_phase ON human_phase_form_state(phase_ru
 
 ## Channel and Orchestration Tables (Plan-016)
 
-DDL hardened during the Tier-6 plan-readiness audit (D-016-15, A-016-5, A-016-2, D-016-5). Posture per table: `channels`, `run_links`, and `agents` are events-canonical projections ([ADR-017](../../decisions/017-shared-event-sourcing-scope.md) Option B — rebuilt from `session_events` on replay; never written except by the projector); `session_budgets` is row-canonical daemon configuration (the `queue_items` posture — mutated by wire method, not evented). `channels` holds **user-created channels only**: the bootstrap main channel is projected (`deriveMainChannelId(sessionId)` per CP-002-7) and never has a row or a `channel.created` event — so it carries no `ChannelConfig`, and its audience is always `participants` and never restrictable (D-016-21). The 2026-08-03 channel-audience amendment is additive on `channels` and adds **no table**: `audience` rides the existing `config` JSON value.
+DDL hardened during the Tier-6 plan-readiness audit (D-016-15, A-016-5, A-016-2, D-016-5). Posture per table: `channels`, `run_links`, and `agents` are events-canonical projections ([ADR-017](../../decisions/017-shared-event-sourcing-scope.md) Option B — rebuilt from `session_events` on replay; never written except by the projector); `session_budgets` is row-canonical daemon configuration (the `queue_items` posture — mutated by wire method, not evented). `channels` holds **user-created channels only**: the bootstrap main channel is projected (`deriveMainChannelId(sessionId)`, `packages/contracts/src/channel-id.ts`) and never has a row or a `channel.created` event — so it carries no `ChannelConfig`. Channels carry agents, not people: a channel restricts which sidekicks take turns in it, never who may read it.
 
 ```sql
 -- Owner: Plan-016 (events-canonical projection of channel.* events; user channels only — main is synthesized)
@@ -1512,7 +1493,7 @@ CREATE TABLE channels (
   name            TEXT,
   state           TEXT NOT NULL DEFAULT 'active'
                   CHECK(state IN ('active', 'muted', 'archived')),
-  config          TEXT NOT NULL DEFAULT '{}', -- JSON: ChannelConfig (packages/contracts/src/orchestration.ts) — {turnPolicy?, roundRobinOrder?, moderation?, audience?, turnsPerAgent?}; `audience` needs no column (D-016-21); `turnsPerAgent` likewise rides the JSON (D-016-23, 2026-08-11)
+  config          TEXT NOT NULL DEFAULT '{}', -- JSON: ChannelConfig (packages/contracts/src/orchestration.ts) — {turnPolicy?, roundRobinOrder?, moderation?, turnsPerAgent?}; `turnsPerAgent` needs no column and rides the JSON (D-016-23, 2026-08-11)
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL
 );
@@ -1532,10 +1513,10 @@ CREATE TABLE run_links (
   invoking_principal_id TEXT,                           -- 2026-08-26 (CP-030-4 ⇄ CP-016-19): the effective principal of the TURN that
                                                         -- issued a peer-invocation tool call, stamped daemon-side at child-run creation.
                                                         -- NULL for links created by any other path (a workflow-spawned child, a handoff).
-                                                        -- A peer-invoked child run has no intervention row and no participant who "started"
+                                                        -- A peer-invoked child run has no intervention row and no user who "started"
                                                         -- it, and chaining to the parent RUN cannot answer which turn called: a run
                                                         -- accumulates turns from several principals and recency is not a correct answer.
-                                                        -- Daemon-resolved, never client-supplied (the NS-71 durable-recording discipline).
+                                                        -- Daemon-resolved, never client-supplied (the durable-recording discipline).
   created_at        TEXT NOT NULL,
   PRIMARY KEY (child_run_id),                       -- single-parent: a child run links to exactly one parent (one-shot run.queued linkage D-016-3; depth-1 model)
   CHECK (parent_run_id <> child_run_id)             -- a run never parents itself
@@ -1666,7 +1647,7 @@ CREATE TABLE session_budgets (
 -- One in-flight goal mutation per session (goal ops serialize per session).
 CREATE TABLE session_goal_dispatch_intents (
   session_id  TEXT PRIMARY KEY,
-  payload     TEXT NOT NULL,   -- JSON {op: 'set'|'clear', goal?: {text}, prior: {goal?}, actor: ParticipantId, legs: {bindingId: 'pending'|'acked'|'failed'|'reverted'}} — everything the crash-recovered session.goal_* event and the revert path need (Spec-006 envelope attribution; last-write-wins revert)
+  payload     TEXT NOT NULL,   -- JSON {op: 'set'|'clear', goal?: {text}, prior: {goal?}, actor: UserId, legs: {bindingId: 'pending'|'acked'|'failed'|'reverted'}} — everything the crash-recovered session.goal_* event and the revert path need (Spec-006 envelope attribution; last-write-wins revert)
   created_at  TEXT NOT NULL
 );
 ```
@@ -1679,8 +1660,8 @@ Per-run token (`tokenLimit`, default 100000) and idle-timeout (`idleTimeoutMs`, 
 
 ```sql
 -- Owner: Spec-022 (GDPR)
-CREATE TABLE participant_keys (
-  participant_id    TEXT NOT NULL PRIMARY KEY,
+CREATE TABLE user_keys (
+  user_id    TEXT NOT NULL PRIMARY KEY,
   encrypted_key_blob BLOB NOT NULL,           -- XChaCha20-Poly1305-wrapped AES-256 content key (wire: nonce || ciphertext || tag) — Plan-022 D-022-2
   key_version       INTEGER NOT NULL DEFAULT 1,
   created_at        TEXT NOT NULL,
@@ -1714,7 +1695,7 @@ CREATE INDEX idx_recovery_checkpoints_session ON recovery_checkpoints(session_id
 
 ## Diagnostic Bucket Tables (Plan-020)
 
-Runtime-local bounded-retention buckets for raw diagnostic material. These tables may contain PII-bearing content, command output, tool traces, or reasoning detail, so they stay in Local SQLite only, default-deny outbound telemetry, and support both TTL expiry and participant-scoped purge per Spec-022 shred fan-out Path 3.
+Runtime-local bounded-retention buckets for raw diagnostic material. These tables may contain PII-bearing content, command output, tool traces, or reasoning detail, so they stay in Local SQLite only, default-deny outbound telemetry, and support both TTL expiry and user-scoped purge per Spec-022 shred fan-out Path 3.
 
 ```sql
 -- Owner: Plan-020
@@ -1722,7 +1703,7 @@ CREATE TABLE driver_raw_events (
   id                  TEXT PRIMARY KEY,
   session_id          TEXT NOT NULL,
   run_id              TEXT,
-  participant_id      TEXT,
+  user_id      TEXT,
   source_ref          TEXT,
   content_kind        TEXT NOT NULL DEFAULT 'driver_raw_event',
   bucket_payload      BLOB NOT NULL,
@@ -1735,8 +1716,8 @@ CREATE TABLE driver_raw_events (
 );
 
 CREATE INDEX idx_driver_raw_events_session ON driver_raw_events(session_id, created_at);
-CREATE INDEX idx_driver_raw_events_participant ON driver_raw_events(participant_id)
-  WHERE participant_id IS NOT NULL AND purged_at IS NULL;
+CREATE INDEX idx_driver_raw_events_user ON driver_raw_events(user_id)
+  WHERE user_id IS NOT NULL AND purged_at IS NULL;
 CREATE INDEX idx_driver_raw_events_expiry ON driver_raw_events(expires_at)
   WHERE purged_at IS NULL;
 
@@ -1745,7 +1726,7 @@ CREATE TABLE command_output (
   id                  TEXT PRIMARY KEY,
   session_id          TEXT NOT NULL,
   run_id              TEXT,
-  participant_id      TEXT,
+  user_id      TEXT,
   source_ref          TEXT,
   content_kind        TEXT NOT NULL DEFAULT 'command_output',
   bucket_payload      BLOB NOT NULL,
@@ -1758,8 +1739,8 @@ CREATE TABLE command_output (
 );
 
 CREATE INDEX idx_command_output_session ON command_output(session_id, created_at);
-CREATE INDEX idx_command_output_participant ON command_output(participant_id)
-  WHERE participant_id IS NOT NULL AND purged_at IS NULL;
+CREATE INDEX idx_command_output_user ON command_output(user_id)
+  WHERE user_id IS NOT NULL AND purged_at IS NULL;
 CREATE INDEX idx_command_output_expiry ON command_output(expires_at)
   WHERE purged_at IS NULL;
 
@@ -1768,7 +1749,7 @@ CREATE TABLE tool_traces (
   id                  TEXT PRIMARY KEY,
   session_id          TEXT NOT NULL,
   run_id              TEXT,
-  participant_id      TEXT,
+  user_id      TEXT,
   source_ref          TEXT,
   content_kind        TEXT NOT NULL DEFAULT 'tool_trace',
   bucket_payload      BLOB NOT NULL,
@@ -1781,8 +1762,8 @@ CREATE TABLE tool_traces (
 );
 
 CREATE INDEX idx_tool_traces_session ON tool_traces(session_id, created_at);
-CREATE INDEX idx_tool_traces_participant ON tool_traces(participant_id)
-  WHERE participant_id IS NOT NULL AND purged_at IS NULL;
+CREATE INDEX idx_tool_traces_user ON tool_traces(user_id)
+  WHERE user_id IS NOT NULL AND purged_at IS NULL;
 CREATE INDEX idx_tool_traces_expiry ON tool_traces(expires_at)
   WHERE purged_at IS NULL;
 
@@ -1791,7 +1772,7 @@ CREATE TABLE reasoning_detail (
   id                  TEXT PRIMARY KEY,
   session_id          TEXT NOT NULL,
   run_id              TEXT,
-  participant_id      TEXT,
+  user_id      TEXT,
   source_ref          TEXT,
   content_kind        TEXT NOT NULL DEFAULT 'reasoning_detail',
   bucket_payload      BLOB NOT NULL,
@@ -1804,8 +1785,8 @@ CREATE TABLE reasoning_detail (
 );
 
 CREATE INDEX idx_reasoning_detail_session ON reasoning_detail(session_id, created_at);
-CREATE INDEX idx_reasoning_detail_participant ON reasoning_detail(participant_id)
-  WHERE participant_id IS NOT NULL AND purged_at IS NULL;
+CREATE INDEX idx_reasoning_detail_user ON reasoning_detail(user_id)
+  WHERE user_id IS NOT NULL AND purged_at IS NULL;
 CREATE INDEX idx_reasoning_detail_expiry ON reasoning_detail(expires_at)
   WHERE purged_at IS NULL;
 ```
@@ -1916,7 +1897,7 @@ CREATE TABLE provider_accounts (
   account_id            TEXT NOT NULL PRIMARY KEY,  -- daemon-minted opaque immutable identity; never derived from credential material (Spec-029 §Account identity and credential generation). `NOT NULL` is declared explicitly because a `TEXT PRIMARY KEY` on a rowid table admits NULL, which is a documented SQLite compatibility quirk rather than a design choice: a PRIMARY KEY there is usually just a UNIQUE constraint, an historical oversight lets its column values be NULL, and the vendor's own stated workaround is a NOT NULL constraint on each PRIMARY KEY column — https://www.sqlite.org/quirks.html#primary_keys_can_sometimes_contain_nulls (§5, accessed 2026-08-31). NULLs compare distinct in that unique index, so two identity-less rows would both commit. A NULL identity keys nothing: `(account_id, credential_generation)` becomes unmatchable, the child table's `ON DELETE CASCADE` never fires for it, and the credential home derived from it cannot be attributed back. Neither documented exception applies here: this is not an `INTEGER PRIMARY KEY` rowid alias, and the table is not `WITHOUT ROWID`.
   provider              TEXT NOT NULL
                         CHECK(provider IN ('claude', 'codex')),  -- the same closed driver-id union the MCP governance tables use
-  display_label         TEXT NOT NULL,  -- operator-chosen label for disambiguation in the UI; free text, treated as participant-adjacent PII (Spec-022 §PII Data Map)
+  display_label         TEXT NOT NULL,  -- operator-chosen label for disambiguation in the UI; free text, treated as user-adjacent PII (Spec-022 §PII Data Map)
   credential_home_path  TEXT NOT NULL,  -- absolute path to this account's isolated credential home; the daemon constructs the spawn environment from it and never inherits ambient provider credentials (I-029-4)
   credential_generation INTEGER NOT NULL DEFAULT 1
                         CHECK(typeof(credential_generation) = 'integer' AND credential_generation >= 1),  -- monotonic, starts at 1; bumped at every credential-home lifecycle transition (I-029-2). The CHECK makes the floor enforced rather than asserted: a zero or negative generation sorts BEFORE a freshly registered account, so a reading stamped with one would read as newer than the account it describes and invert the staleness comparison the stamp exists for. The `typeof` conjunct is not redundant with the `INTEGER` declaration and is the second half of the same guarantee: a SQLite column type is an AFFINITY, and INTEGER affinity converts a bound REAL only where the conversion is lossless, so `1.5` is stored as REAL `1.5`, satisfies `>= 1`, and makes a monotonic counter divisible — two bumps could then land on `1.5` and `1.75` and order by fraction rather than by generation. Lossless bindings are untouched: `2.0` and `'3'` both convert to integer and remain admitted, so the conjunct refuses exactly the values that were never generations.
@@ -1997,7 +1978,7 @@ CREATE TABLE provider_account_usage_windows (
 );
 ```
 
-Spend is joined to an account without duplicating account identity onto every usage row. A provider run carries the server-stamped `admittedProviderAccountId` on its `run.queued` admission record, so priced usage rows join to an account **through the run**. The one usage kind that carries account identity directly is `usage.rate_limit_update`, because provider quota is account-scoped and has no run to join through — the asymmetry is deliberate, and it also keeps participant identity off every usage row.
+Spend is joined to an account without duplicating account identity onto every usage row. A provider run carries the server-stamped `admittedProviderAccountId` on its `run.queued` admission record, so priced usage rows join to an account **through the run**. The one usage kind that carries account identity directly is `usage.rate_limit_update`, because provider quota is account-scoped and has no run to join through — the asymmetry is deliberate, and it also keeps user identity off every usage row.
 
 ---
 

@@ -2,16 +2,16 @@
 //
 // The console owns `ReadTriggerTarget`, `RefreshScheduler`, `GenerationLatch` and
 // `Emitter`, and it owns two COMPOSED read seats — `seats/read/growth-read.ts`
-// (ask-once-per-subject) and `seats/read/push-driven-read.ts` (a read whose answer moves).
-// It owned no seat for the shape most of the tree actually has: a scheduled read
-// PUBLISHED TO SUBSCRIBERS. So sixteen classes across eight view families and the
-// bridge each wrote the same skeleton — the emitter, the scheduler with its `onError`
-// arm, the latch, `#hasStarted`, `#isDisposed`, `snapshot()`, `subscribe()`,
-// `start()`, `requestRead()`, `dispose()` — and the revisioned publisher was
-// character-for-character identical in three unrelated families. That is what
-// `apps/desktop/AGENTS.md` §Shared code forbids, and it is invisible to both
-// mechanical gates: knip sees reachable modules and dependency-cruiser sees legal
-// edges, so neither can see one job implemented sixteen times.
+// (ask-once-per-subject) and `seats/read/push-driven-read.ts` (a read whose answer
+// moves). It owned no seat for the shape most of the tree actually has: a scheduled read
+// PUBLISHED TO SUBSCRIBERS. So sixteen classes across eight view families and the bridge
+// each wrote the same skeleton — the emitter, the scheduler with its `onError` arm, the
+// latch, `#hasStarted`, `#isDisposed`, `snapshot()`, `subscribe()`, `start()`,
+// `requestRead()`, `dispose()` — and the revisioned publisher was character-for-character
+// identical in three unrelated families. That is what the package's shared-code rule
+// forbids, and it is invisible to both mechanical gates: knip sees reachable modules and
+// dependency-cruiser sees legal edges, so neither can see one job implemented sixteen
+// times.
 //
 // WHY `store/` AND NOT `seats/`. Every member this base needs — `RefreshScheduler`,
 // `GenerationLatch`, `ReadTriggerTarget`, `Emitter` — is declared at or below this
@@ -25,7 +25,7 @@
 // and `browser/settings/browser-settings-source.ts` (the three whose publishers are
 // character-identical), plus `repos/artifact-pane/artifact-read-schedule.ts` (already
 // abstract, and the only one with a per-read `start()` that also drives an imperative
-// trigger set), `settings/pages/notifications/scheduled-caller-participant-read.ts` and
+// trigger set), `settings/pages/notifications/scheduled-caller-user-read.ts` and
 // `settings/pages/appearance/store-state/store-state-read.ts` (the two that hold a
 // bare reading rather than a revisioned snapshot, and the one that reads no bridge at
 // all). WHERE EACH VARIATION LANDS:
@@ -35,7 +35,7 @@
 //     compose the refusal its own reading vocabulary spells.
 //   • **The snapshot fold** → the subclass, over {@link ScheduledReading.publish}. The
 //     base holds the value and hands out a new identity; whether a transition is a
-//     whole replacement (`CallerParticipantRead`, `StoreStateRead`) or a revisioned
+//     whole replacement (`CallerUserRead`, `StoreStateRead`) or a revisioned
 //     partial (`CostReceiptRead`, `SidekickRegistryView`, `BrowserSettingsView`) is a
 //     property of the SNAPSHOT TYPE, and a base that folded for both would have to
 //     require a `revision` member of readings that have none.
@@ -137,10 +137,10 @@ export interface ScheduledReadingOptions<TSnapshot> {
 /**
  * A read that is scheduled, single-flighted, and published to subscribers.
  *
- * A class with private fields rather than a pair of `useState` cells, per
- * `apps/desktop/AGENTS.md` §State and views. The React binding is the subclass's — a
- * `useSubjectScopedResource` mint plus `useSyncExternalStore` over
- * {@link subscribe} and {@link snapshot} — and holds nothing of its own.
+ * A class with private fields rather than a pair of `useState` cells, on the package's
+ * state-and-views rule. The React binding is the subclass's — a
+ * `useSubjectScopedResource` mint plus `useSyncExternalStore` over {@link subscribe} and
+ * {@link snapshot} — and holds nothing of its own.
  */
 export abstract class ScheduledReading<TSnapshot> implements ReadTriggerTarget {
   /**
@@ -253,7 +253,7 @@ export abstract class ScheduledReading<TSnapshot> implements ReadTriggerTarget {
   /**
    * Ask for a read.
    *
-   * THE ONE WAY A REASON REACHES THIS READING — every trigger, every participant press
+   * THE ONE WAY A REASON REACHES THIS READING — every trigger, every user press
    * — so the disposal guard and the {@link isReadable} guard are each written once.
    * None of them calls the port: what a burst of reasons costs is the scheduler's
    * decision, and a surface that asked directly is the surface that had two reads

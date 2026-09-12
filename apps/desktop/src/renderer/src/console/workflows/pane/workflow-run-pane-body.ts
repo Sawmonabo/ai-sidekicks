@@ -13,9 +13,8 @@
 // cascade and changed how a surface in THIS family laid its controls out, with nothing in
 // the diff naming either sheet. The fix was not to keep the body eager: it was to give the
 // class one owner. This family's block is `meridian-workflow-run-controls` now, the runs
-// family keeps the unprefixed name it was already declaring, and
-// `apps/desktop/AGENTS.md` §Module shape is what keeps a second collision from landing
-// unnoticed.
+// family keeps the unprefixed name it was already declaring, and the module-shape rule
+// in `apps/desktop/AGENTS.md` is what keeps a second collision from landing unnoticed.
 //
 // THE FAMILY'S CHROME ENTERS HERE, beside the pane's own sheet one directory down. Every
 // workflows body is loader-backed now, so `workflows.css` reaches no session from the

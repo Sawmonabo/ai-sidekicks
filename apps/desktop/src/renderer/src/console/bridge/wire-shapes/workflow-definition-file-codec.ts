@@ -7,7 +7,7 @@
 // loaded workflow bodies, and the reading side pulls in a YAML parser, a body reader
 // and a tool-binding reader behind it. Publishing those directly would put the whole
 // sub-graph on a launch that never opens a definition, against the initial-bundle
-// budget `Spec-023 §Console Design (Meridian)` sets.
+// budget the console's design language sets.
 //
 // SO THE DOOR NAMES THIS, AND THIS NAMES THE WORK THROUGH `import()`. What stays on the
 // graph is two function bodies and a type reference that erases; the codec, its parser

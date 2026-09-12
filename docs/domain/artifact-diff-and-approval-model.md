@@ -36,7 +36,7 @@ This model defines how runs publish durable outputs and how gated decisions are 
 
 - `Run` produces artifacts and may request approvals.
 - `RepoMount`, `Workspace`, and `Worktree` provide the filesystem or git states that diff artifacts compare.
-- `Participant` membership and trust policy determine who can resolve approvals.
+- Trust policy determines when an approval may be resolved. An approval is the user deciding what their sidekicks are allowed to do, so the session's owning user is the resolver — reachable from any of their linked devices.
 - `QueueItem` and `Intervention` may be blocked on approval before they take effect.
 
 ## State Model
@@ -62,7 +62,7 @@ Approval lifecycle:
 ## Example Flows
 
 - Example: A coding run publishes a patch summary artifact, then a diff artifact comparing the worktree before and after the run.
-- Example: A risky write or merge action creates a pending approval. A participant with authority approves it for the current session scope, and the approval record becomes part of the session audit history.
+- Example: A risky write or merge action creates a pending approval. The user approves it for the current session scope from whichever device they are on, and the approval record becomes part of the session audit history.
 - Example: A later run publishes a refined diff artifact. The prior diff remains in history but becomes `superseded` for default inspection views.
 
 ## Edge Cases
@@ -73,7 +73,7 @@ Approval lifecycle:
 
 ## Related Domain Docs
 
-- [Trust And Identity](./trust-and-identity.md) — approvals are signed by participant identities. A `bound` identity can sign approvals; a `revoked` or `compromised` identity cannot. The dual-signed `ApprovalRecord` envelope per [Spec-024](../specs/024-cross-node-dispatch-and-approval.md) is the cross-node cousin of the same property.
+- [Trust And Identity](./trust-and-identity.md) — approvals are signed by user identities. A `bound` identity can sign approvals; a `revoked` or `compromised` identity cannot. The dual-signed `ApprovalRecord` envelope per [Spec-024](../specs/024-cross-node-dispatch-and-approval.md) is the cross-node cousin of the same property.
 
 ## Related Specs
 

@@ -68,9 +68,9 @@ export function useEnumeratedPathAction(bridge: ConsoleBridge): EnumeratedPathAc
       bridge.sidekicks.native.copyToClipboard(path).catch((rejection: unknown) => {
         // WHAT THE HOST SAID, NEVER THE CONSOLE'S PARAPHRASE OF IT. The `catch` used
         // to take no parameter and answer with prose of its own, which discarded the
-        // one machine-readable thing the refusal carried:
-        // `Spec-023 §Console Design (Meridian)` rule 9 puts the other side's code and
-        // sentence on screen verbatim and leaves the console the `action` slot alone.
+        // one machine-readable thing the refusal carried. The other side's code and
+        // sentence go on screen verbatim and the console is left the `action` slot
+        // alone.
         // The normalizer is the console's one reading of a rejected promise, so this
         // seam invents no second refusal constructor beside it — the fallback below
         // is reached only where the rejection said nothing machine-readable at all.

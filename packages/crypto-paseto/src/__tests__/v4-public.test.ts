@@ -92,8 +92,7 @@ describe("v4.public sign / verify", () => {
 
   // Strict base64url canonicalization: non-canonical textual forms (padding,
   // invalid chars) must be rejected even when Node's lenient decoder would
-  // otherwise produce bytes that pass the signature check. See v4-public.ts
-  // §base64UrlDecode for rationale (exact-string controls integrity).
+  // otherwise produce bytes that pass the signature check.
   it("rejects a token whose body base64url carries `=` padding", () => {
     const { publicKey, secretKey } = generateV4PublicKeyPair();
     const token = signV4Public(encoder.encode("payload"), secretKey);
@@ -119,7 +118,7 @@ describe("v4.public sign / verify", () => {
     expect(() => verifyV4Public(tampered, publicKey)).toThrow(InvalidTokenError);
   });
 
-  // PASETO §2 exact-string invariant: `header.payload.` (trailing dot, empty
+  // PASETO section 2 exact-string invariant: `header.payload.` (trailing dot, empty
   // footer) is a third textual form that would otherwise verify against the
   // same key as `header.payload`. Without this rejection, an attacker can
   // bypass exact-string replay/revocation caches by appending `.`.

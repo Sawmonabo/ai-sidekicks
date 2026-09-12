@@ -54,13 +54,12 @@ import { readWireString } from "./wire-strings.js";
 /**
  * When the refusing side said the caller may try again.
  *
- * Both members are registered: `error-contracts.md §Rate Limiting` puts
- * `retryAfter` (seconds) and `resetAt` (an RFC 3339 instant) on the rate-limit
- * envelope, and the JSON-RPC mapping carries them through `data.fields`. Nothing is
- * invented here — an envelope that names neither produces no hint at all rather than
- * a zero, because "retry immediately" and "the refusing side said nothing about
- * retrying" are different facts and a surface must not render the second as the
- * first.
+ * Both members are registered: `error-contracts.md` puts `retryAfter` (seconds) and
+ * `resetAt` (an RFC 3339 instant) on the rate-limit envelope, and the JSON-RPC mapping
+ * carries them through `data.fields`. Nothing is invented here — an envelope that names
+ * neither produces no hint at all rather than a zero, because "retry immediately" and
+ * "the refusing side said nothing about retrying" are different facts and a surface must
+ * not render the second as the first.
  *
  * `resetAt` is READ rather than carried: a hint that names an instant this console
  * cannot parse is not a hint, so it is dropped by {@link parseInstant} the same way
@@ -95,7 +94,7 @@ export interface ConsoleRefusalExtensions {
   /**
    * Registered by `core/wire-rejection.ts`: the bindings a fan-out mutation failed on.
    *
-   * `error-contracts.md §Session` puts `failedBindingIds` on `data.fields` for
+   * `error-contracts.md` puts `failedBindingIds` on `data.fields` for
    * `session.goal_delivery_failed`, and a surface that says "no goal change" without
    * naming which legs refused leaves a person with nothing to check. These are
    * IDENTIFIERS rather than prose, which is what makes reading them off `data.fields`
@@ -106,13 +105,13 @@ export interface ConsoleRefusalExtensions {
   /**
    * Registered by `core/wire-rejection.ts`: the manifests that name a delete's target.
    *
-   * `error-contracts.md §Artifact` puts a typed details shape on
-   * `artifact.delete_blocked` — the referencing ids, bounded to the first fifty
-   * ascending, beside the total — and a surface that says "delete the derivatives
-   * first" without naming one leaves a person with nothing to open. Two facts rather
-   * than one, and they ride TOGETHER on a single member for the reason
-   * {@link WireReferencingArtifacts} states: read as two flat members, a producer
-   * that sent only the count would put a total on screen over no list at all.
+   * `error-contracts.md` puts a typed details shape on `artifact.delete_blocked` —
+   * the referencing ids, bounded to the first fifty ascending, beside the total — and
+   * a surface that says "delete the derivatives first" without naming one leaves a
+   * person with nothing to open. Two facts rather than one, and they ride TOGETHER on
+   * a single member for the reason {@link WireReferencingArtifacts} states: read as
+   * two flat members, a producer that sent only the count would put a total on screen
+   * over no list at all.
    */
   readonly referencingArtifacts?: WireReferencingArtifacts;
 }
@@ -177,12 +176,11 @@ export function wireFailedBindingsExtension(source: unknown): ConsoleRefusalExte
 /**
  * The referencing manifests a WIRE envelope named, as an extension.
  *
- * The `data.fields` / `details` sibling of {@link wireRetryExtension}, and separate
- * from the registry reader beside it for the same reason: this takes the wire's own
- * spelling — `referencingArtifactIds` and `referencingArtifactTotal`, the members
- * `error-contracts.md §Artifact` registers on `artifact.delete_blocked` — off an
- * envelope that is not a refusal, while the reader takes a member off a candidate that
- * already is one.
+ * The `data.fields` / `details` sibling of {@link wireRetryExtension}, and separate from
+ * the registry reader beside it for the same reason: this takes the wire's own spelling —
+ * `referencingArtifactIds` and `referencingArtifactTotal`, the members
+ * `error-contracts.md` registers on `artifact.delete_blocked` — off an envelope that is
+ * not a refusal, while the reader takes a member off a candidate that already is one.
  */
 export function wireReferencingArtifactsExtension(source: unknown): ConsoleRefusalExtensions {
   const referencingArtifacts = referencingArtifactsOf(

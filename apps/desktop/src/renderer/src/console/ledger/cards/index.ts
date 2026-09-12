@@ -34,7 +34,7 @@
 // which run a row is attributed to, and how a wire payload is read. Three jobs that are
 // not that sit in directories of their own, on the precedent `markdown/` set: `bodies/`
 // (what goes INSIDE a frame), `ansi/` (the terminal-output pipeline), and `shell/` (the
-// fixture rows that stand in until Plan-013's real ones land, which the PR that imports
+// fixture rows that stand in until the real ones land, which the change that imports
 // them deletes as a directory).
 //
 // A SUB-MODULE PUBLISHES A DOOR ONLY WHERE ONE HAS READERS — the family's one criterion,

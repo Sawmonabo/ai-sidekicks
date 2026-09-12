@@ -1,67 +1,56 @@
-// Session event contracts — the canonical event-type census (Plan-006 T1.2),
-// the named canonical `EventEnvelopeSchema` carrier (Plan-006 T1.3), plus the
-// V1 subset of payload variants of the canonical EventEnvelope shape
-// per docs/architecture/contracts/api-payload-contracts.md § Tier 4 Plan-006.
+// Session event contracts — the canonical event-type census, the named
+// canonical `EventEnvelopeSchema` carrier, plus the V1 subset of payload
+// variants of the canonical EventEnvelope shape.
 //
 // The two original event types the session vertical slice needs:
 //   • session.created    — emitted on `SessionCreate` admit
 //   • channel.created    — emitted when a session's main channel materializes
 //
-// Plan-009 T1.1 adds six more through the union-registration seam (CP-009-4):
-// `repo.attached`, `repo.detached`, and the four `workspace.*` lifecycle
-// types, all sharing one payload schema imported from repo.ts.
+// Adds six more through the union-registration seam: `repo.attached`,
+// `repo.detached`, and the four `workspace.*` lifecycle types, all sharing
+// one payload schema imported from repo.ts.
 //
-// Plan-010 T1.1 adds the five `worktree.*` lifecycle types through the same
-// seam (CP-010-5), carrying the family payload instantiated over Plan-010's
-// own `WorktreeStateSchema` and imported from worktree.ts. No
-// `worktree.failed` and no ephemeral-clone variants — the Spec-006 registry
-// stays closed (Plan-010 D-010-11).
+// Adds the five `worktree.*` lifecycle types through the same seam,
+// carrying the family payload instantiated over its own
+// `WorktreeStateSchema` and imported from worktree.ts. No `worktree.failed`
+// and no ephemeral-clone variants — registry stays closed.
 //
-// Plan-006 T1.11 adds the six variants Plan-006 emits ITSELF — the three
-// `audit_integrity` types and the three `event_maintenance` types. Unlike the
-// eleven above they import no payload schema: emitter-authors-payload puts
-// them in the emitting plan's file, and Plan-006 owns this one, so their
-// payload schemas are declared and exported here.
+// Adds the six variants emits ITSELF — the three `audit_integrity` types and
+// the three `event_maintenance` types. Unlike the eleven above they import no
+// payload schema: emitter-authors-payload puts them in the emitting plan's
+// file, and owns this one, so their payload schemas are declared and exported
+// here.
 //
-// Plan-006 T1.12 adds the five daemon-reachable `runtime_node.*` variants —
-// `registered`, `online`, `offline`, `capability_declared`,
-// `capability_updated` — discharging leg (a) of Plan-003 CP-003-1: Plan-003
-// authors the payload SHAPES (runtime-node.ts), Plan-006 owns the union
-// REGISTRATION. `degraded` / `revoked` stay unregistered — V1.1-gated on the
-// node-identity trust anchor (ADR-017 §Server-Derived Runtime-Node Lifecycle
-// Events), so the registered set is five of the seven `runtime_node.*` census
-// names.
+// Adds the five daemon-reachable `runtime_node.*` variants — `registered`,
+// `online`, `offline`, `capability_declared`, `capability_updated` —
+// discharging leg (a) of: authors the payload SHAPES (runtime-node.ts) owns
+// the union REGISTRATION. `degraded` / `revoked` stay unregistered —
+// V1.1-gated on the node-identity trust anchor, so the registered set is five
+// of the seven `runtime_node.*` census names.
 //
 // The discriminated-union `SessionEvent` discriminates on the wire `type`
-// string. Adding a new variant later is additive per ADR-018 §Decision #8
-// (new event types allowed under a MINOR version bump). The taxonomy from
-// Spec-006 §Event Type Enumeration is registered below at the post-B18
-// census (Plan-006 T1.2, closed by T1.10): `SessionEventType` (147 literals),
-// the per-category `*_EVENT_TYPES` arrays, and `SESSION_EVENT_CATEGORY_BY_TYPE`
-// (20 categories). Payload variants remain intentionally a strict subset, and
-// each is owned by its EMITTING plan: sixteen reach `SessionEventSchema` from
-// another plan's file through the cross-plan union-registration seam (CP-009-4
-// / CP-010-5 / CP-003-1, the CP-012-2 / CP-016-3 class), eleven are authored
-// in this file because Plan-006 emits them and owns it (six at T1.11, five at
-// T3.6), and the two session originals below (`session.created`,
-// `channel.created`) have been authored here from the start. In all three
-// cases census membership is type registration, not payload support.
+// string. Adding a new variant later is additive. The taxonomy closed):
+// `SessionEventType` (147 literals), the per-category `*_EVENT_TYPES` arrays,
+// and `SESSION_EVENT_CATEGORY_BY_TYPE` (20 categories). Payload variants remain
+// intentionally a strict subset, and each is owned by its EMITTING plan:
+// sixteen reach `SessionEventSchema` from another plan's file through the
+// cross-plan union-registration seam (class), eleven are authored in this file
+// because emits them and owns it (six five), and the two session originals
+// below (`session.created`, `channel.created`) have been authored here from the
+// start. In all three cases census membership is type registration, not payload
+// support.
 //
 // Both original wire strings register under `session_lifecycle`. The
-// `<category>.<verb>` namespace convention is governed by Spec-006
-// §Canonical Serialization Rules; the resource-lifecycle naming
-// (`<resource>.created`) parallels `session.created` / `channel.created`.
+// `<category>.<verb>` namespace convention is governed the
+// resource-lifecycle naming (`<resource>.created`) parallels
+// `session.created` / `channel.created`.
 //
-// Versioning: `version` is an `EventEnvelopeVersion` — a semver
-// `"MAJOR.MINOR"` STRING per ADR-018 §Decision #1. It is NEVER numeric on
-// the wire (lexical compare on strings like "1.10" vs "1.9" is unsafe; the
-// reader parses MAJOR/MINOR as integers). The format check lives on
-// `EventEnvelopeVersionSchema` — declared in `./event-core.js`, re-exported
-// through the hoist seam below — and enforces the regex from `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`.
+// Versioning: `version` is an `EventEnvelopeVersion` — a semver `"MAJOR.MINOR"` STRING.
+// It is NEVER numeric on the wire (lexical compare on strings like "1.10" vs "1.9" is
+// unsafe; the reader parses MAJOR/MINOR as integers). The format check lives on
+// `EventEnvelopeVersionSchema` — declared in `./event-core.js`, re-exported through the
+// hoist seam below — and enforces the regex.
 //
-// Refs: Spec-001 §Interfaces, Spec-006 §Event Type Enumeration + §Canonical
-// Serialization Rules, ADR-017 (event sourcing), ADR-018 (cross-version
-// compatibility).
 import { z } from "zod";
 
 // The three symbols this file still CONSUMES from its own hoisted leaf. The
@@ -79,11 +68,10 @@ import {
 // dependency-free, so importing it can never close a module-scope cycle.
 import { NodeIdSchema, type NodeId } from "./node-id.js";
 import { RepoWorkspaceLifecyclePayloadSchema, type RepoWorkspaceLifecyclePayload } from "./repo.js";
-// One-way import (CP-003-1 leg (a), T1.12): the five `runtime_node.*` payload
-// schemas Plan-003 authors, registered as union arms below. runtime-node.ts
-// imports NOTHING from this file — its three former value imports now come from
-// `./event-core.js`, which is what keeps this edge acyclic (see that file's
-// header).
+// One-way import (leg (a)): the five `runtime_node.*` payload schemas authors,
+// registered as union arms below. runtime-node.ts imports NOTHING from this
+// file — its three former value imports now come from `./event-core.js`, which
+// is what keeps this edge acyclic (see that file's header).
 import {
   RuntimeNodeCapabilityDeclaredPayloadSchema,
   RuntimeNodeCapabilityUpdatedPayloadSchema,
@@ -99,46 +87,40 @@ import {
 import {
   CHANNEL_NAME_MAX_LEN,
   ChannelIdSchema,
-  ParticipantIdSchema,
+  UserIdSchema,
   SessionIdSchema,
   wireFreeFormString,
   type ChannelId,
-  type ParticipantId,
+  type UserId,
   type SessionId,
 } from "./session.js";
 // Dependency-free leaf (imports nothing at all), so this edge can close no
 // cycle — the `./node-id.js` discipline above. Used for ONE set key; see the
 // `key_reuse_detected.observedIdentities` note.
 import { canonicalizeUuid } from "./uuid-canonical.js";
-// One-way import (CP-010-5): worktree.ts imports nothing from this file —
-// same eager-Zod-cycle discipline as the repo.js import above.
+// One-way import: worktree.ts imports nothing from this file — same
+// eager-Zod-cycle discipline as the repo.js import above.
 import { WorktreeLifecyclePayloadSchema, type WorktreeLifecyclePayload } from "./worktree.js";
 
 // --------------------------------------------------------------------------
 // EventCategory — canonical taxonomy enum.
 // --------------------------------------------------------------------------
 //
-// Mirrors the EventCategory registry in `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`
-// (20 categories per Spec-006 §Event Type Summary post-B18). Code ships all
-// 20: the 16-category V1 set plus `channel_arbitration`,
-// `onboarding_lifecycle`, `cross_node_dispatch` (Plan-006 T1.1) and
-// `mcp_governance` (Plan-006 T1.10, closing the 2026-07-22 B18 amendment).
-// `Spec-006 §Canonical Serialization Rules` specifies that `category` participates in the canonical-bytes
-// computation that backs the integrity protocol's BLAKE3 hash chain and
-// Ed25519 signature; producers MUST emit the category that matches the type's
-// namespace, and consumers MUST NOT silently coerce mismatches. The literal
-// `category` per variant in the discriminatedUnion below enforces this on
-// the wire — a `{type: "session.created", category: "presence"}`
-// payload is rejected at parse time, BEFORE it can be hashed under the
-// wrong category string and break replay.
+// Mirrors the EventCategory registry. Code ships all 20: the 16-category V1 set plus
+// `channel_arbitration`, `onboarding_lifecycle`, `cross_node_dispatch` and
+// `mcp_governance` (closing the 2026-07-22 B18 amendment). specifies that `category`
+// participates in the canonical-bytes computation that backs the integrity protocol's
+// BLAKE3 hash chain and Ed25519 signature; producers MUST emit the category that matches
+// the type's namespace, and consumers MUST NOT silently coerce mismatches. The literal
+// `category` per variant in the discriminatedUnion below enforces this on the wire — a
+// `{type: "session.created", category: "presence"}` payload is rejected at parse time,
+// BEFORE it can be hashed under the wrong category string and break replay.
 //
-// ORDER IS NOT LOAD-BEARING — `Spec-006 §Canonical Serialization Rules` specifies RFC 8785 JCS
-// canonicalization, which serializes the LITERAL wire string ("session_
-// lifecycle", "presence", etc.) into the canonical bytes that back
-// the BLAKE3 hash chain and Ed25519 signature. The TypeScript enum's
-// declaration order does not affect canonical bytes; reordering, inserting,
-// or appending categories is byte-equivalent at the integrity layer (it IS
-// still a contract bump per ADR-018 §Decision #8: removals are MAJOR,
+// ORDER IS NOT LOAD-BEARING — specifies RFC 8785 JCS canonicalization, which serializes
+// the LITERAL wire string ("session_ lifecycle", "presence", etc.) into the canonical
+// bytes that back the BLAKE3 hash chain and Ed25519 signature. The TypeScript enum's
+// declaration order does not affect canonical bytes; reordering, inserting, or appending
+// categories is byte-equivalent at the integrity layer (it IS still a contract bump
 // additions are MINOR).
 
 export type EventCategory =
@@ -153,7 +135,7 @@ export type EventCategory =
   | "usage_telemetry"
   | "runtime_node_lifecycle"
   | "recovery_events"
-  | "participant_lifecycle"
+  | "user_lifecycle"
   | "audit_integrity"
   | "security_events"
   | "event_maintenance"
@@ -174,7 +156,7 @@ export const EventCategorySchema: z.ZodType<EventCategory> = z.enum([
   "usage_telemetry",
   "runtime_node_lifecycle",
   "recovery_events",
-  "participant_lifecycle",
+  "user_lifecycle",
   "audit_integrity",
   "security_events",
   "event_maintenance",
@@ -200,14 +182,14 @@ export const EventCategorySchema: z.ZodType<EventCategory> = z.enum([
 // every in-tree importer (runtime-node.ts's three value imports aside, which
 // now bind the leaf directly) keeps importing them from here unchanged.
 //
-// Plan-006 still OWNS every shape; only their physical home moved. The hoist
-// exists because T1.12 registers the five `runtime_node.*` payload variants
-// below, which adds a VALUE edge from this file to `runtime-node.ts` — and
-// `runtime-node.ts` already read three values back out of this one, closing the
-// eager cycle `event.ts` → `runtime-node.ts` → `event.ts` that throws
-// `ReferenceError` at import time from every entry point (full rationale, with
-// the per-edge evidence, in `./event-core.js`'s header). Amending any of these
-// eight is still a Plan-006 edit — make it in `./event-core.js`.
+// Still OWNS every shape; only their physical home moved. The hoist exists
+// because registers the five `runtime_node.*` payload variants below, which
+// adds a VALUE edge from this file to `runtime-node.ts` — and `runtime-node.ts`
+// already read three values back out of this one, closing the eager cycle
+// `event.ts` → `runtime-node.ts` → `event.ts` that throws `ReferenceError` at
+// import time from every entry point (full rationale, with the per-edge
+// evidence, in `./event-core.js`'s header). Amending any of these eight is
+// still a contract change — make it in `./event-core.js`.
 //
 // Type-only re-exports MUST use `export type { ... }` (the `isolatedModules` +
 // `verbatimModuleSyntax` posture from tsconfig.base.json forbids erased
@@ -233,11 +215,11 @@ export {
 // `compareEventEnvelopeVersion(clientVersion, floor) < 0`.
 //
 // Lives here (not in a consumer package) because it is the ordering of a
-// contracts value type: the control-plane version-floor gate (Plan-003
-// T3.3/T3.4) AND the daemon's envelope version negotiation (ADR-018 §6/§7/§10)
-// both compare EventEnvelopeVersion values. Contracts is their only shared
-// ancestor; a consumer-local helper would force the other consumer to depend
-// upward or re-implement the comparison (the lexical "10" < "9" bug, twice).
+// contracts value type: the control-plane version-floor gate AND the daemon's
+// envelope version negotiation both compare EventEnvelopeVersion values.
+// Contracts is their only shared ancestor; a consumer-local helper would force
+// the other consumer to depend upward or re-implement the comparison (the
+// lexical "10" < "9" bug, twice).
 //
 // Numeric MAJOR-then-MINOR tuple compare — deliberately NOT the `semver`
 // library: the type is strictly two-segment (EVENT_ENVELOPE_VERSION_PATTERN),
@@ -280,13 +262,11 @@ export function compareEventEnvelopeVersion(
 // Per-field length caps — defense-in-depth bounds on free-form strings.
 // --------------------------------------------------------------------------
 //
-// The HTTP/tRPC framework layer (owned by Plan-004/005) is authoritative on
-// total request-body size. These per-field caps live in the contracts package
-// as a SECOND line of defense so a future non-HTTP caller (daemon-internal
-// IPC, replay machinery, fixtures) can't smuggle a single pathological field
-// past the parser. Values are conservative defaults; raising them is a
-// contract bump per ADR-018 §Decision #8 (MINOR widening is acceptable —
-// shrinking is MAJOR).
+// The HTTP/tRPC framework layer (005) is authoritative on total request-body
+// size. These per-field caps live in the contracts package as a SECOND line
+// of defense so a future non-HTTP caller (daemon-internal IPC, replay
+// machinery, fixtures) can't smuggle a single pathological field past the
+// parser. Values are conservative defaults; raising them is a contract bump.
 //
 // Rationale per cap:
 //   • EVENT_FIELD_MAX_LEN (256)        — id / actor / correlationId /
@@ -301,8 +281,6 @@ export function compareEventEnvelopeVersion(
 //   • CHANNEL_NAME_MAX_LEN (128)       — channel display labels (UI-visible).
 //     Defined in session.ts (co-located with `ChannelSummarySchema`); re-
 //     imported here for the channel.created payload.
-//   • RESOURCE_LABEL_MAX_LEN (128)     — Spec-001 §Resource Limits resource
-//     labels (e.g. "concurrent runs per session"). Defined in error.ts.
 //
 // Free-form string fields (id / actor / correlationId / causationId / message
 // / details.resource / channel name) all consume the
@@ -315,26 +293,20 @@ export function compareEventEnvelopeVersion(
 // observability layer emits from `correlationId` / `causationId`.
 
 // --------------------------------------------------------------------------
-// EventEnvelope — the canonical event message (Plan-006 T1.3).
+// EventEnvelope — the canonical event message.
 // --------------------------------------------------------------------------
 //
-// The named carrier for every session event, per
-// `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`
-// (the wire authority) and `Spec-006 §Canonical Serialization Rules` (the
-// canonical 11-member field set). Two layers share this file, and the split
-// is deliberate:
+// Two layers share this file, and the split is deliberate:
 //
 //   • ENVELOPE layer (`EventEnvelopeSchema`) — the version-TOLERANT carrier.
 //     `type` is a bounded free-form string, NOT the `SessionEventType`
-//     census union: MINOR envelope bumps may introduce new event types
-//     (`ADR-018 §Decision` #8, additive-only), and a reader MUST persist an
-//     envelope whose `type` it cannot interpret as a version stub — never
-//     drop or reject it (`ADR-018 §Decision` #5, #9 accept-and-stub;
-//     `Spec-006 §EventEnvelope Version Semantics`). A census-typed envelope
-//     schema would reject exactly the envelopes the stub path exists to
-//     preserve. `payload` is likewise an open record: unknown payload
-//     fields from a higher-MINOR producer are preserved verbatim for
-//     future upcasting, never stripped.
+//     census union: MINOR envelope bumps may introduce new event types (#8,
+//     additive-only), and a reader MUST persist an envelope whose `type` it
+//     cannot interpret as a version stub — never drop or reject it (#5, #9
+//     accept-and-stub). A census-typed envelope schema would reject exactly
+//     the envelopes the stub path exists to preserve. `payload` is likewise
+//     an open record: unknown payload fields from a higher-MINOR producer
+//     are preserved verbatim for future upcasting, never stripped.
 //   • STRICT layer (`SessionEventSchema` + `SESSION_EVENT_CATEGORY_BY_TYPE`
 //     below) — the interpretation surface, where unknown types and
 //     category/type mismatches fail loud at parse time.
@@ -346,9 +318,8 @@ export function compareEventEnvelopeVersion(
 //     category cannot route or verify under it — category additions are
 //     code-accompanied MINOR contract bumps (see the EventCategory note
 //     above), not runtime-tolerated strings.
-//   • The TOP-LEVEL member set is CLOSED (`.strict()`):
-//     `Spec-006 §Canonical Serialization Rules` fixes membership at exactly
-//     the eleven fields below (I-006-1-03), and `pii_payload` is a storage
+//   • The TOP-LEVEL member set is CLOSED (`.strict()`): fixes membership at
+//     exactly the eleven fields below, and `pii_payload` is a storage
 //     column, deliberately NOT an envelope member. Default Zod stripping
 //     would silently desync the parse output from the canonical bytes the
 //     integrity protocol hashes and signs; the additive channel for new
@@ -368,12 +339,11 @@ export function compareEventEnvelopeVersion(
 // the SAME double — `9007199254740992 === 9007199254740993` evaluates to
 // `true` in ECMAScript. Two genuinely different events would then canonicalize
 // to IDENTICAL RFC 8785 bytes, produce an identical `row_hash`, and collide in
-// the tamper-evidence chain `Spec-006 §Integrity Protocol` builds. Nothing
-// downstream can detect that: by the time the canonicalizer sees the value,
-// the two inputs ARE the same number, and RFC 8785 faithfully serializes the
-// collapsed one. Faithful representation of `sequence` is therefore a
-// PRECONDITION of the hash chain being injective — which is the entire
-// property the chain exists to provide.
+// the tamper-evidence chain builds. Nothing downstream can detect that: by the
+// time the canonicalizer sees the value, the two inputs ARE the same number,
+// and RFC 8785 faithfully serializes the collapsed one. Faithful
+// representation of `sequence` is therefore a PRECONDITION of the hash chain
+// being injective — which is the entire property the chain exists to provide.
 //
 // WHY IT IS NAMED rather than left implicit: Zod's `.int()` already bounds the
 // safe-integer range, so the parse boundary rejected out-of-range values
@@ -402,10 +372,8 @@ export function compareEventEnvelopeVersion(
 // ceiling.
 export const EVENT_ENVELOPE_SEQUENCE_MAX: number = Number.MAX_SAFE_INTEGER;
 
-// Append-time ceiling on `canonical_bytes(row)` — 32 KiB, per `Spec-006
-// §Canonical Serialization Rules` (2026-08-11 amendment, Codex PR #323
-// round 2). A SERVICEABILITY bound, not hygiene: `Spec-008 §Peer History
-// Backfill On Join (V1)` re-publishes canonical bytes base64-encoded inside a
+// Append-time ceiling on `canonical_bytes(row)` — 32 KiB. A SERVICEABILITY
+// bound, not hygiene: re-publishes canonical bytes base64-encoded inside a
 // chunk riding ONE 64 KB relay frame with no fragmentation or reassembly
 // protocol, so an unbounded canonical form would mint rows that can never
 // legally travel that seam (32 KiB canonical → ≈43.7 KiB base64 + signature,
@@ -413,17 +381,15 @@ export const EVENT_ENVELOPE_SEQUENCE_MAX: number = Number.MAX_SAFE_INTEGER;
 // with headroom). Enforced at the sole append path (`event-log-service.ts`,
 // refusing with `daemon.event_canonical_bytes_exceeded`) and at the
 // compactor's stub construction (the projection replaces `payload` after the
-// append check has passed — `Spec-006 §Compacted Event Format`). UNLIKE its
-// neighbor above this IS a policy knob: the payload catalog is metadata-shaped
-// by construction (content lengths, refs, digests — never inline bulk
-// content), so the value is headroom over every cataloged shape, and raising
-// it is a coordinated corpus-first edit (Spec-006, then here, then both
-// enforcement sites), never a lone constant bump.
+// append check has passed). UNLIKE its neighbor above this IS a policy knob:
+// the payload catalog is metadata-shaped by construction (content lengths,
+// refs, digests — never inline bulk content), so the value is headroom over
+// every cataloged shape, and raising it is a coordinated corpus-first edit
+// (then here, then both enforcement sites), never a lone constant bump.
 export const EVENT_CANONICAL_BYTES_MAX: number = 32768;
 
 /**
- * The daemon-scope sentinel `sessionId` — RFC 9562 §5.10 Max UUID, per
- * `Spec-006 §Daemon-Scope Event Binding And Node-Scope Anchoring`.
+ * The daemon-scope sentinel `sessionId` — RFC 9562 section 5.10 Max UUID.
  *
  * NODE-scope events (the four `mcp_governance` types, and every daemon-scope
  * row that describes the machine rather than a conversation) have no owning
@@ -441,7 +407,7 @@ export const EVENT_CANONICAL_BYTES_MAX: number = 32768;
  * LOWERCASE IS LOAD-BEARING. Zod's unversioned uuid check reaches the Max UUID
  * only through a lowercase string-literal alternative carrying no `i` flag —
  * its general alternative demands a `[1-8]` version nibble that `f` fails — so
- * `FFFFFFFF-…` is REJECTED even though RFC 9562 §4 makes UUID text
+ * `FFFFFFFF-…` is REJECTED even though RFC 9562 section 4 makes UUID text
  * case-insensitive. Producers owe "emit the sentinel LOWERCASE", not merely
  * "emit the sentinel". Minting this constant THROUGH `SessionIdSchema` rather
  * than casting the literal is what keeps that obligation honest: if the check
@@ -463,28 +429,19 @@ export const DAEMON_SCOPE_SENTINEL_SESSION_ID: SessionId = SessionIdSchema.parse
  * The canonical event message — every session event travels in this
  * envelope ({@link EventEnvelopeSchema} is the runtime validator).
  *
- * Member set is the canonical eleven of
- * `Spec-006 §Canonical Serialization Rules` (I-006-1-03). Declaration order
- * mirrors the wire authority and is NOT load-bearing: serialized order of
- * the canonical bytes is mandated by RFC 8785 §3.2.3 UTF-16 code-unit
- * lex-sort of member names (the `Spec-006 §Canonical Serialization Rules`
- * amendment) — this declaration documents membership only; Phase 2's
- * canonicalizer owns byte production. Storage mirror: each canonical member
- * maps to a `session_events` column in
- * `local-sqlite-schema.md §Session Events (Plan-001, extended by Plans 006, 015)`,
- * whose column comments mirror this envelope field-by-field (the Plan-006
- * T1.7 bijection; storage-only columns are deliberately non-members).
+ * Storage mirror: each canonical member maps to a `session_events` column whose
+ * column comments mirror this envelope field-by-field (bijection; storage-only
+ * columns are deliberately non-members).
  */
 export interface EventEnvelope {
   // Opaque on the wire — see the `id` note in `buildCommonShape()`.
   id: string;
   sessionId: SessionId;
   // Daemon-assigned, strictly monotonic per session — the canonical replay
-  // key per ADR-017. Bounded above by {@link EVENT_ENVELOPE_SEQUENCE_MAX}:
-  // past that value distinct sequences collapse onto one IEEE-754 double and
-  // the canonical bytes stop being injective, so two different events could
-  // share a `row_hash`. See that const's section comment — the ceiling is a
-  // hash-collision guard, not an arbitrary limit, and is not raisable.
+  // key. Bounded above by {@link EVENT_ENVELOPE_SEQUENCE_MAX}: past that
+  // value distinct sequences collapse onto one IEEE-754 double and the
+  // canonical bytes stop being injective, so two different events could
+  // share a `row_hash`.
   sequence: number;
   // ISO 8601. The narrower CANONICAL form (RFC 3339 UTC, ms precision) is
   // enforced at hashing time by Phase 2's normalization, not here.
@@ -494,32 +451,28 @@ export interface EventEnvelope {
    * Deliberately `string`, NOT `SessionEventType` — the envelope is the
    * version-tolerant carrier (see the layering note above): a reader must
    * parse an envelope whose `type` it does not know yet in order to
-   * persist it as a version stub (`ADR-018 §Decision` #5, #8, #9). Do not
-   * "tighten" this member to the census union.
+   * persist it as a version stub. Do not "tighten" this member to the
+   * census union.
    */
   type: string;
   /**
-   * `actor` is `string | null` per
-   * `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`
-   * (participant_id, agent_id, or null for system); the zod schema also
-   * makes it optional (key may be absent), so we match the inferred
-   * output: `actor?: string | null | undefined`. It is the canonical
-   * set's only nullable member — present-null and absent are
-   * wire-distinguishable per `Spec-006 §Canonical Serialization Rules`
-   * ("fields with value null MUST be included"). Empty string is rejected
-   * — a present-but-empty actor is a producer bug (a system event should
-   * send `null` or omit the key, not an empty string).
+   * `actor` is `string | null` the zod schema also makes it optional (key may be
+   * absent), so we match the inferred output: `actor?: string | null | undefined`. It is
+   * the canonical set's only nullable member — present-null and absent are
+   * wire-distinguishable. Empty string is rejected — a present-but-empty actor is a
+   * producer bug (a system event should send `null` or omit the key, not an empty
+   * string).
    */
   actor?: string | null | undefined;
   /**
    * Category-specific fields, open by design (higher-MINOR fields are
-   * preserved verbatim) — with one carve-out: an own `__proto__` payload
-   * key is rejected loud, because Zod's record parser cannot preserve it
-   * and silent stripping is forbidden under I-006-1-03's no-collapse
-   * rationale (see the pre-guard on {@link EventEnvelopeSchema}). May
-   * carry the cross-cutting sourceEpoch + sourcePosition pair; the typed
-   * stamp shapes are {@link SourceEpochSchema} / {@link SourcePositionSchema}
-   * and the {@link withEpochStamp} composition helper below (Plan-006 T1.9).
+   * preserved verbatim) — with one carve-out: an own `__proto__` payload key
+   * is rejected loud, because Zod's record parser cannot preserve it and
+   * silent stripping is forbidden under the no-collapse rationale (see the
+   * pre-guard on {@link EventEnvelopeSchema}). May carry the cross-cutting
+   * sourceEpoch + sourcePosition pair; the typed stamp shapes are {@link
+   * SourceEpochSchema} / {@link SourcePositionSchema} and the {@link
+   * withEpochStamp} composition helper below.
    */
   payload: Record<string, unknown>;
   // Optional, NOT nullable (wire authority: `correlationId?: string`) —
@@ -528,13 +481,11 @@ export interface EventEnvelope {
   correlationId?: string | undefined;
   causationId?: string | undefined;
   /**
-   * Producer-set `"MAJOR.MINOR"` semver string, never numeric on the wire
-   * (`ADR-018 §Decision` #1): written by the emitting daemon at emit time,
-   * never copied from a received event (`ADR-018 §Decision` #2), and never
-   * rewritten on read — upcasters transform the in-memory representation
-   * at dispatch time only, so the log row's `.version` is part of the
-   * event's durable identity (`ADR-018 §Decision` #6;
-   * `Spec-006 §EventEnvelope Version Semantics`) (I-006-1-04). The
+   * Producer-set `"MAJOR.MINOR"` semver string, never numeric on the wire:
+   * written by the emitting daemon at emit time, never copied from a
+   * received event, and never rewritten on read — upcasters transform the
+   * in-memory representation at dispatch time only, so the log row's
+   * `.version` is part of the event's durable identity.
    * {@link EventEnvelopeVersion} brand keeps unvalidated strings out.
    */
   version: EventEnvelopeVersion;
@@ -545,20 +496,14 @@ export interface EventEnvelope {
 // SessionEvent variant.
 // --------------------------------------------------------------------------
 //
-// Defined as a shape factory (not a schema) so the envelope schema and each
-// variant can spread it — the envelope supplying the tolerant
-// `category`/`type`/`payload` trio, each variant supplying its own `type`
-// literal, its own literal `category`, and its own `payload`. Per Spec-001
-// § Data And Storage Changes the daemon assigns the persisted event id
-// (UUID v7 in current daemon code, but the wire contract per
-// `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy` is opaque `id: string`
-// — no UUID-format invariant is asserted at the wire layer); `sequence` is
-// the canonical replay key per ADR-017.
+// Defined as a shape factory (not a schema) so the envelope schema and each variant can
+// spread it — the envelope supplying the tolerant `category`/`type`/`payload` trio, each
+// variant supplying its own `type` literal, its own literal `category`, and its own
+// `payload`. `sequence` is the canonical replay key.
 //
 // Note that `category` is NOT in `buildCommonShape()` — the variants need
 // it literal-typed per variant so the parser rejects category/type
-// mismatches (see Spec-006 §Canonical Serialization Rules), while the
-// envelope binds it to the full canonical enum.
+// mismatches, while the envelope binds it to the full canonical enum.
 //
 // The factory pattern is for stylistic consistency: the per-variant schema
 // declarations also need to be reproduced in the `discriminatedUnion` block
@@ -571,12 +516,10 @@ export interface EventEnvelope {
 // branch schemas harder.)
 
 const buildCommonShape = () => ({
-  // `id`: opaque on the wire (no UUID-format invariant). The daemon assigns
-  // UUID v7 internally per Spec-006 (sortable timestamp ordering), but the
-  // wire contract per `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy` is `id: string`. A
-  // future spec edit may tighten this to the branded-id text form; until then, accepting
-  // any non-empty bounded string (length cap + whitespace + NUL guards)
-  // matches the documented contract.
+  // `id`: opaque on the wire (no UUID-format invariant). The daemon assigns UUID v7
+  // internally but the wire contract is `id: string`. A future spec edit may tighten
+  // this to the branded-id text form; until then, accepting any non-empty bounded string
+  // (length cap + whitespace + NUL guards) matches the documented contract.
   id: wireFreeFormString(EVENT_FIELD_MAX_LEN, "EventEnvelope.id"),
   sessionId: SessionIdSchema,
   // `sequence` is a non-negative integer. The daemon assigns a strictly
@@ -585,10 +528,10 @@ const buildCommonShape = () => ({
   // The `.max()` is REDUNDANT with the safe-integer ceiling `.int()` already
   // applies, and that redundancy is the point. It shifts NO accept/reject
   // decision — every value admitted before is admitted now, every value
-  // refused before is still refused — so it is not an ADR-018 contract
-  // narrowing and needs no MINOR bump. What it changes is the DIAGNOSIS: an
-  // over-range `sequence` now reports why the ceiling exists instead of a bare
-  // "too big" that reads like an arbitrary limit. See
+  // refused before is still refused — so it is not an contract narrowing and
+  // needs no MINOR bump. What it changes is the DIAGNOSIS: an over-range
+  // `sequence` now reports why the ceiling exists instead of a bare "too big"
+  // that reads like an arbitrary limit.
   // {@link EVENT_ENVELOPE_SEQUENCE_MAX}. (`.int({ error })` would have carried
   // the same message on one check, but Zod applies a check-level `error` to
   // every issue that check raises — including the `invalid_type` a
@@ -601,20 +544,17 @@ const buildCommonShape = () => ({
     .max(EVENT_ENVELOPE_SEQUENCE_MAX, {
       message: `sequence must be at most ${EVENT_ENVELOPE_SEQUENCE_MAX} (Number.MAX_SAFE_INTEGER): above it distinct sequences collapse onto the same IEEE-754 double, so two different events would canonicalize to identical RFC 8785 bytes and collide in the row_hash chain.`,
     }),
-  // `occurredAt` is ISO 8601 per `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`.
-  // `{ offset: true }` widens default Z-only acceptance to include numeric
-  // RFC 3339 §5.6 offsets ("+00:00", "-05:00"). The narrower CANONICAL form
-  // for the integrity protocol (`Spec-006 §Canonical Serialization Rules` — Z-suffixed UTC, ms
-  // precision) is enforced at hashing time by Plan-006's normalization
-  // step, NOT at the wire layer here.
+  // `occurredAt` is ISO 8601. `{ offset: true }` widens default Z-only acceptance to
+  // include numeric RFC 3339 section 5.6 offsets ("+00:00", "-05:00"). The narrower
+  // CANONICAL form for the integrity protocol (Z-suffixed UTC, ms precision) is enforced
+  // at hashing time by the normalization step, NOT at the wire layer here.
   occurredAt: z.iso.datetime({ offset: true }),
-  // `actor` is a participant_id, agent_id, or null/absent for system-emitted
-  // events (`docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy` — "or null for system").
-  // The helper rejects empty/whitespace-only/NUL strings — a system event
-  // must use `null` or omit the key, NOT send an empty string. `.nullable()`
-  // is composed AFTER the helper so the inner string checks only run on
-  // string values (Zod evaluates the wrapped schema only when the value is
-  // a string; `null` short-circuits past the chain).
+  // `actor` is a user_id, agent_id, or null/absent for system-emitted events ("or
+  // null for system"). The helper rejects empty/whitespace-only/NUL strings — a system
+  // event must use `null` or omit the key, NOT send an empty string. `.nullable()` is
+  // composed AFTER the helper so the inner string checks only run on string values (Zod
+  // evaluates the wrapped schema only when the value is a string; `null` short-circuits
+  // past the chain).
   actor: wireFreeFormString(EVENT_FIELD_MAX_LEN, "EventEnvelope.actor").nullable().optional(),
   correlationId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "EventEnvelope.correlationId").optional(),
   causationId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "EventEnvelope.causationId").optional(),
@@ -622,15 +562,12 @@ const buildCommonShape = () => ({
 });
 
 /**
- * Runtime validator for the canonical {@link EventEnvelope} carrier —
- * declares exactly the canonical 11-field set per
- * `Spec-006 §Canonical Serialization Rules` (I-006-1-03); serialized order
- * is mandated by RFC 8785 §3.2.3 UTF-16 code-unit lex-sort of member names
- * per that section's amendment (this schema fixes MEMBERSHIP; Phase 2's
- * canonicalizer produces the bytes). `version` remains the branded,
- * producer-set {@link EventEnvelopeVersion} — never rewritten on read
- * (`ADR-018 §Decision` #1, #2, #6;
- * `Spec-006 §EventEnvelope Version Semantics`) (I-006-1-04).
+ * Runtime validator for the canonical {@link EventEnvelope} carrier — declares
+ * exactly the canonical 11-field set serialized order is mandated by RFC 8785
+ * section 3.2.3 UTF-16 code-unit lex-sort of member names per that section's
+ * amendment (this schema fixes MEMBERSHIP; Phase 2's canonicalizer produces the
+ * bytes). `version` remains the branded, producer-set {@link
+ * EventEnvelopeVersion} — never rewritten on read.
  */
 export const EventEnvelopeSchema: z.ZodType<EventEnvelope> = z
   .object({
@@ -663,44 +600,43 @@ export const EventEnvelopeSchema: z.ZodType<EventEnvelope> = z
           ctx.addIssue({
             code: "custom",
             message:
-              "EventEnvelope.payload MUST NOT carry an own __proto__ key — the record parser cannot preserve it, and silent stripping is forbidden (I-006-1-03).",
+              "EventEnvelope.payload MUST NOT carry an own __proto__ key — the record parser cannot preserve it, and silent stripping is forbidden.",
           });
         }
       })
       .pipe(z.record(z.string(), z.unknown())),
   })
   // Top-level membership is CLOSED even though the carrier is otherwise
-  // tolerant — the canonical set is fixed (I-006-1-03), and stripping an
-  // unknown member silently would desync parse output from the hashed
-  // canonical bytes. `pii_payload` is the named non-member: a storage
-  // column, never an envelope field.
+  // tolerant — the canonical set is fixed, and stripping an unknown
+  // member silently would desync parse output from the hashed canonical
+  // bytes. `pii_payload` is the named non-member: a storage column,
+  // never an envelope field.
   .strict();
 
 // --------------------------------------------------------------------------
-// Cross-cutting epoch-attribution carrier (Plan-006 T1.9 — CP-004-12).
+// Cross-cutting epoch-attribution carrier ().
 // --------------------------------------------------------------------------
 //
 // `sourceEpoch` + `sourcePosition` are the ONE cross-cutting payload field
-// pair in the taxonomy (`Spec-006 §Event Type Enumeration`, registered
-// 2026-07-20): a late-appended NON-LIFECYCLE row that the run engine
-// attributes to a SUPERSEDED execution epoch carries the pair; a
-// current-epoch row carries neither. Absence IS the current-epoch signal —
-// the stamp is never fabricated at read time.
+// pair in the taxonomy (registered 2026-07-20): a late-appended
+// NON-LIFECYCLE row that the run engine attributes to a SUPERSEDED
+// execution epoch carries the pair; a current-epoch row carries neither.
+// Absence IS the current-epoch signal — the stamp is never fabricated at
+// read time.
 //
-// PAYLOAD FIELD, NOT AN ENVELOPE FIELD. The pair rides inside `payload`, so
-// it sits in the RFC 8785 canonical bytes (signed, hash-chained, shred-safe
-// like any payload field) while the canonical envelope member set stays the
-// fixed eleven — I-006-1-03 is untouched and NO version bump is taken. That
-// no-bump path holds because `ADR-018 §Reversibility Assessment`'s point of
-// no return is an EMISSION event, not a code merge: the project is
-// pre-first-release with no production deployment, so no `"1.0"` envelope
-// has been emitted in a non-test environment — shipped emitter code on
-// `develop` (the Plan-003 runtime-node emitter's `RUNTIME_NODE_EVENT_VERSION`)
-// does not cross it. The pair is therefore part of the v1.0 baseline payload
-// contract from first emit, the same baseline-membership path the earlier
-// campaign field registrations rode. Had that point been crossed first, the
-// registration would instead take the MINOR envelope bump (`"1.1"`) per
-// `ADR-018 §Decision` #8's new-optional-field rule.
+// PAYLOAD FIELD, NOT AN ENVELOPE FIELD. The pair rides inside `payload`, so it
+// sits in the RFC 8785 canonical bytes (signed, hash-chained, shred-safe like
+// any payload field) while the canonical envelope member set stays the fixed
+// eleven — is untouched and NO version bump is taken. That no-bump path holds
+// because the point of no return is an EMISSION event, not a code merge: the
+// project is pre-first-release with no production deployment, so no `"1.0"`
+// envelope has been emitted in a non-test environment — shipped emitter code
+// on `develop` (runtime-node emitter's `RUNTIME_NODE_EVENT_VERSION`) does not
+// cross it. The pair is therefore part of the v1.0 baseline payload contract
+// from first emit, the same baseline-membership path the earlier campaign
+// field registrations rode. Had that point been crossed first, the
+// registration would instead take the MINOR envelope bump (`"1.1"`) #8's
+// new-optional-field rule.
 //
 // WRAP ADMISSION — which payload branches take the stamp. Admission is keyed
 // on RUN-SCOPEDNESS (the variant's payload carries `runId`), NOT on family
@@ -709,56 +645,49 @@ export const EventEnvelopeSchema: z.ZodType<EventEnvelope> = z
 // `artifact_publication`, and the `interactive_request` CLOSED PAIR
 // `driver_ask.requested` + `driver_ask.canceled`), and within them only the
 // run-attributed variants admit the pair. The account-plane
-// `usage.rate_limit_update` (no `runId` —
-// `Spec-006 §Usage Telemetry (usage_telemetry)`) is the named exclusion:
-// an epoch stamp on a row with no run identity is unattributable by
-// construction. `run_lifecycle` branches never admit it either — a
-// lifecycle straggler is ABSORBED, never late-appended.
+// `usage.rate_limit_update` (no `runId`) is the named exclusion: an epoch
+// stamp on a row with no run identity is unattributable by construction.
+// `run_lifecycle` branches never admit it either — a lifecycle straggler is
+// ABSORBED, never late-appended.
 //
-// The wrap set IS NO LONGER EMPTY (Plan-006 T3.6, 2026-08-30). It holds
-// exactly the five body-bearing variants registered below —
-// `assistant.message`, `assistant.thinking_update`, `tool.invoked`,
-// `tool.result`, `tool.error` — which are the first payloads in this union to
-// carry `runId` and therefore the first to meet the admission rule. Every
-// other branch stays unwrapped, and the reasoning that keeps them so is
-// unchanged: `SessionEventSchema` carries the two session variants
-// (`session.created`, `channel.created`), the six
-// Plan-009 `repo.*` / `workspace.*` variants (CP-009-4), the five Plan-010
-// `worktree.*` variants (CP-010-5), the six Plan-006 `audit_integrity` /
-// `event_maintenance` variants (T1.11), and the five Plan-003 `runtime_node.*`
-// variants (T1.12 — CP-003-1 leg (a)). The first fourteen are LIFECYCLE
-// rows; the six T1.11 registrants are DAEMON-SCOPE infrastructure rows fired
-// at process scope across every hosted session
-// (`Spec-006 §Daemon-Scope Event Binding And Node-Scope Anchoring`); the five
-// T1.12 registrants are NODE-scoped attachment-lifecycle rows, keyed on
-// `nodeId` and bound to the session of the attachment they describe. None of
-// those twenty-five is run-scoped — none of their payloads carries `runId` —
-// so none composes the helper. Later registrants of the five families
-// arriving through the union-registration seam (the CP-009-4 / CP-010-5 /
-// CP-012-2 / CP-016-3 class) inherit the admission requirement from
-// `Spec-006 §Event Type Enumeration` — a strict payload schema that skipped
-// the wrap would REJECT a stamped row at every site that parses through the
-// STRICT layer. Scoped honestly: the tolerant `EventEnvelopeSchema` carrier
-// accepts a stamped row either way (its `payload` is an open record that
-// preserves unknown keys verbatim), so what an unwrapped branch costs is
-// INTERPRETATION at the strict layer, not transport, append, or the canonical
-// bytes. __tests__/event-source-epoch.test.ts walks the live union and fails
-// when a run-scoped branch of an admitting family lands unwrapped, or when
-// any other branch lands wrapped.
+// The wrap set IS NO LONGER EMPTY (2026-08-30). It holds exactly the five
+// body-bearing variants registered below — `assistant.message`,
+// `assistant.thinking_update`, `tool.invoked`, `tool.result`, `tool.error` —
+// which are the first payloads in this union to carry `runId` and therefore
+// the first to meet the admission rule. Every other branch stays unwrapped,
+// and the reasoning that keeps them so is unchanged: `SessionEventSchema`
+// carries the two session variants (`session.created`, `channel.created`), the
+// six `repo.*` / `workspace.*` variants, the five `worktree.*` variants, the
+// six `audit_integrity` / `event_maintenance` variants, and the five
+// `runtime_node.*` variants (leg (a)). The first fourteen are LIFECYCLE rows;
+// the six registrants are DAEMON-SCOPE infrastructure rows fired at process
+// scope across every hosted session; the five registrants are NODE-scoped
+// attachment-lifecycle rows, keyed on `nodeId` and bound to the session of the
+// attachment they describe. None of those twenty-five is run-scoped — none of
+// their payloads carries `runId` — so none composes the helper. Later
+// registrants of the five families arriving through the union-registration
+// seam (class) inherit the admission requirement — a strict payload schema
+// that skipped the wrap would REJECT a stamped row at every site that parses
+// through the STRICT layer. Scoped honestly: the tolerant
+// `EventEnvelopeSchema` carrier accepts a stamped row either way (its
+// `payload` is an open record that preserves unknown keys verbatim), so what
+// an unwrapped branch costs is INTERPRETATION at the strict layer, not
+// transport, append, or the canonical bytes.
+// __tests__/event-source-epoch.test.ts walks the live union and fails when a
+// run-scoped branch of an admitting family lands unwrapped, or when any other
+// branch lands wrapped.
 //
 // OWNERSHIP BOUNDARY — this file owns the TYPED SHAPE only. Execution-epoch
 // semantics (`0` is the pre-any-rollback epoch; the epoch advances with each
-// ACCEPTED `run.rolled_back` rewind) belong to
-// `Spec-004 §Required Behavior` + `Run State Machine §Invariants`; the
-// stamp's value source is Plan-004 T3.11's per-event operation association;
-// the stamping and consumption invariants are Plan-004's (I-004-14
-// late-event absorption, I-004-15 supersede marking).
+// ACCEPTED `run.rolled_back` rewind) belong to `Run State Machine `; the
+// stamp's value source is the per-event operation association; the stamping
+// and consumption invariants are the (late-event absorption supersede
+// marking).
 
 /**
  * The pre-rollback execution epoch a late-appended non-lifecycle row is
  * attributed to — a nonnegative integer, `0` being the pre-any-rollback
- * epoch (`Spec-004 §Required Behavior` owns the advance semantics; see the
- * ownership boundary above).
+ * epoch (owns the advance semantics; see the ownership boundary above).
  *
  * Spelled as an alias rather than a `z.infer` of the schema below for the
  * same `isolatedDeclarations` reason as {@link EventCategory} /
@@ -770,9 +699,9 @@ export type SourceEpoch = number;
 export const SourceEpochSchema: z.ZodType<SourceEpoch> = z.number().int().nonnegative();
 
 /**
- * The normalized session position (the turn-boundary vocabulary of
- * Spec-004's `targetPosition`) a stamped row occupies within its source
- * epoch — a nonnegative integer.
+ * The normalized session position (the turn-boundary vocabulary of the
+ * `targetPosition`) a stamped row occupies within its source epoch — a
+ * nonnegative integer.
  *
  * Registered as the stamp's companion because no run-scoped family's payload
  * carries a native position key, and the supersede cutoff
@@ -783,16 +712,14 @@ export type SourcePosition = number;
 export const SourcePositionSchema: z.ZodType<SourcePosition> = z.number().int().nonnegative();
 
 // The three shared wire literals. Exported as consts — not inlined at each
-// use site — because a later rename is forbidden-non-additive
-// (`ADR-018 §Decision` #8) and each literal is shared across two plans'
-// code: Plan-004 T3.11 stamps the pair at ingestion and T3.14 reads it in
-// the supersede projection, while the Plan-006 T3.2 compactor writes the
+// use site — because a later rename is forbidden-non-additive and each
+// literal is shared across two plans' code: stamps the pair at ingestion
+// and reads it in the supersede projection, while compactor writes the
 // resolved originating position into the audit stub under `originPosition`,
-// which the Plan-004 T3.12 rewind-span check reads back. The stamp keys are
-// the registered payload-field names of
-// `Spec-006 §Event Type Enumeration`; `originPosition` is the audit-stub
-// PROJECTION key of `Spec-006 §Compacted Event Format` — a stub-projection
-// field, never a `session_events` column and never a live payload key.
+// which rewind-span check reads back. The stamp keys are the registered
+// payload-field names of `originPosition` is the audit-stub PROJECTION key
+// of — a stub-projection field, never a `session_events` column and never a
+// live payload key.
 //
 // `as const` rather than a written literal annotation: the literal type stays
 // syntactically evident (so `isolatedDeclarations` is satisfied) and the keys
@@ -816,16 +743,15 @@ export const ORIGIN_POSITION_STUB_KEY = "originPosition" as const;
  *     so a registrant cannot hand-roll the cross-cutting pair alongside the
  *     canonical one — and cannot double-wrap. This is the one admission rule
  *     the compiler enforces; the rest live in the ratchet.
- *   • STRICTNESS SURVIVES. `.extend()` preserves the object's catchall
- *     config, so a composed payload rejects unknown keys exactly as it did
- *     before — composition never widens a payload into accepting arbitrary
- *     keys (the no-collapse stance of I-006-1-03). Strictness is INHERITED,
- *     not imposed: the `$strict` parameter annotation states the
- *     precondition, but Zod's object-config type parameters are
- *     structurally interchangeable, so a caller CAN pass a non-strict
- *     payload and get a non-strict composition back. Wrapping a non-strict
- *     payload is a contract violation the admission ratchet in
- *     __tests__/event-source-epoch.test.ts rejects.
+ *   • `.extend()` preserves the object's catchall config, so a composed
+ *     payload rejects unknown keys exactly as it did before — composition
+ *     never widens a payload into accepting arbitrary keys (the no-collapse
+ *     stance of). Strictness is INHERITED, not imposed: the `$strict`
+ *     parameter annotation states the precondition, but Zod's object-config
+ *     type parameters are structurally interchangeable, so a caller CAN
+ *     pass a non-strict payload and get a non-strict composition back.
+ *     Wrapping a non-strict payload is a contract violation the admission
+ *     ratchet in __tests__/event-source-epoch.test.ts rejects.
  *   • THE STAMP IS OPTIONAL, AND ABSENCE IS MEANINGFUL. An unstamped
  *     payload stays valid: absence means current-epoch, so a required key
  *     would force producers to fabricate an attribution.
@@ -943,20 +869,19 @@ export function withEpochStamp<
 }
 
 // --------------------------------------------------------------------------
-// The PII indirection descriptor (`Spec-006 §Canonical Serialization Rules`).
+// The PII indirection descriptor.
 // --------------------------------------------------------------------------
 
 /**
  * The payload key carrying the BLAKE3 digest of the stored
  * `session_events.pii_payload` ciphertext — the commitment that binds the
- * sealed participant partition to the row's signature without carrying the
+ * sealed user partition to the row's signature without carrying the
  * plaintext into the signed bytes.
  *
- * SNAKE_CASE beside camelCase neighbours, deliberately: `Spec-006 §Canonical
- * Serialization Rules` spells both members of this pair that way, and rows
- * have been signed under these exact literals since the sealing codec shipped.
- * A spelling "cleanup" here would not tidy anything — it would break signature
- * verification on every existing PII row.
+ * SNAKE_CASE beside camelCase neighbours, deliberately: spells both members of
+ * this pair that way, and rows have been signed under these exact literals
+ * since the sealing codec shipped. A spelling "cleanup" here would not tidy
+ * anything — it would break signature verification on every existing PII row.
  *
  * Declared HERE rather than in the daemon codec that embeds it, on the
  * {@link CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY} / {@link
@@ -968,26 +893,24 @@ export function withEpochStamp<
  * comes into existence.
  *
  * The wire ENCODING is deliberately not pinned by the shape below — the same
- * restraint {@link CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY} takes. Spec-006 says
- * "BLAKE3 over the ciphertext bytes" and fixes no spelling; the sealing codec
- * writes lowercase hex and owns that as a one-way door, and pinning it here
- * would be a narrowing nothing could relax (`ADR-018 §Decision` #8).
+ * restraint {@link CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY} takes. says "BLAKE3
+ * over the ciphertext bytes" and fixes no spelling; the sealing codec writes
+ * lowercase hex and owns that as a one-way door, and pinning it here would be
+ * a narrowing nothing could relax.
  */
 export const PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY = "pii_ciphertext_digest" as const;
 
 /**
- * The payload key carrying the participant whose content key sealed the
- * `pii_payload` ciphertext — the owner stamp `Spec-006 §Canonical
- * Serialization Rules` requires BESIDE the digest, so the signature binds the
- * row's PII owner as well as its bytes. Once a `Spec-022 §Shred Fan-Out`
- * Path 1 key destruction makes the retained ciphertext permanently
- * un-attributable, this stamp is the sole surviving evidence of whose data the
- * row held.
+ * The payload key carrying the user whose content key sealed the
+ * `pii_payload` ciphertext — the owner stamp requires BESIDE the digest, so
+ * the signature binds the row's PII owner as well as its bytes. Once a Path 1
+ * key destruction makes the retained ciphertext permanently un-attributable,
+ * this stamp is the sole surviving evidence of whose data the row held.
  */
-export const PII_PARTICIPANT_ID_PAYLOAD_KEY = "pii_participant_id" as const;
+export const PII_USER_ID_PAYLOAD_KEY = "pii_user_id" as const;
 
 /**
- * The two codec-owned indirection members a row carrying a participant PII
+ * The two codec-owned indirection members a row carrying a user PII
  * partition embeds in its payload. Both are OPTIONAL: the pair is present
  * exactly when `session_events.pii_payload` is non-NULL, which the vast
  * majority of rows of every registered type never are.
@@ -997,15 +920,14 @@ export const PII_PARTICIPANT_ID_PAYLOAD_KEY = "pii_participant_id" as const;
  * declaration.
  *
  * NO PAIRING REFINEMENT, matching {@link MachineContentDescriptor}'s three
- * members rather than {@link withEpochStamp}'s two. The both-or-neither
- * binding between digest and stamp is already adjudicated — and adjudicated
- * where it can actually be checked — by the read-side `pii_owner_stamp_unbound`
- * verification mode `Spec-006 §Canonical Serialization Rules` names for exactly
- * this purpose: it holds the signed claim against the durable
- * `session_events.pii_participant_id` column, a comparison no parse-time check
- * can make because the column is not in the parsed object. Encoding the pairing
- * here as well would make this schema a second source of truth for a binding
- * the corpus has already assigned.
+ * members rather than {@link withEpochStamp}'s two. The both-or-neither binding
+ * between digest and stamp is already adjudicated — and adjudicated where it
+ * can actually be checked — by the read-side `pii_owner_stamp_unbound`
+ * verification mode names for exactly this purpose: it holds the signed claim
+ * against the durable `session_events.pii_user_id` column, a comparison
+ * no parse-time check can make because the column is not in the parsed object.
+ * Encoding the pairing here as well would make this schema a second source of
+ * truth for a binding the corpus has already assigned.
  *
  * The member names are spelled LITERALLY here while the schema factory below
  * composes them from the exported constants, and the asymmetry is deliberate.
@@ -1021,8 +943,8 @@ export const PII_PARTICIPANT_ID_PAYLOAD_KEY = "pii_participant_id" as const;
 export type PiiIndirectionDescriptor = {
   /** BLAKE3 over the STORED `pii_payload` ciphertext bytes. */
   pii_ciphertext_digest?: string | undefined;
-  /** The participant whose content key sealed that ciphertext. */
-  pii_participant_id?: string | undefined;
+  /** The user whose content key sealed that ciphertext. */
+  pii_user_id?: string | undefined;
 };
 
 // The shared shape factory — `buildMachineContentDescriptorShape()`'s principle
@@ -1034,8 +956,8 @@ export type PiiIndirectionDescriptor = {
 // above are the single source of the strings that the schema, the codec, the
 // migration, and the verifier all index this payload by.
 //
-// `pii_participant_id` is a BOUNDED FREE-FORM STRING and deliberately NOT
-// `ParticipantIdSchema`. That schema is `brandedUuidIdSchema`, so it would
+// `pii_user_id` is a BOUNDED FREE-FORM STRING and deliberately NOT
+// `UserIdSchema`. That schema is `brandedUuidIdSchema`, so it would
 // refuse every stamp that is not a canonical UUID — while the codec that embeds
 // this member types the value as a plain `string` on a documented narrowing
 // (`pii-indirection.ts`: "nothing on this path mints that brand, and its schema
@@ -1048,9 +970,9 @@ const buildPiiIndirectionDescriptorShape = () => ({
     EVENT_FIELD_MAX_LEN,
     "pii partition pii_ciphertext_digest",
   ).optional(),
-  [PII_PARTICIPANT_ID_PAYLOAD_KEY]: wireFreeFormString(
+  [PII_USER_ID_PAYLOAD_KEY]: wireFreeFormString(
     EVENT_FIELD_MAX_LEN,
-    "pii partition pii_participant_id",
+    "pii partition pii_user_id",
   ).optional(),
 });
 
@@ -1155,7 +1077,7 @@ const channelCreatedPayloadSchema = z
 // clean (ZodType's output parameter is covariant, so a schema emitting an
 // extra property stays assignable to the shrunken interface) — the remove
 // direction is caught by the 11-key membership pin in the test suite
-// instead. Together they are the I-006-1-03 drift guard.
+// instead. Together they are drift guard.
 export interface SessionCreatedEvent extends EventEnvelope {
   type: "session.created";
   category: "session_lifecycle";
@@ -1196,28 +1118,24 @@ export const ChannelCreatedEventSchema: z.ZodType<ChannelCreatedEvent> = z
   .strict();
 
 // --------------------------------------------------------------------------
-// repo.* / workspace.* — the six Plan-009 lifecycle variants (CP-009-4).
+// repo.* / workspace.* — the six lifecycle variants.
 // --------------------------------------------------------------------------
 //
-// Additive-MINOR registration (`ADR-018 §Decision` #8) of the six
-// Plan-009-emitted members of
-// `Spec-006 §Repo, Workspace, and Worktree Lifecycle (session_lifecycle)`.
 // All six type strings were ALREADY in the census (`SessionEventType` +
-// `SESSION_EVENT_CATEGORY_BY_TYPE`, Plan-006 T1.2); what lands here is their
-// PAYLOAD VARIANTS, which is what moves a type from a registered name the
-// tolerant carrier accepts to one the strict layer can interpret. The census
-// is untouched — still 147 types across 20 categories.
+// `SESSION_EVENT_CATEGORY_BY_TYPE`); what lands here is their PAYLOAD
+// VARIANTS, which is what moves a type from a registered name the tolerant
+// carrier accepts to one the strict layer can interpret. The census is
+// untouched — still 147 types across 20 categories.
 //
-// ONE SHARED PAYLOAD SCHEMA. Spec-006 gives the whole eleven-member family a
-// single payload shape, so all six compose the same
+// ONE SHARED PAYLOAD SCHEMA. gives the whole eleven-member family a single
+// payload shape, so all six compose the same
 // `RepoWorkspaceLifecyclePayloadSchema` (authored in repo.ts per
-// emitter-authors-payload — CP-009-4, the Plan-003 precedent carried forward
-// in Plan-006 CP-006-5) rather than six copies of one contract. The five
-// `worktree.*` members are registered in the block below through CP-010-5,
-// carrying the SAME FAMILY SHAPE instantiated over Plan-010's own
-// `WorktreeStateSchema` (the factory path, PR #250 round 4) rather than this
-// two-vocabulary instantiation.
-// Import direction is one-way: repo.ts imports nothing from this file.
+// emitter-authors-payload — precedent carried forward) rather than six
+// copies of one contract. The five `worktree.*` members are registered in
+// the block below through carrying the SAME FAMILY SHAPE instantiated over
+// its own `WorktreeStateSchema` (the factory path) rather
+// than this two-vocabulary instantiation. Import direction is one-way:
+// repo.ts imports nothing from this file.
 //
 // NO EPOCH STAMP. These are `session_lifecycle`, not run-scoped — their
 // payload carries no `runId`, so the cross-cutting `sourceEpoch` /
@@ -1244,8 +1162,8 @@ const repoWorkspaceLifecycleVariantPayloadSchema: z.ZodType<RepoWorkspaceLifecyc
     "RepoWorkspaceLifecyclePayloadSchema",
   );
 
-// Emitted when `repo.attach` admits a local path as a durable repo mount
-// (`Spec-009 §Required Behavior`).
+// Emitted when `repo.attach` admits a local path as a durable repo
+// mount.
 export interface RepoAttachedEvent extends EventEnvelope {
   type: "repo.attached";
   category: "session_lifecycle";
@@ -1260,8 +1178,8 @@ export const RepoAttachedEventSchema: z.ZodType<RepoAttachedEvent> = z
   })
   .strict();
 
-// Emitted when a mount transitions to the terminal `detached` state
-// (`Spec-009 §Detach Semantics (V1 Definition)`, Plan-009 D-009-6).
+// Emitted when a mount transitions to the terminal `detached`
+// state.
 export interface RepoDetachedEvent extends EventEnvelope {
   type: "repo.detached";
   category: "session_lifecycle";
@@ -1276,8 +1194,8 @@ export const RepoDetachedEventSchema: z.ZodType<RepoDetachedEvent> = z
   })
   .strict();
 
-// Emitted at the head of a (re)provisioning transition — Plan-009's
-// `WorkspaceService.beginReprovision` (CP-009-2).
+// Emitted at the head of a (re)provisioning transition — the
+// `WorkspaceService.beginReprovision`.
 export interface WorkspaceProvisioningEvent extends EventEnvelope {
   type: "workspace.provisioning";
   category: "session_lifecycle";
@@ -1293,7 +1211,7 @@ export const WorkspaceProvisioningEventSchema: z.ZodType<WorkspaceProvisioningEv
   .strict();
 
 // Emitted when provisioning completes and the execution root is bound —
-// `WorkspaceService.completeReprovision` (CP-009-2).
+// `WorkspaceService.completeReprovision`.
 export interface WorkspaceReadyEvent extends EventEnvelope {
   type: "workspace.ready";
   category: "session_lifecycle";
@@ -1309,9 +1227,9 @@ export const WorkspaceReadyEventSchema: z.ZodType<WorkspaceReadyEvent> = z
   .strict();
 
 // Emitted on the availability-loss transition — a failed reprovision
-// (`WorkspaceService.failReprovision`, CP-009-2) or a workspace path that
-// became unavailable after binding, after which write runs are blocked until
-// repair (`Spec-009 §Fallback Behavior`).
+// (`WorkspaceService.failReprovision`) or a workspace path that became
+// unavailable after binding, after which write runs are blocked until
+// repair.
 export interface WorkspaceStaleEvent extends EventEnvelope {
   type: "workspace.stale";
   category: "session_lifecycle";
@@ -1326,8 +1244,8 @@ export const WorkspaceStaleEventSchema: z.ZodType<WorkspaceStaleEvent> = z
   })
   .strict();
 
-// Emitted once per dependent workspace archived by the detach cascade
-// (`Spec-009 §Detach Semantics (V1 Definition)`, Plan-009 D-009-6).
+// Emitted once per dependent workspace archived by the detach
+// cascade.
 export interface WorkspaceArchivedEvent extends EventEnvelope {
   type: "workspace.archived";
   category: "session_lifecycle";
@@ -1343,34 +1261,29 @@ export const WorkspaceArchivedEventSchema: z.ZodType<WorkspaceArchivedEvent> = z
   .strict();
 
 // --------------------------------------------------------------------------
-// worktree.* — the five Plan-010 lifecycle variants (CP-010-5).
+// worktree.* — the five lifecycle variants.
 // --------------------------------------------------------------------------
 //
-// Additive-MINOR registration (`ADR-018 §Decision` #8) of the five
-// Plan-010-emitted members of
-// `Spec-006 §Repo, Workspace, and Worktree Lifecycle (session_lifecycle)`.
 // All five type strings were ALREADY in the census (`SessionEventType` +
-// `SESSION_EVENT_CATEGORY_BY_TYPE`, Plan-006 T1.2); what lands here is their
-// PAYLOAD VARIANTS. The census is untouched — still 147 types across 20
-// categories.
+// `SESSION_EVENT_CATEGORY_BY_TYPE`); what lands here is their PAYLOAD
+// VARIANTS. The census is untouched — still 147 types across 20 categories.
 //
 // SAME FAMILY, OWN VOCABULARY. These five complete the eleven-member family
-// the CP-009-4 block above began, but they do NOT compose
+// block above began, but they do NOT compose
 // `RepoWorkspaceLifecyclePayloadSchema`: their payload is the family factory
-// instantiated over Plan-010's `WorktreeStateSchema` —
+// instantiated over the `WorktreeStateSchema` —
 // `WorktreeLifecyclePayloadSchema`, authored in worktree.ts per
 // emitter-authors-payload — so a worktree event claiming a repo/workspace
-// state, or a workspace event claiming `merged`, stays a parse error
-// (PR #250 round 4). Import direction is one-way: worktree.ts imports
-// nothing from this file.
+// state, or a workspace event claiming `merged`, stays a parse error.
+// Import direction is one-way: worktree.ts imports nothing
+// from this file.
 //
-// THE REGISTRY STAYS CLOSED (Plan-010 D-010-11). Five arms, not six: the
-// worktree ROW vocabulary has six states, but the `-> failed` transition
-// emits no worktree event (Plan-010 I-010-13 — the failure incident is
-// already evented as `workspace.stale` by the coupled `failReprovision`),
-// and ephemeral-clone transitions emit none at all. `worktree.failed` is not
-// a census member and MUST stay rejected by `SessionEventSchema`
-// (pinned in __tests__/worktree.test.ts).
+// THE REGISTRY STAYS CLOSED. Five arms, not six: the worktree ROW vocabulary
+// has six states, but the `-> failed` transition emits no worktree event
+// (the failure incident is already evented as `workspace.stale` by the
+// coupled `failReprovision`), and ephemeral-clone transitions emit none at
+// all. `worktree.failed` is not a census member and MUST stay rejected by
+// `SessionEventSchema` (pinned in __tests__/worktree.test.ts).
 //
 // NO EPOCH STAMP. `session_lifecycle`, not run-scoped — the same WRAP
 // ADMISSION exclusion as the six above; __tests__/event-source-epoch.test.ts
@@ -1384,8 +1297,7 @@ type WorktreeLifecycleVariantPayload = WorktreeLifecyclePayload & PiiIndirection
 const worktreeLifecycleVariantPayloadSchema: z.ZodType<WorktreeLifecycleVariantPayload> =
   withPiiIndirectionMembers(WorktreeLifecyclePayloadSchema, "WorktreeLifecyclePayloadSchema");
 
-// Emitted transactionally with worktree row creation (Plan-010 D-010-12;
-// `Spec-010 §State And Data Implications`).
+// Emitted transactionally with worktree row creation.
 export interface WorktreeCreatedEvent extends EventEnvelope {
   type: "worktree.created";
   category: "session_lifecycle";
@@ -1401,7 +1313,7 @@ export const WorktreeCreatedEventSchema: z.ZodType<WorktreeCreatedEvent> = z
   .strict();
 
 // Emitted on the `creating -> ready` transition — the provisioned checkout is
-// materialized and bound as an execution root (Plan-010 D-010-12).
+// materialized and bound as an execution root.
 export interface WorktreeReadyEvent extends EventEnvelope {
   type: "worktree.ready";
   category: "session_lifecycle";
@@ -1417,7 +1329,7 @@ export const WorktreeReadyEventSchema: z.ZodType<WorktreeReadyEvent> = z
   .strict();
 
 // Emitted on the `-> dirty` transition — uncommitted work observed in the
-// checkout (Plan-010 D-010-12; `Spec-010 §Required Behavior`).
+// checkout.
 export interface WorktreeDirtyEvent extends EventEnvelope {
   type: "worktree.dirty";
   category: "session_lifecycle";
@@ -1433,7 +1345,7 @@ export const WorktreeDirtyEventSchema: z.ZodType<WorktreeDirtyEvent> = z
   .strict();
 
 // Emitted on the `-> merged` transition — the worktree's branch has merged
-// back (Plan-010 D-010-12).
+// back.
 export interface WorktreeMergedEvent extends EventEnvelope {
   type: "worktree.merged";
   category: "session_lifecycle";
@@ -1449,8 +1361,7 @@ export const WorktreeMergedEventSchema: z.ZodType<WorktreeMergedEvent> = z
   .strict();
 
 // Emitted on the `-> retired` transition — recorded and evented BEFORE any
-// disk mutation; cleanup is asynchronous and idempotent (Plan-010 I-010-9,
-// D-010-12).
+// disk mutation; cleanup is asynchronous and idempotent.
 export interface WorktreeRetiredEvent extends EventEnvelope {
   type: "worktree.retired";
   category: "session_lifecycle";
@@ -1466,35 +1377,19 @@ export const WorktreeRetiredEventSchema: z.ZodType<WorktreeRetiredEvent> = z
   .strict();
 
 // --------------------------------------------------------------------------
-// audit_integrity + event_maintenance — the six Plan-006 variants (T1.11).
+// audit_integrity + event_maintenance — the six variants.
 // --------------------------------------------------------------------------
 //
-// Additive-MINOR registration (`ADR-018 §Decision` #8) of the six
-// Plan-006-emitted members of `Spec-006 §Audit Integrity (audit_integrity)`
-// and `Spec-006 §Event Maintenance (event_maintenance)`. All six type strings
-// were ALREADY in the census (`SessionEventType` +
-// `SESSION_EVENT_CATEGORY_BY_TYPE`, Plan-006 T1.2); what lands here is their
-// PAYLOAD VARIANTS. The census is untouched — still 147 types across 20
-// categories.
+// All six type strings were ALREADY in the census (`SessionEventType` +
+// `SESSION_EVENT_CATEGORY_BY_TYPE`); what lands here is their PAYLOAD
+// VARIANTS. The census is untouched — still 147 types across 20 categories.
 //
-// SELF-AUTHORED, NOT IMPORTED. The eleven registrants above import their
-// payload schema from the EMITTING plan's module (CP-009-4 / CP-010-5). These
-// six are emitted by Plan-006 itself, which owns this file, so the same
-// emitter-authors-payload rule puts their schemas HERE — exported for the six
-// emission seams to `.parse()` through: T3.1's `registerShredCallback` handler
-// (`event.shredded`; Plan-022's Path 1 orchestrator invokes it after the
-// `participant_keys` DELETE commits, so Plan-022 is the TRIGGER and T3.1 the
-// parse site), T3.2 (`event.compacted`), T3.4 (`schema.migrated`), T4.1
-// (`audit_integrity_verified`, plus the sixteen-mode verifier arm of
-// `audit_integrity_failed` it derives via `.exclude()`), T4.2
-// (`key_reuse_detected`), and T4.10 (that same variant's
-// `signing_key_slot_conflict` registrar arm).
+// The eleven registrants above import their payload schema from the EMITTING
+// plan's module.
 //
-// FLAT UNDERSCORE NAMES. `audit_integrity_verified`, `audit_integrity_failed`,
-// and `key_reuse_detected` carry NO dot namespace — verbatim from
-// `Spec-006 §Audit Integrity (audit_integrity)`, and immutable wire
-// identifiers under I-006-1-02 however they read beside the
-// `<resource>.<verb>` majority.
+// `audit_integrity_verified`, `audit_integrity_failed`, and
+// `key_reuse_detected` carry NO dot namespace — verbatim and immutable wire
+// identifiers however they read beside the `<resource>.<verb>` majority.
 //
 // ENVELOPE-REDUNDANT MEMBERS ARE KEPT. The spec's payload cells re-spell
 // `sessionId` (`audit_integrity`) and `occurredAt` (`event_maintenance`)
@@ -1505,17 +1400,15 @@ export const WorktreeRetiredEventSchema: z.ZodType<WorktreeRetiredEvent> = z
 // same reasoning).
 //
 // DAEMON-SCOPE SESSION BINDING IS AN EMITTER OBLIGATION. Four of the six —
-// `key_reuse_detected` plus all three `event_maintenance` types — are
-// node-level observations bound to the reserved RFC 9562 §5.10 Max UUID
-// sentinel `session_id` per
-// `Spec-006 §Daemon-Scope Event Binding And Node-Scope Anchoring`. The
-// envelope's `sessionId` is `SessionIdSchema` (the RFC 9562 predicate), which already
-// admits that sentinel, and no schema-level narrowing to it is taken here:
-// the spec grants real-id carve-outs the narrowing would reject (an
+// `key_reuse_detected` plus all three `event_maintenance` types — are node-level
+// observations bound to the reserved RFC 9562 section 5.10 Max UUID sentinel
+// `session_id`. The envelope's `sessionId` is `SessionIdSchema` (the RFC 9562
+// predicate), which already admits that sentinel, and no schema-level narrowing to it
+// is taken here: the spec grants real-id carve-outs the narrowing would reject (an
 // `event.compacted` scoped to ONE session MAY carry that session's id;
-// `audit_integrity_*` carry the verified range's real id, the sentinel only
-// when verifying the node-scope chain; the `signing_key_slot_conflict` arm
-// carries the refused registration's real id and NEVER the sentinel).
+// `audit_integrity_*` carry the verified range's real id, the sentinel only when
+// verifying the node-scope chain; the `signing_key_slot_conflict` arm carries the
+// refused registration's real id and NEVER the sentinel).
 //
 // NO EPOCH STAMP. None of the six is run-scoped — no payload carries `runId`
 // — so the WRAP ADMISSION note above excludes all six;
@@ -1554,20 +1447,18 @@ export const AUDIT_INTEGRITY_DETAIL_MAX_LEN = 512;
 
 /**
  * Length ceiling for the `schema.migrated` payload's `description` — the
- * migration's human label, Flyway's `description` column by precedent
- * (`Spec-006 §Event Maintenance (event_maintenance)`). Same short-reason class
- * as {@link AUDIT_INTEGRITY_DETAIL_MAX_LEN}.
+ * migration's human label, Flyway's `description` column by precedent. Same
+ * short-reason class as {@link AUDIT_INTEGRITY_DETAIL_MAX_LEN}.
  */
 export const SCHEMA_MIGRATION_DESCRIPTION_MAX_LEN = 512;
 
 /**
- * The seventeen `audit_integrity_failed` failure modes of
- * `Spec-006 §Audit Integrity (audit_integrity)` — sixteen read-side verifier
- * verdicts plus the daemon-side registrar's `signing_key_slot_conflict`
- * (2026-08-01 amendment).
+ * The seventeen `audit_integrity_failed` failure modes of — sixteen
+ * read-side verifier verdicts plus the daemon-side registrar's
+ * `signing_key_slot_conflict`.
  *
  * Named for the verifier because sixteen of seventeen are its verdicts and
- * because the plan (T4.1) names the schema `VerifierFailureModeSchema`; the
+ * because the plan names the schema `VerifierFailureModeSchema`; the
  * seventeenth is emitted by the registrar's conflict handler, which is exactly
  * why the payload below is DISCRIMINATED on this field rather than flat.
  */
@@ -1592,11 +1483,10 @@ export type VerifierFailureMode =
 
 // Exported ENUM-typed rather than as `z.ZodType<VerifierFailureMode>`, and the
 // difference is load-bearing: `.exclude()` lives on Zod's `ZodEnum` surface,
-// which the `z.ZodType` annotation ERASES. `Plan-006 §Invariants` T4.1
-// documents its consumer derivation as
+// which the `z.ZodType` annotation ERASES. documents its consumer derivation as
 // `VerifierFailureModeSchema.exclude(['signing_key_slot_conflict'])`. Under the
 // erasing annotation that expression still compiled HERE — this file kept an
-// unannotated module-local twin to derive from — while failing at T4.1's own
+// unannotated module-local twin to derive from — while failing at its own
 // module boundary: the worst shape of type error, invisible to the file that
 // ships the symbol. The twin is retired for exactly that reason.
 //
@@ -1613,9 +1503,9 @@ export type VerifierFailureMode =
 //
 // The verifier arm derives its sixteen-mode discriminator from THIS exported
 // symbol, so the seventeen-mode vocabulary is single-sourced AND this file
-// exercises exactly the surface T4.1 will. The compile-time binding to the
-// type union stays the `Exclude<VerifierFailureMode, "signing_key_slot_conflict">`
-// on the payload type alias, which is a real check rather than a comment.
+// exercises exactly the surface will. The compile-time binding to the type union
+// stays the `Exclude<VerifierFailureMode, "signing_key_slot_conflict">` on the
+// payload type alias, which is a real check rather than a comment.
 export const VerifierFailureModeSchema: z.ZodEnum<{ [K in VerifierFailureMode]: K }> = z.enum([
   "hash_mismatch",
   "signature_mismatch",
@@ -1637,15 +1527,13 @@ export const VerifierFailureModeSchema: z.ZodEnum<{ [K in VerifierFailureMode]: 
 ]);
 
 /**
- * The verification GUARANTEE that failed, per
- * `Spec-006 §Audit Integrity (audit_integrity)` — not the column the defect
+ * The verification GUARANTEE that failed — not the column the defect
  * occupies. `inclusion` is the chain path, `consistency` the anchor path, and
  * `signature` the signature-binding path (which is why the four
- * signature-survives-but-binding-broke modes —
- * `occurred_at_not_canonical`, `pii_ciphertext_digest_unbound`,
- * `pii_owner_stamp_unbound`, `content_ciphertext_digest_unbound` — all pair
- * with it). No fourth PATH value is minted: each of the three routes to one
- * tamper-response owner.
+ * signature-survives-but-binding-broke modes — `occurred_at_not_canonical`,
+ * `pii_ciphertext_digest_unbound`, `pii_owner_stamp_unbound`,
+ * `content_ciphertext_digest_unbound` — all pair with it). No fourth PATH
+ * value is minted: each of the three routes to one tamper-response owner.
  */
 export type VerifierFailurePath = "inclusion" | "consistency" | "signature";
 export const VerifierFailurePathSchema: z.ZodType<VerifierFailurePath> = z.enum([
@@ -1655,10 +1543,9 @@ export const VerifierFailurePathSchema: z.ZodType<VerifierFailurePath> = z.enum(
 ]);
 
 // The `audit_integrity` payload base — `{sessionId, anchorId?,
-// verifierNodeId}` verbatim from `Spec-006 §Audit Integrity
-// (audit_integrity)`. A builder, not a shared const, for the same reason
-// `buildCommonShape()` is one: each caller spreads a FRESH shape rather than
-// aliasing one Zod object across schemas.
+// verifierNodeId}` verbatim. A builder, not a shared const, for the same
+// reason `buildCommonShape()` is one: each caller spreads a FRESH shape
+// rather than aliasing one Zod object across schemas.
 //
 // Not every consumer takes the full base. The `audit_integrity_failed`
 // REGISTRAR arm takes the REDUCED `{sessionId, verifierNodeId}` — it spreads
@@ -1684,17 +1571,15 @@ const buildAuditIntegrityBaseShape = () => ({
 
 /**
  * `audit_integrity_verified` — a read-side verifier completed hash,
- * signature, and anchor checks over a range successfully
- * (`Spec-006 §Audit Integrity (audit_integrity)`).
+ * signature, and anchor checks over a range successfully.
  *
  * `rootHash` is bounded free-form, not a 64-hex pin: the house digest form is
  * 64-char lowercase hex (`daemon_signing_public_keys`' fingerprint,
  * `pii_ciphertext_digest`), but no authority pins THIS member's wire
- * spelling, and a pin here would be a narrowing nothing could relax
- * (`ADR-018 §Decision` #8 makes removals/narrowings MAJOR). The hex form is
- * the emitter's obligation, not the parser's. Same for
- * `signatureAlgorithm` — the spec enumerates no algorithm vocabulary, so no
- * enum is invented for it.
+ * spelling, and a pin here would be a narrowing nothing could relax (#8 makes
+ * removals/narrowings MAJOR). The hex form is the emitter's obligation, not
+ * the parser's. Same for `signatureAlgorithm` — the spec enumerates no
+ * algorithm vocabulary, so no enum is invented for it.
  */
 export type AuditIntegrityVerifiedPayload = {
   sessionId: SessionId;
@@ -1750,12 +1635,11 @@ type AuditIntegrityFailedVerifierPayload = {
   offendingSeq?: number | undefined;
   detail: string;
 };
-// REDUCED base — `{sessionId, verifierNodeId}`, no `anchorId`
-// (`Spec-006 §Audit Integrity (audit_integrity)`, 2026-08-03 amendment). The
-// member is not merely unset on this arm, it is refused: the row is never
-// compacted, never shredded, and never rewritten, so an anchor association
-// written here would be permanently false. The two `runtime_node.capability_*`
-// rows are the spec's reduced-base precedent.
+// REDUCED base — `{sessionId, verifierNodeId}`, no `anchorId` (2026-08-03
+// amendment). The member is not merely unset on this arm, it is refused: the
+// row is never compacted, never shredded, and never rewritten, so an anchor
+// association written here would be permanently false. The two
+// `runtime_node.capability_*` rows are the spec's reduced-base precedent.
 type AuditIntegrityFailedRegistrarPayload = {
   sessionId: SessionId;
   verifierNodeId: NodeId;
@@ -1765,49 +1649,44 @@ type AuditIntegrityFailedRegistrarPayload = {
 };
 /**
  * `audit_integrity_failed` — DISCRIMINATED on `failureMode`, not flat
- * (`Spec-006 §Audit Integrity (audit_integrity)`, 2026-08-01 amendment).
  *
  * The Merkle triple (`treeSize`, `expectedRootHash`, `observedRootHash`)
  * describes a VERIFIED RANGE. The sixteen read-side verifier modes walked one
- * and REQUIRE it; the registrar's `signing_key_slot_conflict` walked none, so
- * a flat seventeen-mode object would force its emitter to fabricate roots for a
+ * and REQUIRE it; the registrar's `signing_key_slot_conflict` walked none, so a
+ * flat seventeen-mode object would force its emitter to fabricate roots for a
  * tree it never touched. One event type, one wire schema, two arms: the
- * verifier can never silently omit its roots and the registrar can never
- * invent them. The verified RANGE splits the same way and for the same reason
- * — `fromSeq` / `toSeq` are required on the verifier arm (the dedupe key
- * `Plan-006 §Invariants` I-006-4-01 specifies) and absent from the registrar's,
- * which walked no range — and the verifier arm additionally enforces the ten
- * authority-fixed `failureMode` → `failurePath` pairings at parse. `anchorId`
- * splits the same way once more (2026-08-03): optional on the verifier arm,
- * whose range an anchor can cover, and EXCLUDED from the registrar's, which
- * has no range to be covered — refused there rather than left unset, because
- * the row is never rewritten and a false anchor association would be permanent.
+ * verifier can never silently omit its roots and the registrar can never invent
+ * them. The verified RANGE splits the same way and for the same reason —
+ * `fromSeq` / `toSeq` are required on the verifier arm (the dedupe key
+ * specifies) and absent from the registrar's, which walked no range — and the
+ * verifier arm additionally enforces the ten authority-fixed `failureMode` →
+ * `failurePath` pairings at parse. `anchorId` splits the same way once more
+ * (2026-08-03): optional on the verifier arm, whose range an anchor can cover,
+ * and EXCLUDED from the registrar's, which has no range to be covered — refused
+ * there rather than left unset, because the row is never rewritten and a false
+ * anchor association would be permanent.
  */
 export type AuditIntegrityFailedPayload =
   | AuditIntegrityFailedVerifierPayload
   | AuditIntegrityFailedRegistrarPayload;
 
-// Of the SIXTEEN verifier modes, the TEN `failureMode` → `failurePath`
-// pairings the corpus FIXES and the SIX it deliberately leaves free (`null`);
-// the registrar's seventeenth is carried at the end for totality only, its own
-// arm pinning it. Authority, rule by rule, from
-// `Security Architecture §Verification Rules`: rule 1 pins `hash_mismatch` →
-// `inclusion`; rule 2 pins `signature_mismatch`, `signature_placeholder`,
-// `occurred_at_not_canonical`, `pii_ciphertext_digest_unbound`,
-// `pii_owner_stamp_unbound` and `content_ciphertext_digest_unbound` →
-// `signature`; rule 3 pins `anchor_mismatch` → `consistency`; rule 4 pins
-// `stub_signature_invalid` and `stub_scalar_mismatch` → `signature`.
-// `Spec-006 §Audit Integrity (audit_integrity)` independently ratifies the
-// placeholder / `occurred_at` / PII trio ("ratified 2026-07-26 so
-// implementations mirror this assignment rather than infer one") — a mandate
-// to ENFORCE the assignment, which a three-value enum alone does not.
+// Authority, rule by rule, from `Security Architecture `: rule 1 pins
+// `hash_mismatch` → `inclusion`; rule 2 pins `signature_mismatch`,
+// `signature_placeholder`, `occurred_at_not_canonical`,
+// `pii_ciphertext_digest_unbound`, `pii_owner_stamp_unbound` and
+// `content_ciphertext_digest_unbound` → `signature`; rule 3 pins
+// `anchor_mismatch` → `consistency`; rule 4 pins `stub_signature_invalid` and
+// `stub_scalar_mismatch` → `signature`. independently ratifies the placeholder
+// / `occurred_at` / PII trio ("ratified 2026-07-26 so implementations mirror
+// this assignment rather than infer one") — a mandate to ENFORCE the
+// assignment, which a three-value enum alone does not.
 //
 // The six `null` modes have NO corpus-fixed path: rule 3 names
 // `anchor_missing_for_compacted_range` / `anchor_signature_invalid` and the
 // four substrate modes WITHOUT a `failurePath`, so pinning one here would mint
-// an authority that does not exist and be a narrowing nothing could relax
-// (`ADR-018 §Decision` #8 makes narrowings MAJOR) — the same restraint the
-// `rootHash` note above takes.
+// an authority that does not exist and be a narrowing nothing could relax (#8
+// makes narrowings MAJOR) — the same restraint the `rootHash` note above
+// takes.
 //
 // The map is TOTAL over the wire enum (`null` is a value, not an omission), so
 // `satisfies` breaks loudly in both directions: a mode added to the vocabulary
@@ -1834,9 +1713,8 @@ const VERIFIER_FAILURE_PATH_BY_MODE = {
   pii_ciphertext_digest_unbound: "signature",
   pii_owner_stamp_unbound: "signature",
   content_ciphertext_digest_unbound: "signature",
-  // The registrar's seventeenth mode — pinned by `Spec-006 §Audit Integrity
-  // (audit_integrity)` ("It pairs with `failurePath: 'signature'`") and by its
-  // own arm's `z.literal` below; present here only to keep the map total.
+  // The registrar's seventeenth mode — pinned and by its own arm's `z.literal`
+  // below; present here only to keep the map total.
   signing_key_slot_conflict: "signature",
 } satisfies Record<VerifierFailureMode, VerifierFailurePath | null>;
 
@@ -1853,23 +1731,22 @@ const auditIntegrityFailedVerifierArmSchema = z
       "audit_integrity_failed.observedRootHash",
     ),
     // REQUIRED, both — the verified range endpoints the dedupe key needs
-    // (`Plan-006 §Invariants` I-006-4-01: consumers dedupe on
-    // `(verifierNodeId, fromSeq, toSeq, verifiedAt)`; T4.1's IdempotencyClass
-    // on the first three). The FOURTH member is deliberately not added here:
-    // `verifiedAt` describes a COMPLETED verification and stays an
-    // `audit_integrity_verified` member, so on this arm three of the four key
-    // members are payload-resident and the fourth is the envelope's own
-    // `occurredAt`. Every verifier invocation HAS a request range, the
-    // whole-range modes included — which is exactly why they may omit
-    // `offendingSeq` and still name the range they were asked to walk. NO
-    // `fromSeq <= toSeq` cross-field refinement: the shipped
+    // (consumers dedupe on `(verifierNodeId, fromSeq, toSeq, verifiedAt)`;
+    // the IdempotencyClass on the first three). The FOURTH member is
+    // deliberately not added here: `verifiedAt` describes a COMPLETED
+    // verification and stays an `audit_integrity_verified` member, so on this
+    // arm three of the four key members are payload-resident and the fourth
+    // is the envelope's own `occurredAt`. Every verifier invocation HAS a
+    // request range, the whole-range modes included — which is exactly why
+    // they may omit `offendingSeq` and still name the range they were asked
+    // to walk. NO `fromSeq <= toSeq` cross-field refinement: the shipped
     // `audit_integrity_verified` sibling carries none, and minting one here
     // would be a new invariant with no authority behind it.
     fromSeq: payloadSequenceSchema,
     toSeq: payloadSequenceSchema,
     // Derived from the EXPORTED seventeen-mode schema so the two arms cannot
     // drift apart — and so this file exercises the exact `.exclude()` call
-    // `Plan-006 §Invariants` T4.1 documents for its own consumer derivation.
+    // documents for its own consumer derivation.
     failureMode: VerifierFailureModeSchema.exclude(["signing_key_slot_conflict"]),
     failurePath: VerifierFailurePathSchema,
     // OPTIONAL — several modes implicate no single row (`log_file_missing`,
@@ -1892,7 +1769,7 @@ const auditIntegrityFailedVerifierArmSchema = z
       ctx.addIssue({
         code: "custom",
         path: ["failurePath"],
-        message: `audit_integrity_failed.failureMode '${payload.failureMode}' is fixed to failurePath '${fixedPath}' by Security Architecture §Verification Rules; this payload offers '${payload.failurePath}'.`,
+        message: `audit_integrity_failed.failureMode '${payload.failureMode}' is fixed to failurePath '${fixedPath}' by Security Architecture this payload offers '${payload.failurePath}'.`,
       });
     }
   });
@@ -1931,7 +1808,7 @@ export const AuditIntegrityFailedPayloadSchema: z.ZodType<AuditIntegrityFailedPa
 
 /**
  * `key_reuse_detected` — one Ed25519 public key observed under MORE THAN ONE
- * identity (`Spec-006 §Audit Integrity (audit_integrity)`).
+ * identity.
  *
  * NO `base +` PREFIX in the spec cell, and the omission is load-bearing: this
  * is an observer's node-level finding, so it carries `detectorNodeId` and no
@@ -1968,7 +1845,7 @@ export const KeyReuseDetectedPayloadSchema: z.ZodType<KeyReuseDetectedPayload> =
     //
     // `sessionId` is CANONICALIZED into the key, `nodeId` is not, and the
     // asymmetry is the authority difference. UUID hex is case-INSENSITIVE
-    // (RFC 9562 §4), the branded schemas normalize nothing, and
+    // (RFC 9562 section 4), the branded schemas normalize nothing, and
     // `uuid-canonical.ts` requires canonicalizing at every Map-key / hash-input
     // boundary — this set key is one. Without it, one logical identity spelled
     // two ways reads as two distinct identities and mints a permanent FALSE
@@ -2007,9 +1884,9 @@ export const KeyReuseDetectedPayloadSchema: z.ZodType<KeyReuseDetectedPayload> =
   .strict();
 
 // The `event_maintenance` payload base — `{nodeId, operationId, occurredAt}`
-// verbatim from `Spec-006 §Event Maintenance (event_maintenance)`. All three
-// members are shared by all three types; `occurredAt` re-spells the envelope's
-// own (see the envelope-redundant-members note above).
+// verbatim. All three members are shared by all three types; `occurredAt`
+// re-spells the envelope's own (see the envelope-redundant-members note
+// above).
 const buildEventMaintenanceBaseShape = () => ({
   nodeId: NodeIdSchema,
   // The batch/pass correlation id — Liquibase's `DEPLOYMENT_ID` by precedent.
@@ -2020,8 +1897,7 @@ const buildEventMaintenanceBaseShape = () => ({
 
 /**
  * `schema.migrated` — one migration BATCH completed (Flyway's
- * `AFTER_MIGRATE_OPERATION_FINISH` granularity, not per-statement) per
- * `Spec-006 §Event Maintenance (event_maintenance)`.
+ * `AFTER_MIGRATE_OPERATION_FINISH` granularity, not per-statement).
  *
  * `success` stays a plain boolean: the spec's field set carries it, so a
  * `z.literal(true)` narrowing would make the failed-migration row —
@@ -2054,8 +1930,8 @@ export const SchemaMigratedPayloadSchema: z.ZodType<SchemaMigratedPayload> = z
       SCHEMA_MIGRATION_DESCRIPTION_MAX_LEN,
       "schema.migrated.description",
     ),
-    // BLAKE3 over the concatenated migration file contents (Plan-006 T3.4) —
-    // bounded free-form on the same reasoning as `rootHash` above.
+    // BLAKE3 over the concatenated migration file contents — bounded
+    // free-form on the same reasoning as `rootHash` above.
     checksum: wireFreeFormString(EVENT_FIELD_MAX_LEN, "schema.migrated.checksum"),
     appliedBy: wireFreeFormString(EVENT_FIELD_MAX_LEN, "schema.migrated.appliedBy"),
     executionMs: z.number().int().nonnegative(),
@@ -2065,7 +1941,7 @@ export const SchemaMigratedPayloadSchema: z.ZodType<SchemaMigratedPayload> = z
 
 /**
  * `event.compacted` — a compaction pass replaced full payloads in a range with
- * audit stubs (`Spec-006 §Event Maintenance (event_maintenance)`).
+ * audit stubs.
  *
  * `sessionId` is OPTIONAL here and required nowhere else in the family: the
  * spec grants a single-session pass the option of carrying that session's real
@@ -2094,19 +1970,17 @@ export const EventCompactedPayloadSchema: z.ZodType<EventCompactedPayload> = z
     eventsAfter: z.number().int().nonnegative(),
     bytesReclaimed: z.number().int().nonnegative(),
     tombstoneCount: z.number().int().nonnegative(),
-    // Closed vocabulary — the three `Spec-006 §Event Compaction Policy`
-    // triggers.
+    // Closed vocabulary — the three triggers.
     compactionReason: z.enum(["age_threshold", "count_threshold", "storage_threshold"]),
   })
   .strict();
 
 /**
- * `event.shredded` — a crypto-shred cleared a participant's PII across the
- * affected sessions (`Spec-006 §Event Maintenance (event_maintenance)`;
- * Spec-022 owns the fan-out mechanism).
+ * `event.shredded` — a crypto-shred cleared a user's PII across the
+ * affected sessions (owns the fan-out mechanism).
  *
  * `affectedSessionIds` takes NO cardinality floor: an idempotent re-run, or a
- * purge of a participant whose rows carried no PII, legitimately affects zero
+ * purge of a user whose rows carried no PII, legitimately affects zero
  * sessions, and the row is still the audit record of the operation. (Contrast
  * `key_reuse_detected.observedIdentities` above, whose floor the spec's own
  * "more than one identity" wording entails.)
@@ -2115,7 +1989,7 @@ export type EventShreddedPayload = {
   nodeId: NodeId;
   operationId: string;
   occurredAt: string;
-  participantId: ParticipantId;
+  userId: UserId;
   affectedSessionIds: SessionId[];
   piiPayloadsCleared: number;
   shredReason: "gdpr_article_17" | "retention_policy" | "admin_action";
@@ -2123,7 +1997,7 @@ export type EventShreddedPayload = {
 export const EventShreddedPayloadSchema: z.ZodType<EventShreddedPayload> = z
   .object({
     ...buildEventMaintenanceBaseShape(),
-    participantId: ParticipantIdSchema,
+    userId: UserIdSchema,
     affectedSessionIds: z.array(SessionIdSchema),
     piiPayloadsCleared: z.number().int().nonnegative(),
     shredReason: z.enum(["gdpr_article_17", "retention_policy", "admin_action"]),
@@ -2131,7 +2005,7 @@ export const EventShreddedPayloadSchema: z.ZodType<EventShreddedPayload> = z
   .strict();
 
 // Emitted when a read-side verifier completes hash, signature, and anchor
-// checks over a range successfully (Plan-006 T4.1).
+// checks over a range successfully.
 export interface AuditIntegrityVerifiedEvent extends EventEnvelope {
   type: "audit_integrity_verified";
   category: "audit_integrity";
@@ -2147,8 +2021,8 @@ export const AuditIntegrityVerifiedEventSchema: z.ZodType<AuditIntegrityVerified
   .strict();
 
 // Emitted when a verifier detects a chain break, signature failure, or anchor
-// mismatch (Plan-006 T4.1), and when the daemon-side registrar's conflict
-// handler observes a usurped signing-key slot (T4.10).
+// mismatch, and when the daemon-side registrar's conflict handler observes a
+// usurped signing-key slot.
 export interface AuditIntegrityFailedEvent extends EventEnvelope {
   type: "audit_integrity_failed";
   category: "audit_integrity";
@@ -2164,7 +2038,7 @@ export const AuditIntegrityFailedEventSchema: z.ZodType<AuditIntegrityFailedEven
   .strict();
 
 // Emitted when the key-reuse monitor observes one public key under two
-// identities (Plan-006 T4.2).
+// identities.
 export interface KeyReuseDetectedEvent extends EventEnvelope {
   type: "key_reuse_detected";
   category: "audit_integrity";
@@ -2179,7 +2053,7 @@ export const KeyReuseDetectedEventSchema: z.ZodType<KeyReuseDetectedEvent> = z
   })
   .strict();
 
-// Emitted once per completed migration batch (Plan-006 T3.4).
+// Emitted once per completed migration batch.
 export interface SchemaMigratedEvent extends EventEnvelope {
   type: "schema.migrated";
   category: "event_maintenance";
@@ -2194,7 +2068,7 @@ export const SchemaMigratedEventSchema: z.ZodType<SchemaMigratedEvent> = z
   })
   .strict();
 
-// Emitted once per compaction pass (Plan-006 T3.2).
+// Emitted once per compaction pass.
 export interface EventCompactedEvent extends EventEnvelope {
   type: "event.compacted";
   category: "event_maintenance";
@@ -2209,7 +2083,7 @@ export const EventCompactedEventSchema: z.ZodType<EventCompactedEvent> = z
   })
   .strict();
 
-// Emitted once per crypto-shred fan-out (Spec-022 §Shred Fan-Out).
+// Emitted once per crypto-shred fan-out.
 export interface EventShreddedEvent extends EventEnvelope {
   type: "event.shredded";
   category: "event_maintenance";
@@ -2225,39 +2099,30 @@ export const EventShreddedEventSchema: z.ZodType<EventShreddedEvent> = z
   .strict();
 
 // --------------------------------------------------------------------------
-// runtime_node.* — the five Plan-003 lifecycle variants (T1.12, CP-003-1).
+// runtime_node.* — the five lifecycle variants.
 // --------------------------------------------------------------------------
 //
-// Additive-MINOR registration (`ADR-018 §Decision` #8) of the five
-// DAEMON-REACHABLE members of
-// `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`. All five type
-// strings were ALREADY in the census (`SessionEventType` +
-// `SESSION_EVENT_CATEGORY_BY_TYPE`, Plan-006 T1.2); what lands here is their
-// PAYLOAD VARIANTS. The census is untouched — still 147 types across 20
-// categories.
+// All five type strings were ALREADY in the census (`SessionEventType` +
+// `SESSION_EVENT_CATEGORY_BY_TYPE`); what lands here is their PAYLOAD
+// VARIANTS. The census is untouched — still 147 types across 20 categories.
 //
-// CP-003-1 LEG (a), discharged. Plan-003 authors the payload SHAPES in
-// runtime-node.ts per emitter-authors-payload (its Phase-2 node-registry and
-// capability-service producers `.parse()` through the very same consts);
-// Plan-006 owns the discriminated-union REGISTRATION. So each arm below
-// IMPORTS its `*PayloadSchema` rather than restating it, and no Plan-003 shape
-// is edited here — the same split as the CP-009-4 / CP-010-5 blocks above.
+// Authors the payload SHAPES in runtime-node.ts per emitter-authors-payload
+// (its Phase-2 node-registry and capability-service producers `.parse()`
+// through the very same consts) owns the discriminated-union REGISTRATION. So
+// each arm below IMPORTS its `*PayloadSchema` rather than restating it, and no
+// shape is edited here — the same split as blocks above.
 //
 // FIVE OF SEVEN, deliberately. `runtime_node.degraded` and
 // `runtime_node.revoked` stay census members with NO payload variant: both are
 // server-derived rows with no sound V1 author, V1.1-gated on the node-identity
-// trust anchor (ADR-017 §Server-Derived Runtime-Node Lifecycle Events), so
-// Plan-003 ships no payload shape for them and the strict layer keeps
-// REJECTING them until it does. The `session.clock_*` pair sits in the same
-// EventCategory but keeps its `session.` prefix by name preservation and is
-// likewise unregistered here.
+// trust anchor, so ships no payload shape for them and the strict layer keeps
+// REJECTING them until it does.
 //
 // SESSION BINDING — a `runtime_node.*` row carries the REAL `sessionId` of the
-// attachment it describes (`Spec-006 §Runtime Node Lifecycle
-// (runtime_node_lifecycle)`), NOT the daemon-scope sentinel the T1.11
-// infrastructure rows anchor on. The PAYLOAD's `sessionId` is `.optional()`
-// because Spec-006's base spells it `sessionId?`; the ENVELOPE's `sessionId`
-// member stays required, as on every other arm.
+// attachment it describes, NOT the daemon-scope sentinel infrastructure rows
+// anchor on. The PAYLOAD's `sessionId` is `.optional()` because the base
+// spells it `sessionId?`; the ENVELOPE's `sessionId` member stays required, as
+// on every other arm.
 //
 // NO EPOCH STAMP. Node-scoped, not run-scoped — these payloads carry `nodeId`
 // and no `runId`, so the cross-cutting `sourceEpoch` / `sourcePosition` pair
@@ -2298,8 +2163,8 @@ const runtimeNodeCapabilityUpdatedVariantPayloadSchema: z.ZodType<RuntimeNodeCap
     "RuntimeNodeCapabilityUpdatedPayloadSchema",
   );
 
-// Emitted by the T2.1 node-registry when a node is accepted into the roster
-// (`Spec-003 §Required Behavior`, attach admission).
+// Emitted node-registry when a node is accepted into the roster (attach
+// admission).
 export interface RuntimeNodeRegisteredEvent extends EventEnvelope {
   type: "runtime_node.registered";
   category: "runtime_node_lifecycle";
@@ -2314,8 +2179,8 @@ export const RuntimeNodeRegisteredEventSchema: z.ZodType<RuntimeNodeRegisteredEv
   })
   .strict();
 
-// Emitted only AFTER `runtime_node.capability_declared` succeeds (Plan-003
-// I-003-2 ordering).
+// Emitted only AFTER `runtime_node.capability_declared` succeeds
+// (ordering).
 export interface RuntimeNodeOnlineEvent extends EventEnvelope {
   type: "runtime_node.online";
   category: "runtime_node_lifecycle";
@@ -2347,13 +2212,12 @@ export const RuntimeNodeOfflineEventSchema: z.ZodType<RuntimeNodeOfflineEvent> =
   })
   .strict();
 
-// Emitted by the T2.2 capability-service when a node declares a capability
-// after registration. `capabilityDetails` is the canonical-first TOLERANT
-// UNION (`CapabilityDetailsSchema` first, an open record behind it) bound in
-// runtime-node.ts by Plan-006 T1.4 / CP-006-5 — registration composes it
-// EXACTLY as shipped: tightening the arm to canonical-only here would reject
-// previously-valid wire payloads, a MAJOR narrowing under
-// `ADR-018 §Decision` #8.
+// Emitted capability-service when a node declares a capability after
+// registration. `capabilityDetails` is the canonical-first TOLERANT UNION
+// (`CapabilityDetailsSchema` first, an open record behind it) bound in
+// runtime-node.ts — registration composes it EXACTLY as shipped: tightening
+// the arm to canonical-only here would reject previously-valid wire
+// payloads, a MAJOR narrowing #8.
 export interface RuntimeNodeCapabilityDeclaredEvent extends EventEnvelope {
   type: "runtime_node.capability_declared";
   category: "runtime_node_lifecycle";
@@ -2371,7 +2235,7 @@ export const RuntimeNodeCapabilityDeclaredEventSchema: z.ZodType<RuntimeNodeCapa
 
 // Emitted on a capability health/config change. `previousState` / `newState`
 // are CapabilityDetails SNAPSHOTS, not `NodeState` values, and carry the same
-// canonical-first tolerant union as `capability_declared` above (T1.4).
+// canonical-first tolerant union as `capability_declared` above.
 export interface RuntimeNodeCapabilityUpdatedEvent extends EventEnvelope {
   type: "runtime_node.capability_updated";
   category: "runtime_node_lifecycle";
@@ -2388,8 +2252,8 @@ export const RuntimeNodeCapabilityUpdatedEventSchema: z.ZodType<RuntimeNodeCapab
     .strict();
 
 // --------------------------------------------------------------------------
-// Machine-authored content payload — the five body-bearing variants
-// (Plan-006 T3.6).
+// Machine-authored content payload — the five body-bearing
+// variants.
 // --------------------------------------------------------------------------
 //
 // `assistant.message`, `assistant.thinking_update`, `tool.invoked`,
@@ -2415,8 +2279,8 @@ export const RuntimeNodeCapabilityUpdatedEventSchema: z.ZodType<RuntimeNodeCapab
 // body's media type) and no tool identity; the tool trio carries a REQUIRED
 // `toolName` beside the optional `toolCallId` / `durationMs` and no
 // `contentType`. Collapsing them into one shape would admit a `toolName` on an
-// assistant row and a `contentType` on a tool row, neither of which
-// `Spec-006 §Assistant Output (assistant_output)` or `§Tool Activity` defines.
+// assistant row and a `contentType` on a tool row, neither of which or
+// defines.
 //
 // MEMBER OWNERSHIP SPLITS AT THE SEALING CODEC, and the split is what makes
 // the refusal arm below checkable. `contentType` is the PRODUCER's to set — it
@@ -2435,7 +2299,7 @@ export const RuntimeNodeCapabilityUpdatedEventSchema: z.ZodType<RuntimeNodeCapab
  * The payload key carrying the BLAKE3 digest of the stored
  * `session_events.content_payload` ciphertext — the commitment that binds the
  * sealed body to the row's signature without carrying the body into the signed
- * bytes (`Spec-006 §Canonical Serialization Rules`).
+ * bytes.
  *
  * Exported so producers, the compactor, the verifier, and the hydrated read
  * path never duplicate the literal — the `SOURCE_EPOCH_PAYLOAD_KEY`
@@ -2445,8 +2309,8 @@ export const RuntimeNodeCapabilityUpdatedEventSchema: z.ZodType<RuntimeNodeCapab
  * The wire ENCODING of the digest is deliberately not pinned by the schema
  * below. The sealing codec spells it lowercase hex and owns that as a one-way
  * door, but no corpus authority fixes this member's spelling, and pinning one
- * here would be a narrowing nothing could relax (`ADR-018 §Decision` #8) — the
- * same restraint the `rootHash` note above takes.
+ * here would be a narrowing nothing could relax — the same restraint the
+ * `rootHash` note above takes.
  */
 export const CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY = "contentCiphertextDigest" as const;
 
@@ -2468,9 +2332,8 @@ export const CONTENT_LENGTH_PAYLOAD_KEY = "contentLength" as const;
 export const CONTENT_TRUNCATED_PAYLOAD_KEY = "contentTruncated" as const;
 
 /**
- * The per-row plaintext ceiling for `session_events.content_payload` — 262144
- * bytes (256 KiB) of UTF-8, per
- * `docs/architecture/schemas/local-sqlite-schema.md §Session Events (Plan-001, extended by Plans 006, 008, 015)`.
+ * The per-row plaintext ceiling for `session_events.content_payload` — 262144 bytes (256
+ * KiB) of UTF-8.
  *
  * Unlike `pii_payload`, whose size is bounded in practice by human typing, this
  * column admits machine-scale text: a tool result is routinely a file dump or a
@@ -2521,9 +2384,8 @@ export type ToolActivityPayload = MachineContentDescriptor &
     sessionId: SessionId;
     runId: string;
     /**
-     * REQUIRED. A tool row with no tool name is unattributable — every consumer
-     * of `Spec-006 §Tool Activity (tool_activity)` keys on it — and unlike the descriptive
-     * members it is never something the codec could supply.
+     * A tool row with no tool name is unattributable — every consumer of keys on it —
+     * and unlike the descriptive members it is never something the codec could supply.
      */
     toolName: string;
     toolCallId?: string | undefined;
@@ -2662,7 +2524,7 @@ export const ToolErrorEventSchema: z.ZodType<ToolErrorEvent> = z
 
 // --------------------------------------------------------------------------
 // HydratedSessionEvent — the read projection that pairs a verified row with
-// its opened body (Plan-006 T3.6 / T3.8).
+// its opened body.
 // --------------------------------------------------------------------------
 //
 // The whole point of the type is that `event` and `content` are SEPARATE
@@ -2797,12 +2659,12 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       payload: channelCreatedPayloadSchema,
     })
     .strict(),
-  // The six Plan-009 repo/workspace arms (CP-009-4). Each shares the single
-  // `repoWorkspaceLifecycleVariantPayloadSchema` derived above from repo.ts's
-  // family schema, so these branch schemas and the `*EventSchema` exports above
-  // cannot drift on payload shape — the same single-sourcing the local
-  // `*PayloadSchema` consts give the three Plan-001 arms. None is wrapped with `withEpochStamp`; see the no-epoch-stamp note
-  // on their declarations above.
+  // The six repo/workspace arms. Each shares the single
+  // `repoWorkspaceLifecycleVariantPayloadSchema` derived above from repo.ts's family
+  // schema, so these branch schemas and the `*EventSchema` exports above cannot drift on
+  // payload shape — the same single-sourcing the local `*PayloadSchema` consts give the
+  // three arms. None is wrapped with `withEpochStamp`; see the no-epoch-stamp note on
+  // their declarations above.
   z
     .object({
       ...buildCommonShape(),
@@ -2851,14 +2713,13 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       payload: repoWorkspaceLifecycleVariantPayloadSchema,
     })
     .strict(),
-  // The five Plan-010 worktree arms (CP-010-5). Each shares
+  // The five worktree arms. Each shares
   // `worktreeLifecycleVariantPayloadSchema`, derived above from worktree.ts's
   // `WorktreeLifecyclePayloadSchema` — the family factory instantiated over
   // `WorktreeStateSchema` — so these branch schemas and the `*EventSchema`
-  // exports above cannot drift on payload shape. No
-  // `worktree.failed` arm exists (Plan-010 D-010-11), and none is wrapped
-  // with `withEpochStamp` (`session_lifecycle`, not run-scoped; see the
-  // no-epoch-stamp note on their declarations above).
+  // exports above cannot drift on payload shape. No `worktree.failed` arm
+  // exists, and none is wrapped with `withEpochStamp` (`session_lifecycle`,
+  // not run-scoped; see the no-epoch-stamp note on their declarations above).
   z
     .object({
       ...buildCommonShape(),
@@ -2899,25 +2760,22 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       payload: worktreeLifecycleVariantPayloadSchema,
     })
     .strict(),
-  // The six Plan-006 `audit_integrity` / `event_maintenance` arms (T1.11).
-  // Each shares the payload const declared above — authored in THIS file
-  // rather than imported, because Plan-006 both owns the file and emits the
-  // rows — so these branch schemas and the `*EventSchema` exports above
-  // cannot drift on payload shape. `audit_integrity_failed` carries the
-  // `failureMode`-discriminated payload union, a nested discriminator the
-  // outer `type` dispatch is indifferent to. None is wrapped with
-  // `withEpochStamp` (daemon-scope, not run-scoped; see the no-epoch-stamp
-  // note on their declarations above).
+  // The six `audit_integrity` / `event_maintenance` arms. Each shares the
+  // payload const declared above — authored in THIS file rather than
+  // imported, because both owns the file and emits the rows — so these
+  // branch schemas and the `*EventSchema` exports above cannot drift on
+  // payload shape. None is wrapped with `withEpochStamp` (daemon-scope, not
+  // run-scoped; see the no-epoch-stamp note on their declarations above).
   //
   // THE ONLY SIX BRANCHES THAT REFUSE THE PII INDIRECTION MEMBERS, and the
-  // refusal is a positive statement rather than an omission: `Plan-006 §Audit
-  // Integrity Invariant` holds these two categories' `pii_payload` NULL by
-  // construction — they are never compacted and never crypto-shredded — and the
-  // sealing codec refuses them by name before it encrypts anything. A variant
-  // that admitted the pair here would declare legal a row the append path will
-  // not produce. __tests__/event-source-epoch.test.ts walks the live union and
-  // fails either direction: an admitting branch missing the pair, or one of
-  // these six carrying it.
+  // refusal is a positive statement rather than an omission: holds these two
+  // categories' `pii_payload` NULL by construction — they are never compacted
+  // and never crypto-shredded — and the sealing codec refuses them by name
+  // before it encrypts anything. A variant that admitted the pair here would
+  // declare legal a row the append path will not produce.
+  // __tests__/event-source-epoch.test.ts walks the live union and fails either
+  // direction: an admitting branch missing the pair, or one of these six
+  // carrying it.
   z
     .object({
       ...buildCommonShape(),
@@ -2966,15 +2824,14 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       payload: EventShreddedPayloadSchema,
     })
     .strict(),
-  // The five Plan-003 `runtime_node.*` arms (T1.12 — CP-003-1 leg (a)). Each
-  // shares the `*VariantPayloadSchema` derived above from runtime-node.ts's
-  // export, so these branch schemas and the `*EventSchema` exports above cannot
-  // drift on payload shape.
-  // No `runtime_node.degraded` / `runtime_node.revoked` arm exists (V1.1-gated,
-  // ADR-017 §Server-Derived Runtime-Node Lifecycle Events), the two capability
-  // arms carry T1.4's canonical-first tolerant unions exactly as shipped, and
-  // none is wrapped with `withEpochStamp` (node-scoped, not run-scoped; see the
-  // no-epoch-stamp note on their declarations above).
+  // The five `runtime_node.*` arms (leg (a)). Each shares the
+  // `*VariantPayloadSchema` derived above from runtime-node.ts's export, so
+  // these branch schemas and the `*EventSchema` exports above cannot drift on
+  // payload shape. No `runtime_node.degraded` / `runtime_node.revoked` arm
+  // exists (V1.1-gated), the two capability arms carry the canonical-first
+  // tolerant unions exactly as shipped, and none is wrapped with
+  // `withEpochStamp` (node-scoped, not run-scoped; see the no-epoch-stamp note
+  // on their declarations above).
   z
     .object({
       ...buildCommonShape(),
@@ -3058,54 +2915,47 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
 ]);
 
 // --------------------------------------------------------------------------
-// SessionEventType — the canonical event-type census (Plan-006 T1.2).
+// SessionEventType — the canonical event-type census.
 // --------------------------------------------------------------------------
 //
-// Every wire `type` string registered below comes from Spec-006 §Event Type
-// Enumeration. `Spec-006 §Event Type Summary` reads 158 types across 20
-// categories; this union deliberately registers the post-B18 147 until
-// Plan-016 T1.13 widens it by two under CP-016-3 (`agent.provider_switched`
-// and `agent.provider_switch_failed`, 2026-08-26 D-016-26) — the
-// registry-leads-code lag that spec records in the same row. Every count
-// below is therefore code truth at 147, not a restatement of the spec
-// census. The fifteen minted by the 2026-07-22
-// B18 amendment — three provider-surface `session.*`, three forward,
-// non-state `run.*`, three `usage.*`, `user.message`, and the five `mcp.*`
-// under the `mcp_governance` category — were registered here by T1.10.
+// Every wire `type` string registered below comes. reads 158 types across
+// 20 categories; this union deliberately registers the post-B18 147 until
+// widens it by two — the registry-leads-code lag that spec records in the
+// same row. Every count below is therefore code truth at 147, not a
+// restatement of the spec census. The fifteen minted by the 2026-07-22 B18
+// amendment — three provider-surface `session.*`, three forward, non-state
+// `run.*`, three `usage.*`, `user.message`, and the five `mcp.*` under the
+// `mcp_governance` category — were registered here.
 //
-// Two Plan-006 §Invariants govern this block:
-//   • I-006-1-01 — category/type bijection: every type belongs to exactly
-//     one category, `SESSION_EVENT_CATEGORY_BY_TYPE` covers all 147 types,
-//     and its values span all 20 shipped categories. The type-level leg is
-//     the `satisfies Record<SessionEventType, EventCategory>` totality
-//     check below (missing, unknown, or duplicate keys are compile
-//     errors); the runtime leg (size === 147, 20 distinct categories,
-//     per-category partition) lives in __tests__/session-event.test.ts.
-//   • I-006-1-02 — event-type-string immutability: type strings are
-//     immutable wire identifiers (`Spec-006 §Canonical Serialization Rules`;
-//     ADR-018 §Decision #8 — MINOR bumps are additive-only), so renaming a
-//     registered literal is forbidden. The two session literals
-//     (`session.created`, `channel.created`) are byte-identical to their
-//     original registration.
+//   • Category/type bijection: every type belongs to exactly one category,
+//     `SESSION_EVENT_CATEGORY_BY_TYPE` covers all 147 types, and its
+//     values span all 20 shipped categories. The type-level leg is the
+//     `satisfies Record<SessionEventType, EventCategory>` totality check
+//     below (missing, unknown, or duplicate keys are compile errors); the
+//     runtime leg (size === 147, 20 distinct categories, per-category
+//     partition) lives in __tests__/session-event.test.ts.
+//   • Event-type-string immutability: type strings are immutable wire
+//     identifiers (MINOR bumps are additive-only), so renaming a registered
+//     literal is forbidden. The two session literals (`session.created`,
+//     `channel.created`) are byte-identical to their original registration.
 //
 // Blocks are grouped by category in `EventCategory` declaration order;
-// within a block, types follow Spec-006 §Event Type Enumeration document
-// order. Declaration order is NOT load-bearing (RFC 8785 JCS serializes the
-// literal strings — see the EventCategory note above); the grouping exists
-// so reviewers can reconcile each block against its spec section and
-// against the same-ordered per-category arrays + registry entries below.
+// within a block, types follow. Declaration order is NOT load-bearing (RFC
+// 8785 JCS serializes the literal strings — see the EventCategory note
+// above); the grouping exists so reviewers can reconcile each block against
+// its spec section and against the same-ordered per-category arrays +
+// registry entries below.
 //
 // A type's category is the REGISTRY entry, never the namespace prefix:
 // `session.clock_unsynced` / `session.clock_corrected` are
 // `runtime_node_lifecycle` (the `session.` prefix is preserved because a
-// rename is wire-breaking — Spec-006 §Runtime Node Lifecycle "Name
-// preservation"), `daemon.*` are `security_events`, `schema.migrated` is
-// `event_maintenance`, `moderation.review_flagged` is `approval_flow`, and
+// rename is wire-breaking — "Name preservation"), `daemon.*` are
+// `security_events`, `schema.migrated` is `event_maintenance`,
+// `moderation.review_flagged` is `approval_flow`, and
 // `orchestration.rejected` is `channel_arbitration`.
 export type SessionEventType =
-  // run_lifecycle (13) — Spec-006 §Run Lifecycle: the nine Run State
-  // Machine states, the B1 forward non-terminal rollback event, and the
-  // three B18 forward, non-state rows (T1.10).
+  // run_lifecycle (13) — the B1 forward non-terminal rollback event,
+  // and the three B18 forward, non-state rows.
   | "run.queued"
   | "run.starting"
   | "run.running"
@@ -3119,11 +2969,10 @@ export type SessionEventType =
   | "run.provider_initialized"
   | "run.turn_started"
   | "run.worker_shutdown"
-  // assistant_output (2) — Spec-006 §Assistant Output.
   | "assistant.message"
   | "assistant.thinking_update"
-  // tool_activity (7) — Spec-006 §Tool Activity: three live-invocation
-  // rows, two Spec-015 recovery rows, two B1 subagent-lifecycle rows.
+  // tool_activity (7) — two recovery rows, two B1 subagent-lifecycle
+  // rows.
   | "tool.invoked"
   | "tool.result"
   | "tool.error"
@@ -3131,10 +2980,8 @@ export type SessionEventType =
   | "tool.skipped_during_recovery"
   | "subagent.started"
   | "subagent.completed"
-  // interactive_request (16) — Spec-006 §Queue and Intervention: queue (5)
   // + intervention (6) + B1 driver-ask (4) subfamilies, plus the B18
-  // `user.message` row from Spec-006 §User Message Events, registered here
-  // by T1.10.
+  // `user.message` row registered here.
   | "queue_item.created"
   | "queue_item.admitted"
   | "queue_item.superseded"
@@ -3151,7 +2998,6 @@ export type SessionEventType =
   | "driver_ask.expired"
   | "driver_ask.canceled"
   | "user.message"
-  // artifact_publication (6) — Spec-006 §Artifact and Diff Publication.
   | "artifact.published"
   | "artifact.visibility_updated"
   | "artifact.superseded"
@@ -3163,9 +3009,8 @@ export type SessionEventType =
   | "presence.idle"
   | "presence.reconnecting"
   | "presence.offline"
-  // session_lifecycle (31) — Spec-006 §Session Lifecycle (12, incl. the
-  // three B18 rows) + §Channel and Agent Lifecycle (7) + §Repo, Workspace,
-  // and Worktree Lifecycle (11) + §PTY Control (1).
+  // session_lifecycle (31) — incl. the three B18 rows) +) + Workspace, and
+  // Worktree Lifecycle (11) +.
   | "session.created"
   | "session.activated"
   | "session.archived"
@@ -3197,8 +3042,6 @@ export type SessionEventType =
   | "worktree.merged"
   | "worktree.retired"
   | "pty.control_changed"
-  // approval_flow (8) — Spec-006 §Approval Flow (incl. the Tier-6
-  // `moderation.review_flagged` registration).
   | "approval.requested"
   | "approval.approved"
   | "approval.rejected"
@@ -3207,9 +3050,7 @@ export type SessionEventType =
   | "approval.remembered"
   | "approval.rule_revoked"
   | "moderation.review_flagged"
-  // usage_telemetry (8) — Spec-006 §Usage Telemetry: three metered updates
   // + budget warning + account-plane rate-limit snapshot + the three B18
-  // rows (T1.10).
   | "usage.token_count"
   | "usage.cost_update"
   | "usage.context_window_update"
@@ -3218,8 +3059,8 @@ export type SessionEventType =
   | "usage.api_retry"
   | "usage.context_compacted"
   | "usage.model_rerouted"
-  // runtime_node_lifecycle (9) — Spec-006 §Runtime Node Lifecycle: seven
-  // `runtime_node.*` + the two name-preserved `session.clock_*` events.
+  // runtime_node_lifecycle (9) — `runtime_node.*` + the two
+  // name-preserved `session.clock_*` events.
   | "runtime_node.registered"
   | "runtime_node.online"
   | "runtime_node.degraded"
@@ -3229,42 +3070,33 @@ export type SessionEventType =
   | "runtime_node.capability_updated"
   | "session.clock_unsynced"
   | "session.clock_corrected"
-  // recovery_events (3) — Spec-006 §Recovery Events.
   | "recovery.attempted"
   | "recovery.succeeded"
   | "recovery.failed"
-  // participant_lifecycle (5) — Spec-006 §Participant Lifecycle.
-  | "participant.exported"
-  | "participant.purge_requested"
-  | "participant.purged"
-  | "participant.tokens_revoked_all"
-  | "participant.device_reset"
-  // audit_integrity (3) — Spec-006 §Audit Integrity. Flat underscore
-  // names (no dot namespace), verbatim from the spec.
+  | "user.exported"
+  | "user.purge_requested"
+  | "user.purged"
+  | "user.tokens_revoked_all"
+  | "user.device_reset"
+  // Flat underscore names (no dot namespace), verbatim from the
+  // spec.
   | "audit_integrity_verified"
   | "audit_integrity_failed"
   | "key_reuse_detected"
-  // security_events (4) — Spec-006 §Security Events (two-dot `security.*`
-  // names verbatim from Spec-027; `daemon.*` from Plan-022 D-022-5).
   | "security.default.override"
   | "security.update.available"
   | "daemon.master_key_source"
   | "daemon.pii_split_ambiguous"
-  // event_maintenance (3) — Spec-006 §Event Maintenance.
   | "schema.migrated"
   | "event.compacted"
   | "event.shredded"
-  // policy_events (2) — Spec-006 §Policy Events.
   | "policy_bundle.loaded"
   | "policy_bundle.rejected"
-  // channel_arbitration (3) — Spec-006 §Channel Arbitration.
   | "arbitration.paused"
   | "arbitration.resumed"
   | "orchestration.rejected"
-  // onboarding_lifecycle (2) — Spec-006 §Onboarding Lifecycle.
   | "onboarding.choice_made"
   | "onboarding.choice_reset"
-  // cross_node_dispatch (13) — Spec-006 §Cross-Node Dispatch.
   | "dispatch.sent"
   | "dispatch.received"
   | "dispatch.rejected"
@@ -3278,10 +3110,9 @@ export type SessionEventType =
   | "dispatch.result_buffered"
   | "dispatch.approval_observed"
   | "dispatch.result_observed"
-  // mcp_governance (5) — Spec-006 §MCP Governance, the B18 category minted
-  // 2026-07-22 as the audit surface of V1 feature #18. Emission, payload
-  // semantics, and authorization are Spec-028/Plan-028's; this census owns
-  // registration only.
+  // mcp_governance (5) — the B18 category minted 2026-07-22 as the audit
+  // surface of V1 feature #18. Emission, payload semantics, and
+  // authorization live elsewhere; this census owns registration only.
   | "mcp.server_status_changed"
   | "mcp.server_config_changed"
   | "mcp.server_trust_changed"
@@ -3306,12 +3137,11 @@ export type SessionEventType =
 // union's branches, so a forgotten entry fails there rather than silently
 // under-reporting the registered surface.
 //
-// Membership today (29): the two session variants, the six Plan-009
-// repo/workspace variants (CP-009-4), the five Plan-010 worktree variants
-// (CP-010-5), the six Plan-006 audit-integrity / event-maintenance variants
-// (T1.11), the five Plan-003 runtime-node variants (T1.12 — CP-003-1
-// leg (a)), and the five Plan-006 body-bearing assistant / tool variants
-// (T3.6). Order mirrors the declaration order of the union arms above.
+// Membership today (29): the two session variants, the six repo/workspace
+// variants, the five worktree variants, the six audit-integrity /
+// event-maintenance variants, the five runtime-node variants (leg (a)), and
+// the five body-bearing assistant / tool variants. Order mirrors the
+// declaration order of the union arms above.
 export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
   "session.created",
   "channel.created",
@@ -3353,9 +3183,9 @@ export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
 // mechanically derivable from the category string (which is why the
 // `*_events` categories read `..._EVENTS_EVENT_TYPES`). Each array's member
 // set MUST equal `SESSION_EVENT_CATEGORY_BY_TYPE`'s keys filtered to that
-// category, and the 20 arrays partition the 147-type census (I-006-1-01) —
-// both asserted per-category in __tests__/session-event.test.ts. Explicit
-// `readonly SessionEventType[]` annotations keep the exported surface
+// category, and the 20 arrays partition the 147-type census — both asserted
+// per-category in __tests__/session-event.test.ts. Explicit `readonly
+// SessionEventType[]` annotations keep the exported surface
 // `--isolatedDeclarations`-clean, matching `SESSION_EVENT_TYPES` above.
 
 export const RUN_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
@@ -3424,8 +3254,8 @@ export const PRESENCE_EVENT_TYPES: readonly SessionEventType[] = [
   "presence.offline",
 ] as const;
 
-// Four Spec-006 subsections flattened in spec order: session (12, incl. the
-// three B18 rows), channel/agent (7), repo/workspace/worktree (11), pty (1).
+// Four subsections flattened in spec order: session (12, incl. the three B18
+// rows), channel/agent (7), repo/workspace/worktree (11), pty (1).
 export const SESSION_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
   "session.created",
   "session.activated",
@@ -3503,12 +3333,12 @@ export const RECOVERY_EVENTS_EVENT_TYPES: readonly SessionEventType[] = [
   "recovery.failed",
 ] as const;
 
-export const PARTICIPANT_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
-  "participant.exported",
-  "participant.purge_requested",
-  "participant.purged",
-  "participant.tokens_revoked_all",
-  "participant.device_reset",
+export const USER_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
+  "user.exported",
+  "user.purge_requested",
+  "user.purged",
+  "user.tokens_revoked_all",
+  "user.device_reset",
 ] as const;
 
 export const AUDIT_INTEGRITY_EVENT_TYPES: readonly SessionEventType[] = [
@@ -3562,9 +3392,8 @@ export const CROSS_NODE_DISPATCH_EVENT_TYPES: readonly SessionEventType[] = [
   "dispatch.result_observed",
 ] as const;
 
-// The B18 category (Spec-006 §MCP Governance). Four of the five bind to the
-// daemon-scope sentinel; `mcp.server_status_changed` binds per-event — see
-// Spec-006 §Daemon-Scope Event Binding And Node-Scope Anchoring.
+// Four of the five bind to the daemon-scope sentinel;
+// `mcp.server_status_changed` binds per-event
 export const MCP_GOVERNANCE_EVENT_TYPES: readonly SessionEventType[] = [
   "mcp.server_status_changed",
   "mcp.server_config_changed",
@@ -3577,13 +3406,12 @@ export const MCP_GOVERNANCE_EVENT_TYPES: readonly SessionEventType[] = [
 // SESSION_EVENT_CATEGORY_BY_TYPE — canonical type → category registry.
 // --------------------------------------------------------------------------
 //
-// Internal Record backing the exported ReadonlyMap. The
-// `satisfies Record<SessionEventType, EventCategory>` check is I-006-1-01's
-// compile-time totality leg: a union member missing here, an unregistered
-// key, or a duplicate key is a compile error, so the registry can never
-// silently drift from `SessionEventType`. Entries mirror the union's
-// category-block order (same reconciliation affordance; order is not
-// load-bearing).
+// Internal Record backing the exported ReadonlyMap. The `satisfies
+// Record<SessionEventType, EventCategory>` check is the compile-time
+// totality leg: a union member missing here, an unregistered key, or a
+// duplicate key is a compile error, so the registry can never silently
+// drift from `SessionEventType`. Entries mirror the union's category-block
+// order (same reconciliation affordance; order is not load-bearing).
 const SESSION_EVENT_CATEGORY_RECORD = {
   // run_lifecycle (13)
   "run.queued": "run_lifecycle",
@@ -3703,12 +3531,12 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "recovery.attempted": "recovery_events",
   "recovery.succeeded": "recovery_events",
   "recovery.failed": "recovery_events",
-  // participant_lifecycle (5)
-  "participant.exported": "participant_lifecycle",
-  "participant.purge_requested": "participant_lifecycle",
-  "participant.purged": "participant_lifecycle",
-  "participant.tokens_revoked_all": "participant_lifecycle",
-  "participant.device_reset": "participant_lifecycle",
+  // user_lifecycle (5)
+  "user.exported": "user_lifecycle",
+  "user.purge_requested": "user_lifecycle",
+  "user.purged": "user_lifecycle",
+  "user.tokens_revoked_all": "user_lifecycle",
+  "user.device_reset": "user_lifecycle",
   // audit_integrity (3)
   audit_integrity_verified: "audit_integrity",
   audit_integrity_failed: "audit_integrity",
@@ -3755,8 +3583,8 @@ const SESSION_EVENT_CATEGORY_RECORD = {
 } satisfies Record<SessionEventType, EventCategory>;
 
 // Map from each registered wire type to its canonical category. Exposed so
-// consumers (projectors, replay machinery, integrity verifiers in Plan-006)
-// can assert category/type consistency without re-parsing the schema.
+// consumers (projectors, replay machinery, integrity verifiers) can assert
+// category/type consistency without re-parsing the schema.
 //
 // `ReadonlyMap` (NOT a plain object literal) so that a downstream caller
 // who passes an untrusted string into `.get(evt.type)` cannot accidentally
@@ -3767,7 +3595,7 @@ const SESSION_EVENT_CATEGORY_RECORD = {
 //     operations.
 //   • Map: `lookup.get('__proto__')` and `lookup.get('constructor')` both
 //     return `undefined` — the only truthy results are the explicit entries.
-// Plan-006 integrity verifiers walk this lookup BEFORE re-parsing through
+// Integrity verifiers walk this lookup BEFORE re-parsing through
 // `SessionEventSchema`, so the prototype-chain immunity is load-bearing.
 // (The backing Record above is module-internal and never looked up — it
 // exists solely for the compile-time totality check.)
@@ -3781,37 +3609,34 @@ export const SESSION_EVENT_CATEGORY_BY_TYPE: ReadonlyMap<SessionEventType, Event
 
 // --------------------------------------------------------------------------
 // NormalizedEventKind — surveyed-runtime normalized census + disposition
-// registry (Plan-006 T1.8).
+// registry.
 // --------------------------------------------------------------------------
 //
-// The provider drivers (Plan-005) normalize both provider wires into a
-// 35-kind normalized event vocabulary BEFORE the taxonomy maps each kind
-// onto the `SessionEventType` census. `EVENT_DISPOSITION_BY_KIND` below is
-// the machine-readable form of the Plan-006 §Event-Kind Disposition Table
-// census rows — the single source of disposition truth the Plan-005
-// T3.5/T3.10 normalizers (the B10 bundle) consume. Every kind resolves to
-// exactly one disposition under the no-silent-capability-loss default:
+// The provider drivers normalize both provider wires into a 35-kind
+// normalized event vocabulary BEFORE the taxonomy maps each kind onto the
+// `SessionEventType` census. `EVENT_DISPOSITION_BY_KIND` below is the
+// machine-readable form of — the single source of disposition truth
+// normalizers (the B10 bundle) consume. Every kind resolves to exactly one
+// disposition under the no-silent-capability-loss default:
 // `adopt`/`rename` is the default, and every `correlate`/`discard` carries
 // a stated reason, so a capability-bearing kind is never dropped silently.
 //
 // Registry scope is the 35 CENSUS kinds only. The nine wire-level Claude
 // system-channel discards and the current-wire delta families in the same
-// plan table are the Plan-005 normalizer's wire layer, NOT registry keys —
-// the `worker_shutting_down` delta orphan foremost (the ninth B18 target;
-// its literal `run.worker_shutdown` was closed by T1.10's union widening
-// alone, with no registry entry). The unknown residual — a wire kind
-// outside this census — is backstopped at runtime by the Plan-005
-// normalizer's structured default-branch diagnostic (B10), never by this
-// registry.
+// plan table are normalizer's wire layer, NOT registry keys — the
+// `worker_shutting_down` delta orphan foremost (the ninth B18 target; its
+// literal `run.worker_shutdown` was closed by the union widening alone,
+// with no registry entry). The unknown residual — a wire kind outside this
+// census — is backstopped at runtime normalizer's structured
+// default-branch diagnostic (B10), never by this registry.
 //
-// B18 closure (T1.10). Eight census kinds' exact `SessionEventType`
-// literals were minted by the 2026-07-22 Spec-006 B18 census amendment
-// ahead of their registration in this file, so their entries carried
-// `typePending: "B18"` in place of `eventType`. T1.10 registered all
-// fifteen B18 literals in the census above and flipped each of the eight
-// to its `eventType`, so the two-file shrink-only ratchet that guarded the
-// gap is CONSUMED: the pinned pending set is empty and no registry entry
-// uses the `typePending` arm.
+// Eight census kinds' exact `SessionEventType` literals were minted by the
+// 2026-07-22 B18 census amendment ahead of their registration in this
+// file, so their entries carried `typePending: "B18"` in place of
+// `eventType`. registered all fifteen B18 literals in the census above and
+// flipped each of the eight to its `eventType`, so the two-file
+// shrink-only ratchet that guarded the gap is CONSUMED: the pinned pending
+// set is empty and no registry entry uses the `typePending` arm.
 //
 // The arm itself is RETAINED, not removed — it is the reusable mechanism
 // for a future census amendment that mints a literal ahead of its
@@ -3821,16 +3646,16 @@ export const SESSION_EVENT_CATEGORY_BY_TYPE: ReadonlyMap<SessionEventType, Event
 // `satisfies Record<SessionEventType, EventCategory>` totality check above
 // (a census literal cannot go unregistered) plus the both-direction
 // set-equality assertions in __tests__/session-event.test.ts, with every
-// `eventType` cross-checked against `SESSION_EVENT_CATEGORY_BY_TYPE` in
-// the disposition suite (a flip to a category the census disagrees with
-// fails there). Registration is not emission license, and all fifteen B18
-// literals are variantless today, so the Plan-005 normalizers keep routing
-// every flipped kind to the B10 diagnostic until its payload variant is
-// registered in `SessionEventSchema` by its owning surface — emission turns
-// on variant-by-variant, never on the registry flip alone. Should the arm
-// ever be used again, a pending kind routes to that same diagnostic rather
-// than constructing an envelope against a missing type — no envelope, no
-// silent drop.
+// `eventType` cross-checked against `SESSION_EVENT_CATEGORY_BY_TYPE` in the
+// disposition suite (a flip to a category the census disagrees with fails
+// there). Registration is not emission license, and all fifteen B18
+// literals are variantless today, so normalizers keep routing every flipped
+// kind to the B10 diagnostic until its payload variant is registered in
+// `SessionEventSchema` by its owning surface — emission turns on
+// variant-by-variant, never on the registry flip alone. Should the arm ever
+// be used again, a pending kind routes to that same diagnostic rather than
+// constructing an envelope against a missing type — no envelope, no silent
+// drop.
 
 // The closed 35-kind normalized census, named per the `EventCategory` /
 // `SessionEventType` convention above. Blocks mirror the plan table's
@@ -3928,9 +3753,6 @@ export const NORMALIZED_EVENT_KINDS: readonly NormalizedEventKind[] = [
 ] as const;
 
 /**
- * One row of the normalized-kind disposition registry — the
- * machine-readable form of a Plan-006 §Event-Kind Disposition Table census
- * row.
  *
  * A discriminated union whose arms make illegal states unrepresentable at
  * the type level (the compiler enforces SHAPE; the Vitest suite verifies
@@ -3939,15 +3761,14 @@ export const NORMALIZED_EVENT_KINDS: readonly NormalizedEventKind[] = [
  *     carry EXACTLY ONE of `eventType` — a registered
  *     {@link SessionEventType} census literal — or `typePending: "B18"`
  *     (a literal minted by a census amendment ahead of its registration
- *     here). T1.10 flipped the last eight `typePending` rows, so the
- *     pending arm currently has ZERO registry instances; it is retained as
- *     the mechanism for the next such amendment. The `?: never` keys
- *     forbid both-present; the arm split forbids neither-present.
- *     `eventType` names the row's PRIMARY target only — outcome-dependent
- *     fan-out (`tool.error`, `approval.rejected` / `.expired` /
- *     `.canceled`, `driver_ask.expired` / `.canceled`,
- *     `subagent.completed`) is Plan-005 normalizer detail, not registry
- *     data.
+ *     here). flipped the last eight `typePending` rows, so the pending arm
+ *     currently has ZERO registry instances; it is retained as the
+ *     mechanism for the next such amendment. The `?: never` keys forbid
+ *     both-present; the arm split forbids neither-present. `eventType`
+ *     names the row's PRIMARY target only — outcome-dependent fan-out
+ *     (`tool.error`, `approval.rejected` / `.expired` / `.canceled`,
+ *     `driver_ask.expired` / `.canceled`, `subagent.completed`) is
+ *     normalizer detail, not registry data.
  *   • `correlate`/`discard` entries carry only the non-empty `reason` —
  *     the no-silent-capability-loss justification — and NO taxonomy
  *     target: a correlate folds into an existing row via `correlation_id`
@@ -3993,16 +3814,16 @@ export type EventKindDisposition =
     };
 
 // Internal Record backing the exported ReadonlyMap — same idiom as
-// `SESSION_EVENT_CATEGORY_RECORD` above. The
-// `satisfies Record<NormalizedEventKind, EventKindDisposition>` check is
-// the compile-time totality leg: a census kind missing here, an
-// unregistered key, or a duplicate key is a compile error — and the
+// `SESSION_EVENT_CATEGORY_RECORD` above. The `satisfies
+// Record<NormalizedEventKind, EventKindDisposition>` check is the
+// compile-time totality leg: a census kind missing here, an unregistered
+// key, or a duplicate key is a compile error — and the
 // `EventKindDisposition` union arms reject an entry carrying both
 // `eventType` and `typePending`, either alongside a `reason`, or a
 // correlate/discard smuggling a taxonomy target. Entries mirror the plan
 // table's row order (blocks per its Group column; order is not
-// load-bearing). Fan-out notes ("fans to …") are Plan-005 T3.5/T3.10
-// normalizer detail — the registry names each row's PRIMARY target.
+// load-bearing). Fan-out notes ("fans to …") are normalizer detail — the
+// registry names each row's PRIMARY target.
 const EVENT_DISPOSITION_RECORD = {
   // Inline timeline (rows 1–14).
   // Run-start marker: records the provider's OWN init report; the daemon's
@@ -4081,7 +3902,7 @@ const EVENT_DISPOSITION_RECORD = {
     eventType: "session.notice",
   },
   // Transient retry (row 18): transient-retry record; the Claude
-  // `system.api_retry` typed-error enum (C-5) enriches this same kind —
+  // `system.api_retry` typed-error enum enriches this same kind —
   // capability-bearing, never dropped.
   api_retry: { disposition: "adopt", category: "usage_telemetry", eventType: "usage.api_retry" },
   // System, no timeline row (rows 19–24).
@@ -4163,7 +3984,7 @@ const EVENT_DISPOSITION_RECORD = {
   user_text: {
     disposition: "correlate",
     reason:
-      "correlation-only wire echo — folds into the originating app-sent user-message row via correlation_id (delivery confirmation of the pending send; no new persisted type); correlate target user.message (B18-minted 2026-07-22, registered in this census by T1.10, so the target literal resolves; the echo keeps routing to the Plan-005 normalizer default-branch diagnostic until the Plan-004 T2.9 user.message payload variant joins the union)",
+      "correlation-only wire echo — folds into the originating app-sent user-message row via correlation_id (delivery confirmation of the pending send; no new persisted type); correlate target user.message (B18-minted 2026-07-22, registered in this census so the target literal resolves; the echo keeps routing to normalizer default-branch diagnostic until user.message payload variant joins the union)",
   },
   // Heavy, persisted (rows 32–35): payload persisted to SQLite; light
   // meta to the client.
@@ -4184,10 +4005,9 @@ const EVENT_DISPOSITION_RECORD = {
 
 /**
  * Machine-readable disposition registry over the 35 normalized census
- * kinds — the Plan-006 §Event-Kind Disposition Table as data. The Plan-005
- * T3.5/T3.10 normalizers (the B10 bundle) consume it as the single source
- * of disposition truth; see the section comment above for scope (census
- * kinds only, wire-layer discards and delta families excluded) and the
+ * kinds. normalizers (the B10 bundle) consume it as the single source of
+ * disposition truth; see the section comment above for scope (census kinds
+ * only, wire-layer discards and delta families excluded) and the
  * closed-out B18 `typePending` ratchet.
  *
  * `ReadonlyMap` (NOT a plain object) for the same `.get()`-safety as
@@ -4209,19 +4029,13 @@ export const EVENT_DISPOSITION_BY_KIND: ReadonlyMap<NormalizedEventKind, EventKi
   );
 
 // --------------------------------------------------------------------------
-// CapabilityDetails — HOISTED (Plan-006 T1.4; declarations in event-core.ts).
+// CapabilityDetails — HOISTED (declarations in event-core.ts).
 // --------------------------------------------------------------------------
 //
-// `CAPABILITY_CONTRACT_VERSION_MAX_LEN`, the `CapabilityDetails` interface,
-// `CapabilityDetailsSchema`, their module-local tool-element schema, and all
-// six compile-time drift pins moved VERBATIM to `./event-core.js` (T1.12) and
-// are re-exported from the hoist seam near the top of this file — Plan-006
-// still owns the shape, and its full rationale (why it is non-normalizing, why
-// the pins exist, why `tools` is readonly) travelled with the declarations.
 // The move was forced by the cycle: `runtime-node.ts` reads
-// `CapabilityDetailsSchema` at module scope for T1.4's canonical-first
-// tolerant unions, and this file now reads runtime-node.ts's payload schemas
-// at module scope for the T1.12 arms above.
+// `CapabilityDetailsSchema` at module scope for the canonical-first tolerant
+// unions, and this file now reads runtime-node.ts's payload schemas at module
+// scope for arms above.
 
 // Note: cross-file ID types (`SessionId`, `ChannelId`, …) are not re-
 // exported here — they are surfaced from `session.ts` and reach the public

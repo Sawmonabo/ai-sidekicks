@@ -43,7 +43,7 @@
 //
 // THE DRAFT IS NOT THIS MOUNT'S. Autosave is renderer-local and window-scoped; the
 // family's separate draft slot carries it, and a draft that reached the durable store
-// would be participant content in a durable home.
+// would be user content in a durable home.
 
 /** The phase whose form is open, as the mounting pane resolved it out of the run read. */
 export interface HumanFormPhase {

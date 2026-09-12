@@ -1,7 +1,7 @@
 // How the call door reaches the window's supervisor condition.
 //
-// `Spec-023 §Daemon Supervision Lifecycle` step 3 blocks mutating operations while
-// the supervisor is not serving and keeps read-only subscriptions live. Enforcing
+// Supervision blocks mutating operations while the supervisor is not serving and
+// keeps read-only subscriptions live. Enforcing
 // that once at the door needs the CURRENT condition at the instant a call is put —
 // not the one a component's last committed render captured — and the door is handed
 // only a `ConsoleBridge`.

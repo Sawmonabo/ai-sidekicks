@@ -1,11 +1,11 @@
 // The browser pane's resource ceiling, rendered.
 //
-// `Spec-023 §Console Design (Meridian)` 12.10 asks for "one place to audit" the
-// ceiling and for "every bound a named constant in one module". The MODULE is
-// `browser-bounds.ts` beside this file, which holds the block: the taxonomy, the
-// derivations, and the rows. The NUMBERS the rows carry are caps and live at the
-// floor in `core/constants/browser-caps.ts`, per `apps/desktop/AGENTS.md` §Config
-// single-sourcing. This file is the surface that renders what is declared there.
+// The ceiling needs one place to audit, and every bound needs to be a named constant
+// in one module. The MODULE is `browser-bounds.ts` beside this file, which holds the
+// block: the taxonomy, the derivations, and the rows. The NUMBERS the rows carry are
+// caps and live at the floor in `core/constants/browser-caps.ts`, single-sourced with
+// every other configured figure. This file is the surface that renders what is
+// declared there.
 //
 // The two files are deliberately not one. A table of twenty ceilings and their prose
 // derivations inside a component is a block nobody can audit without reading a render

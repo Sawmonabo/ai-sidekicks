@@ -1,41 +1,25 @@
-// W-007p-1-T1..T5 — SecureDefaults bootstrap test suite (T-007p-1-4).
+// SecureDefaults bootstrap test suite.
 //
-// Covers all five Plan-007 §Invariants the Tier-1 SecureDefaults +
-// override-emitter substrate enforces:
-//
-//   * I-007-1 (load-before-bind, T1): pre-load `SecureDefaults.effectiveSettings()`
-//     and `assertLoadedForBind()` BOTH throw. Two assertion sites because the
-//     plan calls out the "API-internal guard" (effectiveSettings) AND the
+//   * Pre-load `SecureDefaults.effectiveSettings()` and
+//     `assertLoadedForBind()` BOTH throw. Two assertion sites because the plan
+//     calls out the "API-internal guard" (effectiveSettings) AND the
 //     orchestrator-throw (assertLoadedForBind) as distinct enforcement
 //     surfaces; a regression that fixed one but not the other would leak past
 //     a single-site test.
-//   * I-007-2 (fail-closed, T2): invalid config throws `SecureDefaultsValidationError`
-//     with an actionable message AND leaves `isLoaded() === false` — there
-//     is no partial-start state.
-//   * I-007-3 (effectiveSettings non-secret, T3): the returned object has
-//     EXACTLY the four conservative-config keys (`bindAddress`, `bindPort`,
-//     `localIpcPath`, `bannerFormat`); no extras leak through.
-//     `bindPort` is OMITTED (not `undefined`-assigned) when the input
-//     omits it — this matches the source's `exactOptionalPropertyTypes`
-//     branch on lines 353-365 of secure-defaults.ts and is what
-//     downstream consumers will key on.
-//   * I-007-5 (Tier-4-scope-key refusal, T4): each of `tlsMode`,
-//     `tlsCertPath`, `nonLoopbackHost`, `firstRunKeysPolicy` is refused
-//     with the `unknown_setting` error code AND the canonical two-layer
-//     JSON-RPC envelope per error-contracts.md §JSON-RPC Wire Mapping
-//     (BL-103 closed 2026-05-01) — `error.code === -32602
-//     InvalidParams`, `error.data === { type: "unknown_setting",
-//     fields: { setting, value } }`. T4 asserts source-side (typed
-//     error class + stable string code) AND wire-side (envelope shape
-//     via `mapJsonRpcError`) so a regression on either projection seam
-//     fails the test.
-//   * I-007-4 (single-emit-per-startup, T5): the `SecureDefaultOverrideEmitter`
-//     fires each `behavior` integer exactly once across the process
-//     lifetime; two distinct behaviors each emit independently; AND the
-//     mark-before-fire ordering (source lines 209-215 of
-//     secure-defaults-events.ts) means a sink that throws does NOT
-//     allow a retry to produce a duplicate emission for the same
-//     behavior.
+//   * Invalid config throws `SecureDefaultsValidationError` with an actionable
+//     message AND leaves `isLoaded() === false` — there is no partial-start
+//     state.
+//   * The returned object has EXACTLY the four conservative-config keys
+//     (`bindAddress`, `bindPort`, `localIpcPath`, `bannerFormat`); no
+//     extras leak through.
+//   * Each of `tlsMode`, `tlsCertPath`, `nonLoopbackHost`,
+//     `firstRunKeysPolicy` is refused with the `unknown_setting` error
+//     code AND the canonical two-layer JSON-RPC envelope — `error.code
+//     === -32602 InvalidParams`, `error.data === { type:
+//     "unknown_setting", fields: { setting, value } }`. T4 asserts
+//     source-side (typed error class + stable string code) AND
+//     wire-side (envelope shape via `mapJsonRpcError`) so a regression
+//     on either projection seam fails the test.
 //
 // Reset discipline: every `it()` runs in a `beforeEach` that calls
 // `SecureDefaults.__resetForTest()` AND
@@ -66,7 +50,7 @@ import {
 // Test fixtures
 // ----------------------------------------------------------------------------
 
-// The minimal valid config for the Tier 1 conservative-config shape
+// The minimal valid config for the conservative-config shape
 // (matches secure-defaults.ts inline contract). bindPort is OMITTED
 // here so the default fixture exercises the "without bindPort" branch
 // of validation; tests that need bindPort spread in their own.
@@ -76,10 +60,10 @@ const VALID_BASE_CONFIG: SecureDefaultsConfig = {
   bannerFormat: "text",
 };
 
-// A representative override event for the I-007-4 dedupe assertions.
-// The `behavior` integer is what the dedupe Set keys on; `row`,
-// `effective_value`, and `banner_printed_at` are payload-shape fields
-// per `Spec-027 §Interfaces And Contracts` carried verbatim through the sink.
+// A representative override event for dedupe assertions. The `behavior`
+// integer is what the dedupe Set keys on; `row`, `effective_value`, and
+// `banner_printed_at` are payload-shape fields carried verbatim through the
+// sink.
 function makeOverrideEvent(
   behavior: number,
   overrides: Partial<SecurityDefaultOverrideEvent> = {},
@@ -115,7 +99,6 @@ afterEach(() => {
 });
 
 // ----------------------------------------------------------------------------
-// W-007p-1-T1 — I-007-1 load-before-bind
 // ----------------------------------------------------------------------------
 //
 // Two sibling `it()`s assert the two enforcement surfaces named in the
@@ -125,7 +108,7 @@ afterEach(() => {
 // the other surfaces as a single failed `it()` rather than a generic
 // "load-before-bind broke" message.
 
-describe("W-007p-1-T1 (I-007-1: load-before-bind)", () => {
+describe("load-before-bind", () => {
   it("SecureDefaults.effectiveSettings() throws when called before load() (API-internal guard)", () => {
     // The constructor-throw on `new SecureDefaults()` is a separate
     // guard. Here we want the load-before-read throw on the static
@@ -155,22 +138,22 @@ describe("W-007p-1-T1 (I-007-1: load-before-bind)", () => {
 });
 
 // ----------------------------------------------------------------------------
-// W-007p-1-T2 — I-007-2 fail-closed on invalid config
+// fail-closed on invalid config
 // ----------------------------------------------------------------------------
 //
-// Plan §Invariants: "the daemon MUST refuse to start with a typed
-// error". The "typed error" wording is load-bearing: a regression that
-// threw a generic `Error("config bad")` would still match a
-// `toThrow(string)` assertion but would lose the structured `.code`
-// downstream consumers (and the C-7 envelope, when it lands) key on.
-// Hence `try/catch` + `toBeInstanceOf(SecureDefaultsValidationError)`
+// Plan "the daemon MUST refuse to start with a typed error". The
+// "typed error" wording is load-bearing: a regression that threw a
+// generic `Error("config bad")` would still match a `toThrow(string)`
+// assertion but would lose the structured `.code` downstream consumers
+// (and the typed wire envelope, when it lands) key on. Hence `try/catch` +
+// `toBeInstanceOf(SecureDefaultsValidationError)`
 // + `caught.code === "<expected>"` rather than a regex shortcut.
 //
 // "No partial-start path" surfaces as `isLoaded() === false` AFTER
 // the failed first-time `load()` — the side-effect witness for
 // fail-closed.
 
-describe("W-007p-1-T2 (I-007-2: fail-closed on invalid config)", () => {
+describe("fail-closed on invalid config", () => {
   it("throws SecureDefaultsValidationError with an actionable message and leaves isLoaded()===false", () => {
     let caught: unknown;
     try {
@@ -192,7 +175,7 @@ describe("W-007p-1-T2 (I-007-2: fail-closed on invalid config)", () => {
     if (!(caught instanceof SecureDefaultsValidationError)) return;
     expect(caught.code).toBe("invalid_bind_address");
     // "Actionable message" — the message names the offending value
-    // and the allowed Tier-1 set so an operator can act on it
+    // and the allowed set so an operator can act on it
     // without reading source.
     expect(caught.message).toMatch(/0\.0\.0\.0/);
     expect(caught.message).toMatch(/loopback set/);
@@ -241,7 +224,7 @@ describe("W-007p-1-T2 (I-007-2: fail-closed on invalid config)", () => {
 });
 
 // ----------------------------------------------------------------------------
-// W-007p-1-T3 — I-007-3 effectiveSettings exposes only non-secret typed values
+// effectiveSettings exposes only non-secret typed values
 // ----------------------------------------------------------------------------
 //
 // Per the orchestrator note + advisor confirmation: the assertion
@@ -263,7 +246,7 @@ describe("W-007p-1-T2 (I-007-2: fail-closed on invalid config)", () => {
 // regression that ADDED a leaking field without changing existing
 // behavior.
 
-describe("W-007p-1-T3 (I-007-3: effectiveSettings non-secret typed values)", () => {
+describe("effectiveSettings non-secret typed values", () => {
   it("returns exactly the four conservative-config keys when bindPort is supplied", () => {
     bootstrap({ ...VALID_BASE_CONFIG, bindPort: 47100 });
     const eff = SecureDefaults.effectiveSettings();
@@ -336,14 +319,13 @@ describe("W-007p-1-T3 (I-007-3: effectiveSettings non-secret typed values)", () 
 });
 
 // ----------------------------------------------------------------------------
-// W-007p-1-T4 — I-007-5 Tier-4-scope-key refusal
+// extended-scope-key refusal
 // ----------------------------------------------------------------------------
 //
-// The plan names four specific Tier-4-scope keys: `tlsMode`,
+// The plan names four specific extended-scope keys: `tlsMode`,
 // `tlsCertPath`, `nonLoopbackHost`, `firstRunKeysPolicy`. Each must
 // be refused with `unknown_setting` AND project to the canonical
-// two-layer JSON-RPC envelope per error-contracts.md §JSON-RPC Wire
-// Mapping (BL-103 closed 2026-05-01).
+// two-layer JSON-RPC envelope.
 //
 // Two-layer assertion: the test asserts source-side (typed
 // `SecureDefaultsValidationError` with stable `code` string) AND
@@ -354,69 +336,72 @@ describe("W-007p-1-T3 (I-007-3: effectiveSettings non-secret typed values)", () 
 // fails the test.
 //
 // Test shape: `it.each` over the four-key list. Each case feeds an
-// otherwise-valid config plus the offending Tier-4 key — the source's
+// otherwise-valid config plus the offending extended-scope key — the source's
 // refuse-unknown-keys walk runs FIRST per validateConfig (lines
 // 264-271), so the rest of the config doesn't strictly need to be
 // valid for the test to fire, but pinning a valid-otherwise config
-// documents intent: "the Tier-4-scope-key refusal is what fires here,
+// documents intent: "the extended-scope-key refusal is what fires here,
 // not some other validation failure".
 
-describe("W-007p-1-T4 (I-007-5: Tier-4-scope-key refusal)", () => {
-  // Note: per the orchestrator note + advisor cite, these test
-  // objects have to ride a runtime cast through `unknown` because
+describe("extended-scope-key refusal", () => {
+  // Note: these test objects have to ride a runtime cast through `unknown`
+  // because
   // `SecureDefaultsConfig` is a closed structural type that doesn't
-  // permit Tier-4 keys at compile time. The runtime walk on
+  // permit extended-scope keys at compile time. The runtime walk on
   // `Object.keys` (source line 261-263) is what catches them, which
   // IS the surface we're testing.
-  const TIER_4_KEYS: ReadonlyArray<string> = [
+  const EXTENDED_SCOPE_KEYS: ReadonlyArray<string> = [
     "tlsMode",
     "tlsCertPath",
     "nonLoopbackHost",
     "firstRunKeysPolicy",
   ];
 
-  it.each(TIER_4_KEYS)("refuses key %p with `unknown_setting` envelope", (tier4Key) => {
-    const config = {
-      ...VALID_BASE_CONFIG,
-      [tier4Key]: "any-value",
-    } as unknown as SecureDefaultsConfig;
+  it.each(EXTENDED_SCOPE_KEYS)(
+    "refuses key %p with `unknown_setting` envelope",
+    (extendedScopeKey) => {
+      const config = {
+        ...VALID_BASE_CONFIG,
+        [extendedScopeKey]: "any-value",
+      } as unknown as SecureDefaultsConfig;
 
-    let caught: unknown;
-    try {
-      SecureDefaults.load(config);
-    } catch (err) {
-      caught = err;
-    }
+      let caught: unknown;
+      try {
+        SecureDefaults.load(config);
+      } catch (err) {
+        caught = err;
+      }
 
-    // Source-side: typed error with stable string code. Instance check
-    // first so the narrow holds for the field accesses below.
-    expect(caught).toBeInstanceOf(SecureDefaultsValidationError);
-    if (!(caught instanceof SecureDefaultsValidationError)) return;
-    expect(caught.code).toBe("unknown_setting");
-    // The message names the offending key so an operator gets an
-    // actionable diagnostic at the validation site (vs a generic
-    // "config bad" string).
-    expect(caught.message).toMatch(new RegExp(tier4Key));
+      // Source-side: typed error with stable string code. Instance check
+      // first so the narrow holds for the field accesses below.
+      expect(caught).toBeInstanceOf(SecureDefaultsValidationError);
+      if (!(caught instanceof SecureDefaultsValidationError)) return;
+      expect(caught.code).toBe("unknown_setting");
+      // The message names the offending key so an operator gets an
+      // actionable diagnostic at the validation site (vs a generic
+      // "config bad" string).
+      expect(caught.message).toMatch(new RegExp(extendedScopeKey));
 
-    // Wire-side: `mapJsonRpcError` projects the typed error into the
-    // canonical two-layer envelope per error-contracts.md §JSON-RPC
-    // Wire Mapping. Numeric -32602 InvalidParams (boot-time config IS
-    // request params from the operator's perspective); `data.type` is
-    // the stable code string; `data.fields` carries the structured
-    // detail captured at the throw site.
-    const envelope = mapJsonRpcError(caught, 1);
-    expect(envelope.error.code).toBe(JsonRpcErrorCode.InvalidParams);
-    expect(envelope.error.data).toEqual({
-      type: "unknown_setting",
-      fields: { setting: tier4Key, value: "any-value" },
-    });
+      // Wire-side: `mapJsonRpcError` projects the typed error into the
+      // canonical two-layer envelope. Numeric -32602 InvalidParams
+      // (boot-time config IS request params from the operator's
+      // perspective); `data.type` is the stable code string;
+      // `data.fields` carries the structured detail captured at the
+      // throw site.
+      const envelope = mapJsonRpcError(caught, 1);
+      expect(envelope.error.code).toBe(JsonRpcErrorCode.InvalidParams);
+      expect(envelope.error.data).toEqual({
+        type: "unknown_setting",
+        fields: { setting: extendedScopeKey, value: "any-value" },
+      });
 
-    // Fail-closed side-effect: the singleton stayed unloaded.
-    expect(SecureDefaults.isLoaded()).toBe(false);
-  });
+      // Fail-closed side-effect: the singleton stayed unloaded.
+      expect(SecureDefaults.isLoaded()).toBe(false);
+    },
+  );
 
-  it("refuses a config carrying multiple Tier-4 keys at once (refuse-unknown-keys catches the first encountered)", () => {
-    // Belt-and-braces: pin that a config with several Tier-4 keys
+  it("refuses a config carrying multiple extended-scope keys at once (refuse-unknown-keys catches the first encountered)", () => {
+    // Belt-and-braces: pin that a config with several extended-scope keys
     // surfaces ONE `unknown_setting` failure (the source loops over
     // input keys and throws on the first violation per source line
     // 264-271). The exact key named in the message depends on JS
@@ -453,10 +438,7 @@ describe("W-007p-1-T4 (I-007-5: Tier-4-scope-key refusal)", () => {
 });
 
 // ----------------------------------------------------------------------------
-// W-007p-1-T5 — I-007-4 single-emit-per-startup
 // ----------------------------------------------------------------------------
-//
-// Three sibling `it()`s, each pinning a distinct facet of I-007-4:
 //
 //   * "exactly once for a single behavior": basic dedupe — emit the
 //     same `behavior` integer twice; sink is invoked once.
@@ -464,8 +446,8 @@ describe("W-007p-1-T4 (I-007-5: Tier-4-scope-key refusal)", () => {
 //     its own dedupe slot; two integers fire two events; a third
 //     repeat of either is suppressed.
 //   * "mark-before-fire survives a throwing sink": the load-bearing
-//     sharpening of I-007-4 — a sink that throws on emit MUST NOT
-//     allow a retry to produce a duplicate. Sequence:
+//     sharpening of — a sink that throws on emit MUST NOT allow a
+//     retry to produce a duplicate.
 //       1. install throwing sink
 //       2. emit({behavior:1, ...}) — catches the throw
 //       3. assert hasEmitted(1) === true (witness mark-before-fire)
@@ -477,18 +459,18 @@ describe("W-007p-1-T4 (I-007-5: Tier-4-scope-key refusal)", () => {
 //   * Recommendation: three sibling `it()`s under one `describe`.
 //   * Alternative: one combined `it()` with all three asserts in
 //     sequence.
-//   * Why three wins: the failure mode for each facet is distinct.
-//     A "dedupe Set never adds" regression breaks facet 1 and 2 but
-//     not facet 3. A "mark-after-fire" regression breaks facet 3
-//     only. Three sibling cases preserve diagnostic precision: vitest
+//   * Why three wins: the failure mode for each facet is distinct. A
+//     "dedupe Set never adds" regression breaks facet 1 and 2 but not
+//     facet 3. A "mark-after-fire" regression breaks facet 3 only.
+//     Three sibling cases preserve diagnostic precision: vitest
 //     reports the failed facet name directly. The combined-it()
-//     alternative would report a generic "I-007-4 broke" and force
-//     the reader to bisect the assertions.
+//     alternative would report a generic " broke" and force the
+//     reader to bisect the assertions.
 //   * Trade-off accepted: three sibling cases each pay the
 //     `beforeEach` reset cost (a `Set.clear()` + null-assignment, so
 //     the cost is sub-microsecond). Worth it for diagnostic clarity.
 
-describe("W-007p-1-T5 (I-007-4: single-emit-per-startup)", () => {
+describe("single-emit-per-startup", () => {
   it("emits exactly once for a single behavior even when emit() is called twice", () => {
     const sink = vi.fn<SecurityDefaultOverrideSink>();
     SecureDefaultOverrideEmitter.setSink(sink);
@@ -534,11 +516,10 @@ describe("W-007p-1-T5 (I-007-4: single-emit-per-startup)", () => {
       /simulated sink failure/,
     );
 
-    // Step 3: explicit witness — the dedupe set advanced BEFORE
-    // the sink was invoked (mark-before-fire). A regression that
-    // marked AFTER the sink call would leave hasEmitted(1) === false
-    // here, breaking I-007-4's "unconditional on sink success"
-    // guarantee.
+    // Step 3: explicit witness — the dedupe set advanced BEFORE the
+    // sink was invoked (mark-before-fire). A regression that marked
+    // AFTER the sink call would leave hasEmitted(1) === false here,
+    // breaking the "unconditional on sink success" guarantee.
     expect(SecureDefaultOverrideEmitter.hasEmitted(1)).toBe(true);
 
     // Step 4: swap to a counting sink. The sink-replacement contract
@@ -555,16 +536,16 @@ describe("W-007p-1-T5 (I-007-4: single-emit-per-startup)", () => {
     // that the retry was suppressed by the pre-marked dedupe set,
     // even though the original sink failure was never delivered to
     // the audit log. This is the "exactly one … per startup" wording
-    // of I-007-4 in its strictest form.
+    // of in its strictest form.
     expect(countingSink).toHaveBeenCalledTimes(0);
   });
 
   it("emit() throws when no sink is installed (symmetric pre-condition guard)", () => {
     // This pins the source's setSink-before-emit guard (lines
     // 200-205). Distinct enforcement surface from the dedupe path,
-    // but it shares the same I-007-4 invariant — a misconfigured
-    // bootstrap that fired an override before wiring the sink would
-    // be a programmer error and MUST throw, not silently swallow.
+    // but it shares the same invariant — a misconfigured bootstrap
+    // that fired an override before wiring the sink would be a
+    // programmer error and MUST throw, not silently swallow.
     expect(SecureDefaultOverrideEmitter.hasSink()).toBe(false);
     expect(() => SecureDefaultOverrideEmitter.emit(makeOverrideEvent(1))).toThrow(
       /SecureDefaultOverrideEmitter\.setSink\(sink\) must be called before emit\(\)/,

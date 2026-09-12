@@ -36,7 +36,7 @@ describe("the runs pane's three absences", () => {
     // The arm the old rule could not reach at all: `hasRead` only ever flipped on a
     // projected run, so a session with no runs read "Reading the runs" forever.
     const container = await renderPane([], true, (store) => {
-      store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+      store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
     });
     expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
     expect(container.querySelector(".meridian-nothing--not-loaded")).toBeNull();
@@ -50,7 +50,7 @@ describe("the runs pane's three absences", () => {
       store.initialise({
         cursor: 4,
         entities: [{ kind: "run", id: RUN_ID, state: "running" }],
-        participantJoinLog: [],
+        userJoinLog: [],
       });
     });
     expect(container.querySelector(".meridian-nothing--not-loaded")).toBeNull();
@@ -77,7 +77,7 @@ describe("every run the session knows has a row, and the ones that are not live 
           { kind: "run", id: SECOND_RUN_ID, state: "completed" },
           { kind: "run", id: THIRD_RUN_ID, state: "failed" },
         ],
-        participantJoinLog: [],
+        userJoinLog: [],
       });
     });
     // Three rows for three runs: one live, two from the session's own record.
@@ -94,7 +94,7 @@ describe("every run the session knows has a row, and the ones that are not live 
           { kind: "run", id: SECOND_RUN_ID, state: "completed" },
           { kind: "run", id: THIRD_RUN_ID, state: "failed" },
         ],
-        participantJoinLog: [],
+        userJoinLog: [],
       });
     });
     const sentence = container.querySelector(".meridian-runs__awaiting-projection");
@@ -124,7 +124,7 @@ describe("every run the session knows has a row, and the ones that are not live 
             },
           },
         ],
-        participantJoinLog: [],
+        userJoinLog: [],
       });
     });
     expect(container.querySelector(".meridian-nothing--not-loaded")).toBeNull();
@@ -139,7 +139,7 @@ describe("every run the session knows has a row, and the ones that are not live 
       store.initialise({
         cursor: 4,
         entities: [{ kind: "run", id: RUN_ID, state: "running" }],
-        participantJoinLog: [],
+        userJoinLog: [],
       });
     });
     expect(container.querySelector(".meridian-runs__awaiting-projection")).toBeNull();

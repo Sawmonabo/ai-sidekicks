@@ -12,7 +12,7 @@ import type { BranchContextReading } from "../mounts/branch-context-model.js";
 import { gitActionExecuteRequest, gitActionParams } from "./git-action-request.js";
 
 const REPO_MOUNT_ID = "9f2c4a10-0000-4000-8000-000000000003";
-const PARTICIPANT_ID = "9f2c4a10-0000-4000-8000-000000000010";
+const USER_ID = "9f2c4a10-0000-4000-8000-000000000010";
 
 /** A context with an upstream ref set — the ordinary case for a tracked head. */
 const TRACKED_CONTEXT: BranchContextReading = {
@@ -88,7 +88,7 @@ describe("gitActionExecuteRequest — the registered shape, whole", () => {
     expect(
       gitActionExecuteRequest("push", TRACKED_CONTEXT, {
         repoMountId: REPO_MOUNT_ID,
-        causationParticipantId: PARTICIPANT_ID,
+        causationUserId: USER_ID,
       }),
     ).toStrictEqual({
       repoMountId: REPO_MOUNT_ID,
@@ -98,7 +98,7 @@ describe("gitActionExecuteRequest — the registered shape, whole", () => {
         headBranch: TRACKED_CONTEXT.headBranch,
         upstreamRef: TRACKED_CONTEXT.upstreamRef,
       },
-      causationParticipantId: PARTICIPANT_ID,
+      causationUserId: USER_ID,
     });
   });
 
@@ -111,7 +111,7 @@ describe("gitActionExecuteRequest — the registered shape, whole", () => {
       repoMountId: REPO_MOUNT_ID,
     });
 
-    expect(Object.keys(request)).not.toContain("causationParticipantId");
+    expect(Object.keys(request)).not.toContain("causationUserId");
     expect(request).toStrictEqual({
       repoMountId: REPO_MOUNT_ID,
       action: "commit",
@@ -129,12 +129,12 @@ describe("gitActionExecuteRequest — the registered shape, whole", () => {
     // string, would pass every case above.
     const request = gitActionExecuteRequest("push", TRACKED_CONTEXT, {
       repoMountId: REPO_MOUNT_ID,
-      causationParticipantId: PARTICIPANT_ID,
+      causationUserId: USER_ID,
     });
 
     expect(Object.keys(request).sort()).toStrictEqual([
       "action",
-      "causationParticipantId",
+      "causationUserId",
       "params",
       "repoMountId",
     ]);

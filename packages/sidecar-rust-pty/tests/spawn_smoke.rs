@@ -1,20 +1,18 @@
-//! Plan-024 Phase 1 acceptance smoke tests — spawn-only, both platforms.
+//! Acceptance smoke tests — spawn-only, both platforms.
 //!
-//! Pins the Phase 1 acceptance criterion verbatim from the T-024-1-5 task
-//! row in `docs/plans/024-rust-pty-sidecar.md` (§Implementation Phase
-//! Sequence, Phase 1):
+//! Pins the Phase 1 acceptance criterion verbatim task row:
 //!
 //! > "spawns `sh -c 'echo hello; exit 0'` on Linux/macOS **and**
 //! > `cmd.exe /c "echo hello"` on Windows; asserts stdout chunk is
 //! > delivered and exit-code propagates"
 //!
-//! The broader `tests/pty_session.rs` suite (T-024-1-4) covers
-//! [`PtySessionRegistry`] behavior in depth (seq monotonicity, kill paths,
-//! resize, write round-trip, race-closing). This file is intentionally
-//! narrow — one spawn shape per platform, both legs asserted (stdout
-//! delivery + exit-code propagation), so a future reader bisecting "did
-//! the spawn smoke regress?" reaches a single load-bearing test per
-//! platform without sifting through peer cases.
+//! The broader `tests/pty_session.rs` suite covers [`PtySessionRegistry`]
+//! behavior in depth (seq monotonicity, kill paths, resize, write
+//! round-trip, race-closing). This file is intentionally narrow — one
+//! spawn shape per platform, both legs asserted (stdout delivery +
+//! exit-code propagation), so a future reader bisecting "did the spawn
+//! smoke regress?" reaches a single load-bearing test per platform without
+//! sifting through peer cases.
 //!
 //! ## Platform scope — spawn is platform-agnostic, kill is not
 //!
@@ -30,8 +28,7 @@
 //! "echo hello"` (Windows; `cmd.exe /c` returns the command's exit
 //! code), so `kill()` is never invoked.
 //!
-//! The Phase 3 carve-out (Plan-024 §Invariants I-024-1 + I-024-2 →
-//! T-024-3-1) lands the Windows `KillRequest` translation
+//! The Phase 3 carve-out lands the Windows `KillRequest` translation
 //! (`SIGINT`→`CTRL_C_EVENT`, `SIGTERM`→`CTRL_BREAK_EVENT`+`taskkill /T
 //! /F`, etc.). That work does NOT relate to spawn smoke — it does not
 //! gate this test on Windows.
@@ -54,7 +51,6 @@
 //! `C:\` on Windows) so the spawn does not depend on whatever path the
 //! parent test runner inherited.
 //!
-//! Plan-024 Phase 1 / T-024-1-5.
 
 use std::time::Duration;
 
@@ -111,12 +107,11 @@ async fn drain_until_exit(rx: &mut UnboundedReceiver<Envelope>) -> Vec<Envelope>
 ///       `stream: DataStream::Stdout`, concatenated bytes contain
 ///       `"hello"`.
 ///   (b) "exit-code propagates" — exactly one
-///       [`Envelope::ExitCodeNotification`], arriving as the LAST
-///       envelope, with the spawned `session_id`, `exit_code == 0`, and
-///       `signal_code == None` (Phase 1 always-None contract per
-///       `pty_session.rs` module rustdoc §6; Windows additionally always
-///       reports `signal_code: None` per `protocol.rs::ExitCodeNotification`
-///       rustdoc).
+///       [`Envelope::ExitCodeNotification`], arriving as the LAST envelope,
+///       with the spawned `session_id`, `exit_code == 0`, and `signal_code
+///       == None` (Phase 1 always-None contract per `pty_session.rs` module
+///       rustdoc Windows additionally always reports `signal_code: None` per
+///       `protocol.rs::ExitCodeNotification` rustdoc).
 ///
 /// Factored out so the unix and Windows arms share assertion code —
 /// the only platform-specific axis is the spawn shape, not the
@@ -194,7 +189,7 @@ fn assert_spawn_smoke_envelopes(envelopes: &[Envelope], session_id: &str) {
     assert_eq!(exit.exit_code, 0, "echo should propagate exit_code: 0");
     assert_eq!(
         exit.signal_code, None,
-        "Phase 1 emits signal_code: None for every exit per pty_session.rs §6"
+        "Phase 1 emits signal_code: None for every exit per pty_session.rs"
     );
 }
 
@@ -248,8 +243,7 @@ async fn spawn_smoke_sh_echo_hello_exits_zero() {
 ///
 /// This test does NOT exercise [`PtySessionRegistry::kill`] — the
 /// child exits naturally — so the Phase 3 carve-out for Windows kill-
-/// translation (Plan-024 §Invariants I-024-1 + I-024-2 → T-024-3-1)
-/// does not gate it.
+/// translation does not gate it.
 ///
 /// [`DataFrame`]: sidecar_rust_pty::protocol::DataFrame
 /// [`ExitCodeNotification`]: sidecar_rust_pty::protocol::ExitCodeNotification

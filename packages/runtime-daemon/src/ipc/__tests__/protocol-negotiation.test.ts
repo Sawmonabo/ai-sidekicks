@@ -1,33 +1,28 @@
-// W-007p-2-T1 + T8 — ProtocolNegotiator test suite (T-007p-2-6).
+// ProtocolNegotiator test suite.
 //
-// Spec coverage:
-//   * `Spec-007 §Required Behavior`
-//     (docs/specs/007-local-ipc-and-daemon-control.md) — "Local IPC must
-//     support protocol version negotiation before mutating operations
-//     are accepted."
-//   * `Spec-007 §Fallback Behavior` — "If version negotiation
-//     fails, read-only compatibility may continue, but mutating
-//     operations must be blocked until versions are compatible."
-//   * `Spec-007 §Interfaces And Contracts` — "`DaemonHello` and
-//     `DaemonHelloAck` must perform version negotiation."
+//   * "Local IPC must support protocol version negotiation before
+//     mutating operations are accepted."
+//   * "If version negotiation fails, read-only compatibility may
+//     continue, but mutating operations must be blocked until
+//     versions are compatible."
+//   * "`DaemonHello` and `DaemonHelloAck` must perform version
+//     negotiation."
 //
-// Invariants verified here (canonical text in
-// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`):
-//   * I-007-1 (fail-closed) — pre-handshake mutating dispatch is
-//     refused; read-only dispatch is always allowed.
-//   * I-007-7 — the handshake envelopes themselves go through the
-//     standard schema-validates-before-dispatch path (registered with
+// Invariants verified here (canonical text):
+//   * Pre-handshake mutating dispatch is refused; read-only
+//     dispatch is always allowed.
+//   * The handshake envelopes themselves go through the standard
+//     schema-validates-before-dispatch path (registered with
 //     `DaemonHelloSchema` / `DaemonHelloAckSchema`).
 //
-// W-tests covered here (per `Plan-007 §Phase 2 — Wire Substrate (W-007p-2-T1..T11)`):
-//   * W-007p-2-T1 — Handshake + version-negotiation compatibility.
+//   * Handshake + version-negotiation compatibility.
 //                   `DaemonHello` / `DaemonHelloAck` exchange yields
 //                   `compatible: true` when intersection is non-empty;
 //                   yields `compatible: false` with `reason:
 //                   version.floor_exceeded` (client too old) or
 //                   `version.ceiling_exceeded` (client too new) when
 //                   intersection is empty.
-//   * W-007p-2-T8 — Mutating-op gate when `DaemonHelloAck.compatible
+//   * Mutating-op gate when `DaemonHelloAck.compatible
 //                   === false`. Read methods pass through; mutating
 //                   methods refused per the registry's `mutating:
 //                   boolean` flag.
@@ -81,10 +76,10 @@ function makeFixture(): NegotiatorFixture {
 }
 
 // ----------------------------------------------------------------------------
-// W-007p-2-T1 — Handshake + version-negotiation compatibility
+// Handshake + version-negotiation compatibility
 // ----------------------------------------------------------------------------
 
-describe("W-007p-2-T1 — handshake + version-negotiation compatibility", () => {
+describe("handshake + version-negotiation compatibility", () => {
   it("compatible handshake (intersection non-empty) → `compatible: true` + max-of-intersection", async () => {
     const { gated } = makeFixture();
     const params: DaemonHello = {
@@ -99,7 +94,7 @@ describe("W-007p-2-T1 — handshake + version-negotiation compatibility", () => 
     expect(ack.reason).toBeUndefined();
   });
 
-  it("compatible handshake selects max(client ∩ daemon) — F-007p-2-10", async () => {
+  it("compatible handshake selects max(client ∩ daemon)", async () => {
     const { gated } = makeFixture();
     // Client supports both 0 and 1; daemon supports [1]. Intersection
     // is {1}; max is 1.
@@ -179,11 +174,10 @@ describe("W-007p-2-T1 — handshake + version-negotiation compatibility", () => 
     // The handler throws a plain Error when no transportId is present —
     // a substrate-internal invariant violation (test misconfiguration
     // or daemon-bootstrap bug), NOT a client protocol violation. On the
-    // wire this collapses to `-32603 InternalError` per
-    // error-contracts.md §JSON-RPC Wire Mapping. The not.toBeInstanceOf
-    // (NegotiationError) check is the discriminating assertion — every
-    // NegotiationError IS an Error, so the negative is what pins the
-    // posture.
+    // wire this collapses to `-32603 InternalError`. The
+    // not.toBeInstanceOf (NegotiationError) check is the discriminating
+    // assertion — every NegotiationError IS an Error, so the negative
+    // is what pins the posture.
     expect(caught).toBeInstanceOf(Error);
     expect(caught).not.toBeInstanceOf(NegotiationError);
     expect((caught as Error).message).toContain("ctx.transportId");
@@ -208,11 +202,11 @@ describe("W-007p-2-T1 — handshake + version-negotiation compatibility", () => 
 });
 
 // ----------------------------------------------------------------------------
-// W-007p-2-T8 — Mutating-op gate (`Spec-007 §Fallback Behavior`)
+// Mutating-op gate
 // ----------------------------------------------------------------------------
 
-describe("W-007p-2-T8 — mutating-op gate when version-mismatch", () => {
-  it("read methods pass through in `pre` state (no handshake yet) per I-007-1", async () => {
+describe("mutating-op gate when version-mismatch", () => {
+  it("read methods pass through in `pre` state (no handshake yet)", async () => {
     const { raw, gated } = makeFixture();
     const handler: Handler<unknown, { ok: true }> = async () => ({ ok: true });
     raw.register(
@@ -228,7 +222,7 @@ describe("W-007p-2-T8 — mutating-op gate when version-mismatch", () => {
     expect(result).toStrictEqual({ ok: true });
   });
 
-  it("mutating methods are refused in `pre` state with `protocol.handshake_required` (I-007-1)", async () => {
+  it("mutating methods are refused in `pre` state with `protocol.handshake_required`", async () => {
     const { raw, gated } = makeFixture();
     const handler: Handler<unknown, { ok: true }> = async () => ({ ok: true });
     raw.register(
@@ -274,7 +268,7 @@ describe("W-007p-2-T8 — mutating-op gate when version-mismatch", () => {
     expect(result).toStrictEqual({ ok: true });
   });
 
-  it("after INCOMPATIBLE handshake, read methods still pass + mutating methods refused (`Spec-007 §Fallback Behavior`)", async () => {
+  it("after INCOMPATIBLE handshake, read methods still pass + mutating methods refused", async () => {
     const { raw, gated } = makeFixture();
     raw.register(
       "math.read",
@@ -298,7 +292,6 @@ describe("W-007p-2-T8 — mutating-op gate when version-mismatch", () => {
     };
     const ack = (await gated.dispatch(DAEMON_HELLO_METHOD, params, ctx)) as DaemonHelloAck;
     expect(ack.compatible).toBe(false);
-    // Read still passes (`Spec-007 §Fallback Behavior`).
     const readResult = await gated.dispatch("math.read", {}, ctx);
     expect(readResult).toStrictEqual({ ok: true });
     // Mutating refused with `protocol.version_mismatch`.

@@ -1,17 +1,11 @@
-// Pending-compaction wait suite (Plan-005 T3.26 — the participant-triggered
-// compaction leg).
+// Pending-compaction wait suite (the user-triggered compaction leg).
 //
 // Spec coverage under test:
-//   • `Spec-005 §Desktop Console Parity Surfaces` — participant-triggered
-//     compaction settles on the provider's own typed compaction evidence and
-//     NEVER on the request being accepted, because both pinned mechanisms answer
-//     before the work is done; the wait is bounded and TWICE-terminated (a
-//     per-driver declared bound and the binding ceasing to be live), and
-//     bounding the OPERATION never bounds the BOUNDARY'S RECORD.
-//
-// Verifies invariant: I-005-13 (a compaction reports `applied` only against
-// observed typed evidence; every other terminal is a recorded failure, and no
-// terminal suppresses the boundary row a late frame still produces).
+//   • user-triggered compaction settles on the provider's own typed
+//     compaction evidence and NEVER on the request being accepted, because both
+//     pinned mechanisms answer before the work is done; the wait is bounded and
+//     TWICE-terminated (a per-driver declared bound and the binding ceasing to
+//     be live), and bounding the OPERATION never bounds the BOUNDARY'S RECORD.
 //
 // The scheduler is INJECTED throughout and no test here uses a real timer: a
 // suite that waited out a declared bound to observe an expiry is a suite nobody
@@ -208,7 +202,7 @@ describe("PendingCompactionRegistry — withdrawal", () => {
   it("leaves a CONCURRENT waiter on the same key armed and still able to settle", async () => {
     // The distinction the whole design rests on: SETTLEMENT is per-key because
     // one provider compaction is one compaction, so settling on this caller's
-    // transport failure would report that failure to a participant who asked
+    // transport failure would report that failure to a user who asked
     // independently and is still owed the truth. WITHDRAWAL is per-waiter, so the
     // sibling keeps its own bound and still settles on the provider's evidence.
     const scheduler = makeManualScheduler();
@@ -299,7 +293,7 @@ describe("PendingCompactionRegistry — withdrawal", () => {
 
 describe("PendingCompactionRegistry — scoping and bookkeeping", () => {
   it("settles EVERY waiter on one key from a single terminal", async () => {
-    // Two participants can ask for a compaction on one binding at once, and the
+    // Two users can ask for a compaction on one binding at once, and the
     // result union's refusal arm is CLOSED at `command_absent` / `not_permitted`
     // — neither of which describes "someone else asked first". One provider
     // compaction is one compaction, and both callers hear the truth about it.

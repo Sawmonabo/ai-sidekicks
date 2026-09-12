@@ -1,7 +1,6 @@
-// Navigation policy for every window this process constructs — Plan-023 Phase 1B
-// (T-023p-1B-2).
+// Navigation policy for every window this process constructs.
 //
-// `Spec-023 §Security Hardening Baseline` locks the `webPreferences` block, and
+// The hardening baseline locks the `webPreferences` block, and
 // `assert-webprefs.ts` keeps it locked. That block governs what the renderer CAN
 // do; it says nothing about where the renderer may GO. A hardened window is
 // still a window: a link, a redirect, or a compromised dependency can navigate
@@ -55,8 +54,8 @@ import { RENDERER_HOST, RENDERER_SCHEME } from "./renderer-scheme.js";
  * Schemes a refused in-window navigation may be handed to the OS browser under.
  *
  * `http:` rides beside `https:` because a self-hosted control plane or relay on
- * a LAN is a supported deployment (ADR-020), and its console links are plain
- * HTTP. The browser, not this process, is the
+ * a LAN is a supported deployment, and its console links are plain HTTP. The
+ * browser, not this process, is the
  * security boundary for what happens after the handoff; what this list is for is
  * making sure the handoff is to a BROWSER and not to whatever the OS has
  * registered for `ms-msdt:` this week.
@@ -157,8 +156,8 @@ export function openExternalUrl(targetUrl: string): void {
   setImmediate(() => {
     shell.openExternal(targetUrl).catch((error: unknown) => {
       // The OS declined to open it. Nothing to retry and nothing to fall back
-      // to; structured logging routes through Sentry main at the Tier-8
-      // remainder, and until then this is the record.
+      // to; structured logging will route through Sentry in main once that is
+      // wired, and until then this is the record.
       console.error("[ai-sidekicks/desktop] shell.openExternal failed:", error);
     });
   });
@@ -217,7 +216,7 @@ function decideNavigation(event: Electron.Event, targetUrl: string, seam: string
 }
 
 /**
- * Installs the navigation policy on one window (Plan-023 I-023-2).
+ * Installs the navigation policy on one window.
  *
  * Called from the locked window factory rather than from each caller, so a
  * future factory cannot construct a locked window that is nevertheless free to

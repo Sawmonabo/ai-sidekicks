@@ -1,22 +1,14 @@
-// Golden-vector suite for the BLAKE3 hash-chain + Ed25519 row signer
-// (Plan-006 T2.2).
+// Golden-vector suite for the BLAKE3 hash-chain + Ed25519 row
+// signer.
 //
 // SCOPE NOTE — WHY THIS FILE EXISTS ALONGSIDE `canonicalizer.golden.test.ts`.
-// T2.3 is a single task covering TWO suites, and they are split by SUBJECT
-// rather than by task: the sibling pins the canonicalizer's byte-stability
-// vectors, while this file pins `signer.ts` — the module that mints the two
-// tamper-evidence commitments carried on every row. This suite is where T2.3's
-// I-006-2-04 (genesis seed, and the `BLAKE3(prev_hash || canonical)` linkage
-// that produces `prev_hash[n] = row_hash[n-1]`) and I-006-2-06 (one
-// canonicalization per row) legs are discharged. Nothing else in Phase 2
-// reaches this module: T2.5 is the post-shred property suite and is scoped to
-// T2.4's PII codec. Several behaviours below encode a specific defect closed in
-// review — see the ZIP-215 vector.
+// Several behaviours below encode a specific defect closed in review — see the
+// ZIP-215 vector.
 //
 // WHAT THE HEX FIXTURES ARE, AND ARE NOT. Two different kinds of constant live
 // here and they carry different authority:
 //
-//   • RFC 8032 §7.1 keypairs (TEST 1 for this daemon, TEST 2 standing in for
+//   • RFC 8032 section 7.1 keypairs (TEST 1 for this daemon, TEST 2 standing in for
 //     another node's) — EXTERNALLY published. `DAEMON_PUBLIC_KEY` is asserted
 //     to equal the RFC's published public key, so the key-derivation leg is
 //     genuinely conformance-checked rather than self-consistent.
@@ -28,9 +20,6 @@
 //     silently enshrine a formula change: the hex catches drift, the
 //     independent computation catches a wrong formula.
 //
-// Refs: `Spec-006 §Integrity Protocol`, `Spec-006 §Canonical Serialization Rules`,
-// `Plan-006 §Hash Chain`, `Plan-006 §Ed25519 Signatures`,
-// `Security Architecture §Verification Rules`.
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { equalBytes } from "@noble/curves/utils.js";
 import { blake3 } from "@noble/hashes/blake3.js";
@@ -58,11 +47,10 @@ function bytesToHex(bytes: Uint8Array): string {
 }
 
 /**
- * `prev_hash || canonical_bytes(row)` — the BLAKE3 preimage
- * `Plan-006 §Hash Chain` specifies, written out HERE rather than imported.
- * `signer.ts`'s own `buildChainInput` is module-private, and re-using it would
- * make the digest assertions circular: this suite must be able to fail if the
- * concatenation order is ever reversed.
+ * `prev_hash || canonical_bytes(row)` — the BLAKE3 preimage specifies, written
+ * out HERE rather than imported. `signer.ts`'s own `buildChainInput` is
+ * module-private, and re-using it would make the digest assertions circular:
+ * this suite must be able to fail if the concatenation order is ever reversed.
  */
 function concatenateChainInput(prevHash: Uint8Array, canonical: Uint8Array): Uint8Array {
   const chainInput = new Uint8Array(prevHash.length + canonical.length);
@@ -88,16 +76,16 @@ function captureThrownMessage(thunk: () => unknown): string {
 }
 
 // --------------------------------------------------------------------------
-// Key material — RFC 8032 §7.1 test vectors.
+// Key material — RFC 8032 section 7.1 test vectors.
 // --------------------------------------------------------------------------
 //
 // The brand casts below are the ONE thing this suite does that production code
 // may not: `Ed25519PrivateKey` / `Ed25519PublicKey` export no constructor
-// precisely so key material enters the type system at exactly one greppable
-// site (T2.7's `signing-key-source.ts`). A test standing in for that custody
-// module has to narrow the same way T2.7 does. `CanonicalBytes`, by contrast, is
-// NEVER cast here — it is obtained only from `canonicalizeJson`, the way every
-// production caller must.
+// precisely so key material enters the type system at exactly one greppable site
+// (the `signing-key-source.ts`). A test standing in for that custody module has
+// to narrow the same way does. `CanonicalBytes`, by contrast, is NEVER cast here
+// — it is obtained only from `canonicalizeJson`, the way every production caller
+// must.
 
 const RFC_8032_TEST_1_SEED_HEX = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
 const RFC_8032_TEST_1_PUBLIC_KEY_HEX =
@@ -155,7 +143,7 @@ function signReferenceRow(): SignedRow {
 // --------------------------------------------------------------------------
 
 describe("signRow — deterministic commitments over one canonicalization", () => {
-  it("derives the RFC 8032 §7.1 public keys from the published secret keys", () => {
+  it("derives the RFC 8032 section 7.1 public keys from the published secret keys", () => {
     // Anchors the key material to an external publication, so the row
     // signatures below are traceable rather than arbitrary.
     expect(bytesToHex(DAEMON_PUBLIC_KEY)).toBe(RFC_8032_TEST_1_PUBLIC_KEY_HEX);
@@ -192,7 +180,7 @@ describe("signRow — deterministic commitments over one canonicalization", () =
     expect(bytesToHex(signed.rowHash)).not.toBe(bytesToHex(reversedOrderDigest));
   });
 
-  it("signs the CANONICAL BYTES themselves, not the row_hash (I-006-2-06)", () => {
+  it("signs the CANONICAL BYTES themselves, not the row_hash", () => {
     // `signRow` accepts `CanonicalBytes` once and hands the identical array to
     // BLAKE3 and to `ed25519.sign`. Comparing against a direct signature over
     // those same bytes is what proves the Ed25519 message is the canonical
@@ -207,7 +195,7 @@ describe("signRow — deterministic commitments over one canonicalization", () =
     );
   });
 
-  it("is byte-identical across repeated calls — RFC 8032 §5.1.6 determinism", () => {
+  it("is byte-identical across repeated calls — RFC 8032 section 5.1.6 determinism", () => {
     // Ed25519 derives its per-signature nonce from the secret key and the
     // message, never from an RNG. This is what makes `signRow` `idempotent`:
     // re-running it over one row reproduces the same three columns rather than
@@ -230,7 +218,7 @@ describe("signRow — deterministic commitments over one canonicalization", () =
     expect(bytesToHex(differentKey.daemonSignature)).not.toBe(bytesToHex(first.daemonSignature));
   });
 
-  it("seeds the genesis row from 32 zero bytes (I-006-2-04)", () => {
+  it("seeds the genesis row from 32 zero bytes", () => {
     expect(GENESIS_PREV_HASH).toHaveLength(32);
     expect(bytesToHex(GENESIS_PREV_HASH)).toBe("00".repeat(32));
     const genesisRow = signRow(CANONICAL_ROW, GENESIS_PREV_HASH, DAEMON_SIGNING_KEY);
@@ -298,7 +286,7 @@ describe("signRow — deterministic commitments over one canonicalization", () =
 // verifyRow — verdicts, and the observable check order.
 // --------------------------------------------------------------------------
 
-describe("verifyRow — rules 1 and 2 of `Security Architecture §Verification Rules`", () => {
+describe("verifyRow — rules 1 and 2 of `Security Architecture `", () => {
   it("accepts an honestly-signed row", () => {
     expect(verifyRow(CANONICAL_ROW, signReferenceRow(), DAEMON_PUBLIC_KEY)).toStrictEqual({
       valid: true,
@@ -371,7 +359,7 @@ describe("verifyRow — rules 1 and 2 of `Security Architecture §Verification R
 });
 
 // --------------------------------------------------------------------------
-// Plan-001's zero-fill placeholder — the fail-closed safety net (stage 2).
+// The zero-fill placeholder — the fail-closed safety net (stage 2).
 // --------------------------------------------------------------------------
 
 const CHAIN_HASH_LENGTH = 32;
@@ -386,9 +374,9 @@ const ED25519_SIGNATURE_LENGTH = 64;
  * the whole trio, so this fixture is the predicate's positive case and every
  * `...buildPlaceholderRow()` spread below is deriving a NEAR-miss from it.
  *
- * Rebuilt here rather than imported. Those constants are module-private to the
- * Plan-001 service, and importing them would make this suite track whatever
- * that service does rather than pin the shape `verifyRow` must recognize — a
+ * Rebuilt here rather than imported. Those constants are module-private to
+ * service, and importing them would make this suite track whatever that
+ * service does rather than pin the shape `verifyRow` must recognize — a
  * placeholder-shape change there should surface as a FAILURE here, not be
  * silently adopted.
  */
@@ -401,7 +389,7 @@ function buildPlaceholderRow(): SignedRow {
 }
 
 describe("verifyRow — the zero-fill placeholder verdict", () => {
-  it("reports signature_placeholder and NOT hash_mismatch for Plan-001's placeholder row", () => {
+  it("reports signature_placeholder and NOT hash_mismatch for the placeholder row", () => {
     // ======================== THE ORDERING ASSERTION ========================
     // THIS IS THE POINT OF THE TEST, AND THE `not.toStrictEqual` IS NOT
     // DECORATION.
@@ -492,14 +480,12 @@ describe("verifyRow — the zero-fill placeholder verdict", () => {
   });
 
   it("accepts a LEGITIMATE signed genesis row — a zero prev_hash is not a placeholder", () => {
-    // NOT OBVIOUS, WHICH IS EXACTLY WHY IT IS PINNED. A zero `prev_hash` is
-    // LEGITIMATE at `sequence = 0`: `0001-initial.ts` declares the column "32
-    // bytes; zero-filled at sequence=0" and {@link GENESIS_PREV_HASH} encodes
-    // that. So a REAL genesis row signed by T3.1 shares one of its three
-    // columns with Plan-001's placeholder trio, and a predicate that kept the
-    // `prev_hash` conjunct while dropping the `row_hash` one would misreport
-    // EVERY genesis row in the database as `signature_placeholder` — a
-    // fail-closed net that fails closed on honest data.
+    // NOT OBVIOUS, WHICH IS EXACTLY WHY IT IS PINNED. So a REAL genesis row
+    // signed shares one of its three columns with the placeholder trio, and a
+    // predicate that kept the `prev_hash` conjunct while dropping the
+    // `row_hash` one would misreport EVERY genesis row in the database as
+    // `signature_placeholder` — a fail-closed net that fails closed on honest
+    // data.
     const genesisRow = signRow(CANONICAL_ROW, GENESIS_PREV_HASH, DAEMON_SIGNING_KEY);
 
     // The shared column, asserted rather than assumed: this test is only
@@ -835,9 +821,9 @@ describe("error channels — a throw and a verdict mean different things", () =>
     // better-sqlite3 hand back a JS string.
     //
     // Unguarded, that string reaches `equalBytes`, whose `abytes` raises
-    // TypeError, and the throw escapes — so T4.1 emits NO
-    // `audit_integrity_failed` and the tamper goes UNREPORTED. Not-throwing is
-    // therefore the load-bearing half of this assertion, not a detail.
+    // TypeError, and the throw escapes — so emits NO `audit_integrity_failed`
+    // and the tamper goes UNREPORTED. Not-throwing is therefore the
+    // load-bearing half of this assertion, not a detail.
     const thirtyTwoCharacterString = "0".repeat(32);
     expect(thirtyTwoCharacterString).toHaveLength(32);
 
@@ -888,20 +874,18 @@ describe("error channels — a throw and a verdict mean different things", () =>
 
 describe("equalBytes — the upstream refusal stage 1's byte-ness clause is argued from", () => {
   it("THROWS a TypeError for a non-byte operand, in EITHER position", () => {
-    // THE JUSTIFICATION FOR STAGE 1'S BYTE-NESS CLAUSE IS PACKAGE-SPECIFIC,
-    // AND NOTHING ELSE PINS THE BEHAVIOR OF THE ONE IT RESOLVES TO.
-    // `verifyRow`'s note argues that clause from a counterfactual: unguarded,
-    // a stored TEXT `row_hash` reaches `equalBytes`, whose `abytes` raises a
-    // TypeError, and the throw ESCAPES `verifyRow` — so T4.1 emits no
-    // `audit_integrity_failed` and the tamper goes UNREPORTED. `maps a
-    // NON-BYTE stored row_hash to hash_mismatch without throwing` above pins
-    // the GUARDED outcome; this test pins the premise that counterfactual
-    // rests on. The premise is a property of the `equalBytes` this module
-    // IMPORTS rather than of the name: `@noble/curves/utils.js` opens its body
-    // with an `abytes` call on BOTH operands, while `@noble/ciphers/utils.js`'s
-    // same-named export — also in this repo's tree, imported by
-    // `crypto-paseto`'s `v4-local.ts` — has no `abytes` call at all and goes
-    // straight to `a.length`.
+    // `verifyRow`'s note argues that clause from a counterfactual: unguarded, a
+    // stored TEXT `row_hash` reaches `equalBytes`, whose `abytes` raises a
+    // TypeError, and the throw ESCAPES `verifyRow` — so emits no
+    // `audit_integrity_failed` and the tamper goes UNREPORTED. `maps a NON-BYTE
+    // stored row_hash to hash_mismatch without throwing` above pins the GUARDED
+    // outcome; this test pins the premise that counterfactual rests on. The
+    // premise is a property of the `equalBytes` this module IMPORTS rather than
+    // of the name: `@noble/curves/utils.js` opens its body with an `abytes`
+    // call on BOTH operands, while `@noble/ciphers/utils.js`'s same-named
+    // export — also in this repo's tree, imported by `crypto-paseto`'s
+    // `v4-local.ts` — has no `abytes` call at all and goes straight to
+    // `a.length`.
     //
     // WHAT AN IMPORT SWAP WOULD COST IS THE ARGUMENT, NOT THE VERDICT, AND
     // THIS COMMENT SHOULD NOT CLAIM MORE. Checked against
@@ -925,13 +909,11 @@ describe("equalBytes — the upstream refusal stage 1's byte-ness clause is argu
     // THE GATE IS PARTIAL, AND WHAT CLOSES THE NAMED HALF IS THE DEPENDENCY
     // BOUNDARY, NOT THIS SUITE. This file imports the SAME specifier
     // `signer.ts` does, from the same package, so both resolve to the same
-    // module and the pin travels with the production import across an
-    // UPSTREAM change — `package.json` declares a floating `^2` and this was
-    // verified against `@noble/curves@2.2.0`, so the resolution drift that
-    // range permits is exactly what is now gated. What this suite does not
-    // see is `signer.ts`'s own binding: nothing here asserts which module its
-    // `equalBytes` comes from. For the `@noble/ciphers` swap, that costs
-    // nothing today, because `.npmrc`'s `node-linker=isolated` (ADR-022)
+    // module and the pin travels with the production import across an UPSTREAM
+    // change — `package.json` declares a floating `^2` and this was verified
+    // against `@noble/curves@2.2.0`, so the resolution drift that range
+    // permits is exactly what is now gated. For the `@noble/ciphers` swap,
+    // that costs nothing today, because `.npmrc`'s `node-linker=isolated`
     // keeps a package this one does not declare out of its resolution tree —
     // the repointed specifier does not RESOLVE from `packages/runtime-daemon`,
     // verified `ERR_MODULE_NOT_FOUND` against a resolving

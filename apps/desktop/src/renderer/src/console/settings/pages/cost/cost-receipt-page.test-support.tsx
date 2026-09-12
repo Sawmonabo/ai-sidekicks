@@ -29,11 +29,11 @@ afterEach(() => {
 
 /** A scenario that scripts nothing: the growth override is what these cases drive. */
 export const EMPTY_SCENARIO: FixtureScenario = {
-  id: "collaboration-cost-test",
+  id: "cost-test",
   label: "Cost, with nothing scripted",
   purpose: "Drives the cost receipt page against an overridden receipt read.",
   sessionId: SESSION_ID,
-  participantIdsInJoinOrder: [],
+  userIdsInJoinOrder: [],
   beats: [],
   replies: [],
   startedAtIso: "2026-01-01T10:05:00.000Z",
@@ -69,7 +69,7 @@ export function balancedReceipt(): CostReceipt {
     ],
     causedBy: [
       {
-        party: { kind: "participant", participantId: "participant-ana" },
+        party: { kind: "user", userId: "user-ana" },
         costCents: 9_000,
         costStatus: "priced",
       },

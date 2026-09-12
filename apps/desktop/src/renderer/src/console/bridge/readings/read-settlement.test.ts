@@ -27,7 +27,7 @@ import {
   type SettledGrowthRead,
 } from "./read-settlement.js";
 import {
-  PROBE_PARTICIPANT_ID,
+  PROBE_USER_ID,
   PROBE_SESSION_ID,
 } from "../scenario/runtime/scripted-probe.test-support.js";
 import type { ConsoleScenario } from "../scenario/runtime/vocabulary.js";
@@ -53,7 +53,7 @@ function scenarioRefusingTheEnumeration(): ConsoleScenario {
     label: "Read settlement probe",
     purpose: "Scripts a daemon refusal for the definition enumeration, and nothing else.",
     sessionId: PROBE_SESSION_ID,
-    participantIdsInJoinOrder: [PROBE_PARTICIPANT_ID],
+    userIdsInJoinOrder: [PROBE_USER_ID],
     startedAtIso: "2026-01-01T12:00:00.000Z",
     beats: [],
     replies: [{ call: "workflow.definitionList", refusal: SCRIPTED_DAEMON_REFUSAL }],

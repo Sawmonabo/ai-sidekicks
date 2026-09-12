@@ -19,14 +19,14 @@ import type { WorkflowParkReason, WorkflowParkSchedule } from "../runs/run-list-
  * Total over the closed reason set, so a third reason is a compile error here rather
  * than a phase that parks and is told the wrong way out. One sentence per reason
  * because the ways out are genuinely different: a human phase advances when the
- * participant submits the form the run pane mounts for exactly this phase, so telling
+ * user submits the form the run pane mounts for exactly this phase, so telling
  * that operator to reach for a run control points them away from the act the engine
  * is waiting on. A usage-limit park with no reported reset boundary really does wait
  * for an operator.
  */
 const UNSCHEDULED_PARK_REMEDIES: Readonly<Record<WorkflowParkReason, string>> = {
   "waiting-human":
-    "Nothing is scheduled to lift this. It ends when a participant fills in and submits this phase's form.",
+    "Nothing is scheduled to lift this. It ends when a user fills in and submits this phase's form.",
   "provider-usage-limited":
     "No reset boundary was reported, so nothing lifts this on its own. It waits until a run control does.",
 };

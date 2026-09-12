@@ -1,5 +1,5 @@
 // Provider-bound outbound text frames — driver-boundary neutralization and the
-// runtime tripwire (Plan-005 T3.18, I-005-7).
+// runtime tripwire.
 //
 // ---------------------------------------------------------------------------
 // The hazard
@@ -8,22 +8,20 @@
 // A provider CLI whose programmatic input surface ALSO parses client-side
 // commands consumes a message whose first word is command-shaped and answers
 // with a ZERO-TURN SUCCESS: a well-formed terminal frame carrying no error, no
-// model attribution, and no token accounting. The participant's words never
+// model attribution, and no token accounting. The user's words never
 // reach the model while every layer above reads a completed turn. Verified
 // first-party against the pinned Claude build; see
-// `docs/reference/provider-wire/claude.md` §Client-side command interception on
-// the programmatic input surface for the measured discriminants this module's
-// classifiers key on.
+// `docs/reference/provider-wire/claude.md`.
 //
 // ---------------------------------------------------------------------------
 // Why the neutralization lives HERE and nowhere upstream
 // ---------------------------------------------------------------------------
 //
 // The transform is TRANSPORT-ONLY. It changes the bytes handed to the provider
-// process and NOTHING else: the participant's text is persisted, evented,
+// process and NOTHING else: the user's text is persisted, evented,
 // replayed, rewound to, and rendered exactly as authored. Applying the
 // transform in the composer, at queue admission, or at event append is a named
-// pitfall — it would put a daemon-authored byte into the participant's own
+// pitfall — it would put a daemon-authored byte into the user's own
 // history, where a rollback target and an exported transcript would both carry
 // it forever.
 //
@@ -39,13 +37,11 @@
 // Why frame ORIGIN and not a capability flag
 // ---------------------------------------------------------------------------
 //
-// A capability flag's undeclared state resolves fail-OPEN through Spec-005's
+// A capability flag's undeclared state resolves fail-OPEN through the
 // undeclared-is-unsupported rule, which is backwards here: the dangerous
 // default is "do not neutralize". `OutboundFrameOrigin` is therefore a closed
 // discriminator on the frame itself whose ABSENT and UNRECOGNIZED arms both
-// neutralize. It is deliberately daemon-local — it never crosses the wire and
-// is never hoisted into `packages/contracts`, because no wire payload, event,
-// or persisted row carries it.
+// neutralize.
 //
 // ---------------------------------------------------------------------------
 // Why the tripwire asks for turn evidence and never for command dispatch
@@ -75,11 +71,11 @@ import { randomUUID } from "node:crypto";
  * The transcript pipeline's `RenderedFrameOrigin` is a type alias onto this
  * declaration, so one fail-closed discriminator has one spelling.
  */
-export type OutboundFrameOrigin = "participant_text" | "driver_command" | "system_narration";
+export type OutboundFrameOrigin = "human_text" | "driver_command" | "system_narration";
 
 /** The closed origin set, for exhaustiveness checks and membership tests. */
 export const OUTBOUND_FRAME_ORIGINS: readonly OutboundFrameOrigin[] = Object.freeze([
-  "participant_text",
+  "human_text",
   "driver_command",
   "system_narration",
 ]);
@@ -89,7 +85,7 @@ export const OUTBOUND_FRAME_ORIGINS: readonly OutboundFrameOrigin[] = Object.fre
  *
  * `driver_command` is absent BY CONSTRUCTION. It is the single arm that both
  * suppresses neutralization and exempts the turn from the tripwire, so a field
- * a caller fills able to carry it is a route for participant text to be
+ * a caller fills able to carry it is a route for user text to be
  * delivered command-shaped AND then swallowed unwatched — the two halves of the
  * hazard at once. Only a driver's own command dispatch may claim that arm, from
  * a literal, in the module that composes the frame.
@@ -109,11 +105,11 @@ export type CallerDeclaredFrameOrigin = Exclude<OutboundFrameOrigin, "driver_com
  * off-union or absent origin composes the literal `unknown` — the writer never
  * echoes the caller's rejected value into a persisted, operator-visible string.
  */
-export type TripwireDetailOrigin = "participant_text" | "system_narration" | "unknown";
+export type TripwireDetailOrigin = "human_text" | "system_narration" | "unknown";
 
 /**
- * The parity mechanism grade for this leg's text-neutrality capability, read
- * from `Spec-005 §Parity Capability Mechanism Grades`.
+ * The parity mechanism grade for this leg's text-neutrality capability,
+ * read.
  *
  * This is a behavioral INPUT, not a label: an `emulated` leg prepends the
  * sentinel to command-shaped text, a `native` leg emits the author's bytes
@@ -127,7 +123,6 @@ export type TextNeutralityMechanismGrade = "native" | "emulated";
 // --------------------------------------------------------------------------
 
 /**
- * Registered in `docs/architecture/contracts/error-contracts.md` §Driver at
  * 409. It rides NO JSON-RPC error envelope on any path: the run's own
  * `run.failed` terminal is the guarantee, and the intervention result's
  * `refusalCode` is a best-effort second surface.
@@ -383,7 +378,7 @@ function classifyOutboundFrameOrigin(declared: string | undefined): OutboundFram
 /** Maps a classified origin onto the arm a trip's detail may name. */
 function composeTripwireDetailOrigin(origin: OutboundFrameOrigin | null): TripwireDetailOrigin {
   switch (origin) {
-    case "participant_text":
+    case "human_text":
     case "system_narration":
       return origin;
     // An exempt frame never reaches a trip, so its detail arm is unreachable
@@ -529,7 +524,7 @@ export function composeTextNeutralizationRunFailure(
  */
 const SUPERSEDED_DELIVERY_ORIGIN_PHRASE: Readonly<Record<TripwireDetailOrigin, string>> =
   Object.freeze({
-    participant_text: "a participant's text",
+    human_text: "a user's text",
     system_narration: "system narration",
     unknown: "text of unrecorded origin",
   });
@@ -543,7 +538,7 @@ const SUPERSEDED_DELIVERY_ORIGIN_PHRASE: Readonly<Record<TripwireDetailOrigin, s
  * code would state something the driver did not observe. What IS claimed is
  * exactly what is known — the words may or may not have reached the model, and
  * nothing will ever say which — and the run fails on it, because the alternative
- * is a participant's text disappearing behind a session that resumed cleanly.
+ * is a user's text disappearing behind a session that resumed cleanly.
  */
 export function composeSupersededDeliveryRunFailure(
   origin: TripwireDetailOrigin,
@@ -587,7 +582,7 @@ const OUTBOUND_FRAME_SETTLED_KEY_MEMORY = 64;
  *
  * Sixteen is generous against the real load and pathological beyond it. A turn
  * is opened by ONE frame and then takes however many steer directives a
- * participant issues before it settles; both providers serialize turns on a
+ * user issues before it settles; both providers serialize turns on a
  * session, so the live set is a handful of frames on one turn rather than one
  * per turn. A scope holding sixteen frames that no turn has accounted for is
  * not a busy session, it is a session whose turns are not settling.
@@ -836,7 +831,7 @@ export interface OutboundFrameTripwireOptions {
  * dispatch whose run key already holds a pending frame (`run_already_dispatched`)
  * before it composes or registers anything, because a second frame under one key
  * would be attributed `UNRECOGNIZED_TURN_EVIDENCE` here and trip the session
- * over a duplicate dispatch rather than a swallowed participant.
+ * over a duplicate dispatch rather than a swallowed user.
  */
 export class OutboundFrameTripwire {
   /**
@@ -1202,7 +1197,7 @@ export class OutboundFrameTripwire {
    * where its future work belongs.
    *
    * Exempt frames are consumed and NOT reported, matching `#rule`'s own first
-   * test: a `driver_command` carries no participant words, so its disappearance
+   * test: a `driver_command` carries no user words, so its disappearance
    * costs nobody their turn. A frame whose request was ANSWERED is reported
    * like any other: an answered request proves the provider took the frame,
    * not that the model read its text, and a turn that died unsettled never
@@ -1368,7 +1363,7 @@ export class OutboundFrameTripwire {
  * and take the write anyway. That is worse than a refused send in the exact
  * case the tripwire exists for: the evicted turn later settles, finds no
  * correlated frame, and PASSES — so a swallowed turn is reported as a completed
- * one, silently, and the participant's words are lost behind a green result. A
+ * one, silently, and the user's words are lost behind a green result. A
  * refused write is loud, is attributable to one binding, and loses nothing.
  *
  * Carries NO dotted code, deliberately, and that is the established shape for a
@@ -1418,14 +1413,14 @@ export class OutboundFrameCapacityRefusedError extends Error {
  * operator who reads the run terminal and then watches an attach fail sees one
  * cause, not two unrelated ones.
  *
- * Deliberately extends `Error` and NOT `DaemonDomainError`. `error-contracts.md`
- * registers this code as riding no error envelope on any path — "one landing,
- * never an error envelope" — and the JSON-RPC mapper discriminates by
- * `instanceof`, projecting a `DaemonDomainError` subclass's `code` into
- * `data.type` on the wire. Extending that base would therefore publish the
- * dotted code as a wire refusal and break the registration; falling through to
- * the mapper's catch-all keeps this a `-32603` with no `data`, which is the
- * honest shape for a daemon-internal disposal a client never named.
+ * Deliberately extends `Error` and NOT `DaemonDomainError`. registers this code
+ * as riding no error envelope on any path — "one landing, never an error
+ * envelope" — and the JSON-RPC mapper discriminates by `instanceof`, projecting
+ * a `DaemonDomainError` subclass's `code` into `data.type` on the wire.
+ * Extending that base would therefore publish the dotted code as a wire refusal
+ * and break the registration; falling through to the mapper's catch-all keeps
+ * this a `-32603` with no `data`, which is the honest shape for a
+ * daemon-internal disposal a client never named.
  */
 export class TextNeutralizationRefusedError extends Error {
   readonly code: TextNeutralizationRefusalCode = TEXT_NEUTRALIZATION_REFUSAL_CODE;
@@ -1451,7 +1446,7 @@ export class TextNeutralizationRefusedError extends Error {
  * Two axes, because a run-keyed quarantine cannot reach the session
  * ---------------------------------------------------------------------------
  *
- * A trip means the PROVIDER PROCESS consumed a participant's words and reported
+ * A trip means the PROVIDER PROCESS consumed a user's words and reported
  * a completed turn. Quarantining only the run leaves the session record live,
  * and a later `startRun` resolves that same record by session id and dispatches
  * fresh work into the process the driver just declared unsafe. So a trip

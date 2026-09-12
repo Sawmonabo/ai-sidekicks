@@ -38,8 +38,8 @@ import type {
 
 // The wire-rejection normalizer is shared across every renderer surface and both
 // Electron processes, so it lives in `src/shared/` rather than being written a fourth
-// time here (Plan-023 Phase 1B). It renders ANY code+message envelope with the wire
-// `code` as `Error.name`, which is what this view's below-floor labeling needed: a
+// time here. It renders ANY code+message envelope with the wire `code` as
+// `Error.name`, which is what this view's below-floor labeling needed: a
 // `version.floor_exceeded` read refusal surfaces as `version.floor_exceeded: <server
 // message>` rather than collapsing to `[object Object]`. The compile-time binding to
 // the contracts literal survives in the one view that BRANCHES on the code
@@ -208,17 +208,17 @@ export function useNodeRosterRead(sessionId: SessionId, reads: NodeRosterReads):
         try {
           const rosterResponse = await readRoster({ sessionId });
           if (cancelled || requestSequence !== latestRequestSequence) return;
-          // The full node set is rendered (admit-not-eject, I-003-1): no `.filter(...)`
+          // The full node set is rendered (admit-not-eject): no `.filter(...)`
           // drops a node by `state`, `healthState`, or `readOnly`.
           publishRosterViewState({ kind: "loaded", nodes: rosterResponse.nodes });
         } catch (bridgeError: unknown) {
           if (cancelled || requestSequence !== latestRequestSequence) return;
           // A TYPED refusal keeps its wire code as the rendered `Error.name` —
           // including the below-floor `version.floor_exceeded` verdict, which is the
-          // read reflection of AC2's at-floor vs below-floor distinguishability. A
-          // re-read failure flips the whole roster to `error`, matching the
-          // initial-read failure; a resilient "keep the last snapshot" is a Tier-8
-          // polish rather than a Tier-3 requirement.
+          // read reflection of the at-floor vs below-floor distinguishability the
+          // roster exists to show. A re-read failure flips the whole roster to
+          // `error`, matching the initial-read failure; a resilient "keep the last
+          // snapshot" is later polish rather than a requirement here.
           publishRosterViewState({ kind: "error", error: wireRejectionToError(bridgeError) });
         }
       })();

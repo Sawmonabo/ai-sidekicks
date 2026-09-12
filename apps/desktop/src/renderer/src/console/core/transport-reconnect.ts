@@ -1,12 +1,12 @@
 // What a reading needs of the console's transport-reconnect signal, and nothing more.
 //
-// `Spec-023 §Console Design (Meridian)` fixes the refresh policy under "No interval
-// polling": "Reads happen on subscribe, on window focus, on reconnect, and on the
-// terminal events the owning spec names". Three of those four were wired and the
-// third was not — `RefreshReason` named `reconnect`, one session-scoped producer
-// raised it from a session store's own repair edge, and a window-scoped reading (this
-// node's diagnostics, this node's accounts, the shell's preferences) had no session,
-// therefore no repair edge, and therefore no reconnect at all.
+// The refresh policy forbids interval polling: reads happen on subscribe, on window
+// focus, on reconnect, and on the terminal events the owning surface names. Three of
+// those four were wired and the third was not — `RefreshReason` named `reconnect`, one
+// session-scoped producer raised it from a session store's own repair edge, and a
+// window-scoped reading (this node's diagnostics, this node's accounts, the shell's
+// preferences) had no session, therefore no repair edge, and therefore no reconnect at
+// all.
 //
 // WHY THE INTERFACE IS HERE AND THE EMITTER IS NOT
 //
@@ -22,11 +22,11 @@
 // is the only thing in the console allowed to decide that a reconnect happened.
 //
 // ONE FACT, NOT A CONNECTION STATE. Deliberately not `isConnected` or a three-arm
-// reachability enum: a surface that could read the current state would render it, and
-// a renderer that painted "connected" would be claiming a fact it observes only
-// indirectly (`Spec-023 §Console Design (Meridian)` — the tray's three states are the
-// supervisor's, not the renderer's). What crosses this boundary is an EDGE — the wire
-// was away and is back — which is the one thing a reading has to act on.
+// reachability enum: a surface that could read the current state would render it, and a
+// renderer that painted "connected" would be claiming a fact it observes only
+// indirectly — the tray's three states are the supervisor's, not the renderer's. What
+// crosses this boundary is an EDGE — the wire was away and is back — which is the one
+// thing a reading has to act on.
 
 import type { Unsubscribe } from "./emitter.js";
 

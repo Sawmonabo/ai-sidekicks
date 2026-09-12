@@ -1,11 +1,10 @@
 // The ledger's global two-phase frame coordinator — the one scheduler the frame's
 // per-frame work is ordered through.
 //
-// `Spec-023 §Console Design (Meridian)`'s fourth product bar ("light on the
-// machine") prices the console at one frame for four streaming lanes, and the frame
-// that has to hold that budget is shared: the scroll chokepoint wants to write an
-// offset and the reveal engine wants to publish characters — both in the same
-// paint. THE SENTENCE THIS MODULE ADDS, because no committed document states it:
+// Being light on the machine prices the console at one frame for four streaming lanes,
+// and the frame that has to hold that budget is shared: the scroll chokepoint wants to
+// write an offset and the reveal engine wants to publish characters — both in the same
+// paint. THE SENTENCE THIS MODULE ADDS:
 // phase one performs scroll writes against the last clean geometry sample, phase two
 // performs reveal work, and no frame ever runs them the other way round.
 //

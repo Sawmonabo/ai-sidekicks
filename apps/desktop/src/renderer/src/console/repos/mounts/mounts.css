@@ -1,8 +1,8 @@
 /*
  * The mount half of the repos section: the section, and the mount and workspace cards.
  *
- * SPLIT OUT OF `repos.css` BY DIRECTORY, on `apps/desktop/AGENTS.md` §Module shape's
- * seam rule: the family sheet had grown past the point where a reader could find the
+ * SPLIT OUT OF `repos.css` BY DIRECTORY, on the module-shape seam rule: the family
+ * sheet had grown past the point where a reader could find the
  * rules for one surface in it. Every selector here moved verbatim and in order — this was a move and
  * not a restyle, and no pinned image may shift because of it.
  *
@@ -314,8 +314,8 @@
 
 /*
  * The fallback badge sits OUTSIDE the disclosure, so it is on screen without an open.
- * `Spec-010 §Fallback Behavior` requires a substituted mode marked distinctly from a
- * chosen one, and a marker behind a summary line is not marked.
+ * A substituted mode is marked distinctly from a chosen one, and a marker behind a
+ * summary line is not marked.
  */
 .meridian-execution-context__fallback {
   display: flex;

@@ -36,9 +36,9 @@
       "cache": false
     },
     "typecheck": {
-      // `scripts/**` joins the input set at Plan-023 Phase 1C (T-023p-1C-1):
-      // the harnesses there are TypeScript now, and `tsconfig.scripts.json`
-      // typechecks them, so a change to one has to invalidate this task.
+      // `scripts/**` is in the input set because the harnesses there are
+      // TypeScript and `tsconfig.scripts.json` typechecks them, so a change to
+      // one has to invalidate this task.
       "inputs": ["src/**", "test/**", "build/**", "scripts/**", "tsconfig*.json", "package.json"],
       "outputs": [".tsbuildinfo"]
     },
@@ -53,7 +53,7 @@
       ],
       "outputs": []
     },
-    // --- Structure gates (`Spec-023 §Console Libraries`, structure-enforcement row) -------
+    // --- Structure gates ---------------------------------------------------
     //
     // Two tools, two disjoint claims, and deliberately TWO tasks rather than one fused gate.
     // `knip` answers "does an entry point reach this?"; `dependency-cruiser` answers "is this
@@ -139,11 +139,11 @@
     },
     "test:smoke": {
       "dependsOn": ["build:smoke"],
-      // Narrowed from `test/**` by Plan-023 Phase 1C: the console tiers under
-      // `test/console/**` are not this project's inputs, and leaving them here
-      // would invalidate the ~25-30 s smoke build on every console test edit.
-      // `scripts/materialize-electron.ts` is named because Phase 1B made this
-      // task run it; `scripts/**` would pull the budget harnesses in with it.
+      // Narrowed from `test/**`: the console tiers under `test/console/**` are
+      // not this project's inputs, and leaving them here would invalidate the
+      // ~25-30 s smoke build on every console test edit.
+      // `scripts/materialize-electron.ts` is named because this task runs it;
+      // `scripts/**` would pull the budget harnesses in with it.
       "inputs": [
         "test/*.test.ts",
         "scripts/materialize-electron.ts",
@@ -155,7 +155,7 @@
       "cache": false
     },
 
-    // --- Console test tiers (`Spec-023 §Console Test Tiers`) ----------------
+    // --- Console test tiers -------------------------------------------------
     //
     // Each tier is its own task so a tier can be run, cached, and gated alone.
     // `cache: false` throughout for the same reason the tasks above carry it:
@@ -254,7 +254,7 @@
       "cache": false
     },
     "test:console-bench": {
-      // Not one of the eight tiers `Spec-023 §Console Test Tiers` registers, and
+      // Not one of the registered console tiers, and
       // deliberately not on the `test` aggregate, because each run APPENDS its
       // absolutes to `test/console/bench/ledger.json` — a curated record a person
       // reads, which no test run should rewrite as a side effect. It does gate: CI

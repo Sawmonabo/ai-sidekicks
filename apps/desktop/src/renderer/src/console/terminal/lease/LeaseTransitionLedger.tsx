@@ -90,7 +90,7 @@ export function LeaseTransitionLedger(props: LeaseTransitionLedgerProps): React.
             // The neutral boundary on every row: a lease move is an act on the shell
             // rather than an attribution, and the hue this console has answers "who"
             // in a session where that question has one answer.
-            participantHueStep={-1}
+            actorHueStep={-1}
             ringTreatment="solid"
             occurredAtIso={transition.occurredAtIso}
             actorLabel={transition.actorId ?? "The daemon"}

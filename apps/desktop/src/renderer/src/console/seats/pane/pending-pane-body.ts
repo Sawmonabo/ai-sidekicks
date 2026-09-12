@@ -3,11 +3,10 @@
 //
 // WHY A MARKER EXISTS AT ALL. A loader-backed pane body arrives as its own chunk, so
 // between the pane mounting and the module landing there is a frame in which the pane
-// is its chrome and nothing else. That frame is correct — it is what
-// `Spec-023 §Console Design (Meridian)` §The four bars, "Light on the machine", buys by
-// keeping a body off the initial import graph — but it must never be the frame a
-// screenshot reference is minted from, or the reference records a pane that had not
-// finished loading and every later run is compared against it.
+// is its chrome and nothing else. That frame is correct — it is what staying light on
+// the machine buys by keeping a body off the initial import graph — but it must never
+// be the frame a screenshot reference is minted from, or the reference records a pane
+// that had not finished loading and every later run is compared against it.
 //
 // So the pending state says so in the DOM, and the screenshot tier's capture helper
 // refuses to photograph a tree that carries one. The attribute is the whole mechanism:

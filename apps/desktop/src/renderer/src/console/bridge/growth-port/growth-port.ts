@@ -1,6 +1,6 @@
 // The growth port: the console's single fixture-only seam.
 //
-// `Plan-023 §Console growth slate` names every wire the console builds
+// The growth slate names every wire the console builds
 // against and does not yet have. Those rows are not methods — one bundles a whole
 // namespace plus two settings plus a pane-kind declaration, several describe type
 // semantics on replies that already exist. So the port is keyed by OPERATION, not
@@ -8,7 +8,7 @@
 // `GROWTH_OPERATIONS` (`growth-operations/`) for the callables and
 // `GROWTH_PREREQUISITES` (`growth-prerequisites.ts`) for the non-callable rest.
 //
-// I-023-13's test maps in both directions: no slate row is unmapped, no entry names
+// The shape test maps in both directions: no slate row is unmapped, no entry names
 // a row that is not on the slate, and every entry's live-status agrees with its
 // row. There is deliberately no dispatcher collapsing unrelated operations into one
 // call — a single `invoke(name, payload)` would type-erase every one of these and
@@ -16,9 +16,9 @@
 // port exists to keep.
 //
 // The live bridge implements every method as a typed refusal. That refusal renders
-// as the "not checked" kind of nothing (`Spec-023 §Console Design (Meridian)` §The
-// five kinds of nothing), never as an empty list — because "we have not asked" and
-// "there is none" are different facts and the console does not conflate them.
+// as the "not checked" kind of nothing, never as an empty list — because "we have
+// not asked" and "there is none" are different facts and the console does not
+// conflate them.
 //
 // WHAT THIS FILE OWNS, AND WHY THE LINE IS HERE. The port's SHAPE — the mapped type
 // that derives one method per operation, the two projections a fixture annotates
@@ -256,7 +256,7 @@ export function createRefusingGrowthPort(): GrowthPort {
     gitflowPrPrepare: async () => growthUnavailable("gitflowPrPrepare"),
     workspaceExecutionContextRead: async () => growthUnavailable("workspaceExecutionContextRead"),
     // identity, and the callback-tool registry read
-    callerParticipantRead: async () => growthUnavailable("callerParticipantRead"),
+    callerUserRead: async () => growthUnavailable("callerUserRead"),
     callbackToolRegistryRead: async () => growthUnavailable("callbackToolRegistryRead"),
     // sidekick
     agentList: async () => growthUnavailable("agentList"),
@@ -278,7 +278,7 @@ export function createRefusingGrowthPort(): GrowthPort {
     channelMute: async () => growthUnavailable("channelMute"),
     channelUnmute: async () => growthUnavailable("channelUnmute"),
     channelArchive: async () => growthUnavailable("channelArchive"),
-    participantPresenceDetailRead: async () => growthUnavailable("participantPresenceDetailRead"),
+    userPresenceDetailRead: async () => growthUnavailable("userPresenceDetailRead"),
     terminalControlHolderRead: async () => growthUnavailable("terminalControlHolderRead"),
     // presence — the run-keyed Awareness activity field
     presenceActivityRead: async () => growthUnavailable("presenceActivityRead"),

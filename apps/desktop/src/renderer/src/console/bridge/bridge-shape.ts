@@ -1,7 +1,7 @@
 // The bridge's shape, read at runtime.
 //
-// `Plan-023` I-023-13 requires the fixture bridge to be "shape-identical to
-// `SidekicksBridge` namespace for namespace". The type system carries most of that
+// The fixture bridge has to be shape-identical to `SidekicksBridge` namespace for
+// namespace. The type system carries most of that
 // claim already — both bridges ARE `SidekicksBridge`, so a namespace added to the
 // contract breaks the fixture at compile time — but not all of it. The live bridge
 // is an object graph handed across `contextBridge` by a preload this program does

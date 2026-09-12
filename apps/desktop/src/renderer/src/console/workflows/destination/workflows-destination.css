@@ -16,9 +16,9 @@
  * its own, which is why the cascade order to reason about here is this sheet's and
  * the family sheet's and no third one's.
  *
- * `Spec-023 §Console Design (Meridian)` governs every rule here: values come from the
- * generated token sheet, there is no literal colour and no literal length off the
- * space scale, and nothing animates (rule 5).
+ * The console design governs every rule here: values come from the generated token
+ * sheet, there is no literal colour and no literal length off the space scale, and
+ * nothing animates (rule 5).
  */
 
 /*

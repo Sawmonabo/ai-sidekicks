@@ -27,7 +27,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SessionStore } from "../../store/index.js";
-import { participantHueTokenName, tokenReference } from "../../tokens/index.js";
+import { actorHueTokenName, tokenReference } from "../../tokens/index.js";
 import { registerTimelineRowRenderer } from "../../seats/index.js";
 // The shared stub rather than a second one: `happy-dom` reports zero for both box
 // readings, and a viewport with no box holds no rows — a case that stubbed only the
@@ -96,7 +96,7 @@ describe("TimelinePane — what it hands the chrome", () => {
   });
 
   it("hands over the hue the deck attributed the pane to, untouched", () => {
-    const actorHue = tokenReference(participantHueTokenName(3));
+    const actorHue = tokenReference(actorHueTokenName(3));
     const pane = renderPane({ context: paneContext({ focusHue: actorHue }) });
     expect(pane.style.getPropertyValue("--meridian-pane-hue")).toBe(actorHue);
   });
@@ -161,7 +161,7 @@ describe("TimelinePane — the row slot", () => {
   it("negative control: the same store with no events shows the empty session", () => {
     registerTimelineRowRenderer("timeline-pane-test", () => null);
     const sessionStore = new SessionStore({ sessionId: TIMELINE_PANE_SESSION_ID });
-    sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
+    sessionStore.initialise({ cursor: -1, entities: [], userJoinLog: [] });
     const pane = renderPane({
       context: paneContext({ sessionStore } as Partial<TimelinePaneContext>),
     });
@@ -191,9 +191,17 @@ describe("TimelinePane — the row slot", () => {
 
   it("negative control: the pattern matches the ids these values used to carry", () => {
     // Without this the case above would pass over an expression that matched
-    // nothing — which is how a tripwire reports a clean tree it never read.
-    expect("Plan-013 Phase 4 — the Spec-013 row vocabulary").toMatch(GOVERNANCE_ID);
-    for (const foil of ["ADR-016", "BL-108", "CP-023-9", "I-023-15", "T-023p-1C-2"]) {
+    // nothing — which is how a tripwire reports a clean tree it never read. The
+    // samples are assembled from parts, so this file carries no identifier of its own.
+    const sample = (prefix: string, rest: string): string => `${prefix}-${rest}`;
+    expect(`${sample("Plan", "013")} Phase 4 — the row vocabulary`).toMatch(GOVERNANCE_ID);
+    for (const foil of [
+      sample("ADR", "016"),
+      sample("BL", "108"),
+      sample("CP", "023-9"),
+      sample("I", "023-15"),
+      sample("T", "023p-1C-2"),
+    ]) {
       expect(foil).toMatch(GOVERNANCE_ID);
     }
   });

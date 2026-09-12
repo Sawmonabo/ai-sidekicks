@@ -1,65 +1,57 @@
-// `session.subscribe` JSON-RPC handler — Plan-007 Phase 3 (T-007p-3-1).
+// `session.subscribe` JSON-RPC handler.
 //
-// Spec coverage:
-//   * `Spec-007 §Required Behavior` + `Spec-007 §Interfaces And Contracts` —
-//     `session.subscribe` opens a server-side streaming subscription on the
-//     Phase 2 streaming primitive (T-007p-2-5). The wire request carries the
-//     `sessionId` (and optional `afterCursor` for replay-from-cursor); the
-//     wire response carries ONLY the opaque `subscriptionId`. Subsequent
-//     per-event `SessionEvent` values flow as `$/subscription/notify`
-//     frames keyed by that `subscriptionId`. Client-initiated teardown is
-//     a `$/subscription/cancel` notification referencing the same id;
-//     the streaming primitive's registered cancel handler (eager-
-//     registered at primitive construction time) processes it.
-//   * Plan-007 §Tier-1 Implementation Tasks (T-007p-3-1) — bind the four
-//     `session.*` handlers; this file is the `subscribe` slice. Per
-//     F-007p-2-14, Phase 2 ships the streaming primitive only and Phase 3
-//     binds it into a domain-method handler — this file IS that binding.
-//   * CP-007-1 — verifies the handler is registered against the canonical
-//     method name with the correct mutating-flag.
+//   * `session.subscribe` opens a server-side streaming subscription on the
+//     Phase 2 streaming primitive. The wire request carries the `sessionId`
+//     (and optional `afterCursor` for replay-from-cursor); the wire response
+//     carries ONLY the opaque `subscriptionId`. Subsequent per-event
+//     `SessionEvent` values flow as `$/subscription/notify` frames keyed by
+//     that `subscriptionId`. Client-initiated teardown is a
+//     `$/subscription/cancel` notification referencing the same id; the
+//     streaming primitive's registered cancel handler (eager- registered at
+//     primitive construction time) processes it.
+//   * Bind the four `session.*` handlers; this file is the `subscribe`
+//     slice. Phase 2 ships the streaming primitive only and Phase 3 binds
+//     it into a domain-method handler — this file IS that binding.
+//   * Verifies the handler is registered against the canonical method
+//     name with the correct mutating-flag.
 //
-// Invariants this module participates in (canonical text in
-// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-6 through I-007-9):
-//   * I-007-1 — load-before-bind: `registerSessionSubscribe` is called by
-//     the bootstrap orchestrator AFTER the registry is loaded and AFTER
-//     the streaming primitive has been constructed (the primitive eagerly
+// Invariants this module participates in (canonical text through):
+//   * Load-before-bind: `registerSessionSubscribe` is called by the
+//     bootstrap orchestrator AFTER the registry is loaded and AFTER the
+//     streaming primitive has been constructed (the primitive eagerly
 //     registers its `$/subscription/cancel` handler at construction time
 //     per `streaming-primitive.ts` lines 245-255, so the primitive MUST
 //     exist before this handler binds, otherwise the per-subscription
 //     teardown plumbing is incomplete).
-//   * I-007-6 — duplicate-method registration is rejected at register-time.
-//   * I-007-7 — schema-validates-before-dispatch. The registry's standard
-//     `safeParse` path runs against `SessionSubscribeRequestSchema` before
-//     this handler's body executes. The streaming-side analog (per-value
-//     `valueSchema` validation before `$/subscription/notify` send) runs
-//     INSIDE the streaming primitive on every `subscription.next(value)`
-//     call against the `SessionEventSchema` passed to `createSubscription`.
-//   * I-007-8 — sanitized error mapping. Errors thrown from the handler
-//     are caught by the registry's `dispatch()` wrapper and mapped to the
-//     canonical JSON-RPC error envelope.
+//   * Duplicate-method registration is rejected at register-time.
+//   * The registry's standard `safeParse` path runs against
+//     `SessionSubscribeRequestSchema` before this handler's body executes.
+//     The streaming-side analog (per-value `valueSchema` validation before
+//     `$/subscription/notify` send) runs INSIDE the streaming primitive on
+//     every `subscription.next(value)` call against the
+//     `SessionEventSchema` passed to `createSubscription`.
+//   * Errors thrown from the handler are caught by the registry's
+//     `dispatch()` wrapper and mapped to the canonical JSON-RPC error
+//     envelope.
 //
-// Why `mutating: false`: opening a subscription does not mutate domain
-// state — it allocates per-subscription IPC state (a `LocalSubscriptionProducer`
-// entry on the streaming primitive's per-transport map) but does not
-// create / append / mutate any session-level row or event. The pre-
-// handshake mutating-op gate's predicate is `isMutating(method) ===
-// true`; flagging `subscribe` as `false` means a connection in `pre` or
-// `done-incompatible` state can still subscribe, matching Spec-007
-// §Fallback Behavior — read-only compatibility continues across version
-// mismatch. (Mirrors the rationale documented for `$/subscription/cancel`
-// in `jsonrpc-streaming.ts` lines 129-137.)
+// Why `mutating: false`: opening a subscription does not mutate domain state —
+// it allocates per-subscription IPC state (a `LocalSubscriptionProducer` entry
+// on the streaming primitive's per-transport map) but does not create / append /
+// mutate any session-level row or event. The pre- handshake mutating-op gate's
+// predicate is `isMutating(method) === true`; flagging `subscribe` as `false`
+// means a connection in `pre` or `done-incompatible` state can still subscribe,
+// matching — read-only compatibility continues across version mismatch. (Mirrors
+// the rationale documented for `$/subscription/cancel` in `jsonrpc-streaming.ts`
+// lines 129-137.)
 //
 // What this file does NOT do (deferred to siblings / known limitations):
 //   * Replay-from-cursor implementation (`afterCursor`) — owned by the
 //     daemon's session service / projector. The `SessionSubscribeDeps.subscribeToSession`
 //     callback receives the `afterCursor` and is responsible for replaying
 //     historical events before transitioning to live-tail.
-//   * Test coverage — owned by T-007p-3-4 (sibling task).
 //
-// Method-name format ratified: dotted-camelCase per
-// `docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name Registry (Tier 1 Ratified)`.
-// The `register` call site below passes `"session.subscribe"`, which matches
-// the canonical regex.
+// Method-name format ratified: dotted-camelCase. The `register` call site below passes
+// `"session.subscribe"`, which matches the canonical regex.
 
 import type {
   Handler,
@@ -98,9 +90,9 @@ import type { StreamingPrimitive } from "../streaming-primitive.js";
  *     teardown paths all propagate cleanup back to the upstream
  *     event source.
  *
- * The bootstrap orchestrator (Plan-001 Phase 5) supplies the concrete
- * implementation. T-007p-3-4 (sibling test) injects test doubles for
- * deterministic streaming-primitive interaction tests.
+ * The bootstrap orchestrator supplies the concrete implementation.
+ * injects test doubles for deterministic streaming-primitive
+ * interaction tests.
  */
 export interface SessionSubscribeDeps {
   /**
@@ -134,7 +126,7 @@ export interface SessionSubscribeDeps {
    * Domain-side errors during subscription setup (session not found,
    * invalid `afterCursor`, permission denied) MUST surface as thrown
    * `Error` instances — the registry's `dispatch()` wrapper catches
-   * them and applies `mapJsonRpcError` per I-007-8.
+   * them and applies `mapJsonRpcError`.
    */
   readonly subscribeToSession: (
     sessionId: SessionId,
@@ -155,10 +147,9 @@ export interface SessionSubscribeDeps {
  *      a transport identity. A missing transport id means the call
  *      originated from direct test code (or a daemon-bootstrap bug) —
  *      neither is a client protocol violation, so we throw a plain Error
- *      which `mapJsonRpcError` collapses to `-32603 InternalError` per
- *      error-contracts.md §JSON-RPC Wire Mapping (the honest mapping for
- *      a substrate-internal invariant violation). Mirrors the same
- *      posture in `protocol-negotiation.ts`'s `daemon.hello` handler.
+ *      which `mapJsonRpcError` collapses to `-32603 InternalError`.
+ *      Mirrors the same posture in `protocol-negotiation.ts`'s
+ *      `daemon.hello` handler.
  *   2. Call `streamingPrimitive.createSubscription<SessionEvent>(
  *      transportId, SessionEventSchema)` to allocate the producer handle.
  *      The primitive generates a fresh `subscriptionId`, registers the
@@ -169,18 +160,17 @@ export interface SessionSubscribeDeps {
  *      `onEvent(event)` invocation routes to `barrier.emit(event)`, which
  *      buffers the value until the init response has been written and
  *      thereafter forwards it to `sub.next(event)` — validating against
- *      `SessionEventSchema` (I-007-7 streaming analog) and emitting a
+ *      `SessionEventSchema` (streaming analog) and emitting a
  *      `$/subscription/notify` frame on the transport. Releasing the
  *      barrier is step 3.5; it schedules the buffered flush past the
- *      response, which is what makes I-007-10 hold under a synchronous
- *      replay.
+ *      response, which is what makes hold under a synchronous replay.
  *   4. Return `{ subscriptionId }` — the wire client receives only the
  *      opaque id, then routes inbound `$/subscription/notify` frames
  *      keyed by it. Per `streaming-primitive.ts` line 267: "The handler
  *      typically returns the `subscriptionId` to the wire client".
  *
  * Idempotency / re-registration: see `registerSessionCreate` JSDoc.
- * I-007-6 rejects duplicate registration at register-time.
+ * rejects duplicate registration at register-time.
  */
 export function registerSessionSubscribe(
   registry: MethodRegistry,
@@ -210,20 +200,15 @@ export function registerSessionSubscribe(
     // calls `onEvent` for every event matching the request; each routes to
     // `barrier.emit(event)`, which either buffers the value (before the init
     // response has been written) or forwards it to `sub.next(event)` — which
-    // validates against `SessionEventSchema` per the I-007-7 streaming analog
-    // and emits a `$/subscription/notify` frame on this transport.
+    // validates against `SessionEventSchema` streaming analog and emits a
+    // `$/subscription/notify` frame on this transport.
     //
-    // The barrier is what upholds I-007-10 (subscribe-init response precedes
-    // the first notification frame): `subscribeToSession` may replay
-    // SYNCHRONOUSLY per the Plan-001 Phase 5 projector contract, so `onEvent`
-    // can fire during the body below, before the gateway's dispatch `.then`
-    // microtask writes the response. The barrier's module header carries the
-    // full rationale — why buffering rather than a convention, why
-    // `setImmediate` and not a microtask, and the failure posture on both
-    // sides of the gate. It was extracted from this handler when
-    // `timeline.subscribe` became its second consumer; the diagnostics it logs
-    // carry this method's name and are byte-identical to the ones this file
-    // emitted inline.
+    // The barrier is what upholds: `subscribeToSession` may replay
+    // SYNCHRONOUSLY projector contract, so `onEvent` can fire during the body
+    // below, before the gateway's dispatch `.then` microtask writes the
+    // response. The barrier's module header carries the full rationale — why
+    // buffering rather than a convention, why `setImmediate` and not a
+    // microtask, and the failure posture on both sides of the gate.
     //
     // Atomicity guard — `subscribeToSession` throws synchronously per its
     // JSDoc contract (session not found, invalid afterCursor, permission
@@ -236,12 +221,12 @@ export function registerSessionSubscribe(
     // the wire client cancels (`$/subscription/cancel`), the producer's
     // local `cancel()` fires, OR transport-disconnect cleanup runs
     // (`cleanupTransport`), the streaming primitive fires the registered
-    // unsubscribe so the Plan-001 Phase 5 event-source detaches its
-    // upstream watcher. Without this wire-up the upstream watcher
-    // outlives the canceled subscription, leaking one watcher per
-    // subscribe/cancel cycle. (The watcher's per-event lambda would
-    // continue to fire `sub.next(event)` — a documented silent no-op —
-    // but consume CPU / DB resources until transport close.)
+    // unsubscribe so event-source detaches its upstream watcher. Without
+    // this wire-up the upstream watcher outlives the canceled
+    // subscription, leaking one watcher per subscribe/cancel cycle. (The
+    // watcher's per-event lambda would continue to fire
+    // `sub.next(event)` — a documented silent no-op — but consume CPU /
+    // DB resources until transport close.)
     const barrier = createSubscriptionAckBarrier(sub, "session.subscribe");
     try {
       const unsubscribe = deps.subscribeToSession(params.sessionId, params.afterCursor, (event) => {
@@ -249,8 +234,8 @@ export function registerSessionSubscribe(
       });
       // Register the upstream-detach callback. If a wire-cancel or
       // transport-disconnect lands AFTER this point, the streaming
-      // primitive fires `unsubscribe` so the Plan-001 Phase 5 event-
-      // source detaches. Registration here (after the synchronous
+      // primitive fires `unsubscribe` so event- source detaches.
+      // Registration here (after the synchronous
       // `subscribeToSession` returns) is safe: there's no preemption
       // between adjacent statements, and the AbortSignal-style
       // synchronous-fire on `onCancel` covers any race where cancel

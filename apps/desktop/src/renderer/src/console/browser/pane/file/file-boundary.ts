@@ -1,9 +1,8 @@
 // The file boundary, on the renderer's side of it.
 //
-// `Spec-023 §Console Design (Meridian)` 12.5: "A `file:` destination is admitted only
-// for a regular file whose fully resolved form is path-contained in an admitted root
-// of a repo mount attached to this session … The refusal is the registered
-// `repo.outside_trust_envelope` (403)."
+// A `file:` destination is admitted only for a regular file whose fully resolved form
+// is path-contained in an admitted root of a repo mount attached to this session. The
+// refusal is the registered `repo.outside_trust_envelope` (403).
 //
 // WHAT THIS MODULE IS AND IS NOT. It is not a containment check. Resolution is
 // absolute, symlink-resolved, platform-normalized, component-boundary-aware and

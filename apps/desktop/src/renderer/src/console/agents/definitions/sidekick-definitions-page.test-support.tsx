@@ -32,7 +32,7 @@ const EMPTY_SCENARIO: FixtureScenario = {
   label: "Sidekick definitions, with nothing scripted",
   purpose: "Drives the sidekicks page against a registry whose replies this file supplies.",
   sessionId: "session-agents",
-  participantIdsInJoinOrder: [],
+  userIdsInJoinOrder: [],
   beats: [],
   replies: [],
   startedAtIso: "2026-01-01T10:05:00.000Z",

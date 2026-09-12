@@ -1,4 +1,4 @@
-// The two bounds a participant can walk into, read as figures rather than as gates.
+// The two bounds a user can walk into, read as figures rather than as gates.
 //
 // Each case pairs the reading with the thing it must not become: a count that reports
 // a denominator without withdrawing anything, and a size comparison that answers
@@ -29,7 +29,7 @@ describe("attachment bounds — the carrier's count against its allowance", () =
     // The daemon refuses the whole carrier at acceptance and the console does not
     // stop the eleventh attach — so the eleventh has to be countable. A reading that
     // clamped would report ten attached over a carrier holding eleven, which is the
-    // one number a participant would use to work out what to take off.
+    // one number a user would use to work out what to take off.
     const past = attachmentCarrierFill(ATTACHMENTS_PER_CARRIER_CAP_DEFAULT + 1);
     expect(past.attached).toBe(ATTACHMENTS_PER_CARRIER_CAP_DEFAULT + 1);
     expect(past.allowance).toBe(ATTACHMENTS_PER_CARRIER_CAP_DEFAULT);

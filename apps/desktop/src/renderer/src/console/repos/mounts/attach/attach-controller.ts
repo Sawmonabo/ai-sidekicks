@@ -134,14 +134,13 @@ export class AttachController extends ActSurfaceController<
    *
    * IDEMPOTENT, and re-armed by nothing: a second open re-reads nothing, and a refused
    * read stays refused until the dialog's own retry asks again. That retry is the
-   * participant-driven refresh `Spec-023 §Rules every console surface obeys` admits,
-   * which is why it is a control and not a timer.
+   * admitted user-driven refresh, which is why it is a control and not a timer.
    */
   public requestRoster(): void {
     this.askPrerequisite(ROSTER_QUESTION, "subscribe");
   }
 
-  /** Ask again after a refused roster read. The participant-driven one of the four. */
+  /** Ask again after a refused roster read. The user-driven one of the four. */
   public retryRoster(): void {
     this.retryPrerequisite();
   }

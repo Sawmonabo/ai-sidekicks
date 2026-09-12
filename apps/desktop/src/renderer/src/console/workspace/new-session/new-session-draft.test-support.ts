@@ -115,7 +115,7 @@ function scenario(options: ScriptedLegs): ConsoleScenario {
     label: "Draft send",
     purpose: "Drives the new-session draft's three wire calls.",
     sessionId: "session-draft",
-    participantIdsInJoinOrder: ["participant-you"],
+    userIdsInJoinOrder: ["user-you"],
     startedAtIso: "2026-01-01T09:00:00.000Z",
     beats: [],
     replies: [

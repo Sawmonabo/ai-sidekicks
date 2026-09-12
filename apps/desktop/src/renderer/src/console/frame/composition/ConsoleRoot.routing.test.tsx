@@ -107,10 +107,9 @@ describe("ConsoleRoot — the rail's three destinations, and where the window is
   });
 
   it("offers sessions, workflows, and settings, and nothing else", async () => {
-    // The defect: the rail shipped a Workspace destination where `Spec-023
-    // §Console Design (Meridian)` §The surface set names Workflows, so the
-    // destination that opens the workflow builder could not be reached at all and
-    // one that has no address of its own carried an icon.
+    // The defect: the rail shipped a Workspace destination where the surface set names
+    // Workflows, so the destination that opens the workflow builder could not be reached at
+    // all and one that has no address of its own carried an icon.
     const mounted = await mountConsole();
 
     const labels = [...mounted.container.querySelectorAll(".meridian-rail__button")].map((button) =>

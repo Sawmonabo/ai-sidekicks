@@ -7,16 +7,16 @@
 // has been sent", and every one of its operations spans an await. Keeping them in one
 // class made the file two jobs long, and it also hid the seam that matters: a
 // continuation coming back from an await has to consult the ledger rather than the
-// entry it captured, because a participant can act while a call is in flight.
+// entry it captured, because a user can act while a call is in flight.
 //
-// ORDER IS PARTICIPANT-DECLARED AND PRESERVED END TO END, which `Spec-014 §Required
-// Behavior` requires of the reference and this is the first place it can be lost. So
+// ORDER IS USER-DECLARED AND PRESERVED END TO END, which the reference contract
+// requires and this is the first place it can be lost. So
 // the order lives in an explicit array of local ids rather than in a `Map`'s insertion
 // order, and `reorder` moves a member inside it — a drag round-trips because the array
 // is the record, not a rendering of one.
 //
 // AND THE LEDGER IS WHERE A FINISHED UPLOAD'S BYTES ARE RELEASED. THE RULE, EXACTLY:
-// an entry holds the participant's `Blob` while — and only while — a send is still
+// an entry holds the user's `Blob` while — and only while — a send is still
 // possible from where it stands. `declared`, `ingesting`, and `refused` can still send,
 // so they hold it; `complete` has minted its artifact and `abandoned` has stopped for
 // good, so neither does. This is the only writer, so it is the only place the rule can
@@ -47,7 +47,7 @@ import {
  * makes the check total: two states can be equal across an await that changed and
  * changed back, and a round a write superseded can never be current again. It is NOT
  * on the entry a card renders, because it is bookkeeping about the record rather than
- * anything a participant is shown.
+ * anything a user is shown.
  *
  * IT IS THE CONSOLE'S ONE GENERATION REGISTER RATHER THAN A COUNTER OF THIS FILE'S
  * OWN. The hand-rolled `Map<string, number>` this replaces was a second implementation
@@ -102,7 +102,7 @@ export class AttachmentIngestLedger {
    * The entry, but only if nothing has touched it since the stamp was taken.
    *
    * Every continuation that comes back from an await asks this rather than acting on
-   * the entry it captured. A participant can abandon or remove an attachment while a
+   * the entry it captured. A user can abandon or remove an attachment while a
    * call is in flight, and a continuation that wrote its captured entry back would
    * restore the state that abandonment replaced — resuming an upload somebody stopped.
    */
@@ -140,7 +140,7 @@ export class AttachmentIngestLedger {
    * Record one attachment's new standing.
    *
    * The declaration is carried over rather than accepted from the caller: it is what
-   * the participant handed over and nothing after the attach may replace it. The
+   * the user handed over and nothing after the attach may replace it. The
    * PAYLOAD is carried the same way and only as far as the new state can send it, which
    * is the release rule at the top of this file — so a caller composing its record by
    * spreading the whole standing entry cannot carry a finished upload's bytes forward,
@@ -192,7 +192,7 @@ export class AttachmentIngestLedger {
    *
    * Only completed ingests contribute, because an artifact id is what an ingest MINTS —
    * there is nothing to name before then. The result is exactly the typed `ArtifactId[]`
-   * shape `Spec-014` specifies, held as strings because the console never mints an
+   * specified shape, held as strings because the console never mints an
    * identity of its own.
    */
   public artifactIds(): readonly string[] {
@@ -241,11 +241,11 @@ export class AttachmentIngestLedger {
  * one family over.
  *
  * Takes the entry its caller re-read after the await rather than reading one itself, so
- * a refusal can never be written over a state a participant moved meanwhile.
+ * a refusal can never be written over a state a user moved meanwhile.
  *
  * THE DISPOSITION IS DERIVED FROM THE CODE UNLESS A CALLER STATES IT, and the one
  * caller that states it is the console's own finding about an unusable acknowledgement
- * — a code `Spec-014` does not name, whose retry-in-place default would send the next
+ * — a code the daemon does not name, whose retry-in-place default would send the next
  * chunk against an offset the two sides have stopped sharing.
  */
 export function writeIngestRefusal(

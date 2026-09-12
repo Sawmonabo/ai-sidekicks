@@ -1,24 +1,19 @@
-// contract-ddl-conformance.test.ts — the I-010-2 contract↔DDL lockstep
-// tripwire (Plan-010 Phase 1 T1.4). First file in the Plan-010-owned
-// `src/git/` subtree (CP-010-7).
+// contract-ddl-conformance.test.ts — contract↔DDL lockstep tripwire.
 //
-// Spec coverage:
-//   * `Spec-010 §Required Behavior` — the worktree lifecycle state set is one
-//     vocabulary, not two: what `worktree.ts` declares and what the
-//     `worktrees.state` CHECK admits are the same six values, in the same
-//     order.
+//   * the worktree lifecycle state set is one vocabulary, not two: what
+//     `worktree.ts` declares and what the `worktrees.state` CHECK admits are
+//     the same six values, in the same order.
 //
-// Invariants covered (canonical text in
-// `docs/plans/010-worktree-lifecycle-and-execution-modes.md §Invariants`):
-//   * I-010-2 — contract↔DDL lockstep: `WorktreeState`, `EphemeralCloneState`,
-//     and the cleanup-policy literal union "are byte-identical between
-//     `worktree.ts` and the migration `CHECK` constraints". This file IS the
-//     conformance test that invariant names. What is MECHANICALLY asserted is
-//     the enum VOCABULARY — same members, same order — not literal bytes: the
-//     DDL spells a member `'creating'` and the contract spells it
-//     `"creating"`, so byte equality across the two surfaces is not a
-//     well-formed comparison. Vocabulary + order is the strongest claim the
-//     two representations can share, and it is the one the invariant means.
+// Invariants covered (canonical text):
+//   * Contract↔DDL lockstep: `WorktreeState`, `EphemeralCloneState`, and the
+//     cleanup-policy literal union "are byte-identical between `worktree.ts`
+//     and the migration `CHECK` constraints". This file IS the conformance
+//     test that invariant names. What is MECHANICALLY asserted is the enum
+//     VOCABULARY — same members, same order — not literal bytes: the DDL
+//     spells a member `'creating'` and the contract spells it `"creating"`, so
+//     byte equality across the two surfaces is not a well-formed comparison.
+//     Vocabulary + order is the strongest claim the two representations can
+//     share, and it is the one the invariant means.
 //
 // Scope boundary. `session/__tests__/migration-shape.test.ts` owns the
 // BEHAVIORAL half of the version-4 schema (PRAGMA column/index shape plus
@@ -106,9 +101,9 @@ const CONTAINS_IN_LIST_PATTERN: RegExp = /\bIN\s*\(/i;
  * Strips `--` line comments, quote-aware.
  *
  * The migration's comments carry parenthesized prose (`(mount, branch)`,
- * `(absolute)`, `(Spec-010 §Interfaces)`) and quoted state names
- * (`including 'merged'`), so a paren walk or literal scan over the raw text
- * would read commentary as syntax. Stripping first removes the whole class.
+ * `(absolute)`) and quoted state names (`including 'merged'`), so a paren
+ * walk or literal scan over the raw text would read commentary as syntax.
+ * Stripping first removes the whole class.
  *
  * SQLite escapes a quote inside a string literal by doubling it (`''`); the
  * scanner honors that, so a future literal containing an apostrophe cannot
@@ -546,32 +541,28 @@ interface LockstepRow {
   readonly expectedSize: number;
 }
 
-// FOUR clauses, not the three the plan's T1.4 prose names. The prose
-// enumerates the enums `worktree.ts` DECLARES; the migration additionally
-// CHECKs `run_execution_contexts.execution_mode`. Leaving that one unpinned
-// would let the very drift this tripwire exists to catch through on a quarter
-// of the surface, so it is covered here — under a different comparison mode.
+// FOUR clauses, not the three the plan's prose names. The prose enumerates
+// the enums `worktree.ts` DECLARES; the migration additionally CHECKs
+// `run_execution_contexts.execution_mode`. Leaving that one unpinned would
+// let the very drift this tripwire exists to catch through on a quarter of
+// the surface, so it is covered here — under a different comparison mode.
 //
 // ON THE PLAN'S "SETS" WORDING — read this before concluding the table below
-// contradicts its governing doc. The T1.4 row in
-// `docs/plans/010-worktree-lifecycle-and-execution-modes.md` says this test
-// "Asserts the `WorktreeState`/`EphemeralCloneState`/cleanup-policy literal
-// sets in `worktree.ts` equal the sets parsed out of the migration's CHECK
-// clauses" — quoted verbatim; every emphasis below is this file's, not the
-// plan's — while T1.1's `worktree.ts` §Canonical enums banner says its
-// declaration order mirrors those same CHECK clauses byte-for-byte and hands
-// this test "an ORDERED target". Those look like they disagree; they do not,
-// once split by OWNERSHIP — and the split is what the `mode` column encodes:
+// contradicts its governing doc. row says this test "Asserts the
+// `WorktreeState`/`EphemeralCloneState`/cleanup-policy literal sets in
+// `worktree.ts` equal the sets parsed out of the migration's CHECK clauses"
+// — quoted verbatim; every emphasis below is this file's, not the plan's —
+// while the `worktree.ts` "an ORDERED target". Those look like they
+// disagree; they do not, once split by OWNERSHIP — and the split is what the
+// `mode` column encodes:
 //
-//   * Both sides Plan-010-owned  -> sequence. The plan's "sets" is the loose
-//     description of the goal (one vocabulary, not two); the contract file
-//     makes a strictly STRONGER, explicit ordering claim about the same pair
-//     of surfaces. A documented claim with no check behind it is an open
-//     drift class, and set equality would leave it open. Ordering is also not
-//     merely a local convention: a reorder on one side alone desyncs from the
-//     ratified DDL in
-//     `docs/architecture/schemas/local-sqlite-schema.md §Workspace and Git Tables (Plan-009, Plan-010, Plan-011)`,
-//     so this test firing is correct behavior rather than a false positive.
+//   * The plan's "sets" is the loose description of the goal (one vocabulary,
+//     not two); the contract file makes a strictly STRONGER, explicit ordering
+//     claim about the same pair of surfaces. A documented claim with no check
+//     behind it is an open drift class, and set equality would leave it open.
+//     Ordering is also not merely a local convention: a reorder on one side
+//     alone desyncs from the ratified DDL so this test firing is correct
+//     behavior rather than a false positive.
 //   * Sides owned by DIFFERENT plans -> set. See the `execution_mode` row.
 //
 // Set equality on all four was the alternative; it matches the plan's wording
@@ -580,21 +571,19 @@ interface LockstepRow {
 //
 // ORDER IS LOAD-BEARING IN THIS ARRAY, for a second and unrelated reason: the
 // census test asserts the extracted enum clauses appear in exactly this
-// sequence, so these rows are also the expected MIGRATION order (D-010-5), the
-// same contract `EXPECTED_TABLE_NAMES` states for tables. A fifth enum CHECK
-// must be INSERTED at its migration position, not appended — appending fails
-// the census with a message that reads like drift when it is bookkeeping.
+// sequence, so these rows are also the expected MIGRATION order, the same
+// contract `EXPECTED_TABLE_NAMES` states for tables. A fifth enum CHECK must
+// be INSERTED at its migration position, not appended — appending fails the
+// census with a message that reads like drift when it is bookkeeping.
 const LOCKSTEP_ROWS: readonly LockstepRow[] = [
-  // ORDERED — the three Plan-010-owned vocabularies. INTRA-PLAN OWNERSHIP is
-  // the reason: this plan owns both the contract enum and the CHECK clause, so
-  // pinning order costs no other plan anything and keeps the pair editable
-  // only in lockstep. `worktree.ts`'s §Canonical enums banner claims its
-  // declaration order mirrors the ratified CHECK clauses byte-for-byte, and
-  // I-010-2's lockstep is what makes that claim enforceable rather than
-  // decorative. Both sides were read when this test landed and agreed
-  // member-for-member and order-for-order; a reorder on either side is a
-  // deliberate, paired edit — and a wire non-event either way (RFC 8785 JCS
-  // serializes the literal), which is exactly why only a test can catch it.
+  // INTRA-PLAN OWNERSHIP is the reason: this plan owns both the contract enum
+  // and the CHECK clause, so pinning order costs no other plan anything and
+  // keeps the pair editable only in lockstep. `worktree.ts`'s and the lockstep
+  // is what makes that claim enforceable rather than decorative. Both sides
+  // were read when this test landed and agreed member-for-member and
+  // order-for-order; a reorder on either side is a deliberate, paired edit —
+  // and a wire non-event either way (RFC 8785 JCS serializes the literal),
+  // which is exactly why only a test can catch it.
   {
     qualifiedColumn: "worktrees.state",
     contractSymbol: "WorktreeStateSchema",
@@ -617,16 +606,15 @@ const LOCKSTEP_ROWS: readonly LockstepRow[] = [
     expectedSize: 4,
   },
   // UNORDERED, and deliberately NOT sequence-compared even though it would
-  // pass today. `ExecutionModeSchema` is declared in `repo.ts` and owned by
-  // Plan-009, not Plan-010; its declaration order happens to match this
-  // migration's CHECK clause right now (`read-only, branch, worktree,
-  // ephemeral clone` in both), so an ordered pin would look correct and be
-  // wrong. A future Plan-009 reorder is a non-event on the wire — RFC 8785 JCS
-  // serializes the literal string, and ADR-018 §Decision #8 makes only
-  // additions (MINOR) and removals (MAJOR) version events — so an ordered pin
-  // would convert a Plan-009 non-event into a spurious Plan-010 failure,
-  // coupling another plan's declaration order to our DDL. Set equality is the
-  // honest contract for a vocabulary this plan consumes rather than owns.
+  // pass today. `ExecutionModeSchema` is declared in `repo.ts` and not its
+  // declaration order happens to match this migration's CHECK clause right now
+  // (`read-only, branch, worktree, ephemeral clone` in both), so an ordered
+  // pin would look correct and be wrong. A future reorder is a non-event on
+  // the wire — RFC 8785 JCS serializes the literal string, and) and removals
+  // (MAJOR) version events — so an ordered pin would convert a non-event into
+  // a spurious failure, coupling another plan's declaration order to our DDL.
+  // Set equality is the honest contract for a vocabulary this plan consumes
+  // rather than owns.
   {
     qualifiedColumn: "run_execution_contexts.execution_mode",
     contractSymbol: "ExecutionModeSchema",
@@ -636,7 +624,7 @@ const LOCKSTEP_ROWS: readonly LockstepRow[] = [
   },
 ];
 
-/** The four Plan-010 tables, in migration order (D-010-5). */
+/** The four tables, in migration order. */
 const EXPECTED_TABLE_NAMES: readonly string[] = [
   "worktrees",
   "ephemeral_clones",
@@ -645,11 +633,11 @@ const EXPECTED_TABLE_NAMES: readonly string[] = [
 ];
 
 /**
- * The two non-enum CHECKs: `branch_contexts`'s at-most-one-root clause
- * (I-010-5) and `run_execution_contexts`'s mode-conditional clause (D-010-5).
- * Their behavior is `migration-shape.test.ts`'s concern; what is pinned here
- * is that the extractor SEES them — a swallowed predicate would corrupt the
- * census that guards the four enum clauses.
+ * The two non-enum CHECKs: `branch_contexts`'s at-most-one-root clause and
+ * `run_execution_contexts`'s mode-conditional clause. Their behavior is
+ * `migration-shape.test.ts`'s concern; what is pinned here is that the
+ * extractor SEES them — a swallowed predicate would corrupt the census that
+ * guards the four enum clauses.
  */
 const EXPECTED_PREDICATE_TABLES: readonly string[] = ["branch_contexts", "run_execution_contexts"];
 
@@ -663,8 +651,7 @@ const EXPECTED_PREDICATE_TABLES: readonly string[] = ["branch_contexts", "run_ex
  * `migration-shape.test.ts` stays green — and it carries no `IN (`, so it
  * classifies as a predicate. Move its row from `LOCKSTEP_ROWS` into
  * `EXPECTED_PREDICATE_TABLES` and every derived count still agrees: total six,
- * both censuses three-vs-three. The `worktrees.state` contract-DDL pin, which
- * is the headline of I-010-2, is simply gone.
+ * both censuses three-vs-three.
  *
  * A hardcoded TOTAL would miss this identically — the absolute-vs-extraction
  * framing above is orthogonal to it. Only per-bucket literals catch it, and
@@ -686,7 +673,7 @@ function extractRatifiedMigration(): ExtractedMigration {
 // ---------------------------------------------------------------------------
 
 describe("0004-worktree-lifecycle CHECK extraction — fail-closed census", () => {
-  it("extracts exactly the four Plan-010 CREATE TABLE blocks, by name", () => {
+  it("extracts exactly the four CREATE TABLE blocks, by name", () => {
     // Names, not just a count: a rename would hold the count at four while
     // making every enum lookup for the old name miss.
     expect(extractRatifiedMigration().tableNames).toEqual(EXPECTED_TABLE_NAMES);
@@ -787,22 +774,18 @@ describe("0004-worktree-lifecycle CHECK extraction — fail-closed census", () =
 });
 
 // ---------------------------------------------------------------------------
-// The lockstep assertions (I-010-2)
 // ---------------------------------------------------------------------------
 
-describe("contract↔DDL lockstep (I-010-2)", () => {
+describe("contract↔DDL lockstep", () => {
   // THREE OF FOUR ARE ORDER-PINNED, one is not, and the `mode` column of
   // `LOCKSTEP_ROWS` carries the per-row reason at each row. The short version,
   // repeated here because this is where a reviewer comparing the test against
   // the plan's "literal sets" wording lands first:
   //
   //   * `worktrees.state`, `ephemeral_clones.cleanup_policy`,
-  //     `ephemeral_clones.state` -> SEQUENCE. Plan-010 owns both sides, and
+  //     `ephemeral_clones.state` -> SEQUENCE. owns both sides, and
   //     `worktree.ts` explicitly claims byte-for-byte order mirroring of these
   //     CHECK clauses. Set equality would leave that claim unchecked.
-  //   * `run_execution_contexts.execution_mode` -> SET. `ExecutionModeSchema`
-  //     is Plan-009-owned; ordering it would couple another plan's declaration
-  //     order to this plan's DDL.
   //
   // The plan's "sets" phrasing describes the goal, not the comparison
   // operator; the ownership split above is the reconciliation. Full argument
@@ -908,9 +891,7 @@ describe("mutation canaries — the tripwire can actually trip", () => {
   });
 
   it("set mode accepts a pure reorder but still rejects a membership change", () => {
-    // The deliberate asymmetry, executable. The execution-mode vocabulary is
-    // Plan-009-owned, so a reorder there is a non-event this test must NOT
-    // fail on — while a dropped or renamed member stays a hard failure.
+    // The deliberate asymmetry, executable.
     const ddlValues = ddlEnumVocabulary(
       extractRatifiedMigration(),
       "run_execution_contexts.execution_mode",

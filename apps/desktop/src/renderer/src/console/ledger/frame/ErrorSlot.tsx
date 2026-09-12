@@ -1,9 +1,8 @@
 // Error slots — ranked, per kind, so one failure never clobbers another's remedy.
 //
-// `Spec-023 §Meridian, the design language` rule 8 fixes what a failure looks like — an
-// _error_ is "a red-edged row with the code and the daemon's message text" — and rule 9
-// puts a refusal on the control that produced it. THE RANKING IS THIS MODULE'S, because
-// no committed document states it: every row group and every pane has an error boundary,
+// What a failure looks like is fixed — an _error_ is a red-edged row with the code and
+// the daemon's message text — and a refusal renders on the control that produced it.
+// THE RANKING IS THIS MODULE'S: every row group and every pane has an error boundary,
 // errors render in ranked per-kind slots so a transient error never clobbers a live
 // Retry, teardown reads are null-safe, and a row that fails projection renders red with
 // the failure named.

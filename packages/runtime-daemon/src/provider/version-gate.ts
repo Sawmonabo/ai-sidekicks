@@ -1,15 +1,15 @@
 // Provider version gate — spawn-time executable resolution, the in-band version
-// read, and the ratified floor gate (Plan-005 Phase 3, T3.23).
+// read, and the ratified floor gate.
 //
-// `Spec-005 §Required Behavior` (2026-08-26): "The version a driver reports is
-// the version that spawned." The driver RESOLVES the executable, SPAWNS it, and
-// READS the version in-band from the running process — never from a launcher
-// symlink and never from a `--version` shell-out. One reading then serves both
-// consumers: it is what the floor comparison compares, and it is what the run's
-// `runtime_bindings` row records (`cli_version_raw` / `cli_version_semver`, with
-// the resolved executable path on the daemon-owned `spawn_config` carrier). That
-// is why resolution, the read, and the compare live in ONE module: split across
-// three, they could describe three different installs.
+// "The version a driver reports is the version that spawned." The driver
+// RESOLVES the executable, SPAWNS it, and READS the version in-band from the
+// running process — never from a launcher symlink and never from a `--version`
+// shell-out. One reading then serves both consumers: it is what the floor
+// comparison compares, and it is what the run's `runtime_bindings` row records
+// (`cli_version_raw` / `cli_version_semver`, with the resolved executable path
+// on the daemon-owned `spawn_config` carrier). That is why resolution, the read,
+// and the compare live in ONE module: split across three, they could describe
+// three different installs.
 //
 // -- Why a launcher is not an acceptable version source ------------------------
 //
@@ -38,35 +38,24 @@
 // -- What this module deliberately does NOT own --------------------------------
 //
 //   * **The transport.** {@link ProviderVersionHandshake} is a REQUIRED injected
-//     seam with no default. Each driver's `lifecycle.ts` (T3.1 / T3.6) already
-//     owns how this daemon talks to a provider process; forking a second stdio
-//     JSON-RPC transport here would be a second, divergable answer to that one
-//     question. This module composes the spawn — the resolved path, the client
-//     name, and the auto-update-suppressed environment, all decided in ONE place
-//     — and adjudicates the reply; the seam's implementer executes it and owns
-//     its DEADLINE (`driver.timeout` is already registered, so no timeout is
-//     grown here).
+//     seam with no default. Each driver's `lifecycle.ts` already owns how this
+//     daemon talks to a provider process; forking a second stdio JSON-RPC
+//     transport here would be a second, divergable answer to that one question.
+//     This module composes the spawn — the resolved path, the client name, and
+//     the auto-update-suppressed environment, all decided in ONE place — and
+//     adjudicates the reply; the seam's implementer executes it and owns its
+//     DEADLINE (`driver.timeout` is already registered, so no timeout is grown
+//     here).
 //   * **The child-environment builder.** The provider-neutral builder every
-//     driver spawn flows through is `spawn-env.ts` (T3.25). Until it lands, the
-//     opt-out table below is the single source of truth for the suppression
-//     `Spec-005 §Required Behavior` mandates, and T3.25 CONSUMES it rather than
-//     restating it.
+//     driver spawn flows through is `spawn-env.ts`. Until it lands, the opt-out
+//     table below is the single source of truth for the suppression mandates,
+//     and CONSUMES it rather than restating it.
 //   * **The floor VALUES and the comparison.** Both stay in
-//     `./capability-refresh.js` (T3.12 / P0-2). This task re-points the SOURCE of
-//     the compared version, never the comparison — which is the whole of the
-//     version gate: at or above the floor a build attaches, above the measured
-//     pin included.
+//     `./capability-refresh.js`. This task re-points the SOURCE of the
+//     compared version, never the comparison — which is the whole of the version
+//     gate: at or above the floor a build attaches, above the measured pin
+//     included.
 //
-// Spec coverage: `Spec-005 §Required Behavior` (the ratified V1 floors Claude
-// Code `2.1.234` / codex-cli `0.141.0`; the floor-is-this-spec's /
-// pin-is-the-reference-family's split; the version a driver reports is the
-// version that spawned; provider auto-update disabled in every driver-spawned
-// child).
-//
-// Refs: Plan-005 §Phase 3 / T3.23, invariant I-005-10,
-// `docs/architecture/contracts/error-contracts.md §Driver`,
-// `docs/reference/provider-wire/claude.md`,
-// `docs/reference/provider-wire/codex.md`.
 
 import { constants as filesystemConstants } from "node:fs";
 import { access, realpath as realpathFromFilesystem, stat } from "node:fs/promises";
@@ -130,14 +119,13 @@ export function composeProviderChildEnvironment(
  * Thrown when the configured provider command names no executable this node can
  * run, or names one whose real path cannot be read.
  *
- * `code === "driver.unavailable"`
- * (`docs/architecture/contracts/error-contracts.md §Driver`, HTTP 503). NO code
- * is minted: the 2026-08-26 amendment mints none, and a provider binary that is
- * absent from the node IS the driver being unavailable. Co-located with the
- * throwing module and carrying its own `fields`, matching the sibling
- * `driver.unavailable` classes in `provider-registry.ts` and both drivers'
- * `lifecycle.ts` — the registry's variant is bound to registry LOOKUP
- * (`fields: { driverId }`) and would misdescribe a filesystem resolution.
+ * `code === "driver.unavailable"` (HTTP 503). NO code is minted: the 2026-08-26
+ * amendment mints none, and a provider binary that is absent from the node IS
+ * the driver being unavailable. Co-located with the throwing module and
+ * carrying its own `fields`, matching the sibling `driver.unavailable` classes
+ * in `provider-registry.ts` and both drivers' `lifecycle.ts` — the registry's
+ * variant is bound to registry LOOKUP (`fields: { driverId }`) and would
+ * misdescribe a filesystem resolution.
  *
  * `requestedCommand` is OPERATOR-CONFIGURED daemon input, not provider output,
  * so it rides `fields` verbatim under the same reasoning that lets the registry
@@ -253,8 +241,8 @@ function windowsCandidateNames(command: string, pathExtensions: readonly string[
 
 /**
  * Resolve a configured provider command to the exact build path this node will
- * spawn — `Spec-005 §Required Behavior`'s "resolving and spawning an exact build
- * path rather than a floating launcher".
+ * spawn — the "resolving and spawning an exact build path rather than a floating
+ * launcher".
  *
  * A command carrying a path separator is anchored (relative commands against
  * `workingDirectory`); a BARE command is searched along `PATH` in order, first
@@ -351,10 +339,7 @@ export async function resolveProviderExecutable(
 /**
  * The `clientInfo.name` the daemon supplies at the Codex `initialize` handshake.
  *
- * Constrained by `Spec-005 §Required Behavior`'s extraction rule: it must carry
- * no `/` and no whitespace, because it is the LEADING TOKEN of the composite
- * `userAgent` and the delimiter the provider's own version is read against. A
- * name carrying either would make the extraction ambiguous in the provider's
+ * A name carrying either would make the extraction ambiguous in the provider's
  * favour, which is the failure the rule exists to prevent.
  */
 export const DEFAULT_PROVIDER_VERSION_CLIENT_NAME: string = "ai-sidekicks-daemon";
@@ -422,7 +407,7 @@ export function extractClaudeReportedVersion(payload: unknown): string {
 
 /**
  * Extract the running build's version from a Codex `initialize` reply's
- * COMPOSITE `userAgent` (`Spec-005 §Required Behavior`, the stated rule).
+ * COMPOSITE `userAgent` (the stated rule).
  *
  * The rule, in the order it is applied — every step is load-bearing, because the
  * string carries the CALLER's own name and version too and a naive parse returns
@@ -492,11 +477,11 @@ export function extractCodexReportedVersion(payload: unknown, clientName: string
  * ONE spawned-build reading: which executable was resolved, and what the process
  * started at that path reported about itself.
  *
- * This is the value `Spec-005 §Required Behavior` means by "one reading serves
- * both consumers". It is threaded, never re-derived and never cached across
- * spawns: a refresh takes a NEW reading of the same install (that is what makes
- * a mid-lifetime replacement detectable), while a single spawn's capability
- * declaration and its `runtime_bindings` row must both come from the SAME value.
+ * This is the value means by "one reading serves both consumers". It is
+ * threaded, never re-derived and never cached across spawns: a refresh takes a
+ * NEW reading of the same install (that is what makes a mid-lifetime replacement
+ * detectable), while a single spawn's capability declaration and its
+ * `runtime_bindings` row must both come from the SAME value.
  */
 export interface SpawnedProviderVersionReading {
   readonly driverName: FlooredDriverName;
@@ -522,7 +507,7 @@ export interface SpawnedProviderVersionReadRequest {
 
 /**
  * Resolve, spawn, read in-band, and gate on the ratified floor — the whole of
- * T3.23's admission path, in the order the spec states it.
+ * the admission path, in the order the spec states it.
  *
  * ORDERING IS THE CONTRACT. The minimal version-handshake process IS permitted
  * to spawn on a below-floor build, because the version is read in-band FROM it;
@@ -580,8 +565,8 @@ export async function readSpawnedProviderVersion(
 /**
  * Project the reading onto the two `runtime_bindings` carriers, so the recorded
  * version and the recorded executable path can only ever come from ONE reading
- * (`Spec-005 §Required Behavior`: "the recorded version can never describe a
- * different install from the one that ran").
+ * ("the recorded version can never describe a different install from the one
+ * that ran").
  *
  * Consumed by the store's own `withSpawnedVersionCarriers`, which is where the
  * pair is merged into a create input — a caller that assembled the two members

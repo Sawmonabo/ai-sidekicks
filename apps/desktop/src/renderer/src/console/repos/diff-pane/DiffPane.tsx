@@ -25,7 +25,7 @@ import { type ConsoleDiffModel } from "./diff-model.js";
  * `PaneContextOf` is the seat's own narrowing rather than a second `Extract` written
  * here: one registry holds every kind and a body does not, so the narrowing is stated
  * once where the chrome states it. It is what makes `entity` required and its kind one
- * of the five a diff is opened over, by the compiler rather than by this file
+ * of the four a diff is opened over, by the compiler rather than by this file
  * remembering.
  */
 type DiffPaneContext = PaneContextOf<"diff">;
@@ -33,8 +33,8 @@ type DiffPaneContext = PaneContextOf<"diff">;
 /**
  * The entity kinds a diff can be a view of, READ OFF the address rather than listed.
  *
- * `Spec-023 §The surface set` gives the diff pane the sidebar card's own subject list
- * — a repo, workspace, worktree, invite, or member — and `seats/pane/pane-address.ts` is
+ * The diff pane takes the sidebar card's own subject list — a repo, workspace,
+ * worktree, or the user — and `seats/pane/pane-address.ts` is
  * where that list is declared. Deriving it means a kind added there fails to compile
  * in the table below until this family has said what that subject's changes render.
  */
@@ -49,13 +49,13 @@ type DiffSubjectKind = DiffPaneContext["entity"]["kind"];
  * sentence says what that subject's changes would be and that nothing was asked, and
  * none of them renders blank.
  *
- * TWO OF THE FIVE CARRY A FORM UNDER THIS COPY and three do not, which is the mint's
+ * TWO OF THE FOUR CARRY A FORM UNDER THIS COPY and two do not, which is the mint's
  * own keying rather than a product choice: `DiffArtifactCreateRequest` is keyed by a
  * run or by a workspace, a worktree resolves to the run that provisioned it, and a
- * repository, an invitation and a member resolve to neither. For those three the copy
- * stands alone — what an invitation's or a member's changes MEAN is that family's
- * question and not this one's, and what this pane owes either of them is an honest
- * absence rather than an empty region.
+ * repository and the user row resolve to neither. For those two the copy stands
+ * alone — what a repository's or the user's changes MEAN is that family's question
+ * and not this one's, and what this pane owes either of them is an honest absence
+ * rather than an empty region.
  */
 const ABSENT_DIFF_COPY: Readonly<
   Record<DiffSubjectKind, { readonly title: string; readonly detail: string }>
@@ -75,10 +75,10 @@ const ABSENT_DIFF_COPY: Readonly<
     detail:
       "Changes belong to a checkout, and a repository can hold several. Nothing resolves this repository to the workspace a diff would be taken over on this build, so none has been requested — and the console is not reporting that this repository is unchanged.",
   },
-  participant: {
-    title: "A member's changes are not read here yet.",
+  user: {
+    title: "Your changes are not read here yet.",
     detail:
-      "A member's changes span every root they have worked in, and nothing on this build gathers them. Nothing has been requested, so the console is not reporting that this member has changed nothing.",
+      "Your changes span every root you have worked in, and nothing on this build gathers them. Nothing has been requested, so the console is not reporting that nothing has changed.",
   },
 };
 

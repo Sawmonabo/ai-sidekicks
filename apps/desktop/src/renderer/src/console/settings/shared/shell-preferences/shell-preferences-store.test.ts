@@ -32,7 +32,7 @@ const SCENARIO = unscriptedScenario("shell-preferences-test");
 /**
  * The carrier nobody has registered: both operations answer the port's own refusal.
  *
- * A stub COLLABORATOR, not a stand-in for the store: every assertion below drives the
+ * A stub OTHER_DEVICE, not a stand-in for the store: every assertion below drives the
  * real `ShellPreferenceStore`, and what is replaced is the wire it talks to, which is
  * the only part a unit test cannot have. The refusal is built by the shipped
  * `growthUnavailable` rather than written out here, so what the store is asserted

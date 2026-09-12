@@ -1,6 +1,6 @@
-// The mdast-to-React mapper — OWN-BUILD, per `Spec-023 §Console Libraries`.
+// The mdast-to-React mapper — own-built rather than taken from a library.
 //
-// Every AVOIDed library on that row (react-markdown, the rehype stack, markdown-it,
+// Every library considered and rejected (react-markdown, the rehype stack, markdown-it,
 // markdown-to-jsx, the Tailwind-styled streaming renderers) fails on the same axis: each
 // one either renders raw HTML by default or reaches it through a plugin, and each brings
 // its own class names into a design system that already has some. A mapper is a switch

@@ -37,8 +37,7 @@
 // workflows run pane's block carries its family's prefix, so this sheet's
 // `flex-direction: column` styles this family's controls and nothing else. NOTHING is
 // left of the coupling, so what holds these sheets here is the bundle measurement alone.
-// `apps/desktop/AGENTS.md` §Module shape is the rule that keeps a NEW one from landing
-// unnoticed.
+// The package's module-shape rule is what keeps a NEW one from landing unnoticed.
 
 import { type ConsolePaneRegistry } from "../seats/index.js";
 

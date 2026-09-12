@@ -2,9 +2,8 @@
 //
 // The registry answers in declaration order rather than registration order, so the
 // expected value is a fixed pair and not a set — and it is the whole claim: a family
-// that claimed a third kind would be widening a set `Spec-023 §Console Design
-// (Meridian)` closes, and one that claimed neither would leave the deck with two
-// kinds nothing mounts.
+// that claimed a third kind would be widening a closed set, and one that claimed
+// neither would leave the deck with two kinds nothing mounts.
 
 import { describe, expect, it } from "vitest";
 

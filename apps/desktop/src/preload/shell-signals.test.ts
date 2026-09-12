@@ -16,7 +16,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import { NotImplementedAtTier1Error, createTier1Bridge } from "@ai-sidekicks/contracts";
+import { NotImplementedError, createStubBridge } from "@ai-sidekicks/contracts";
 
 import { COMPOSER_FOCUS_REQUEST_CHANNEL } from "../shared/composer-chord.js";
 import { createShellSignals, type ShellSignalReceiver } from "./shell-signals.js";
@@ -106,7 +106,7 @@ describe("the bridge this preload composes", () => {
   it("serves the shell namespace from the relay rather than from the factory's default", () => {
     const probe = new ReceiverProbe();
     const askedForTheCaret = vi.fn();
-    const bridge = createTier1Bridge(createShellSignals(probe.receiver));
+    const bridge = createStubBridge(createShellSignals(probe.receiver));
 
     bridge.shell.subscribeToComposerFocusRequest(askedForTheCaret);
     probe.send(COMPOSER_FOCUS_REQUEST_CHANNEL);
@@ -118,8 +118,8 @@ describe("the bridge this preload composes", () => {
     // What the case above is worth. The factory's default REFUSES rather than
     // reporting nothing, so a preload that stopped passing the relay fails loudly at
     // the window's first subscription — not silently, for a session, on every ask.
-    expect(() => createTier1Bridge().shell.subscribeToComposerFocusRequest(vi.fn())).toThrow(
-      NotImplementedAtTier1Error,
+    expect(() => createStubBridge().shell.subscribeToComposerFocusRequest(vi.fn())).toThrow(
+      NotImplementedError,
     );
   });
 });

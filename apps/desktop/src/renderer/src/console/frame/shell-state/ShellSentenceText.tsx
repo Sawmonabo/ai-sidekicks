@@ -2,10 +2,9 @@
 //
 // `shell-sentences.ts` decides WHAT each sentence says and which of its parts are
 // values the shell reported; this decides how a part reaches the screen, and it makes
-// exactly one decision per kind. That split is the whole point of the model: a
-// sentence returned as a string has one way to carry a version — pasted into the prose
-// — and no element to hang `Spec-023 §Console Design (Meridian)` rule 4's mono
-// provenance signature on.
+// exactly one decision per kind. That split is the whole point of the model: a sentence
+// returned as a string has one way to carry a version — pasted into the prose — and no
+// element to hang the mono provenance signature on.
 //
 // IT FORMATS NOTHING ITSELF. A `figure` part is a byte-for-byte string the shell sent
 // and goes through `WireFigure` untouched; a `count` part is a quantity and goes

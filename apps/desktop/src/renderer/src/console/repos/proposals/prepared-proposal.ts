@@ -1,9 +1,9 @@
 // What a prepared proposal IS on the way to a git host, read as something the gate can
 // draw — and nothing else. No React, no calls, no eligibility.
 //
-// THIS SURFACE'S JOB, stated here because `Spec-023 §Console Design (Meridian)` puts a
-// surface's composition in the console's code: show exactly
-// what will be sent to the git host, and let a participant approve it before anything
+// THIS SURFACE'S JOB, stated here because a surface's composition lives in the
+// console's code: show exactly
+// what will be sent to the git host, and let a user approve it before anything
 // leaves the machine. Four of those words are decisions the gate must not make twice,
 // and they live in four modules beside each other rather than in one: this file owns
 // what a prepared proposal carries and how its untyped blob becomes display data;
@@ -16,7 +16,7 @@
 // no `gitflow` module: there is no `ChangeRequest` and no proposal type anywhere in the
 // workspace. So these are the shapes the SURFACE needs, derived from what this family
 // draws, exactly as `bridge/growth-port/growth-port.ts` derives its request and value types: they
-// are not a claim about the eventual wire, which `Spec-011` owns.
+// are not a claim about the eventual wire, which the gitflow contract owns.
 //
 // NO STACKED PROPOSALS. One cumulative proposal per run lineage is what
 // `ONE_CUMULATIVE_PROPOSAL_COPY` says out loud, and it is the whole of this module's

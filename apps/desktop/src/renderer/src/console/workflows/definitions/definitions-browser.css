@@ -4,8 +4,7 @@
  * Owned by `DefinitionsBrowser.tsx` and `WorkflowsBrowser.tsx`, and reached from
  * `workflows-surface-body.ts`, the destination chunk's own root: nothing reaches this
  * browser without crossing that `import()`, so its rules ride the chunk that draws them.
- * Meridian tokens only — `Spec-023 §Console Design (Meridian)` rules 3, 4 and 7 are
- * cited in place below.
+ * Meridian tokens only — design rules 3, 4 and 7 are cited in place below.
  */
 
 /*

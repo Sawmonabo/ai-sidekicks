@@ -12,15 +12,12 @@ This glossary covers the primary domain terms from `vision.md` and the canonical
 
 | Term | Definition |
 | --- | --- |
-| `Session` | The primary collaborative container for participants, runtime nodes, channels, agents, runs, queue items, repo mounts, artifacts, approvals, and invites. |
-| `Participant` | A session-scoped human actor with stable identity inside a session. |
-| `Membership` | The durable grant that allows a participant to belong to a session with specific roles and capabilities. |
-| `MembershipRole` | The canonical session role classification `owner`, `viewer`, `collaborator`, or `runtime contributor`. |
-| `JoinMode` | The invite-time membership entry mode `viewer`, `collaborator`, or `runtime contributor`. `owner` is not a normal join mode. |
-| `Presence` | The ephemeral connectivity and activity state for a participant or runtime node. |
-| `Invite` | A session-scoped request that can grant future membership when accepted. |
-| `RuntimeNode` | A machine-local execution authority contributed to a session by a participant. |
-| `Channel` | A communication surface inside a session where participants and agents exchange messages or coordination events. |
+| `Session` | The primary container for runtime nodes, channels, agents, runs, queue items, repo mounts, artifacts, and approvals, owned by one user. |
+| `User` | The account holder — the single human actor a session belongs to, with one stable identity across every device they connect from. |
+| `Device` | A connected client of that account — a phone, a laptop app, a second desktop. Shown on screen as **Linked Devices**. Defined in [User And Device Model](./user-and-device-model.md). |
+| `Presence` | The ephemeral liveness of one of the user's own devices or runtime nodes — which of them are currently reachable. It is never a roster of other people. |
+| `RuntimeNode` | The machine that executes a session's work, owned by the user. |
+| `Channel` | A communication surface inside a session where the user and agents, or agents and other agents, exchange messages or coordination events. |
 | `Agent` | A configured execution persona bound to a runtime node and used to perform runs. |
 | `Run` | A single execution episode performed by one agent inside one session. |
 | `RuntimeBinding` | An association between a `Run` and a specific provider driver instance. Fields: `driver_name`, `contract_version`, `resume_handle`, `runtime_metadata`. Persists recovery handles so a run can be resumed after interruption. Created by Plan-005 (provider driver contract), extended by Plan-015 for recovery. Stored in the `runtime_bindings` SQLite table. See [Spec-005](../specs/005-provider-driver-contract-and-capabilities.md) and [Spec-015](../specs/015-persistence-recovery-and-replay.md). |
@@ -30,7 +27,7 @@ This glossary covers the primary domain terms from `vision.md` and the canonical
 | `Workspace` | An execution context rooted at a directory or repository checkout and bound to a session. |
 | `Worktree` | An isolated checkout derived from a repository and typically used as the default write target for coding runs. |
 | `ExecutionMode` | The repo-bound run setup choice that determines whether execution is `read-only`, `branch`, `worktree`, or `ephemeral clone`. |
-| `Artifact` | An immutable output or record produced by a run, a participant, or the system. |
+| `Artifact` | An immutable output or record produced by a run, a user, or the system. |
 | `DiffArtifact` | An artifact that captures the change between two repository or workspace states. |
 | `Approval` | A durable decision record that resolves a gated request. |
 | `Workflow` | A reusable, versioned execution template that structures multi-phase work inside a session. |
@@ -39,7 +36,7 @@ This glossary covers the primary domain terms from `vision.md` and the canonical
 | `WorkflowRun` | A single execution instance of a specific `WorkflowVersion` within a session. |
 | `PhaseDefinition` | The static configuration inside a `WorkflowVersion` that describes one step in the workflow. |
 | `Gate` | A checkpoint between workflow phases that must resolve before the next phase can start. |
-| `local-only` | A visibility or operating constraint meaning the relevant session continuity, execution path, or artifact remains usable on one participant-owned local runtime node without requiring current control-plane-backed sharing. `local-only` is not a separate domain object or an alternate session model. |
+| `local-only` | A visibility or operating constraint meaning the relevant session continuity, execution path, or artifact remains usable on the user's own local runtime node without requiring current control-plane reachability. `local-only` is not a separate domain object or an alternate session model. |
 
 ## What This Is
 
@@ -59,9 +56,7 @@ This glossary is not a substitute for the detailed domain docs. Each term is def
 ## Relationships To Adjacent Concepts
 
 - `Session` is the top-level container.
-- `Participant`, `RuntimeNode`, `Channel`, `Agent`, `Run`, `QueueItem`, `RepoMount`, `Artifact`, `Approval`, `Invite`, and `Presence` are all session-scoped concepts.
-- `Membership` governs what a `Participant` can do in a `Session`.
-- `MembershipRole` describes durable session authority, while `JoinMode` is the invite-time path into that role model.
+- `RuntimeNode`, `Channel`, `Agent`, `Run`, `QueueItem`, `RepoMount`, `Artifact`, and `Approval` are all session-scoped concepts. `User`, `Device`, and `Presence` are account-scoped and appear inside a session by reference.
 - `Worktree` is a specialized repository execution surface inside a `Workspace`; it is not a synonym for `Workspace`.
 - `ExecutionMode` determines how a `Run` uses a repo-bound `Workspace`.
 - `Run` is an execution episode, while `Agent` is the reusable configured actor that performs runs.
@@ -76,12 +71,12 @@ The glossary is versioned through canonical doc updates. A term becomes stable o
 
 ## Example Flows
 
-- Example: A participant accepts an invite, gains membership in a session, contributes a runtime node, and starts an agent run in a worktree-bound workspace.
+- Example: The user opens a session from a linked device, the session binds to a runtime node, and an agent run starts in a worktree-bound workspace.
 - Example: A queued follow-up becomes a `QueueItem`, an operator issues an `Intervention` to reprioritize it, and the resulting run publishes a `DiffArtifact` that later requires an `Approval`.
 
 ## Edge Cases
 
-- A participant may have active presence in a session without contributing a runtime node.
+- A device may be live in a session before any runtime node is attached to it.
 - A session may exist without active runs.
 - A workspace may exist without a git worktree if the execution root is a plain directory, but a coding workspace defaults to worktree-backed behavior when the repo supports it.
 

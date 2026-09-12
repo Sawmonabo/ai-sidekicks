@@ -1,12 +1,11 @@
 // What finishing means, stated plainly — including finishing with nothing set up.
 //
-// OFFERED, NEVER DEMANDED. `Spec-026 §Provider Authentication (Group B)` makes zero
-// registered accounts a legitimate terminal: "a node whose operator skipped this is a
-// fully onboarded node that cannot yet start a provider run". So this summary does
-// not warn, does not block, and does not colour anything for attention. It names
-// which providers are not ready and says exactly what the first run against one of
-// them will do — refuse, with a typed refusal carrying the same remedy this step
-// showed — because that is the consequence a person is accepting.
+// OFFERED, NEVER DEMANDED. Zero registered accounts is a legitimate terminal: a node
+// whose operator skipped this is a fully onboarded node that cannot yet start a provider
+// run. So this summary does not warn, does not block, and does not colour anything for
+// attention. It names which providers are not ready and says exactly what the first run
+// against one of them will do — refuse, with a typed refusal carrying the same remedy
+// this step showed — because that is the consequence a person is accepting.
 //
 // AND IT NAMES THEM RATHER THAN COUNTING THEM. "Two providers are not ready" is a
 // sentence a person cannot act on; the provider names are what they take away.
@@ -25,8 +24,8 @@
 // AND AN ACT THAT HAS HAPPENED IS NOT OFFERED AGAIN. The same value carries the other
 // end: once the daemon's own read reports this node set up, the footer renders a
 // terminal and no control. The summary above it stays, because what a person leaves
-// with is which providers are not ready — that is the whole of `Spec-026`'s completion
-// posture, and it is as true after finishing as it was before.
+// with is which providers are not ready — that is the whole of the completion posture,
+// and it is as true after finishing as it was before.
 
 import { WireFigure } from "../primitives/index.js";
 import { ZERO_ACCOUNTS_NOTE } from "./provider-readiness/provider-readiness-copy.js";
@@ -49,8 +48,8 @@ export interface CompletionSummaryProps {
    *
    * ON THE SETTLED ARM there is no control at all — this node is already recorded as
    * set up, and an act that has happened is not one to offer again. What stays on
-   * screen is the provider standing, which is what `Spec-026 §Provider Authentication
-   * (Group B)` requires a person to leave the flow knowing.
+   * screen is the provider standing, which is what a person has to leave the flow
+   * knowing.
    */
   readonly standing: OnboardingCompletionStanding;
   readonly isFinishing: boolean;

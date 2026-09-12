@@ -117,7 +117,7 @@ describe("the window a capture opens", () => {
         { width: 1440, height: 1028 },
         { width: 1440, height: 1092 },
         [64, 64],
-        "collaboration-sessions-light",
+        "sessions-light",
       ),
     ).toStrictEqual({ kind: "grows-with-its-window", overhangPx: 64 });
   });
@@ -132,7 +132,7 @@ describe("the window a capture opens", () => {
         { width: 1440, height: 1100 },
         { width: 1440, height: 1236 },
         [64, 100],
-        "collaboration-settings-dark",
+        "settings-dark",
       ),
     ).toStrictEqual({ kind: "grows-with-its-window", overhangPx: 136 });
   });
@@ -190,7 +190,7 @@ describe("the window a capture opens", () => {
         { width: 1440, height: 2900 },
         { width: 1440, height: 4900 },
         [2000, 2000],
-        "collaboration-sessions-dark",
+        "sessions-dark",
       ),
     ).toStrictEqual({ kind: "grows-with-its-window", overhangPx: 2000 });
   });

@@ -1,7 +1,7 @@
 // The browser family's row in the composer's `+` menu.
 //
-// `Spec-023 §Console Design (Meridian)` 12.1 names three open paths that do not begin
-// in the deck's own pane gallery, and this is the one a person reaches from the
+// Three open paths do not begin in the deck's own pane gallery, and this is the one a
+// person reaches from the
 // composer: attach the page a browser pane is showing to the conversation they are
 // writing in. The other two — detaching the view, and revealing a page's local file —
 // are the pane's own controls, and the timeline's path-link affordance is a third that
@@ -23,11 +23,11 @@
 // page VIEW, is the pane lifecycle's call and has been since `view-binding.ts` took it,
 // and answers with the page it created — then discard that answer and report `attached`.
 // Nothing reached the conversation, and the pane it was aimed at was left holding a
-// second view. What a conversation can be handed is settled by the corpus and not by
-// this family: `Spec-014 §Required Behavior` types an attachment reference as artifact
-// ids and forbids the untyped `SteerPayload.attachments` arm, and no operation anywhere
-// hands a conversation a live page reference. `browserCapture` is the browser's own
-// entry into that same ingest pipeline — 12.6's "a capture lands as an artifact" — so
+// second view. What a conversation can be handed is not this family's to decide: an
+// attachment reference is typed as artifact ids, the untyped `SteerPayload.attachments`
+// arm is forbidden, and no operation anywhere hands a conversation a live page
+// reference. `browserCapture` is the browser's own entry into that same ingest
+// pipeline — a capture lands as an artifact — so
 // the entry captures the focused pane's page and hands back what the pipeline minted.
 //
 // WHICH ALSO SETTLES WHY IT ASKS FOR NO PAGE IDENTITY. The capture is addressed to the

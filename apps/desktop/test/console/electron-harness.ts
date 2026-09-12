@@ -23,7 +23,7 @@
 // and quits before opening a window, which would surface here as a timeout with no
 // error. Every launch therefore gets its own `--user-data-dir` under the system
 // temporary directory (`launch-profile.ts`), removed as part of the close. This is
-// the same defect and the same fix the Tier-1 smoke test records; the mechanism is
+// the same defect and the same fix the smoke test records; the mechanism is
 // restated rather than imported because that test owns a spawn-and-parse-stdout
 // probe, not a driven window.
 //
@@ -32,7 +32,7 @@
 // A CI runner without a display server needs an X server. `_electron.launch`
 // takes an executable path rather than a shell command, so a per-spawn
 // `xvfb-run` wrapper is not available the way it is for the smoke test's
-// `spawn` — and it is not wanted either: the tier-1 job stands one Xvfb up for
+// `spawn` — and it is not wanted either: the `test-node22` job stands one Xvfb up for
 // the whole run and exports `$DISPLAY` to every later step, which both tiers
 // inherit through `process.env`. They run in the aggregate `test` script's last
 // group and in that job's desktop step, both on the fixture build.

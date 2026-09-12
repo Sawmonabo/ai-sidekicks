@@ -108,7 +108,7 @@ describe("the address union, at a typed call site", () => {
 });
 
 /** The four kinds the design track enumerates as sidebar cards. */
-const SIDEBAR_CARD_ENTITY_KINDS = ["participant", "workspace", "worktree", "repo"] as const;
+const SIDEBAR_CARD_ENTITY_KINDS = ["user", "workspace", "worktree", "repo"] as const;
 
 describe("the inspector, over the entities the spec routes to it", () => {
   it("parses an inspector address for every entity kind the spec names", () => {
@@ -173,11 +173,11 @@ describe("the diff pane, over the entities whose changes the spec routes to it",
     const repoDiff: AddressArm<"diff"> = { kind: "diff", entity: { kind: "repo", id: "repo-1" } };
     const memberDiff: AddressArm<"diff"> = {
       kind: "diff",
-      entity: { kind: "participant", id: "participant-1" },
+      entity: { kind: "user", id: "user-1" },
     };
 
     expect(repoDiff.entity.kind).toBe("repo");
-    expect(memberDiff.entity.kind).toBe("participant");
+    expect(memberDiff.entity.kind).toBe("user");
   });
 
   it("reads the same list as the inspector, because it is the same sentence", () => {

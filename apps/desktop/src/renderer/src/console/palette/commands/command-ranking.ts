@@ -1,12 +1,12 @@
 // The ranking — how a query becomes rows, and what order rows come back in.
 //
-// `Spec-023 §Console Design (Meridian)` §Layout grammar names "one matcher shared
-// with settings search". `scoreSubsequence` is that matcher, imported rather than
-// re-implemented; this module is the POLICY above it — which of a command's three
-// text fields a hit is worth most on, what recency is worth, and the total order
-// two results are put in. It is separated from `command-registry.ts` because the
-// registry is a store with an identity rule and this is a pure function of a
-// command list, a query, and a recents list: no state, nothing to own.
+// The console names one matcher shared with settings search. `scoreSubsequence`
+// is that matcher, imported rather than re-implemented; this module is the POLICY
+// above it — which of a command's three text fields a hit is worth most on, what
+// recency is worth, and the total order two results are put in. It is separated
+// from `command-registry.ts` because the registry is a store with an identity
+// rule and this is a pure function of a command list, a query, and a recents
+// list: no state, nothing to own.
 //
 // The `ConsoleCommand` type ranked here is declared in `command-registry.ts`, the
 // module that holds one. The import below is type-only and erased, so the runtime

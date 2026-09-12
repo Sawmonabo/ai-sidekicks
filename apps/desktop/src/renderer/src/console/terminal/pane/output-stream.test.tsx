@@ -154,7 +154,7 @@ describe("terminal pane — the output reading belongs to the shell it was read 
     });
 
     const second = new SessionStore({ sessionId: "session-another-shell" });
-    second.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    second.initialise({ cursor: 0, entities: [], userJoinLog: [] });
     rerender(<TerminalPane {...terminalPaneContext(second, rejecting)} />);
 
     expect(outputRefusal(region())).toBeNull();

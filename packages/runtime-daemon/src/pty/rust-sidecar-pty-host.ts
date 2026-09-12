@@ -3,14 +3,13 @@
 // Why this exists
 // ---------------
 //
-// Plan-024 ships two backends behind the `PtyHost` interface published
-// from `@ai-sidekicks/contracts`: an in-process `node-pty` wrapper
-// (Phase 2, primary on macOS/Linux, fallback on Windows) and this
+// Ships two backends behind the `PtyHost` interface published from
+// `@ai-sidekicks/contracts`: an in-process `node-pty` wrapper (Phase
+// 2, primary on macOS/Linux, fallback on Windows) and this
 // out-of-process Rust sidecar binary marshalled over Content-Length
 // framing on the binary's stdio (Phase 3, primary on Windows once the
-// Phase 5 selector default-flip lands). ADR-019 §Decision item 1
-// names the sidecar as the structural fix for the `node-pty` ConPTY
-// bug cluster (`microsoft/node-pty#904`, `microsoft/node-pty#887`,
+// Phase 5 selector default-flip lands). `node-pty` ConPTY bug cluster
+// (`microsoft/node-pty#904`, `microsoft/node-pty#887`,
 // `microsoft/node-pty#894`, `openai/codex#13973`); the daemon-side
 // surface here is the supervision + framing layer that translates
 // between the `PtyHost` runtime API and the sidecar's wire envelope.
@@ -20,27 +19,25 @@
 //
 // Three load-bearing concerns:
 //
-//   1. `Content-Length` framing. The sidecar speaks LSP-style
-//      `Content-Length: N\r\n\r\n<body>` on stdin/stdout per ADR-009.
-//      We build a minimal local framer here rather than reaching for
-//      the contracts package's `jsonrpc-streaming.ts` (which contains
-//      only subscription/notification types — confirmed via grep) OR
-//      the runtime-daemon's `local-ipc-gateway.ts::parseFrame` (which
-//      DOES implement the LSP grammar but is hardened for the
-//      network-peer trust posture: 1024-byte header-section cap,
-//      structured `FramingError.code` taxonomy, oversized-body skip-
-//      and-resync). Reaching for the gateway framer here would import
-//      a network-peer-grade framer onto a local-trusted-child boundary
-//      — overweight surface and a bidirectional dependency we do not
+//   1. The sidecar speaks LSP-style `Content-Length: N\r\n\r\n<body>`
+//      on stdin/stdout. We build a minimal local framer here rather
+//      than reaching for the contracts package's
+//      `jsonrpc-streaming.ts` (which contains only
+//      subscription/notification types — confirmed via grep) OR the
+//      runtime-daemon's `local-ipc-gateway.ts::parseFrame` (which DOES
+//      implement the LSP grammar but is hardened for the network-peer
+//      trust posture: 1024-byte header-section cap, structured
+//      `FramingError.code` taxonomy, oversized-body skip- and-resync).
+//      Reaching for the gateway framer here would import a
+//      network-peer-grade framer onto a local-trusted-child boundary —
+//      overweight surface and a bidirectional dependency we do not
 //      need. The Rust side has `framing.rs`; this is its TS sibling.
 //      Schema parity is hand-maintained on each side (no code-gen in
-//      V1 — Plan-024 §Implementation Step 3). A future hardening pass
-//      may add a header-section cap symmetric to the body cap; tracked
-//      as a follow-up.
+//      V1). A future hardening pass may add a header-section cap
+//      symmetric to the body cap; tracked as a follow-up.
 //
-//   2. Crash-respawn supervision with a sliding-window budget. ADR-019
-//      §Failure Mode Analysis row "Sidecar binary missing on user
-//      machine" + Plan-024 §F-024-3-05 specify a "5 failures per 60s"
+//   2. Crash-respawn supervision with a sliding-window budget.
+//      "Sidecar binary missing on user machine" + "5 failures per 60s"
 //      budget after which `PtyBackendUnavailable` is surfaced to the
 //      consumer rather than spinning up an indefinite respawn loop.
 //      The budget is implemented as a sliding window (per-crash
@@ -65,12 +62,8 @@
 // (defaults wire to `child_process.spawn`, `process.hrtime.bigint`,
 // real `setTimeout`); tests inject `vi.fn()` doubles so the supervisor
 // can be exercised without a real binary, real OS-level processes, or
-// wall-clock waits. Mirrors the `NodePtyHostDeps` pattern from
-// T-024-2-2.
+// wall-clock waits. Mirrors the `NodePtyHostDeps` pattern.
 //
-// Refs: Plan-024 §Implementation Step 7 + §F-024-3-02 + §F-024-3-05;
-// ADR-019 §Decision item 1 + §Failure Mode Analysis;
-// ADR-009 §Decision (Content-Length framing).
 
 import { Buffer } from "node:buffer";
 import type { ChildProcessWithoutNullStreams, SpawnOptions } from "node:child_process";
@@ -108,11 +101,11 @@ import { defaultSpawnTaskkill, type TaskkillResult } from "./taskkill-windows.js
  * `instanceof PtyBackendUnavailableError` to recover the structured
  * `details` payload.
  *
- * `code` is fixed to `PTY_BACKEND_UNAVAILABLE_CODE` per Plan-024
- * §F-024-3-02; the literal value is asserted by the contracts-side
- * Zod schema so wire-side parity is enforced when this error is
- * serialized for IPC propagation (e.g., across the daemon ↔ control-
- * plane boundary in later plans).
+ * `code` is fixed to `PTY_BACKEND_UNAVAILABLE_CODE` the literal
+ * value is asserted by the contracts-side Zod schema so wire-side
+ * parity is enforced when this error is serialized for IPC
+ * propagation (e.g., across the daemon ↔ control- plane boundary in
+ * later plans).
  */
 export class PtyBackendUnavailableError extends Error {
   public readonly code: typeof PTY_BACKEND_UNAVAILABLE_CODE = PTY_BACKEND_UNAVAILABLE_CODE;
@@ -170,9 +163,6 @@ export class PtyBackendUnavailableError extends Error {
  * `cause` chains errors with another `Error`/`unknown`; our field is a
  * compile-time string discriminator).
  *
- * Refs: Plan-024 §T-024-3-1 (RustSidecarPtyHost crash-respawn
- * supervision per F-024-3-05); ADR-019 §Failure Mode Analysis
- * (sidecar-originated Sev-1 / binary-missing → fallback chain).
  * Payload-decode corruption is treated as a fatal supervisor event
  * symmetric in shape with framing-error teardown (see
  * drainParserUntilIncomplete).
@@ -256,9 +246,7 @@ export type SidecarSpawnFn = (
 export interface RustSidecarPtyHostDeps {
   /**
    * Resolves the sidecar binary path. Defaults to
-   * `resolveSidecarBinaryPath`, the four-tier resolver per Plan-024
-   * §F-024-3-03 (env-var override → published platform package →
-   * workspace release-build → workspace debug-build).
+   * `resolveSidecarBinaryPath`, the four-step resolver.
    *
    * Tests inject a fixed-string returner (e.g. `() => "/fake/sidecar"`)
    * to keep the supervisor exercise hermetic. The factory's
@@ -300,7 +288,6 @@ export interface RustSidecarPtyHostDeps {
 }
 
 /**
- * Sliding-window crash budget (per Plan-024 §F-024-3-05 + Pin 5).
  *
  * Fixed: 5 crashes within a rolling 60-second window. Implemented via
  * a `number[]` of crash timestamps (ms); each new crash records its
@@ -315,8 +302,8 @@ export interface RustSidecarPtyHostDeps {
  *
  * Constants:
  *
- *   - `CRASH_BUDGET_WINDOW_MS = 60_000` (60 seconds per Plan-024)
- *   - `CRASH_BUDGET_LIMIT     = 5`      (5 crashes per Plan-024)
+ *   - `CRASH_BUDGET_WINDOW_MS = 60_000` (60 seconds)
+ *   - `CRASH_BUDGET_LIMIT = 5` (5 crashes)
  *
  * These are deliberately not configurable at construction — the values
  * are policy from the plan, and exposing knobs would invite
@@ -326,7 +313,7 @@ export const CRASH_BUDGET_WINDOW_MS = 60_000;
 export const CRASH_BUDGET_LIMIT = 5;
 
 /**
- * Pre-spawn event buffer caps (Plan-024 §I-024-6).
+ * Pre-spawn event buffer caps.
  *
  * `RustSidecarPtyHost` buffers inbound `DataFrame` / `ExitCodeNotification`
  * envelopes that arrive on the wire BEFORE the matching `SpawnResponse`
@@ -344,16 +331,12 @@ export const CRASH_BUDGET_LIMIT = 5;
  * exposing knobs would invite per-deployment tuning that drifts from
  * the contract.
  *
- * Per-session data-chunk cap × per-chunk wire-size (≤ 8 KiB, the
- * sidecar's stdout/stderr reader pump chunk size per Plan-024
- * §T-024-1-4) × stale-session cap = worst-case ~32 MiB pre-spawn
- * buffer footprint per supervisor lifetime.
  */
 export const MAX_PRE_SPAWN_DATA_CHUNKS_PER_SESSION = 64;
 export const MAX_PRE_SPAWN_BUFFERED_SESSIONS = 64;
 
 /**
- * Closed-session-id retention cap with FIFO eviction (Plan-024 §I-024-6).
+ * Closed-session-id retention cap with FIFO eviction.
  *
  * Tracks `session_id`s removed from `sessions` by `close()` (or by the
  * fan-out paths' lifecycle equivalents) so a late `ExitCodeNotification`
@@ -376,9 +359,9 @@ export const MAX_CLOSED_SESSION_IDS = 10_000;
 // --------------------------------------------------------------------------
 
 /**
- * Four-tier sidecar binary resolver per Plan-024 §F-024-3-03.
+ * Four-step sidecar binary resolver.
  *
- * Resolution order — first hit wins; later tiers are NOT consulted:
+ * Resolution order — first hit wins; later steps are NOT consulted:
  *
  *   1. Env-var `AIS_PTY_SIDECAR_BIN` (absolute path; trumps everything;
  *      lets developers point at a hand-built binary; CI custom-path
@@ -405,13 +388,13 @@ export const MAX_CLOSED_SESSION_IDS = 10_000;
  *      iteration when a contributor has only run `cargo build` (the
  *      default debug profile is faster to compile but slower to run).
  *
- * On all four exhausted, throws `PtyBackendUnavailableError` per Plan-
- * 024 §F-024-3-02 + ADR-019 §Failure Mode "Sidecar binary missing on
- * user machine"; the daemon-layer caller (`PtyHostSelector`) converts
- * the throw to a `PtyBackendUnavailable` wire payload that downstream
- * UIs render as the "no PTY backend available" diagnostic banner.
+ * On all four exhausted, throws `PtyBackendUnavailableError` for the
+ * "sidecar binary missing on this machine" case; the daemon-layer
+ * caller (`PtyHostSelector`) converts the throw to a
+ * `PtyBackendUnavailable` wire payload that downstream UIs render as
+ * the "no PTY backend available" diagnostic banner.
  *
- * **Path-resolution anchor.** Tier 3/4 paths are resolved relative to
+ * **Path-resolution anchor.** Step 3/4 paths are resolved relative to
  * THIS file's location via `import.meta.url`, NOT `process.cwd()`. The
  * file lives at `packages/runtime-daemon/src/pty/rust-sidecar-pty-host.ts`
  * during dev (`vitest`-loaded `src/`) and at
@@ -422,20 +405,19 @@ export const MAX_CLOSED_SESSION_IDS = 10_000;
  * could be spawned from any directory) — same footgun as the relative-
  * env-var case.
  *
- * **Windows `.exe` suffix.** F-024-3-03's spec text reads `target/
- * release/sidecar` literally, but ADR-019 §Decision item 1 names
- * Windows as the primary target — the actual built binary is
+ * **Windows `.exe` suffix.** the spec text reads `target/
+ * release/sidecar` literally, but — the actual built binary is
  * `sidecar.exe` on Windows. We probe `${name}.exe` on `process.platform
  * === "win32"` and `${name}` elsewhere. Without the suffix the
- * resolver would deterministically miss tiers 2/3/4 on Windows even
+ * resolver would deterministically miss steps 2/3/4 on Windows even
  * when the binary exists on disk — defeats the entire failure-mode
  * mitigation on the platform that needs it most.
  *
  * **Effectful primitives are injectable.** `env`, `nodeRequire`, and
  * `existsSync` are constructor-injected with production defaults
  * (`process.env`, `module.createRequire(import.meta.url)`,
- * `node:fs.existsSync`). Tests pass `vi.fn()` doubles and assert tier
- * ordering by counting calls — when tier 1 hits, the `nodeRequire`
+ * `node:fs.existsSync`). Tests pass `vi.fn()` doubles and assert step
+ * ordering by counting calls — when step 1 hits, the `nodeRequire`
  * mock has zero invocations.
  *
  * Bracket notation on `process.env` is required by this repo's tsconfig
@@ -448,19 +430,19 @@ export const MAX_CLOSED_SESSION_IDS = 10_000;
  * Production callers pass nothing and the resolver wires to real
  * primitives (`process.env`, `module.createRequire(import.meta.url)`,
  * `node:fs.existsSync`). Tests pass mock doubles to drive the
- * four-tier ordering deterministically.
+ * four-step ordering deterministically.
  */
 export interface ResolveSidecarBinaryPathOptions {
   /**
    * Environment-variable provider. Defaults to `process.env`. Tests
    * pass an empty object (or one carrying a stubbed
-   * `AIS_PTY_SIDECAR_BIN`) to drive the tier-1 branch in isolation.
+   * `AIS_PTY_SIDECAR_BIN`) to drive the step-1 branch in isolation.
    */
   readonly env?: NodeJS.ProcessEnv;
   /**
    * Node `require` for `require.resolve` lookups. Defaults to a
    * `createRequire(import.meta.url)`-derived require. Tests inject a
-   * `vi.fn()` returning a fake path or throwing to drive the tier-2
+   * `vi.fn()` returning a fake path or throwing to drive the step-2
    * branch in isolation.
    *
    * Typed as a callable rather than the full `NodeRequire` interface
@@ -471,11 +453,11 @@ export interface ResolveSidecarBinaryPathOptions {
   /**
    * Filesystem-existence probe. Defaults to `node:fs.existsSync`.
    * Tests pass a `vi.fn()` returning true/false per path to drive the
-   * tier-3 / tier-4 branches in isolation.
+   * step-3 / step-4 branches in isolation.
    */
   readonly existsSync?: (path: string) => boolean;
   /**
-   * Override for the workspace release-build path probed by tier 3.
+   * Override for the workspace release-build path probed by step 3.
    * Tests use this to inject deterministic paths instead of relying
    * on the `import.meta.url` arithmetic. Production callers pass
    * nothing and the resolver computes the path via the four-up ascent
@@ -483,7 +465,7 @@ export interface ResolveSidecarBinaryPathOptions {
    */
   readonly releasePath?: string;
   /**
-   * Override for the workspace debug-build path probed by tier 4.
+   * Override for the workspace debug-build path probed by step 4.
    * Same rationale as `releasePath`.
    */
   readonly debugPath?: string;
@@ -497,24 +479,23 @@ export interface ResolveSidecarBinaryPathOptions {
 }
 
 /**
- * Per-tier diagnostic record — captured during resolution and folded
- * into the four-exhausted error message so operators see WHICH tiers
+ * Per-step diagnostic record — captured during resolution and folded
+ * into the four-exhausted error message so operators see WHICH steps
  * were tried and HOW each one failed (not just "binary not found").
  */
-interface TierAttempt {
-  readonly tier: 1 | 2 | 3 | 4;
+interface ResolutionAttempt {
+  readonly step: 1 | 2 | 3 | 4;
   readonly description: string;
   readonly outcome: string;
 }
 
 /**
- * Compute the published-platform-package id for tier 2.
+ * Compute the published-platform-package id for step 2.
  *
- * Format per F-024-3-03: `@ai-sidekicks/pty-sidecar-${platform}-${arch}/
- * bin/${binaryName}`. The spec text reads `/bin/sidecar` literally, but
- * the actual binary file shipped in the platform package on Windows is
- * `sidecar.exe` — `binaryName` carries the platform-correct suffix
- * (computed by `platformBinaryName`).
+ * The spec text reads `/bin/sidecar` literally, but the actual binary
+ * file shipped in the platform package on Windows is `sidecar.exe` —
+ * `binaryName` carries the platform-correct suffix (computed by
+ * `platformBinaryName`).
  *
  * Exposed as a separate function so the test surface can pin the id
  * format without reaching into the resolver internals.
@@ -529,7 +510,7 @@ function publishedPackageIdFor(
 
 /**
  * Append `.exe` on Windows; return as-is elsewhere. Centralized here
- * so the four-tier resolver and any future probe sites use the same
+ * so the four-step resolver and any future probe sites use the same
  * platform suffix logic.
  */
 function platformBinaryName(base: string, platform: NodeJS.Platform): string {
@@ -537,7 +518,7 @@ function platformBinaryName(base: string, platform: NodeJS.Platform): string {
 }
 
 /**
- * Resolve the workspace dev-build path (tier 3 / tier 4) relative to
+ * Resolve the workspace dev-build path (step 3 / step 4) relative to
  * THIS file's location via `import.meta.url`. See the rustdoc on
  * `resolveSidecarBinaryPath` for the four-up ascent rationale.
  *
@@ -570,13 +551,13 @@ export function resolveSidecarBinaryPath(opts?: ResolveSidecarBinaryPathOptions)
   const platform: NodeJS.Platform = opts?.platform ?? process.platform;
   const binaryName: string = platformBinaryName("sidecar", platform);
 
-  const attempts: TierAttempt[] = [];
+  const attempts: ResolutionAttempt[] = [];
 
-  // ---- Tier 1: env-var override -----------------------------------------
+  // ---- Step 1: env-var override -----------------------------------------
   const fromEnv: string | undefined = env["AIS_PTY_SIDECAR_BIN"];
   if (fromEnv === undefined || fromEnv.length === 0) {
     attempts.push({
-      tier: 1,
+      step: 1,
       description: "env-var AIS_PTY_SIDECAR_BIN",
       outcome: "unset",
     });
@@ -585,9 +566,9 @@ export function resolveSidecarBinaryPath(opts?: ResolveSidecarBinaryPathOptions)
     // attempt as a hard failure (not just "miss") because the operator
     // explicitly tried to use this slot and got it wrong; the
     // diagnostic naming the rejected value is more useful than a
-    // silent fall-through to tier 2.
+    // silent fall-through to step 2.
     attempts.push({
-      tier: 1,
+      step: 1,
       description: "env-var AIS_PTY_SIDECAR_BIN",
       outcome: `rejected (relative path; absolute required): ${JSON.stringify(fromEnv)}`,
     });
@@ -600,7 +581,7 @@ export function resolveSidecarBinaryPath(opts?: ResolveSidecarBinaryPathOptions)
     // diagnostic shape as the relative-path branch above so the
     // operator sees the exact value they typed wrong.
     attempts.push({
-      tier: 1,
+      step: 1,
       description: "env-var AIS_PTY_SIDECAR_BIN",
       outcome: `rejected (path does not exist): ${JSON.stringify(fromEnv)}`,
     });
@@ -608,69 +589,69 @@ export function resolveSidecarBinaryPath(opts?: ResolveSidecarBinaryPathOptions)
     return fromEnv;
   }
 
-  // ---- Tier 2: published platform package -------------------------------
+  // ---- Step 2: published platform package -------------------------------
   const arch: string = process.arch;
   const publishedId: string = publishedPackageIdFor(platform, arch, binaryName);
-  // `tier2Cause` is captured for inclusion in `details.cause` on the
+  // `step2Cause` is captured for inclusion in `details.cause` on the
   // four-exhausted throw path (closest production-path miss). It stays
   // `unknown` rather than `Error | undefined` because Node's
   // `require.resolve` is documented to throw `Error`-shaped values but
   // the type system surface returns `unknown` from the catch block; we
   // preserve that shape for downstream consumers.
-  let tier2Cause: unknown;
+  let step2Cause: unknown;
   try {
     const resolved: string = nodeRequire.resolve(publishedId);
     return resolved;
   } catch (err: unknown) {
-    tier2Cause = err;
+    step2Cause = err;
     attempts.push({
-      tier: 2,
+      step: 2,
       description: `require.resolve(${JSON.stringify(publishedId)})`,
       outcome: `threw: ${err instanceof Error ? err.message : String(err)}`,
     });
   }
 
-  // ---- Tier 3: workspace release-build ----------------------------------
+  // ---- Step 3: workspace release-build ----------------------------------
   const releasePath: string = opts?.releasePath ?? workspaceTargetPath("release", binaryName);
   if (existsSync(releasePath)) {
     return releasePath;
   }
   attempts.push({
-    tier: 3,
+    step: 3,
     description: `packages/sidecar-rust-pty/target/release/${binaryName}`,
     outcome: `not found at ${releasePath}`,
   });
 
-  // ---- Tier 4: workspace debug-build ------------------------------------
+  // ---- Step 4: workspace debug-build ------------------------------------
   const debugPath: string = opts?.debugPath ?? workspaceTargetPath("debug", binaryName);
   if (existsSync(debugPath)) {
     return debugPath;
   }
   attempts.push({
-    tier: 4,
+    step: 4,
     description: `packages/sidecar-rust-pty/target/debug/${binaryName}`,
     outcome: `not found at ${debugPath}`,
   });
 
   // ---- Four-exhausted: surface PtyBackendUnavailableError ---------------
   //
-  // Enumerate every tier failure in `details.message`; carry the tier-2
+  // Enumerate every step failure in `details.message`; carry the step-2
   // `require.resolve` error in `details.cause` because that is the
-  // closest production-path miss (tier 1 is a developer-explicit
-  // override; tiers 3/4 are workspace dev paths). The `PtyBackend
+  // closest production-path miss (step 1 is a developer-explicit
+  // override; steps 3/4 are workspace dev paths). The `PtyBackend
   // UnavailableDetails.cause` field is `unknown` per the contract,
   // so consumers MUST render it opaquely.
   const enumerated: string = attempts
-    .map((a) => `  tier ${a.tier} (${a.description}): ${a.outcome}`)
+    .map((a) => `  step ${a.step} (${a.description}): ${a.outcome}`)
     .join("\n");
   const details: PtyBackendUnavailableDetails =
-    tier2Cause !== undefined
-      ? { attemptedBackend: "rust-sidecar", cause: tier2Cause }
+    step2Cause !== undefined
+      ? { attemptedBackend: "rust-sidecar", cause: step2Cause }
       : { attemptedBackend: "rust-sidecar" };
   throw new PtyBackendUnavailableError(
     details,
-    `RustSidecarPtyHost: sidecar binary not found on any of the four resolution tiers ` +
-      `(per Plan-024 §F-024-3-03). Attempts:\n${enumerated}\n` +
+    `RustSidecarPtyHost: sidecar binary not found on any of the four resolution steps ` +
+      `. Attempts:\n${enumerated}\n` +
       `Set AIS_PTY_SIDECAR_BIN=<absolute path> to override, or install the ` +
       `published @ai-sidekicks/pty-sidecar package, or run \`cargo build --release\` ` +
       `inside packages/sidecar-rust-pty/.`,
@@ -738,7 +719,7 @@ function resolveDefaultDeps(partial: Partial<RustSidecarPtyHostDeps>): ResolvedD
 }
 
 // --------------------------------------------------------------------------
-// Content-Length framer (LSP-style — ADR-009 parity)
+// Content-Length framer (LSP-style — parity)
 // --------------------------------------------------------------------------
 //
 // Build a minimal local framer here per Pin 4 — the contracts package's
@@ -770,8 +751,7 @@ export const MAX_FRAME_BODY_BYTES: number = 8 * 1024 * 1024;
  * Without this cap, a peer (or a desync condition) that never delivers
  * `\r\n\r\n` would pin the accumulator buffer indefinitely as `feed()`
  * concatenates unboundedly — an in-flight OOM surface symmetric to the
- * body-length cap above. Refs: Plan-024 §T-024-3-1 (framer hardening
- * symmetric with body-length defense); ADR-009 (Content-Length framing).
+ * body-length cap above..
  */
 export const MAX_HEADER_BYTES: number = 1024;
 
@@ -784,16 +764,15 @@ export const MAX_HEADER_BYTES: number = 1024;
  * decoding so any divergence from canonical base64 reroutes through the
  * fatal decode-error teardown path (`failFatallyOnDecodeError`).
  *
- * Accepts canonical RFC 4648 §4 base64 ONLY:
+ * Accepts canonical RFC 4648 section 4 base64 ONLY:
  *   - Alphabet: A-Z a-z 0-9 + /
  *   - Padding: zero, one, or two trailing `=` characters
  *   - Length: must be a multiple of 4
  *
- * Does NOT accept URL-safe base64 (`-`/`_` substitutions), embedded
- * whitespace, or lone `=` characters — the Rust sidecar always emits
- * canonical RFC 4648 §4 base64 via `base64::engine::general_purpose::STANDARD`
- * (verified via grep of the Rust sidecar), so any deviation is a decode
- * error. Refs: Plan-024 §T-024-3-1; ADR-009 (data-frame payload contract).
+ * Does NOT accept URL-safe base64 (`-`/`_` substitutions), embedded whitespace, or
+ * lone `=` characters — the Rust sidecar always emits canonical RFC 4648 section 4
+ * base64 via `base64::engine::general_purpose::STANDARD` (verified via grep of the
+ * Rust sidecar), so any deviation is a decode error..
  */
 const BASE64_PATTERN: RegExp = /^[A-Za-z0-9+/]*={0,2}$/;
 
@@ -896,7 +875,7 @@ export class ContentLengthParser {
     for (const line of lines) {
       const colonIdx: number = line.indexOf(":");
       if (colonIdx === -1) {
-        // A header line without `:` is malformed per ADR-009. Reject.
+        // A header line without `:` is malformed.
         return {
           kind: "error",
           message: `header line missing ':' separator: ${JSON.stringify(line)}`,
@@ -924,7 +903,7 @@ export class ContentLengthParser {
         // https://doc.rust-lang.org/std/primitive.usize.html#method.from_str_radix.
         //
         // The daemon-side regex rejects `+N` to align with HTTP/1.1
-        // RFC 7230 §3.3.2 (`Content-Length = 1*DIGIT` — no sign
+        // RFC 7230 section 3.3.2 (`Content-Length = 1*DIGIT` — no sign
         // permitted; https://datatracker.ietf.org/doc/html/rfc7230#section-3.3.2)
         // and as defense-in-depth against a hypothetical future
         // relay attacker that funnels untrusted bytes through the
@@ -1036,13 +1015,13 @@ interface SessionRecord {
  * Outstanding-request entry — a Promise resolver waiting for a typed
  * response envelope from the sidecar.
  *
- * The dispatcher loop ahead of T-024-3-1 (the Rust side) does NOT
- * carry a request-id at the wire level; correlation is sequential per
- * kind. This supervisor matches incoming responses against the
- * head-of-FIFO outstanding entry of the matching response kind, which
- * is sufficient because requests of a given kind are issued
- * sequentially from the daemon (the `PtyHost` contract is per-method
- * Promise-returning; callers `await` before issuing the next request).
+ * The dispatcher loop ahead of does NOT carry a request-id at the wire
+ * level; correlation is sequential per kind. This supervisor matches
+ * incoming responses against the head-of-FIFO outstanding entry of the
+ * matching response kind, which is sufficient because requests of a
+ * given kind are issued sequentially from the daemon (the `PtyHost`
+ * contract is per-method Promise-returning; callers `await` before
+ * issuing the next request).
  *
  * Enforcing per-method serialization at the daemon side keeps the
  * wire-level correlation simple and avoids adding a request-id field
@@ -1058,8 +1037,7 @@ interface OutstandingRequest {
  * Crash-respawn policy state — sliding-window timestamps of recorded
  * sidecar crashes.
  *
- * Per Plan-024 §F-024-3-05 + Pin 5: 5 failures per 60s sliding window;
- * exhausting the budget surfaces `PtyBackendUnavailable` to the next
+ * Exhausting the budget surfaces `PtyBackendUnavailable` to the next
  * caller.
  */
 class CrashBudget {
@@ -1118,11 +1096,8 @@ class CrashBudget {
  * `PtyBackendUnavailableError`.
  *
  * **Lifecycle stub note.** This class supplies the daemon-side
- * primitives (`spawn`/`resize`/`write`/`kill`/`close`) that I-024-4
- * (sidecar-cleanup-handler-before-Electron-will-quit) consumes. The
- * will-quit registration itself is owned by Plan-001 CP-001-1; this
- * class does NOT hook into Electron — it just exposes the methods
- * Plan-001's cleanup handler calls into.
+ * primitives (`spawn`/`resize`/`write`/`kill`/`close`) that
+ * consumes.
  */
 export class RustSidecarPtyHost implements PtyHost {
   private readonly deps: ResolvedDeps;
@@ -1177,7 +1152,7 @@ export class RustSidecarPtyHost implements PtyHost {
   /** Per-session state table keyed by sidecar-minted `s-{n}` ids. */
   private readonly sessions: Map<string, SessionRecord> = new Map();
 
-  /** Crash-respawn budget — sliding window per Plan-024 §F-024-3-05. */
+  /** Crash-respawn budget — sliding window. */
   private readonly crashBudget: CrashBudget;
 
   /**
@@ -1195,12 +1170,12 @@ export class RustSidecarPtyHost implements PtyHost {
    *
    * Distinct from `permanentlyUnavailable` (which signals budget
    * exhaustion as a fatal failure mode) — `shuttingDown` signals a
-   * deliberate termination requested by the lifecycle layer (Plan-001
-   * CP-001-1). Both flags are terminal: the host instance is single-
-   * use post-shutdown per the `PtyHost.shutdown` contract surface, and
-   * `ensureChild` returns the matching `PtyBackendUnavailableError` to
-   * any concurrent `spawn()` call that would otherwise race the
-   * sidecar wind-down.
+   * deliberate termination requested by the lifecycle layer. Both
+   * flags are terminal: the host instance is single- use post-shutdown
+   * per the `PtyHost.shutdown` contract surface, and `ensureChild`
+   * returns the matching `PtyBackendUnavailableError` to any
+   * concurrent `spawn()` call that would otherwise race the sidecar
+   * wind-down.
    */
   private shuttingDown = false;
 
@@ -1248,8 +1223,7 @@ export class RustSidecarPtyHost implements PtyHost {
    * child is still alive). Cleared in `attachChildListeners` when a
    * fresh child is wired up.
    *
-   * Drives the Codex P2 fix on PR #83 thread
-   * `PRRT_kwDOSCycWc6DZ8wD`: `drainSidecarHost`'s early-return at the
+   * Drives the drain-result fix: `drainSidecarHost`'s early-return at the
    * `this.child === null` guard previously reported
    * `sidecarExitedCleanly: true` for two distinct host states — (a)
    * a host that never spawned a child (vacuously clean), and (b) a
@@ -1282,7 +1256,7 @@ export class RustSidecarPtyHost implements PtyHost {
    * caller is already awaiting. Cleared in a `.finally()` so the next
    * call after success (short-circuits on `this.child !== null`) or
    * failure (retries via the crash-budget semantics) re-enters
-   * cleanly. (Plan-024, T-024-3-1.)
+   * cleanly.
    */
   private inflightSpawn: Promise<void> | null = null;
 
@@ -1343,11 +1317,7 @@ export class RustSidecarPtyHost implements PtyHost {
    *
    * Refs: This is a LOCAL class invariant — the outstanding-Promise
    * FIFO + single-source teardown chain are guarded only on the
-   * active-child exit/error path. See SidecarFrameDecodeError class
-   * rustdoc and handleChildExit rustdoc for the broader supervisor
-   * semantics; Plan-024 §T-024-3-1 governs the crash-respawn
-   * supervision; ADR-019 §Failure Mode Analysis governs the
-   * sidecar-originated failure → fallback chain.
+   * active-child exit/error path.
    */
   private pendingTeardownCause: Error | null = null;
 
@@ -1359,7 +1329,6 @@ export class RustSidecarPtyHost implements PtyHost {
     undefined;
 
   /**
-   * Pre-spawn `DataFrame` buffer (Plan-024 §I-024-6).
    *
    * Holds decoded `Uint8Array` chunks for a `session_id` whose
    * `SpawnResponse` has not yet been received. Drains on the matching
@@ -1374,7 +1343,6 @@ export class RustSidecarPtyHost implements PtyHost {
   private readonly pendingDataFrames: Map<string, Uint8Array[]> = new Map();
 
   /**
-   * Pre-spawn `ExitCodeNotification` buffer (Plan-024 §I-024-6).
    *
    * Holds at most one notification per `session_id` (the sidecar's
    * exactly-once-per-session exit contract). Drains on the matching
@@ -1384,7 +1352,6 @@ export class RustSidecarPtyHost implements PtyHost {
   private readonly pendingExits: Map<string, ExitCodeNotification> = new Map();
 
   /**
-   * Closed-session-id tracker (Plan-024 §I-024-6).
    *
    * `close(sessionId)` removes the session record from `sessions` AND
    * adds the id here so a late inbound `ExitCodeNotification` /
@@ -1436,15 +1403,13 @@ export class RustSidecarPtyHost implements PtyHost {
     // select! can pick outbound_tx first) would observe
     // sessions.has(id) === false and be silently dropped if
     // registration waited for this post-await body to resume.
-    // See `resolveOutstanding` for the in-band registration site.
-    // (Plan-024 §T-024-3-1.)
     //
     // The symmetric case where DataFrame / ExitCodeNotification
     // arrives on the wire BEFORE the SpawnResponse (same race source,
     // earlier wire offset) is covered by the pre-spawn buffer at
     // `pendingDataFrames` + `pendingExits` — frames for an unknown
     // session_id route into the buffer and drain after registration
-    // via `replayPreSpawnEvents`. (Plan-024 §I-024-6.)
+    // via `replayPreSpawnEvents`.
     const response = await this.sendRequest(spec, "spawn_response");
     if (response.kind !== "spawn_response") {
       throw new Error(`RustSidecarPtyHost.spawn: unexpected response kind ${response.kind}`);
@@ -1477,7 +1442,7 @@ export class RustSidecarPtyHost implements PtyHost {
       throw new Error(`RustSidecarPtyHost.write: unknown sessionId '${sessionId}'`);
     }
     await this.ensureChild();
-    // Encode bytes as base64 per F-024-1-01 (sidecar protocol).
+    // Encode bytes as base64.
     const base64: string = Buffer.from(bytes).toString("base64");
     await this.sendRequest(
       { kind: "write_request", session_id: sessionId, bytes: base64 },
@@ -1512,14 +1477,14 @@ export class RustSidecarPtyHost implements PtyHost {
     // the id in `closedSessionIds` so that any `ExitCodeNotification`
     // / `DataFrame` arriving during the await falls into the
     // closed-session suppression branch of `handleExitNotification` /
-    // `handleEnvelope` rather than the pre-spawn buffer branch (per
-    // Plan-024 §I-024-6). This matches the post-`close()`
-    // onExit-suppression contract — `NodePtyHost` achieves the same
-    // suppression by disposing its `child.onExit` subscription BEFORE
-    // the kill dispatch (see `node-pty-host.ts:619-626` + `640-644`).
-    // The kind-keyed `outstanding` queue still correlates the
-    // `kill_response` independent of the session record, so the wire
-    // reply still resolves `close()` cleanly.
+    // `handleEnvelope` rather than the pre-spawn buffer branch. This
+    // matches the post-`close()` onExit-suppression contract —
+    // `NodePtyHost` achieves the same suppression by disposing its
+    // `child.onExit` subscription BEFORE the kill dispatch (see
+    // `node-pty-host.ts:619-626` + `640-644`). The kind-keyed
+    // `outstanding` queue still correlates the `kill_response`
+    // independent of the session record, so the wire reply still
+    // resolves `close()` cleanly.
     const record: SessionRecord | undefined = this.sessions.get(sessionId);
     if (record === undefined) {
       // Idempotent close on an unknown session — not an error per the
@@ -1548,12 +1513,9 @@ export class RustSidecarPtyHost implements PtyHost {
    * Drain every active session and wind down the sidecar process in
    * preparation for desktop-shell termination.
    *
-   * Per the `PtyHost.shutdown` contract surface, this is the
-   * polymorphic counterpart to `close(sessionId)` for the lifecycle
-   * level above the per-session axis. Plan-001 §CP-001-1 wires this
-   * into `apps/desktop/src/main/sidecar-lifecycle.ts` before any
-   * Electron `app.on('will-quit', ...)` registration so the FIFO
-   * registration-order invariant (I-024-4) holds.
+   * `apps/desktop/src/main/sidecar-lifecycle.ts` before any
+   * Electron `app.on('will-quit',...)` registration so the FIFO
+   * registration-order invariant holds.
    *
    * Shutdown sequence:
    *   1. Flip `shuttingDown` at entry — `ensureChild` refuses new
@@ -1590,8 +1552,7 @@ export class RustSidecarPtyHost implements PtyHost {
     }
     // Non-async wrapper so a second call returns the SAME Promise
     // identity (an `async` wrapper would wrap the memoized inner
-    // Promise in a fresh outer Promise on each invocation — see
-    // Plan-001 §CP-001-1 re-entrancy clause).
+    // Promise in a fresh outer Promise on each invocation).
     this.shutdownPromise = this.runShutdown(options);
     return this.shutdownPromise;
   }
@@ -1668,8 +1629,7 @@ export class RustSidecarPtyHost implements PtyHost {
       // `ExitCodeNotification`, so a wedged sidecar (process alive, IPC
       // handler unresponsive) cannot stall the drain.
       //
-      // Wedge-scenario bug pin (Codex P1 on commit b3c984e, PR #83
-      // discussion r3271742909): the prior shape awaited `sendRequest`
+      // Wedge-scenario bug pin: the prior shape awaited `sendRequest`
       // BEFORE arming the timer. If `kill_response` never arrived (and
       // `sendRequest` did not reject — e.g., the sidecar process was
       // alive but the IPC dispatcher loop was wedged), the per-session
@@ -1833,12 +1793,11 @@ export class RustSidecarPtyHost implements PtyHost {
     if (child === null) {
       // No active sidecar — either never spawned (vacuously clean) or
       // the child exited during the per-session drain loop (crashed-
-      // before-drain, NOT clean). Codex P2 fix on PR #83 thread
-      // `PRRT_kwDOSCycWc6DZ8wD`: the prior shape unconditionally
+      // before-drain, NOT clean). The prior shape unconditionally
       // reported `sidecarExitedCleanly: true` here, hiding a real
       // crash from the DrainResult — desktop quit telemetry consumes
-      // this field per Plan-001 §CP-001-1, so a vacuous false-positive
-      // misreports a crashed sidecar as a clean shutdown.
+      // this field so a vacuous false-positive misreports a crashed
+      // sidecar as a clean shutdown.
       //
       // `childExitedBeforeDrain` is the signal-channel:
       //   * false → vacuous-no-spawn (or no exit observed during the
@@ -1900,8 +1859,7 @@ export class RustSidecarPtyHost implements PtyHost {
     // cannot translate kills internally, so the daemon MUST drive the
     // tree-walk here.
     //
-    // Platform branching is mandatory (Plan-024 §I-024-2 + Plan-001
-    // §CP-001-1):
+    // Platform branching is mandatory:
     //
     //   * Windows: invoke `taskkill /T /F /PID <sidecar-pid>` so the
     //     ToolHelp32 enumeration walks every descendant (PTY workers
@@ -1925,7 +1883,7 @@ export class RustSidecarPtyHost implements PtyHost {
     //     `child.kill("SIGKILL")` is structurally sufficient on POSIX
     //     for this reason.
     //
-    // Best-effort throughout: I-024-2 "MUST NOT block"; the 5 s
+    // Best-effort throughout: "MUST NOT block"; the 5 s
     // wall-clock bound on the Windows path enforces this even if
     // `taskkill.exe` stalls.
     await this.escalateHardKillTree(child);
@@ -1937,41 +1895,40 @@ export class RustSidecarPtyHost implements PtyHost {
    *
    * Platform-branched:
    *
-   *   * Windows: invokes `this.deps.spawnTaskkill(pid)` (the
-   *     `taskkill /T /F /PID` substrate at `./taskkill-windows.ts`),
-   *     bounded by 5 s wall-clock to satisfy I-024-2's "MUST NOT
-   *     block" floor. Mirrors `NodePtyHost.invokeTaskkill`'s race
-   *     shape (fire-and-forget the inner promise, race against a
-   *     native `setTimeout` — tests under `vi.useFakeTimers()`
-   *     intercept the native timer so the 5 s bound is observable
-   *     without wall-clock waits). A guard at `child.pid === undefined`
-   *     (pre-spawn race) falls through to single-PID `child.kill`
-   *     because we have no pid to hand to `taskkill`.
+   *   * Windows: invokes `this.deps.spawnTaskkill(pid)` (the `taskkill
+   *     /T /F /PID` substrate at `./taskkill-windows.ts`), bounded by 5
+   *     s wall-clock to satisfy the "MUST NOT block" floor. Mirrors
+   *     `NodePtyHost.invokeTaskkill`'s race shape (fire-and-forget the
+   *     inner promise, race against a native `setTimeout` — tests under
+   *     `vi.useFakeTimers()` intercept the native timer so the 5 s
+   *     bound is observable without wall-clock waits). A guard at
+   *     `child.pid === undefined` (pre-spawn race) falls through to
+   *     single-PID `child.kill` because we have no pid to hand to
+   *     `taskkill`.
    *
    *   * POSIX: best-effort `child.kill("SIGKILL")`. Descendant cleanup
    *     is kernel-driven via PTY-master FD closure → SIGHUP to PTY
    *     foreground PGs, per the rationale in `drainSidecarHost` above.
    *
-   * Errors are swallowed throughout (best-effort escalation per
-   * I-024-2). The caller returns `taskkillEscalated: true` regardless
-   * of the OS-level outcome so consumers can detect the non-graceful
+   * Errors are swallowed throughout (best-effort escalation). The
+   * caller returns `taskkillEscalated: true` regardless of the
+   * OS-level outcome so consumers can detect the non-graceful
    * shutdown path.
    */
   private async escalateHardKillTree(child: SidecarChildProcess): Promise<void> {
     if (this.deps.platform === "win32" && child.pid !== undefined) {
       const pid: number = child.pid;
       const spawnTaskkill = this.deps.spawnTaskkill;
-      // Wall-clock-bound `spawnTaskkill` so a stuck OS-level operation
-      // cannot hang the drain — the exact failure mode I-024-2
-      // forbids. 5 s is comfortably longer than realistic `taskkill`
-      // latency on a healthy Windows box (sub-second) and far shorter
-      // than "indefinitely". Native `setTimeout` (not an injected
-      // timer dep) matches the rest of `drainSidecarHost` (L1828) so
-      // tests under `vi.useFakeTimers()` advance both the host
+      // Wall-clock-bound `spawnTaskkill` so a stuck OS-level operation cannot
+      // hang the drain — the exact failure mode forbids. 5 s is comfortably
+      // longer than realistic `taskkill` latency on a healthy Windows box
+      // (sub-second) and far shorter than "indefinitely". Native `setTimeout`
+      // (not an injected timer dep) matches the rest of `drainSidecarHost`
+      // (L1828) so tests under `vi.useFakeTimers()` advance both the host
       // timeout and this bound through the same `vi.advanceTimersByTimeAsync`
-      // mechanism. If the inner timer wins, we proceed to return as
-      // normal — the OS-level reap is left to the operating system to
-      // clean up (best-effort).
+      // mechanism. If the inner timer wins, we proceed to return as normal —
+      // the OS-level reap is left to the operating system to clean up
+      // (best-effort).
       await new Promise<void>((resolve) => {
         let settled = false;
         const fallbackHandle = setTimeout(() => {
@@ -1997,13 +1954,13 @@ export class RustSidecarPtyHost implements PtyHost {
           try {
             await spawnTaskkill(pid);
           } catch (err: unknown) {
-            // Swallow — per I-024-2 we MUST NOT hang the drain even
-            // if reaping is incomplete (OS-level taskkill failures
-            // must not block). The outer fallback timer is a defense-
-            // in-depth backstop for the case where the promise itself
-            // never settles (kernel deadlock, suspended process, OS
-            // bug); a thrown rejection still reaches this catch and
-            // resolves the outer Promise on time.
+            // Swallow — we MUST NOT hang the drain even if reaping is
+            // incomplete (OS-level taskkill failures must not block).
+            // The outer fallback timer is a defense- in-depth
+            // backstop for the case where the promise itself never
+            // settles (kernel deadlock, suspended process, OS bug); a
+            // thrown rejection still reaches this catch and resolves
+            // the outer Promise on time.
             //
             // Surface the cause so a recurring failure (misconfigured
             // PATH, AV-blocked taskkill.exe, etc.) is observable.
@@ -2011,7 +1968,7 @@ export class RustSidecarPtyHost implements PtyHost {
             // logger surfaces in the runtime-daemon.
             console.warn(
               `RustSidecarPtyHost: escalateHardKillTree: spawnTaskkill rejected for ` +
-                `sidecar pid=${pid}; drain will continue per I-024-2.`,
+                `sidecar pid=${pid}; drain will continue.`,
               { cause: err },
             );
           }
@@ -2104,13 +2061,12 @@ export class RustSidecarPtyHost implements PtyHost {
       );
     }
     if (this.shuttingDown) {
-      // Plan-001 §CP-001-1 sidecar-lifecycle drain: once `shutdown()`
-      // has flipped this flag, the host is terminal — refuse new
-      // spawn paths so a concurrent `spawn()` cannot race the drain
-      // by re-spawning the sidecar mid-wind-down. The `PtyHost.shutdown`
-      // contract surface declares the host single-use post-shutdown;
-      // consumers MUST re-create a fresh host if a new session is
-      // needed after shutdown.
+      // `shutdown()` has flipped this flag, the host is terminal —
+      // refuse new spawn paths so a concurrent `spawn()` cannot race the
+      // drain by re-spawning the sidecar mid-wind-down. The
+      // `PtyHost.shutdown` contract surface declares the host single-use
+      // post-shutdown; consumers MUST re-create a fresh host if a new
+      // session is needed after shutdown.
       throw new PtyBackendUnavailableError(
         { attemptedBackend: "rust-sidecar" },
         "RustSidecarPtyHost: shutdown() in progress or complete; " +
@@ -2122,7 +2078,7 @@ export class RustSidecarPtyHost implements PtyHost {
     }
     // Concurrent cold-start callers share the same in-flight spawn
     // attempt — see the `inflightSpawn` field rustdoc for the race
-    // shape this closes (Plan-024, T-024-3-1).
+    // shape this closes.
     if (this.inflightSpawn !== null) {
       return this.inflightSpawn;
     }
@@ -2162,14 +2118,14 @@ export class RustSidecarPtyHost implements PtyHost {
           //
           // **Preserve the inner error if it's already a
           // `PtyBackendUnavailableError`.** The default resolver
-          // (`resolveSidecarBinaryPath`) emits a tier-enumerated message
-          // and a tier-2 `details.cause` on the four-exhausted path —
+          // (`resolveSidecarBinaryPath`) emits a step-enumerated message
+          // and a step-2 `details.cause` on the four-exhausted path —
           // wrapping that in a NEW outer error with the generic
           // "failed to resolve sidecar binary path" message would bury
           // the operator-grade diagnostic two levels deep in
           // `details.cause.message` + `details.cause.details.cause`.
           // Mirror the `pty-host-selector.ts:251` re-throw guard so the
-          // original tier enumeration surfaces unchanged. Tests +
+          // original step enumeration surfaces unchanged. Tests +
           // ad-hoc resolvers that throw plain `Error` still take the
           // wrap branch (preserving the prior behavior for them).
           if (err instanceof PtyBackendUnavailableError) {
@@ -2228,8 +2184,7 @@ export class RustSidecarPtyHost implements PtyHost {
    * spawn failed). Treated identically to a crash.
    */
   private attachChildListeners(child: SidecarChildProcess): void {
-    // P2 #2 (Codex PR #83 thread `PRRT_kwDOSCycWc6DZ8wD`): reset the
-    // child-exited-before-drain flag whenever we wire up a fresh
+    // Reset the child-exited-before-drain flag whenever we wire up a fresh
     // child. The supervisor's crash-respawn flow drives this: when a
     // child crashes and `ensureChild` later spawns a replacement,
     // `attachChildListeners` runs on the new child — the new child
@@ -2239,23 +2194,22 @@ export class RustSidecarPtyHost implements PtyHost {
     // is per-active-child state, not per-host-instance state.
     this.childExitedBeforeDrain = false;
 
-    // Stdin/stdout/stderr async errors (ERR_STREAM_DESTROYED / EPIPE /
-    // EIO) bypass any synchronous try/catch on the call site — Node's
-    // `Writable.write` throws synchronously only for misuse (encoding
-    // errors, write-after-end). The common broken-pipe failure modes
-    // fire as async `'error'` events on the stream objects. Without
-    // per-pipe listeners these escalate to `uncaughtException` and
-    // crash the daemon. Logging + SIGTERM triggers the existing
-    // `handleChildExit` path which already runs `rejectAllOutstanding`
-    // — that's the load-bearing cleanup; the listener's jobs are just
-    // (a) consume the error event, (b) ensure the child exits so the
-    // existing cleanup runs. The `child.on('error', ...)` listener
-    // attached at the bottom of this function catches errors on the
-    // child PROCESS (spawn failures), NOT pipe-level errors on the
-    // three stream objects. SIGTERM (not SIGKILL) matches the
-    // `close()` flow's escalation discipline — `drainParserUntilIncomplete`'s
-    // SIGKILL is intentional asymmetry for unrecoverable protocol
-    // corruption, which does not apply here. (Plan-024, T-024-3-1.)
+    // Stdin/stdout/stderr async errors (ERR_STREAM_DESTROYED / EPIPE / EIO)
+    // bypass any synchronous try/catch on the call site — Node's
+    // `Writable.write` throws synchronously only for misuse (encoding errors,
+    // write-after-end). The common broken-pipe failure modes fire as async
+    // `'error'` events on the stream objects. Without per-pipe listeners
+    // these escalate to `uncaughtException` and crash the daemon. Logging +
+    // SIGTERM triggers the existing `handleChildExit` path which already runs
+    // `rejectAllOutstanding` — that's the load-bearing cleanup; the
+    // listener's jobs are just (a) consume the error event, (b) ensure the
+    // child exits so the existing cleanup runs. The `child.on('error',...)`
+    // listener attached at the bottom of this function catches errors on the
+    // child PROCESS (spawn failures), NOT pipe-level errors on the three
+    // stream objects. SIGTERM (not SIGKILL) matches the `close()` flow's
+    // escalation discipline — `drainParserUntilIncomplete`'s SIGKILL is
+    // intentional asymmetry for unrecoverable protocol corruption, which does
+    // not apply here.
     const pipeErrorHandler =
       (which: "stdin" | "stdout" | "stderr") =>
       (err: Error): void => {
@@ -2420,7 +2374,6 @@ export class RustSidecarPtyHost implements PtyHost {
 
     switch (envelope.kind) {
       case "data_frame": {
-        // Three branches per Plan-024 §I-024-6:
         //
         //   1. Known + alive (`sessions.has(id)`): decode + fire onData.
         //      Mirrors `node-pty-host.ts`'s active-subscription dispatch.
@@ -2450,7 +2403,7 @@ export class RustSidecarPtyHost implements PtyHost {
         // "base64")` is permissive — invalid characters are silently
         // dropped — so the malformed payload would otherwise be
         // delivered as a corrupted byte stream with no decode-error
-        // signal. Route any divergence from canonical RFC 4648 §4
+        // signal. Route any divergence from canonical RFC 4648 section 4
         // base64 through the same fatal teardown path used for JSON-
         // decode failures above (symmetric in shape with json-parse,
         // non-object-envelope, and unknown-kind teardowns).
@@ -2543,9 +2496,6 @@ export class RustSidecarPtyHost implements PtyHost {
         // logs; the non-string branch is fixed-enum `typeof` output
         // and is safe to interpolate verbatim.
         //
-        // Refs: Plan-024 §T-024-3-1 (RustSidecarPtyHost crash-respawn
-        // supervision per F-024-3-05); ADR-019 §Failure Mode Analysis
-        // (sidecar-originated failure → fallback chain).
         const rawKind: unknown = (envelope as { kind?: unknown }).kind;
         const unknownKind: string =
           typeof rawKind === "string" ? JSON.stringify(rawKind) : `<non-string:${typeof rawKind}>`;
@@ -2569,8 +2519,6 @@ export class RustSidecarPtyHost implements PtyHost {
 
   /**
    * Handle an inbound `ExitCodeNotification`.
-   *
-   * Four branches per Plan-024 §I-024-6:
    *
    * - **Known session, no cached exitCode:** cache the exit code on
    *   the session record and fire the exit listener. The record is
@@ -2613,9 +2561,8 @@ export class RustSidecarPtyHost implements PtyHost {
       record.exitCode = notification.exit_code;
       record.signalCode = notification.signal_code ?? undefined;
       this.fireExit(notification.session_id, notification.exit_code, record.signalCode);
-      // Plan-001 §CP-001-1 sidecar-lifecycle drain: tick any active
-      // shutdown waiter for this session so `drainSingleSession`
-      // resolves once the real exit has been observed and dispatched.
+      // `drainSingleSession` resolves once the real exit has been
+      // observed and dispatched.
       this.notifyShutdownWaiter(notification.session_id);
       return;
     }
@@ -2650,25 +2597,25 @@ export class RustSidecarPtyHost implements PtyHost {
    * reject its promise.
    *
    * **Error-response branch.** `SpawnResponse` / `ResizeResponse` /
-   * `WriteResponse` / `KillResponse` all carry an optional
-   * `error?: string` per the Plan-024 contract. When `error` is
-   * present the sidecar's handler failed (most often `UnknownSession`
-   * for a request that lost a race against natural exit — see
-   * `KillResponse` rustdoc in `pty-host-protocol.ts` — or a
-   * `portable-pty` failure for a `spawn_request` against a
-   * nonexistent / non-executable command); we reject the awaiting
-   * Promise so the caller sees a prompt failure instead of an
-   * indefinite hang. The `close()` happy-path's existing try/catch
-   * swallows this rejection cleanly because the close-races-natural-
-   * exit shape is a normal lifecycle event from its perspective.
-   * Other callers (e.g., a direct `kill()` on an active session, or a
-   * `spawn()` against a nonexistent command) propagate the rejection
-   * up. For `spawn_response` rejections this method's error branch
-   * returns BEFORE reaching the in-band `sessions.set(...)` call below
-   * (and `spawn()`'s `await` throws on the caller side), so no
-   * tracking is registered on the failure path — neither on the empty
-   * `session_id` the sidecar emits per contract, nor on a non-empty
-   * `session_id` if a sidecar bug pairs one with an `error` field.
+   * `WriteResponse` / `KillResponse` all carry an optional `error?:
+   * string` contract. When `error` is present the sidecar's handler
+   * failed (most often `UnknownSession` for a request that lost a race
+   * against natural exit — see `KillResponse` rustdoc in
+   * `pty-host-protocol.ts` — or a `portable-pty` failure for a
+   * `spawn_request` against a nonexistent / non-executable command);
+   * we reject the awaiting Promise so the caller sees a prompt failure
+   * instead of an indefinite hang. The `close()` happy-path's existing
+   * try/catch swallows this rejection cleanly because the
+   * close-races-natural- exit shape is a normal lifecycle event from
+   * its perspective. Other callers (e.g., a direct `kill()` on an
+   * active session, or a `spawn()` against a nonexistent command)
+   * propagate the rejection up. For `spawn_response` rejections this
+   * method's error branch returns BEFORE reaching the in-band
+   * `sessions.set(...)` call below (and `spawn()`'s `await` throws on
+   * the caller side), so no tracking is registered on the failure path
+   * — neither on the empty `session_id` the sidecar emits per
+   * contract, nor on a non-empty `session_id` if a sidecar bug pairs
+   * one with an `error` field.
    */
   private resolveOutstanding(envelope: Envelope): void {
     const queue: OutstandingRequest[] | undefined = this.outstanding.get(envelope.kind);
@@ -2705,28 +2652,22 @@ export class RustSidecarPtyHost implements PtyHost {
     // post-await body — so that any DataFrame / ExitCodeNotification
     // frames trailing this SpawnResponse in the same stdout chunk
     // observe sessions.has(id) === true when the drain loop dispatches
-    // them. spawn()'s `await sendRequest` resumes on a microtask
-    // scheduled by Promise.resolve, but the drain loop processes frames
-    // synchronously without yielding; without this in-band registration,
-    // same-chunk frames for a freshly-minted session_id race past
-    // sessions.set and are silently dropped. Mirrors the sidecar's
-    // outbound-channel pre-emission of DataFrame / ExitCodeNotification
-    // by spawn_reader_task / spawn_waiter_task — both background tasks
-    // are spawned BEFORE the dispatcher queues SpawnResponse on
-    // dispatch_tx, and merge_to_writer's unbiased select! can pick
-    // outbound_tx first. (Plan-024 §T-024-3-1.)
+    // them. Mirrors the sidecar's outbound-channel pre-emission of
+    // DataFrame / ExitCodeNotification by spawn_reader_task /
+    // spawn_waiter_task — both background tasks are spawned BEFORE the
+    // dispatcher queues SpawnResponse on dispatch_tx, and
+    // merge_to_writer's unbiased select! can pick outbound_tx first.
     //
-    // Pre-spawn-buffer replay (Plan-024 §I-024-6): for the symmetric
-    // ordering where DataFrame / ExitCodeNotification arrives on the
-    // wire BEFORE the matching SpawnResponse (same race source, just
-    // an earlier wire offset), `handleEnvelope` + `handleExitNotification`
-    // buffer the events keyed by session_id. After registering the
-    // session here we drain those buffers via `replayPreSpawnEvents`,
-    // which `setImmediate`-defers the listener fan-out so the consumer's
-    // `await spawn()` continuation runs first and records the session_id
-    // in consumer-side state BEFORE `onData` / `onExit` fires.
+    // Pre-spawn-buffer replay: for the symmetric ordering where DataFrame
+    // / ExitCodeNotification arrives on the wire BEFORE the matching
+    // SpawnResponse (same race source, just an earlier wire offset),
+    // `handleEnvelope` + `handleExitNotification` buffer the events keyed
+    // by session_id. After registering the session here we drain those
+    // buffers via `replayPreSpawnEvents`, which `setImmediate`-defers the
+    // listener fan-out so the consumer's `await spawn()` continuation runs
+    // first and records the session_id in consumer-side state BEFORE
+    // `onData` / `onExit` fires.
     if (envelope.kind === "spawn_response") {
-      // Pre-spawn race guard (Plan-001 §CP-001-1).
       //
       // Failure scenario this closes:
       //   (1) Consumer calls `spawn(request)` → `ensureChild()`
@@ -2797,8 +2738,8 @@ export class RustSidecarPtyHost implements PtyHost {
   }
 
   /**
-   * Append a pre-spawn `DataFrame` payload to the per-session buffer
-   * (Plan-024 §I-024-6).
+   * Append a pre-spawn `DataFrame` payload to the per-session
+   * buffer.
    *
    * Bounded by `MAX_PRE_SPAWN_BUFFERED_SESSIONS` (total stale sessions)
    * AND `MAX_PRE_SPAWN_DATA_CHUNKS_PER_SESSION` (chunks per session).
@@ -2840,8 +2781,8 @@ export class RustSidecarPtyHost implements PtyHost {
   }
 
   /**
-   * Store the single pre-spawn `ExitCodeNotification` for a session
-   * (Plan-024 §I-024-6).
+   * Store the single pre-spawn `ExitCodeNotification` for a
+   * session.
    *
    * The sidecar's exactly-once-per-session exit contract means at
    * most one entry per session_id; a defensive duplicate drops with a
@@ -2881,7 +2822,7 @@ export class RustSidecarPtyHost implements PtyHost {
   /**
    * Drain any pre-spawn `DataFrame` / `ExitCodeNotification` buffers
    * for `sessionId` after the supervisor's `resolveOutstanding`
-   * registers the session via `SpawnResponse` (Plan-024 §I-024-6).
+   * registers the session via `SpawnResponse`.
    *
    * **Defer rationale.** The drain loop in `drainParserUntilIncomplete`
    * dispatches frames synchronously without yielding to microtasks,
@@ -2961,7 +2902,7 @@ export class RustSidecarPtyHost implements PtyHost {
 
   /**
    * Append `sessionId` to `closedSessionIds` with FIFO eviction
-   * beyond `MAX_CLOSED_SESSION_IDS` (Plan-024 §I-024-6).
+   * beyond `MAX_CLOSED_SESSION_IDS`.
    *
    * The Map's insertion order is JS's natural FIFO; the oldest entry
    * is the first value yielded by `values().next()`. Eviction is
@@ -2990,7 +2931,7 @@ export class RustSidecarPtyHost implements PtyHost {
 
   /**
    * Clear all pre-spawn buffers + closed-session-id retention on
-   * supervisor teardown (Plan-024 §I-024-6).
+   * supervisor teardown.
    *
    * Invoked from `handleChildExit` / `handleChildError` after the
    * parser reset + outstanding rejection. The sidecar's monotonic
@@ -3132,17 +3073,16 @@ export class RustSidecarPtyHost implements PtyHost {
    * `sessions.size === 0` invariant) or block the downstream
    * `rejectAllOutstanding` + `recordCrashOncePerChild` steps.
    *
-   * Codified at ADR-019 §Decision item 9.
    */
   private fireCrashTimeOnExit(): void {
     const sessionIds: string[] = Array.from(this.sessions.keys());
-    // Plan-001 §CP-001-1 sidecar-lifecycle drain: contract goal — every
-    // session live in `this.sessions` when this runs receives exactly
-    // one terminal `onExit`, either from a real `ExitCodeNotification`
-    // already routed through `handleExitNotification` (which sets
-    // `record.exitCode` BEFORE calling `fireExit`) or from this
-    // function's `-1` synthetic for sessions whose sidecar died before
-    // their real exit reached the wire.
+    // Every session live in `this.sessions` when this runs receives
+    // exactly one terminal `onExit`, either from a real
+    // `ExitCodeNotification` already routed through
+    // `handleExitNotification` (which sets `record.exitCode` BEFORE
+    // calling `fireExit`) or from this function's `-1` synthetic for
+    // sessions whose sidecar died before their real exit reached the
+    // wire.
     //
     // Dedupe is via `record.exitCode !== null`. Two callers set it
     // before firing `onExit`:
@@ -3265,13 +3205,10 @@ export class RustSidecarPtyHost implements PtyHost {
       //
       // Refs: This is a LOCAL class invariant — the kind-keyed
       // outstanding FIFO + crashCountedChildren budget are guarded
-      // only on the active-child path. See SidecarFrameDecodeError
-      // class rustdoc + Plan-024 §T-024-3-1 (crash-respawn
-      // supervision) for the broader supervisor semantics.
+      // only on the active-child path.
       return;
     }
-    // P2 #2 (Codex PR #83 thread `PRRT_kwDOSCycWc6DZ8wD`): set
-    // AFTER the stale-event guard so a late event for a replaced
+    // Set AFTER the stale-event guard so a late event for a replaced
     // child does NOT false-positive `drainSidecarHost` on the
     // still-alive current child. Set BEFORE `this.child = null` so
     // the flag is locked-in before the active-child reference is
@@ -3292,11 +3229,10 @@ export class RustSidecarPtyHost implements PtyHost {
         ),
     );
     this.recordCrashOncePerChild(child);
-    // Plan-001 §CP-001-1 sidecar-lifecycle drain: notify the host-exit
-    // waiter set up inside `runShutdown` (no-op outside a shutdown
-    // call). Fires AFTER the canonical teardown chain so the lifecycle
-    // layer sees a clean sidecar wind-down via the same single-source
-    // teardown path used by crash teardown.
+    // `runShutdown` (no-op outside a shutdown call). Fires AFTER the
+    // canonical teardown chain so the lifecycle layer sees a clean
+    // sidecar wind-down via the same single-source teardown path used
+    // by crash teardown.
     this.notifyHostExitWaiter();
   }
 
@@ -3314,8 +3250,7 @@ export class RustSidecarPtyHost implements PtyHost {
       // or the new child's outstanding queue.
       return;
     }
-    // P2 #2 (Codex PR #83 thread `PRRT_kwDOSCycWc6DZ8wD`): set AFTER
-    // the stale-event guard, BEFORE `this.child = null`. Symmetric
+    // Set AFTER the stale-event guard, BEFORE `this.child = null`. Symmetric
     // with `handleChildExit` — see that handler's call-site comment
     // and the `childExitedBeforeDrain` rustdoc for the ordering
     // invariant rationale.
@@ -3429,13 +3364,11 @@ export class RustSidecarPtyHost implements PtyHost {
     if (this.crashCountedChildren.has(child)) {
       return;
     }
-    // Plan-001 §CP-001-1 sidecar-lifecycle drain: a deliberate
-    // shutdown closes sidecar stdin and waits for the child to exit;
-    // the resulting `exit` event reaches `handleChildExit` like any
+    // The resulting `exit` event reaches `handleChildExit` like any
     // other crash, but it is NOT a crash. Skip crash-budget accounting
     // so a clean shutdown does not (a) consume a budget slot that
-    // would otherwise allow a respawn in a fresh host instance and
-    // (b) flip `permanentlyUnavailable` redundantly with the new
+    // would otherwise allow a respawn in a fresh host instance and (b)
+    // flip `permanentlyUnavailable` redundantly with the new
     // `shuttingDown` flag. Still record the child against
     // `crashCountedChildren` so a stale second `error` event for the
     // same child remains a no-op per the dual-event dedupe contract.
@@ -3471,9 +3404,7 @@ export class RustSidecarPtyHost implements PtyHost {
  * Accepts an optional `binaryPath` for callers that already know the
  * sidecar location (CI custom paths, hand-built binaries, integration
  * tests). When omitted, the default `resolveBinaryPath` deps entry —
- * `resolveSidecarBinaryPath` — runs the four-tier resolution per
- * Plan-024 §F-024-3-03 (env-var → published package → workspace
- * release → workspace debug).
+ * `resolveSidecarBinaryPath` — runs the four-step resolution.
  *
  * This factory is the surface `pty-host-selector.ts` calls into.
  * Tests construct `RustSidecarPtyHost` directly (with a full deps

@@ -11,13 +11,13 @@
 
 ## Context
 
-The product ships a local-first collaborative agent runtime. Execution is always local (per ADR-002 `local-execution-shared-control-plane`); what varies by deployment is where the coordination control plane and relay run. `docs/architecture/deployment-topology.md` names four supported topologies: `Single-Participant Local`, `Collaborative Hosted Control Plane`, `Collaborative Self-Hosted Control Plane`, and `Relay-Assisted Remote Access`. The V1 scope decision (ADR-015) is about which features ship; this ADR is about how those features reach users.
+The product ships an agentic coding runtime for one user and their sidekicks. Execution is always local (per ADR-002 `local-execution-shared-control-plane`); what varies by deployment is where the coordination control plane and relay run. `docs/architecture/deployment-topology.md` names four supported topologies: `Single-Device Local`, `Hosted Control Plane`, `Self-Hosted Control Plane`, and `Relay-Assisted Remote Access`. The V1 scope decision (ADR-015) is about which features ship; this ADR is about how those features reach users.
 
 Two product postures have been considered during V1 planning:
 
 1. **Enterprise commercial-SaaS posture** — V1 ships as a hosted-only product, commercial support contracts, optional future self-host for paying enterprise customers. The pre-decision research evaluated this posture under an enterprise-commercial-SaaS cost model and recommended **Option B (V1 hosted-only, defer self-host to V1.1)** on vendor-support-cost grounds; the analytic content of that evaluation is preserved below in §Alternatives Option B (steel-man + rejection rationale) and the underlying primary sources are catalogued in §Research Conducted.
 
-2. **OSS developer-tool posture** — V1 ships as an open-source project that any developer can `git clone`, install, and use either alone or with invited collaborators. The project optionally operates a hosted SaaS for users who prefer a managed experience. The research brief's recommendation was superseded after product framing clarified that (1) this is a developer-category OSS product, not an enterprise commercial platform; (2) the vendor-support-cost framing in the brief assumed an enterprise model that does not apply; (3) the competitive and category-positioning arguments for OSS are strong — Supabase, PostHog, Sentry, tmate, Mattermost, and GitLab have all built successful developer-category products on the one-codebase-two-deployment-options pattern.
+2. **OSS developer-tool posture** — V1 ships as an open-source project that any developer can `git clone`, install, and use from any of their linked devices. The project optionally operates a hosted SaaS for users who prefer a managed experience. The research brief's recommendation was superseded after product framing clarified that (1) this is a developer-category OSS product, not an enterprise commercial platform; (2) the vendor-support-cost framing in the brief assumed an enterprise model that does not apply; (3) the competitive and category-positioning arguments for OSS are strong — Supabase, PostHog, Sentry, tmate, Mattermost, and GitLab have all built successful developer-category products on the one-codebase-two-deployment-options pattern.
 
 This ADR formalizes the OSS developer-tool posture as the V1 deployment model.
 
@@ -43,10 +43,10 @@ V1 ships with **two deployment options** over a **single codebase** under a **pe
 
 ### The Two Deployment Options
 
-1. **Free self-hosted (OSS).** Users obtain the product via `git clone`, `npm install`, Homebrew formula, or direct release-binary download. The daemon defaults to a **project-operated free public relay** at a published URL so first-run collaboration is zero-configuration. Users can override via config (`RELAY_URL=…` or `--relay-url=…`) to point at their own self-hosted relay. Community-supported via GitHub Issues and Security Advisories; no SLA.
+1. **Free self-hosted (OSS).** Users obtain the product via `git clone`, `npm install`, Homebrew formula, or direct release-binary download. The daemon defaults to a **project-operated free public relay** at a published URL so first-run remote control is zero-configuration. Users can override via config (`RELAY_URL=…` or `--relay-url=…`) to point at their own self-hosted relay. Community-supported via GitHub Issues and Security Advisories; no SLA.
 2. **Hosted SaaS.** The project operates the same codebase as a managed service at a separate URL. Users sign up, receive a scoped token, and their daemons point at the hosted control plane. Vendor-supported for paying customers.
 
-The two options share one codebase and one 23-feature V1 surface (no feature-gating between free and hosted in V1).
+The two options share one codebase and one 21-feature V1 surface (no feature-gating between free and hosted in V1).
 
 ### License
 
@@ -54,7 +54,7 @@ The two options share one codebase and one 23-feature V1 surface (no feature-gat
 
 ### First-Run UX
 
-On first invite (or explicit activation), the daemon presents a one-time **three-way choice**:
+On first device link (or explicit activation), the daemon presents a one-time **three-way choice**:
 
 1. **Free public relay** (default) — use the project-operated free relay at a published URL.
 2. **Self-host your own** — prompt for relay URL, admin token, CA bundle fingerprint for trust-on-first-use.
@@ -65,7 +65,7 @@ Choice persists in daemon config; never re-prompts unless explicitly reset via C
 ### Relay Infrastructure
 
 - **Project-operated free relay:** Cloudflare Workers + Durable Objects using the sharded control-DO + data-DOs architecture from `deployment-topology.md` §Relay Scaling Strategy.
-- **Self-hostable relay:** Node.js WebSocket implementation of the same v2 relay protocol, shipped alongside the daemon in the same repo with a `docker-compose.yml` for single-command self-host. Tracked in BL-079 (Spec-025) and BL-080 (Plan-025).
+- **Self-hostable relay:** Node.js WebSocket implementation of the same v2 relay protocol, shipped alongside the daemon in the same repo with a `docker-compose.yml` for single-command self-host.
 
 Both backends implement the v2 relay protocol behind one shared contract so protocol-level changes land once and ship to both.
 
@@ -78,19 +78,19 @@ Both ship in V1 under the deployment-aware abstraction already named in `deploym
 
 ### Thesis — Why This Option
 
-The product's natural market is developers building with agents, for themselves and for their collaborators. That audience's category expectation is OSS-first. Developer tools that succeed in this category (VS Code, Neovim, tmux, tmate, Supabase, PostHog, Sentry pre-BSL) ship as OSS with an optional hosted tier; tools that ship hosted-only into this category lose mindshare to OSS alternatives within 12–18 months. The one-codebase-two-deployment pattern is a proven precedent for how to do both at once without fragmenting engineering effort: the same binary runs in either mode; the difference is where the daemon points for collaboration.
+The product's natural market is developers building with agents. That audience's category expectation is OSS-first. Developer tools that succeed in this category (VS Code, Neovim, tmux, tmate, Supabase, PostHog, Sentry pre-BSL) ship as OSS with an optional hosted tier; tools that ship hosted-only into this category lose mindshare to OSS alternatives within 12–18 months. The one-codebase-two-deployment pattern is a proven precedent for how to do both at once without fragmenting engineering effort: the same binary runs in either mode; the difference is where the daemon points for remote access.
 
-Shipping a default project-operated relay makes the OSS self-host experience zero-config for the common case (git clone, invite a friend, it works). That preserves the developer-tool ergonomic bar. Users who want to own the whole stack can point at their own relay in one config flag. Users who want managed can sign up for hosted. Three paths, one codebase, one feature set.
+Shipping a default project-operated relay makes the OSS self-host experience zero-config for the common case (git clone, link a phone, it works). That preserves the developer-tool ergonomic bar. Users who want to own the whole stack can point at their own relay in one config flag. Users who want managed can sign up for hosted. Three paths, one codebase, one feature set.
 
 MIT or Apache-2.0 as the starting license matches the category-norm for developer tools and signals open contribution. Reserving source-available relicensing (FSL, BSL, ELv2) for the competitive-re-host scenario follows the Sentry precedent; that scenario is a future contingency, not a V1 commitment.
 
 ### Antithesis — The Strongest Case Against
 
-A staff engineer looking at V1 with both OSS self-host and hosted SaaS on the roadmap has legitimate concern: doing two things halfway is worse than doing one thing well. The research brief's Option B (V1 hosted-only) has a real argument: launching both tracks simultaneously doubles the QA matrix (two relay implementations, two rate-limiter backends, two first-run flows, two support channels), and community support drag alone can burn 20–30% of a small team's weekly capacity once the project has any traction. The managed-SaaS-first posture is how most successful commercial dev tools launched: Linear, Notion, Figma, Cursor, Warp — all hosted-only at V1, some opened self-host later, many never. Launching OSS with a hosted sidecar invites a distinct operational question (running infrastructure for users who did not pay) that commercial-SaaS-first avoids entirely.
+A staff engineer looking at V1 with both OSS self-host and hosted SaaS on the roadmap has legitimate concern: doing two things halfway is worse than doing one thing well. The research brief's Option B (V1 hosted-only) has a real argument: launching both tracks simultaneously doubles the QA matrix (two relay implementations, two rate-limiter backends, two first-run flows, two support channels), and community support drag alone can burn 20–30% of a small team's weekly capacity once the project has any traction. The managed-SaaS-first posture is how most successful commercial dev tools launched: Linear, Notion, Figma, Cursor, Warp — all hosted-only at V1, some opened self-host later, many never. Launching OSS with a hosted sidecar raises a distinct operational question (running infrastructure for users who did not pay) that commercial-SaaS-first avoids entirely.
 
 ### Synthesis — Why It Still Holds
 
-The antithesis is the correct posture for a commercial-SaaS company whose value lies in being the sole provider of the managed experience. It is the wrong posture for a developer-category OSS product whose value lies in being the tool itself. Linear / Notion / Figma / Warp are not counter-examples — they are hosted-only products whose value is the hosted surface (sync, collaboration UX, account-side features). This product's value is the collaborative agent runtime, which works identically whether the relay runs on our infrastructure or the user's. Shipping OSS self-host alongside hosted SaaS costs some QA-matrix work (bounded, covered by the rate-limiter abstraction and the shared protocol contract) in exchange for category positioning that is hard to buy back later. The community-support drag is real but is actively managed via the Tripwires below — specifically, if drag exceeds 30% of weekly engineering capacity sustained, the free default relay itself becomes a candidate for deprecation.
+The antithesis is the correct posture for a commercial-SaaS company whose value lies in being the sole provider of the managed experience. It is the wrong posture for a developer-category OSS product whose value lies in being the tool itself. Linear / Notion / Figma / Warp are not counter-examples — they are hosted-only products whose value is the hosted surface (sync, collaboration UX, account-side features). This product's value is the agent runtime itself, which works identically whether the relay runs on our infrastructure or the user's. Shipping OSS self-host alongside hosted SaaS costs some QA-matrix work (bounded, covered by the rate-limiter abstraction and the shared protocol contract) in exchange for category positioning that is hard to buy back later. The community-support drag is real but is actively managed via the Tripwires below — specifically, if drag exceeds 30% of weekly engineering capacity sustained, the free default relay itself becomes a candidate for deprecation.
 
 The QA-matrix cost is structurally limited by the decision to put both relay backends behind one protocol contract. The implementation of the Node.js self-hostable relay is mostly "here is the WebSocket server loop and here is the Postgres rate-limiter wiring" — one codebase, not two.
 
@@ -99,7 +99,7 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 ### Option A: OSS Self-Host + Hosted SaaS, Single Codebase, Permissive License (Chosen)
 
 - **What:** Decision above.
-- **Steel man:** Matches developer-category norm; single codebase contains the full product; zero-config self-host via default relay preserves the git-clone-and-invite-a-friend ergonomic; hosted SaaS serves users who prefer managed; same V1 feature set in both; license open; revisit gates named.
+- **Steel man:** Matches developer-category norm; single codebase contains the full product; zero-config self-host via default relay preserves the git-clone-and-drive-it-from-your-phone ergonomic; hosted SaaS serves users who prefer managed; same V1 feature set in both; license open; revisit gates named.
 - **Weaknesses:** QA matrix for two relay backends + two rate-limiter implementations (bounded by shared protocol contract); community-support drag if adoption is uneven; running a free relay is an operational cost the project bears; license commitment reduces future monetization flexibility.
 
 ### Option B: V1 Hosted-Only, Self-Host Deferred to V1.1 (Rejected — was the research brief's recommendation)
@@ -116,15 +116,15 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 
 ### Option D: No Default Relay (Users Must Bring Their Own Relay URL) (Rejected)
 
-- **What:** OSS self-host with no project-operated free relay. Every user must run their own relay (or point at someone else's) before invites work.
+- **What:** OSS self-host with no project-operated free relay. Every user must run their own relay (or point at someone else's) before a second device can reach their machine.
 - **Steel man:** Minimizes project operational cost; no community-support drag from free-tier users; cleanest license-commitment story (no "we run infrastructure for free users" question).
-- **Why rejected:** Breaks the "git clone and invite a friend immediately" UX. First-run friction for this product is the ability to share a session with one click; requiring the user to first provision a relay before the first invite works is the same as asking them to set up a Postgres instance before sending an email. The free default relay is the operational cost that buys the category-positioning ergonomic.
+- **Why rejected:** Breaks the "git clone and drive it from your phone immediately" UX. First-run friction for this product is the ability to link a second device with one click; requiring the user to first provision a relay before that link works is the same as asking them to set up a Postgres instance before sending an email. The free default relay is the operational cost that buys the category-positioning ergonomic.
 
 ### Option E: Pure P2P with STUN/TURN (No Relay at All) (Rejected)
 
-- **What:** Every collaboration session is peer-to-peer over WebRTC, using STUN/TURN for NAT traversal.
+- **What:** Every device-to-machine session is peer-to-peer over WebRTC, using STUN/TURN for NAT traversal.
 - **Steel man:** No relay infrastructure to operate at all; lowest-possible project cost; strong privacy story (no intermediary).
-- **Why rejected:** Approximately 30% of collaboration attempts over public networks are blocked by NAT configurations that STUN cannot punch and that require TURN fallback. TURN servers are relays by another name; the architecture still ends up operating a coordination endpoint. Pure-P2P also complicates the session-join handshake, participant-discovery flow, and offline-presence model that `deployment-topology.md` and Spec-008 already depend on. The relay is load-bearing; removing it does not remove the problem it solves.
+- **Why rejected:** Approximately 30% of connection attempts over public networks are blocked by NAT configurations that STUN cannot punch and that require TURN fallback. TURN servers are relays by another name; the architecture still ends up operating a coordination endpoint. Pure-P2P also complicates the device-link handshake, the relay-endpoint negotiation, and the device-liveness model that `deployment-topology.md` and [Spec-031](../specs/031-remote-control.md) already depend on. The relay is load-bearing; removing it does not remove the problem it solves.
 
 ## Assumptions Audit
 
@@ -159,9 +159,9 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 ### Positive
 
 - Category-positioning matches developer-tool norm; OSS-first signal to the target audience from day one.
-- Any user can `git clone` and invite a collaborator with zero configuration (the default free relay delivers this).
+- Any user can `git clone` and drive the session from a second device with zero configuration (the default free relay delivers this).
 - Hosted SaaS serves users who prefer managed, using the same codebase so engineering effort is not fragmented.
-- Single 23-feature surface in both options; no feature-gating complexity.
+- Single 21-feature surface in both options; no feature-gating complexity.
 - Shared protocol contract between Cloudflare-DO and Node-relay backends contains the QA-matrix cost.
 - License choice (permissive) signals open contribution and matches the category norm.
 
@@ -192,7 +192,7 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
-| OSS self-host zero-config first-run flow works | 100% of new-user smoke tests pass `git clone → docker compose up → invite peer → collaboration succeeds` | CI smoke-test job | `2026-09-01` |
+| OSS self-host zero-config first-run flow works | 100% of new-user smoke tests pass `git clone → docker compose up → link a device → remote control succeeds` | CI smoke-test job | `2026-09-01` |
 | Hosted-SaaS monthly active users | Above named floor (to be set in V1 launch plan) | Hosted-SaaS telemetry | `2027-01-01` |
 | Community-support drag | ≤ 30% of weekly engineering capacity, rolling 4-week average | Engineering-time tracking | `2027-01-01` |
 | Feature-parity between hosted and self-host | 100% of V1 features work identically | Feature-parity CI suite | `2026-09-01` |
@@ -253,17 +253,16 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 
 - [ADR-002: Local Execution, Shared Control Plane](./002-local-execution-shared-control-plane.md) — trust-boundary framing that makes the self-host + hosted split coherent.
 - [ADR-004: SQLite Local State, Postgres Control Plane](./004-sqlite-local-state-and-postgres-control-plane.md) — persistence layer shared across both deployment options.
-- [ADR-015: V1 Feature Scope Definition](./015-v1-feature-scope-definition.md) — the 23-feature V1 surface that both deployment options ship.
+- [ADR-015: V1 Feature Scope Definition](./015-v1-feature-scope-definition.md) — the 21-feature V1 surface that both deployment options ship.
 
 ### Related Docs
 
-- [Deployment Topology](../architecture/deployment-topology.md) — `Collaborative Hosted Control Plane` and `Collaborative Self-Hosted Control Plane` topology rows cross-link to this ADR per BL-053 Exit Criteria.
+- [Deployment Topology](../architecture/deployment-topology.md) — the `Hosted Control Plane` and `Self-Hosted Control Plane` topology rows cross-link to this ADR per BL-053 Exit Criteria.
 - [V1 Feature Scope](../architecture/v1-feature-scope.md) — Deployment Options section cites this ADR per BL-053 Exit Criteria.
 - [Spec-021: Rate Limiting Policy](../specs/021-rate-limiting-policy.md) — deployment-aware rate-limiter abstraction.
-- [Spec-027: Self-Host Secure Defaults](../specs/027-self-host-secure-defaults.md) — normative secure-defaults posture for the `Collaborative Self-Hosted Control Plane` topology committed to by this ADR; operator-facing companion at [Operations › Self-Host Secure Defaults](../operations/self-host-secure-defaults.md) (Spec-027 Acceptance Criterion).
+- [Spec-027: Self-Host Secure Defaults](../specs/027-self-host-secure-defaults.md) — normative secure-defaults posture for the `Self-Hosted Control Plane` topology committed to by this ADR; operator-facing companion at [Operations › Self-Host Secure Defaults](../operations/self-host-secure-defaults.md) (Spec-027 Acceptance Criterion).
 - [BL-044](../archive/backlog-archive.md) — Plan-021 Rate Limiting (ships both backends in V1).
 - [BL-060](../archive/backlog-archive.md) — secure-by-default behaviors for self-host deployment.
-- [BL-079 / BL-080](../archive/backlog-archive.md) — Spec-025 + Plan-025 self-hostable Node relay (this ADR's self-host implementation).
 - [BL-081 / BL-082](../archive/backlog-archive.md) — Spec-026 + Plan-026 first-run three-way-choice onboarding (this ADR's UX implementation).
 - [BL-083](../archive/backlog-archive.md) — commit OSS `LICENSE` at repo root (this ADR's license deliverable).
 
@@ -277,5 +276,5 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 | 2026-04-17 | Accepted | ADR accepted as V1 deployment model + OSS license commitment |
 | 2026-04-17 | LICENSE committed | Apache-2.0 chosen per BL-083. Rationale: (a) explicit patent grant (§3) protects contributors and users from patent litigation by other contributors — a concrete advantage MIT does not provide; (b) §5 codifies inbound-is-outbound contribution semantics, reducing the need for a separate CLA for casual contributors; (c) dominant choice in modern developer-tool OSS (Kubernetes, Supabase, Terraform-pre-BSL-era); (d) SPDX identifier `Apache-2.0` recognized by all major dependency scanners. MIT considered as the alternative and rejected — the patent-grant protection matters more than MIT's marginally-cleaner GPL-compatibility story for this contributor-rich developer-tool category. `LICENSE` file at repo root contains the verbatim canonical Apache-2.0 text (appendix instantiated with `Copyright 2026 AI Sidekicks contributors`); root `package.json` `license` field set to `Apache-2.0`; `README.md` §License links to `./LICENSE` and this ADR |
 | 2026-08-12 | Pin format refined | §First-Run UX Option 2 words the self-host trust anchor as a "CA bundle fingerprint for trust-on-first-use". [Spec-026 §Implementation Notes](../specs/026-first-run-onboarding.md#implementation-notes) refines that pin format to the **SPKI SHA-256** (not the leaf certificate fingerprint), so operators can rotate certificates without re-prompting — the [OWASP Certificate and Public Key Pinning](https://owasp.org/www-community/controls/Certificate_and_Public_Key_Pinning) recommendation — and [Plan-026](../plans/026-first-run-onboarding.md) implements the SPKI form. This refines the pin's representation only: the three-way choice, the trust-on-first-use posture, and every other §First-Run UX commitment are unchanged, and Spec-026 is authoritative for the pin format. Recorded by the Tier-9 plan-readiness audit. |
-| 2026-09-01 | Test-only MPL-2.0 dependency admitted | `axe-core` (MPL-2.0), depended on bare rather than through `@axe-core/playwright` — the accessibility tier runs in-page, and browser-mode test code receives Vitest's own `page` locator object rather than Playwright's `Page` — that handle is reachable only inside a server-side custom command, so the wrapper has nothing to bind to in a test file ([Spec-023 §Console Libraries](../specs/023-desktop-shell-and-renderer.md#console-libraries) carries the primary-source rows) — and it is the same MPL-2.0 engine either way, so this admission is unchanged in substance — is admitted as a **never-distributed devDependency** of `apps/desktop` for the console's accessibility test tier ([Spec-023 §Console Test Tiers](../specs/023-desktop-shell-and-renderer.md#console-test-tiers)). MPL-2.0 sits outside the MIT / Apache-2.0 / BSD / ISC norm this ADR's Apache-2.0 commitment assumes for runtime dependencies; the waiver is scoped to test tooling that ships in no release artifact and is linked into no distributed bundle, so no MPL file-level copyleft obligation attaches to anything a user receives. A runtime or bundled use of an MPL-2.0 package is **not** covered and needs its own log entry. Recorded by the console-design amendment ([cross-plan-dependencies.md §6](../architecture/cross-plan-dependencies.md) node NS-97). |
+| 2026-09-01 | Test-only MPL-2.0 dependency admitted | `axe-core` (MPL-2.0), depended on bare rather than through `@axe-core/playwright` — the accessibility tier runs in-page, and browser-mode test code receives Vitest's own `page` locator object rather than Playwright's `Page` — that handle is reachable only inside a server-side custom command, so the wrapper has nothing to bind to in a test file ([Spec-023 §Console Libraries](../specs/023-desktop-shell-and-renderer.md#console-libraries) carries the primary-source rows) — and it is the same MPL-2.0 engine either way, so this admission is unchanged in substance — is admitted as a **never-distributed devDependency** of `apps/desktop` for the console's accessibility test tier ([Spec-023 §Console Test Tiers](../specs/023-desktop-shell-and-renderer.md#console-test-tiers)). MPL-2.0 sits outside the MIT / Apache-2.0 / BSD / ISC norm this ADR's Apache-2.0 commitment assumes for runtime dependencies; the waiver is scoped to test tooling that ships in no release artifact and is linked into no distributed bundle, so no MPL file-level copyleft obligation attaches to anything a user receives. A runtime or bundled use of an MPL-2.0 package is **not** covered and needs its own log entry. Recorded by the console-design amendment. |
 | 2026-09-09 | Distributed OFL-1.1 font files admitted | `@ibm/plex-sans-variable` (0.2.0) and `@ibm/plex-mono-variable` (1.0.0), both SIL Open Font License 1.1, supply the two ratified faces the console self-hosts ([Spec-023 §Console Libraries](../specs/023-desktop-shell-and-renderer.md#console-libraries), the motion / fonts / icons row) rather than rendering in whichever face the host machine carries. What is **distributed** is the font files, not the packages. The packages are `devDependencies` of `apps/desktop` and are build-time-only: Vite resolves the four `?url` imports while building, emitting the packages' own `woff2` bytes into the renderer bundle under a content hash and rewriting the reference, so nothing resolves either specifier at runtime and neither package belongs in the packaged artifact. That placement is deliberate rather than incidental — each package declares `@ibm/telemetry-js` as its own runtime dependency, so a `dependencies` entry would carry a telemetry package into the shipped application in order to serve font files that are already inlined; as `devDependencies` the telemetry dependency never enters the artifact at all. OFL-1.1 sits outside the MIT / Apache-2.0 / BSD / ISC norm this ADR's Apache-2.0 commitment assumes, and the font bytes do ship, so this takes its own entry as the 2026-09-01 `axe-core` row requires of any bundled outside-norm use. The waiver holds because OFL-1.1's obligations are satisfied by construction here: the faces are shipped **unmodified** — nothing is subsetted, renamed, or re-generated by this repo, verified 2026-09-09 at these pins by comparing the SHA-256 of all four emitted faces against the package sources, byte-identical in each case — so the Reserved Font Name clause is not engaged; each package carries its own `LICENSE.txt` at its root and declares `"license": "OFL-1.1"` in its `package.json`, and **reproducing that licence text in the packaged application is an open obligation on the packaging configuration**, which this repo does not yet carry — no release artifact is produced today, so this row records the requirement rather than reporting it met, and the `devDependencies` placement makes meeting it explicit work rather than a side effect of copying production dependencies: the phase that introduces the packaging configuration must copy both licence files itself; and OFL's copyleft is scoped to the font software itself, which is bundled alongside the application rather than linked into it, so no obligation attaches to the Apache-2.0 source. A **modified** or **re-subsetted** face, or one distributed under the Reserved Font Name, is **not** covered and needs its own log entry. |

@@ -16,9 +16,9 @@
 // again for an answer that had not changed.
 //
 // THE SESSION STORE IS THE READER'S COLLABORATOR AND NOT THE SURFACE'S: it is what
-// carries the reconnect edge and the repo-lifecycle frames, two of the four reasons
-// `Spec-023 §Rules every console surface obeys` names. It is handed down rather than
-// reached for, exactly as every other reading in this family takes it.
+// carries the reconnect edge and the repo-lifecycle frames, two of the four admitted
+// refresh reasons. It is handed down rather than reached for, exactly as every other
+// reading in this family takes it.
 //
 // THE DISCLOSURE'S OWN OPEN STATE IS HERE FOR THE SAME REASON THE READER IS. Where the
 // three paths stand is decided by a transition — the edge into `stale` — so somebody
@@ -54,7 +54,7 @@ export interface ExecutionRootsDisclosureBinding {
 /**
  * Bind one workspace's execution-context reading to its reader.
  *
- * Returns the reading and nothing else: this read takes no argument a participant can
+ * Returns the reading and nothing else: this read takes no argument a user can
  * supply and answers no act, so there is no second member for a surface to call.
  */
 export function useWorkspaceExecutionContext(

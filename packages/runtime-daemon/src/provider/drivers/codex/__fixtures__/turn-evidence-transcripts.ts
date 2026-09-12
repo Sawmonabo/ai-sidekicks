@@ -1,7 +1,6 @@
-// GOLDEN VECTOR - Codex turn-evidence `turn/completed` payloads (T3.18).
+// GOLDEN VECTOR - Codex turn-evidence `turn/completed` payloads.
 //
-//   Source doc      : docs/reference/provider-wire/codex.md
-//   Section         : §Command-shaped input is delivered verbatim on this
+//   Source doc: docs/reference/provider-wire/codex.md Section:
 //                     transport
 //   Pin             : codex-cli 0.150.1
 //   Provenance      : Binary probe for the two RECORDED vectors below - a
@@ -11,8 +10,7 @@
 //                     2026-08-29, recording every inbound frame until the turn
 //                     settled. SYNTHESIZED for the third, and labelled so on
 //                     the declaration itself.
-//   Trust           : Verified at 0.150.1 for the recorded pair.
-//   Derived by      : Plan-005 T3.18.
+//   Trust: Verified at 0.150.1 for the recorded pair.
 //
 // WHY A SYNTHESIZED VECTOR IS HERE AT ALL, stated rather than buried.
 //

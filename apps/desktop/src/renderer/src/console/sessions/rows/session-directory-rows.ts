@@ -28,9 +28,8 @@
 // to `isUnbuiltWireRefusal`, beside the code it reads, and not to this table.
 //
 // Deciding any of this from `rows.length === 0` collapses all four, which is exactly
-// the conflation `Spec-023 §Console Design (Meridian)` rule 8's five kinds of nothing
-// exist to prevent — so the decision is a function of the directory state and the row
-// count cannot reach it.
+// the conflation the console's five kinds of nothing exist to prevent — so the
+// decision is a function of the directory state and the row count cannot reach it.
 
 import type { SessionDirectoryState } from "../../seats/index.js";
 import { isUnbuiltWireRefusal, type AttentionSeverity } from "../../bridge/index.js";
@@ -93,7 +92,7 @@ export function mergeSessionRows(sources: SessionRowSources): readonly SessionLi
         sessionId: summary.sessionId,
         state: summary.state,
         touchedAtIso: undefined,
-        participantIds: [],
+        userIds: [],
         attentionSeverity: undefined,
       });
     }
@@ -104,7 +103,7 @@ export function mergeSessionRows(sources: SessionRowSources): readonly SessionLi
         sessionId,
         state: undefined,
         touchedAtIso: undefined,
-        participantIds: [],
+        userIds: [],
         attentionSeverity: undefined,
       });
     }

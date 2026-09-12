@@ -1,12 +1,11 @@
 // The block region a pane pins above its body, and the seat one family fills it
 // through.
 //
-// `Spec-023 §Console Design (Meridian)` puts one entity in one pane behind a single
-// mount door, and `ConsolePaneChrome` draws the frame that door wears: a head, then
-// the body a family supplied. What the frame had nowhere to put is a BLOCK a pane
-// carries above its body and beneath its head — the head's `actions` slot is a
-// single-line control strip that takes icon buttons, and a card with a sentence and a
-// route into another pane is not a control.
+// One entity lives in one pane behind a single mount door, and `ConsolePaneChrome`
+// draws the frame that door wears: a head, then the body a family supplied. What the
+// frame had nowhere to put is a BLOCK a pane carries above its body and beneath its
+// head — the head's `actions` slot is a single-line control strip that takes icon
+// buttons, and a card with a sentence and a route into another pane is not a control.
 //
 // WHY IT IS A SEAT AND NOT A PROP. The first region to exist is channel-scoped
 // workflow progress on the channel-scoped `timeline` pane: the pane belongs to one
@@ -76,11 +75,10 @@ export interface PinnedPaneRegionContext {
    * put its route into whichever deck happened to be composed last.
    *
    * OPTIONAL, and the absence is a real state rather than a gap to fill in. A pane
-   * mounted outside a deck — the auxiliary window `Spec-023 §The surface set` names,
-   * a full-width surface with no deck at all — has no pane to open and no host to ask,
-   * so a body offers its route only where one arrived. That is the absent-not-disabled
-   * rule `pane-controls.ts` states for the head's own controls, applied to the region
-   * below it.
+   * mounted outside a deck — an auxiliary window, a full-width surface with no deck at
+   * all — has no pane to open and no host to ask, so a body offers its route only where
+   * one arrived. That is the absent-not-disabled rule `pane-controls.ts` states for the
+   * head's own controls, applied to the region below it.
    */
   readonly openPane?: ConsolePaneOpener | undefined;
 }

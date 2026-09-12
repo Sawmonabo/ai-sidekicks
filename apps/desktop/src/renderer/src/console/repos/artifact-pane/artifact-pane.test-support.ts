@@ -265,7 +265,7 @@ export async function settleAct(): Promise<void> {
 }
 
 /**
- * A delete whose answer lands under a refresh the participant started after
+ * A delete whose answer lands under a refresh the user started after
  * confirming it. The list read that refresh issues can have observed the artifact
  * BEFORE the daemon destroyed it, so it republishes a row the daemon no longer
  * holds — and the delete is the only party that knows better.

@@ -8,7 +8,7 @@
 // never been delivered to a resumed one.
 //
 // The BAR's reading of this ledger is a different claim and lives with the bar, in
-// `workspace/cast-bar/model/outstanding-asks.test.ts`.
+// `workspace/session-header/model/outstanding-asks.test.ts`.
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
@@ -193,7 +193,7 @@ describe("SessionStore — the ledger outlives the window", () => {
     // the row that opened this approval is gone from the timeline a fold used to walk
     // — and the approval is still open.
     const store = new SessionStore({ sessionId: SESSION_ID, timelineCap: 2 });
-    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
     store.applyBatch([
       rowOf(1, "approval.requested", { approvalRequestId: "req-1" }, "agent-scout"),
       rowOf(2, "tool.invoked", { runId: "run-a" }, "agent-scout"),
@@ -206,10 +206,10 @@ describe("SessionStore — the ledger outlives the window", () => {
 
   it("negative control: the same store answers zero once the approval is resolved", () => {
     const store = new SessionStore({ sessionId: SESSION_ID, timelineCap: 2 });
-    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
     store.applyBatch([
       rowOf(1, "approval.requested", { approvalRequestId: "req-1" }, "agent-scout"),
-      rowOf(2, "approval.approved", { approvalRequestId: "req-1" }, "participant-you"),
+      rowOf(2, "approval.approved", { approvalRequestId: "req-1" }, "user-you"),
       rowOf(3, "tool.result", { runId: "run-a" }, "agent-scout"),
     ]);
 
@@ -218,7 +218,7 @@ describe("SessionStore — the ledger outlives the window", () => {
 
   it("takes what a backward page recovered from behind the window's head", () => {
     const store = new SessionStore({ sessionId: SESSION_ID });
-    store.initialise({ cursor: 5, entities: [], participantJoinLog: [] });
+    store.initialise({ cursor: 5, entities: [], userJoinLog: [] });
     store.applyBatch([rowOf(6, "tool.invoked", { runId: "run-a" }, "agent-scout")]);
     expect(openCountOf(store.outstandingAskLedger)).toBe(0);
 

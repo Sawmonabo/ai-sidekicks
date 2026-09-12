@@ -106,9 +106,9 @@ describe("ingest client — a rejected leg is a refusal on the entry", () => {
     expect(port.chunkCalls).toHaveLength(1);
   });
 
-  it("refuses when the participant's own file stops being readable", async () => {
+  it("refuses when the user's own file stops being readable", async () => {
     // Not a wire failure at all: the `Blob` is a handle on a file the host owns, and a
-    // participant who moved it mid-upload gets a rejecting read. It reaches the entry
+    // user who moved it mid-upload gets a rejecting read. It reaches the entry
     // through the same door, because it means the same thing — this leg did not happen.
     const port = new ScriptedGrowthPort();
     const client = clientOver(port);

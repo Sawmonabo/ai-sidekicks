@@ -5,7 +5,7 @@ Reference for plan-execution subagents (implementer, contract-author, spec-revie
 The disciplines below come from two governance sources:
 
 - The plan-readiness audit runbook ([`docs/operations/plan-implementation-readiness-audit-runbook.md`](../../../../docs/operations/plan-implementation-readiness-audit-runbook.md)) — specifically the G4 traceability gate that emits cite fields.
-- The cross-plan dependency map ([`docs/architecture/cross-plan-dependencies.md`](../../../../docs/architecture/cross-plan-dependencies.md)) §5, which defines carve-out semantics for `BLOCKED-ON-C*` markers.
+- The cross-plan dependency map ([`docs/architecture/cross-plan-dependencies.md`](../../../../docs/architecture/cross-plan-dependencies.md)), the forward build order that says which phase resolves a `BLOCKED-ON-C*` marker.
 
 Subagent prompts cite this doc instead of inlining the full justification. When in doubt, read the cited source-of-truth doc.
 
@@ -42,7 +42,7 @@ Under-tested cites surface as ACTIONABLE spec-review findings. The G4 gate exist
 
 ## 2. Blocked-on conservative-shape discipline
 
-Tasks-block rows can carry `BLOCKED-ON-C*` markers. The plan-analyst maps these into the DAG's `blocked_on` field. They mean the named cross-cutting concern (C-N) is unresolved in another plan/PR and will resolve there per cross-plan-dependencies.md §5.
+Tasks-block rows can carry `BLOCKED-ON-C*` markers. The plan-analyst maps these into the DAG's `blocked_on` field. They mean the named cross-cutting concern (C-N) is unresolved in another plan/PR and will resolve there, in the build order cross-plan-dependencies.md records.
 
 ### Implementer / contract-author obligation on blocked-on surfaces
 

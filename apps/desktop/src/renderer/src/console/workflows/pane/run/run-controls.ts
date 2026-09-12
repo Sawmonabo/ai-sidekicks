@@ -5,11 +5,10 @@
 // are CLOSED SETS — the actions, the refusal codes, the states a served reply may
 // answer with — and a closed set spelled inside a component is a set the next
 // surface re-spells. The fourth, the reason bound, is NOT here at all: a number with
-// a rationale has one home for the whole console, and `apps/desktop/AGENTS.md` §Config
-// single-sourcing rejects a view family that declares one of its own — so this module
-// spends
-// `WORKFLOW_CANCEL_REASON_BYTE_CAP` through the core family's door and declares
-// nothing about it.
+// a rationale has one home for the whole console, and the config single-sourcing rule
+// in `apps/desktop/AGENTS.md` rejects a view family that declares one of its own — so
+// this module spends `WORKFLOW_CANCEL_REASON_BYTE_CAP` through the core family's door
+// and declares nothing about it.
 //
 // ELIGIBILITY IS NEVER COMPUTED HERE, AND THAT IS WHY THERE IS NO REFUSED CONTROL.
 // Whether a run may be cancelled or resumed is a daemon adjudication reaching the
@@ -46,9 +45,9 @@ import { refuse, type ConsoleRefusal } from "../../../core/index.js";
 import type { GrowthPort } from "../../../bridge/index.js";
 // The console's one byte measurement, through the family door that publishes it.
 // This surface bounds a cancellation reason exactly as the durable path bounds a
-// record, and `apps/desktop/AGENTS.md` §Chokepoints gives that one function: a
-// second one here agreed on ASCII and would have drifted on the first rule either
-// grew.
+// record, and the chokepoint rule in `apps/desktop/AGENTS.md` gives that one
+// function: a second one here agreed on ASCII and would have drifted on the first
+// rule either grew.
 import { measureUtf8ByteLength } from "../../../persistence/index.js";
 import { WORKFLOW_CANCEL_REASON_BYTE_CAP } from "../../../core/index.js";
 
@@ -120,7 +119,7 @@ export type WorkflowRunControlRunState =
  *
  * There is deliberately no optimistic arm. Nothing here mutates the run the pane is
  * rendering: what a person sees change is what the daemon answered, which is the
- * whole of `Spec-023 §Console Design (Meridian)` rule 9.
+ * whole of rule 9.
  */
 export type WorkflowRunControlOutcome =
   | { readonly kind: "idle" }
@@ -184,7 +183,7 @@ export function cancelReasonBudget(reason: string): CancelReasonBudget {
 /**
  * The refusal a reason past the bound earns.
  *
- * Names the bound and never the value: the reason is participant content, and
+ * Names the bound and never the value: the reason is user content, and
  * `core/refusal.ts` fixes `detail` as one actionable sentence that is never the
  * refused value itself.
  */

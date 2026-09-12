@@ -1,13 +1,13 @@
 // The published-artifact card a ledger row carries, and the seat registration that
 // fills it.
 //
-// `Spec-023 §Console Design (Meridian)` rule 7 puts diffs, attachments, and published
-// artifacts in the timeline as cards inside the row that produced them, because they
+// Diffs, attachments, and published artifacts go in the timeline as cards inside the
+// row that produced them, because they
 // BELONG to that turn — a person reading a conversation should not have to leave it to
 // see what it made.
 //
-// TWO FAMILIES MEET AT THE SEAT AND NEITHER IMPORTS THE OTHER. The ledger (T-023p-1C-2)
-// renders the seat; this family owns the body. The registration below is the whole
+// TWO FAMILIES MEET AT THE SEAT AND NEITHER IMPORTS THE OTHER. The ledger renders the
+// seat; this family owns the body. The registration below is the whole
 // contact surface, and it is called from the repos family's own door rather than at
 // this module's scope, for that door's reason: one module knows every body the family
 // owns, and a hot reload re-runs one module rather than several.
@@ -65,7 +65,7 @@ export function InlineArtifactCard(props: InlineArtifactCardProps): React.JSX.El
           Artifact
         </h4>
         {/* Wire-verbatim, with the full string recoverable through the title: an
-            artifact id is how a participant reaches this row anywhere else in the
+            artifact id is how a user reaches this row anywhere else in the
             product, so a truncated one that could not be read back would be useless. */}
         <span className="meridian-artifact-card__id" title={props.card.artifact.id}>
           {props.card.artifact.id}

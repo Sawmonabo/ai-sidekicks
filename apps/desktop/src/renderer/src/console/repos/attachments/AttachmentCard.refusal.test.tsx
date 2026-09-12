@@ -51,7 +51,7 @@ describe("attachment card — a refused stream is told what to do exactly once",
   // The namespace table answers every `artifact.*` code with a next move and
   // `attachment-policy.ts` answers a refused STREAM with the sentence in front of its
   // own retry control. Both are true and only one belongs on the card: rendering the
-  // pair would tell a participant to start the upload again in two sentences that drift
+  // pair would tell a user to start the upload again in two sentences that drift
   // the first time either is edited.
   it("renders the disposition's sentence and not the table's general move", () => {
     const { container } = render(
@@ -73,7 +73,7 @@ describe("attachment card — a refused stream is told what to do exactly once",
 
   it("renders the table's move where the refusal carries no disposition", () => {
     // The one that proves the branch above is a choice rather than a suppression: an
-    // over-size refusal on a stream with no disposition still reaches the participant
+    // over-size refusal on a stream with no disposition still reaches the user
     // with every part the table holds — the cases included, because this entry's move
     // is a lead-in into them and a card that stopped at the colon would name none.
     const recovery = artifactRefusalRecovery(TOO_LARGE_CODE);

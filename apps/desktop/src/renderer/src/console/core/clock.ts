@@ -3,10 +3,10 @@
 // Two reasons this is an interface rather than direct calls to `Date.now` and
 // `requestAnimationFrame`:
 //
-//   1. `Spec-023 §Console Design (Meridian)` §The fixture bridge: "the fixture
-//      clock is the only clock the renderer reads in fixture mode". A frozen tick
-//      only names one exact frame if nothing anywhere reaches past it to the wall
-//      clock — so the seam has to exist at the bottom, not at the scenario engine.
+//   1. The fixture clock is the only clock the renderer reads in fixture mode. A
+//      frozen tick only names one exact frame if nothing anywhere reaches past it to
+//      the wall clock — so the seam has to exist at the bottom, not at the scenario
+//      engine.
 //   2. The budgets forbid polling. "no timer fires except the refresh scheduler's
 //      deadline and the presence heartbeat" is a claim a test can only check if
 //      every timer in the console is minted through one object it can count.

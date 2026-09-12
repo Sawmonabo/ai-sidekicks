@@ -235,40 +235,6 @@ describe("pre-commit-runner — bin-script direct-invocation guard", () => {
   });
 });
 
-describe("pre-commit-runner — reverse-direction advisory", () => {
-  it("warns (without blocking) when staged code is cited by governance docs", () => {
-    const { root, cleanup } = setupRepo({
-      // `draft` → manifest-presence guard exempts this plan (see describe note).
-      "docs/plans/001-x.md":
-        "# Plan-001\n\n| **Status** | `draft` |\n\nThe parser lives at `packages/foo/src/bar.ts#doThing`.\n",
-      "packages/foo/src/bar.ts": "export function doThing(): void {}\n",
-      // checkPathCanonicalRipple roots on process.cwd() (not REPO_ROOT) and
-      // fails closed on a missing registry — this test chdirs into the
-      // fixture, so give it an empty registry.
-      "tools/docs-corpus/canonical-paths.json": '{ "paths": [] }\n',
-    });
-    // isCodeFile keys on repo-relative paths (`packages/…`), matching
-    // lefthook's invocation from the repo root — so run from the fixture root
-    // with a relative arg, unlike the md-lane tests above (absolute args).
-    // realpath the root first: macOS mkdtemp returns a /var → /private/var
-    // symlink, and process.cwd() after chdir is physical, so a symlinked
-    // REPO_ROOT would never match cwd-resolved staged paths.
-    const previousCwd = process.cwd();
-    const physicalRoot = realpathSync(root);
-    try {
-      process.chdir(physicalRoot);
-      const result = withRepoRoot(physicalRoot, () => runChecks(["packages/foo/src/bar.ts"]));
-      expect(result.exitCode).toBe(0); // advisory only — never blocks
-      const joined = result.messages.join("\n");
-      expect(joined).toContain("staged code is cited by governance docs");
-      expect(joined).toContain("docs/plans/001-x.md");
-    } finally {
-      process.chdir(previousCwd);
-      cleanup();
-    }
-  });
-});
-
 describe("pre-commit-runner — markdown section-anchor cites", () => {
   it("flags a staged doc citing a dead `§Heading` (section-not-found)", () => {
     const { root, cleanup } = setupRepo({
@@ -439,19 +405,6 @@ describe("pre-commit-runner — commit-snapshot (index) reads across every lane"
     }
   }
 
-  it("code lane: denies the STAGED (index) content even when the worktree already fixed it", () => {
-    const result = runCodeLane(
-      {
-        "docs/specs/003-runtime-node-attach.md": "# Spec\n\n## Attach\n\nline five\n",
-        "packages/x/src/f.ts": "// admission is governed by Spec-003 line 4 today\n",
-      },
-      "// admission is governed by `Spec-003 §Attach` today\n",
-      "packages/x/src/f.ts",
-    );
-    expect(result.exitCode).toBe(1);
-    expect(result.messages.join("\n")).toContain("line-anchored-cite-in-code");
-  });
-
   it("code lane: passes clean STAGED content regardless of raw-cite WIP in the worktree", () => {
     const result = runCodeLane(
       {
@@ -617,13 +570,13 @@ describe("pre-commit-runner — index-first lane membership", () => {
       "",
       "```mermaid",
       "graph TB",
-      "  NS01[NS-01: a]:::ready",
-      "  NS22[NS-22: b]:::ready",
+      "  ZZ01[ZZ-01: a]:::ready",
+      "  ZZ22[ZZ-22: b]:::ready",
       "",
       "  classDef ready fill:#9f9,stroke:#0a0,color:#000",
       "```",
       "",
-      "The ready set (NS-01) shares no code paths.",
+      "The ready set (ZZ-01) shares no code paths.",
       "",
     ].join("\n");
     const { root, cleanup } = setupRepo({
@@ -670,27 +623,6 @@ describe("pre-commit-runner — index-first lane membership", () => {
     }
   });
 
-  it("code lane: a staged raw line-cite is still denied after the worktree copy is removed", () => {
-    const { root, cleanup } = setupRepo({
-      "docs/specs/003-runtime-node-attach.md": "# Spec\n\nline three\nline four\nline five\n",
-      "packages/x/src/f.ts": "// admission is governed by Spec-003 line 4 today\n",
-      "tools/docs-corpus/canonical-paths.json": '{ "paths": [] }\n',
-    });
-    const previousCwd = process.cwd();
-    const physicalRoot = realpathSync(root);
-    try {
-      rmSync(resolve(physicalRoot, "packages/x/src/f.ts"));
-      process.chdir(physicalRoot);
-      const result = withRepoRoot(physicalRoot, () => runChecks(["packages/x/src/f.ts"]));
-      expect(result.laneCounts.code).toBe(1);
-      expect(result.exitCode).toBe(1);
-      expect(result.messages.join("\n")).toContain("line-anchored-cite-in-code");
-    } finally {
-      process.chdir(previousCwd);
-      cleanup();
-    }
-  });
-
   it("a path in neither the index nor the worktree stays out of the lane", () => {
     // A true staged deletion never reaches lefthook's argv
     // (`--diff-filter=ACMR`), but a caller passing a stale path must degrade
@@ -710,17 +642,16 @@ describe("pre-commit-runner — index-first lane membership", () => {
 });
 
 describe("pre-commit-runner — argv parsing for the lane floors", () => {
-  it("defaults both floors OFF and treats every positional as a file", () => {
+  it("defaults the floor OFF and treats every positional as a file", () => {
     // OFF is the lefthook posture: `{staged_files}` on a commit touching only
     // `.json` derives an empty `.md` lane legitimately.
     expect(parseRunnerArguments(["docs/a.md", "packages/x/y.ts"])).toEqual({
       files: ["docs/a.md", "packages/x/y.ts"],
       minimumMd: 0,
-      minimumCode: 0,
     });
   });
 
-  it("parses both floors and keeps the flags OUT of the file list", () => {
+  it("parses the floor and keeps the flag OUT of the file list", () => {
     // Hygiene, NOT a live defect — stated precisely because the tempting
     // stronger claim is false. `files` becomes both the lane-partition input
     // and makeCommitSnapshotReader's disk-fallback allowlist, but a leaked
@@ -730,10 +661,9 @@ describe("pre-commit-runner — argv parsing for the lane floors", () => {
     // argv through main() instead of the parsed files leaves all 34 tests
     // green. The separation is worth keeping and worth pinning; it is not
     // worth claiming a consequence it does not have.
-    expect(parseRunnerArguments(["--min-md=150", "docs/a.md", "--min-code=120"])).toEqual({
+    expect(parseRunnerArguments(["--min-md=150", "docs/a.md"])).toEqual({
       files: ["docs/a.md"],
       minimumMd: 150,
-      minimumCode: 120,
     });
   });
 
@@ -763,7 +693,6 @@ describe("pre-commit-runner — argv parsing for the lane floors", () => {
     ]) {
       expect(() => parseRunnerArguments([malformed]), malformed).toThrow(/--min-md requires/);
     }
-    expect(() => parseRunnerArguments(["--min-code=x"])).toThrow(/--min-code requires/);
   });
 
   it("rejects a newline-bearing floor value through the unknown-option arm", () => {
@@ -831,36 +760,24 @@ describe("pre-commit-runner — per-lane floors", () => {
   }
 
   it("fails when the .md lane collapses even though argv stays large (per-lane, not a total)", () => {
-    // THE discriminating case. CI passes `"${md_files[@]}" "${code_files[@]}"`
-    // as one flat argv, so an `.md` enumeration collapse beside a healthy code
-    // lane leaves argv long enough for any argv-TOTAL floor to pass — while
-    // mermaid, table-total, cite-target, section-cite and the md deny are all
-    // skipped by their `stagedMd.length > 0` guards. A total floor of 4 passes
-    // this exact argv; the per-lane floor is what catches it.
+    // THE discriminating case. CI passes one flat argv, so an `.md`
+    // enumeration collapse beside other passed files leaves argv long enough
+    // for any argv-TOTAL floor to pass — while mermaid, table-total,
+    // cite-target, section-cite and the md deny are all skipped by their
+    // `stagedMd.length > 0` guards. A total floor of 4 passes this exact
+    // argv; the resolved-lane floor is what catches it.
     withLaneFixture(1, 3, ({ md, code }) => {
       const argv = [...md, ...code];
       expect(argv).toHaveLength(4);
-      const result = runChecks(argv, { minimumMd: 2, minimumCode: 2 });
+      const result = runChecks(argv, { minimumMd: 2 });
       expect(result.exitCode).toBe(1);
       const joined = result.messages.join("\n");
       expect(joined).toContain(".md lane resolved 1 file(s), --min-md=2 required");
-      // The healthy lane is NOT reported — a breach names the lane that broke.
-      expect(joined).not.toContain("code lane resolved");
     });
   });
 
-  it("fails when the code lane collapses while the .md lane is full", () => {
-    withLaneFixture(3, 1, ({ md, code }) => {
-      const result = runChecks([...md, ...code], { minimumMd: 2, minimumCode: 2 });
-      expect(result.exitCode).toBe(1);
-      const joined = result.messages.join("\n");
-      expect(joined).toContain("code lane resolved 1 file(s), --min-code=2 required");
-      expect(joined).not.toContain(".md lane resolved");
-    });
-  });
-
-  it("passes the SAME argv once the floors are unarmed — the floor is what fails, not the fixture", () => {
-    // Negative control for both tests above: with floors off, this argv is
+  it("passes the SAME argv once the floor is unarmed — the floor is what fails, not the fixture", () => {
+    // Negative control for the test above: with the floor off, this argv is
     // clean, so their exit 1 is attributable to the floor and not to a fixture
     // that trips some other check.
     withLaneFixture(1, 3, ({ md, code }) => {
@@ -869,20 +786,20 @@ describe("pre-commit-runner — per-lane floors", () => {
     });
   });
 
-  it("runs the checks normally when both floors are cleared", () => {
+  it("runs the checks normally when the floor is cleared", () => {
     withLaneFixture(3, 3, ({ md, code }) => {
-      const result = runChecks([...md, ...code], { minimumMd: 2, minimumCode: 2 });
+      const result = runChecks([...md, ...code], { minimumMd: 2 });
       expect(result.exitCode).toBe(0);
       expect(result.messages.join("\n")).not.toContain("lane resolved");
     });
   });
 
-  it("reports the partitioned lane counts so a cleared-but-shrunken run stays legible", () => {
-    // The counts are what main() prints when a floor is armed: clearing a floor
+  it("reports the resolved lane count so a cleared-but-shrunken run stays legible", () => {
+    // The count is what main() prints when the floor is armed: clearing a floor
     // is not evidence a lane is healthy (260 `.md` files falling to 40 clears
     // `--min-md=20`), so the number itself has to be visible.
     withLaneFixture(3, 2, ({ md, code }) => {
-      expect(runChecks([...md, ...code]).laneCounts).toEqual({ md: 3, code: 2 });
+      expect(runChecks([...md, ...code]).laneCounts).toEqual({ md: 3 });
     });
   });
 
@@ -910,7 +827,7 @@ describe("pre-commit-runner — floor wiring through main()", () => {
     expect(result.stderr).toContain("--min-md requires a non-negative integer");
   });
 
-  it("prints the resolved lane counts when a floor is armed, and exits 0 when it clears", () => {
+  it("prints the resolved lane count when the floor is armed, and exits 0 when it clears", () => {
     const { root, cleanup } = setupRepo({
       "docs/note.md": "# Note\n\nProse with no cites.\n",
       "tools/docs-corpus/canonical-paths.json": '{ "paths": [] }\n',
@@ -927,7 +844,7 @@ describe("pre-commit-runner — floor wiring through main()", () => {
         },
       );
       expect(result.status).toBe(0);
-      expect(result.stdout).toContain("lanes resolved — 1 .md file(s), 0 code file(s)");
+      expect(result.stdout).toContain(".md lane resolved — 1 file(s)");
     } finally {
       cleanup();
     }

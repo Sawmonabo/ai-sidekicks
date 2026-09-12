@@ -29,7 +29,7 @@
 //
 // KEYED BY OPERATION ID UNDER THE `growth:` PREFIX rather than by a method string,
 // because none of these rows declares an expected wire method: the five daemon methods
-// are a Plan-026 registration the corpus has not made, and the two bridge methods cross
+// are a registration nothing has made yet, and the two bridge methods cross
 // the preload boundary rather than the wire. `reply-walk.ts` admits exactly this shape
 // for a row with no name to transcribe.
 

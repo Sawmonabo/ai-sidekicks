@@ -10,7 +10,7 @@
 // draft nobody can see, and a notice before focus would be it announcing one nobody
 // has looked at.
 //
-// THE SENTENCE IS THE STORE'S OWN. Fixed text carrying no participant content, read
+// THE SENTENCE IS THE STORE'S OWN. Fixed text carrying no user content, read
 // rather than composed here — a second wording would be the same disclosure said two
 // ways by two composers in one window.
 //

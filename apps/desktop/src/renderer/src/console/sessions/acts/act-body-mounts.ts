@@ -24,8 +24,8 @@
 // suspends at all.
 //
 // TWO `const`s AND NOT MODULE-LEVEL `let`s: the memo is each class's own private field,
-// which is what `apps/desktop/AGENTS.md` §State and views asks for, and a window has one
-// acts bar per sessions destination with nothing to key a registration on.
+// which is what the state-and-views rule in `apps/desktop/AGENTS.md` asks for, and a
+// window has one acts bar per sessions destination with nothing to key a registration on.
 //
 // WHAT A PENDING BODY DRAWS is the marker `seats/pane/pending-pane-body.ts` owns and nothing
 // else: no spinner, no skeleton, and none of rule 8's five kinds of nothing. What is

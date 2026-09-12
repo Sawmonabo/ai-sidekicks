@@ -1,31 +1,22 @@
-// Plan-003 Phase 5 T5.2 — CapabilityDeclaration renderer component suite.
+// The CapabilityDeclaration renderer component suite.
 //
-// BL-131 exit criterion (b), this view's share: bridge-only data access (no
-// `node:*` / `electron` / daemon / control-plane imports) plus the view's two
-// render states. Criterion (c) — the two-client attach E2E that replaces the
-// T5.4 manual smoke — is out of scope here and stays open on Plan-023 Tier 8.
-//
-// Spec coverage:
-//   • `Spec-003 §Required Behavior` (attach includes the node's DECLARED
-//     capabilities): one row per declared capability, value formatted, never
-//     dropped and never reordered — the view is a faithful projection of the
-//     declared map, not an editorialized one.
-//   • `Spec-003 §Default Behavior` (least privilege — only explicitly declared
-//     capabilities are schedulable): the EMPTY map renders an explicit
+// What the cases hold the view to:
+//   • An attach includes the node's DECLARED capabilities: one row per declared
+//     capability, value formatted, never dropped and never reordered — the view
+//     is a faithful projection of the declared map, not an editorialized one.
+//   • Capability exposure defaults to least privilege, so only explicitly
+//     declared capabilities are schedulable: the EMPTY map renders an explicit
 //     "nothing declared / nothing schedulable" state rather than blank space.
 //     An empty declared set is a meaningful fact, not a missing one.
-//   • Spec-023 §Trust Stance + `Plan-003 §Cross-Plan Obligations` CP-003-3: the
-//     bridge-projection source scan at the bottom of this file.
 //
 // The value-formatting matrix is load-bearing rather than incidental: the prop
-// boundary admits arbitrary `unknown` at Tier 3 (the map is supplied by a
-// parent, not read off the wire by this view), so the formatter must be TOTAL.
-// The two pathological cases below drive the guarded terminal fallback — a
-// value that cannot be stringified degrades to a literal, it never crashes the
-// render and never takes the node's whole declaration down with it.
+// boundary admits arbitrary `unknown` (the map is supplied by a parent, not read
+// off the wire by this view), so the formatter must be TOTAL. The two
+// pathological cases below drive the guarded terminal fallback — a value that
+// cannot be stringified degrades to a literal, it never crashes the render and
+// never takes the node's whole declaration down with it.
 //
-// Harness: the Vitest `renderer` project (happy-dom) + `@testing-library/react`
-// — see `ADR-022 §Decision Log` (2026-08-25).
+// Harness: the Vitest `renderer` project (happy-dom) + `@testing-library/react`.
 
 import { render, screen } from "@testing-library/react";
 
@@ -35,7 +26,6 @@ import { CapabilityDeclaration } from "../CapabilityDeclaration.js";
 
 type DeclaredCapabilityMap = RuntimeNodeAttachRequest["capabilities"];
 
-// Component under test: `CapabilityDeclaration` (Plan-003 Phase 5 T5.2).
 describe("CapabilityDeclaration", () => {
   describe("declared-set projection", () => {
     it("renders the explicit least-privilege state for an empty declaration", () => {

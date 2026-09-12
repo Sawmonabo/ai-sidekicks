@@ -11,11 +11,11 @@
 
 ## Context
 
-The system needs one default local client-to-daemon transport and one coherent position on when relay is used for shared sessions.
+The system needs one default local client-to-daemon transport and one coherent position on when relay is used to reach a session from another of the user's devices.
 
 ## Problem Statement
 
-What should be the default local transport boundary, and how should relay fit into remote collaboration?
+What should be the default local transport boundary, and how should relay fit into remote access?
 
 ### Trigger
 
@@ -41,7 +41,7 @@ We will default to OS-local IPC for client-to-daemon communication, use authenti
 
 ### Option C: Relay-First Shared Connectivity (Rejected)
 
-- **What:** Route most collaborative connectivity through relay by default.
+- **What:** Route most device-to-node connectivity through relay by default.
 - **Steel man:** Consistent connectivity story across many networks.
 - **Why rejected:** Overuses relay and blurs the boundary between normal control-plane coordination and remote fallback connectivity.
 
@@ -57,7 +57,7 @@ We will default to OS-local IPC for client-to-daemon communication, use authenti
 ### Positive
 
 - Stronger local security posture for daemon control
-- Clearer distinction between local execution transport and remote collaboration transport
+- Clearer distinction between local execution transport and remote-access transport
 
 ### Negative (accepted trade-offs)
 
@@ -66,7 +66,7 @@ We will default to OS-local IPC for client-to-daemon communication, use authenti
 
 ### Unknowns
 
-- How often relay will be necessary in typical collaborative deployments
+- How often relay will be necessary in typical deployments
 
 ## References
 
@@ -91,7 +91,7 @@ We will default to OS-local IPC for client-to-daemon communication, use authenti
 ### Related Specs
 
 - [Local IPC And Daemon Control](../specs/007-local-ipc-and-daemon-control.md)
-- [Identity And Participant State](../specs/018-identity-and-participant-state.md)
+- [Identity And User State](../specs/018-identity-and-user-state.md)
 
 ### Related ADRs
 

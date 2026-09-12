@@ -1,17 +1,13 @@
-// Plan-003 PR #135 — Test C1: `RuntimeNodeAttach` request/response contract.
+// Test C1: `RuntimeNodeAttach` request/response contract.
 //
-// Backstops `Spec-003 §Interfaces And Contracts` (RuntimeNodeAttach required fields) and
-// `Spec-003 §Required Behavior` (`client_version` floor field — the daemon's reported version, which
-// the Phase-3 attach service floor-compares against `sessions.min_client_version`
-// per ADR-018 §Decision #4 / I-003-1). T1.1 ships only the contract SURFACE;
-// these tests pin the wire shape (`docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`).
+// Ships only the contract SURFACE; these tests pin the wire shape.
 //
 // Coverage shape:
 //   • RuntimeNodeAttachRequestSchema ACCEPTS a payload with all required fields
 //     including `clientVersion`
-//   • REJECTS payloads missing `clientVersion` (`Spec-003 §Required Behavior` floor field),
-//     missing `nodeId`, with an out-of-enum `healthState`, and with an unknown
-//     extra key (the `.strict()` drift guard)
+//   • REJECTS payloads missing `clientVersion` (floor field), missing `nodeId`, with an
+//     out-of-enum `healthState`, and with an unknown extra key (the `.strict()` drift
+//     guard)
 //   • clientVersion is the branded MAJOR.MINOR semver (EventEnvelopeVersion),
 //     NOT a plain string — a non-semver string is rejected (catch #1: a raw
 //     string would silently break the semver-aware floor comparison)
@@ -21,7 +17,7 @@
 //   • NodeId is a non-UUID opaque brand (catch #2): a plain non-empty string is
 //     accepted, empty/oversize rejected — it does NOT require UUID format
 //   • NodeState is exactly the 5-value liveness enum aligned with the
-//     `runtime_node_attachments.state` CHECK (`docs/architecture/schemas/shared-postgres-schema.md §Runtime Node Attachments (Plan-003)`)
+//     `runtime_node_attachments.state` CHECK
 //   • RuntimeNodeHealthState is exactly the 2-value daemon-reported health enum
 //     (catch #10 — the hoisted shared wire enum, distinct from NodeState)
 import { describe, expect, it } from "vitest";
@@ -66,18 +62,18 @@ import {
 } from "../runtime-node.js";
 
 // Fixtures must be VALID per the imported upstream schemas:
-//   • sessionId / participantId pass through `RFC_9562_TEXT_FORM` (brandedUuidIdSchema)
+//   • sessionId / userId pass through `RFC_9562_TEXT_FORM` (brandedUuidIdSchema)
 //   • clientVersion must satisfy EventEnvelopeVersionSchema (event.ts) — a
 //     "MAJOR.MINOR" semver string; "1.0" is the canonical accepted form
 //   • nodeId is any non-empty string ≤ NODE_ID_MAX_LEN (daemon-assigned opaque)
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
-const PARTICIPANT_ID = "660e8400-e29b-41d4-a716-446655440001";
+const USER_ID = "660e8400-e29b-41d4-a716-446655440001";
 const NODE_ID = "node-daemon-abc123";
 const CLIENT_VERSION = "1.0";
 
 const buildValidAttachRequest = () => ({
   sessionId: SESSION_ID,
-  participantId: PARTICIPANT_ID,
+  userId: USER_ID,
   nodeId: NODE_ID,
   clientVersion: CLIENT_VERSION,
   capabilities: { ptyHost: true, maxConcurrentRuns: 4 },
@@ -96,7 +92,7 @@ describe("RuntimeNodeAttachRequestSchema (C1: required fields)", () => {
     expect(RuntimeNodeAttachRequestSchema.safeParse(buildValidAttachRequest()).success).toBe(true);
   });
 
-  it("rejects a payload missing clientVersion (`Spec-003 §Required Behavior` floor field)", () => {
+  it("rejects a payload missing clientVersion (floor field)", () => {
     const { clientVersion: _omitted, ...withoutClientVersion } = buildValidAttachRequest();
     expect(RuntimeNodeAttachRequestSchema.safeParse(withoutClientVersion).success).toBe(false);
   });
@@ -132,7 +128,7 @@ describe("RuntimeNodeAttachRequestSchema (C1: required fields)", () => {
     }
   });
 
-  it("rejects an invalid (non-UUID) sessionId / participantId", () => {
+  it("rejects an invalid (non-UUID) sessionId / userId", () => {
     expect(
       RuntimeNodeAttachRequestSchema.safeParse({
         ...buildValidAttachRequest(),
@@ -142,7 +138,7 @@ describe("RuntimeNodeAttachRequestSchema (C1: required fields)", () => {
     expect(
       RuntimeNodeAttachRequestSchema.safeParse({
         ...buildValidAttachRequest(),
-        participantId: "not-a-uuid",
+        userId: "not-a-uuid",
       }).success,
     ).toBe(false);
   });
@@ -156,8 +152,8 @@ describe("RuntimeNodeAttachResponseSchema (C1: readOnly boolean)", () => {
   });
 
   it("accepts a response that is online AND readOnly (orthogonal axes)", () => {
-    // I-003-1 design surface: a below-floor daemon is ADMITTED (state=online),
-    // but read-only (readOnly=true). The two axes are independent.
+    // Design surface: a below-floor daemon is ADMITTED (state=online), but
+    // read-only (readOnly=true). The two axes are independent.
     const onlineReadOnly = {
       ...buildValidAttachResponse(),
       state: "online" as const,
@@ -190,7 +186,7 @@ describe("RuntimeNodeAttachResponseSchema (C1: readOnly boolean)", () => {
 
   it("accepts a numeric-offset attachedAt (RFC 3339 { offset: true } widening)", () => {
     // Positive proof the `{ offset: true }` option widens default Z-only
-    // acceptance to RFC 3339 §5.6 numeric offsets.
+    // acceptance to RFC 3339 section 5.6 numeric offsets.
     const numericOffset = {
       ...buildValidAttachResponse(),
       attachedAt: "2026-01-22T19:14:35.000+05:00",
@@ -227,7 +223,7 @@ describe("NodeIdSchema (catch #2: non-UUID opaque daemon-assigned brand)", () =>
   });
 });
 
-describe("NodeStateSchema (5-value liveness enum; `docs/architecture/schemas/shared-postgres-schema.md §Runtime Node Attachments (Plan-003`))", () => {
+describe("NodeStateSchema (5-value liveness enum))", () => {
   it.each(["registering", "online", "degraded", "offline", "revoked"])(
     "accepts the liveness value %s",
     (value) => {
@@ -251,20 +247,12 @@ describe("RuntimeNodeHealthStateSchema (catch #10: 2-value daemon-reported healt
 });
 
 // --------------------------------------------------------------------------
-// Plan-003 PR #135 — Test C2: `RuntimeNodeCapabilityUpdate` request/response.
+// Test C2: `RuntimeNodeCapabilityUpdate` request/response.
 // --------------------------------------------------------------------------
 //
-// Backstops `Spec-003 §Interfaces And Contracts` (capability additions, removals, AND health
-// changes) and `Spec-003 §Default Behavior` (2026-06-04 `capabilityupdate` amendment — the
-// daemon self-report axis is `online ↔ degraded`). The `capabilities` map is a
-// FULL REPLACEMENT set — additions and removals are both expressed by the new
-// map (removal = key omitted), so the add-only and removal cases differ only in
-// the map contents. Health transitions ride the optional `healthChanges`
-// object, whose `state` is the 2-value `RuntimeNodeHealthState` wire-health enum
-// (online|degraded) — the SAME self-report axis as `attach`/`heartbeat`, NOT the
-// broad 5-value `NodeState` (narrowed by T3.0; `offline`/`revoked` are owned by
-// other authorities and are unrepresentable here, I-003-2 least-privilege).
-// Wire shape pinned: `docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`.
+// The `capabilities` map is a FULL REPLACEMENT set — additions and removals are both
+// expressed by the new map (removal = key omitted), so the add-only and removal cases
+// differ only in the map contents.
 const buildValidCapabilityUpdateRequest = () => ({
   nodeId: NodeIdSchema.parse(NODE_ID),
   capabilities: { "feature.x": { enabled: true } },
@@ -315,27 +303,23 @@ describe("RuntimeNodeCapabilityUpdateRequestSchema (C2: additions / removals / h
   });
 
   it("rejects a healthChanges.state that is a 5-value NodeState but NOT a 2-value health value", () => {
-    // PROVES `healthChanges.state` is wired to the 2-value
-    // RuntimeNodeHealthStateSchema and NOT the 5-value NodeStateSchema (T3.0
-    // narrowing): `registering`/`offline`/`revoked` are valid NodeState liveness
-    // positions (`docs/architecture/schemas/shared-postgres-schema.md §Runtime Node Attachments (Plan-003)`) but are EXCLUDED from the
-    // 2-value daemon-reported wire-health enum, so a daemon self-report carrying
-    // one is now UNCONSTRUCTABLE at the schema boundary rather than runtime-
-    // accepted. Each rejected arm maps to an authority a daemon self-report is
-    // not:
+    // PROVES `healthChanges.state` is wired to the 2-value RuntimeNodeHealthStateSchema
+    // and NOT the 5-value NodeStateSchema (narrowing):
+    // `registering`/`offline`/`revoked` are valid NodeState liveness positions but are
+    // EXCLUDED from the 2-value daemon-reported wire-health enum, so a daemon
+    // self-report carrying one is now UNCONSTRUCTABLE at the schema boundary rather
+    // than runtime- accepted. Each rejected arm maps to an authority a daemon
+    // self-report is not:
     //   • `registering` — the `registering → online` transition is driven by a
     //     successful daemon-side capability DECLARATION, NOT by `capabilityupdate`
-    //     (`Spec-003 §Default Behavior`; the amendment forbids `capabilityupdate`
-    //     driving `registering → online`). This narrowing is the contract-surface
-    //     enforcement; the runtime transition-gating is Plan-003 T3.9.
-    //   • `offline` — server-derived liveness-death (the staleness sweep,
-    //     Plan-003 T3.6), never daemon-self-reported.
-    //   • `revoked` — an authority-issued trust decision (detach/admin, Plan-003
-    //     T3.7), never self-asserted.
-    // This is the proof of I-003-2's least-privilege corollary (a daemon self-
-    // report cannot assert liveness-death or revocation). `Spec-003 §Default Behavior`
-    // (online requires a daemon-side capability declaration; the 2026-06-04
-    // `capabilityupdate` amendment — the self-report axis is `online ↔ degraded`).
+    //     (the amendment forbids `capabilityupdate` driving `registering →
+    //     online`).
+    //   • `offline` — server-derived liveness-death (the staleness
+    //     sweep), never daemon-self-reported.
+    //   • `revoked` — an authority-issued trust decision (detach/admin), never
+    //     self-asserted.
+    // This is the proof of the least-privilege corollary (a daemon self- report cannot
+    // assert liveness-death or revocation)..
     for (const state of ["registering", "offline", "revoked"] as const) {
       const update = {
         ...buildValidCapabilityUpdateRequest(),
@@ -459,19 +443,18 @@ describe("RuntimeNodeCapabilityUpdateResponseSchema (C2: nodeId + state + update
 });
 
 // --------------------------------------------------------------------------
-// Plan-003 PR #135 — Test C6: `RuntimeNodeHeartbeat` request + null response.
+// Test C6: `RuntimeNodeHeartbeat` request + null response.
 // --------------------------------------------------------------------------
 //
-// Backstops the heartbeat wire shape (`docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`, `docs/architecture/contracts/api-payload-contracts.md §Runtime-Node Method-Name Registry (Tier 3)`):
-// a `nodeId` + a 2-value `healthState`, and a `null` response payload (NOT a
-// 204 empty body — the resolver returns `null`, serialized as a 200 success
-// envelope). The discriminating test is the 2-value health-enum boundary: a
-// mis-wire to the 5-value `NodeStateSchema` would accept `offline`/`registering`/
-// `revoked`, so the loop-reject below catches that specific mis-wire. It now
-// PARALLELS the capability-update 2-value reject (both `healthChanges.state` and
-// `healthState` carry the same `RuntimeNodeHealthState` axis after T3.0), rather
-// than inverting it — all three daemon-self-report surfaces reject the broad
-// liveness values by construction.
+// Backstops the heartbeat wire shape: a `nodeId` + a 2-value `healthState`, and a
+// `null` response payload (NOT a 204 empty body — the resolver returns `null`,
+// serialized as a 200 success envelope). The discriminating test is the 2-value
+// health-enum boundary: a mis-wire to the 5-value `NodeStateSchema` would accept
+// `offline`/`registering`/ `revoked`, so the loop-reject below catches that specific
+// mis-wire. It now PARALLELS the capability-update 2-value reject (both
+// `healthChanges.state` and `healthState` carry the same `RuntimeNodeHealthState` axis
+// after), rather than inverting it — all three daemon-self-report surfaces reject the
+// broad liveness values by construction.
 const buildValidHeartbeatRequest = () => ({
   nodeId: NodeIdSchema.parse(NODE_ID),
   healthState: "online" as const,
@@ -505,12 +488,11 @@ describe("RuntimeNodeHeartbeatRequestSchema (C6: nodeId + 2-value healthState)",
   });
 
   it("rejects NodeState liveness values that are NOT 2-value health values (mis-wire guard)", () => {
-    // `offline`/`registering`/`revoked` are valid 5-value NodeState liveness
-    // positions (`docs/architecture/schemas/shared-postgres-schema.md §Runtime Node Attachments (Plan-003)`) but are EXCLUDED from the
-    // 2-value daemon-reported wire-health enum. If `healthState` were mis-wired
-    // to the 5-value `NodeStateSchema` these would be ACCEPTED — this loop
-    // catches that mis-wire and PARALLELS the capability-update 2-value reject
-    // (its `healthChanges.state` carries the same narrow axis after T3.0).
+    // `offline`/`registering`/`revoked` are valid 5-value NodeState liveness positions
+    // but are EXCLUDED from the 2-value daemon-reported wire-health enum. If
+    // `healthState` were mis-wired to the 5-value `NodeStateSchema` these would be
+    // ACCEPTED — this loop catches that mis-wire and PARALLELS the capability-update
+    // 2-value reject (its `healthChanges.state` carries the same narrow axis after).
     for (const liveness of ["offline", "registering", "revoked"]) {
       const broken = { ...buildValidHeartbeatRequest(), healthState: liveness };
       expect(RuntimeNodeHeartbeatRequestSchema.safeParse(broken).success).toBe(false);
@@ -542,13 +524,12 @@ describe("RuntimeNodeHeartbeatResponseSchema (C6: null no-content payload)", () 
 });
 
 // --------------------------------------------------------------------------
-// Plan-003 PR #135 — Test C3: `RuntimeNodeDetach` request + null response.
+// Test C3: `RuntimeNodeDetach` request + null response.
 // --------------------------------------------------------------------------
 //
-// Backstops the detach wire shape (`docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`, `docs/architecture/contracts/api-payload-contracts.md §Runtime-Node Method-Name Registry (Tier 3)`): a
-// `nodeId` + an OPTIONAL free-form `reason`, and a `null` response payload. The
-// `reason` field composes `wireFreeFormString` (session.ts:118), so it inherits
-// the trust-boundary guards — these mirror the
+// Backstops the detach wire shape: a `nodeId` + an OPTIONAL free-form `reason`, and a
+// `null` response payload. The `reason` field composes `wireFreeFormString`
+// (session.ts:118), so it inherits the trust-boundary guards — these mirror the
 // `RuntimeNodeCapabilityUpdate.healthChanges.reason` guard cases (the identical-
 // wire-spec precedent) and pin that `reason` is NOT a bare `z.string()`.
 const buildValidDetachRequest = () => ({
@@ -620,30 +601,21 @@ describe("RuntimeNodeDetachResponseSchema (C3: null no-content payload)", () => 
 });
 
 // --------------------------------------------------------------------------
-// Plan-003 PR #135 — Test C4: `runtime_node.*` event-name taxonomy constants.
+// Test C4: `runtime_node.*` event-name taxonomy constants.
 // --------------------------------------------------------------------------
 //
-// C4 acceptance criterion: the exported 7-name `runtime_node.*` set is exactly
-// equal (as a sorted set) to the 7 names in the Runtime Node Lifecycle taxonomy
-// table at `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` — neither superset nor subset. The SET
-// MEMBERSHIP is the contract (additions MINOR, removals MAJOR under ADR-018
-// §Decision #8), not the declaration order, so the equality is asserted
-// order-independently against a hardcoded expected-7 array re-derived from the
-// spec table (NOT transcribed from a Plan-003 gloss).
+// C4 acceptance criterion: the exported 7-name `runtime_node.*` set is exactly equal
+// (as a sorted set) to the 7 names in the Runtime Node Lifecycle taxonomy table —
+// neither superset nor subset. The SET MEMBERSHIP is the contract (additions MINOR,
+// removals MAJOR), not the declaration order, so the equality is asserted
+// order-independently against a hardcoded expected-7 array re-derived from the spec
+// table (NOT transcribed from a gloss).
 //
 // The `expectedSevenFromSpec006` array is the test's independent source of truth,
-// each entry mapped to its Spec-006 table row:
-//   • runtime_node.registered          — `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`
-//   • runtime_node.online              — `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`
-//   • runtime_node.degraded            — `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`
-//   • runtime_node.offline             — `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`
-//   • runtime_node.revoked             — `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`
-//   • runtime_node.capability_declared — `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`
-//   • runtime_node.capability_updated  — `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`
-// The 2 `session.clock_*` rows (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`) are DELIBERATELY ABSENT: they
-// share the `runtime_node_lifecycle` category but retain the `session.` prefix by
-// name-preservation (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` / ADR-018 §Decision #8) and were promoted
-// from Spec-015 §Reserved Events.
+// each entry mapped to its table row:
+// The 2 `session.clock_*` rows are DELIBERATELY ABSENT: they share the
+// `runtime_node_lifecycle` category but retain the `session.` prefix by
+// name-preservation and were promoted.
 const expectedSevenFromSpec006 = [
   "runtime_node.registered",
   "runtime_node.online",
@@ -655,12 +627,11 @@ const expectedSevenFromSpec006 = [
 ];
 
 describe("RUNTIME_NODE_EVENT_NAMES (C4: 7-name runtime_node.* taxonomy)", () => {
-  it("is exactly the sorted set of the 7 names in `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle`)", () => {
-    // Order-independent SET equality: sort both sides so a reorder of either the
-    // export tuple or the spec table does not spuriously fail, while a
-    // missing/extra/renamed name does (the membership IS the contract per
-    // `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`). A spread is required because the export is `readonly` and
-    // `.sort()` mutates in place.
+  it("is exactly the sorted set of the 7 names)", () => {
+    // Order-independent SET equality: sort both sides so a reorder of either the export
+    // tuple or the spec table does not spuriously fail, while a missing/extra/renamed
+    // name does (the membership IS the contract). A spread is required because the
+    // export is `readonly` and `.sort()` mutates in place.
     expect([...RUNTIME_NODE_EVENT_NAMES].sort()).toEqual([...expectedSevenFromSpec006].sort());
   });
 
@@ -673,83 +644,69 @@ describe("RUNTIME_NODE_EVENT_NAMES (C4: 7-name runtime_node.* taxonomy)", () => 
   });
 
   it("every entry carries the runtime_node. prefix (catches a session.clock_* leak)", () => {
-    // The prefix guard is the discriminating assertion: if a `session.clock_*`
-    // name (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`) leaked into the set it would fail here even if the
-    // count stayed at 7, because those names retain the `session.` prefix.
+    // The prefix guard is the discriminating assertion: if a `session.clock_*` name
+    // leaked into the set it would fail here even if the count stayed at 7, because
+    // those names retain the `session.` prefix.
     for (const eventName of RUNTIME_NODE_EVENT_NAMES) {
       expect(eventName.startsWith("runtime_node.")).toBe(true);
     }
   });
 
-  it("excludes the session.clock_* pair (name-preservation boundary, Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`))", () => {
+  it("excludes the session.clock_* pair (name-preservation boundary)", () => {
     // Explicit negative: the two same-category clock events are NOT in the set.
     expect(RUNTIME_NODE_EVENT_NAMES).not.toContain("session.clock_unsynced");
     expect(RUNTIME_NODE_EVENT_NAMES).not.toContain("session.clock_corrected");
   });
 
-  it("targets the runtime_node_lifecycle category, which is registered in Plan-001's EventCategorySchema", () => {
-    // Cross-ref proving the CP-003-1 split is real: Plan-003 ships these NAME
-    // constants, but the category they belong to is owned by Plan-001 and already
-    // present in `EventCategorySchema` (the canonical taxonomy enum in event.ts).
-    // This confirms the target category exists in Plan-001's enum; the name→category
-    // binding itself is Plan-006's to register (CP-003-1), not asserted here.
+  it("targets the runtime_node_lifecycle category, which is registered in the EventCategorySchema", () => {
+    // This confirms the target category exists in the enum; the name→category
+    // binding itself is the to register, not asserted here.
     expect(EventCategorySchema.safeParse("runtime_node_lifecycle").success).toBe(true);
   });
 });
 
 // --------------------------------------------------------------------------
-// Plan-003 PR #135 — Test C5: typed `VERSION_FLOOR_EXCEEDED` consumer anchor.
+// Test C5: typed `VERSION_FLOOR_EXCEEDED` consumer anchor.
 // --------------------------------------------------------------------------
 //
-// This block is a Plan-003 CONSUMER-SIDE conformance anchor, NOT a re-test of
-// Plan-001's error-schema matrix. I-003-1 ("Attach is admit-not-eject for
-// below-floor daemons") requires that a below-floor write returns a *typed*
-// `VERSION_FLOOR_EXCEEDED` (`Spec-003 §Required Behavior`, `Spec-003 §Acceptance Criteria` AC4; ADR-018 §Decision
-// #4 / §Decision #10). The concrete realization of that typed error is the
-// Plan-001-owned `VersionFloorExceededError` / `VersionFloorExceededErrorSchema`
-// / `VERSION_FLOOR_EXCEEDED_CODE` in `error.ts`. The two assertions here pin
-// Plan-003's consuming dependency on that contract — the exact-T1.7 precedent
-// (T1.7 pinned Plan-003's dependency on the Plan-001 Postgres `min_client_version`
-// column; this pins its dependency on the Plan-001 typed error).
+// This block is a CONSUMER-SIDE conformance anchor, NOT a re-test of the error-schema
+// matrix. requires that a below-floor write returns a *typed* `VERSION_FLOOR_EXCEEDED`.
+// The two assertions here pin the consuming dependency on that contract — the exact-
+// precedent (pinned the dependency on Postgres `min_client_version` column; this pins
+// its dependency on typed error).
 //
 // DELIBERATELY NOT RE-RUN HERE: `error.test.ts`'s
-// `describe("VersionFloorExceededErrorSchema")` (Plan-001 T2.3) owns the full
+// `describe("VersionFloorExceededErrorSchema")` owns the full
 // accept/reject/strict-key/oversize/whitespace/boundary/missing-field matrix.
 // This block adds exactly what that matrix does NOT cover — see each `it`.
 //
-// PHASE-3 TRIPWIRE: only the typed-CONTRACT conformance proven here ships in
-// Plan-003 Phase 1. The RUNTIME admit-not-eject behavior — the attach service
-// actually returning this error on a below-floor write and then admitting the
-// daemon read-only (`Spec-003 §Acceptance Criteria` AC4) — lands at Plan-003 Phase 3 (P3/P4).
+// PHASE-3 TRIPWIRE: only the typed-CONTRACT conformance proven here ships. The RUNTIME
+// admit-not-eject behavior — the attach service actually returning this error on a
+// below-floor write and then admitting the daemon read-only — lands.
 //
-// Cites: `Spec-003 §Required Behavior`, `Spec-003 §Acceptance Criteria` AC4, I-003-1, ADR-018 §Decision #4 /
-// §Decision #10, `docs/architecture/contracts/error-contracts.md §Version`.
-describe("VersionFloorExceededErrorSchema (C5: VERSION_FLOOR_EXCEEDED typed-contract conformance — Plan-003 consumer anchor)", () => {
-  it("pins the wire code literal to the value registered in `docs/architecture/contracts/error-contracts.md §Version`", () => {
-    // The expected string is single-sourced from the INDEPENDENT registry —
-    // `docs/architecture/contracts/error-contracts.md §Version` maps the typed `VERSION_FLOOR_EXCEEDED` name to the
-    // dotted wire code `version.floor_exceeded` (ADR-018 §Decision #10 mandates
-    // registration there). That doc, NOT `error.ts`, is the source of the
-    // expected value here, so this pin detects drift in `error.ts` rather than
-    // tautologically agreeing with it.
+describe("VersionFloorExceededErrorSchema (C5: VERSION_FLOOR_EXCEEDED typed-contract conformance — consumer anchor)", () => {
+  it("pins the wire code literal to the value registered", () => {
+    // The expected string is single-sourced from the INDEPENDENT registry — maps the
+    // typed `VERSION_FLOOR_EXCEEDED` name to the dotted wire code
+    // `version.floor_exceeded`. That doc, NOT `error.ts`, is the source of the expected
+    // value here, so this pin detects drift in `error.ts` rather than tautologically
+    // agreeing with it.
     //
-    // Non-duplicative vs. error.test.ts: every test there references the constant
-    // SYMBOLICALLY (`code: VERSION_FLOOR_EXCEEDED_CODE`), so renaming the
-    // constant's VALUE (e.g. to `"version.floor_breached"`) would leave all of
-    // `error.test.ts` green while silently breaking the cross-process / cross-SDK
-    // wire contract that I-003-1 depends on. This is the only test in the repo
-    // that pins the literal string itself.
+    // Error.test.ts: every test there references the constant SYMBOLICALLY
+    // (`code: VERSION_FLOOR_EXCEEDED_CODE`), so renaming the constant's VALUE
+    // (e.g. This is the only test in the repo that pins the literal string
+    // itself.
     expect(VERSION_FLOOR_EXCEEDED_CODE).toBe("version.floor_exceeded");
   });
 
-  it("binds Plan-003's below-floor rejection payload to its TYPE and preserves the upgradePath through a parse", () => {
-    // Discriminator vs. error.test.ts's un-annotated `buildValidFloorError()`
-    // literal (error.test.ts:377-385,398): that fixture proves the schema ACCEPTS
-    // the shape at runtime; the explicit type annotations below prove Plan-003's
-    // CONSUMING code sees a TYPE that agrees with the schema (compile-time-checked
-    // by the package's `isolatedDeclarations` + `exactOptionalPropertyTypes`
-    // build). `upgradePath` is `string | undefined` on the interface, so including
-    // it with a concrete value is correct under `exactOptionalPropertyTypes`.
+  it("binds the below-floor rejection payload to its TYPE and preserves the upgradePath through a parse", () => {
+    // Error.test.ts's un-annotated `buildValidFloorError()` literal
+    // (error.test.ts:377-385,398): that fixture proves the schema ACCEPTS the
+    // shape at runtime; the explicit type annotations below prove the CONSUMING
+    // code sees a TYPE that agrees with the schema (compile-time-checked by the
+    // package's `isolatedDeclarations` + `exactOptionalPropertyTypes` build).
+    // `upgradePath` is `string | undefined` on the interface, so including it with
+    // a concrete value is correct under `exactOptionalPropertyTypes`.
     const belowFloorDetails: VersionBoundExceededDetails = {
       attemptedVersion: "0.9",
       acceptedRange: { min: "1.0", max: "2.0" },
@@ -764,10 +721,8 @@ describe("VersionFloorExceededErrorSchema (C5: VERSION_FLOOR_EXCEEDED typed-cont
     const result = VersionFloorExceededErrorSchema.safeParse(belowFloorRejection);
     expect(result.success).toBe(true);
 
-    // ADR-018 §Decision #10: the typed floor error carries a human-readable
-    // upgrade path so the read-only-admitted daemon can surface remediation
-    // (graceful degradation, not ejection — I-003-1 / `Spec-003 §Required Behavior`). Assert the
-    // schema PRESERVES it through a parse rather than dropping the optional field.
+    // Assert the schema PRESERVES it through a parse rather than dropping the optional
+    // field.
     if (result.success) {
       expect(result.data.details.upgradePath).toBe(belowFloorRejection.details.upgradePath);
     }
@@ -775,14 +730,12 @@ describe("VersionFloorExceededErrorSchema (C5: VERSION_FLOOR_EXCEEDED typed-cont
 });
 
 // --------------------------------------------------------------------------
-// Plan-003 Phase 2 (PR #137) — Test C7: per-event `runtime_node.*` payload schemas.
 // --------------------------------------------------------------------------
 //
-// Backstops the 5 daemon-reachable per-event PAYLOAD shapes authored in Plan-003
-// Phase 2 (CP-003-1; `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`): `registered`, `online`, `offline`,
-// `capability_declared`, `capability_updated`. These validate the
-// `EventEnvelope.payload` CONTENTS only — the integrity envelope + discriminated-
-// union registration are Plan-006 Tier 4. The discriminating coverage:
+// Backstops the 5 daemon-reachable per-event PAYLOAD shapes authored: `registered`,
+// `online`, `offline`, `capability_declared`, `capability_updated`. These validate the
+// `EventEnvelope.payload` CONTENTS only — the integrity envelope + discriminated- union
+// registration are daemon-side.
 //   • each schema `.parse()`-es a fully-valid payload and round-trips
 //   • a missing required field, an unknown extra key (`.strict()`), and a
 //     wrong-type field each reject
@@ -798,7 +751,7 @@ const VALID_LIFECYCLE_BASE = {
   nodeId: NODE_ID,
   previousState: "registering" as const,
   newState: "online" as const,
-  actor: PARTICIPANT_ID,
+  actor: USER_ID,
 };
 
 const buildValidRegisteredPayload = () => ({
@@ -820,7 +773,7 @@ const buildValidOfflinePayload = () => ({
 const buildValidCapabilityDeclaredPayload = () => ({
   sessionId: SESSION_ID,
   nodeId: NODE_ID,
-  actor: PARTICIPANT_ID,
+  actor: USER_ID,
   capability: "provider-driver",
   capabilityDetails: { contractVersion: "1.0", flags: { streaming: true } },
 });
@@ -828,7 +781,7 @@ const buildValidCapabilityDeclaredPayload = () => ({
 const buildValidCapabilityUpdatedPayload = () => ({
   sessionId: SESSION_ID,
   nodeId: NODE_ID,
-  actor: PARTICIPANT_ID,
+  actor: USER_ID,
   capability: "provider-driver",
   previousState: { contractVersion: "1.0" },
   newState: { contractVersion: "1.1" },
@@ -907,9 +860,9 @@ describe("RuntimeNodeOnlinePayloadSchema (C7: online = base, no extension)", () 
   });
 
   it("ACCEPTS sessionId omitted (lifecycle base types sessionId optional)", () => {
-    // The full lifecycle base types `sessionId?` optional (Spec-006's `sessionId?`
-    // base) — symmetric coverage with `previousState`/`actor` omitted above. A
-    // future accidental drop of `.optional()` on `sessionId` would be an uncaught
+    // The full lifecycle base types `sessionId?` optional (the `sessionId?` base)
+    // — symmetric coverage with `previousState`/`actor` omitted above. A future
+    // accidental drop of `.optional()` on `sessionId` would be an uncaught
     // false-reject regression.
     const { sessionId: _omitted, ...withoutSessionId } = buildValidOnlinePayload();
     expect(RuntimeNodeOnlinePayloadSchema.safeParse(withoutSessionId).success).toBe(true);
@@ -999,9 +952,9 @@ describe("RuntimeNodeCapabilityDeclaredPayloadSchema (C7: reduced base + {capabi
 
   it("REJECTS a newState key (reduced base omits the NodeState-transition fields)", () => {
     // Discriminating reduced-base proof: capability events are NOT NodeState
-    // transitions (the canonical payload, `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`, carries no
-    // base NodeState fields). A `newState` key is therefore an unknown key under
-    // `.strict()` — its presence rejects.
+    // transitions (the canonical payload carries no base NodeState fields). A
+    // `newState` key is therefore an unknown key under `.strict()` — its presence
+    // rejects.
     const broken = { ...buildValidCapabilityDeclaredPayload(), newState: "online" };
     expect(RuntimeNodeCapabilityDeclaredPayloadSchema.safeParse(broken).success).toBe(false);
   });
@@ -1078,10 +1031,9 @@ describe("RuntimeNodeCapabilityUpdatedPayloadSchema (C7: reduced base + {capabil
 
   it("rejects a NodeState enum string for newState (an object snapshot on both union arms, not a NodeState)", () => {
     // `newState` is the canonical-first tolerant union of two OBJECT schemas
-    // (`CapabilityDetailsSchema` | opaque record — Plan-006 T1.4), so a
-    // NodeState string is the WRONG type for BOTH arms and rejects — proving
-    // these fields are capability snapshots, not the lifecycle NodeState
-    // transition fields.
+    // (`CapabilityDetailsSchema` | opaque record), so a NodeState string
+    // is the WRONG type for BOTH arms and rejects — proving these fields are
+    // capability snapshots, not the lifecycle NodeState transition fields.
     const broken = { ...buildValidCapabilityUpdatedPayload(), newState: "online" };
     expect(RuntimeNodeCapabilityUpdatedPayloadSchema.safeParse(broken).success).toBe(false);
   });
@@ -1147,29 +1099,23 @@ describe("RuntimeNodeCapabilityUpdatedPayloadSchema (C7: reduced base + {capabil
 });
 
 // --------------------------------------------------------------------------
-// Plan-003 Phase 5 — T5.0b: `RuntimeNodeRoster` request / entry / response.
+// : `RuntimeNodeRoster` request / entry / response.
 // --------------------------------------------------------------------------
 //
-// Backstops the roster wire shape (`docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`; registry
-// row in `docs/architecture/contracts/api-payload-contracts.md §Runtime-Node Method-Name Registry (Tier 3)`) pinned in Spec-003 §Interfaces And Contracts (2026-06-09
-// amendment): request `{ sessionId }`, the nine-field both-axes
-// entry, and response `{ nodes: RuntimeNodeRosterEntry[]; controlHolder }`. Spec
-// coverage:
-// `Spec-003 §Default Behavior` (both health axes carried verbatim — no collapsed scalar),
-// `Spec-003 §Acceptance Criteria` AC2 (`degraded`/`offline` representable and distinguishable on
-// the wire) + AC3 (multiple nodes coexist in one roster), and `Spec-003 §Required Behavior`
-// (multiple runtime nodes per session — `nodes[]`). The discriminating enum
-// coverage runs BOTH directions: `healthState` ACCEPTING `offline` proves it
-// is not mis-wired to the 2-value `RuntimeNodeHealthStateSchema` (which
-// excludes `offline`), and `healthState` REJECTING `registering`/`revoked`
-// proves it is not mis-wired to the 5-value `NodeStateSchema`.
+// Backstops the roster wire shape (registry row)): request `{ sessionId }`, the
+// nine-field both-axes entry, and response `{ nodes: RuntimeNodeRosterEntry[];
+// controlHolder }`.. The discriminating enum coverage runs BOTH directions:
+// `healthState` ACCEPTING `offline` proves it is not mis-wired to the 2-value
+// `RuntimeNodeHealthStateSchema` (which excludes `offline`), and `healthState`
+// REJECTING `registering`/`revoked` proves it is not mis-wired to the 5-value
+// `NodeStateSchema`.
 const buildValidRosterRequest = () => ({
   sessionId: SESSION_ID,
 });
 
 const buildValidRosterEntry = () => ({
   nodeId: NODE_ID,
-  participantId: PARTICIPANT_ID,
+  userId: USER_ID,
   state: "online" as const,
   healthState: "online" as const,
   lastHeartbeatAt: "2026-06-09T12:00:00.000Z",
@@ -1188,7 +1134,7 @@ const buildValidRosterResponse = () => ({
   controlHolder: null,
 });
 
-describe("RuntimeNodeRosterRequestSchema (T5.0b: sessionId-only query input)", () => {
+describe("RuntimeNodeRosterRequestSchema (sessionId-only query input)", () => {
   it("accepts a request carrying a sessionId", () => {
     expect(RuntimeNodeRosterRequestSchema.safeParse(buildValidRosterRequest()).success).toBe(true);
   });
@@ -1209,7 +1155,7 @@ describe("RuntimeNodeRosterRequestSchema (T5.0b: sessionId-only query input)", (
   });
 });
 
-describe("RuntimeNodeRosterEntrySchema (T5.0b: nine-field both-axes entry)", () => {
+describe("RuntimeNodeRosterEntrySchema (nine-field both-axes entry)", () => {
   it("parses a fully-valid entry and round-trips both health axes verbatim", () => {
     const entry = buildValidRosterEntry();
     const result = RuntimeNodeRosterEntrySchema.safeParse(entry);
@@ -1235,7 +1181,7 @@ describe("RuntimeNodeRosterEntrySchema (T5.0b: nine-field both-axes entry)", () 
   });
 
   it.each(["registering", "online", "degraded", "offline", "revoked"])(
-    "accepts the slot-axis state value %s (faithful projection — AC2 visibility)",
+    "accepts the slot-axis state value %s (faithful projection — visibility)",
     (state) => {
       const candidate = { ...buildValidRosterEntry(), state };
       expect(RuntimeNodeRosterEntrySchema.safeParse(candidate).success).toBe(true);
@@ -1253,9 +1199,9 @@ describe("RuntimeNodeRosterEntrySchema (T5.0b: nine-field both-axes entry)", () 
   );
 
   it("accepts an entry whose axes disagree (state degraded + healthState online)", () => {
-    // `Spec-003 §Default Behavior` never-mask stance: the schema imposes NO cross-field
-    // constraint between the slot and liveness axes — reconciliation is the
-    // client's render-time concern, never the wire's.
+    // never-mask stance: the schema imposes NO cross-field constraint between the slot
+    // and liveness axes — reconciliation is the client's render-time concern, never the
+    // wire's.
     const disagreeingAxes = {
       ...buildValidRosterEntry(),
       state: "degraded" as const,
@@ -1265,9 +1211,9 @@ describe("RuntimeNodeRosterEntrySchema (T5.0b: nine-field both-axes entry)", () 
   });
 
   it("accepts an online AND readOnly entry (permission axis orthogonal to slot axis)", () => {
-    // Same I-003-1 orthogonality as the attach response: a below-floor daemon
-    // is ADMITTED (state=online) but read-only — the roster carries the
-    // per-row read-time-derived verdict.
+    // Same orthogonality as the attach response: a below-floor daemon is
+    // ADMITTED (state=online) but read-only — the roster carries the per-row
+    // read-time-derived verdict.
     const onlineReadOnly = { ...buildValidRosterEntry(), readOnly: true };
     expect(RuntimeNodeRosterEntrySchema.safeParse(onlineReadOnly).success).toBe(true);
   });
@@ -1308,8 +1254,8 @@ describe("RuntimeNodeRosterEntrySchema (T5.0b: nine-field both-axes entry)", () 
     expect(RuntimeNodeRosterEntrySchema.safeParse(broken).success).toBe(false);
   });
 
-  it("rejects a non-UUID participantId", () => {
-    const broken = { ...buildValidRosterEntry(), participantId: "not-a-uuid" };
+  it("rejects a non-UUID userId", () => {
+    const broken = { ...buildValidRosterEntry(), userId: "not-a-uuid" };
     expect(RuntimeNodeRosterEntrySchema.safeParse(broken).success).toBe(false);
   });
 
@@ -1339,8 +1285,8 @@ describe("RuntimeNodeRosterEntrySchema (T5.0b: nine-field both-axes entry)", () 
   });
 });
 
-describe("RuntimeNodeRosterResponseSchema (T5.0b: { nodes, controlHolder })", () => {
-  it("accepts a multi-entry roster (AC3 — multiple nodes coexist in one session)", () => {
+describe("RuntimeNodeRosterResponseSchema ({ nodes, controlHolder })", () => {
+  it("accepts a multi-entry roster (multiple nodes coexist in one session)", () => {
     const roster = {
       ...buildValidRosterResponse(),
       nodes: [
@@ -1391,11 +1337,11 @@ describe("RuntimeNodeRosterResponseSchema (T5.0b: { nodes, controlHolder })", ()
 
   // The shared-terminal write-lease holder. Session-level rather than per entry —
   // one lease per session — so it rides the response beside the node set.
-  it("accepts a held lease (controlHolder carries the holder's participant id)", () => {
-    const held = { ...buildValidRosterResponse(), controlHolder: PARTICIPANT_ID };
+  it("accepts a held lease (controlHolder carries the holder's user id)", () => {
+    const held = { ...buildValidRosterResponse(), controlHolder: USER_ID };
     const parsed = RuntimeNodeRosterResponseSchema.safeParse(held);
     expect(parsed.success).toBe(true);
-    expect(parsed.success && parsed.data.controlHolder).toBe(PARTICIPANT_ID);
+    expect(parsed.success && parsed.data.controlHolder).toBe(USER_ID);
   });
 
   it("accepts a null holder (a free lease, or one suppressed behind an offline producer)", () => {
@@ -1421,31 +1367,29 @@ describe("RuntimeNodeRosterResponseSchema (T5.0b: { nodes, controlHolder })", ()
 
   // The brand is load-bearing: a corrupted stored holder must fail at the read
   // boundary rather than reach a surface that would render it as an identity.
-  it("rejects a holder that is not a participant id", () => {
+  it("rejects a holder that is not a user id", () => {
     const broken = { ...buildValidRosterResponse(), controlHolder: "not-a-uuid" };
     expect(RuntimeNodeRosterResponseSchema.safeParse(broken).success).toBe(false);
   });
 });
 
 // --------------------------------------------------------------------------
-// Plan-006 Phase 1 T1.4 (PR #247) — canonical `CapabilityDetails` binding.
 // --------------------------------------------------------------------------
 //
 // The two capability-event payload schemas (C7 above) shipped
 // `capabilityDetails` / `previousState` / `newState` as interim-opaque records
-// (CP-003-1 honest forward-dependency). Plan-006 T1.4 EXTENDs them in place
-// with the CANONICAL-FIRST TOLERANT UNION `z.union([CapabilityDetailsSchema,
-// z.record(z.string(), z.unknown())])` (CP-006-5; closes Plan-005 CP-005-5).
-// The behavior invariant this suite pins: over JSON-representable wire/replay
-// input the ACCEPT-SET of both schemas is UNCHANGED — every payload accepted
-// before the binding is accepted after (the untouched C7 suites above are the
-// complementary pin), nothing JSON-representable is newly accepted, and parse
-// output is STRUCTURALLY unchanged (toStrictEqual; own-key order and object
-// identity are not pinned — see the binding note in runtime-node.ts) — the
-// binding only NARROWS the static type for conforming snapshots. The
-// flags fixture DERIVES from the live `DRIVER_CAPABILITY_FLAGS` const (no
-// hardcoded names/counts), so Plan-005 T1.7's scheduled flag widening flows
-// through without edits here.
+// (honest forward-dependency). EXTENDs them in place with the CANONICAL-FIRST
+// TOLERANT UNION `z.union([CapabilityDetailsSchema, z.record(z.string(),
+// z.unknown())])` (closes). The behavior invariant this suite pins: over
+// JSON-representable wire/replay input the ACCEPT-SET of both schemas is
+// UNCHANGED — every payload accepted before the binding is accepted after (the
+// untouched C7 suites above are the complementary pin), nothing
+// JSON-representable is newly accepted, and parse output is STRUCTURALLY
+// unchanged (toStrictEqual; own-key order and object identity are not pinned —
+// see the binding note in runtime-node.ts) — the binding only NARROWS the
+// static type for conforming snapshots. The flags fixture DERIVES from the
+// live `DRIVER_CAPABILITY_FLAGS` const (no hardcoded names/counts), so the
+// scheduled flag widening flows through without edits here.
 
 // Cast justified: `Object.fromEntries` widens keys to `string`, but the map
 // runs over the exhaustive `DRIVER_CAPABILITY_FLAGS` const, so every member
@@ -1459,7 +1403,7 @@ const buildCanonicalCapabilityDetails = (): CapabilityDetails => ({
   tools: [{ name: "read_file", idempotency_class: "idempotent" }],
 });
 
-describe("capability payloads × canonical CapabilityDetails binding (T1.4)", () => {
+describe("capability payloads × canonical CapabilityDetails binding", () => {
   it("parses a canonical capabilityDetails on capability_declared and round-trips it verbatim", () => {
     const canonical = buildCanonicalCapabilityDetails();
     const payload = { ...buildValidCapabilityDeclaredPayload(), capabilityDetails: canonical };
@@ -1489,10 +1433,10 @@ describe("capability payloads × canonical CapabilityDetails binding (T1.4)", ()
   });
 
   it("REGRESSION PIN: an arbitrary non-canonical record still parses exactly as before the binding", () => {
-    // The Plan-003 `NodeCapabilityService` producer emits arbitrary
-    // node-capability records through this same `.parse()` emission boundary
-    // (and stored rows replay through it) — the tolerant arm preserves the
-    // shipped accept-set EXACTLY.
+    // `NodeCapabilityService` producer emits arbitrary node-capability
+    // records through this same `.parse()` emission boundary (and stored
+    // rows replay through it) — the tolerant arm preserves the shipped
+    // accept-set EXACTLY.
     const arbitrary = { maxSessions: 4 };
     const declared = { ...buildValidCapabilityDeclaredPayload(), capabilityDetails: arbitrary };
     const declaredResult = RuntimeNodeCapabilityDeclaredPayloadSchema.safeParse(declared);
@@ -1510,10 +1454,10 @@ describe("capability payloads × canonical CapabilityDetails binding (T1.4)", ()
 
   it("ACCEPTS a NEAR-canonical record as opaque (tolerance, not rejection — layering pin)", () => {
     // A snapshot missing one flags member fails the canonical arm's
-    // exhaustive-flags check and falls through to the record arm: pre-T1.7
+    // exhaustive-flags check and falls through to the record arm: pre-
     // canonical snapshots (after the flag census widens) and near-conforming
-    // producer output stay PARSEABLE as opaque records (ADR-018
-    // additive-MINOR evolution), never rejected.
+    // producer output stay PARSEABLE as opaque records (additive-MINOR
+    // evolution), never rejected.
     const remainingFlags = DRIVER_CAPABILITY_FLAGS.slice(1);
     const nearCanonical = {
       ...buildCanonicalCapabilityDetails(),
@@ -1550,9 +1494,9 @@ describe("capability payloads × canonical CapabilityDetails binding (T1.4)", ()
   );
 
   it("static leg: a CapabilityDetails-typed value assigns to both payload types", () => {
-    // Compile-time proof of the T1.4 acceptance criterion — the canonical
-    // interface composes into the payload types (the typed-consumer leg of
-    // closing CP-005-5); the runtime parses below are the dynamic leg.
+    // Compile-time proof of acceptance criterion — the canonical interface
+    // composes into the payload types (the typed-consumer leg of closing);
+    // the runtime parses below are the dynamic leg.
     const canonical: CapabilityDetails = buildCanonicalCapabilityDetails();
     const declared: RuntimeNodeCapabilityDeclaredPayload = {
       nodeId: NodeIdSchema.parse(NODE_ID),

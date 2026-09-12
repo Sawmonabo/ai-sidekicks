@@ -1,4 +1,4 @@
-// Plan-002 Phase 3 — `channel-id.ts` (`deriveMainChannelId`) tests.
+// `channel-id.ts` (`deriveMainChannelId`) tests.
 //
 // Backstops the shared deterministic bootstrap "main" channel-id derivation
 // that is THE single source of truth consumed by BOTH the runtime-daemon
@@ -15,15 +15,14 @@
 //     one-liner and pasted in by hand.
 //   * Lowercase canonical formatting — result equals its own `.toLowerCase()`
 //     and matches the canonical 8-4-4-4-12 v8 UUID shape.
-//   * Version nibble = 8 (RFC 9562 §5.8 — UUIDv8 / vendor-deterministic).
-//   * RFC 9562 §4.1 variant bits = 10 (4th group leads with 8/9/a/b).
+//   * Version nibble = 8 (RFC 9562 section 5.8 — UUIDv8 / vendor-deterministic).
+//   * RFC 9562 section 4.1 variant bits = 10 (4th group leads with 8/9/a/b).
 //   * Determinism — same session id twice → identical id (the derivation holds
 //     no state).
 //   * Distinct ids — two different session ids → two different ids.
 //
-// Refs: Plan-002 Phase 3 (shared channel-id derivation), RFC 9562 §5.8
-// (UUIDv8) + §4.1 (variant), contracts session.ts:8-11 (rationale —
-// the factory predicate accepts any RFC 9562 UUID including v8) +
+// RFC 9562 section 5.8 (UUIDv8) + contracts session.ts:8-11 (rationale — the
+// factory predicate accepts any RFC 9562 UUID including v8) +
 // internal/branded.ts (`RFC_9562_TEXT_FORM`, the `ChannelId` brand's actual
 // validator).
 import { describe, expect, it } from "vitest";
@@ -70,14 +69,14 @@ describe("deriveMainChannelId", () => {
     expect(id).toMatch(CANONICAL_V8_UUID);
   });
 
-  it("stamps the version nibble to 8 (RFC 9562 §5.8 — UUIDv8)", () => {
+  it("stamps the version nibble to 8 (RFC 9562 section 5.8 — UUIDv8)", () => {
     const id = deriveMainChannelId(FIXED_SESSION_ID);
     // 3rd hyphen-delimited group: `xxxxxxxx-xxxx-Vyyy-...` — V is the version.
     const versionGroup = id.split("-")[2]!;
     expect(versionGroup[0]).toBe("8");
   });
 
-  it("stamps the RFC 9562 §4.1 variant bits to 10 (4th group leads with 8/9/a/b)", () => {
+  it("stamps the RFC 9562 section 4.1 variant bits to 10 (4th group leads with 8/9/a/b)", () => {
     const id = deriveMainChannelId(FIXED_SESSION_ID);
     // 4th hyphen-delimited group: `...-Wyyy-...` — W's high bits encode variant.
     const variantGroup = id.split("-")[3]!;
@@ -95,7 +94,7 @@ describe("deriveMainChannelId", () => {
   });
 
   // An uppercase/mixed-case UUID used only to exercise hex-case canonicalization.
-  // RFC 9562 §4 makes UUID hex case-insensitive; the canonical form is lowercase.
+  // RFC 9562 section 4 makes UUID hex case-insensitive; the canonical form is lowercase.
   const UPPERCASE_SESSION_ID = "0197F00D-0000-7000-8000-0000000000AA";
 
   it("GATING PREMISE — SessionIdSchema accepts an uppercase UUID (so case divergence is reachable)", () => {

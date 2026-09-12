@@ -1,6 +1,6 @@
 // React bindings for a session store.
 //
-// Three rules from `Spec-023 §Console Design (Meridian)` shape every hook here:
+// Three of the console's own rules shape every hook here:
 //
 //   • **No component subscribes to the bridge.** Components subscribe to a STORE,
 //     and exactly one thing subscribes to the bridge — the apply chokepoint. That is
@@ -78,9 +78,9 @@ export function useOpenSessionStore(
  * The sessions this window has open, in open order.
  *
  * The console has no session-DIRECTORY read — no `SidekicksBridge` member lists the
- * sessions on a node, and `Plan-023 §Console growth slate` registers no row for one
- * either — so this registry is the only session set the renderer can name, and the
- * two surfaces that need one (the auxiliary window's context picker and the sessions
+ * sessions on a node, and the console growth slate registers no row for one either — so
+ * this registry is the only session set the renderer can name, and the two surfaces
+ * that need one (the auxiliary window's context picker and the sessions
  * list) both read it here rather than each inventing a source.
  *
  * Subscribed through the registry's own change emitter, so it costs no timer and no

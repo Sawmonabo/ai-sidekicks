@@ -1,7 +1,7 @@
 // What the pane KNOWS about the page, as opposed to what it draws.
 //
-// `Spec-023 §Console Design (Meridian)` 12.2 turns on one rule — "the chrome never
-// derives navigability" — and that rule only holds if there is exactly one place the
+// The chrome never derives navigability, and that rule only holds if there is exactly
+// one place the
 // reading comes from. So the subscription and the shape it yields live here, apart
 // from the component that renders them, and the component holds no second copy of
 // either. The address field's filesystem guard is here for the same reason: it is a

@@ -14,7 +14,7 @@
 // directory before its cases and remove it in `afterAll`, so a document written by
 // one case was still on disk while every later case ran — suite-wide filesystem
 // state, and outside the per-test cleanup discipline `apps/desktop/AGENTS.md`
-// §Pre-PR self-audit closes with. `loadFixture` therefore plants the directory it
+// closes with. `loadFixture` therefore plants the directory it
 // writes into, which is what makes emptying the trail between cases safe: no case
 // writes into a directory another case created.
 //
@@ -58,12 +58,11 @@ describe("registry validation (negative controls)", () => {
     limit: { comparison: "<=", value: 1, unit: "kB", canonicalValue: 1000, canonicalUnit: "bytes" },
     scope: "product",
     status: "enforced",
-    producedBy: "T-023p-1C-1",
     measuredBy: "apps/desktop/scripts/budget/measure-bundle.mjs",
     subjectSymbol: "RendererBundleMeasurer",
     notes: "Example notes.",
   };
-  const validDocument = { schemaVersion: 3, source: "spec", budgets: [validEntry] };
+  const validDocument = { schemaVersion: 3, budgets: [validEntry] };
 
   it("accepts a well-formed registry (the positive control the rest are measured against)", () => {
     expect(loadFixture("valid", validDocument)().budgets).toHaveLength(1);
@@ -82,20 +81,6 @@ describe("registry validation (negative controls)", () => {
     expect(loadFixture("bad-schema", { ...validDocument, schemaVersion: 1 })).toThrow(
       /schemaVersion/,
     );
-  });
-
-  it("rejects an `n/a` entry with no producing task", () => {
-    const entry = {
-      ...validEntry,
-      status: "n/a",
-      measuredBy: null,
-      subjectSymbol: null,
-      notMeasurableReason: "why",
-    };
-    const { producedBy: _omitted, ...withoutProducedBy } = entry;
-    expect(
-      loadFixture("no-produced-by", { ...validDocument, budgets: [withoutProducedBy] }),
-    ).toThrow(/producedBy/);
   });
 
   it("rejects an `n/a` entry with no reason", () => {

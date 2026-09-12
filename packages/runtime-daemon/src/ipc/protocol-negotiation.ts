@@ -1,24 +1,20 @@
 // Protocol negotiation — `DaemonHello` / `DaemonHelloAck` exchange + the
-// per-connection mutating-op gate (Plan-007 Phase 2, T-007p-2-4).
+// per-connection mutating-op gate.
 //
-// Spec coverage:
-//   * `Spec-007 §Required Behavior`
-//     (docs/specs/007-local-ipc-and-daemon-control.md) — "Local IPC must
-//     support protocol version negotiation before mutating operations are
-//     accepted."
-//   * `Spec-007 §Fallback Behavior` — "If version negotiation
-//     fails, read-only compatibility may continue, but mutating operations
-//     must be blocked until versions are compatible."
-//   * `Spec-007 §Interfaces And Contracts` — "`DaemonHello` and
-//     `DaemonHelloAck` must perform version negotiation."
+//   * "Local IPC must support protocol version negotiation before
+//     mutating operations are accepted."
+//   * "If version negotiation fails, read-only compatibility may continue,
+//     but mutating operations must be blocked until versions are
+//     compatible."
+//   * "`DaemonHello` and `DaemonHelloAck` must perform version
+//     negotiation."
 //
-// Invariants this module owns at the negotiation boundary (canonical text in
-// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-6 through I-007-9):
-//   * I-007-7 — schema validation runs before handler dispatch. Achieved by
+// Invariants this module owns at the negotiation boundary (canonical text through):
+//   * Schema validation runs before handler dispatch. Achieved by
 //     registering `DaemonHelloSchema` against the registry surface; the
 //     standard schema-validates-before-dispatch path applies to the
 //     handshake envelopes themselves.
-//   * I-007-1 (fail-closed) — pre-handshake mutating dispatch is refused,
+//   * Pre-handshake mutating dispatch is refused,
 //     post-handshake-incompatible mutating dispatch is refused, read-only
 //     dispatch is always allowed. The gate's predicate is `isMutating
 //     (method) === true` (strict equality with `true`); `undefined`
@@ -26,12 +22,12 @@
 //     inner dispatch.
 //
 // Plan citations:
-//   * F-007p-2-06 — read-vs-mutating classification is the registry's
-//     `mutating: boolean` flag at registration time; the gate consults
+//   * Read-vs-mutating classification is the registry's `mutating:
+//     boolean` flag at registration time; the gate consults
 //     `registry.isMutating(method)`.
-//   * F-007p-2-10 — negotiation algorithm:
-//     `max(client.supportedProtocols ∩ daemon.supported)` with floor/ceiling
-//     refusal when intersection is empty.
+//   * Negotiation algorithm: `max(client.supportedProtocols ∩
+//     daemon.supported)` with floor/ceiling refusal when intersection is
+//     empty.
 //
 // What this module does NOT do (deferred to sibling tasks):
 //   * Cross-package wire-envelope schemas (`DaemonHelloSchema` /
@@ -39,14 +35,12 @@
 //     negotiation.ts`. The runtime-daemon's `package.json` deliberately
 //     does NOT depend on `zod`, so the Zod schemas live in the contracts
 //     package; this module IMPORTS them.
-//   * Substrate framing / per-connection lifecycle eventing — owned by
-//     T-007p-2-1 (`local-ipc-gateway.ts`). This module wraps the registry
-//     dispatch surface; the gateway is unaware of the wrap.
-//   * JSON-RPC numeric error code mapping for negotiation refusal — owned
-//     by T-007p-2-2 (`jsonrpc-error-mapping.ts`). The dispatcher
-//     discriminates `instanceof NegotiationError` and projects
-//     `negotiationCode` into `error.data.type` per error-contracts.md
-//     §JSON-RPC Wire Mapping (BL-103 closed 2026-05-01).
+//   * Substrate framing / per-connection lifecycle eventing. This
+//     module wraps the registry dispatch surface; the gateway is unaware
+//     of the wrap.
+//   * JSON-RPC numeric error code mapping for negotiation refusal. The
+//     dispatcher discriminates `instanceof NegotiationError` and projects
+//     `negotiationCode` into `error.data.type`.
 //
 // Architectural shape — gate-as-wrapper (NOT gate-as-function):
 //   This module exports a `ProtocolNegotiator` class whose `wrap(registry)`
@@ -90,11 +84,9 @@ import {
  * the `DaemonHelloAck.daemonSupportedProtocols` field on a refused
  * handshake.
  *
- * Stored as `readonly string[]` per the BL-102 ratification at
- * api-payload-contracts.md §Tier 1 (cont.): Plan-007 (2026-05-01). The
- * negotiation algorithm uses lex-sort to find the max version — ISO 8601
- * lex order ≡ chronological order — so no separate semver parser is
- * needed.
+ * Stored as `readonly string[]` ratification):. The negotiation
+ * algorithm uses lex-sort to find the max version — ISO 8601 lex order ≡
+ * chronological order — so no separate semver parser is needed.
  */
 export const DAEMON_SUPPORTED_PROTOCOL_VERSIONS: readonly string[] = ["2026-05-01"];
 
@@ -109,19 +101,16 @@ export const DAEMON_SUPPORTED_PROTOCOL_VERSIONS: readonly string[] = ["2026-05-0
  * gate-refusal THROWS, not for handshake-completion ACKs.
  *
  *   * `"protocol.handshake_required"` — a mutating method was dispatched
- *     before any `daemon.hello` completed on this connection. I-007-1
+ *     before any `daemon.hello` completed on this connection.
  *     fail-closed enforcement: the gate refuses rather than letting the
- *     dispatch flow through to the registry. Maps to JSON-RPC `-32600`
- *     per error-contracts.md §JSON-RPC Wire Mapping.
- *   * `"protocol.version_mismatch"` — a mutating method was dispatched
- *     after a `daemon.hello` that yielded `compatible: false`.
- *     `Spec-007 §Fallback Behavior` enforcement: read-only methods continue working;
- *     mutating methods are blocked until versions are compatible. Maps
- *     to JSON-RPC `-32600` per error-contracts.md §JSON-RPC Wire Mapping.
+ *     dispatch flow through to the registry. Maps to JSON-RPC `-32600`.
+ *   * `"protocol.version_mismatch"` — a mutating method was dispatched after a
+ *     `daemon.hello` that yielded `compatible: false`. enforcement: read-only
+ *     methods continue working; mutating methods are blocked until versions are
+ *     compatible. Maps to JSON-RPC `-32600`.
  *
  * Both strings are the canonical project dotted-namespace identifiers
- * registered at error-contracts.md §JSON-RPC Wire Mapping (BL-103 closed
- * 2026-05-01); `mapJsonRpcError` projects `negotiationCode` directly into
+ * registered `mapJsonRpcError` projects `negotiationCode` directly into
  * the JSON-RPC envelope's `error.data.type`.
  */
 export type NegotiationErrorCode = "protocol.handshake_required" | "protocol.version_mismatch";
@@ -131,8 +120,8 @@ export type NegotiationErrorCode = "protocol.handshake_required" | "protocol.ver
  * method is refused. The throw flows out of the wrapped registry's
  * `dispatch()` and reaches `mapJsonRpcError`, which discriminates
  * `instanceof NegotiationError` and projects `negotiationCode` into
- * `error.data.type` (and `fields`, when present, into `error.data.fields`)
- * per error-contracts.md §JSON-RPC Wire Mapping.
+ * `error.data.type` (and `fields`, when present, into
+ * `error.data.fields`).
  *
  * Subclassing `Error`:
  *   * `name` is set so stack traces / `instanceof` discrimination works
@@ -184,8 +173,8 @@ export class NegotiationError extends Error {
  *     does not refuse.
  *   * `"done-incompatible"` — a `daemon.hello` completed but the daemon
  *     could not find a compatible protocol version. Mutating dispatch is
- *     refused with `protocol.version_mismatch`; read-only
- *     dispatches continue to flow through (`Spec-007 §Fallback Behavior`).
+ *     refused with `protocol.version_mismatch`; read-only dispatches
+ *     continue to flow through.
  *
  * State transitions:
  *
@@ -224,12 +213,10 @@ export type NegotiationState =
     };
 
 // --------------------------------------------------------------------------
-// Negotiation algorithm — F-007p-2-10
 // --------------------------------------------------------------------------
 
 /**
- * Result of the F-007p-2-10 negotiation algorithm against a `DaemonHello`
- * payload. Three shapes:
+ * Result of negotiation algorithm against a `DaemonHello` payload.
  *
  *   * `{ kind: "compatible", negotiated }` — lex-max of `client ∩ daemon`
  *     is defined; `negotiated` is that value.
@@ -241,8 +228,7 @@ export type NegotiationState =
  *     version is ABOVE the daemon's highest supported version. Client too
  *     new.
  *
- * All values are ISO 8601 `YYYY-MM-DD` date-strings per the BL-102
- * ratification (api-payload-contracts.md §Tier 1 (cont.): Plan-007).
+ * All values are ISO 8601 `YYYY-MM-DD` date-strings ratification:).
  * Comparisons rely on lex order ≡ chronological order.
  */
 type NegotiationOutcome =
@@ -251,10 +237,9 @@ type NegotiationOutcome =
   | { readonly kind: "ceiling"; readonly daemonPreferred: string };
 
 /**
- * Run the F-007p-2-10 negotiation algorithm against a `DaemonHello` and
- * the daemon's supported-version list.
+ * Run negotiation algorithm against a `DaemonHello` and the daemon's
+ * supported-version list.
  *
- * Algorithm (per F-007p-2-10):
  *   1. Build the client's advertised set: `supportedProtocols` if present,
  *      else fall back to a singleton `[protocolVersion]`.
  *   2. Intersect with `DAEMON_SUPPORTED_PROTOCOL_VERSIONS`.
@@ -368,9 +353,9 @@ class WrappedRegistry implements MethodRegistry {
     //          dispatch will throw `RegistryDispatchError("method_not_
     //          found")` which surfaces the canonical -32601. Refusing
     //          here would mask the not-found error as a version-mismatch
-    //          error — Acceptance test W-007p-2-T7 would fail.
+    //          error — the acceptance test would fail.
     //        * `false` (registered read-only) → pass through; read-only
-    //          methods are always allowed per `Spec-007 §Fallback Behavior`.
+    //          methods are always allowed.
     //        * `true` (registered mutating) → consult negotiation state
     //          to decide.
     //   2. If mutating, look up the negotiation state for this transport.
@@ -394,13 +379,13 @@ class WrappedRegistry implements MethodRegistry {
             // that might enter via `method`; here the only inputs are the
             // method name string (developer-supplied) and a static
             // sentence — neither carries sensitive data.
-            `protocol-negotiation: mutating method ${JSON.stringify(method)} refused before \`${DAEMON_HELLO_METHOD}\` completed (I-007-1 fail-closed; per Spec-007 §Required Behavior)`,
+            `protocol-negotiation: mutating method ${JSON.stringify(method)} refused before \`${DAEMON_HELLO_METHOD}\` completed (fail-closed)`,
           );
         }
         if (state.kind === "done-incompatible") {
           throw new NegotiationError(
             "protocol.version_mismatch",
-            `protocol-negotiation: mutating method ${JSON.stringify(method)} refused because the connection's prior handshake was incompatible (reason=${JSON.stringify(state.reason)}; per Spec-007 §Fallback Behavior)`,
+            `protocol-negotiation: mutating method ${JSON.stringify(method)} refused because the connection's prior handshake was incompatible (reason=${JSON.stringify(state.reason)})`,
             { reason: state.reason },
           );
         }
@@ -443,7 +428,7 @@ class WrappedRegistry implements MethodRegistry {
  *     after `wrap()` returns and before the gateway starts listening.
  *
  * SupervisionHooks composition note:
- *   The gateway's `SupervisionHooks` slot is single-consumer (Tier 4
+ *   The gateway's `SupervisionHooks` slot is single-consumer (the
  *   desktop-shell). The negotiator therefore EXPOSES `cleanupTransport`
  *   for the bootstrap to compose into a future combined hook (the
  *   bootstrap's `onDisconnect` calls both the desktop-shell hook AND
@@ -499,7 +484,7 @@ export class ProtocolNegotiator {
    * Register the `daemon.hello` handler against the supplied registry.
    * MUST be called once during bootstrap, after `wrap()` and before the
    * gateway starts listening. Re-registration on the same registry
-   * throws (per I-007-6 — duplicate-method registration is rejected at
+   * throws (duplicate-method registration is rejected at
    * register-time).
    *
    * Why register against `mutating: false` (advisor-pinned):
@@ -527,10 +512,9 @@ export class ProtocolNegotiator {
       // bootstrap bug) — neither is a client protocol violation, so we
       // throw a plain Error which `mapJsonRpcError` collapses to `-32603
       // InternalError` (the honest mapping for a substrate-internal
-      // invariant violation per error-contracts.md §JSON-RPC Wire
-      // Mapping). Refuse explicitly so the misconfiguration surfaces as
-      // a clear failure rather than silently corrupting the negotiator's
-      // map.
+      // invariant violation). Refuse explicitly so the misconfiguration
+      // surfaces as a clear failure rather than silently corrupting the
+      // negotiator's map.
       if (ctx.transportId === undefined) {
         throw new Error(
           `${DAEMON_HELLO_METHOD}: handler requires ctx.transportId (per-connection negotiation state requires a transport identity)`,
@@ -620,7 +604,7 @@ export class ProtocolNegotiator {
    * Drop the per-connection state for a closed transport. MUST be called
    * by the bootstrap orchestrator from whichever supervision hook
    * composes the gateway's `onDisconnect`. The gateway's hook slot is
-   * single-consumer (Tier 4 desktop-shell), so the bootstrap composes
+   * single-consumer (the desktop-shell), so the bootstrap composes
    * a combined hook that calls both this method and the desktop-shell
    * hook.
    *

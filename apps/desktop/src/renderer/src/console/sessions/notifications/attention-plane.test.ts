@@ -41,18 +41,17 @@ function item(overrides: Partial<AttentionItem> = {}): AttentionItem {
 }
 
 describe("the closed vocabularies", () => {
-  it("carries exactly six triggers and exactly two severities", () => {
-    expect(ATTENTION_TRIGGERS).toHaveLength(6);
+  it("carries exactly five triggers and exactly two severities", () => {
+    expect(ATTENTION_TRIGGERS).toHaveLength(5);
     expect(ATTENTION_SEVERITIES).toHaveLength(2);
   });
 
-  it("names the six the design names, and no seventh", () => {
+  it("names the five the design names, and no sixth", () => {
     expect([...ATTENTION_TRIGGERS]).toStrictEqual([
       "pending_approval",
       "pending_input",
       "run_completed",
       "run_failed",
-      "invite_received",
       "mention",
     ]);
   });

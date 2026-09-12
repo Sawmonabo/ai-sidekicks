@@ -28,8 +28,8 @@ describe("Workspace — what it composes", () => {
     await waitFor(() => {
       expect(container.querySelector(".meridian-deck__pane")).not.toBeNull();
     });
-    expect(container.querySelector(".meridian-cast-bar")).not.toBeNull();
-    expect(container.querySelector(".meridian-cast-bar")?.textContent).toContain(SESSION_ID);
+    expect(container.querySelector(".meridian-session-header")).not.toBeNull();
+    expect(container.querySelector(".meridian-session-header")?.textContent).toContain(SESSION_ID);
   });
 });
 

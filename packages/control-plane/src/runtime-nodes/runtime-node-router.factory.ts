@@ -1,21 +1,14 @@
-// Plan-003 §Phase 3 §T3.8 + §Phase 5 §T5.0c: createRuntimeNodeRouter factory.
+// `createRuntimeNodeRouter` factory.
 //
 // Composes the 5 runtime-node procedures nested under the `runtimenode`
-// namespace so the on-wire method names match the canonical strings ratified
-// by api-payload-contracts.md §Runtime-Node Method-Name Registry. Four are
-// mutations (runtimenode.attach / runtimenode.heartbeat /
+// namespace so the on-wire method names match the canonical strings ratified.
+// Four are mutations (runtimenode.attach / runtimenode.heartbeat /
 // runtimenode.capabilityupdate / runtimenode.detach — each one WRITES, and
 // each shares its dual-transport method name with the daemon JSON-RPC
-// registry); runtimenode.roster (T5.0c) is the namespace's FIRST — and only —
+// registry); runtimenode.roster is the namespace's FIRST — and only —
 // `query`: an idempotent read-only projection, control-plane tRPC ONLY (no
 // daemon JSON-RPC registration — the roster is control-plane-owned cross-node
-// state; a daemon knows only itself). Each procedure closes over the
-// constructor-injected `attachService` / `heartbeatService` and is pure
-// transport wiring: input schema -> backing service method -> output schema,
-// plus the catch-arms that map the two services' typed exceptions to the
-// canonical HTTP 409 / tRPC `CONFLICT` per error-contracts.md §Runtime Node
-// (the roster query carries no catch-arm — its backing read throws nothing
-// typed).
+// state; a daemon knows only itself).
 //
 // SIBLING MERGE: this router is built on the SAME shared `t` builder as the
 // session router (`../sessions/trpc.js`), NOT a fresh `initTRPC` instance — so
@@ -23,22 +16,16 @@
 // context type AND the shared `errorFormatter`. host.ts merges them via
 // `t.mergeRouters(createSessionRouter(deps), createRuntimeNodeRouter(deps))`.
 // The typed exceptions are preserved on each `TRPCError.cause`; the shared
-// `errorFormatter` (T3.4) projects every `AisWireException` subclass onto
+// `errorFormatter` projects every `AisWireException` subclass onto
 // `shape.data.aisError` via a single base `instanceof` — this factory only sets
 // `cause`, it adds NO formatter logic of its own.
 //
 // ROUTE-THROUGH-SERVICES: this factory routes through the injected services
 // ONLY — it imports no `pg` / `Pool` / `Client` / `Querier` (the services own
-// all SQL). This is the same §I-008-3 #2 "route through the service wrapper"
-// discipline the session factory follows; here it holds BY CONSTRUCTION, since
-// the factory has no querier to misuse.
+// all SQL). This is the same "route through the service wrapper" discipline
+// the session factory follows; here it holds BY CONSTRUCTION, since the
+// factory has no querier to misuse.
 //
-// Refs: docs/plans/003-runtime-node-attach.md §T3.8 + §T5.0c, Spec-003
-//       `Spec-003 §Required Behavior` (the control plane coordinates discovery/presence; execution
-//       stays local) + §Interfaces And Contracts 2026-06-09 amendment lines
-//       90-94 (the roster-read pin: first query, control-plane tRPC only),
-//       ADR-014 (tRPC control-plane API), CP-003-2 (transport
-//       wiring is a thin sibling router, no standalone service assertion).
 
 import {
   TRPCError,
@@ -61,7 +48,7 @@ import {
   RuntimeNodeRosterResponseSchema,
   type RuntimeNodeAttachRequest,
   type RuntimeNodeAttachResponse,
-  type ParticipantId,
+  type UserId,
   type RuntimeNodeCapabilityUpdateRequest,
   type RuntimeNodeCapabilityUpdateResponse,
   type RuntimeNodeDetachRequest,
@@ -89,38 +76,36 @@ import { HeartbeatService } from "./heartbeat-service.js";
 // satisfy the type). `attachService` backs attach / capabilityupdate / detach /
 // roster; `heartbeatService` backs heartbeat.
 //
-// AUTH POSTURE (Tier 1 structural parity with `session.join`):
-//   The `attach` procedure resolves the acting participant from `ctx` via
-//   `resolveCurrentParticipantId` and REFUSES (tRPC `UNAUTHORIZED`) an attach
-//   claimed on behalf of a different participant — it does not trust the
-//   caller-supplied `input.participantId` as the sole authority. This mirrors
-//   `session.join`'s self-check (session-router.factory.ts), which resolves the
-//   current participant from `ctx` and rejects non-self joins.
+// AUTH POSTURE (structural parity with `session.create`):
+//   The `attach` procedure resolves the acting user from `ctx` via
+//   `resolveCurrentUserId` and REFUSES (tRPC `UNAUTHORIZED`) an attach
+//   claimed on behalf of a different user — it does not trust the
+//   caller-supplied `input.userId` as the sole authority. This mirrors
+//   `session.create` (session-router.factory.ts), which takes the session's
+//   owner from `ctx` and never from the caller's input.
 //
-//   DEFERRED to Tier 5 (the same track session.join defers its authorization to):
-//     - Full active-session-membership verification — that the acting
-//       participant is a member of `input.sessionId` (Spec-003 §Required
-//       Behavior: "a participant with active session membership"). session.join
-//       likewise self-checks now and defers its membership/invite authorization
-//       to Tier 5.
+//   DEFERRED:
+//     - Session-ownership verification — that the acting user OWNS
+//       `input.sessionId`. The self-check proves who is calling; it does not
+//       prove the caller owns the session being attached into.
 //     - Node-ownership verification for the `nodeId`-only procedures: heartbeat /
-//       capabilityupdate / detach carry NO participant, so authorizing them means
+//       capabilityupdate / detach carry NO user, so authorizing them means
 //       resolving the node's owner and checking the authenticated caller owns it.
-//   A membership/ownership check keyed on an unauthenticated caller is theater
-//   until PASETO auth exists — the production `resolveCurrentParticipantId`
-//   currently throws `tier5DeferralError` (host.ts), so the gates intercept all
-//   prod traffic before any such check could run. Tier 5 wires PASETO-derived
-//   auth per BL-069 (Plan-018 PASETO auth + Plan-002 invite-acceptance).
+//   An ownership check keyed on an unauthenticated caller is theater
+//   until PASETO auth exists — the production `resolveCurrentUserId`
+//   currently throws `deferredWiringError` (host.ts), so the gates intercept all
+//   prod traffic before any such check could run. A later phase wires PASETO-derived
+//   auth.
 export interface RuntimeNodeRouterDeps {
   readonly attachService: AttachService;
   readonly heartbeatService: HeartbeatService;
   /**
-   * Tier 1 stub principal resolver — returns the participantId the acting
-   * caller resolves to (same type + role as `SessionRouterDeps`). The `attach`
-   * procedure self-checks `input.participantId` against this. Tier 5 wires
-   * PASETO ctx-derived auth (Plan-018) per BL-069.
+   * Stub principal resolver — returns the userId the acting caller resolves
+   * to (same type + role as `SessionRouterDeps`). The `attach` procedure
+   * self-checks `input.userId` against this. A later phase wires PASETO
+   * ctx-derived auth.
    */
-  readonly resolveCurrentParticipantId: (ctx: SessionRouterContext) => ParticipantId;
+  readonly resolveCurrentUserId: (ctx: SessionRouterContext) => UserId;
 }
 
 // Each procedure carries its concrete request/output type from
@@ -182,26 +167,25 @@ export function createRuntimeNodeRouter(deps: RuntimeNodeRouterDeps): RuntimeNod
         .input(RuntimeNodeAttachRequestSchema)
         .output(RuntimeNodeAttachResponseSchema)
         .mutation(async ({ input, ctx }) => {
-          // Self-check (Tier 1 parity with session.join): resolve the acting
-          // participant from `ctx` and refuse an attach claimed on behalf of a
-          // different participant. We do NOT trust caller-supplied
-          // `input.participantId` as the sole authority. Plain `TRPCError`
-          // (UNAUTHORIZED) — no `aisError` envelope, same as session.join.
-          // Full membership/node-ownership authorization is Tier-5-deferred
+          // Self-check (parity with session.create): resolve the acting
+          // user from `ctx` and refuse an attach claimed on behalf of a
+          // different user. We do NOT trust caller-supplied
+          // `input.userId` as the sole authority. Plain `TRPCError`
+          // (UNAUTHORIZED) — no `aisError` envelope.
+          // Full session-ownership / node-ownership authorization is deferred
           // (see RuntimeNodeRouterDeps doc above).
-          const current = deps.resolveCurrentParticipantId(ctx);
-          if (input.participantId !== current) {
+          const current = deps.resolveCurrentUserId(ctx);
+          if (input.userId !== current) {
             throw new TRPCError({
               code: "UNAUTHORIZED",
               message:
-                "auth.not_authorized: a node may be attached only on behalf of the current participant",
+                "auth.not_authorized: a node may be attached only on behalf of the current user",
             });
           }
-          // Both attach refusals map to HTTP 409 / tRPC `CONFLICT`
-          // (error-contracts.md §Runtime Node). Preserve the typed exception on
-          // `cause` so the shared `errorFormatter` projects it onto
-          // `shape.data.aisError` via the `AisWireException` base — this arm adds
-          // NO formatter logic. Any other throw (e.g. a raw FK violation)
+          // Both attach refusals map to HTTP 409 / tRPC `CONFLICT`. Preserve the
+          // typed exception on `cause` so the shared `errorFormatter` projects it
+          // onto `shape.data.aisError` via the `AisWireException` base — this arm
+          // adds NO formatter logic. Any other throw (e.g. a raw FK violation)
           // rethrows unchanged.
           try {
             return await deps.attachService.attach(input);
@@ -233,12 +217,11 @@ export function createRuntimeNodeRouter(deps: RuntimeNodeRouterDeps): RuntimeNod
         .output(RuntimeNodeCapabilityUpdateResponseSchema)
         .mutation(async ({ input }) => {
           // Two refusal families on this procedure both map to HTTP 409 / tRPC
-          // `CONFLICT` (error-contracts.md §Runtime Node + §Version):
+          // `CONFLICT`:
           //   - RuntimeNodeCapabilityUpdateConflictException — no active
-          //     attachment, or the I-003-2 registering->online guard;
+          //     attachment, or registering->online guard;
           //   - VersionFloorExceededException — the below-floor read-only node's
-          //     write-refusal (the typed `VERSION_FLOOR_EXCEEDED`, I-003-1 /
-          //     ADR-018 §Decision #4 / `Spec-003 §Acceptance Criteria` AC4).
+          //     write-refusal (the typed `VERSION_FLOOR_EXCEEDED`).
           // Preserve the typed exception on `cause` so the shared
           // `errorFormatter` projects it onto `shape.data.aisError` via the
           // `AisWireException` base; any other throw rethrows unchanged.
@@ -269,10 +252,9 @@ export function createRuntimeNodeRouter(deps: RuntimeNodeRouterDeps): RuntimeNod
         .input(RuntimeNodeRosterRequestSchema)
         .output(RuntimeNodeRosterResponseSchema)
         .query(async ({ input }) =>
-          // The namespace's FIRST — and only — `.query()` (T5.0c;
-          // api-payload-contracts.md §Runtime-Node Method-Name Registry): an
-          // idempotent read-only projection of the `runtime_node_attachments`
-          // x `runtime_node_presence` coordination records, mounted on the
+          // The namespace's FIRST — and only — `.query()`: an idempotent
+          // read-only projection of the `runtime_node_attachments` x
+          // `runtime_node_presence` coordination records, mounted on the
           // control-plane tRPC transport ONLY (no daemon JSON-RPC registration
           // — the roster is control-plane-owned cross-node state; a daemon
           // knows only itself). tRPC v11 serves queries over GET natively via

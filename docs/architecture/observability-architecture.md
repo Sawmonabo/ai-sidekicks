@@ -10,7 +10,7 @@ This document covers logs, traces, metrics, canonical event visibility, replay, 
 
 ## Context
 
-A collaborative agent runtime is only operable if humans and agents can understand what happened, what is happening now, and what failed. Observability must therefore span local execution and shared coordination.
+An agentic coding runtime is only operable if the user and their agents can understand what happened, what is happening now, and what failed. Observability must therefore span local execution and control-plane coordination.
 
 ## Responsibilities
 
@@ -26,7 +26,7 @@ A collaborative agent runtime is only operable if humans and agents can understa
 | `Canonical Event Log` | Durable ordered history of session and run events. |
 | `Metrics Layer` | Runtime health, queue depth, run latency, failure-rate, and projection-lag metrics. |
 | `Tracing Layer` | Cross-component request and execution traces for local daemon and control-plane flows. |
-| `Audit Projection` | Human-readable history of approvals, interventions, artifacts, and membership changes. |
+| `Audit Projection` | Human-readable history of approvals, interventions, artifacts, and device link / revoke events. |
 | `Replay Service` | Rebuilds or rehydrates projections from canonical events. |
 
 ## Data Flow
@@ -46,7 +46,7 @@ A collaborative agent runtime is only operable if humans and agents can understa
 
 - Metrics and traces are healthy but canonical event projection is stale, producing misleading UI.
 - Replay cannot rebuild projections because event integrity is broken or retained history is incomplete.
-- Operator diagnostics expose more data than a participant is authorized to view.
+- Operator diagnostics on a hosted deployment expose session content the operator was never meant to see — the control plane holds ciphertext, and a diagnostic surface that decrypts or logs it breaks that boundary.
 
 ## Related Domain Docs
 

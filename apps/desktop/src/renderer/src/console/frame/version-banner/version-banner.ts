@@ -10,13 +10,13 @@
 // the console asks for the whole reading on the growth slate's
 // `daemon-version-negotiation` row and builds against the fixture until it lands.
 //
-// AGREEMENT RENDERS NOTHING, AND THAT IS THE WHOLE SHAPE OF THIS UNION. `Spec-023`'s
-// version banner has exactly one state a person sees — incompatible, persistent, read
-// only — so the settled read splits into `agreed`, which carries no facts because a
-// healthy window shows none, and `refused`, which carries all of them. A single settled
-// arm holding an optional mismatch would have let a surface put a permanent version
-// strip across every working window by rendering the arm rather than the mismatch, and
-// that is exactly what happened before this split.
+// AGREEMENT RENDERS NOTHING, AND THAT IS THE WHOLE SHAPE OF THIS UNION. The version
+// banner has exactly one state a person sees — incompatible, persistent, read only — so
+// the settled read splits into `agreed`, which carries no facts because a healthy
+// window shows none, and `refused`, which carries all of them. A single settled arm
+// holding an optional mismatch would have let a surface put a permanent version strip
+// across every working window by rendering the arm rather than the mismatch, and that
+// is exactly what happened before this split.
 //
 // THE VERDICT IS THE DAEMON'S AND THE CONSOLE NEVER RE-DERIVES IT. `compatible` arrives
 // on the reply and is the only thing that raises the banner. The supported set the
@@ -93,10 +93,10 @@ export interface ConsoleVersionMismatch {
  * What the frame knows about the handshake at one moment.
  *
  * Four arms, and only one of them draws anything. `reading` and `unreachable` have no
- * verdict to render, `agreed` has a verdict that `Spec-023` says renders nothing, and
- * `refused` carries the facts the banner is built from. `unreachable` keeps the refusal
- * rather than dropping it — the console says nothing about versions in that state, and
- * the reason is still the diagnostic band's.
+ * verdict to render, `agreed` has a verdict that renders nothing, and `refused` carries
+ * the facts the banner is built from. `unreachable` keeps the refusal rather than
+ * dropping it — the console says nothing about versions in that state, and the reason
+ * is still the diagnostic band's.
  */
 export type ConsoleVersionReading =
   | { readonly phase: "reading" }

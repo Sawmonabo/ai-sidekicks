@@ -121,7 +121,7 @@ describe("ComposerSendBar — the unsent body lives in the supplied draft store"
 describe("ComposerSendBar — a rejected steer keeps the message in the line", () => {
   it("leaves the text and renders the daemon's cause", async () => {
     // The finding at the surface: fulfilment was treated as success, so the line
-    // emptied and the participant's words were gone for an intervention the run had
+    // emptied and the user's words were gone for an intervention the run had
     // declined. Nothing about the reply says the message travelled, so nothing about
     // the composer may say so either.
     const bar = mountAddressable(
@@ -187,11 +187,11 @@ describe("ComposerSendBar — a refusal about the whole session leaves the bar",
   }
 
   it("raises the frame's banner while the composer keeps the daemon's words", async () => {
-    // `Spec-023 §Console Design (Meridian)` rule 9 puts a banner across the frame,
-    // and a session that has left the node is the whole window's fact — every other
-    // pane is drawing it. The composer is a pure surface with no store of its own, so
-    // the handover is this bar's explicit act; the line and the card stay exactly as
-    // they were, because the person is standing here and their words are unsent.
+    // A banner goes across the frame, and a session that has left the node is the whole
+    // window's fact — every other pane is drawing it. The composer is a pure surface
+    // with no store of its own, so the handover is this bar's explicit act; the line
+    // and the card stay exactly as they were, because the person is standing here and
+    // their words are unsent.
     const bar = sendAgainst(bridgeRefusing("session.not_found", "That session is gone."));
 
     await act(async () => {

@@ -119,7 +119,7 @@ export function runRow(
                 ? { state: "complete" }
                 : {
                     state: "incomplete",
-                    cause: "pending_backfill",
+                    cause: "detail_fetch_failed",
                     observedAt: fixtureTimestamp(input.sequence),
                   },
           },

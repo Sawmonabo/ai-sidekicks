@@ -16,9 +16,9 @@
 // A MODULE AND NOT A SUB-MODULE DOOR. It was a pane-directory barrel until the
 // pane body came home to the family that owns it, and an `index.ts` here would be a
 // second door inside one family: `console/browser/index.ts` would then reach a name
-// it never declared through a barrel, which `console-no-barrel-chain` forbids and
-// `apps/desktop/AGENTS.md` §Module shape rules out for a directory reached from
-// outside itself. The family door imports this module by name instead.
+// it never declared through a barrel, which `console-no-barrel-chain` forbids and the
+// package's module-shape rule rules out for a directory reached from outside itself.
+// The family door imports this module by name instead.
 
 // SIX OF THIS FAMILY'S SEVEN STYLESHEETS ENTER HERE, at the place those surfaces enter
 // the graph at all. The door registers exactly one kind and registers it as a loader, so
@@ -34,7 +34,7 @@
 // `settings/browser-settings-page-body.ts`. A sheet two chunks render against is named
 // at each of them and lands once, whichever chunk arrives first; naming it at only one
 // would leave the other painting undressed until the first happened to arrive, which is
-// the failure `apps/desktop/AGENTS.md` §Module shape names in both directions — a sheet
+// the failure the package's module-shape rule names in both directions — a sheet
 // deferred past a reader the initial graph carries, and a sheet held at a door no static
 // reader can use.
 //
@@ -78,7 +78,7 @@ import { BrowserPane } from "./BrowserPane.js";
  * owns. The answer for `browser` is no, and the reason is a property of the kind:
  * the pane's eventual body is a main-process view hosted in the window that owns
  * the pane, and following a detach would mean moving that host view between two
- * windows, which `Spec-023 §Console Design (Meridian)` ships no mechanism for.
+ * windows, for which the console ships no mechanism.
  *
  * `render` goes through `paneBodyForKind` rather than naming the component directly.
  * The registry holds one `render` per kind over the whole address union, and this body

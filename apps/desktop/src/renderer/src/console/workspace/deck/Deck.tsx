@@ -1,9 +1,8 @@
 // The deck: the panes a person is looking at, side by side.
 //
-// `Spec-023 §The surface set`: the deck "holds independent panes, each headed by an
-// entity breadcrumb and a kind glyph, with the actor's hue as the focus ring; one entity
-// opens one pane, structurally (a single mount door and a tripwire that fails on a
-// second)".
+// The deck holds independent panes, each headed by an entity breadcrumb and a kind
+// glyph, with the actor's hue as the focus ring; one entity opens one pane,
+// structurally — a single mount door and a tripwire that fails on a second.
 //
 // WHAT THIS COMPONENT IS AND IS NOT. It is the frame: order, widths, focus, the
 // separators, the keyboard paths, and the one door each pane body is mounted
@@ -25,8 +24,7 @@
 //     the separator, which is focusable and operable with the arrow keys. A deck
 //     reachable only by dragging is a deck half the people using it cannot arrange.
 //
-// WHAT THE TWO ADOPTED LIBRARIES OWN, AND WHAT STAYS OURS. `Spec-023 §Console
-// Libraries`, row "Layout, panes, drag":
+// WHAT THE TWO ADOPTED LIBRARIES OWN FOR LAYOUT, PANES AND DRAG, AND WHAT STAYS OURS:
 //
 //   • `react-resizable-panels` owns the resize gesture, the flex arithmetic that
 //     turns a drag into widths, and the window-splitter ARIA with its arrow-key,
@@ -79,13 +77,12 @@ export interface DeckProps {
   readonly registry: ConsolePaneRegistry;
   /** What each pane's body is handed, or why its address cannot be served. */
   readonly paneContextFor: (pane: DeckPane) => ConsolePaneContext | ConsoleRefusal;
-  /** Supplied where a host can move a pane into a window of its own
-   * (`Spec-023 §The surface set`, auxiliary windows). */
+  /** Supplied where a host can move a pane into an auxiliary window of its own. */
   readonly onOpenInWindow?: (pane: DeckPane) => void;
   /** What the layout restore refused, rendered rather than swallowed. */
   readonly restoreRefusals?: readonly ConsoleRefusal[];
   /**
-   * Panes whose body is showing in a window of its own (`Spec-023 §The surface set`).
+   * Panes whose body is showing in a window of its own.
    *
    * The slot stays and the projection is suppressed, so widths and order survive the
    * window's whole life and the pane goes back where it was.
@@ -96,9 +93,8 @@ export interface DeckProps {
   /** Why the crashed-window signal is not being received, where it is not. */
   readonly detachedSignalRefusal?: ConsoleRefusal;
   /**
-   * The crash note a pane came back with, by pane id
-   * (`Spec-023 §The surface set`: "a crashed auxiliary window returns the pane to the
-   * deck with the crash noted in the pane's error slot").
+   * The crash note a pane came back with, by pane id — a crashed auxiliary window
+   * returns its pane to the deck with the crash noted in the pane's error slot.
    *
    * A pane named here is NOT detached — its body is in the deck again — so the two
    * sets never overlap and one slot is never asked to draw both.
@@ -323,7 +319,7 @@ export function Deck(props: DeckProps): React.JSX.Element {
           kind="empty"
           placement="surface"
           title="No panes are open."
-          detail="Open one from the sidebar, or follow somebody from the cast bar."
+          detail="Open one from the sidebar, or follow somebody from the session header."
         />
       ) : (
         <Group

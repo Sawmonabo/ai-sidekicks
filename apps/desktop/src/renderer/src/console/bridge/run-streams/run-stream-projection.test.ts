@@ -13,7 +13,7 @@
 //     state-change shape is optional on the wire too, so a projector that dropped
 //     all of them still parses cleanly against the schema. What is lost is the
 //     distinction between a turn-complete and a task-complete, and between a
-//     budget-exhausted interrupt and a participant cancel.
+//     budget-exhausted interrupt and a user cancel.
 //
 // The projector now parses through the registered schema itself, so the suite's job
 // changes with it: not "does the output happen to satisfy the shape" — it must, or

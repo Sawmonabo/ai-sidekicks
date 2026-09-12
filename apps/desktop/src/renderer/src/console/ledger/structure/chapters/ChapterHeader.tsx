@@ -33,10 +33,10 @@
 import { Glyph, Nothing } from "../../../primitives/index.js";
 import { ChapterBodyViewport } from "./ChapterBodyViewport.js";
 import {
-  PARTICIPANT_HUE_STEPS,
-  participantHueTokenName,
+  ACTOR_HUE_STEPS,
+  actorHueTokenName,
   tokenReference,
-  type ParticipantHueAssignment,
+  type ActorHueAssignment,
 } from "../../../tokens/index.js";
 import { type LedgerChapter } from "./chapters.js";
 
@@ -45,25 +45,25 @@ export interface ChapterHeaderProps {
   /** Whether the chapter's rows are on screen beneath this header. */
   readonly isOpen: boolean;
   /** The actor's allocated hue, or `undefined` where the wheel never admitted them. */
-  readonly participantHue?: ParticipantHueAssignment | undefined;
+  readonly actorHue?: ActorHueAssignment | undefined;
   readonly onToggle: (chapter: LedgerChapter) => void;
 }
 
 /** One run's chapter, as a header. */
 export function ChapterHeader(props: ChapterHeaderProps): React.JSX.Element {
   const { chapter } = props;
-  const hueStep = props.participantHue?.step ?? -1;
+  const hueStep = props.actorHue?.step ?? -1;
   return (
     <div
       className="meridian-chapter-header"
       style={
-        hueStep < 0 || hueStep >= PARTICIPANT_HUE_STEPS
+        hueStep < 0 || hueStep >= ACTOR_HUE_STEPS
           ? undefined
           : {
               // The same 2 px attribution edge every ledger row wears, so a chapter
               // and the rows inside it are attributed the same way and by the same
               // wheel. Rule 3 keeps the hue off text, so it is an edge and not a tint.
-              borderInlineStartColor: tokenReference(participantHueTokenName(hueStep)),
+              borderInlineStartColor: tokenReference(actorHueTokenName(hueStep)),
             }
       }
     >

@@ -4,8 +4,8 @@
 // `PaletteOverlay`, contributes commands through `CommandRegistry`, and installs
 // chords through `KeyBindingTable`.
 // Settings search and the sidebar filter reach past none of that — they import
-// `scoreSubsequence` directly, which is what "one matcher shared with settings
-// search" (`Spec-023 §Console Design (Meridian)` §Layout grammar) means in code.
+// `scoreSubsequence` directly, which is what one matcher shared with settings search
+// means in code.
 //
 // A door forwards only what its own family owns. How a chord is PRINTED is
 // `primitives/chord/chord-format.ts`, and a caller that wants it imports it from
@@ -98,10 +98,10 @@ export type { FrameCommand } from "./commands/command-surface.js";
 export { useBridgeCommands } from "./commands/bridge-commands.js";
 
 // The console's ONE matcher, published because two settings surfaces rank against
-// it. `Spec-023 §Console Libraries` requires the palette, settings search, the
-// sidebar filter, and find to score "identically in both places", which is a rule
-// about one implementation rather than one algorithm — so the sharing is declared
-// here rather than performed by a deep import that no layering rule can see.
+// it. The palette, settings search, the sidebar filter and find all score
+// identically, which is a rule about one implementation rather than one algorithm —
+// so the sharing is declared here rather than performed by a deep import that no
+// layering rule can see.
 export { scoreSubsequence } from "./commands/subsequence-score.js";
 
 export { KeyBindingTable } from "./keybindings/keybindings.js";

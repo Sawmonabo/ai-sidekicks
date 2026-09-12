@@ -3,7 +3,7 @@
 // THE ONE OUTCOME A MUTATION SURFACE MAY NOT HAVE is silence, and this refusal reached
 // exactly one surface: `ProviderSwitch`'s own `refusal` prop, inside a portalled popover
 // with no `keepMounted`. base-ui unmounts that popup on an outside click or Escape, so a
-// participant who pressed Apply and clicked back into the message line to keep typing
+// user who pressed Apply and clicked back into the message line to keep typing
 // met a chip showing the pre-switch binding, no failure, and no code — while the daemon
 // had refused. The chip is where the act's answer has to survive, because the chip is
 // what is still on screen.

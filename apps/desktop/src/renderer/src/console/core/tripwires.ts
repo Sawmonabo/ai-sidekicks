@@ -14,14 +14,12 @@
 // The six kinds, each a value rather than a token:
 //
 //   • `bridge-shape-drift`   — the live and fixture bridges stopped being
-//                              shape-identical (I-023-13).
+//                              shape-identical.
 //   • `persistence-value-class` — a write outside the closed UI-state value-class
-//                              enumeration reached the store's write chokepoint
-//                              (`Spec-023 §Console Design (Meridian)`
-//                              §Persistence on the renderer scheme).
+//                              enumeration reached the store's write chokepoint.
 //   • `apply-chokepoint-bypass` — a store was mutated outside its single `apply`.
 //   • `wire-figure-formatting`  — a wire figure was rendered through something
-//                              other than the two classes §The eight rules fixes.
+//                              other than the two classes the console's rules fix.
 //   • `surface-render-failure`  — a surface threw while RENDERING and its error
 //                              boundary caught it. Its own kind rather than a
 //                              state-write breach: a component that crashes on a
@@ -193,7 +191,7 @@ export class TripwireRegistry {
 /**
  * The console's registry. One per renderer process — an auxiliary window is its
  * own renderer process and therefore its own registry, which is the same
- * no-shared-store property I-023-12 states for stores.
+ * no-shared-store property that holds for stores.
  *
  * `import.meta.env.DEV` is a Vite compile-time substitution, not a runtime
  * environment read, so this is not the `process.env` gate the tripwire list

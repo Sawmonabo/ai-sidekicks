@@ -1,13 +1,13 @@
-// Test W3 — Plan-024 Phase 3 (T-024-3-4) — verifies invariant I-024-5
-// on Windows, end-to-end through the real Rust sidecar binary.
+// Test W3 — no ERROR_SHARING_VIOLATION on Windows, end-to-end through the
+// real Rust sidecar binary.
 //
 // What this asserts (Windows only)
 // --------------------------------
 //
-// With the Plan-001 CP-001-2 daemon-layer cwd translator applied, a
-// long-running PTY session whose LOGICAL cwd is a git worktree path
-// can have its worktree torn down via `git worktree remove
-// <worktree-path>` WHILE the session runs — without surfacing
+// With daemon-layer cwd translator applied, a long-running PTY
+// session whose LOGICAL cwd is a git worktree path can have its
+// worktree torn down via `git worktree remove <worktree-path>`
+// WHILE the session runs — without surfacing
 // `ERROR_SHARING_VIOLATION` (Win32 error 32, the
 // `microsoft/node-pty#647` failure mode that motivated the
 // translator).
@@ -28,7 +28,7 @@
 // 2. Translate a logical SpawnRequest whose cwd is the worktree path
 //    via `translateSpawnCwd({ strategy: "cd-prefix", stableParent: <tmp> })`.
 // 3. Spawn it via a real `RustSidecarPtyHost` (the production binary
-//    resolver per T-024-3-3 finds the sidecar via tier 3/4
+//    resolver finds the sidecar via step 3/4
 //    `target/{release,debug}/sidecar.exe`).
 // 4. Run `git worktree remove <worktree-path>` synchronously while
 //    the session is still alive. Assert it exits with code 0
@@ -53,21 +53,20 @@
 // Race-window limitation
 // ----------------------
 //
-// `host.spawn` resolves when the sidecar acks the `SpawnResponse` —
-// at that point the wrapper `cmd.exe /d /s /v:off /c "cd /d
-// <worktree> && cmd.exe /k"` has been spawned with `cwd = stableParent`
-// (good — no PTY-side lock on the worktree). The INNER `cmd.exe /k`
-// is invoked by the wrapper AFTER the `cd /d <worktree>` advances the
-// wrapper's cwd to the worktree, so the inner shell inherits the
-// worktree as its cwd and would acquire its own Win32 share-mode
-// lock on it. If `git worktree remove` fires before the inner
-// `cmd.exe /k` has fully spawned and acquired that lock, the test
-// passes vacuously — there is no inner process holding a lock to
-// defeat. A future hardening pass should write a byte through the
-// PTY and await a `DataFrame` echo to confirm the inner shell is
-// resident before issuing the teardown. As-is the test still proves
-// the wrapper's spawn-call cwd holds no worktree lock, which is the
-// translator's specific load-bearing claim per I-024-5.
+// `host.spawn` resolves when the sidecar acks the `SpawnResponse` — at
+// that point the wrapper `cmd.exe /d /s /v:off /c "cd /d <worktree> &&
+// cmd.exe /k"` has been spawned with `cwd = stableParent` (good — no
+// PTY-side lock on the worktree). The INNER `cmd.exe /k` is invoked by
+// the wrapper AFTER the `cd /d <worktree>` advances the wrapper's cwd
+// to the worktree, so the inner shell inherits the worktree as its cwd
+// and would acquire its own Win32 share-mode lock on it. If `git
+// worktree remove` fires before the inner `cmd.exe /k` has fully
+// spawned and acquired that lock, the test passes vacuously — there is
+// no inner process holding a lock to defeat. A future hardening pass
+// should write a byte through the PTY and await a `DataFrame` echo to
+// confirm the inner shell is resident before issuing the teardown.
+// As-is the test still proves the wrapper's spawn-call cwd holds no
+// worktree lock, which is the translator's specific load-bearing claim.
 //
 // CI gating + skip semantics
 // --------------------------
@@ -96,17 +95,12 @@
 //      would deterministically fail on every run for the wrong
 //      reason (no binary != ERROR_SHARING_VIOLATION regression).
 //
-//   The intended CI shape once the platform matrix is widened:
-//   the windows-latest leg sets `RUN_W3_INTEGRATION=1` AND runs
-//   `cargo build --release` in `packages/sidecar-rust-pty/` before
-//   `pnpm --filter @ai-sidekicks/runtime-daemon test`. At that
-//   point the gates open and W3 becomes a real I-024-5 regression
-//   guard.
+//   The intended CI shape once the platform matrix is widened: the
+//   windows-latest leg sets `RUN_W3_INTEGRATION=1` AND runs `cargo
+//   build --release` in `packages/sidecar-rust-pty/` before `pnpm
+//   --filter @ai-sidekicks/runtime-daemon test`. At that point the
+//   gates open and W3 becomes a real regression guard.
 //
-// Refs: Plan-024 §Invariants I-024-5; Plan-024 §Implementation Phase
-// Sequence Phase 3 (T-024-3-4); Plan-001 §Cross-Plan Obligations
-// CP-001-2; ADR-019 §Decision item 1; §Windows Implementation
-// Gotchas Gotcha 5 (`microsoft/node-pty#647`).
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
@@ -126,12 +120,12 @@ import type { SpawnRequest, SpawnResponse } from "@ai-sidekicks/contracts";
 
 /**
  * Resolve whether the sidecar binary is available on disk via the
- * production four-tier resolver. Returns `null` (not throws) on the
+ * production four-step resolver. Returns `null` (not throws) on the
  * "binary missing" path so the test can call `ctx.skip()` with a
  * diagnostic instead of either failing or attempting a real spawn that
  * would itself throw `PtyBackendUnavailableError`.
  *
- * The resolver throws `PtyBackendUnavailableError` when all four tiers
+ * The resolver throws `PtyBackendUnavailableError` when all four steps
  * exhaust; we let that throw escape (because the resolver is the
  * production API) and translate it into `null` here at the test boundary.
  */
@@ -238,7 +232,7 @@ afterEach(async () => {
 // ----------------------------------------------------------------------------
 
 describe.runIf(process.platform === "win32")(
-  "RustSidecarPtyHost × translateSpawnCwd (Test W3 / I-024-5) — Windows worktree teardown",
+  "RustSidecarPtyHost × translateSpawnCwd (Test W3 /) — Windows worktree teardown",
   () => {
     it("git worktree remove succeeds without ERROR_SHARING_VIOLATION while a translated session is alive", async (ctxRunner) => {
       // ---- Skip gates -----------------------------------------------------
@@ -301,9 +295,9 @@ describe.runIf(process.platform === "win32")(
 
       // ---- Spawn through the real RustSidecarPtyHost ---------------------
       //
-      // No `binaryPath` override — the production resolver (T-024-3-3)
-      // finds the sidecar binary via the four-tier cascade. Pin 3
-      // says: let the production resolver run.
+      // No `binaryPath` override — the production resolver finds the
+      // sidecar binary via the four-step cascade. Pin 3 says: let the
+      // production resolver run.
       const host: RustSidecarPtyHost = new RustSidecarPtyHost();
       ctx.host = host;
 

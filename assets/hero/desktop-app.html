@@ -902,15 +902,15 @@
         background: var(--accent-green);
       }
 
-      /* Participants */
-      .participant-item {
+      /* Session actors */
+      .actor-item {
         display: flex;
         align-items: center;
         gap: 10px;
         padding: 6px 0;
       }
 
-      .participant-avatar {
+      .actor-avatar {
         width: 28px;
         height: 28px;
         border-radius: 50%;
@@ -923,31 +923,31 @@
         flex-shrink: 0;
       }
 
-      .participant-info {
+      .actor-info {
         flex: 1;
       }
 
-      .participant-name {
+      .actor-name {
         font-size: 12px;
         font-weight: 500;
         color: var(--text-primary);
       }
 
-      .participant-role {
+      .actor-role {
         font-size: 10px;
         color: var(--text-muted);
       }
 
-      .participant-status {
+      .actor-status {
         width: 8px;
         height: 8px;
         border-radius: 50%;
       }
 
-      .participant-status.online {
+      .actor-status.online {
         background: var(--accent-green);
       }
-      .participant-status.idle {
+      .actor-status.idle {
         background: var(--accent-orange);
       }
 
@@ -1164,7 +1164,7 @@
             <div class="session-icon blue">&#9881;</div>
             <div class="session-info">
               <div class="session-name">Auth Middleware Rewrite</div>
-              <div class="session-meta"><span class="live-dot"></span> 3 participants</div>
+              <div class="session-meta"><span class="live-dot"></span> 3 sidekicks</div>
             </div>
             <div class="session-badge running">2 runs</div>
           </div>
@@ -1173,7 +1173,7 @@
             <div class="session-icon green">&#128230;</div>
             <div class="session-info">
               <div class="session-name">API Rate Limiting</div>
-              <div class="session-meta"><span class="live-dot"></span> 2 participants</div>
+              <div class="session-meta"><span class="live-dot"></span> 2 sidekicks</div>
             </div>
             <div class="session-badge paused">paused</div>
           </div>
@@ -1182,7 +1182,7 @@
             <div class="session-icon purple">&#128202;</div>
             <div class="session-info">
               <div class="session-name">Dashboard Redesign</div>
-              <div class="session-meta">1 participant</div>
+              <div class="session-meta">1 sidekick</div>
             </div>
             <div class="session-badge">queued</div>
           </div>
@@ -1231,14 +1231,13 @@
             </div>
           </div>
           <div class="presence-row">
-            <div class="presence-avatar p1">SB</div>
-            <div class="presence-avatar p2">JK</div>
-            <div class="presence-avatar p3">+1</div>
-            <span class="presence-count">3 online</span>
+            <div class="presence-avatar p1">&#128187;</div>
+            <div class="presence-avatar p2">&#128241;</div>
+            <span class="presence-count">2 devices online</span>
           </div>
           <div class="header-actions">
             <button class="header-btn">&#9654; Queue</button>
-            <button class="header-btn primary">&#128279; Invite</button>
+            <button class="header-btn primary">&#128279; Link a device</button>
             <button class="header-btn danger">&#9646;&#9646; Pause</button>
           </div>
         </div>
@@ -1410,17 +1409,16 @@
                 class="entry-avatar"
                 style="background: linear-gradient(135deg, #bc8cff, #f85149); color: white"
               >
-                JK
+                SB
               </div>
               <div class="entry-content">
                 <div class="entry-header">
-                  <span class="entry-author">Jordan K.</span>
+                  <span class="entry-author">Sawmon &middot; from iPhone</span>
                   <span class="entry-time">2:36 PM</span>
                 </div>
                 <div class="entry-body">
-                  I just joined to review. Can you make sure the refresh token rotation invalidates
-                  the old token immediately, not on a grace period? We had a replay issue last
-                  sprint.
+                  Make sure the refresh token rotation invalidates the old token immediately, not on
+                  a grace period. We had a replay issue last sprint.
                 </div>
               </div>
             </div>
@@ -1495,48 +1493,40 @@
               </div>
 
               <div class="panel-section">
-                <div class="panel-section-title">Participants</div>
-                <div class="participant-item">
-                  <div class="participant-avatar" style="background: #58a6ff">SB</div>
-                  <div class="participant-info">
-                    <div class="participant-name">Sawmon</div>
-                    <div class="participant-role">Owner</div>
+                <div class="panel-section-title">In this session</div>
+                <div class="actor-item">
+                  <div class="actor-avatar" style="background: #58a6ff">SB</div>
+                  <div class="actor-info">
+                    <div class="actor-name">Sawmon</div>
+                    <div class="actor-role">You &middot; this Mac</div>
                   </div>
-                  <div class="participant-status online"></div>
+                  <div class="actor-status online"></div>
                 </div>
-                <div class="participant-item">
-                  <div class="participant-avatar" style="background: #bc8cff">JK</div>
-                  <div class="participant-info">
-                    <div class="participant-name">Jordan K.</div>
-                    <div class="participant-role">Collaborator</div>
-                  </div>
-                  <div class="participant-status online"></div>
-                </div>
-                <div class="participant-item">
+                <div class="actor-item">
                   <div
-                    class="participant-avatar"
+                    class="actor-avatar"
                     style="background: linear-gradient(135deg, #d29922, #f0883e)"
                   >
                     C
                   </div>
-                  <div class="participant-info">
-                    <div class="participant-name">Claude</div>
-                    <div class="participant-role">Agent &middot; Sawmon's node</div>
+                  <div class="actor-info">
+                    <div class="actor-name">Claude</div>
+                    <div class="actor-role">Agent &middot; this machine</div>
                   </div>
-                  <div class="participant-status online"></div>
+                  <div class="actor-status online"></div>
                 </div>
-                <div class="participant-item">
+                <div class="actor-item">
                   <div
-                    class="participant-avatar"
+                    class="actor-avatar"
                     style="background: linear-gradient(135deg, #3fb950, #39d2c0)"
                   >
                     Cx
                   </div>
-                  <div class="participant-info">
-                    <div class="participant-name">Codex</div>
-                    <div class="participant-role">Agent &middot; Sawmon's node</div>
+                  <div class="actor-info">
+                    <div class="actor-name">Codex</div>
+                    <div class="actor-role">Agent &middot; this machine</div>
                   </div>
-                  <div class="participant-status online"></div>
+                  <div class="actor-status online"></div>
                 </div>
               </div>
 

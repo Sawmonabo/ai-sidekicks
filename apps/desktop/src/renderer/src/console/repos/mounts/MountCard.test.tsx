@@ -173,8 +173,8 @@ describe("MountCard — the way into a change set", () => {
 
 describe("MountCard — what the renderer must not offer", () => {
   it("negative control: nothing on the card is a detach control", () => {
-    // `Spec-009 §Detach Semantics (V1 Definition)` gives the desktop renderer no
-    // detach surface in V1, and there is no force option on a refused detach. This
+    // The desktop renderer has no detach surface in V1, and there is no force option
+    // on a refused detach. This
     // case fails the moment either becomes a control rather than a sentence.
     const { container } = renderCard();
     for (const element of container.querySelectorAll("button, input, a")) {
@@ -296,7 +296,7 @@ describe("MountCard — the drifted mount and its one control", () => {
         health: { status: "identity_mismatch", checkedAt: "2026-01-01T00:00:00Z" },
       }),
     });
-    // The card states the consequence before the confirm does, because a participant
+    // The card states the consequence before the confirm does, because a user
     // reads the card before they press anything.
     expect(getByText(/mints a new mount/)).toBeDefined();
   });

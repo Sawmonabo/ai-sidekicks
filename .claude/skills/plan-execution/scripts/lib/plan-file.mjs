@@ -28,13 +28,13 @@ import { join } from "node:path";
 // A `--plan` value is a DISPATCH token, not a filename fragment. Two shapes are
 // legal (post-merge-housekeeper.mjs § PLAN_RE): `NNN` and `NNN-partial`. The
 // `-partial` qualifier marks a PR that ships only part of a phase, and it IS
-// part of plan IDENTITY — NS headings in docs/architecture/cross-plan-dependencies.md
-// literally read `### NS-03: Plan-023-partial Tier 1 — Electron + React skeleton`.
+// part of plan IDENTITY — a dispatch that ships part of Plan-023's Tier 1 is
+// spelled `Plan-023-partial` wherever plan identity is written down.
 // It is NEVER part of a filename: no file under docs/plans/ carries the suffix,
 // so the token `023-partial` must look up `docs/plans/023-*.md`.
 //
-// Everything that matches identity keeps the FULL token — `verifyPlanIdentity`
-// against NS headings, `deriveTitleSeed`, the manifest's provenance `plan`
+// Everything that matches identity keeps the FULL token — `verifyPlanIdentity`,
+// `deriveTitleSeed`, the manifest's provenance `plan`
 // field, and rebuild-shipment-manifest.mjs's `gh pr list --search "Plan-<token>"`.
 // Only the filesystem lookup is keyed on the bare number.
 //

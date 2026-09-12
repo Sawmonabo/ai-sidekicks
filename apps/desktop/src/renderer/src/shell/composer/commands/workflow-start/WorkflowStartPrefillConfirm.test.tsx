@@ -33,7 +33,7 @@ describe("WorkflowStartPrefillConfirm", () => {
     expect(screen.queryByText(DIALOG_TITLE)).toBeNull();
   });
 
-  it("shows the text that would go, as the participant's own bytes", () => {
+  it("shows the text that would go, as the user's own bytes", () => {
     // A count or a paraphrase describes a thing; what a person needs to decide is
     // the thing itself.
     renderConfirm("  ship the parser fix  ");

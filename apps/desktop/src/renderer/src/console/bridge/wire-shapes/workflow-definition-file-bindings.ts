@@ -5,8 +5,8 @@
 // for the same reason: the member names and the arm shapes are stated once, so a
 // binding this console wrote is a binding this console reads.
 //
-// IT IS ITS OWN MODULE BECAUSE THE RULE IS ITS OWN. `Spec-017 §Tool bindings are
-// references, never inline policy (SA-34)` is a rule about what a definition may not
+// IT IS ITS OWN MODULE BECAUSE THE RULE IS ITS OWN. Tool bindings are references
+// and never inline policy — a rule about what a definition may not
 // say, and it is enforced HERE rather than at launch: a binding carrying `enabled`,
 // `approvalMode` or `idempotencyClass` is refused at parse, so a definition exported
 // from one machine cannot import a weakened posture onto another. Holding that beside

@@ -5,11 +5,11 @@
 //
 //   • A hue step outside the wheel must NOT be clamped or wrapped into an occupied
 //     step. Wrapping is the obvious implementation — `step % 12` is one character
-//     — and it attributes a row to the wrong participant, which is worse than
+//     — and it attributes a row to the wrong user, which is worse than
 //     attributing it to nobody. The row falls back to the neutral control boundary
 //     and says so in its class.
 //   • The edge carries the hue as a custom property rather than as a background,
-//     because rule 3 forbids a participant hue behind body text.
+//     because rule 3 forbids a user hue behind body text.
 //   • The gutter timestamp is a FORMATTED reading whose exact wire value rides the
 //     element's `title` — the one shipped call site of the eight rules' "no
 //     formatted figure hides the number the daemon sent".
@@ -24,8 +24,8 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { PARTICIPANT_HUE_STEPS, participantHueTokenName } from "../../tokens/index.js";
-import { RING_TREATMENTS } from "../../tokens/participant-hue.js";
+import { ACTOR_HUE_STEPS, actorHueTokenName } from "../../tokens/index.js";
+import { RING_TREATMENTS } from "../../tokens/actor-hue.js";
 import { LedgerRow } from "./LedgerRow.js";
 import { formatClockTime } from "./wire-figures.js";
 
@@ -54,7 +54,7 @@ function edgeOf(row: HTMLElement): HTMLElement {
 function basicRow(overrides: Partial<React.ComponentProps<typeof LedgerRow>> = {}): HTMLElement {
   return renderRow(
     <LedgerRow
-      participantHueStep={0}
+      actorHueStep={0}
       occurredAtIso={OCCURRED_AT}
       actorLabel="Ada"
       kindLabel="assistant.message"
@@ -76,22 +76,22 @@ describe("LedgerRow — the row is a work-log line, named by its author", () => 
 });
 
 describe("LedgerRow — attribution fails closed rather than into someone else's hue", () => {
-  it("carries the participant's own hue token for a step on the wheel", () => {
-    const row = basicRow({ participantHueStep: 7 });
+  it("carries the user's own hue token for a step on the wheel", () => {
+    const row = basicRow({ actorHueStep: 7 });
     expect(edgeOf(row).style.getPropertyValue("--meridian-row-hue")).toBe(
-      `var(--meridian-${participantHueTokenName(7)})`,
+      `var(--meridian-${actorHueTokenName(7)})`,
     );
     expect(row.classList.contains("meridian-ledger-row--unattributed")).toBe(false);
   });
 
   it("refuses to wrap or clamp a step that is off the wheel", () => {
-    const offWheelSteps = [PARTICIPANT_HUE_STEPS, PARTICIPANT_HUE_STEPS + 3, -1, 1.5, Number.NaN];
-    const onWheelHues = Array.from({ length: PARTICIPANT_HUE_STEPS }, (_unused, step) =>
-      edgeOf(basicRow({ participantHueStep: step })).style.getPropertyValue("--meridian-row-hue"),
+    const offWheelSteps = [ACTOR_HUE_STEPS, ACTOR_HUE_STEPS + 3, -1, 1.5, Number.NaN];
+    const onWheelHues = Array.from({ length: ACTOR_HUE_STEPS }, (_unused, step) =>
+      edgeOf(basicRow({ actorHueStep: step })).style.getPropertyValue("--meridian-row-hue"),
     );
 
     for (const step of offWheelSteps) {
-      const row = basicRow({ participantHueStep: step });
+      const row = basicRow({ actorHueStep: step });
       const hue = edgeOf(row).style.getPropertyValue("--meridian-row-hue");
       expect(row.classList.contains("meridian-ledger-row--unattributed")).toBe(true);
       expect(hue).toBe("var(--meridian-edge-strong)");
@@ -102,7 +102,7 @@ describe("LedgerRow — attribution fails closed rather than into someone else's
 
     // ...and the on-wheel hues really are twelve distinct values, so the assertion
     // above is checking a populated set rather than an empty one.
-    expect(new Set(onWheelHues).size).toBe(PARTICIPANT_HUE_STEPS);
+    expect(new Set(onWheelHues).size).toBe(ACTOR_HUE_STEPS);
   });
 
   it("varies the edge along its length rather than its width", () => {
@@ -119,7 +119,7 @@ describe("LedgerRow — attribution fails closed rather than into someone else's
   });
 
   it("keeps the hue off the body text by putting it only on the edge", () => {
-    const row = basicRow({ participantHueStep: 3 });
+    const row = basicRow({ actorHueStep: 3 });
     expect(row.style.getPropertyValue("--meridian-row-hue")).toBe("");
     expect(edgeOf(row).getAttribute("aria-hidden")).toBe("true");
   });
@@ -141,7 +141,7 @@ describe("LedgerRow — no formatted figure hides the value the daemon sent", ()
 
     const { rerender, container } = render(
       <LedgerRow
-        participantHueStep={0}
+        actorHueStep={0}
         occurredAtIso={OCCURRED_AT}
         actorLabel="Ada"
         kindLabel="assistant.message"
@@ -155,7 +155,7 @@ describe("LedgerRow — no formatted figure hides the value the daemon sent", ()
     for (const kindLabel of ["tool.invoked", "tool.result"]) {
       rerender(
         <LedgerRow
-          participantHueStep={0}
+          actorHueStep={0}
           occurredAtIso={OCCURRED_AT}
           actorLabel="Ada"
           kindLabel={kindLabel}
@@ -170,7 +170,7 @@ describe("LedgerRow — no formatted figure hides the value the daemon sent", ()
     // whose instant moves is re-read rather than showing the moment before it.
     rerender(
       <LedgerRow
-        participantHueStep={0}
+        actorHueStep={0}
         occurredAtIso={LATER_INSTANT}
         actorLabel="Ada"
         kindLabel="tool.result"

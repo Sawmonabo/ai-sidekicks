@@ -12,7 +12,7 @@
 // ONE SWITCH PER WORKSPACE AT A TIME, AND THE SECOND PRESS IS REFUSED RATHER THAN SENT.
 // Two `repo.executionModeSelect` calls issued before the first settles both run, and
 // whichever reaches the daemon LAST decides what the workspace is bound as — so a
-// participant who corrected their choice could be left in the mode they corrected away
+// user who corrected their choice could be left in the mode they corrected away
 // from, silently, because both calls succeeded. Refused rather than dropped, because a
 // press that produced nothing at all is the silent no-op rule 8 forbids, and the
 // refusal names the mode already on the wire so the sentence says what is being waited
@@ -97,9 +97,9 @@ export class ExecutionModeSelections {
   /**
    * Record one explicit mode switch, then re-read.
    *
-   * A REFUSED switch does not re-read and does not re-pick: `Spec-010 §Required
-   * Behavior` forbids silent substitution, and the renderer's half of that is showing
-   * the refusal and leaving the choice with the participant. An ACCEPTED switch
+   * A REFUSED switch does not re-read and does not re-pick: silent substitution is
+   * forbidden, and the renderer's half of that is showing
+   * the refusal and leaving the choice with the user. An ACCEPTED switch
    * re-reads, because the workspace transitions `ready -> provisioning -> ready` on its
    * existing id and the row has to follow it.
    */
@@ -169,7 +169,7 @@ export class ExecutionModeSelections {
    * THE TWO BRANCHES ARE THE TWO MOMENTS, and the second one carries the refusal rule.
    * A defined mode reaches this only from the admitted press, which is exactly the
    * moment this workspace's previous selection refusal stops describing anything. Left
-   * standing, the picker showed the failure the participant had just retried away from
+   * standing, the picker showed the failure the user had just retried away from
    * beside "Switching to …" for the whole flight and, on an accepted switch, until the
    * follow-up read replaced the reading. Cleared in the SAME publish as the pending
    * mode: two would put the stale refusal and the new pending mode on screen together
@@ -209,7 +209,7 @@ export class ExecutionModeSelections {
    *
    * THE MODE IS THE PRESSED ONE ON BOTH ARMS, and on the in-flight arm that is the
    * whole distinction the sentence beside it draws: the refusal is recorded against the
-   * mode the participant just chose, while the SENTENCE names the mode already on the
+   * mode the user just chose, while the SENTENCE names the mode already on the
    * wire. Two different modes, two different jobs — the subject of the refusal, and
    * what it is waiting for — and recording the pending one here would attach the
    * recovery for a mode nobody pressed.
@@ -233,7 +233,7 @@ export class ExecutionModeSelections {
  * What a second press is told, naming the switch already on the wire.
  *
  * A FUNCTION RATHER THAN A CONSTANT, because the sentence has to name the pending mode:
- * a participant told "something is in flight" cannot tell what, and the row above is
+ * a user told "something is in flight" cannot tell what, and the row above is
  * still showing the mode the workspace is bound as NOW, which is the one mode the
  * sentence must not be read as.
  *

@@ -1,10 +1,9 @@
 // The refresh scheduler, driven on frozen time.
 //
-// Every assertion here is about a claim `Spec-023 §Console Design (Meridian)`
-// §The eight rules makes and that a happy-path test cannot see: a burst costs one
-// read, a continuous stream still gets one (the absolute deadline), two reads never
-// overlap, the reasons a read is performed for are the ones callers gave, and
-// nothing stays armed after a pane goes away.
+// Every assertion here is about a claim the console's own rules make and that a
+// happy-path test cannot see: a burst costs one read, a continuous stream still gets
+// one (the absolute deadline), two reads never overlap, the reasons a read is performed
+// for are the ones callers gave, and nothing stays armed after a pane goes away.
 //
 // It runs on `ManualClock` and arms no real timer at all. That is not a convenience:
 // `clock.pendingCount === 0` after settle is the only way the idle-CPU budget's
@@ -246,7 +245,7 @@ describe("RefreshScheduler — one read per burst, and one under a stream", () =
   });
 });
 
-describe("the participant's own reason — a press, recorded as a press", () => {
+describe("the user's own reason — a press, recorded as a press", () => {
   it("carries it to the read verbatim, beside the reasons the system gave", async () => {
     const clock = new ManualClock(0);
     const reasonsSeen: RefreshReason[][] = [];
@@ -260,14 +259,14 @@ describe("the participant's own reason — a press, recorded as a press", () => 
     });
 
     scheduler.request("subscribe");
-    scheduler.request("participant-request");
+    scheduler.request("user-request");
     clock.advance(10);
     await settleMicrotasks();
 
     // Both reasons, in the order they were asked for, and the press is still a press.
     // A console that folded it into the subscription beside it would report a read
     // nobody asked for, with nothing afterwards able to tell the two apart.
-    expect(reasonsSeen).toStrictEqual([["subscribe", "participant-request"]]);
+    expect(reasonsSeen).toStrictEqual([["subscribe", "user-request"]]);
   });
 
   it("coalesces like every other reason rather than jumping the queue", async () => {
@@ -282,9 +281,9 @@ describe("the participant's own reason — a press, recorded as a press", () => 
       },
     });
 
-    scheduler.request("participant-request");
-    scheduler.request("participant-request");
-    scheduler.request("participant-request");
+    scheduler.request("user-request");
+    scheduler.request("user-request");
+    scheduler.request("user-request");
     expect(performCount).toBe(0);
     clock.advance(10);
     await settleMicrotasks();
@@ -298,12 +297,12 @@ describe("the participant's own reason — a press, recorded as a press", () => 
   it("negative control: the union without it cannot hold the value", () => {
     /** The defect class, planted: the vocabulary as it stood before the press had one. */
     type ReasonsBeforeThePress = "subscribe" | "window-focus" | "reconnect" | "terminal-event";
-    const press: RefreshReason = "participant-request";
+    const press: RefreshReason = "user-request";
 
-    // @ts-expect-error — the planted union has no member for a participant's press, so
+    // @ts-expect-error — the planted union has no member for a user's press, so
     // a console holding it had to reuse a neighbour's reason or invent one.
     const borrowed: ReasonsBeforeThePress = press;
 
-    expect(String(borrowed)).toBe("participant-request");
+    expect(String(borrowed)).toBe("user-request");
   });
 });

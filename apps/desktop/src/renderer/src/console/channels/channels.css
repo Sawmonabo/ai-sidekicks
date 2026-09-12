@@ -1,0 +1,227 @@
+/* The channel sub-family's own styles: the row, the archive fold, and creation.
+ *
+ * A sibling sheet rather than a block in `sections.css`: a channel row is this
+ * sub-family's shape and nothing else draws it. The shell the list shares with the
+ * roster stays at the family door, because a selector list spanning two sub-families
+ * copied into both agrees only until one of them is restyled.
+ */
+
+/* ------------------------------------------------------------- channel rows */
+
+.meridian-channel-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  border-block-end: 1px solid var(--meridian-edge);
+}
+
+.meridian-channel-row:last-child {
+  border-block-end: 0;
+}
+
+.meridian-channel-row__open {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--meridian-space-3);
+  inline-size: 100%;
+  padding-block: var(--meridian-space-2);
+  padding-inline: var(--meridian-space-1);
+  border: 0;
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-sm);
+  text-align: start;
+  cursor: pointer;
+  transition: background var(--meridian-motion-quick) ease-out;
+}
+
+.meridian-channel-row__open:hover {
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-channel-row__open:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -2px;
+}
+
+.meridian-channel-row__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meridian-channel-row--main .meridian-channel-row__name {
+  font-weight: 500;
+}
+
+.meridian-channel-row__marks {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  flex: none;
+}
+
+/* The one row drawn before the read lands: the bootstrap channel, named because
+ * every session has one. It carries no control, so it is padded like the open
+ * button it does not have and never reads as pressable. */
+.meridian-channel-row--loading {
+  padding-block: var(--meridian-space-2);
+  padding-inline: var(--meridian-space-1);
+  font-size: var(--meridian-text-sm);
+}
+
+/* Mute suppresses attention and nothing else — the row stays readable, still
+ * admits runs, and is dimmed rather than greyed out of legibility. */
+.meridian-channel-row--muted .meridian-channel-row__open {
+  color: var(--meridian-text-muted);
+}
+
+.meridian-channel-row--archived .meridian-channel-row__open {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-channels__archive {
+  border-block-start: 1px solid var(--meridian-edge);
+  padding-block-start: var(--meridian-space-2);
+}
+
+.meridian-channels__archive-summary {
+  cursor: pointer;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  padding-block: var(--meridian-space-1);
+}
+
+.meridian-channels__archive-summary:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-channels__list--archived {
+  max-block-size: 40vh;
+  overflow-y: auto;
+}
+
+/* ------------------------------------------------------------------- a row's acts */
+
+.meridian-channel-row__acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding-inline: var(--meridian-space-1);
+  padding-block-end: var(--meridian-space-1);
+}
+
+.meridian-channel-row__act {
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  padding-block: var(--meridian-space-1);
+  padding-inline: var(--meridian-space-2);
+  cursor: pointer;
+}
+
+.meridian-channel-row__act:hover:enabled {
+  color: var(--meridian-text);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-channel-row__act:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.meridian-channel-row__act:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-channel-row__refusal-dismiss {
+  border: 0;
+  background: transparent;
+  color: var(--meridian-text-muted);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* A channel the daemon says is gone: its row is removed and the daemon's own
+ * sentence stands where it was, with no control on it. */
+.meridian-channels__gone {
+  padding-block: var(--meridian-space-2);
+  padding-inline: var(--meridian-space-1);
+  border-block-end: 1px solid var(--meridian-edge);
+}
+
+/* ------------------------------------------------------- the archive confirmation */
+
+.meridian-channels__dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in oklab, var(--meridian-ground) 72%, transparent);
+}
+
+.meridian-channels__dialog {
+  position: fixed;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  transform: translate(-50%, -50%);
+  inline-size: min(28rem, calc(100vw - var(--meridian-space-6)));
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  padding: var(--meridian-space-4);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+}
+
+.meridian-channels__dialog-title {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+}
+
+.meridian-channels__dialog-body {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-channels__dialog-acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-channels__dialog-cancel,
+.meridian-channels__dialog-confirm {
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  padding-block: var(--meridian-space-1);
+  padding-inline: var(--meridian-space-3);
+  cursor: pointer;
+}
+
+/* The same ink correction the create form's pressed arms take, applied here because
+   it is the same defect and not a second one: the accessibility tier cannot see this
+   button — the dialog is closed on the render it audits — so a sweep is what finds it
+   rather than the gate. */
+.meridian-channels__dialog-confirm {
+  border-color: var(--meridian-accent);
+  color: var(--meridian-accent-text);
+}

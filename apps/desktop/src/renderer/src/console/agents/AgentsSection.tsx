@@ -1,9 +1,9 @@
 // The agents section of the session sidebar — who is attached, and what state each is in.
 //
-// `Spec-023 §The surface set` names `agents` one of the sidebar's eight sections and
-// makes each one "a composition of its own read, opening panes". It had no owner at
-// all until this file, so the sidebar rendered the seat's own "reserved, not stubbed"
-// answer where the roster belongs.
+// `agents` is one of the sidebar's eight sections, and each section is a composition
+// of its own read, opening panes. It had no owner at all until this file, so the
+// sidebar rendered the seat's own "reserved, not stubbed" answer where the roster
+// belongs.
 //
 // IN THIS FAMILY AND NOT IN THE SIDEBAR'S, because a body belongs to the family whose
 // vocabulary it renders — the same sentence this family's door already makes about the

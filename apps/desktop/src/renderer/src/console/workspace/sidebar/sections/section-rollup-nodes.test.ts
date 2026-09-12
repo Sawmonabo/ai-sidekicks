@@ -37,7 +37,7 @@ function contextOver(options: {
 }): RollupContext {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
   if (options.runs !== undefined) {
-    sessionStore.initialise({ cursor: 0, entities: options.runs, participantJoinLog: [] });
+    sessionStore.initialise({ cursor: 0, entities: options.runs, userJoinLog: [] });
   }
   if (options.degraded === true) {
     sessionStore.markDegraded("read-failed");

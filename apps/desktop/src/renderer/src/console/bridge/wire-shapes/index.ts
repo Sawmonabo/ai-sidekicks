@@ -1,8 +1,8 @@
 // The wire shapes the console declares for itself, because no code package carries
 // them.
 //
-// WHAT PUTS A MODULE HERE. `Spec-019`, `Spec-030` and `Spec-017` each register a
-// namespace, and `docs/architecture/contracts/api-payload-contracts.md` fixes the
+// WHAT PUTS A MODULE HERE. The attention, sidekick-definition, and workflow planes
+// each register a namespace, and the payload contracts fix the
 // spellings; `packages/contracts` and the client SDK carry none of them. A surface
 // built against one of those wires would otherwise invent its shape inside a view
 // family, which is the defect the growth slate exists to prevent — so the shape is

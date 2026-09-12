@@ -27,7 +27,7 @@ describe("the reason bound is measured on the encoding", () => {
   // and the two agreed on ASCII while each was free to grow a surrogate-pair or
   // normalisation rule the other did not. The budget is what a caller consumes, so
   // asserting on it checks the bound AND the fact that it is reached through the one
-  // measurement `apps/desktop/AGENTS.md` §Chokepoints gives every cap.
+  // measurement the chokepoint rule in `apps/desktop/AGENTS.md` gives every cap.
   it("counts UTF-8 bytes and not code units", () => {
     expect(cancelReasonBudget("abc").byteLength).toBe(3);
     expect(cancelReasonBudget("é").byteLength).toBe(2);
@@ -76,7 +76,7 @@ describe("the reason bound is measured on the encoding", () => {
 
 describe("the refusals this surface raises itself", () => {
   it("names the bound and never the refused value", () => {
-    const reason = "a-participant-sentence-that-must-not-be-echoed";
+    const reason = "a-user-sentence-that-must-not-be-echoed";
     const refusal = reasonPastBoundRefusal(cancelReasonBudget(reason.repeat(400)));
     expect(refusal.origin).toBe(WORKFLOW_RUN_CONTROL_ORIGIN);
     expect(refusal.code).toBe("reason-past-bound");

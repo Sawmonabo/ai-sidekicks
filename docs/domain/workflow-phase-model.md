@@ -38,7 +38,7 @@ V1 ships all four phase types per the 2026-04-22 BL-097 / ADR-015 full-engine am
 | `single-agent` | One agent executes the phase autonomously. The phase creates one run in one channel. |
 | `multi-agent` | A phase spawns a phase-owned channel (`ownership: OWN` — the V1 default and only value) where multiple agents deliberate; the channel's conclusion becomes phase output. Retry creates a new channel per iteration. |
 | `automated` | No agent. Executes a script or validation check. |
-| `human` | A human participant completes a form (`HumanPhaseConfig` — typed `timeout` required, no field default); the submission becomes phase output. Uses the Spec-012 `human_phase_contribution` approval category. |
+| `human` | A human user completes a form (`HumanPhaseConfig` — typed `timeout` required, no field default); the submission becomes phase output. Uses the Spec-012 `human_phase_contribution` approval category. |
 
 ## Phase States
 
@@ -121,7 +121,7 @@ When retries are exhausted (iteration count exceeds `max_retries`), the phase tr
 ## Example Flows
 
 - Example: A `single-agent` phase with `quality-checks` gate runs an implementation agent. The agent completes, a separate quality-check agent evaluates the output, the check passes, the gate opens, and the next phase begins.
-- Example: A `human-approval` gate blocks after a planning phase. A participant reviews the plan, approves it via the approval system, the gate opens, and the implementation phase starts.
+- Example: A `human-approval` gate blocks after a planning phase. A user reviews the plan, approves it via the approval system, the gate opens, and the implementation phase starts.
 - Example: A quality check fails on a code review phase. The gate is configured with `retry` and `max_retries: 3`. The phase resets to `pending` and re-runs. After three failed attempts, the phase transitions to `failed` and the workflow stops.
 - Example: A `go-back-to` failure behavior is configured on a review gate targeting the implementation phase. When review fails, both the review phase and the implementation phase reset to `pending`, and execution resumes from implementation.
 

@@ -2,14 +2,15 @@
 //
 // The workflows chrome is routes, headers, deck placement, and the absence and
 // refusal shapes. The bodies inside it — the node graph, the run detail, the human
-// form, the draft, and the chat start — are Plan-017's, and a body authored here
-// would be this repository's console growing a second implementation of a surface
-// another plan owns.
+// form, the draft, and the chat start — belong to the workflow engine, and a body
+// authored here would be this repository's console growing a second implementation of
+// a surface another part of the system owns.
 //
 // So each hole is an `OwnerSlotContract`: WHO authors the body, WHAT this family owes
 // it when it arrives, WHERE the fixture shell dies. The seat's own rule is that
-// nothing branches on those three members and no surface renders one — they name
-// governance work, and this file is where a reader building the body meets them.
+// nothing branches on those three members and no surface renders one — they name work
+// owned outside this family, and this file is where a reader building the body meets
+// them.
 //
 // A SEAT CARRIES NO BODY, and the absence is the repair of a real defect rather than a
 // tidying. Each of these five used to publish `body: undefined` beside its contract,
@@ -42,11 +43,8 @@ import type { OwnerSlotContract } from "../seats/index.js";
 /**
  * Shared by all five, so the deletion obligation is stated once.
  *
- * The owning plan is named by its SUBJECT rather than by its number, the way the five
- * sibling contracts elsewhere in this tree name theirs. Every member here is a runtime
- * string in a shipped module, and this repository keeps governance identifiers in
- * comments — which is where the number belongs and where it is: the workflow authoring
- * and execution plan owns these bodies.
+ * The owner is named by its SUBJECT, the way the sibling contracts elsewhere in this
+ * tree name theirs: the workflow authoring and execution surface owns these bodies.
  */
 const WORKFLOW_ENGINE_BODY: Pick<OwnerSlotContract, "owningTask" | "deleteShellIn"> = {
   owningTask: "the workflow authoring and execution plan's own renderer bodies",
@@ -87,7 +85,7 @@ export const WORKFLOW_HUMAN_FORM_SLOT: OwnerSlotContract = {
 export const WORKFLOW_DRAFT_SLOT: OwnerSlotContract = {
   ...WORKFLOW_ENGINE_BODY,
   mountObligation:
-    "the mounting pane supplies the window-lifetime draft store and never the durable one; a draft that survived a restart would be participant content in a durable home",
+    "the mounting pane supplies the window-lifetime draft store and never the durable one; a draft that survived a restart would be user content in a durable home",
 };
 
 /**

@@ -1,16 +1,16 @@
 // The ledger frame's named figures that are not ceilings.
 //
-// THE CEILINGS ARE NOT HERE. `apps/desktop/AGENTS.md` §Config single-sourcing
-// names `core/constants/` the one DIRECTORY a bound may be DECLARED in, so the window
+// THE CEILINGS ARE NOT HERE. `core/constants/` is the one DIRECTORY a bound may be
+// DECLARED in, so the window
 // cap, the element ceiling, the reveal engine's frame budget and its two walk caps,
 // and the parked-lease cap are declared there and read through the core door. What
 // stays is the estimate, the tolerance, the epsilon, the overscan, the witness count,
 // the catch-up multiplier, and the gate's tail window — measurements and factors
 // rather than bounds anything is checked against.
 //
-// `Spec-023 §Console Design (Meridian)` §The four bars, "Light on the machine":
-// "Every cap, window, and timeout is a named constant with a one-line rationale".
-// That rule is about the NAME and the rationale rather than the file, which is why
+// Being light on the machine means every cap, window, and timeout is a named constant
+// with a one-line rationale. That rule is about the NAME and the rationale rather than
+// the file, which is why
 // the ceilings can move to the home and still satisfy it — each went with the
 // paragraph it was written with.
 //
@@ -91,9 +91,9 @@ export const REVEAL_GATE_TAIL_CHARACTERS = 64;
  * milliseconds.
  *
  * MEASURED, NEVER ARMED. `viewport/cycle/idle-trim.ts` runs its pass on the first activity
- * after a gap this wide rather than on a timer, because `Spec-023 §Console Design
- * (Meridian)` §The four bars allows no timer on the console's steady state and
- * `LedgerViewport.test.tsx` holds this frame to it. So this is a threshold a
+ * after a gap this wide rather than on a timer, because no timer is allowed on the
+ * console's steady state and `LedgerViewport.test.tsx` holds this frame to it. So this
+ * is a threshold a
  * subtraction is compared against, and a ledger nobody is touching arms nothing.
  *
  * Two minutes because it has to be longer than every pause inside ordinary reading —

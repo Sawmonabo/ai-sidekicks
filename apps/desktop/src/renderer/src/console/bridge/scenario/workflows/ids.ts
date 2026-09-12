@@ -46,7 +46,7 @@ export const WORKFLOWS_SESSION_ID = "019b7a10-0280-75e5-8510-ada11a5a3333";
 export const WORKFLOWS_CHANNEL_ID = "019b7a10-0280-7c41-8510-cf1a11e10001";
 
 /** The person this window is, and the actor on every beat a person caused. */
-export const WORKFLOWS_PARTICIPANT_YOU = "019b7a10-0280-79a4-8110-cca0117a0110";
+export const WORKFLOWS_USER_YOU = "019b7a10-0280-79a4-8110-cca0117a0110";
 
 // Definition ids, shared by the summaries a browser groups, the chains three of them
 // have, and the bodies a detail pane reads. They were local to the definitions table
@@ -75,8 +75,8 @@ export const VERSION_SHIP_PIPELINE_PINNED = "019b7a10-0280-7d22-8100-be510015000
 export const VERSION_INCIDENT_TRIAGE_LATEST = "019b7a10-0280-7d22-8100-be5100150002";
 
 // Phase ids are UUIDs like every other identifier on these shapes: `WorkflowPhaseId`
-// is a branded id in `docs/architecture/contracts/api-payload-contracts.md` §Branded
-// ID Types rather than an author-chosen label. The phase's readable NAME is on none
+// is a branded id in the payload contracts rather than an author-chosen label. The
+// phase's readable NAME is on none
 // of the reads this fixture can answer — see the note above the run table. The five
 // are one closed set and are declared here whole rather than split between the runs
 // that sequence them and the outputs that address one of them.

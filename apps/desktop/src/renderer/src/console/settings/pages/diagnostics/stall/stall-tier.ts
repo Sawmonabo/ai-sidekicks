@@ -1,10 +1,9 @@
 // How loudly the stuck badge speaks, given the daemon's own answer.
 //
-// `Spec-023 §Console Design (Meridian)` §Diagnostics and health: the stuck badge
-// appears "at the 60 second threshold and escalat[es] in presentation at 5 minutes".
-// Both numbers are about PRESENTATION and neither is about the verdict: whether a run
-// is stuck is `health.stuckRunInspect`'s answer, and this console composes no verdict
-// of its own — the same section forbids it in as many words.
+// The stuck badge appears at the 60 second threshold and escalates in presentation at
+// 5 minutes. Both numbers are about PRESENTATION and neither is about the verdict:
+// whether a run is stuck is `health.stuckRunInspect`'s answer, and this console
+// composes no verdict of its own, which it is forbidden to do in as many words.
 //
 // SO THE DAEMON'S SIGNAL IS THE GATE AND THE DURATION IS ONLY THE VOLUME. A run the
 // daemon reports `healthy` renders no badge however long its quiet interval is, which

@@ -1,12 +1,11 @@
 // The frame's refusal banners, said out loud once each.
 //
-// `Spec-023 §Console Design (Meridian)` rule 9 makes the banner the shape a refusal
-// takes when what the WHOLE ROOM can do has changed — the widest blast radius the
-// grammar has. It is the frame's only event of that class, which is why it is the
-// announcer's first consumer: a route change is not announced (a person who
-// navigated knows where they went, and announcing it would talk over the surface
-// they arrived at), and a dismissal is not announced (nothing changed for anyone
-// but the person who pressed the button).
+// The banner is the shape a refusal takes when what the WHOLE ROOM can do has changed —
+// the widest blast radius the grammar has. It is the frame's only event of that class,
+// which is why it is the announcer's first consumer: a route change is not announced (a
+// person who navigated knows where they went, and announcing it would talk over the
+// surface they arrived at), and a dismissal is not announced (nothing changed for
+// anyone but the person who pressed the button).
 //
 // THREE DECISIONS.
 //

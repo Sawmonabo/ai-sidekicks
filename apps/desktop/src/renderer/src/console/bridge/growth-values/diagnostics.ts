@@ -8,7 +8,7 @@
 //
 // EVERY VOCABULARY HERE IS CLOSED, AND EVERY ONE OF THEM IS THE CORPUS'S. The three
 // health states, the four redaction buckets, the three recovery actions and the two
-// health signals are enumerated in `api-payload-contracts.md §Plan-020`, so this
+// health signals are enumerated in the payload contracts, so this
 // module transcribes rather than invents. A widened arm here would teach the
 // diagnostics page a state the daemon cannot send, and the page's own tables are
 // total over these sets — which is what makes a sixth arm a compile error at the

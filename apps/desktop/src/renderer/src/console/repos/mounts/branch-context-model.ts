@@ -12,7 +12,7 @@
 // mints and `ExecutionRootPrepareResponse` carries. So this is the shape the SURFACE
 // needs, derived from what this family renders, exactly as `bridge/growth-port/growth-port.ts`
 // derives its request and value types; it is not a claim about the eventual wire,
-// which `Spec-011` owns. The one vocabulary imported rather than invented is
+// which the gitflow contract owns. The one vocabulary imported rather than invented is
 // `ExecutionMode`, because the mode is what decides whether a writable context exists
 // at all and the contract already closes it at four.
 //

@@ -11,8 +11,6 @@ import { InvalidKeyError } from "../errors.js";
  * a fresh random nonce. This seam exists so RFC vector encrypt round-trips
  * can feed the vector's recorded `nonce` and produce byte-exact tokens.
  *
- * Algorithm: paseto-spec/docs/01-Protocol-Versions/Version4.md §v4.local Encrypt.
- *
  * Step ordering matches the spec — do not reorder. Step 4 (MAC) computes over
  * the nonce, ciphertext, footer, and implicit assertion via PAE; never over
  * the plaintext.

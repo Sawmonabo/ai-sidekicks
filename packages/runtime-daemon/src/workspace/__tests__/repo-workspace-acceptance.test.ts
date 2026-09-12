@@ -1,12 +1,12 @@
-// Plan-009 Phase 2 acceptance suite — T2.6.
+// Repo/workspace acceptance suite.
 //
 // The AC-mapped integration walk over the WHOLE shipped Phase-2 surface: the
-// `0010-repo-workspaces` migration (T2.1), the event emitter (T2.2),
-// `RepoMountService` (T2.3), `WorkspaceService` (T2.4) and the health /
-// capability projector (T2.5) — driven end to end against a real temp-FILE
-// SQLite database opened by the canonical `openDatabase` factory (pragma and
-// migration order are never re-derived in a test), a real `EventLogService`
-// append path, and REAL git repositories built on disk with `execFile`.
+// `0010-repo-workspaces` migration, the event emitter, `RepoMountService`,
+// `WorkspaceService` and the health / capability projector — driven end to
+// end against a real temp-FILE SQLite database opened by the canonical
+// `openDatabase` factory (pragma and migration order are never re-derived in
+// a test), a real `EventLogService` append path, and REAL git repositories
+// built on disk with `execFile`.
 //
 // This is deliberately NOT a second copy of the per-module suites. Those prove
 // each module's branches; this file proves the claims the SPEC MAKES TO A USER,
@@ -19,59 +19,41 @@
 // anchor `replay` requires of every chain — two mechanisms are test-only:
 //
 //   * REAL git fixtures, built once in `beforeAll` under a hermetic
-//     environment. AC1 is a claim about a CANONICAL ROOT; a stubbed resolver
-//     would let every root assertion below pass against a value this file
-//     invented.
+//     environment.
 //   * ONE stepping clock, shared by both services so their `updated_at` stamps
 //     come from a single sequence. `toISOString` is millisecond-resolution, so
 //     the `updated_at` comparisons would otherwise tie and fail on machine
 //     speed. No assertion here reads a stamp VALUE — only relations between
 //     stamps this code wrote.
 //
-// Spec coverage:
-//   • `Spec-009 §Acceptance Criteria` AC1 — "Attaching a repository yields a
-//     durable repo mount with canonical root metadata": the durability arms
-//     close the handle and reopen the same FILE before reading anything.
-//   • `Spec-009 §Acceptance Criteria` AC2 — "A session can contain multiple
-//     repo mounts and multiple bound workspaces" (the automated multi-mount
-//     leg), with `Spec-009 §Required Behavior` — "The system must support
-//     multiple repo mounts in one session."
-//   • `Spec-009 §Acceptance Criteria` AC3 — "Non-git directory workspaces
-//     remain usable without pretending to support git-only features": the
-//     plain-directory mount keeps `read-only` AND is refused the three
-//     git-backed modes by reason, never by silent substitution.
-//   • `Spec-009 §Fallback Behavior` — an execution root that becomes
-//     unavailable makes the workspace `stale` and blocks new write runs.
-//   • `Spec-009 §Execution Mode Transitions` — the in-place reprovision cycle.
-//   • `Spec-009 §Detach Semantics (V1 Definition)` — the archive cascade and
-//     the durable-event sequence it produces.
-//
-// Verifies invariant (integration): I-009-5 (a stored mount carries resolved
-// identity AND provenance, and both survive a reopen), I-009-6 (the workspace
-// id is stable across mode switches — the row is updated in place, never
-// recreated), I-009-7 (an unavailable root is observable as `stale` on every
-// read surface and the write gate refuses it), I-009-8 (capability projection
-// never silently substitutes a mode), I-009-9 (exactly one durable event per
-// real transition, and none for a non-transition).
+//   • "Attaching a repository yields a durable repo mount with canonical
+//     root metadata": the durability arms close the handle and reopen the
+//     same FILE before reading anything.
+//   • "A session can contain multiple repo mounts and multiple bound
+//     workspaces" (the automated multi-mount leg), with — "The system must
+//     support multiple repo mounts in one session."
+//   • an execution root that becomes unavailable makes the workspace
+//     `stale` and blocks new write runs.
+//   • the in-place reprovision cycle.
+//   • the archive cascade and the durable-event sequence it produces.
 //
 // Why no arm here can pass vacuously:
 //   * The event-sequence arms assert the ORDERED type list, not membership, so
 //     an extra, missing or reordered event fails. The detach leg additionally
 //     asserts the INDEX relation `repo.detached` < first `workspace.archived`,
-//     which is the specific ordering the 2026-08-05 `Plan-009 §Notes` repair
-//     settled: the mount event carries the prelude that wrote every cascade
-//     row, and an archive announcement may only follow the commit that made it
-//     true.
+//     which is the specific ordering the 2026-08-05 repair settled: the mount
+//     event carries the prelude that wrote every cascade row, and an archive
+//     announcement may only follow the commit that made it true.
 //   * The stale arms delete a REAL directory, so "reports stale" is
-//     distinguishable from "was already stale"; the I-009-7 arm additionally
-//     re-creates it, so "never heals" is separable from "the daemon cannot see
-//     the repair" — mount health recovers while the workspace stays stale.
-//   * The AC3 arm asserts the mode partition over a LOCAL roster of the
-//     taxonomy pinned exhaustive at compile time, so a fifth mode added to
+//     distinguishable from "was already stale" arm additionally re-creates it,
+//     so "never heals" is separable from "the daemon cannot see the repair" —
+//     mount health recovers while the workspace stays stale.
+//   * Arm asserts the mode partition over a LOCAL roster of the taxonomy
+//     pinned exhaustive at compile time, so a fifth mode added to
 //     contracts cannot leave the partition passing over a stale list.
 //   * The non-transition arms (a second `list`, a second `detach`, a
 //     busy/release pair) assert the event log is UNCHANGED, which is the only
-//     way I-009-9's negative half is observable at all.
+//     way the negative half is observable at all.
 
 import { execFile } from "node:child_process";
 import { mkdirSync, rmSync } from "node:fs";
@@ -111,16 +93,16 @@ import {
 // ----------------------------------------------------------------------------
 
 const SESSION_ID: SessionId = "0190fa10-0000-7000-8000-000000000001" as SessionId;
-// A second session that attaches nothing — the isolation control for AC2's
-// "a session can contain" claim, which is meaningless if `list` is not scoped.
+// A second session that attaches nothing — the isolation control for the "a
+// session can contain" claim, which is meaningless if `list` is not scoped.
 const OTHER_SESSION_ID: SessionId = "0190fa10-0000-7000-8000-000000000002" as SessionId;
 const NODE_ID: NodeId = "node-local" as NodeId;
 
-const PARTICIPANT_ACTOR: string = "0190fa14-0000-7000-8000-000000000001";
+const USER_ACTOR: string = "0190fa14-0000-7000-8000-000000000001";
 const RUN_ID: string = "0190fa16-0000-7000-8000-000000000001";
 
 /**
- * The mount-root-relative subdirectory AC2's second workspace binds.
+ * The mount-root-relative subdirectory the second workspace binds.
  *
  * A SUBDIRECTORY rather than the mount root: two workspaces on one mount are
  * only distinguishable in the listing if they differ in something, and the
@@ -129,14 +111,14 @@ const RUN_ID: string = "0190fa16-0000-7000-8000-000000000001";
 const BOUND_SUBDIRECTORY: string = "packages";
 
 /**
- * The canonical execution-mode taxonomy in `ADR-006 §Decision` order.
+ * The canonical execution-mode taxonomy order.
  *
  * Contracts exports the union but no ordered roster, so this file declares its
  * own — with the same pair of checks the projector applies to its own array:
  * `satisfies` proves every element is a real mode, and the `_AssertExtends` pin
  * below proves every mode is an element. Without the pin, a fifth mode added to
- * contracts would leave the AC3 partition assertion passing VACUOUSLY over a
- * stale list, which is exactly the drift I-009-8 exists to catch.
+ * contracts would leave partition assertion passing VACUOUSLY over a stale
+ * list, which is exactly the drift exists to catch.
  */
 const ALL_EXECUTION_MODES = [
   "read-only",
@@ -267,9 +249,9 @@ interface AcceptanceFixtures {
   readonly repositoryRoot: string;
   /** A directory BELOW `repositoryRoot`; attaching it must persist the root. */
   readonly nestedDirectory: string;
-  /** The second real repository — AC2's "multiple repo mounts" needs two. */
+  /** The second real repository — the "multiple repo mounts" needs two. */
   readonly secondRepositoryRoot: string;
-  /** Not a repository at all: AC3's subject, `vcs_type 'none'`. */
+  /** Not a repository at all: the subject, `vcs_type 'none'`. */
   readonly plainDirectory: string;
 }
 
@@ -285,7 +267,7 @@ beforeAll(async () => {
   const environment = buildFixtureEnvironment(fixtureRoot);
 
   const repositoryRoot = join(fixtureRoot, "repo-alpha");
-  // Two levels deep, and its parent is the subdirectory AC2 binds — one tree
+  // Two levels deep, and its parent is the subdirectory binds — one tree
   // serving the "resolve upward to the root" and "bind downward to a subpath"
   // halves keeps the fixture set honest about them being the same tree.
   const nestedDirectory = join(repositoryRoot, BOUND_SUBDIRECTORY, "daemon");
@@ -320,8 +302,8 @@ afterAll(() => {
 /**
  * The whole Phase-2 service stack over one database handle.
  *
- * Built by a factory rather than inline because the AC1 durability arms REBUILD
- * it against the reopened handle: every service here holds prepared statements
+ * Built by a factory rather than inline because durability arms REBUILD it
+ * against the reopened handle: every service here holds prepared statements
  * bound to the handle it was constructed with, so a reopen without a rebuild
  * would be testing a closed database.
  */
@@ -365,7 +347,7 @@ interface TestHarness {
   readonly now: () => string;
   /** A per-test directory an arm may DELETE to make a mount root vanish. */
   readonly disposableMountRoot: string;
-  /** Stands in for Plan-010's provisioned worktree root. */
+  /** Stands in for the provisioned worktree root. */
   readonly provisionedWorktreeRoot: string;
   /** …and for the root of a second, different mode switch. */
   readonly provisionedBranchRoot: string;
@@ -559,15 +541,15 @@ function restrictedModesOf(
 }
 
 // ----------------------------------------------------------------------------
-// The shared setup: the exact corpus AC1 and AC2 describe
+// The shared setup: the exact corpus describe
 // ----------------------------------------------------------------------------
 
 interface AttachedMounts {
-  /** A git repository, entered through a nested subdirectory (I-009-5). */
+  /** A git repository, entered through a nested subdirectory. */
   readonly alpha: RepoAttachResponse;
   /** A second, unrelated git repository. */
   readonly beta: RepoAttachResponse;
-  /** A plain directory — AC3's subject, and D-009-4's single funnel. */
+  /** A plain directory — the subject, and's single funnel. */
   readonly plain: RepoAttachResponse;
 }
 
@@ -577,7 +559,7 @@ interface AttachedMounts {
  * The three canonical roots are distinct on purpose: `idx_repo_mounts_active_root`
  * is partial-unique over `(session_id, node_id, canonical_root)` for `attached`
  * rows, so a corpus that resolved two entries to the same root would be refused
- * with `repo.already_attached` rather than exercising AC2.
+ * with `repo.already_attached` rather than exercising.
  */
 async function attachAcceptanceMounts(): Promise<AttachedMounts> {
   const alpha = await harness.stack.mounts.attach({
@@ -609,17 +591,16 @@ const THREE_ATTACH_EVENT_SEQUENCE: readonly string[] = [
 ];
 
 // ----------------------------------------------------------------------------
-// AC1 — `Spec-009 §Acceptance Criteria`: a DURABLE mount with canonical-root
-// metadata (I-009-5)
+// : a DURABLE mount with canonical-root metadata
 // ----------------------------------------------------------------------------
 
-describe("AC1 — attaching yields a durable repo mount with canonical-root metadata", () => {
+describe("attaching yields a durable repo mount with canonical-root metadata", () => {
   it("keeps all three mounts and their default workspaces across an openDatabase reopen", async () => {
     const attached = await attachAcceptanceMounts();
 
-    // The RESOLVED root, not the entered path — the half of I-009-5 that is
-    // only observable when the two differ, which is why alpha is entered
-    // through a nested subdirectory.
+    // The RESOLVED root, not the entered path — the half of that is only
+    // observable when the two differ, which is why alpha is entered through
+    // a nested subdirectory.
     expect(attached.alpha.canonicalRoot).toBe(fixtures.repositoryRoot);
     expect(attached.alpha.canonicalRoot).not.toBe(fixtures.nestedDirectory);
     expect(attached.beta.canonicalRoot).toBe(fixtures.secondRepositoryRoot);
@@ -671,7 +652,7 @@ describe("AC1 — attaching yields a durable repo mount with canonical-root meta
     for (const expected of expectedMounts) {
       const mount = requireMountRow(expected.attachResponse.repoMountId);
       expect(mount.canonical_root).toBe(expected.canonicalRoot);
-      // PROVENANCE survives alongside resolved identity — I-009-5 keeps both.
+      // PROVENANCE survives alongside resolved identity — keeps both.
       expect(mount.local_path).toBe(expected.enteredPath);
       expect(mount.session_id).toBe(SESSION_ID);
       expect(mount.node_id).toBe(NODE_ID);
@@ -679,9 +660,6 @@ describe("AC1 — attaching yields a durable repo mount with canonical-root meta
       expect(mount.state).toBe("attached");
       expect(Date.parse(mount.attached_at)).not.toBeNaN();
 
-      // The default workspace D-009-7 requires of EVERY mount, git or not, is
-      // durable too — a mount whose workspace vanished on restart would satisfy
-      // the letter of AC1 and none of its use.
       const workspace = requireWorkspaceRow(expected.attachResponse.defaultWorkspaceId);
       expect(workspace.repo_mount_id).toBe(expected.attachResponse.repoMountId);
       expect(workspace.session_id).toBe(SESSION_ID);
@@ -695,8 +673,8 @@ describe("AC1 — attaching yields a durable repo mount with canonical-root meta
     const alphaMount = requireMountRow(attached.alpha.repoMountId);
     expect(alphaMount.local_path).not.toBe(alphaMount.canonical_root);
 
-    // The timeline survived the reopen with the rows (I-009-9): three attaches,
-    // three default workspaces, nothing else.
+    // The timeline survived the reopen with the rows: three attaches, three
+    // default workspaces, nothing else.
     expect(readLifecycleEventTypes()).toEqual(THREE_ATTACH_EVENT_SEQUENCE);
   });
 
@@ -713,8 +691,8 @@ describe("AC1 — attaching yields a durable repo mount with canonical-root meta
     expect(alphaRead.localPath).toBe(fixtures.nestedDirectory);
     expect(alphaRead.vcsType).toBe("git");
     expect(alphaRead.state).toBe("attached");
-    // Health is DERIVED per read (D-009-2), so a restarted daemon re-measures
-    // rather than trusting a persisted verdict — there is no column to trust.
+    // Health is DERIVED per read, so a restarted daemon re-measures rather
+    // than trusting a persisted verdict — there is no column to trust.
     expect(alphaRead.health.status).toBe("healthy");
 
     const listed = await harness.stack.workspaces.list({ sessionId: SESSION_ID });
@@ -724,17 +702,16 @@ describe("AC1 — attaching yields a durable repo mount with canonical-root meta
     );
 
     // Reads are not transitions: the reopened log holds exactly what the three
-    // attaches wrote (I-009-9's negative half).
+    // attaches wrote (the negative half).
     expect(readLifecycleEventTypes()).toEqual(THREE_ATTACH_EVENT_SEQUENCE);
   });
 });
 
 // ----------------------------------------------------------------------------
-// AC2 — `Spec-009 §Acceptance Criteria` + `Spec-009 §Required Behavior`:
-// multiple mounts and multiple bound workspaces in one session
+// : multiple mounts and multiple bound workspaces in one session
 // ----------------------------------------------------------------------------
 
-describe("AC2 — one session holds multiple repo mounts and multiple bound workspaces", () => {
+describe("one session holds multiple repo mounts and multiple bound workspaces", () => {
   it("lists every workspace across every mount with its state", async () => {
     const attached = await attachAcceptanceMounts();
 
@@ -745,10 +722,9 @@ describe("AC2 — one session holds multiple repo mounts and multiple bound work
       directory: BOUND_SUBDIRECTORY,
     });
     // A WRITABLE bind on beta: `provisioning` with no execution root yet —
-    // `Spec-009 §Execution Mode Transitions` cycles a writable mode through
-    // `provisioning`, and Plan-010 supplies the root that ends the cycle. The
-    // read-only bind above needs no cycle, which is why the two land in
-    // different states from the same call.
+    // cycles a writable mode through `provisioning`, and supplies the root
+    // that ends the cycle. The read-only bind above needs no cycle, which is
+    // why the two land in different states from the same call.
     const writableWorkspace = await harness.stack.workspaces.bind({
       repoMountId: attached.beta.repoMountId,
       executionMode: "worktree",
@@ -809,17 +785,17 @@ describe("AC2 — one session holds multiple repo mounts and multiple bound work
 });
 
 // ----------------------------------------------------------------------------
-// AC3 — `Spec-009 §Acceptance Criteria`: a non-git directory stays usable
-// without pretending to support git-only features (I-009-8)
+// : a non-git directory stays usable without pretending to support
+// git-only features
 // ----------------------------------------------------------------------------
 
-describe("AC3 — the plain-directory mount is usable, with git-only modes refused by reason", () => {
+describe("the plain-directory mount is usable, with git-only modes refused by reason", () => {
   it("projects a reduced capability surface from the PERSISTED vcs_type", async () => {
     const attached = await attachAcceptanceMounts();
 
     // Through the read surface, so the capability answer is derived from what
     // the daemon stored at attach time rather than from a literal this test
-    // chose (I-009-4 is the input to I-009-8).
+    // chose (is the input to).
     const plainMount = await harness.stack.mounts.read(attached.plain.repoMountId);
     const gitMount = await harness.stack.mounts.read(attached.alpha.repoMountId);
     expect(plainMount.vcsType).toBe("none");
@@ -833,7 +809,7 @@ describe("AC3 — the plain-directory mount is usable, with git-only modes refus
     expect(plainCapabilities.defaultMode).toBe("read-only");
     expect(restrictedModesOf(plainCapabilities)).toEqual(["branch", "worktree", "ephemeral clone"]);
     for (const mode of restrictedModesOf(plainCapabilities)) {
-      // T2.5's suite pins each reason non-blank, distinct, and within the
+      // The suite pins each reason non-blank, distinct, and within the
       // ratified length cap; what this file requires is that a reason exists
       // for every refusal — the difference between an explicit gap and a
       // silent omission.
@@ -844,8 +820,8 @@ describe("AC3 — the plain-directory mount is usable, with git-only modes refus
     expect(gitCapabilities.defaultMode).toBe("worktree");
     expect(gitCapabilities.restrictions).toBeUndefined();
 
-    // I-009-8 as a PARTITION over the whole taxonomy: every mode is available
-    // or restricted-with-a-reason, never neither (a silent omission) and never
+    // As a PARTITION over the whole taxonomy: every mode is available or
+    // restricted-with-a-reason, never neither (a silent omission) and never
     // both (an incoherent answer).
     for (const capabilities of [plainCapabilities, gitCapabilities]) {
       for (const mode of ALL_EXECUTION_MODES) {
@@ -856,7 +832,7 @@ describe("AC3 — the plain-directory mount is usable, with git-only modes refus
     }
 
     // USABLE, not merely describable: the plain mount got the same default
-    // workspace a repository did (D-009-4's single funnel), ready to read.
+    // workspace a repository did (the single funnel), ready to read.
     const defaultWorkspace = requireWorkspaceRow(attached.plain.defaultWorkspaceId);
     expect(defaultWorkspace.execution_mode).toBe("read-only");
     expect(defaultWorkspace.state).toBe("ready");
@@ -904,17 +880,16 @@ describe("AC3 — the plain-directory mount is usable, with git-only modes refus
 });
 
 // ----------------------------------------------------------------------------
-// I-009-9 — one durable event per real transition, across the FULL lifecycle
-// (`Spec-009 §Detach Semantics (V1 Definition)`)
+// One durable event per real transition, across the FULL lifecycle
 // ----------------------------------------------------------------------------
 
-describe("I-009-9 — the full-lifecycle event sequence", () => {
+describe("the full-lifecycle event sequence", () => {
   it("emits exactly one event per transition, mount event first on detach", async () => {
     const alpha = await harness.stack.mounts.attach({
       sessionId: SESSION_ID,
       localPath: fixtures.nestedDirectory,
       nodeId: NODE_ID,
-      actor: PARTICIPANT_ACTOR,
+      actor: USER_ACTOR,
     });
     // A SECOND mount, untouched by everything below: the detach cascade is
     // scoped to one mount, and a cascade that archived the session's whole
@@ -930,8 +905,8 @@ describe("I-009-9 — the full-lifecycle event sequence", () => {
       directory: BOUND_SUBDIRECTORY,
     });
 
-    // The reprovision cycle (CP-009-2 / `Spec-009 §Execution Mode Transitions`)
-    // on alpha's default workspace: ready -> provisioning -> ready.
+    // The reprovision cycle on alpha's default workspace: ready -> provisioning
+    // -> ready.
     await harness.stack.workspaces.beginReprovision(alpha.defaultWorkspaceId, "worktree");
     expect(requireWorkspaceRow(alpha.defaultWorkspaceId).state).toBe("provisioning");
     await harness.stack.workspaces.completeReprovision(
@@ -968,14 +943,14 @@ describe("I-009-9 — the full-lifecycle event sequence", () => {
       [String(alpha.defaultWorkspaceId), String(subdirectoryWorkspace.workspaceId)].sort(),
     );
 
-    // `Spec-009 §Detach Semantics (V1 Definition)` keeps the durable RECORD;
-    // the column-level rule is D-009-7's (`updated_at` is the
-    // lifecycle-mutation timestamp): the flip moves `updated_at` forward and
-    // leaves `attached_at` alone, because the two answer different questions
-    // ("when did this mount come into being" versus "when did it last move").
-    // This is the pair the shared stepping clock exists for — at wall-clock
-    // millisecond resolution the two stamps would tie on a fast machine and
-    // the arm would fail for a reason that has nothing to do with the code.
+    // keeps the durable RECORD; the column-level rule is the (`updated_at` is
+    // the lifecycle-mutation timestamp): the flip moves `updated_at` forward
+    // and leaves `attached_at` alone, because the two answer different
+    // questions ("when did this mount come into being" versus "when did it
+    // last move"). This is the pair the shared stepping clock exists for — at
+    // wall-clock millisecond resolution the two stamps would tie on a fast
+    // machine and the arm would fail for a reason that has nothing to do with
+    // the code.
     const mountAfterDetach = requireMountRow(alpha.repoMountId);
     expect(mountAfterDetach.state).toBe("detached");
     expect(Date.parse(mountAfterDetach.updated_at)).toBeGreaterThan(
@@ -1003,10 +978,10 @@ describe("I-009-9 — the full-lifecycle event sequence", () => {
       "workspace.archived",
     ]);
 
-    // The ORDERING the 2026-08-05 `Plan-009 §Notes` repair settled, asserted
-    // as a relation and not only as a position in the literal above:
-    // `repo.detached` carries the prelude that wrote every cascade row, so an
-    // archive announcement may only follow the commit that made it true.
+    // The ORDERING the 2026-08-05 repair settled, asserted as a relation and
+    // not only as a position in the literal above: `repo.detached` carries
+    // the prelude that wrote every cascade row, so an archive announcement
+    // may only follow the commit that made it true.
     expect(eventTypes.indexOf("repo.detached")).toBeLessThan(
       eventTypes.indexOf("workspace.archived"),
     );
@@ -1020,7 +995,7 @@ describe("I-009-9 — the full-lifecycle event sequence", () => {
       readLifecycleEnvelopes()
         .slice(0, 4)
         .map((envelope) => envelope.actor),
-    ).toEqual([PARTICIPANT_ACTOR, PARTICIPANT_ACTOR, null, null]);
+    ).toEqual([USER_ACTOR, USER_ACTOR, null, null]);
 
     // Each cascaded archival names its workspace AND its mount, once.
     const archivedPayloads = readPayloadsOfType("workspace.archived");
@@ -1045,11 +1020,10 @@ describe("I-009-9 — the full-lifecycle event sequence", () => {
 });
 
 // ----------------------------------------------------------------------------
-// I-009-6 — the workspace id is stable across mode switches
-// (`Spec-009 §Execution Mode Transitions`)
+// The workspace id is stable across mode switches
 // ----------------------------------------------------------------------------
 
-describe("I-009-6 — a mode switch reprovisions IN PLACE", () => {
+describe("a mode switch reprovisions IN PLACE", () => {
   it("keeps the id and the row through two full cycles, updating mode and root", async () => {
     const alpha = await harness.stack.mounts.attach({
       sessionId: SESSION_ID,
@@ -1097,7 +1071,7 @@ describe("I-009-6 — a mode switch reprovisions IN PLACE", () => {
     expect(listed.workspaces[0]?.executionMode).toBe("branch");
     expect(listed.workspaces[0]?.fsRoot).toBe(harness.provisionedBranchRoot);
 
-    // One event per transition, both cycles (I-009-9).
+    // One event per transition, both cycles.
     expect(readLifecycleEventTypes()).toEqual([
       "repo.attached",
       "workspace.ready",
@@ -1110,11 +1084,11 @@ describe("I-009-6 — a mode switch reprovisions IN PLACE", () => {
 });
 
 // ----------------------------------------------------------------------------
-// I-009-7 — an unavailable root is `stale` on every read surface, and the write
-// gate refuses it (`Spec-009 §Fallback Behavior`)
+// An unavailable root is `stale` on every read surface, and the write gate
+// refuses it
 // ----------------------------------------------------------------------------
 
-describe("I-009-7 — a root that vanishes makes its workspace stale", () => {
+describe("a root that vanishes makes its workspace stale", () => {
   it("persists the transition, refuses writes, and never auto-heals", async () => {
     // The healthy SIBLING: a mount on a fixture root that stays put. Without
     // it, "the write gate refuses" could not be told from "the write gate
@@ -1146,18 +1120,17 @@ describe("I-009-7 — a root that vanishes makes its workspace stale", () => {
         [String(victim.defaultWorkspaceId), "stale"],
       ]),
     );
-    // PERSISTED, not merely reported: I-009-7's claim is about the row, so the
-    // next reader sees it without re-probing.
+    // PERSISTED, not merely reported: the claim is about the row, so the next
+    // reader sees it without re-probing.
     expect(requireWorkspaceRow(victim.defaultWorkspaceId).state).toBe("stale");
 
     // The mount read reports the same loss, and does NOT confuse it with a
-    // lifecycle change — the row is still `attached` (D-009-2).
+    // lifecycle change — the row is still `attached`.
     const victimMount = await harness.stack.mounts.read(victim.repoMountId);
     expect(victimMount.health.status).toBe("unreachable");
     expect(victimMount.state).toBe("attached");
     expect(requireMountRow(victim.repoMountId).state).toBe("attached");
 
-    // The write gate (CP-009-3).
     const refusal = await captureRejection(() =>
       harness.stack.workspaces.assertWritable(victim.defaultWorkspaceId),
     );
@@ -1190,9 +1163,9 @@ describe("I-009-7 — a root that vanishes makes its workspace stale", () => {
       "workspace.stale",
     ]);
 
-    // The run hold is a state change with NO registered event type (CP-009-7),
-    // so the closed six-type registry stays closed: `ready -> busy -> ready`
-    // moves the row and appends nothing.
+    // The run hold is a state change with NO registered event type, so the
+    // closed six-type registry stays closed: `ready -> busy -> ready` moves
+    // the row and appends nothing.
     const eventsBeforeHold = readLifecycleEventTypes();
     await harness.stack.workspaces.markBusy(sibling.defaultWorkspaceId, RUN_ID);
     expect(requireWorkspaceRow(sibling.defaultWorkspaceId).state).toBe("busy");

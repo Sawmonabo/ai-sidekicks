@@ -13,17 +13,13 @@
 // actually compacted. The seat states that here so the body inherits the rule rather
 // than rediscovering it, and it is why the completed reading is passed in rather
 // than derived from the reply.
-//
-// GOVERNANCE IDS LIVE IN THIS COMMENT AND NOT IN THE VALUE, as they do in every
-// contract in this directory: the control body is Plan-013's, mounted under the
-// obligation Plan-023 Phase 6 records for it.
 
 import type { OwnerSlotContract, OwnerSlotProps } from "../../../../console/seats/index.js";
 import { CompactionControl, type CompactionControlProps } from "./CompactionControl.js";
 
 /** The three facts this seat answers. Developer-facing; never rendered. */
 export const COMPACTION_SLOT_CONTRACT: OwnerSlotContract = {
-  owningTask: "the usage-meters plan's participant-triggered compaction control",
+  owningTask: "the usage-meters plan's user-triggered compaction control",
   mountObligation:
     "the composer supplies the addressed run — its own address, the one the chip rail renders — the bound driver's capability state, the control's placement beside the meters, its accessible framing, and the newest compaction boundary recorded for that run; the body owns the render and the dispatch, and settles the control on the compaction call's own reply rather than on a compaction row arriving",
   deleteShellIn: "the PR that mounts the compaction control into this seat",

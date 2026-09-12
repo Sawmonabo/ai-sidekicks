@@ -11,9 +11,8 @@
 // NOTHING HERE IS INFERRED. The origin is the arm the daemon sent; the principal is
 // read off that arm and never off an absent field; the rejection reason renders
 // verbatim; and a directive whose key has been shredded says so rather than rendering
-// an empty line. `Spec-023 §Rules every console surface obeys` makes the projection
-// fail closed, and every member below is either present on the wire or absent from the
-// row.
+// an empty line. The projection fails closed, and every member below is either present
+// on the wire or absent from the row.
 
 import { Chip, WireFigure } from "../../../primitives/index.js";
 import { InterventionDirective } from "./InterventionDirective.js";

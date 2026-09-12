@@ -1,30 +1,10 @@
-// The shipped Tier-1 families the console absorbed, and the guard one of them uses.
+// The pre-console families the console absorbed, and the guard one of them uses.
 //
-// Four families shipped before the console existed and were rendered by the
-// renderer root directly: the session probe, the participant roster, the runtime-node
-// roster, and the invite acceptance prompt. When the console took over the root they
-// stopped being rendered by anything, which is not a decision anybody made — it is
-// what happens when a new mount point lands before the old surfaces are re-homed.
-// This module re-homes TWO of them. The other two are mounted by nothing at all, and
-// each is retired for its own reason rather than for one shared one.
-//
-// THE PARTICIPANT ROSTER IS THE FIRST, and the reason is not that nowhere would take
-// it. It rendered presence for a session, and so does `collaboration/`, which means
-// one application drew one session's presence twice from two reads whose answers were
-// free to disagree. One of the two had to go, and it could only be this one: the
-// collaboration roster carries the role, the terminal-lease holder and the per-device
-// fan-out, and the shipped component has a seam for none of the three — so beside the
-// roster that draws all of them it has no fact left to contribute. It reads
-// `window.sidekicks` on mount besides, so it could never be handed the bridge the
-// console resolved and could not render under the fixture at all.
-//
-// THE INVITE ACCEPTANCE PROMPT IS THE SECOND, AND ITS MOUNT IS GONE RATHER THAN
-// DORMANT. That component takes the raw invite token as a prop and issues
-// `invite.accept` with it, and the deep-link invariants confine that token to the
-// main process — the renderer holds an opaque reference instead. So there is no
-// caller left that could supply what the component's one prop requires, and the
-// acceptance it performs is performed by main behind the reference. Both components
-// are untouched; nothing here mounts either of them.
+// Two families shipped before the console existed and were rendered by the renderer
+// root directly: the session probe and the runtime-node family. When the console took
+// over the root they stopped being rendered by anything, which is not a decision
+// anybody made — it is what happens when a new mount point lands before the old
+// surfaces are re-homed. This module re-homes both of them.
 //
 // IN `seats/` RATHER THAN IN `frame/`, WHICH IS WHERE THEY WERE WRITTEN. A mount here
 // reads a bridge source, two primitives, and a branded id, and nothing above
@@ -39,12 +19,10 @@
 //
 //   families.ts → <family>/index.ts → frame/index.ts → ConsoleRoot.tsx → families.ts
 //
-// THE FRAME KEEPS NOTHING OF THEM NOW. It held a TABLE — which slot each family
-// holds and who owns it — for as long as one of these components claimed a slot
-// outright; the last one that did was the participant roster, and retiring it left
-// the table with no rows and the registrar with nothing to register. Every surviving
-// mount is called by the console surface that absorbed it, through this family's
-// door, like every other consumer.
+// THE FRAME KEEPS NOTHING OF THEM. No component here claims a frame slot outright, so
+// the frame holds no table of which slot each family takes and who owns it, and the
+// registrar has nothing to register. Every mount is called by the console surface that
+// absorbed it, through this family's door, like every other consumer.
 //
 // A SEAT MAY NOT HOLD A BODY, AND THIS HOLDS NONE. The rule this family is built on is
 // that no view family holds a SIBLING's body; every component mounted here is owned by
@@ -120,7 +98,7 @@ export function absorbedSurfaceAsks(bridgeSource: ConsoleBridgeSource): boolean 
 }
 
 /**
- * The session probe, built on the participant's own act.
+ * The session probe, built on the user's own act.
  *
  * Exported as a BUILDER rather than registered as a mount, because the probe creates
  * a session from its mount effect and a route lifecycle remounts a slot on every
@@ -198,14 +176,14 @@ export function renderAbsorbedNodeRoster(
  * The attach flow, mounted wherever a node declaration is actually available.
  *
  * TAKES THE BRIDGE AND NEVER A DRAFT, which is the whole trust decision made once, in
- * the module that can make it. `Spec-023 §Trust Stance` puts the declaration a machine
- * makes about itself — its identity, the contract version it speaks, its self-reported
- * health, and what it can run — in the main process, off the node registry. A caller
- * that could pass a draft in would be a caller that could compose one, and a renderer
- * composing one is a renderer vouching for a machine on its own word. So the draft is
- * RESOLVED here and invented nowhere: `seats/node-roster/node-attach-seam.ts` asks the running scenario
- * under the fixture, and answers nothing under the live bridge, where no registered
- * read delivers such a declaration to this renderer yet.
+ * the module that can make it. The declaration a machine makes about itself — its
+ * identity, the contract version it speaks, its self-reported health, and what it can
+ * run — is composed in the main process, off the node registry. A caller that could
+ * pass a draft in would be a caller that could compose one, and a renderer composing
+ * one is a renderer vouching for a machine on its own word. So the draft is RESOLVED
+ * here and invented nowhere: `seats/node-roster/node-attach-seam.ts` asks the running
+ * scenario under the fixture, and answers nothing under the live bridge, where no
+ * registered read delivers such a declaration to this renderer yet.
  *
  * The absence it renders is therefore a statement about THIS window rather than about
  * attaching: a machine attaches itself, and no reading here claims otherwise.

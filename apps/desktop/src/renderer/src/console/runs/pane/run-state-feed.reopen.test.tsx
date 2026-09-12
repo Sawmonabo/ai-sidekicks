@@ -30,7 +30,7 @@ import { SESSION_ID, STATE_CHANGE_DELIVERY } from "./run-state-feed.test-support
 /** A session whose snapshot has landed, which is what makes a repair observable. */
 function initialisedStore(): SessionStore {
   const store = new SessionStore({ sessionId: SESSION_ID });
-  store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+  store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
   return store;
 }
 
@@ -88,7 +88,7 @@ describe("the run-state stream re-opens on a repair", () => {
     expect(mounted.openCount()).toBe(1);
 
     act(() => {
-      mounted.sessionStore.initialise({ cursor: 4, entities: [], participantJoinLog: [] });
+      mounted.sessionStore.initialise({ cursor: 4, entities: [], userJoinLog: [] });
     });
     await settleScheduledRead(mounted.bridge);
 

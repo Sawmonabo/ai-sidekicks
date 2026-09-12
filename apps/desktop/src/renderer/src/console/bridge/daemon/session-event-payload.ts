@@ -38,9 +38,9 @@
 // boundary used to drop `category` on the floor, after which every projector routes
 // on `kind` alone and mutates the run partition off a pair the strict layer rejects.
 // The census is exported for exactly this: `SESSION_EVENT_CATEGORY_BY_TYPE` is
-// published so "consumers (projectors, replay machinery, integrity verifiers in
-// Plan-006) can assert category/type consistency without re-parsing the schema", and
-// that is the check below.
+// published so consumers — projectors, replay machinery, integrity verifiers — can
+// assert category/type consistency without re-parsing the schema, and that is the
+// check below.
 
 import {
   EventEnvelopeSchema,
@@ -67,7 +67,7 @@ import type { ConsoleSessionEvent } from "../../store/index.js";
  * The two renames are the only translation, and each is a rename rather than a
  * reading: `type` is carried to `kind` verbatim, and `actor` to
  * `actorId` verbatim. The wire supplies no discriminator on `actor` —
- * the contract registers it as a participant id, an agent id, or `null` for a
+ * the contract registers it as a user id, an agent id, or `null` for a
  * system-emitted event — so this boundary carries whichever id the daemon named and
  * turns both no-value states, present-`null` and absent, into `undefined`. Guessing
  * which of the two id kinds is in hand would be inventing an arm the wire does not

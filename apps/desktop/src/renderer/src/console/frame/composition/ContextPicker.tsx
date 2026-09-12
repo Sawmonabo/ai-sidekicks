@@ -1,10 +1,9 @@
 // The context picker: what an auxiliary window shows before it has a subject.
 //
-// A person opens the timeline window from the Window menu. Nothing has been chosen
-// yet, so the route is bare: `#/window/timeline` with no session id. That is not an
-// error and not an empty state — the window works perfectly, it just does not know
-// what to show. `Spec-023 §Console Design (Meridian)` §The surface set gives that
-// case a picker.
+// A person opens the timeline window from the Window menu. Nothing has been chosen yet,
+// so the route is bare: `#/window/timeline` with no session id. That is not an error
+// and not an empty state — the window works perfectly, it just does not know what to
+// show. The surface set gives that case a picker.
 //
 // HOW MANY THINGS THE PICKER COLLECTS IS THE GRAMMAR'S ANSWER, NOT THIS FILE'S.
 //

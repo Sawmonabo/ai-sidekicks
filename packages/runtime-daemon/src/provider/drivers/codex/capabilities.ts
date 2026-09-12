@@ -1,11 +1,11 @@
-// Codex capability declaration + refresh seam (Plan-005 Phase 3, T3.3).
+// Codex capability declaration + refresh seam.
 //
 // This module answers ONE question for the Codex driver: which capabilities
 // does it deliver at the driver boundary? It composes that answer, together
-// with T3.4's per-tool census, into the V1 `GetCapabilitiesResult` wrapper the
-// registry (T2.3) caches and the writer (T2.4) persists.
+// with the per-tool census, into the V1 `GetCapabilitiesResult` wrapper the
+// registry caches and the writer persists.
 //
-// -- I-005-2 (undeclared capability = unsupported), realized statically --
+// -- realized statically --
 //
 // `Record<DriverCapabilityFlag, boolean>` is TOTAL: a flag added to the
 // contract's canonical `DRIVER_CAPABILITY_FLAGS` tuple and not answered here
@@ -18,45 +18,42 @@
 // `assertValidCapabilityFlags` proves exact cardinality at the write seam.
 //
 // -- `cliVersion` is threaded, never fabricated — floored, and READ FROM THE
-//    SPAWNED BUILD (T3.12 + T3.23) --
 //
-// `GetCapabilitiesResult.cliVersion` is REQUIRED and must describe the
-// provider binary this daemon actually spawns. Since T3.23 that is structural
-// rather than a convention: this module takes a `SpawnedProviderVersionReading`
-// — the in-band reading of the process started at a resolved executable path
+// `GetCapabilitiesResult.cliVersion` is REQUIRED and must describe the provider
+// binary this daemon actually spawns. Since that is structural rather than a
+// convention: this module takes a `SpawnedProviderVersionReading` — the in-band
+// reading of the process started at a resolved executable path
 // (`../../version-gate.js`) — and threads its report through verbatim. A
 // declaration composed from a version that did NOT come from the spawned build
-// is therefore unrepresentable, which is the half of I-005-10 a bare report
-// argument left to caller discipline.
+// is therefore unrepresentable, which is the half of a bare report argument
+// left to caller discipline.
 //
 // The report is still passed through with no parsing, no normalization, and no
-// invented version, and the T3.12 floor is still enforced HERE before
-// composing: `getCodexCapabilities` refuses a below-floor reading fail-closed
+// invented version, and floor is still enforced HERE before composing:
+// `getCodexCapabilities` refuses a below-floor reading fail-closed
 // (`driver.cli_version_below_floor`), so both attach (the registry's
 // registration read) and refresh (the scheduler-driven re-read) hit the gate
 // through the one composition path. The read path gates too; the compare is
 // pure and idempotent, so gating at both moments closes both doors rather than
 // duplicating a decision. The compare and the ratified floor value live in
-// `../../capability-refresh.js` — the single source of truth T3.23 re-points at
-// the in-band reading without moving the comparison.
+// `../../capability-refresh.js` — the single source of truth re-points at the
+// in-band reading without moving the comparison.
 //
 // -- The refresh seam is an emission seam, not a scheduler --
 //
-// `refreshCodexCapabilities` recomposes the report and hands it to the T2.4
-// writer, whose `declare` performs the change detection and emits
+// `refreshCodexCapabilities` recomposes the report and hands it to writer, whose
+// `declare` performs the change detection and emits
 // `runtime_node.capability_declared` / `runtime_node.capability_updated` (an
-// EXISTING `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` surface; the payload's
-// `previousState` / `newState` carry the wrapper-shape contents) — CP-005-5,
-// no new event type. The emission discriminant is returned to the caller
-// unchanged.
+// EXISTING surface; the payload's `previousState` / `newState` carry the
+// wrapper-shape contents) — no new event type. The emission discriminant is returned
+// to the caller unchanged.
 //
 // What this function deliberately does NOT own: the poll timer, the 15-minute
 // cadence, the paired `probeAuth()`, and node attach/detach lifecycle. Those
-// belong to the `CapabilityRefreshScheduler` (`../../capability-refresh.js`,
-// T3.12 P2-9), which drives THIS seam on the bounded cadence.
-// Change detection is likewise NOT re-implemented here: duplicating the
-// writer's snapshot compare would create a second, divergable answer to
-// "did the capabilities change?".
+// belong to the `CapabilityRefreshScheduler` (`../../capability-refresh.js`),
+// which drives THIS seam on the bounded cadence. Change detection is
+// likewise NOT re-implemented here: duplicating the writer's snapshot compare
+// would create a second, divergable answer to "did the capabilities change?".
 //
 // The writer is injected as `Pick<DriverCapabilitiesWriter, "declare">` rather
 // than as a locally-invented port interface: a `Pick` of the real class drifts
@@ -64,39 +61,29 @@
 // hand-written mirror interface would silently keep compiling against a stale
 // shape. It also keeps a test's typed fake honest without a new abstraction.
 //
-// -- Detection sources (T3.24) --
+// -- Detection sources --
 //
-// The declaration is the matrix INTERSECTED with what a zero-turn probe found
-// on the installed build, and every flag reports which of the two decided it.
+// The declaration is the matrix INTERSECTED with what a zero-turn probe found on
+// the installed build, and every flag reports which of the two decided it.
 // `../../capability-probe.ts` owns the per-driver mechanism table, the probes,
-// their negative control, and the withdraw-only resolution; this module owns
-// the ORDERING — floor first, probe second — so no probe is ever issued against
-// a build the daemon has already refused. `detectionSource` is composed only
-// here, on the live read; the T2.4 writer's `hydrate()` reconstruction leaves it
-// absent, which is specified to read as cache reconstruction rather than as
-// unknown provenance.
+// their negative control, and the withdraw-only resolution; this module owns the
+// ORDERING — floor first, probe second — so no probe is ever issued against a
+// build the daemon has already refused. `detectionSource` is composed only here,
+// on the live read writer's `hydrate()` reconstruction leaves it absent, which
+// is specified to read as cache reconstruction rather than as unknown
+// provenance.
 //
-// SCOPE BOUNDARY: the MCP idempotency floor + server-status census (T3.13)
-// EXTEND this driver in a sibling PR-B task and are NOT implemented here; the
-// CLI-version floor and the refresh cadence landed with T3.12 (the floor
-// enforced below, the cadence in `../../capability-refresh.js`). `transcript_replay`
-// is answered `true` below as of T3.20, which is what closes the scope boundary
-// this header carried while the flag waited on its reader: the replay leg that
-// drives this provider's injection surface — and the post-replay assertion that
-// is the only admissible evidence it worked — now ship in `./lifecycle.ts`, so
-// the flag and the code it gates flip together, which is the condition the
-// boundary named. The `supported = 0` row backfilled at migration 0012 no longer
-// matches this declaration, and the contract-version move below is what makes a
-// node holding that row re-read rather than serve it.
+// `transcript_replay` is answered `true` below as of which is what closes the scope
+// boundary this header carried while the flag waited on its reader: the replay leg
+// that drives this provider's injection surface — and the post-replay assertion that
+// is the only admissible evidence it worked — now ship in `./lifecycle.ts`, so the
+// flag and the code it gates flip together, which is the condition the boundary
+// named. The `supported = 0` row backfilled at migration 0012 no longer matches this
+// declaration, and the contract-version move below is what makes a node holding that
+// row re-read rather than serve it.
 //
-// Spec coverage: `Spec-005 §Required Behavior` (drivers declare capability
-// flags; the runtime treats undeclared capabilities as unsupported),
-// `Spec-005 §Per-Driver Capability Matrix` (the Codex column below).
-//
-// Refs: Plan-005 §Phase 3 / T3.3, invariants I-005-2 and I-005-3, CP-005-5,
-// `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`,
-// `docs/reference/provider-wire/codex.md` (wire surface at the pinned
-// `codex-cli` build; regenerate-don't-transcribe).
+// Invariants `docs/reference/provider-wire/codex.md` (wire surface at the
+// pinned `codex-cli` build; regenerate-don't-transcribe).
 
 import type {
   DriverCapabilityFlag,
@@ -132,29 +119,26 @@ export const CODEX_DRIVER_NAME = "codex" as const;
 /**
  * The driver's advertised capability-contract version.
  *
- * Per `Spec-005 §Default Behavior` this is a CHANGE-DETECTION token, not a
- * negotiated version: nothing branches on its value. It moves when the shape
- * of what this driver advertises changes, which is what makes a cached
- * snapshot recognizably stale.
+ * This is a CHANGE-DETECTION token, not a negotiated version: nothing
+ * branches on its value. It moves when the shape of what this driver
+ * advertises changes, which is what makes a cached snapshot recognizably
+ * stale.
  *
- * `1.1.0` (T3.26): additive growth, hence a MINOR move. The declared flag set
- * grew from fourteen to seventeen (`context_compaction`, `provider_commands`,
+ * `1.1.0`: additive growth, hence a MINOR move. The declared flag set grew
+ * from fourteen to seventeen (`context_compaction`, `provider_commands`,
  * `output_speed`). Nothing previously declared changed meaning, which is what
  * keeps this off a major — and the `output_speed: false` this driver declares
  * is a complete answer rather than a withdrawal.
  *
- * `2.0.0` (T3.20): a MAJOR move, and the first one. The flag census did not
- * grow; `transcript_replay` changed VALUE, `false` to `true`, which is precisely
- * the "previously declared changed meaning" the `1.1.0` note names as what a
- * major is for. It is also the move that has to be seen: migration `0012`
- * backfilled this flag's row `supported = 0`, so a node holding that cached row
- * would keep serving `false` — routing every reconstitution to the memo floor on
- * a driver that now replays natively — until the token it compares moves.
+ * `2.0.0`: a MAJOR move, and the first one. It is also the move that has to be
+ * seen: migration `0012` backfilled this flag's row `supported = 0`, so a node
+ * holding that cached row would keep serving `false` — routing every
+ * reconstitution to the memo floor on a driver that now replays natively — until
+ * the token it compares moves.
  */
 export const CODEX_CAPABILITY_CONTRACT_VERSION: string = "2.0.0";
 
 /**
- * The Codex column of `Spec-005 §Per-Driver Capability Matrix`.
  *
  * A flag is `true` only where the DRIVER delivers the capability at its own
  * boundary. A capability supplied by the orchestration layer above the driver
@@ -177,7 +161,7 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
     tool_calls: true,
     // FALSE: the provider does not expose reasoning/thinking tokens on this
     // transport. The timeline renders the reasoning surface as unavailable —
-    // an absence, not a degradation (`Spec-005 §Fallback Behavior`).
+    // an absence, not a degradation.
     reasoning_stream: false,
     // Model and effort are accepted as per-turn overrides on turn start.
     model_mutation: true,
@@ -187,9 +171,7 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
     // Non-probeable at the parameter level, so it resolves from the matrix;
     // a build that REFUSES the boundary field is classified at the
     // `rollbackTo` fork dispatch as `driver.capability_unsupported` rather
-    // than surfacing as an opaque provider fault (Plan-005 T3.24). A build
-    // that IGNORES it instead forks the whole thread and is answered by that
-    // leg's turn-ledger check, which is a diagnostic and not a refusal.
+    // than surfacing as an opaque provider fault.
     rollback: true,
     // Durable per-thread goal set/clear operations exist on the wire.
     session_goals: true,
@@ -200,20 +182,20 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
     subagents: true,
     // TRUE, and NATIVE: `thread/inject_items` appends Responses-API items to the
     // thread's model-visible history, and it is documented and non-experimental
-    // at the pin. The flag answers "does the driver deliver a replay", and the
-    // T3.20 leg in `./lifecycle.ts` does — seeding frame by frame, then reading
-    // the reconstituted session back and refusing on anything short of an answer
+    // at the pin. The flag answers "does the driver deliver a replay", and leg
+    // in `./lifecycle.ts` does — seeding frame by frame, then reading the
+    // reconstituted session back and refusing on anything short of an answer
     // consistent with the transcript's tail. The injection surface being untyped
     // at the wire (`Array<JsonValue>`) is exactly why that assertion exists; it
     // is not a reason to withhold the flag, because a `false` here would route
     // every reconstitution to the memo floor on a provider that can do better.
     transcript_replay: true,
     // FALSE: no native spawn-time hard budget cap. Consumed fail-closed by
-    // Spec-016's native-cap unpriced-family escape, which refuses reservation
-    // on a capless leg rather than admitting an unbounded run
+    // the native-cap unpriced-family escape, which refuses reservation on a
+    // capless leg rather than admitting an unbounded run
     // (`orchestration.budget_exhausted`, `reason: 'driver_capless'`).
     cost_cap: false,
-    // Participant-triggered compaction is a first-class client-request method
+    // User-triggered compaction is a first-class client-request method
     // (`thread/compact/start`), and the compaction it performs announces itself
     // with the same typed frame an unsolicited compaction does — which is the
     // evidence the operation settles on.
@@ -238,10 +220,10 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
  * The Codex column of the output-speed value vocabulary.
  *
  * EMPTY, and that is the complete declaration the `false` flag above implies:
- * `Spec-005 §The output-speed axis` makes an absent or empty vocabulary the
- * signal that the axis is unsettable, so a caller carrying an `outputSpeed`
- * refuses fail-closed rather than forwarding an unvalidated value against a
- * vocabulary this provider declares nowhere.
+ * makes an absent or empty vocabulary the signal that the axis is unsettable,
+ * so a caller carrying an `outputSpeed` refuses fail-closed rather than
+ * forwarding an unvalidated value against a vocabulary this provider declares
+ * nowhere.
  *
  * The VALUES live in `../../driver-output-speed.ts`, alongside the other
  * driver's, because the durable capability cache's hydration path publishes this
@@ -255,16 +237,16 @@ export const CODEX_OUTPUT_SPEED_LEVELS: readonly string[] = DRIVER_OUTPUT_SPEED_
  *
  * Synchronous and side-effect-free: every input is either a module constant or
  * the caller-supplied `cliVersion`, so there is nothing to await.
- * `ProviderDriver.getCapabilities()` returns a Promise; T3.1's Codex driver
- * wraps this call, keeping the async boundary where the interface puts it
- * instead of manufacturing one here.
+ * `ProviderDriver.getCapabilities()` returns a Promise; the Codex driver wraps
+ * this call, keeping the async boundary where the interface puts it instead of
+ * manufacturing one here.
  *
  * Every returned object is FRESH. Handing back the module constants by
  * reference would let one caller's mutation corrupt every later declaration —
  * the same defensive-clone doctrine `ProviderRegistry` applies when it caches
  * a capability snapshot.
  *
- * The one thing that CAN fail is the T3.12 floor gate: a below-floor (or
+ * The one thing that CAN fail is floor gate: a below-floor (or
  * non-canonical) reading REFUSES here — throwing
  * `DriverCliVersionBelowFloorError` / `DriverCliVersionUnparseableError` —
  * before any report is composed, so neither attach nor refresh can cache a
@@ -318,11 +300,7 @@ export function getCodexCapabilities(
     // next caller's provenance.
     detectionSource: { ...detection.detectionSource },
     // Present iff the flag is, which on this driver it never is — so the member
-    // is omitted rather than served as an empty array. Omission and emptiness
-    // mean the same thing to `Spec-005 §The output-speed axis` (the axis is
-    // unsettable), and omitting is the honest encoding of a driver that
-    // declares no such axis: an empty array would read as a vocabulary that
-    // happens to have no members today.
+    // is omitted rather than served as an empty array.
     ...(CODEX_CAPABILITY_FLAGS.output_speed
       ? { outputSpeedLevels: [...CODEX_OUTPUT_SPEED_LEVELS] }
       : {}),
@@ -334,9 +312,9 @@ export function getCodexCapabilities(
  *
  * ORDERING IS THE CONTRACT, and it is why this wrapper exists rather than
  * callers invoking `readCapabilityDetection` directly. The floor gate runs
- * FIRST: `Spec-005` refuses every use of a below-floor build beyond the version
- * handshake itself, and a probe is such a use. A build this daemon has already
- * refused is therefore never asked what it can do.
+ * FIRST: refuses every use of a below-floor build beyond the version handshake
+ * itself, and a probe is such a use. A build this daemon has already refused is
+ * therefore never asked what it can do.
  *
  * The read is BOUND to the executable the version handshake resolved, taken
  * from that same reading rather than resolved again, so the composition step
@@ -379,17 +357,17 @@ export interface CodexCapabilityRefreshInput {
   /** Runtime node the declared capabilities describe. */
   readonly nodeId: string;
   /**
-   * The in-band reading of the spawned provider build (T3.23). A REFRESH takes
-   * a NEW reading rather than replaying the attach-time one — that is what
-   * makes a mid-lifetime replacement detectable, and it is why the scheduler's
-   * entry closes over a reader rather than over a value.
+   * The in-band reading of the spawned provider build. A REFRESH takes a NEW
+   * reading rather than replaying the attach-time one — that is what makes a
+   * mid-lifetime replacement detectable, and it is why the scheduler's entry
+   * closes over a reader rather than over a value.
    */
   readonly reading: SpawnedProviderVersionReading;
   /**
-   * The zero-turn probe transport (T3.24). Held as the SEAM rather than as a
-   * reading, because the cadence must RE-PROBE: each refresh takes a new
-   * detection reading through this exchange for the same reason it takes a new
-   * version reading, and a caller that passed a value could replay attach-time
+   * The zero-turn probe transport. Held as the SEAM rather than as a reading,
+   * because the cadence must RE-PROBE: each refresh takes a new detection
+   * reading through this exchange for the same reason it takes a new version
+   * reading, and a caller that passed a value could replay attach-time
    * provenance for a build that has since been replaced.
    */
   readonly probe: CapabilityProbeExchange;
@@ -406,13 +384,13 @@ export interface CodexCapabilityRefreshInput {
 }
 
 /**
- * Declare (or re-declare) Codex capabilities through the T2.4 writer.
+ * Declare (or re-declare) Codex capabilities through writer.
  *
  * Returns the writer's own emission discriminant unchanged — `"declared"` on
  * the first write, `"updated"` when the snapshot actually differs, `"noop"`
  * when it does not. A `"noop"` appends nothing to the timeline, which is what
  * makes a periodic refresh safe to run without manufacturing false timeline
- * changes (CP-005-5, change-detected emission).
+ * changes (change-detected emission).
  */
 export async function refreshCodexCapabilities(
   sink: DriverCapabilityDeclarationSink,
@@ -437,7 +415,7 @@ export async function refreshCodexCapabilities(
 }
 
 // --------------------------------------------------------------------------
-// The model catalog (T3.12 C-8)
+// The model catalog
 // --------------------------------------------------------------------------
 
 /**
@@ -512,7 +490,7 @@ const CODEX_BASE_EFFORT_LEVELS: readonly string[] = Object.freeze([
  * GOLDEN VECTOR — the Codex model catalog this driver declares.
  *
  *   Source doc      : `docs/reference/provider-wire/codex.md`
- *   Section         : §`model/list` — the model catalog and the per-model
+ *   Section         : `model/list` — the model catalog and the per-model
  *                     effort vocabulary (the default, non-experimental
  *                     generation)
  *   Pin             : codex-cli 0.150.1
@@ -522,7 +500,6 @@ const CODEX_BASE_EFFORT_LEVELS: readonly string[] = Object.freeze([
  *                     no thread is started and nothing is billed.
  *   Trust           : Verified at 0.150.1. Every id, name, and effort level
  *                     below is a reading, not an illustration.
- *   Derived by      : Plan-005 T3.12 (currency duty C-8).
  *
  * WHY A DECLARATION EXISTS AT ALL: see the sibling Claude catalog's note. The
  * read is admissible, so {@link CodexModelCatalogExchange} is the preferred
@@ -597,7 +574,7 @@ function readNonEmptyCodexString(source: Record<string, unknown>, key: string): 
  *
  *   1. **A paginated reply REFUSES.** `nextCursor` is `null` at the pin. A
  *      non-null cursor means this page is not the catalog, and answering the
- *      first page would publish a silently short model list — a participant
+ *      first page would publish a silently short model list — a user
  *      would simply not see models the provider offers, with nothing anywhere
  *      recording that a page was dropped. Refusing is loud and, at the pin,
  *      unreachable.

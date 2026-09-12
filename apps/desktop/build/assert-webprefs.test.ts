@@ -1,11 +1,9 @@
-// Plan-023 Phase 1B (T-023p-1B-2) — the build-time hardening assertion's own
-// tests.
+// The build-time hardening assertion's own tests.
 //
-// `assert-webprefs.ts` is the enforcement mechanism behind
-// `Spec-023 §Pitfalls To Avoid` ("`nodeIntegration: true` or `sandbox: false`
-// in any window must be treated as a build-time error"), so it is exactly the
-// kind of guard whose silent breakage is invisible: a script that always exits
-// 0 looks identical to a codebase with no drift. These cases drive the REAL
+// `assert-webprefs.ts` is what makes `nodeIntegration: true` or
+// `sandbox: false` in any window a build-time error, so it is exactly the kind
+// of guard whose silent breakage is invisible: a script that always exits 0
+// looks identical to a codebase with no drift. These cases drive the REAL
 // script as a child process over fixtures — importing its internals and
 // re-checking the regexes inline would prove nothing about the artifact
 // `pnpm build` actually runs.
@@ -203,7 +201,7 @@ describe("assert-webprefs", () => {
     it("does not accept a locked value that appears only in a comment", () => {
       const source = compliantSource({ sandbox: "false" }).replace(
         "      sandbox: false,",
-        "      // Spec-023 requires sandbox: true here.\n      sandbox: false,",
+        "      // The hardening baseline requires sandbox: true here.\n      sandbox: false,",
       );
       const run = runAssertion(writeFixture("comment-only.ts", source));
 
@@ -244,7 +242,7 @@ describe("assert-webprefs", () => {
 
   // The conjunct the exactly-once counts structurally cannot supply: they are
   // scoped to one file, and a second module constructing its own window leaves
-  // every count in the locked module at exactly one (Codex round 1).
+  // every count in the locked module at exactly one.
   describe("the whole-tree construction scan", () => {
     it("fails when a sibling module constructs a window of its own", () => {
       const fixturePath = writeFixture("stray-sibling.ts", compliantSource());

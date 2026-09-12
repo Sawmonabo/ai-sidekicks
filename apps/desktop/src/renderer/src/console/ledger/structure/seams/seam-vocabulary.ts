@@ -1,9 +1,9 @@
 // The seam vocabulary — which seams the ledger draws, what each one reads, and how it
 // is marked.
 //
-// `Spec-023 §The four bars`, Richness, puts "boundary seams for provider switch,
-// compaction, and rollback" in the console's signature set. HOW THEY RENDER IS THIS
-// MODULE'S, because no committed document states it: the log's epochs are geography —
+// Boundary seams for provider switch, compaction, and rollback are part of the
+// console's signature set. HOW THEY RENDER IS THIS MODULE'S: the log's epochs are
+// geography —
 // switches, compactions, and rollbacks draw as labelled seams across the ledger.
 //
 // A seam is ONE LINE. Never a message row, never a block — that is the whole

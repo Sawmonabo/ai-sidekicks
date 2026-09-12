@@ -1,12 +1,12 @@
-// Plan-013 Phase 1 (T1.1–T1.4) — timeline contract coverage.
+// Timeline contract coverage.
 //
-// THE FAILURE MATRIX IS THE SPEC OF THIS FILE. `Plan-013 §Test And
-// Verification Plan`'s superseded-rendering bullet enumerates the parse
-// outcomes Phase 1 must encode, and every row below names the class, the
-// required outcome, and the `describe` block that asserts it. A schema change
-// that loosens one of these is a matrix row that stops failing.
+// THE FAILURE MATRIX IS THE SPEC OF THIS FILE. the superseded-rendering
+// bullet enumerates the parse outcomes Phase 1 must encode, and every row
+// below names the class, the required outcome, and the `describe` block that
+// asserts it. A schema change that loosens one of these is a matrix row that
+// stops failing.
 //
-//   MUST FAIL — arm selection and attribution (§"arm selection")
+//   MUST FAIL — arm selection and attribution
 //     F1   run arm, epoch missing .................... run arm fails, NO fallthrough
 //     F2   run arm, position missing ................. run arm fails, NO fallthrough
 //     F3   run arm, runId missing .................... run arm fails, NO fallthrough
@@ -30,7 +30,7 @@
 //     F21  negative position / negative epoch ........ refuses
 //     F22  fractional position ....................... refuses
 //
-//   MUST FAIL — reasoning-surface availability (§"availability")
+//   MUST FAIL — reasoning-surface availability
 //     F23  `available` without reasoningEntries ...... refuses
 //     F24  `policy_redacted` without policyReason .... refuses
 //     F25  `unavailable` carrying reasoningEntries ... strict refuses
@@ -43,14 +43,14 @@
 //     F32  unknown availability value ................ refuses
 //     F33  reasoningEntries above the bound .......... refuses
 //
-//   MUST FAIL — summary and request shapes (§"child-run summary", §"read window")
+//   MUST FAIL — summary and request shapes
 //     F34  ChildRunSummary missing eventCount ........ refuses
 //     F35  ChildRunSummary unknown `state` ........... refuses
 //     F36  ChildRunSummary extra key ................. strict refuses
 //     F37  read `limit` above the cap ................ refuses (bounded window)
 //     F38  read `limit` of zero ...................... refuses
 //
-//   MUST FAIL — the incompleteness marker (§"completeness marker")
+//   MUST FAIL — the incompleteness marker
 //     F39  `completeness` absent ..................... refuses (required member)
 //     F40  incomplete arm without `cause` ............ refuses
 //     F41  incomplete arm without `observedAt` ....... refuses
@@ -61,10 +61,10 @@
 //     F46  `observedAt` not an ISO-8601 instant ...... refuses
 //     F47  incomplete arm with an unknown extra key .. strict refuses
 //
-//   MUST FAIL — the reasoning-surface request (§"read window")
+//   MUST FAIL — the reasoning-surface request
 //     F48  request carrying a principal member ....... strict refuses (no wire principal)
 //
-//   MUST FAIL — review folds (§"availability", §"arm selection", §"read window")
+//   MUST FAIL — review folds
 //     F49  `available` carrying zero entries ......... refuses (collapses onto unavailable)
 //     F50  `hasMore: true` without `nextCursor` ...... arm selection refuses
 //     F51  terminal window WITH a cursor ............. PARSES — see below
@@ -72,7 +72,7 @@
 //     F53  non-boundary arm carrying `run.rolled_back` refuses (untyped cutoff)
 //     F54  marker at or below the row's position ..... refuses (cutoff is the retained floor)
 //
-//   MUST FAIL — frame safety, ordering, and lineage (§"category", §"lineage", §"paged")
+//   MUST FAIL — frame safety, ordering, and lineage
 //     F55  general arm carrying `run_lifecycle` ...... refuses (run event with no run identity)
 //     F63  general arm carrying a run-scoped TYPE ..... refuses (category alone is not enough)
 //     F63  general arm whose payload names a run ...... refuses (per-row, for optional-run types)
@@ -103,13 +103,10 @@
 //     P11  each of the four availability states round-trips
 //     P12  ONE row schema parses a read-window row and a live-stream row
 //     P13  the `complete` arm round-trips
-//     P14  each of the three causes round-trips on the incomplete arm
+//     P14  each of the two causes round-trips on the incomplete arm
 //     P15  an incomplete row still parses — the marker never removes the row
 //     P16  a page built by `countEntriesFittingOneFrame` is accepted by the schema
 //
-// Refs: Spec-013, Plan-013 (I-013-1, I-013-3, I-013-4, I-013-5, I-013-7,
-// I-013-8), ADR-018 (no legacy tolerant arm — the shape has no shipped parser
-// before this one).
 
 import { describe, expect, it } from "vitest";
 
@@ -251,10 +248,10 @@ const expectRoundTrip = (schema: { parse: (value: unknown) => unknown }, value: 
 };
 
 // ----------------------------------------------------------------------------
-// TimelineRow — arm selection and attribution (T1.1, I-013-1, I-013-3, I-013-4)
+// TimelineRow — arm selection and attribution
 // ----------------------------------------------------------------------------
 
-describe("TimelineRow arm selection (I-013-1)", () => {
+describe("TimelineRow arm selection", () => {
   it("P2/P9 — a run row carrying the full triple parses and narrows on `kind`", () => {
     const parsed: TimelineRow = TimelineRowSchema.parse(runScopedRow);
     expect(parsed.kind).toBe("run");
@@ -283,10 +280,10 @@ describe("TimelineRow arm selection (I-013-1)", () => {
     expect(parsed).toStrictEqual(marked);
   });
 
-  it("P4 — a re-executed ordinal in a later epoch parses unmarked (I-013-4)", () => {
-    // The two-rollback sequence Plan-004 T3.14 pins: epoch 0's turn 6 stays
-    // superseded while epoch 1's re-executed turn 6 renders current. Both are
-    // representable at once precisely because `epoch` is its own member.
+  it("P4 — a re-executed ordinal in a later epoch parses unmarked", () => {
+    // The two-rollback sequence pins: epoch 0's turn 6 stays superseded while
+    // epoch 1's re-executed turn 6 renders current. Both are representable at
+    // once precisely because `epoch` is its own member.
     const supersededEpochZero = {
       ...runScopedRow,
       position: 6,
@@ -458,7 +455,7 @@ describe("TimelineRow arm selection (I-013-1)", () => {
     // the run arm's `type` is the base's free-form string — and would reach a
     // consumer narrowing on `kind` as an ordinary run row, with the rewind
     // cutoff sitting unread in its untyped payload. That is the untyped-cutoff
-    // delivery I-013-5 forbids, reached by the back door.
+    // delivery forbids, reached by the back door.
     const armFixtures: readonly [string, Record<string, unknown>][] = [
       ["run", runScopedRow],
       ["legacy_stub", legacyStubRow],
@@ -482,9 +479,8 @@ describe("TimelineRow arm selection (I-013-1)", () => {
   });
 
   it("F54 — a superseded marker must rank BELOW the row it marks", () => {
-    // `Spec-013 §Required Behavior`: the boundary marks rows "whose carried run
-    // position exceeds the carried rewind cutoff". Exceeds — so the cutoff row
-    // itself is the retained floor and is not superseded.
+    // the boundary marks rows "whose carried run position exceeds the carried
+    // rewind cutoff".
     const at = { ...runScopedRow, position: 7, superseded: { targetPosition: 7 } };
     const below = { ...runScopedRow, position: 6, superseded: { targetPosition: 7 } };
     const above = { ...runScopedRow, position: 8, superseded: { targetPosition: 7 } };
@@ -527,10 +523,10 @@ describe("TimelineRow arm selection (I-013-1)", () => {
 });
 
 // ----------------------------------------------------------------------------
-// TimelineRollbackBoundary — the typed cutoff (T1.1, I-013-5)
+// TimelineRollbackBoundary — the typed cutoff
 // ----------------------------------------------------------------------------
 
-describe("TimelineRollbackBoundary (I-013-5)", () => {
+describe("TimelineRollbackBoundary", () => {
   it("P7 — an agreeing boundary parses with a TYPED payload, no cast", () => {
     const parsed = TimelineRowSchema.parse(rollbackBoundaryRow);
     expect(parsed.kind).toBe("rollback_boundary");
@@ -626,10 +622,9 @@ describe("TimelineRollbackBoundary (I-013-5)", () => {
 });
 
 // ----------------------------------------------------------------------------
-// ChildRunSummary (T1.2)
 // ----------------------------------------------------------------------------
 
-describe("ChildRunSummary (T1.2)", () => {
+describe("ChildRunSummary", () => {
   it("round-trips with and without the optional producing node", () => {
     expectRoundTrip(ChildRunSummarySchema, childRunSummary);
     const { producingNodeId: _omitted, ...withoutNode } = childRunSummary;
@@ -673,10 +668,9 @@ describe("ChildRunSummary (T1.2)", () => {
 });
 
 // ----------------------------------------------------------------------------
-// The incompleteness marker (T1.2, I-013-10)
 // ----------------------------------------------------------------------------
 
-describe("ChildRunSummary completeness marker (I-013-10)", () => {
+describe("ChildRunSummary completeness marker", () => {
   const withCompleteness = (completeness: unknown): unknown => ({
     ...childRunSummary,
     completeness,
@@ -782,17 +776,16 @@ describe("ChildRunSummary completeness marker (I-013-10)", () => {
     for (const cause of CHILD_RUN_INCOMPLETE_CAUSES) {
       expect(accepts(cause)).toBe(true);
     }
-    expect(CHILD_RUN_INCOMPLETE_CAUSES).toHaveLength(3);
+    expect(CHILD_RUN_INCOMPLETE_CAUSES).toHaveLength(2);
     // Negative control, so the loop above cannot pass vacuously.
     expect(accepts("producer_unreachable")).toBe(false);
   });
 });
 
 // ----------------------------------------------------------------------------
-// ReasoningSurfaceRead (T1.3, I-013-7, I-013-8)
 // ----------------------------------------------------------------------------
 
-describe("ReasoningSurfaceReadResponse availability (I-013-7)", () => {
+describe("ReasoningSurfaceReadResponse availability", () => {
   const reasoningEntry = { sequence: 1, content: "normalized reasoning", timestamp: TIMESTAMP };
 
   it("P11 — each of the four states round-trips", () => {
@@ -868,8 +861,8 @@ describe("ReasoningSurfaceReadResponse availability (I-013-7)", () => {
   it("F61 — the paged `available` state obeys the same cursor rule the window does", () => {
     // A reasoning surface that says there is more and cannot say where to
     // resume is the same broken promise a cursorless `hasMore: true` window
-    // makes, on a surface `Spec-013 §Default Behavior` already calls
-    // summary-first — so the page break is the normal case, not the edge one.
+    // makes, on a surface already calls summary-first — so the page break is
+    // the normal case, not the edge one.
     expect(
       ReasoningSurfaceReadResponseSchema.safeParse({
         availability: "available",
@@ -994,14 +987,7 @@ describe("ReasoningSurfaceReadResponse availability (I-013-7)", () => {
     // read to someone, which is exactly the second source of identity truth
     // the authenticated-principal model forbids. Every plausible spelling is
     // covered, because the failure mode is a producer guessing a name.
-    for (const member of [
-      "principalId",
-      "principal",
-      "actor",
-      "participantId",
-      "sub",
-      "callerId",
-    ]) {
+    for (const member of ["principalId", "principal", "actor", "userId", "sub", "callerId"]) {
       expect(
         ReasoningSurfaceReadRequestSchema.safeParse({ runId: RUN_ID, [member]: "p-1" }).success,
       ).toBe(false);
@@ -1010,7 +996,7 @@ describe("ReasoningSurfaceReadResponse availability (I-013-7)", () => {
 });
 
 // ----------------------------------------------------------------------------
-// TimelineRead / TimelineSubscribe / ChildRunExpand (T1.3, T1.4)
+// TimelineRead / TimelineSubscribe / ChildRunExpand
 // ----------------------------------------------------------------------------
 
 describe("timeline read window and live stream", () => {
@@ -1036,8 +1022,8 @@ describe("timeline read window and live stream", () => {
   it("F50 — `hasMore: true` REQUIRES `nextCursor`", () => {
     // A window promising more rows and supplying no way to ask for them leaves
     // the caller re-reading the same window or giving up, and both lose rows
-    // the session holds. `Spec-013 §Interfaces And Contracts` requires
-    // "cursor-based continuation"; this is that requirement made unskippable.
+    // the session holds. requires "cursor-based continuation"; this is that
+    // requirement made unskippable.
     expect(
       TimelineReadResponseSchema.safeParse({ entries: [generalRow], hasMore: true }).success,
     ).toBe(false);
@@ -1187,10 +1173,9 @@ describe("timeline read window and live stream", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Method-name registry (T1.4)
 // ----------------------------------------------------------------------------
 
-describe("timeline method-name registry (T1.4)", () => {
+describe("timeline method-name registry", () => {
   it("registers exactly the four canonical method strings", () => {
     expect([...TIMELINE_METHOD_NAMES]).toStrictEqual([
       "timeline.read",
@@ -1256,18 +1241,16 @@ describe("timeline method-name registry (T1.4)", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Category pinning and run-scoping (T1.1, I-013-1, I-013-5)
+// Category pinning and run-scoping
 // ----------------------------------------------------------------------------
 
 describe("row category is pinned where the event is", () => {
   it("F55 — the general arm REFUSES the run-scoped category", () => {
-    // I-013-1's all-or-none attribution is enforced by ARM SELECTION: a
-    // run-scoped row missing part of its triple fails the run arm and is never
-    // re-offered. A row whose `kind` was stamped wrong never reaches that arm
-    // at all, so the check never runs — and a `run_lifecycle` row would arrive
-    // as a legitimately attribution-free general row. Every one of Spec-006's
-    // thirteen `run_lifecycle` types is run-scoped, so there is no correct
-    // projection this refusal costs.
+    // A row whose `kind` was stamped wrong never reaches that arm at all, so
+    // the check never runs — and a `run_lifecycle` row would arrive as a
+    // legitimately attribution-free general row. Every one of the thirteen
+    // `run_lifecycle` types is run-scoped, so there is no correct projection
+    // this refusal costs.
     const misfiled = { ...generalRow, category: TIMELINE_RUN_LIFECYCLE_CATEGORY };
     const result = TimelineRowSchema.safeParse(misfiled);
     expect(result.success).toBe(false);
@@ -1303,8 +1286,8 @@ describe("run attribution is refused where it cannot be read, and pinned where i
   it("F63 — the run-scoped type census is DERIVED from the taxonomy, and its size is pinned", () => {
     // The count is pinned so a taxonomy growth that should change this set
     // fails here instead of changing it silently. Re-derive it by reading
-    // `Spec-006`'s per-category payload shapes when it moves — do not simply
-    // re-pin the number.
+    // the per-category payload shapes when it moves — do not simply re-pin
+    // the number.
     //
     // 34 = 13 `run_lifecycle` + 2 `assistant_output` + 7 `tool_activity`
     //    + 10 `interactive_request` (6 `intervention.*` carrying required
@@ -1458,7 +1441,7 @@ describe("run attribution is refused where it cannot be read, and pinned where i
       }).success,
     ).toBe(true);
     // …and ABSENCE parses, because a projection may summarize a payload down
-    // to nothing and `Spec-013` requires no particular payload content.
+    // to nothing and requires no particular payload content.
     expect(TimelineRowSchema.safeParse(runScopedRow).success).toBe(true);
   });
 
@@ -1492,7 +1475,7 @@ describe("run attribution is refused where it cannot be read, and pinned where i
   });
 });
 
-describe("child-run lineage is acyclic (T1.2)", () => {
+describe("child-run lineage is acyclic", () => {
   it("F57 — a summary that is its own parent is refused", () => {
     // Every consumer of the lineage walks it: the renderer nests a child under
     // its parent, the one-layer nesting rule is checked against the chain, and
@@ -1532,7 +1515,7 @@ describe("child-run lineage is acyclic (T1.2)", () => {
   });
 });
 
-describe("paged replies are ordered, run-scoped, and frame-safe (T1.3)", () => {
+describe("paged replies are ordered, run-scoped, and frame-safe", () => {
   const cursor = "seq-42";
   const rowAt = (sequence: number): Record<string, unknown> => ({
     ...runScopedRow,
@@ -1541,10 +1524,10 @@ describe("paged replies are ordered, run-scoped, and frame-safe (T1.3)", () => {
   });
 
   it("F58 — a window whose entries go backwards is refused", () => {
-    // `Spec-013 §Default Behavior`: rows run oldest to newest. A producer that
-    // ships them scrambled forces every consumer to re-sort a window it
-    // already had in order, and a consumer that does not re-sort renders the
-    // session's history out of sequence.
+    // rows run oldest to newest. A producer that ships them scrambled forces
+    // every consumer to re-sort a window it already had in order, and a
+    // consumer that does not re-sort renders the session's history out of
+    // sequence.
     const result = TimelineReadResponseSchema.safeParse({
       entries: [rowAt(10), rowAt(3)],
       hasMore: false,
@@ -1556,8 +1539,8 @@ describe("paged replies are ordered, run-scoped, and frame-safe (T1.3)", () => {
       ).toBe(true);
     }
     // Positive controls: ascending parses, and so does a repeated sequence —
-    // the rule is nondecreasing, because nothing in Spec-013 forbids a
-    // projection from emitting two rows for one event.
+    // the rule is nondecreasing, because nothing forbids a projection from
+    // emitting two rows for one event.
     expect(
       TimelineReadResponseSchema.safeParse({ entries: [rowAt(3), rowAt(10)], hasMore: false })
         .success,

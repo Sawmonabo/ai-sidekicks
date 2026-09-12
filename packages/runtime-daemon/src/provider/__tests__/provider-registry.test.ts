@@ -1,4 +1,4 @@
-// ProviderRegistry — Plan-005 Phase 2 (T2.3), extended by Phase 4 (T4.6).
+// ProviderRegistry — extended by Phase 4.
 //
 // Exercises the in-memory registry + the capability-flag gate against a
 // hand-rolled fake `ProviderDriver`. The fake implements all 18 contract ops;
@@ -7,21 +7,15 @@
 // here invokes them — proving the gate reads the CACHED snapshot, never the driver.
 //
 // Coverage map (cites are the authoritative contract, not just the ACs):
-//   * `Spec-005 §Required Behavior` (every provider integration implements a normalized driver
-//     contract): the register + lookup round-trip keys a `ProviderDriver`
-//     instance under its canonical id.
-//   * `Spec-005 §Required Behavior` + I-005-2 (runtime treats undeclared capabilities as
-//     unsupported): the declared-`false` AND fail-closed undeclared-flag cases
-//     both throw `driver.capability_unsupported`; a declared-`true` flag passes.
-//   * T4.6 / AC2: the refusal happens AT the orchestration-to-driver boundary —
-//     a capability-bound invocation is refused with the driver's own operation
+//   * the register + lookup round-trip keys a `ProviderDriver` instance under its
+//     canonical id.
+//   * the declared-`false` AND fail-closed undeclared-flag cases both throw
+//     `driver.capability_unsupported`; a declared-`true` flag passes.
+//   * The refusal happens AT the orchestration-to-driver boundary — a
+//     capability-bound invocation is refused with the driver's own operation
 //     call count at zero, and with the gate having consulted no driver method,
 //     which is what "before it reaches the driver" means in assertable form.
 //
-// Refs: Plan-005 §Phase 2 / T2.3 and §Phase 4 / T4.6, `Spec-005 §Required Behavior`,
-// invariant I-005-2,
-// `docs/architecture/contracts/error-contracts.md §Driver`
-// (`driver.unavailable` + `driver.capability_unsupported`).
 
 import {
   DRIVER_CAPABILITY_FLAGS,
@@ -75,8 +69,8 @@ const OTHER_DRIVER_ID: string = "codex";
 /**
  * Build a complete `Record<DriverCapabilityFlag, boolean>` from a partial
  * override. EVERY canonical flag MUST be answered (the contract `Record` is
- * total — the structural half of I-005-2), so this defaults all to `false` and
- * lets a test flip just the flags it cares about.
+ * total — the structural half of), so this defaults all to `false` and lets a
+ * test flip just the flags it cares about.
  *
  * The base record is DERIVED from `DRIVER_CAPABILITY_FLAGS` rather than spelled
  * out, so widening the contract's flag union cannot leave a stale hand-written
@@ -94,8 +88,8 @@ function makeFlags(
 }
 
 /**
- * A well-formed `cliVersion` reading. REQUIRED on `GetCapabilitiesResult` (T1.8):
- * a capability report without a parseable provider version never reaches the
+ * A well-formed `cliVersion` reading. REQUIRED on `GetCapabilitiesResult`: a
+ * capability report without a parseable provider version never reaches the
  * daemon. The registry caches `result.capabilities` ONLY, so no assertion here
  * reads this — it exists so the fakes satisfy the contract honestly instead of
  * being cast past it.
@@ -205,10 +199,9 @@ class RejectingProviderDriver extends FakeProviderDriver {
 }
 
 // ----------------------------------------------------------------------------
-// register + lookup — `Spec-005 §Required Behavior` (normalized contract keyed by id)
 // ----------------------------------------------------------------------------
 
-describe("ProviderRegistry — register + lookup (`Spec-005 §Required Behavior`)", () => {
+describe("ProviderRegistry — register + lookup", () => {
   it("round-trips a registered driver via lookup", async () => {
     const registry = new ProviderRegistry();
     const driver = new FakeProviderDriver(makeFlags());
@@ -256,10 +249,9 @@ describe("ProviderRegistry — register + lookup (`Spec-005 §Required Behavior`
 });
 
 // ----------------------------------------------------------------------------
-// checkCapability — `Spec-005 §Required Behavior` + I-005-2 (undeclared capability = unsupported)
 // ----------------------------------------------------------------------------
 
-describe("ProviderRegistry — checkCapability gate (`Spec-005 §Required Behavior`, I-005-2)", () => {
+describe("ProviderRegistry — checkCapability gate", () => {
   it("passes (returns void, does not throw) for a flag declared true", async () => {
     const registry = new ProviderRegistry();
     await registry.register(DRIVER_ID, new FakeProviderDriver(makeFlags({ tool_calls: true })));
@@ -268,7 +260,7 @@ describe("ProviderRegistry — checkCapability gate (`Spec-005 §Required Behavi
     expect(() => registry.checkCapability(DRIVER_ID, "tool_calls")).not.toThrow();
   });
 
-  it("rejects a flag declared false with driver.capability_unsupported (I-005-2)", async () => {
+  it("rejects a flag declared false with driver.capability_unsupported", async () => {
     const registry = new ProviderRegistry();
     // `steer: false` is the explicit "declared, but not supported" case.
     await registry.register(DRIVER_ID, new FakeProviderDriver(makeFlags({ steer: false })));
@@ -291,7 +283,7 @@ describe("ProviderRegistry — checkCapability gate (`Spec-005 §Required Behavi
     }
   });
 
-  it("FAIL-CLOSED: rejects an undeclared/bogus flag (cached value undefined) with driver.capability_unsupported (I-005-2)", async () => {
+  it("FAIL-CLOSED: rejects an undeclared/bogus flag (cached value undefined) with driver.capability_unsupported", async () => {
     const registry = new ProviderRegistry();
     await registry.register(DRIVER_ID, new FakeProviderDriver(makeFlags({ tool_calls: true })));
 
@@ -471,13 +463,13 @@ describe("ProviderRegistry — re-register refresh seam + listAvailable", () => 
 });
 
 // ----------------------------------------------------------------------------
-// T4.6 — the capability gate refuses fail-closed, touching no driver (I-005-2, AC2)
+// The capability gate refuses fail-closed, touching no driver
 // ----------------------------------------------------------------------------
 //
 // The ORDERING proof — that production dispatch runs this gate before the
 // driver operation — deliberately does NOT live here. A locally-defined caller
-// that gates-then-dispatches pins nothing about production ordering (Codex
-// review, PR #396 round 2): the callers of this gate are T4.9's registered
+// that gates-then-dispatches pins nothing about production ordering: the
+// callers of this gate are the registered
 // `driver.*` verbs, and their tests assert the zero-driver-call property
 // through the registered SDK client rather than through a closure a test file
 // invents. What THIS suite owns is the gate itself: fail-closed on `!== true`,
@@ -490,7 +482,7 @@ describe("ProviderRegistry — re-register refresh seam + listAvailable", () => 
  * that no call happened — an assertion needs a counter, because a gate that
  * reached into the driver and a driver that refused it produce the same failed
  * test for different reasons. Here the counter's job is proving the GATE ITSELF
- * dispatches nothing — the caller-side half of that proof is T4.9's (see the
+ * dispatches nothing — the caller-side half of that proof is the (see the
  * section note above).
  *
  * The overrides still throw after counting, so the loud-failure property the
@@ -513,7 +505,7 @@ class CallCountingProviderDriver extends FakeProviderDriver {
   }
 }
 
-describe("ProviderRegistry.checkCapability — fail-closed refusal (`Spec-005 §Required Behavior`, I-005-2, AC2)", () => {
+describe("ProviderRegistry.checkCapability — fail-closed refusal", () => {
   it("refuses a declared-false flag with the registered error, consulting no driver at decision time", async () => {
     const registry = new ProviderRegistry();
     // The driver declares `tool_calls` true and `context_compaction` FALSE —

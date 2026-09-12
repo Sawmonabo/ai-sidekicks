@@ -1,7 +1,7 @@
 /* The session shell: the workspace element itself, its banners, its composer slot,
  * the new-session draft, and the split that holds the deck beside the sidebar.
  *
- * The family's other three sheets — `cast-bar.css`, `deck/deck.css` and
+ * The family's other three sheets — `session-header.css`, `deck/deck.css` and
  * `sidebar/sidebar.css`, each beside the modules it styles — are imported from
  * `workspace/index.ts` beside this one, so the whole family's rules land once per
  * bundle and cascade after the primitives' and the frame's.
@@ -14,7 +14,7 @@
 /* --- The session shell -------------------------------------------------- */
 
 /*
- * Three rows: the cast bar, the deck, and the composer's seat. The deck is the
+ * Three rows: the session header, the deck, and the composer's seat. The deck is the
  * only row that grows, and `minmax(0, 1fr)` is what lets the panes inside it be
  * the things that scroll rather than pushing the composer off the bottom.
  */

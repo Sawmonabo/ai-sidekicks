@@ -5,10 +5,10 @@
 // graph — the renderer root reaches it — so every value the door NAMES is charged to
 // every launch. `FileRestoreDisclosure`'s only production reader is
 // `runs/pane/controls/RollbackDisclosure.tsx`, inside a pane that is loader-backed
-// already, so the door line did exactly what `apps/desktop/AGENTS.md` §Module shape warns
-// a door line for a lazily-read body does: a symbol reachable both statically and
-// dynamically is assigned to the STATIC chunk, and the disclosure rode the document of
-// every session that never rewinds anything.
+// already, so the door line did exactly what the module-shape rule in
+// `apps/desktop/AGENTS.md` warns a door line for a lazily-read body does: a symbol
+// reachable both statically and dynamically is assigned to the STATIC chunk, and the
+// disclosure rode the document of every session that never rewinds anything.
 //
 // SO THE DOOR NAMES THIS, AND THIS NAMES THE WORK THROUGH `import()`. What stays on the
 // graph is one function body and a type reference that erases; the disclosure, its two

@@ -1,5 +1,5 @@
 // Repo-mount health, workspace health, and execution-mode capability
-// projection — Plan-009 T2.5.
+// projection
 //
 // PURE PROJECTION, per the shipped `session/session-projector.ts` precedent:
 // no filesystem call, no clock read, no database handle, no I/O of any kind
@@ -10,67 +10,58 @@
 // caller-supplied ARGUMENTS, never imports — which is what lets every branch
 // here be driven deterministically from a test without a temp directory.
 //
-// Spec coverage:
-//   • `Spec-009 §Fallback Behavior` — "If a workspace cannot support one or
-//     more git-backed execution modes, the daemon must expose that capability
-//     gap explicitly rather than silently substituting a different mode", and
-//     "If a workspace path becomes unavailable after binding, the workspace
-//     transitions to `stale`".
-//   • `Spec-009 §Interfaces And Contracts` — `WorkspaceExecutionModeCapabilitiesRead`
-//     "must expose which execution modes are currently valid for the bound
-//     repo mount or workspace".
-//   • `Spec-009 §State And Data Implications` — "Repo health and git metadata
-//     belong to daemon-owned projection state rather than client cache": the
-//     verdicts below are computed per read, and no `health` column exists to
-//     read them back from.
-//   • `Spec-009 §Repo Mount Health (V1 Definition)` — mount health is the
-//     daemon-probed reachability of the canonical root, `healthy` when that
-//     root is present and readable at probe time and `unreachable` otherwise,
-//     with `checkedAt` the instant of the probe that produced the verdict.
-//   • `Spec-009 §Acceptance Criteria` — AC3, "Non-git directory workspaces
-//     remain usable without pretending to support git-only features": the
-//     plain-directory profile below keeps `read-only` available and refuses
-//     the three git-backed modes WITH A REASON rather than by omission.
+//   • "If a workspace cannot support one or more git-backed execution modes,
+//     the daemon must expose that capability gap explicitly rather than
+//     silently substituting a different mode", and "If a workspace path
+//     becomes unavailable after binding, the workspace transitions to
+//     `stale`".
+//   • `WorkspaceExecutionModeCapabilitiesRead` "must expose which execution
+//     modes are currently valid for the bound repo mount or workspace".
+//   • mount health is the daemon-probed reachability of the canonical root,
+//     `healthy` when that root is present and readable at probe time and
+//     `unreachable` otherwise, with `checkedAt` the instant of the probe that
+//     produced the verdict.
+//   • "Non-git directory workspaces remain usable without pretending to
+//     support git-only features": the plain-directory profile below keeps
+//     `read-only` available and refuses the three git-backed modes WITH A
+//     REASON rather than by omission.
 //
 // Invariants carried here:
-//   • I-009-7 — an unavailable execution root is observable as `stale` on
-//     every daemon read surface. This module carries the DERIVATION half:
+//   • An unavailable execution root is observable as `stale` on every daemon
+//     read surface. This module carries the DERIVATION half:
 //     `computeWorkspaceHealth` answers `stale` for a probe-failed row and
 //     reports that the transition is owed, so every read surface routed
 //     through it observes the same verdict. The persistence half (the
 //     `markStale` write) and the write gate (`assertWritable`) are the
 //     workspace service's, and the "every read surface" universal is closed by
 //     the producers routing their reads through this seam.
-//   • I-009-8 — capability projection never silently substitutes a mode: every
-//     mode absent from `availableModes` appears in `restrictions` with a
-//     reason. Here that is STRUCTURAL, not merely tested. The per-vcs-type
-//     profiles below are TOTAL over `ExecutionMode`, and the per-mode verdict
-//     type admits an unavailable mode only WITH a reason string, so a mode
-//     cannot be dropped from `availableModes` without one — the omission the
+//   • Capability projection never silently substitutes a mode: every mode
+//     absent from `availableModes` appears in `restrictions` with a reason.
+//     Here that is STRUCTURAL, not merely tested. The per-vcs-type profiles
+//     below are TOTAL over `ExecutionMode`, and the per-mode verdict type
+//     admits an unavailable mode only WITH a reason string, so a mode cannot
+//     be dropped from `availableModes` without one — the omission the
 //     invariant forbids is unrepresentable rather than caught after the fact.
 //
 // ----------------------------------------------------------------------------
-// Two-layer health detection (D-009-5): only layer 1 lands here
+// Two-layer health detection: only layer 1 lands here
 // ----------------------------------------------------------------------------
 //
 // Layer 1 is the ON-READ PROBE FLOOR — every health-reporting read surface and
 // every write gate probes filesystem availability synchronously before
 // answering, which is the layer this module projects and the layer that
-// satisfies `Spec-009 §Fallback Behavior` on its own, with zero scheduler
-// dependency.
+// satisfies on its own, with zero scheduler dependency.
 //
-// Layer 2 is the daemon-owned BACKGROUND REFRESH (`Spec-009 §Default
-// Behavior`) — a periodic re-probe of attached mounts on a daemon idle
-// scheduler. Its wiring is NOT here, deliberately: no idle scheduler exists
-// in this package at Phase-2 time. The
-// precedent D-009-5 points at, the Plan-006 compactor, exposes a `tick()` and
-// deliberately declines to invent the scheduler that would own its cadence
-// (its header: "The idle scheduler that owns `tick()` owns the precondition"),
-// and nothing in production code calls that `tick()` yet. Declaring a
-// scheduler seam here to hang a re-probe off would be a premature interface in
-// exactly the way the compactor refused, so the background layer lands with
-// Phase 3 per D-009-5's own carve-out. The on-read floor keeps the spec
-// satisfied in the meantime.
+// Layer 2 is the daemon-owned BACKGROUND REFRESH — a periodic re-probe of
+// attached mounts on a daemon idle scheduler. Its wiring is NOT here,
+// deliberately: no idle scheduler exists in this package at Phase-2 time. The
+// precedent points at compactor, exposes a `tick()` and deliberately declines
+// to invent the scheduler that would own its cadence (its header: "The idle
+// scheduler that owns `tick()` owns the precondition"), and nothing in
+// production code calls that `tick()` yet. Declaring a scheduler seam here to
+// hang a re-probe off would be a premature interface in exactly the way the
+// compactor refused, so the background layer lands with Phase 3 per its own
+// carve-out. The on-read floor keeps the spec satisfied in the meantime.
 //
 // ----------------------------------------------------------------------------
 // One scope only: this module projects capabilities from a MOUNT
@@ -81,22 +72,14 @@
 // `@ai-sidekicks/contracts`): a MOUNT-scoped read answers "what could a
 // workspace on this mount do", which is the static matrix below, and a
 // WORKSPACE-scoped read answers "what may THIS workspace do now", which
-// additionally narrows writable modes for a `stale` workspace per
-// `Spec-009 §Fallback Behavior`. T2.5 is specified for the mount-keyed matrix
-// only; the per-workspace narrowing is T3.2's — the Phase-3 query-handler task
-// EXTENDs this module with it (`Plan-009 §Notes`, 2026-08-05 T2.5 entry) — so
-// it is deliberately not answered here.
+// additionally narrows writable modes for a `stale` workspace.
 //
 // Whoever lands it MUST route it through the same per-mode verdict shape:
 // narrowing by filtering `availableModes` in a handler would drop a mode
-// without a reason and violate I-009-8 at the one surface the invariant exists
-// to protect. Restricting a mode means giving it a verdict with a reason, in
+// without a reason and violate at the one surface the invariant exists to
+// protect. Restricting a mode means giving it a verdict with a reason, in
 // every scope.
 //
-// Refs: Plan-009 (repo attachment and workspace binding), ADR-006 §Decision
-// (the four-mode taxonomy and the worktree-first writable default), D-009-2
-// (the health projection shape), D-009-5 (the static capability matrix and the
-// two-layer health detection).
 
 import {
   RepoMountHealthSchema,
@@ -122,18 +105,18 @@ import {
  * `probedPath` is what makes the measurement ATTRIBUTABLE. Every projection
  * that consumes a probe checks it against the path its row declares and
  * refuses a mismatch — see the subject-binding guards below. Without it, a
- * multi-mount list fold (`Spec-009 §Acceptance Criteria` AC2 guarantees a
- * session holds several mounts and several workspaces) that mispairs rows and
- * probes reports a confident, wrong verdict for both rows.
+ * multi-mount list fold (guarantees a session holds several mounts and
+ * several workspaces) that mispairs rows and probes reports a confident,
+ * wrong verdict for both rows.
  */
 export interface FilesystemPathProbe {
   // The absolute path the probe actually measured.
   readonly probedPath: string;
-  // `true` when the path was present and readable at `checkedAt`
-  // (`Spec-009 §Repo Mount Health (V1 Definition)`), `false` otherwise. Binary
-  // because the verdict it feeds is binary: `RepoMountHealth.status` has
-  // exactly two members, and D-009-2 rejects a third "we did not check" value
-  // outright — the on-read floor means every read carries a fresh verdict.
+  // `true` when the path was present and readable at `checkedAt`, `false`
+  // otherwise. Binary because the verdict it feeds is binary:
+  // `RepoMountHealth.status` has exactly two members, and rejects a third "we
+  // did not check" value outright — the on-read floor means every read carries
+  // a fresh verdict.
   readonly reachable: boolean;
   // ISO 8601 instant of the measurement. The daemon's wall clock, read by the
   // service layer — never by this module, which owns no clock.
@@ -141,7 +124,6 @@ export interface FilesystemPathProbe {
 }
 
 // --------------------------------------------------------------------------
-// Repo-mount health (D-009-2)
 // --------------------------------------------------------------------------
 
 /**
@@ -151,24 +133,23 @@ export interface FilesystemPathProbe {
  * repo-mount service's row shape from a module that reads one column of it.
  *
  * `state` is deliberately absent. Mount health and mount lifecycle are
- * DISTINCT AXES (`Spec-009 §Repo Mount Health (V1 Definition)`: health is "the
- * daemon-probed reachability of the mount's canonical root", full stop, and
- * D-009-2 picks `"unreachable"` over `"stale"` precisely so the two
- * vocabularies cannot be confused). A `detached` mount whose root is still on
- * disk is `healthy`; folding the lifecycle state in would invent a semantics
- * neither the spec nor the ratified shape carries.
+ * DISTINCT AXES (health is "the daemon-probed reachability of the mount's
+ * canonical root", full stop, and picks `"unreachable"` over `"stale"`
+ * precisely so the two vocabularies cannot be confused). A `detached` mount
+ * whose root is still on disk is `healthy`; folding the lifecycle state in
+ * would invent a semantics neither the spec nor the ratified shape carries.
  */
 export interface RepoMountHealthRow {
   // The resolver's absolute, symlink-resolved root — the path health is the
   // reachability OF, and the only path a mount health probe may target
-  // (I-009-5: every trust-envelope and routing decision keys off
-  // `canonical_root`, never `local_path`).
+  // (every trust-envelope and routing decision keys off `canonical_root`,
+  // never `local_path`).
   readonly canonicalRoot: string;
 }
 
 /**
- * Project one mount's health from the probe of its canonical root — the
- * D-009-2 `{status, checkedAt}` derived projection, never a persisted column.
+ * Project one mount's health from the probe of its canonical root — `{status,
+ * checkedAt}` derived projection, never a persisted column.
  *
  * Returns the value PARSED through `RepoMountHealthSchema` rather than the
  * object literal: this is a wire shape (`RepoMountReadResponse.health`
@@ -189,7 +170,6 @@ export function computeRepoMountHealth(
 }
 
 // --------------------------------------------------------------------------
-// Workspace health (I-009-7)
 // --------------------------------------------------------------------------
 
 // Same `_AssertExtends` idiom as the sibling emitter and contracts' event-core:
@@ -235,17 +215,16 @@ type _AssertProbePolicyRostersAreDisjoint = _AssertExtends<
  * The three excluded states are excluded for three different reasons, and each
  * is load-bearing:
  *
- *   • `provisioning` — its execution root is in flux by definition
- *     (`Spec-009 §Execution Mode Transitions`: `fs_root` is updated as the
- *     switch completes). There is nothing stable to probe, and a failed probe
- *     of a half-provisioned root would report a fault where the model expects
- *     absence.
+ *   • `provisioning` — its execution root is in flux by definition (`fs_root`
+ *     is updated as the switch completes). There is nothing stable to probe,
+ *     and a failed probe of a half-provisioned root would report a fault
+ *     where the model expects absence.
  *   • `stale` — already the fault verdict, and NOT auto-healed; see
  *     `computeWorkspaceHealth`.
- *   • `archived` — terminal (`Spec-009 §Detach Semantics (V1 Definition)`
- *     archives dependents and they stay historically linked to completed
- *     runs). A probe verdict cannot change a terminal row, and flipping one to
- *     `stale` would resurrect history into an active-fault state.
+ *   • `archived` — terminal (archives dependents and they stay historically
+ *     linked to completed runs). A probe verdict cannot change a terminal row,
+ *     and flipping one to `stale` would resurrect history into an active-fault
+ *     state.
  */
 export const PROBE_BEARING_WORKSPACE_STATES: ReadonlySet<WorkspaceState> = new Set<WorkspaceState>(
   PROBE_BEARING_STATE_ROSTER,
@@ -277,8 +256,8 @@ export interface WorkspaceHealthRow {
 
 /**
  * One workspace's health as of a read. `observedState` is what every daemon
- * read surface reports (I-009-7); `staleTransitionRequired` tells the service
- * whether that verdict is a CHANGE it must persist through `markStale`.
+ * read surface reports; `staleTransitionRequired` tells the service whether
+ * that verdict is a CHANGE it must persist through `markStale`.
  */
 export interface WorkspaceHealthProjection {
   // The state to report. Equal to the row's state except when a probe found
@@ -301,22 +280,16 @@ export interface WorkspaceHealthProjection {
  * Project one workspace's health from its row plus the probe of its execution
  * root, if its state owes one.
  *
- * NEVER AUTO-HEALS. A successful probe of a `stale` workspace's root reports
- * `stale`, unchanged. Two independent reasons, either sufficient: `stale` is
- * also written by a FAILED MODE SWITCH (`Spec-009 §Execution Mode
- * Transitions`, whose `metadata.lastError` records the detail), where the path
- * is perfectly reachable and nothing about the failure is repaired by the
- * path's existence; and the spec blocks write runs "until the workspace is
- * repaired or the mode switch is retried" — both explicit acts. Recovering a
- * workspace because a path reappeared would substitute a probe for the repair
- * the operator never performed. `stale` is therefore not probe-bearing at all,
- * and the caller is refused if it probes one.
+ * A successful probe of a `stale` workspace's root reports `stale`, unchanged.
+ * Recovering a workspace because a path reappeared would substitute a probe
+ * for the repair the operator never performed. `stale` is therefore not
+ * probe-bearing at all, and the caller is refused if it probes one.
  *
  * Fails closed on every row/probe pairing the model does not produce, rather
  * than answering from a partial input: a projection that quietly returned the
  * row's own state for a caller that skipped the probe would report `ready` for
- * a workspace nobody checked — the exact failure I-009-7 exists to prevent,
- * and one no downstream surface could detect.
+ * a workspace nobody checked — the exact failure exists to prevent, and one no
+ * downstream surface could detect.
  *
  * @param probe the measurement of `workspaceRow.fsRoot`, or `null` for a row
  *   whose state owes none. REQUIRED for a probe-bearing state and FORBIDDEN
@@ -385,24 +358,21 @@ export function computeWorkspaceHealth(
 }
 
 // --------------------------------------------------------------------------
-// Execution-mode capabilities — the D-009-5 V1 static matrix (I-009-8)
+// Execution-mode capabilities — V1 static matrix
 // --------------------------------------------------------------------------
 //
 // STATIC BY `vcs_type`, by ratified decision. V1 does NOT probe per-repository
-// worktree availability at capability-read time (the ADR-006 accepted
-// trade-off): that surfaces at provisioning time through the
-// `Spec-009 §Execution Mode Transitions` failure path, which is Plan-010's
-// surface. A later probe-derived matrix extends `restrictions` additively
-// without a contract change, which is why the verdict table below is keyed by
-// mode rather than by a boolean list.
+// worktree availability at capability-read time (accepted trade-off): that
+// surfaces at provisioning time through failure path, which is the surface. A
+// later probe-derived matrix extends `restrictions` additively without a
+// contract change, which is why the verdict table below is keyed by mode
+// rather than by a boolean list.
 
 /**
  * One mode's standing for one kind of mount. The unavailable arm REQUIRES a
- * reason, and that requirement is the whole design: it is what makes I-009-8
- * ("every mode absent from `availableModes` appears in `restrictions` with a
- * reason") a property of the type rather than of a test. A mode cannot be
- * excluded silently because there is no way to spell an exclusion without
- * saying why.
+ * reason, and that requirement is the whole design: it is what makes a
+ * property of the type rather than of a test. A mode cannot be excluded
+ * silently because there is no way to spell an exclusion without saying why.
  */
 type ExecutionModeVerdict =
   | { readonly available: true }
@@ -424,13 +394,10 @@ interface VcsTypeCapabilityProfile {
 // the three reasons cannot drift into three different accounts of one fact.
 const PLAIN_DIRECTORY_PREMISE = "This repo mount is a plain directory, not a git repository, so";
 
-// A git-backed mount: the full ADR-006 §Decision taxonomy, nothing restricted.
+// A git-backed mount: the full nothing restricted.
 const GIT_CAPABILITY_PROFILE = {
-  // ADR-006 §Decision — writable coding runs default to dedicated `worktree`
-  // execution rather than mutating the main checkout. This reports the default
-  // for the next WRITABLE run and is NOT the fresh-workspace posture, which is
-  // always `read-only` (`Spec-009 §Default Behavior`, and the
-  // `workspaces.execution_mode` DDL default). The two disagree by design.
+  // Writable coding runs default to dedicated `worktree` execution rather than
+  // mutating the main checkout. The two disagree by design.
   defaultMode: "worktree",
   modeVerdicts: {
     "read-only": { available: true },
@@ -440,14 +407,12 @@ const GIT_CAPABILITY_PROFILE = {
   },
 } as const satisfies VcsTypeCapabilityProfile;
 
-// A plain-directory mount (D-009-4's single funnel): usable, with the
-// git-backed modes refused BY REASON rather than by omission —
-// `Spec-009 §Acceptance Criteria` AC3, "usable without pretending to support
-// git-only features". The reasons ride the wire verbatim and are rendered
-// verbatim by the renderer (I-009-14), so they are written for an operator.
+// A plain-directory mount (the single funnel): usable, with the git-backed
+// modes refused BY REASON rather than by omission — "usable without
+// pretending to support git-only features".
 const PLAIN_DIRECTORY_CAPABILITY_PROFILE = {
   // The only available mode is necessarily the default. There is no writable
-  // mode to prefer, and D-009-5 names `read-only` here explicitly.
+  // mode to prefer, and names `read-only` here explicitly.
   defaultMode: "read-only",
   modeVerdicts: {
     "read-only": { available: true },
@@ -466,10 +431,10 @@ const PLAIN_DIRECTORY_CAPABILITY_PROFILE = {
   },
 } as const satisfies VcsTypeCapabilityProfile;
 
-// The canonical taxonomy in `ADR-006 §Decision` order, which is the order
-// `availableModes` and `restrictions` are emitted in — deterministic output,
-// so a test may compare against a literal array and a reader sees the modes in
-// the order every document lists them.
+// The canonical taxonomy order, which is the order `availableModes` and
+// `restrictions` are emitted in — deterministic output, so a test may compare
+// against a literal array and a reader sees the modes in the order every
+// document lists them.
 //
 // The pair of checks is what makes this a faithful enumeration rather than a
 // hand-kept list: `satisfies` proves every ELEMENT is a real mode, and the
@@ -492,7 +457,7 @@ type _AssertTaxonomyOrderIsExhaustive = _AssertExtends<
  * structural, for the same reason as {@link RepoMountHealthRow}.
  */
 export interface ExecutionModeCapabilityRow {
-  // The honest git/non-git verdict fixed at resolution time (I-009-4). The
+  // The honest git/non-git verdict fixed at resolution time. The
   // capability matrix keys off it and off nothing else, which is why a
   // misclassified mount makes this projection lie about git-backed modes.
   readonly vcsType: VcsType;
@@ -500,7 +465,7 @@ export interface ExecutionModeCapabilityRow {
 
 /**
  * Project the execution modes a workspace on this mount may use, with an
- * explicit reason for every mode it may not (I-009-8).
+ * explicit reason for every mode it may not.
  *
  * The answer depends on the mount's `vcs_type` and on nothing else in V1 — see
  * the static-matrix note above, and the two-scopes note in the file header for
@@ -541,9 +506,7 @@ function capabilityProfileFor(vcsType: VcsType): VcsTypeCapabilityProfile {
 }
 
 /**
- * Fold one profile's verdict table into the wire shape. Every mode lands in
- * exactly one of the two outputs, in taxonomy order — the partition is the
- * mechanism behind I-009-8, and it is total because the table is.
+ * Fold one profile's verdict table into the wire shape.
  */
 function projectCapabilityProfile(
   profile: VcsTypeCapabilityProfile,
@@ -639,8 +602,8 @@ type _AssertVcsTypeRosterIsComplete = _AssertExtends<VcsType, (typeof ALL_VCS_TY
  * The schema pass is not ceremony — it is what bounds each reason string
  * against the ratified restriction-reason cap. An over-long reason would
  * otherwise persist happily here and fail outbound response validation at the
- * wire (I-009-10 validates both directions), turning a wordy sentence into a
- * broken read surface.
+ * wire (validates both directions), turning a wordy sentence into a broken
+ * read surface.
  */
 function validateStaticCapabilityMatrix(): void {
   for (const vcsType of ALL_VCS_TYPES) {

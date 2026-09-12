@@ -1,4 +1,4 @@
-// Plan-006 T3.3 — the Merkle-anchor wire contract.
+// The Merkle-anchor wire contract.
 //
 // ONE shape, shared by three surfaces that must agree byte-for-byte or the
 // integrity witness is worthless:
@@ -12,27 +12,24 @@
 //   3. Phase 4's audit reader, which resolves the emitting daemon's Ed25519
 //      public key by `nodeId` and checks `rootSignature` over the RFC 8785
 //      anchor claim — the five coordinate members and the root together
-//      (`Spec-006 §Anchoring Cadence`, 2026-08-11 amendment; the one preimage
-//      builder is `buildAnchorClaimBytes` in the daemon's
-//      `merkle-anchor-service.ts`).
+//      (the one preimage builder is
+//      `buildAnchorClaimBytes` in the daemon's `merkle-anchor-service.ts`).
 //
 // The member set is the seven non-generated columns of the canonical
-// `event_log_anchors` DDL in
-// `docs/architecture/schemas/shared-postgres-schema.md` §Event Log Anchors
-// (Plan-006 — Integrity Witness) — `id` is excluded because Postgres mints it
-// (`DEFAULT gen_random_uuid()`), and it names no row the daemon knows.
-// `Spec-006 §Anchoring Cadence` states the same seven as the anchor payload:
-// "(session_id, node_id, start_sequence, end_sequence, merkle_root,
-// root_signature, anchored_at) — metadata only".
+// `event_log_anchors` DDL — `id` is excluded because Postgres mints it
+// (`DEFAULT gen_random_uuid()`), and it names no row the daemon knows. The
+// canonical DDL states the same seven as the anchor payload: "(session_id,
+// node_id, start_sequence, end_sequence, merkle_root, root_signature,
+// anchored_at) — metadata only".
 //
 // ----------------------------------------------------------------------------
-// I-006-3-02 — metadata-only, enforced at the type level
+// Metadata-only, enforced at the type level
 // ----------------------------------------------------------------------------
 //
-// ADR-017 rejected a shared event log for V1: the control plane witnesses
-// integrity, it does not store events. That is an INVARIANT, not a convention,
-// and this module is where it becomes unbreakable rather than merely
-// documented. Two mechanisms carry it, and both are load-bearing:
+// Rejected a shared event log for V1: the control plane witnesses integrity,
+// it does not store events. That is an INVARIANT, not a convention, and this
+// module is where it becomes unbreakable rather than merely documented. Two
+// mechanisms carry it, and both are load-bearing:
 //
 //   * `AnchorPayload` declares no `payload`, no `events`, no `pii_payload`
 //     member — a caller that tries to attach one fails to compile.
@@ -68,10 +65,6 @@
 // wire boundary is strictly better than storing it and failing verification
 // years later when the audit runs.
 //
-// Spec coverage: `Spec-006 §Anchoring Cadence` (the seven-member anchor
-// payload). Verifies invariant: I-006-3-02 (metadata-only witness).
-// Refs: Plan-006 T3.3, ADR-017, `docs/architecture/schemas/shared-postgres-schema.md`
-// §Event Log Anchors (Plan-006 — Integrity Witness).
 
 import { z } from "zod";
 
@@ -82,7 +75,7 @@ import { SessionIdSchema, type SessionId } from "./session.js";
 /** Decoded width of a BLAKE3 Merkle root, in bytes. */
 export const MERKLE_ROOT_BYTE_LENGTH = 32;
 
-/** Decoded width of an Ed25519 signature (RFC 8032 §5.1.6), in bytes. */
+/** Decoded width of an Ed25519 signature (RFC 8032 section 5.1.6), in bytes. */
 export const ROOT_SIGNATURE_BYTE_LENGTH = 64;
 
 // Decoded byte count of a standard-alphabet base64 string, or -1 if the value
@@ -132,16 +125,11 @@ const anchorSequenceSchema = z
  *
  * EXACTLY seven members, mirroring the seven non-generated columns of the
  * canonical DDL. Nothing about the events themselves crosses this boundary:
- * no payload, no event bodies, no PII (I-006-3-02 / ADR-017).
+ * no payload, no event bodies, no PII.
  */
 export interface AnchorPayload {
   /**
-   * The anchored chain's session. V1 witnesses SESSION-scoped anchors only —
-   * node-scope (sentinel-partitioned) chains queue locally and are not upload
-   * candidates, because `event_log_anchors.session_id` carries a non-null FK
-   * to `sessions(id)` that the sentinel cannot satisfy (ADR-017 §Node-Scope
-   * Anchor Witnessing makes control-plane node-scope witnessing a V1.1
-   * extension).
+   * The anchored chain's session.
    */
   readonly sessionId: SessionId;
   /** The emitting daemon's NodeId — the roster key an audit reader resolves the verification public key by. */
@@ -153,13 +141,12 @@ export interface AnchorPayload {
   /** Base64 of the 32-byte BLAKE3 Merkle root over the range's `row_hash` leaves. */
   readonly merkleRoot: string;
   /**
-   * Base64 of the 64-byte Ed25519 signature over the UTF-8 bytes of the
-   * RFC 8785 canonicalization of the five-member anchor claim —
-   * `{endSequence, merkleRoot (base64), nodeId, sessionId, startSequence}` —
-   * per `Spec-006 §Anchoring Cadence` (2026-08-11 amendment). The coordinates
-   * are inside the signature, so a stored or carried record whose span or log
-   * identity was relabeled fails verification rather than passing a coverage
-   * test on unsigned coordinates.
+   * Base64 of the 64-byte Ed25519 signature over the UTF-8 bytes of the RFC
+   * 8785 canonicalization of the five-member anchor claim — `{endSequence,
+   * merkleRoot (base64), nodeId, sessionId, startSequence}`. The
+   * coordinates are inside the signature, so a stored or carried record whose
+   * span or log identity was relabeled fails verification rather than passing
+   * a coverage test on unsigned coordinates.
    */
   readonly rootSignature: string;
   /** Daemon-local timestamp at anchor computation, RFC 3339 with an explicit offset. */
@@ -169,9 +156,9 @@ export interface AnchorPayload {
 /**
  * Runtime validator for {@link AnchorPayload}.
  *
- * `.strict()` is the I-006-3-02 enforcement (see the module header): an
- * unknown member — `payload`, `events`, `pii_payload`, anything — is a parse
- * FAILURE, not a silent strip.
+ * `.strict()` is enforcement (see the module header): an unknown member —
+ * `payload`, `events`, `pii_payload`, anything — is a parse FAILURE, not a
+ * silent strip.
  *
  * The `endSequence >= startSequence` refinement mirrors the DDL's
  * `CHECK (end_sequence >= start_sequence)`. Checking it here too means a
@@ -192,11 +179,10 @@ export const AnchorPayloadSchema: z.ZodType<AnchorPayload, AnchorPayload> = z
     // offsetless spelling names no instant at all.
     //
     // They are NOT byte-comparable, and not signed. `anchoredAt` sits outside
-    // the anchor claim `rootSignature` covers (`Spec-006 §Anchoring Cadence` —
-    // a receipt timestamp, not an integrity coordinate), and the control plane
-    // stores this value as `timestamptz`, whose round-trip re-spells it.
-    // Corroboration here means parse-then-compare, which is exactly why the
-    // offset has to be there.
+    // the anchor claim `rootSignature` covers (a receipt timestamp, not an
+    // integrity coordinate), and the control plane stores this value as
+    // `timestamptz`, whose round-trip re-spells it. Corroboration here means
+    // parse-then-compare, which is exactly why the offset has to be there.
     anchoredAt: z.iso.datetime({ offset: true }),
   })
   .strict()

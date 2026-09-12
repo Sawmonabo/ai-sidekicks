@@ -1,18 +1,13 @@
-// jsonrpc-error-mapping.test.ts — I-007-8 enforcement on the
+// jsonrpc-error-mapping.test.ts — enforcement on the
 // `error.data.fields` channel of the JSON-RPC error envelope.
 //
-// Spec coverage:
-//   * Spec-007 §Wire Format / §Required Behavior — JSON-RPC error envelope.
-//   * ADR-009 — wire-format decision rationale.
-//   * error-contracts.md §JSON-RPC Wire Mapping (BL-103 closed 2026-05-01) —
-//     two-layer envelope (numeric `code` + `data: {type, fields?}`).
-//   * Plan-007 §Invariants I-007-8 — "Stack traces and secrets MUST never
-//     leak through the response."
+//   * two-layer envelope (numeric `code` + `data: {type, fields?}`).
+//   * "Stack traces and secrets MUST never leak through the response."
 //
 // Why this file exists: prior to 2026-05-01, only `error.message` was
 // substrate-enforced (via `sanitizeErrorMessage`); `error.data.fields`
-// flowed verbatim from the throw site to the wire. Codex review of PR
-// #26 surfaced three I-007-8 violations:
+// flowed verbatim from the throw site to the wire. That surfaced three
+// violations:
 //
 //   1. Confidentiality — `SecureDefaultsValidationError` carries operator-
 //      supplied raw `value` into `data.fields.value`. Path-shape and
@@ -21,7 +16,7 @@
 //      non-finite numbers either crash `encodeFrame.JSON.stringify`
 //      (BigInt + circular) or are silently dropped (symbol + function),
 //      both broken response surfaces.
-//   3. Asymmetric I-007-8 — only the message channel was enforced; the
+//   3. Asymmetric — only the message channel was enforced; the
 //      structured-detail channel was producer-honor-system.
 //
 // `sanitizeFields` is the substrate-side enforcement seam for the
@@ -31,10 +26,10 @@
 // sanitizer at the single seam between data-build and envelope-
 // construction so no future builder can bypass it).
 //
-// W-test labeling: not formally a Plan-007 W-test (the work is a Codex-
+// W-test labeling: not formally a W-test (the work is a Codex-
 // review-driven hardening rather than a planned W-test surface), but
-// the I-007-8 invariant binding makes these tests the authoritative
-// regression detector for the structured-detail enforcement.
+// invariant binding makes these tests the authoritative regression
+// detector for the structured-detail enforcement.
 
 import { describe, expect, it } from "vitest";
 
@@ -440,16 +435,16 @@ describe("sanitizeFields — ReDoS / pathological input resilience", () => {
 });
 
 // ----------------------------------------------------------------------------
-// mapJsonRpcError — integration tests (single-seam I-007-8 enforcement)
+// mapJsonRpcError — integration tests (single-seam enforcement)
 // ----------------------------------------------------------------------------
 
-describe("mapJsonRpcError — I-007-8 single-seam enforcement on data.fields", () => {
+describe("mapJsonRpcError — single-seam enforcement on data.fields", () => {
   it("end-to-end: SecureDefaultsValidationError with path-shape value → redacted on wire", () => {
     // Reproduces the Codex-flagged confidentiality gap: an operator
     // misconfigures `local-ipc-path` to a sensitive absolute path; the
     // current `SecureDefaultsValidationError` carries that raw value
-    // verbatim into `error.fields.value`. Before the I-007-8 fix, the
-    // wire envelope would expose the operator's filesystem layout.
+    // verbatim into `error.fields.value`. Before fix, the wire
+    // envelope would expose the operator's filesystem layout.
     const sensitivePath = "/home/operator/.secret-daemon/ipc.sock";
     const error = new SecureDefaultsValidationError(
       "invalid_local_ipc_path",
@@ -519,7 +514,7 @@ describe("mapJsonRpcError — I-007-8 single-seam enforcement on data.fields", (
     // Regression detector — the sanitizer's pass-through path for clean
     // structured detail is the dominant case in production. A real
     // SecureDefaultsValidationError on a numeric setting MUST surface
-    // identically before and after the I-007-8 hardening.
+    // identically before and after hardening.
     const error = new SecureDefaultsValidationError(
       "unknown_setting",
       "unknown setting: max_workers",
@@ -535,7 +530,7 @@ describe("mapJsonRpcError — I-007-8 single-seam enforcement on data.fields", (
 
   it("preserves the seamless behavior for FramingError oversized_body fields", () => {
     // FramingError(oversized_body) projects through `transport.message_too_large`
-    // (per Fix #2 80c5d39) with `{limit, observed}` shape. Numeric
+    // with a `{limit, observed}` shape. Numeric
     // values are JSON-safe and must pass through unchanged.
     const error = new FramingError("oversized_body", "frame body too large", {
       limit: MAX_MESSAGE_BYTES,
@@ -558,7 +553,7 @@ describe("mapJsonRpcError — I-007-8 single-seam enforcement on data.fields", (
     expect(envelope.error.data && "fields" in envelope.error.data).toBe(false);
   });
 
-  it("preserves envelope shape (jsonrpc + id + error) per JSON-RPC 2.0 §5", () => {
+  it("preserves envelope shape (jsonrpc + id + error) per JSON-RPC 2.0 section 5", () => {
     const error = new SecureDefaultsValidationError("unknown_setting", "test", {
       setting: "x",
       value: "y",
@@ -596,10 +591,10 @@ describe("mapJsonRpcError — I-007-8 single-seam enforcement on data.fields", (
 });
 
 // ----------------------------------------------------------------------------
-// mapJsonRpcError — DaemonDomainError generic wire projection (BL-143)
+// mapJsonRpcError — DaemonDomainError generic wire projection
 // ----------------------------------------------------------------------------
 
-describe("mapJsonRpcError — DaemonDomainError wire projection (BL-143)", () => {
+describe("mapJsonRpcError — DaemonDomainError wire projection", () => {
   it("projects a not-found domain error → jsonRpcCode + data.type + data.fields", () => {
     // A not-found namespace error rides -32602 (the supplied id does not
     // resolve — structurally a param-shape failure), like `session.not_found`.
@@ -650,7 +645,7 @@ describe("mapJsonRpcError — DaemonDomainError wire projection (BL-143)", () =>
     expect(JSON.stringify(envelope)).not.toContain("404");
   });
 
-  it("runs data.fields through the I-007-8 sanitizer (path redaction)", () => {
+  it("runs data.fields through sanitizer (path redaction)", () => {
     // The single sanitizeFields seam applies to DaemonDomainError exactly like
     // every other typed surface — a path-shape detail value is redacted and
     // the envelope stays encoder-safe.

@@ -36,11 +36,11 @@
  * scale, and every colour is read back out of a custom property — the rule
  * `primitives.css` states and the reason there is a token layer at all.
  *
- * `Spec-023 §Console Design (Meridian)`:
- *   • rule 4 — mono is the signature that a figure came from the wire, which is
- *              what an artifact id and a media type are: rendered verbatim.
- *   • rule 7 — density: the chrome is quiet so the content is not.
- *   • rule 8 — the absences render themselves; nothing here restyles them.
+ * The design rules this sheet obeys:
+ *   • mono is the signature that a figure came from the wire, which is what an
+ *     artifact id and a media type are: rendered verbatim.
+ *   • density: the chrome is quiet so the content is not.
+ *   • the absences render themselves; nothing here restyles them.
  */
 
 /* The pair is a grid subgrid row: label in the first column, value in the second. */

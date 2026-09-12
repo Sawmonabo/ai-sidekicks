@@ -1,4 +1,4 @@
-// One participant's stored preference set: every read of it, and which reply may
+// One user's stored preference set: every read of it, and which reply may
 // publish.
 //
 // FOUR THINGS ASK FOR THIS SET AND THEY OVERLAP. The section mounting, the window
@@ -93,16 +93,16 @@ export interface AttentionPreferenceReadOptions {
   /**
    * Whose set this is, or `undefined` until the identity read has named somebody.
    *
-   * An absence rather than a placeholder: the set is keyed by participant, so a read
+   * An absence rather than a placeholder: the set is keyed by user, so a read
    * taken under a guessed one would put another person's answers on this screen.
    */
-  readonly participantId: string | undefined;
+  readonly userId: string | undefined;
   /** The clock the scheduler arms on. The fixture's frozen one under a scenario. */
   readonly clock: ConsoleClock;
 }
 
 /**
- * One participant's stored attention preferences, kept current by the window triggers.
+ * One user's stored attention preferences, kept current by the window triggers.
  *
  * A class with private fields rather than a pair of `useState` cells, per
  * `apps/desktop/AGENTS.md`: it owns a scheduler, a single-flight round, and the rule
@@ -113,13 +113,13 @@ export class AttentionPreferenceRead implements ReadTriggerTarget {
   /**
    * No timeline event refreshes this read, and the empty set states it.
    *
-   * The stored set is global to a PARTICIPANT rather than owned by a session, so
+   * The stored set is global to a USER rather than owned by a session, so
    * nothing in any session's timeline says it moved — which is why it takes the
    * window's three triggers and neither of the session-scoped two.
    */
   public readonly triggeringEventKinds: ReadonlySet<string> = NO_TRIGGERING_EVENT_KINDS;
   readonly #bridge: ConsoleBridge;
-  readonly #participantId: string | undefined;
+  readonly #userId: string | undefined;
   readonly #changes = new Emitter<void>("attention preference read change");
   readonly #rounds = new GenerationLatch();
   readonly #scheduler: RefreshScheduler;
@@ -134,7 +134,7 @@ export class AttentionPreferenceRead implements ReadTriggerTarget {
 
   public constructor(options: AttentionPreferenceReadOptions) {
     this.#bridge = options.bridge;
-    this.#participantId = options.participantId;
+    this.#userId = options.userId;
     this.#scheduler = new RefreshScheduler({
       clock: options.clock,
       perform: async () => {
@@ -174,7 +174,7 @@ export class AttentionPreferenceRead implements ReadTriggerTarget {
    * is the section that had two reads outstanding at once.
    */
   public requestRead(reason: RefreshReason): void {
-    if (this.#isDisposed || this.#participantId === undefined) {
+    if (this.#isDisposed || this.#userId === undefined) {
       return;
     }
     this.#hasPendingRequest = true;
@@ -199,16 +199,16 @@ export class AttentionPreferenceRead implements ReadTriggerTarget {
    * its own vocabulary, which is not this read's to compose.
    */
   public async readSet(): Promise<AttentionPreferenceReadOutcome> {
-    const participantId = this.#participantId;
-    if (participantId === undefined) {
-      throw new Error("the preference set cannot be read before a participant is resolved");
+    const userId = this.#userId;
+    if (userId === undefined) {
+      throw new Error("the preference set cannot be read before a user is resolved");
     }
     // Taken rather than joined: two reads of one set DO supersede each other, and the
     // serial written here is what makes an earlier reply install nothing.
     const round = this.#rounds.supersedeAndClaim(this, SET_READ_KEY);
     this.#outstandingReadCount += 1;
     try {
-      const outcome = await this.#bridge.growth.attentionPreferenceRead({ participantId });
+      const outcome = await this.#bridge.growth.attentionPreferenceRead({ userId });
       round.settle(() => {
         this.#reading = { kind: "answered", outcome };
       });

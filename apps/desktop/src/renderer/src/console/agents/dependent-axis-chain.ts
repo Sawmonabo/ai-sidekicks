@@ -12,7 +12,7 @@
 // AN UNEXAMINED INHERITED AXIS IS NOT AN ABSENT ONE. It is absent from the REQUEST,
 // which the daemon reads as unchanged and merges back in before it validates; so the
 // form enabled its action, the request went out short of the axis, and the refusal
-// named a value the participant was never shown a problem with. That is the same
+// named a value the user was never shown a problem with. That is the same
 // defect on two surfaces, so it gets one rule and one module rather than a second
 // loop that agrees with the first until it does not.
 //

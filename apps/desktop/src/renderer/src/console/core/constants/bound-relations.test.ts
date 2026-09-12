@@ -213,13 +213,12 @@ describe("console bounds — the storage pressure gauge", () => {
 
 // --- The bounds that mirror a wire bound ---------------------------------
 //
-// Four of the five attachment bounds are not this console's decisions at all: the
-// daemon enforces them and `Spec-014 §Bounds (normative defaults; operator-tunable)`
-// registers each with a default and, for the three tunable ones, the range an
-// operator may move it inside. A console copy that drifted LOOSER than its source
-// is the failure that matters — it would admit an upload the daemon then refuses,
-// spending a participant's bytes to earn a refusal the console could have explained
-// first — so each is held to its registered source rather than to itself.
+// Four of the five attachment bounds are not this console's decisions at all: the daemon
+// enforces them, and the wire registers each with a default and, for the three tunable
+// ones, the range an operator may move it inside. A console copy that drifted LOOSER than
+// its source is the failure that matters — it would admit an upload the daemon then
+// refuses, spending a user's bytes to earn a refusal the console could have
+// explained first — so each is held to its registered source rather than to itself.
 
 /** One console bound, and the registered range its wire source admits, inclusive. */
 const WIRE_MIRRORED_BOUNDS: readonly (readonly [string, number, number, number])[] = [
@@ -236,7 +235,7 @@ const WIRE_MIRRORED_BOUNDS: readonly (readonly [string, number, number, number])
   ],
 ];
 
-/** Base64 characters an RFC 4648 §4 encoder emits for this many raw bytes. */
+/** Base64 characters an RFC 4648 section 4 encoder emits for this many raw bytes. */
 function base64Length(decodedByteLength: number): number {
   return Math.ceil(decodedByteLength / 3) * 4;
 }
@@ -321,7 +320,7 @@ describe("console bounds — the attachment bounds against their wire sources", 
   });
 
   it("discloses the stream ceiling well before the stream reaches it", () => {
-    // The disclosure exists to tell a participant the stream is bounded while there
+    // The disclosure exists to tell a user the stream is bounded while there
     // is still time to act. At or above the ceiling it would fire on a stream the
     // daemon has already terminated, which is a disclosure with nothing to disclose.
     expect(INGEST_STALL_DISCLOSURE_MS).toBeLessThan(INGEST_STREAM_LIFETIME_CEILING_MS);

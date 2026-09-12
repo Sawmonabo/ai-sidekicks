@@ -53,7 +53,7 @@ function sessionEvent(kind: string, sequence: number): ConsoleSessionEvent {
 /** The scenario's session, opened empty so each case appends what it is about. */
 function openStore(): SessionStore {
   const store = new SessionStore({ sessionId: COMPOSER_SCENARIO.sessionId });
-  store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+  store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
   return store;
 }
 

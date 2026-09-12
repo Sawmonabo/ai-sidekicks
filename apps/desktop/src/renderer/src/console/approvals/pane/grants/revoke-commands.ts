@@ -1,12 +1,11 @@
 // Retiring one standing permission, from the palette — through the same two steps.
 //
-// `Spec-023 §Console Design (Meridian)` requires every operator action to be
-// palette-reachable, and the standing-permission list holds one the approvals pane's
-// own contribution does not carry: revoking a remembered grant. That act is
-// deliberately two-step and irreversible from this surface, so what a palette row may
-// do is ENTER the confirmation — the same thing the list's own Revoke button does —
-// and never reach the wire. A row that mutated on one press would be a second, weaker
-// path to an act the surface made deliberately hard.
+// Every operator action is palette-reachable, and the standing-permission list holds
+// one the approvals pane's own contribution does not carry: revoking a remembered
+// grant. That act is deliberately two-step and irreversible from this surface, so what
+// a palette row may do is ENTER the confirmation — the same thing the list's own Revoke
+// button does — and never reach the wire. A row that mutated on one press would be a
+// second, weaker path to an act the surface made deliberately hard.
 //
 // CONTRIBUTED BY THE LIST AND NOT BY THE PANE, for two reasons that point the same
 // way. The arming state is the list's own — which rule is confirming is not a fact

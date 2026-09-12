@@ -36,7 +36,7 @@ export const SCENARIO: ConsoleScenario = {
   label: "Workspace",
   purpose: "Drives the workspace surface's composition.",
   sessionId: SESSION_ID,
-  participantIdsInJoinOrder: ["participant-you"],
+  userIdsInJoinOrder: ["user-you"],
   startedAtIso: "2026-01-01T09:00:00.000Z",
   beats: [],
   replies: [],
@@ -65,13 +65,13 @@ export function testRegistry(): ConsolePaneRegistry {
  * One opened session store — the family's one home for this role.
  *
  * The sidebar's own support module held this verbatim under the same name, and the
- * restore-order suite held the `UiStateStore` half under a third. AGENTS.md §Tests
- * puts one home per ROLE: two spellings of "an opened session" is two fixtures that
- * agree until one of them is corrected.
+ * restore-order suite held the `UiStateStore` half under a third. The test rules in
+ * `apps/desktop/AGENTS.md` put one home per ROLE: two spellings of "an opened
+ * session" is two fixtures that agree until one of them is corrected.
  */
 export function sessionStore(sessionId: string = SESSION_ID): SessionStore {
   const store = new SessionStore({ sessionId });
-  store.initialise({ cursor: 0, entities: [], participantJoinLog: ["participant-you"] });
+  store.initialise({ cursor: 0, entities: [], userJoinLog: ["user-you"] });
   return store;
 }
 
@@ -193,7 +193,7 @@ export function memoryStore(): UiStateStore {
 /** A second session, with a store of its own — never the first one's. */
 export function otherSession(): WorkspaceSession {
   const store = new SessionStore({ sessionId: SESSION_B_ID });
-  store.initialise({ cursor: 0, entities: [], participantJoinLog: ["participant-you"] });
+  store.initialise({ cursor: 0, entities: [], userJoinLog: ["user-you"] });
   return { sessionId: SESSION_B_ID, store };
 }
 

@@ -7,8 +7,8 @@
 // own driver had declared them. What the reply cannot say, the session's own
 // projection can — through the agent, which is where the wire puts the binding.
 //
-// THE JOIN, AND WHY IT IS TWO SOURCES AND NOT ONE. `Spec-006 §Channel and Agent
-// Lifecycle` registers `agent.attached` with the full persona — `{sessionId, agentId,
+// THE JOIN, AND WHY IT IS TWO SOURCES AND NOT ONE. The agent lifecycle registers
+// `agent.attached` with the full persona — `{sessionId, agentId,
 // name, driverName, modelId, ...}` — and that payload is the only client-readable
 // shape that names an agent's driver. `run.queued` names the agent a run was created
 // for, and the run partition is where that lands: the run-lifecycle projector carries

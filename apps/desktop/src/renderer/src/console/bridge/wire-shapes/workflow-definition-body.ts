@@ -1,11 +1,9 @@
 // The console's declaration of a workflow definition's own BODY — the shapes the
 // definition read, the version read, and the authoring write carry.
 //
-// OWNER. `Spec-017 §Interfaces And Contracts` owns the three operations; the typed
-// request and reply shapes are registered in
-// `docs/architecture/contracts/api-payload-contracts.md` §Plan-017 and every
-// vocabulary below is transcribed from that section rather than re-derived from the
-// spec's prose.
+// OWNER. The workflow plane owns the three operations; the typed request and reply
+// shapes are registered in the payload contracts and every vocabulary below is
+// transcribed from that registry rather than re-derived from prose.
 //
 // WHY THIS IS A SIBLING OF `workflow-projection.ts` RATHER THAN MORE OF IT. That
 // module declares what a RUN looks like — states, parks, gates, the summary a picker
@@ -39,9 +37,9 @@ import type { WorkflowDefinitionScope } from "./workflow-projection.js";
 /**
  * The scope-qualified MCP server binding a phase's tool reference names.
  *
- * PLAN-028'S SHAPE, DECLARED HERE BECAUSE PLAN-017'S BINDING COMPOSES IT AND NO CODE
- * PACKAGE CARRIES EITHER. `api-payload-contracts.md` §Plan-028 fixes the union and
- * §Plan-017's `WorkflowToolBinding` composes it by reference rather than restating its
+ * THE MCP PLANE'S SHAPE, DECLARED HERE BECAUSE THE WORKFLOW BINDING COMPOSES IT AND
+ * NO CODE PACKAGE CARRIES EITHER. The payload contracts fix the union, and
+ * `WorkflowToolBinding` composes it by reference rather than restating its
  * members — a flat restatement would admit the `(codex, local)` combination the union
  * rejects at the schema layer. This is the console's one home for it: the MCP
  * governance surface takes it from here when it lands rather than declaring a second.
@@ -204,8 +202,7 @@ export interface WorkflowDefinitionReadResult {
  * One immutable version body, as `workflow.versionRead` answers.
  *
  * Every member below is required, which is the shape's own age rather than a choice:
- * it was minted at the Tier-8 audit, so the additive-optional rule for
- * already-published shapes does not bind it. That completeness is what makes export
+ * the additive-optional rule for already-published shapes does not bind it. That completeness is what makes export
  * possible at all — the canonical file form is a client-side serialization of exactly
  * this reply, and a body missing a member could not reproduce the canonical bytes or
  * the content hash they hash to.

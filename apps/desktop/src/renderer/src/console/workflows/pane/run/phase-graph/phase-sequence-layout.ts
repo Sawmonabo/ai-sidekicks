@@ -1,6 +1,6 @@
 // Where a run's phases sit on the canvas, and the vocabulary the caller hands in.
 //
-// WHY THE LAYOUT IS OURS. `Spec-023 §Console Libraries` ADOPTs the graph renderer
+// WHY THE LAYOUT IS OURS. The console's library policy ADOPTs the graph renderer
 // under constraints and OWN-BUILDs the layered auto-layout beside it, naming the
 // four layout packages a canvas ordinarily reaches for as AVOIDed. This module is
 // that own-build, and it is a PURE FUNCTION of the phase order: no measurement, no

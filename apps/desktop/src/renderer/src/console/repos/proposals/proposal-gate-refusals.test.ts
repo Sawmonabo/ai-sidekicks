@@ -1,4 +1,4 @@
-// What a refused act leaves standing, and which sentence a participant reads.
+// What a refused act leaves standing, and which sentence a user reads.
 //
 // THE MODULE THIS DRIVES IS `proposal-gate-refusals.ts` — the sentences the gate
 // authors and the two writes that put one on a control or take it off. Every case reaches them
@@ -183,7 +183,7 @@ describe("ProposalGateActions — a call that rejected rather than answering", (
       expect(refusal?.origin).toBe(GROWTH_PORT_REFUSAL_ORIGIN);
       expect(refusal?.code).toBe("call-rejected");
       // Which operation did not come back is a structured member rather than a
-      // substring of prose, so a participant's report names the act's own wire and a
+      // substring of prose, so a user's report names the act's own wire and a
       // fourth act cannot quietly borrow another's.
       expect(refusal).toMatchObject({ operationId: WIRE_FOR_ACTION[action] });
       // And the rejection's own sentence travels. Composing a constant from the leg

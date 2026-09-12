@@ -1,8 +1,8 @@
 // The agent's browser tool calls, as the pane shows them.
 //
-// `Spec-023 §Console Design (Meridian)` 12.7 renders nothing of its own — "every
-// invocation renders as an ordinary tool row in the timeline" — and 12.8 puts every
-// call under the same authorization and approval rules as any other tool. What the
+// The page-tool surface renders nothing of its own — every invocation renders as an
+// ordinary tool row in the timeline — and every call is under the same authorization
+// and approval rules as any other tool. What the
 // PANE adds is proximity: the call about to act on the page a person is watching,
 // beside that page.
 //

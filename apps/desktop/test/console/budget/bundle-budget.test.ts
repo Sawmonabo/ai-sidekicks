@@ -1,9 +1,8 @@
-// The renderer initial-graph budget gates — Plan-023 Phase 1C (T-023p-1C-1).
+// The renderer initial-graph budget gates.
 //
 // One walk of the built `out/renderer` tree, held against two rows of
 // `budgets.json`: `renderer-initial-bundle` over the CODE it emits, gzipped
-// (`Spec-023 §Console Design (Meridian)` §Budgets row 1, ≤ 450 kB gzip excluding
-// lazy chunks), and `renderer-initial-fonts` over the font files on that same
+// (≤ 450 kB gzip excluding lazy chunks), and `renderer-initial-fonts` over the font files on that same
 // graph, raw. The split is a change of unit rather than an exclusion, and the
 // two negative controls at the bottom are what make that a claim with evidence:
 // one more font file fails the font row, and a font byte never reaches the code one.
@@ -65,8 +64,8 @@ const fontsBudget: ConsoleBudget = registry.requireBudget(RENDERER_FONTS_BUDGET_
  * larger, and a control planted at a comfortable size proves only that some larger
  * number is over. Read from the registry rather than restated here, because the row
  * already states the figure in its own derivation and a threshold written twice in a
- * test that also loads the file is the second home `apps/desktop/AGENTS.md` §Config
- * single-sourcing rejects. It is not read out of `node_modules` either: the budget
+ * test that also loads the file is the second home the config-single-sourcing rule
+ * in `apps/desktop/AGENTS.md` rejects. It is not read out of `node_modules` either: the budget
  * tier weighs the BUILD's output, and a tier that reaches into a package layout to
  * write its own control acquires a second subject.
  */

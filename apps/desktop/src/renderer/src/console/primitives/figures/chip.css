@@ -12,8 +12,9 @@
  * `console/tokens/palette.ts` and carries only VALUES; this carries only COMPOSITION
  * and reads every value back out as a custom property.
  *
- * `Spec-023 §Console Design (Meridian)` rules that govern this sheet: rule 3 — amber
- * means a person is needed, red means something failed.
+ * Design-language rules that govern this sheet: rule 3 — amber means a person is
+ * needed, red means something failed.
+ *
  * The generated base sheet sets no global `border-box` reset, and a token-driven
  * height that silently grows by its own boundary is a row of chips that no longer
  * shares a baseline with the text beside it.

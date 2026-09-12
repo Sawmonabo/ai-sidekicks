@@ -46,7 +46,7 @@ afterEach(() => {
 });
 
 function slotProps(row: TimelineRowSlotProps["row"]): TimelineRowSlotProps {
-  return { row, participantHue: undefined, isSuperseded: false, density: "collapsed" };
+  return { row, actorHue: undefined, isSuperseded: false, density: "collapsed" };
 }
 
 /**

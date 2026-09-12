@@ -1,7 +1,7 @@
-// The two participants and the two event builders every lease suite shares.
+// The two users and the two event builders every lease suite shares.
 //
 // The directory's one home for both, and it has to be one: the reader, the fold, the
-// line, and the acquisition rule all name the same two participants, and every suite
+// line, and the acquisition rule all name the same two users, and every suite
 // that drives the reader or the fold authors a `pty.control_changed` event. Written
 // per suite, the cast came out under three spellings for two identities — one file's
 // `OTHER` was the neighbouring file's `HOLDER` — and the builder came out twice with
@@ -21,16 +21,16 @@ import { eventOfKind } from "../../store/session-event.test-support.js";
 import { TERMINAL_LEASE_EVENT_KIND } from "./lease-transition.js";
 
 /**
- * Two participants, taken from the scenario rather than written down.
+ * Two users, taken from the scenario rather than written down.
  *
- * The fold treats a participant id as an opaque string, so a readable placeholder
- * would pass every case — and would be the one participant id in this family that no
+ * The fold treats a user id as an opaque string, so a readable placeholder
+ * would pass every case — and would be the one user id in this family that no
  * daemon could ever emit, sitting beside beats the scenario deliberately moved onto
  * wire-declared UUIDs. Reading them off the join log keeps the family's fixtures saying
- * one thing about what a participant id is.
+ * one thing about what a user id is.
  */
-export const VIEWER_PARTICIPANT: string = TERMINAL_SCENARIO_CAST.owner;
-export const OTHER_PARTICIPANT: string = TERMINAL_SCENARIO_CAST.collaborator;
+export const VIEWER_USER: string = TERMINAL_SCENARIO_CAST.owner;
+export const OTHER_USER: string = TERMINAL_SCENARIO_CAST.otherDevice;
 
 /**
  * A `pty.control_changed` carrying exactly the payload a case hands it.
@@ -41,7 +41,7 @@ export const OTHER_PARTICIPANT: string = TERMINAL_SCENARIO_CAST.collaborator;
 export function leaseEventWithPayload(
   sequence: number,
   payload: Record<string, unknown> | undefined,
-  actorId: string | undefined = OTHER_PARTICIPANT,
+  actorId: string | undefined = OTHER_USER,
 ): ConsoleSessionEvent {
   return {
     // The console's one admitted-event builder, plus the member it does not take: the
@@ -64,13 +64,9 @@ export function leaseEventWithPayload(
 export function transitionEvent(
   sequence: number,
   reason: string,
-  holderParticipantId: string | null,
-  previousHolderParticipantId: string | null = null,
-  actorId: string | undefined = holderParticipantId ?? undefined,
+  holderUserId: string | null,
+  previousHolderUserId: string | null = null,
+  actorId: string | undefined = holderUserId ?? undefined,
 ): ConsoleSessionEvent {
-  return leaseEventWithPayload(
-    sequence,
-    { holderParticipantId, previousHolderParticipantId, reason },
-    actorId,
-  );
+  return leaseEventWithPayload(sequence, { holderUserId, previousHolderUserId, reason }, actorId);
 }

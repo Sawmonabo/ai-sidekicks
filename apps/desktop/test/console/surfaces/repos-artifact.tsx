@@ -75,7 +75,7 @@ export async function mountArtifactPane(): Promise<MountedFamilySurface> {
   // on FROZEN time and nothing here was moving it. The reader's refresh scheduler is
   // trailing-edge — `start()` asks for a read and the read happens a debounce interval
   // later — and `consoleClockFor` hands a pane under the fixture the scenario engine's
-  // clock, which is the rule `Spec-023 §The fixture bridge` states and the whole point
+  // clock, which is the fixture bridge's own rule and the whole point
   // of the seam. So the interval never elapsed, the list never resolved, and the
   // refusal this subject is named for never arrived. Advancing past the scheduler's
   // absolute deadline is what a scenario beat would have done anyway; a bare

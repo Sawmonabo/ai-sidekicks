@@ -150,14 +150,12 @@ describe("ConsolePaneChrome — the focus treatments are attributed or neutral, 
       <ConsolePaneChrome
         kind="inspector"
         sessionId="session-1"
-        focusHue="var(--meridian-participant-hue-3)"
+        focusHue="var(--meridian-actor-hue-3)"
       >
         <p>body</p>
       </ConsolePaneChrome>,
     );
-    expect(pane.style.getPropertyValue("--meridian-pane-hue")).toBe(
-      "var(--meridian-participant-hue-3)",
-    );
+    expect(pane.style.getPropertyValue("--meridian-pane-hue")).toBe("var(--meridian-actor-hue-3)");
   });
 
   it("sets no hue at all when the deck has nobody to attribute the pane to", () => {

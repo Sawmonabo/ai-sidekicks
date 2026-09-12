@@ -1,7 +1,7 @@
 // One workspace row: its binding, its lifecycle position, and its root.
 //
-// WHAT A ROW CARRIES IS FIXED HERE, because `Spec-023 §Console Design (Meridian)` puts
-// a surface's composition in the console's code: exactly
+// WHAT A ROW CARRIES IS FIXED HERE, because a surface's composition lives in the
+// console's code: exactly
 // what `WorkspaceListResponse` gives — `id`, `repoMountId`, `executionMode`, `state`,
 // `fsRoot?`, `lastError?` — and two of the field notes are rules rather than
 // descriptions:
@@ -124,9 +124,8 @@ export function WorkspaceCard(props: WorkspaceCardProps): React.JSX.Element {
         {workspace.fsRoot !== undefined ? (
           <WireFigure value={workspace.fsRoot} title={workspace.fsRoot} />
         ) : workspace.state === "provisioning" ? (
-          // Not an empty cell and not a guess: the root does not exist yet, and
-          // `Spec-009 §Execution Mode Transitions` fills it at provisioning
-          // completion on this same row's id.
+          // Not an empty cell and not a guess: the root does not exist yet, and is
+          // filled at provisioning completion on this same row's id.
           <Nothing kind="computing" title="Root pending" />
         ) : (
           <Nothing kind="not-checked" title="This workspace reported no root." />
@@ -170,7 +169,7 @@ export function WorkspaceCard(props: WorkspaceCardProps): React.JSX.Element {
         THE PREPARE SITS UNDER THE PICKER because it is about the mode the row is bound
         in NOW: which call it sends and whether it asks a reuse question are both read
         off that mode, so a control drawn above the picker would be offering to prepare
-        a root for a binding the participant is in the middle of changing. Position was
+        a root for a binding the user is in the middle of changing. Position was
         all that said so, though — the posture above is what now HOLDS it while that
         change is on the wire, and while the mount refuses binds at all.
       */}

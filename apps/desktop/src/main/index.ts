@@ -1,11 +1,10 @@
 // Electron main-process entrypoint.
 //
-// Plan-023 Phase 1 (T-023p-1-3) substrate: single-instance lock + main window.
-// Plan-023 Phase 1B (T-023p-1B-1) adds the renderer scheme registration and the
-// bundle handler. Tier 8 remainder layers Sentry init, daemon supervisor
-// (`utilityProcess.fork`), the `sidekicks://` DEEP-LINK handler (a different scheme
-// from the renderer's), auto-updater, crash reporter, and second-instance focus
-// handling against this same surface.
+// Today this is the single-instance lock, the renderer scheme registration, the
+// bundle handler, and the main window. Later work layers Sentry init, the
+// daemon supervisor (`utilityProcess.fork`), the `sidekicks://` DEEP-LINK
+// handler (a different scheme from the renderer's), the auto-updater, the crash
+// reporter, and second-instance focus handling against this same surface.
 //
 // Startup order is load-bearing and is asserted by `startup-order.test.ts`:
 //
@@ -16,19 +15,15 @@
 //                              createMainWindow()
 //
 // A scheme registered after ready is refused by Electron, and a window created
-// before the handler is installed would load against an unhandled scheme.
-// Plan-023 Phase 3's T-023r-3-4 COMPOSES this order behind the crash reporter
-// and the single-instance lock; it re-authors none of it. The crash reporter
-// takes the top-level slot immediately AFTER `registerRendererScheme()` — the
-// one named exception to its own crash-first rule (T-023r-3-2), because
-// Electron pins the registration ahead of ready and the call touches no
-// network, no file, and no crash-relevant state. `startup-order.test.ts`
-// therefore asserts the two ORDERINGS (scheme before the first `whenReady()`,
-// handler before the first `BrowserWindow`) and deliberately does NOT assert
-// that this module imports `protocol.ts` first, which Phase 3 would break.
-//
-// See `docs/plans/023-desktop-shell-and-renderer.md §Tier 1 Partial PR Sequence`
-// (Phase 1, the main-entrypoint bullet; Phase 1B, the `index.ts` bullet).
+// before the handler is installed would load against an unhandled scheme. When
+// the crash reporter lands it COMPOSES this order rather than re-authoring it,
+// taking the top-level slot immediately AFTER `registerRendererScheme()` — the
+// one named exception to its own crash-first rule, because Electron pins the
+// registration ahead of ready and the call touches no network, no file, and no
+// crash-relevant state. `startup-order.test.ts` therefore asserts the two
+// ORDERINGS (scheme before the first `whenReady()`, handler before the first
+// `BrowserWindow`) and deliberately does NOT assert that this module imports
+// `protocol.ts` first, which the crash reporter would break.
 
 import path from "node:path";
 
@@ -49,17 +44,15 @@ import { registerSidecarLifecycle } from "./sidecar-lifecycle.js";
 // per-target `outDir`), so the renderer root is this module's sibling directory.
 const RENDERER_ROOT = path.join(import.meta.dirname, "../renderer");
 
-// Plan-023 I-023-11. This runs at module evaluation, which is strictly before
-// `app.ready` fires — Electron refuses `registerSchemesAsPrivileged` after ready,
-// and a scheme that is not `standard` has no origin and therefore no IndexedDB
-// and no `localStorage`, which is where the console persists layout, scroll
-// position, selection, pins, and expansion sets — UI state ONLY. Drafts are
-// deliberately NOT in that set: composer text, form values, paths, and code a
-// participant has typed and not sent live in their window's in-memory store for
-// that window's lifetime and are gone when it closes, because participant-
-// authored content's only durable homes are the daemon's encrypted, PII-mapped
-// stores (`Spec-023 §Console Design (Meridian)` §Persistence on the renderer
-// scheme; Spec-022).
+// This runs at module evaluation, which is strictly before `app.ready` fires —
+// Electron refuses `registerSchemesAsPrivileged` after ready, and a scheme that
+// is not `standard` has no origin and therefore no IndexedDB and no
+// `localStorage`, which is where the console persists layout, scroll position,
+// selection, pins, and expansion sets — UI state ONLY. Drafts are deliberately
+// NOT in that set: composer text, form values, paths, and code a user has
+// typed and not sent live in their window's in-memory store for that window's
+// lifetime and are gone when it closes, because user-authored content's
+// only durable homes are the daemon's encrypted, PII-mapped stores.
 registerRendererScheme();
 
 // Compile-time-static flag. `electron-vite build --mode=smoke` substitutes
@@ -94,11 +87,12 @@ const FIXTURE_SCENARIO_ENV_VAR = "SIDEKICKS_FIXTURE_SCENARIO";
  *
  * Pinned to `SCENARIO_QUERY_PARAMETER` in
  * `src/renderer/src/console/bridge/scenario/selection.ts`, which cannot be
- * imported here: `src/main/**` and the renderer tree are separate programs by
- * design (`Spec-023 §Trust Stance`), and a shared module would be bundled into the
- * renderer. The two ends are held together end-to-end instead — the endurance tier
- * launches with a scenario id and asserts the console is playing that scenario, so
- * a drift on either side fails a tier rather than silently selecting nothing.
+ * imported here: the renderer is untrusted, so `src/main/**` and the renderer
+ * tree are separate programs by design, and a shared module would be bundled
+ * into the renderer. The two ends are held together end-to-end instead — the
+ * endurance tier launches with a scenario id and asserts the console is playing
+ * that scenario, so a drift on either side fails a tier rather than silently
+ * selecting nothing.
  */
 const FIXTURE_SCENARIO_QUERY_PARAMETER = "scenario";
 
@@ -129,15 +123,14 @@ function resolveFixtureScenarioQuery(): string {
 // correct pattern even before the deep-link handler ships.
 const gotTheLock = app.requestSingleInstanceLock();
 
-// The two probes live in `./probes/`, not here (Plan-023 Phase 1B).
+// The two probes live in `./probes/`, not here.
 //
 // `runSmokeProbe` boots the window, waits for the REAL renderer bundle's
-// `did-finish-load`, reads the `Spec-023 §Security Hardening Baseline` runtime
-// invariants plus the Phase-1B origin properties out of the renderer, fetches
-// the served `index.html` to read back its CSP header, prints one
-// `[SIDEKICKS_SMOKE_PROBE]`-tagged JSON line, and exits.
-// `startGcProbe` drives the ADR-024 window-reachability loop and prints one
-// `[SIDEKICKS_GC_PROBE]`-tagged line. Each module's header carries its own
+// `did-finish-load`, reads the hardening invariants plus the renderer-scheme
+// origin properties out of the renderer, fetches the served `index.html` to
+// read back its CSP header, prints one `[SIDEKICKS_SMOKE_PROBE]`-tagged JSON
+// line, and exits. `startGcProbe` drives the window-reachability loop and prints
+// one `[SIDEKICKS_GC_PROBE]`-tagged line. Each module's header carries its own
 // rationale; what belongs HERE is the startup order and the gates.
 //
 // Both gates are two-condition and the outer condition is the SAME
@@ -153,17 +146,16 @@ const gotTheLock = app.requestSingleInstanceLock();
 // retired. The inner condition is a per-invocation runtime env-var opt-in, so
 // even a smoke bundle never auto-runs a probe.
 //
-// "No test machinery in production binaries" is not a verbatim Spec-023 bullet
-// but a derived invariant from `Spec-023 §Trust Stance` (renderer-untrusted)
-// plus §Pitfalls To Avoid ("`nodeIntegration: true` or `sandbox: false` in any
-// window must be treated as a build-time error"): a release binary must not
-// embed a path that weakens those guarantees, and a probe calling
+// "No test machinery in production binaries" follows from the two rules this
+// shell is built on: the renderer is untrusted, and a disabled sandbox or
+// enabled node integration in any window is a build-time error. A release binary
+// must not embed a path that weakens those guarantees, and a probe calling
 // `executeJavaScript` against the renderer is exactly such a path.
 
 // Module-scope handle for the BrowserWindow. Defensive consistency
-// with the canonical Electron main-process retention pattern. Per
-// ADR-024 §Antithesis, the load-bearing reachability mechanism is
-// Electron's native-side `BaseWindow::self_ref_`
+// with the canonical Electron main-process retention pattern. The
+// load-bearing reachability mechanism is actually Electron's
+// native-side `BaseWindow::self_ref_`
 // (`v8::Global<v8::Value>` strong-rooted from `InitWith` to native
 // destruction) — a freshly constructed `BrowserWindow` is anchored
 // on the V8 root set without any user-side help. Keeping
@@ -180,8 +172,7 @@ let mainWindow: BrowserWindow | null = null;
 if (!gotTheLock) {
   app.quit();
 } else {
-  // Plan-001 §Cross-Plan Obligations CP-001-1 (Plan-024 §I-024-4):
-  // sidecar-cleanup handler MUST register BEFORE any other
+  // The sidecar-cleanup handler MUST register BEFORE any other
   // `app.on('will-quit', ...)` registration. Under Electron's
   // EventEmitter semantics, listener invocation order equals
   // registration order — late registration would let downstream
@@ -189,11 +180,11 @@ if (!gotTheLock) {
   // PTY children to the global console (the `microsoft/node-pty#904`
   // SIGABRT-on-exit failure mode).
   //
-  // The PtyHost getter currently returns `null` (no daemon PtyHost is
-  // provisioned at Tier 1) — the registration still runs at position 0
-  // unconditionally so the FIFO-ordering invariant holds the moment a
-  // PtyHost lands in a later Tier. See `sidecar-lifecycle.ts`'s
-  // `PtyHostGetter` rustdoc for the lazy-getter rationale.
+  // The PtyHost getter currently returns `null` — no daemon PtyHost is
+  // provisioned yet — and the registration still runs at position 0
+  // unconditionally so the FIFO-ordering guarantee holds the moment a
+  // PtyHost lands. See `sidecar-lifecycle.ts`'s `PtyHostGetter` doc
+  // comment for the lazy-getter rationale.
   registerSidecarLifecycle(app, () => null);
 
   app
@@ -321,8 +312,8 @@ if (!gotTheLock) {
     });
 
   app.on("window-all-closed", () => {
-    // Quit on all platforms at Tier 1; macOS-specific dock-keep-alive behavior
-    // wires in at Tier 8 remainder once the full app lifecycle is wired.
+    // Quit on all platforms for now; macOS-specific dock-keep-alive behavior
+    // wires in once the full app lifecycle is wired.
     app.quit();
   });
 }

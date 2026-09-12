@@ -3,10 +3,9 @@
 // A VIEW OVER THE ACCOUNT PLANE THAT MINTS NOTHING. The readiness projection arrives
 // on `providerAccount.list` as a REQUIRED member with exactly one entry per selected
 // provider, so this model composes no state of its own from account fields: it holds
-// what the reply said and what this window has done since. `Spec-029` is emphatic
-// that readiness is a derivation of the registry served from the STORED last-probe
-// result — a registry read spawns no provider process — and that it authorizes
-// nothing, so nothing here gates anything.
+// what the reply said and what this window has done since. Readiness is a derivation of
+// the registry served from the STORED last-probe result — a registry read spawns no
+// provider process — and it authorizes nothing, so nothing here gates anything.
 //
 // NOTHING POLLS, AND THERE IS NO STALENESS TEST. The contract carries no read-path
 // age member and no stale arm, so `observedAt` is displayed as what it is and never
@@ -46,24 +45,21 @@
 // the post-refusal path. EVERY remedy is rendered as text and none is dispatched:
 // registration and choosing a default are MUTATING REGISTRY VERBS that belong to the
 // account registry's own page, and a SIGN-IN is the provider's own first-party flow
-// that `Spec-026 §Provider Authentication (Group B)` requires this step to display and
-// never to run — `Spec-029 §Brokered interactive sign-in` excludes even the account
-// plane's own login verbs from the first-run flow, "so that a first run never depends
-// on a brokered process the operator did not ask for". This model used to dispatch one
-// through the growth port, which was a sixth onboarding mutation the corpus does not
-// have.
+// this step displays and never runs — even the account plane's own brokered login verbs
+// are excluded from the first-run flow, so that a first run never depends on a brokered
+// process the operator did not ask for. This model used to dispatch one through the
+// growth port, which was a sixth onboarding mutation that does not exist.
 //
 // AND THE RE-CHECK IS ITSELF A MUTATION, SO THE SUPERVISOR'S CONDITION CLOSES IT.
-// `Spec-023 §Daemon Supervision Lifecycle` step 3 blocks mutating operations while the
-// supervisor is not serving, and `providerAccount.probe` is one — so a re-check
-// dispatched while the shell is starting, reconnecting, offline, stopped, or
-// version-incompatible is a write this window had no business putting. The
-// classification is NOT made here: the method name is bound to the store family's own
-// closed tuple at compile time and asked of `currentShellBlock`, the one seam every
-// dispatching control goes through — which is also why the read beside it survives the
-// same outage, since that seam answers about a method and not about the window. It is
-// asked of the store at the moment of the ask rather than of a value some earlier
-// render captured, which is what makes a report landing mid-flow reach this act.
+// Mutating operations are blocked while the daemon supervisor is not serving, and
+// `providerAccount.probe` is one — so a re-check dispatched while the shell is starting,
+// reconnecting, offline, stopped, or version-incompatible is a write this window had no
+// business putting. The classification is NOT made here: the method name is bound to the
+// store family's own closed tuple at compile time and asked of `currentShellBlock`, the
+// one seam every dispatching control goes through — which is also why the read beside it
+// survives the same outage, since that seam answers about a method and not about the
+// window. It is asked of the store at the moment of the ask rather than of a value some
+// earlier render captured, which is what makes a report landing mid-flow reach this act.
 //
 // SUPERSESSION IS THE FLOW'S RULE, AND THE TWO HALVES ANSWER IT DIFFERENTLY. A read
 // rides a round on a line addressed at the scope, so a newer read supersedes an older

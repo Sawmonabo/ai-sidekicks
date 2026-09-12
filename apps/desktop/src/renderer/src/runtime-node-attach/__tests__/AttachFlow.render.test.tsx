@@ -5,17 +5,15 @@
 // view renders. What it SENDS and how a reply settles is
 // `AttachFlow.request.test.tsx`, over the one cast in `attach-flow.test-support.ts`.
 //
-// Spec coverage:
-//   • `Spec-003 §Acceptance Criteria` AC1 (a participant attaches a local runtime node
-//     to an already-active session): the idle branch presents the prompt for the live
-//     target session, and the declaration block renders on EVERY state — the operator
-//     can always see what the node is declaring.
-//   • `Spec-003 §Acceptance Criteria` AC4 and I-003-1 (admit-not-eject): the read-only
-//     reply renders as a RESOLVED receipt with its read-only access label — an
-//     admission, not an error state.
+// What the cases hold the view to:
+//   • Attaching a local runtime node to an already-active session: the idle branch
+//     presents the prompt for the live target session, and the declaration block
+//     renders on EVERY state — the operator can always see what the node is
+//     declaring.
+//   • Admit, never eject: the read-only reply renders as a RESOLVED receipt with its
+//     read-only access label — an admission, not an error state.
 //
-// Harness: the Vitest `renderer` project (happy-dom) + `@testing-library/react` —
-// see `ADR-022 §Decision Log` (2026-08-25).
+// Harness: the Vitest `renderer` project (happy-dom) + `@testing-library/react`.
 
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -118,10 +116,9 @@ describe("AttachFlow — what it renders", () => {
       expect(screen.getByText("access: read-write")).toBeDefined();
     });
 
-    // `Spec-003 §Acceptance Criteria` AC4.
     it("treats a below-floor read-only reply as an ADMISSION, not a refusal", async () => {
-      // I-003-1 admit-not-eject at the attach seam: the below-floor node lands
-      // in `resolved` with a read-only access label — there is no error arm for
+      // Admit-not-eject at the attach seam: the below-floor node lands in
+      // `resolved` with a read-only access label — there is no error arm for
       // it, because it was not refused.
       const controlPlaneCall = vi.fn().mockResolvedValue(READ_ONLY_ATTACH_RESPONSE);
       installMockBridge(controlPlaneCall);

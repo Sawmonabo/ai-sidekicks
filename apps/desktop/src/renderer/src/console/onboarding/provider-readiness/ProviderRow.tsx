@@ -6,17 +6,15 @@
 // actually resolved, and a disclosure carrying the wire figures verbatim.
 //
 // THE REMEDY IS NEVER EXECUTED HERE — the SIGN-IN ARM INCLUDED, which is the one this
-// row used to run. `Spec-026 §Provider Authentication (Group B)` requires the step to
-// hand the operator the provider's own first-party flow "with the remedy named — which
-// provider, which account, the invocation, and the home", and states in the same
-// bullet that the flow "**displays** the invocation and never runs it on the
-// operator's behalf"; `Spec-029 §Brokered interactive sign-in` puts the brokered login
-// on the provider-management surface and excludes `providerAccount.login` and
-// `loginCancel` from this step's calls, "so that a first run never depends on a
-// brokered process the operator did not ask for". So the four things the remedy names
-// are RENDERED, as the wire figures they are, and no control on this row starts a
-// login. What decides whether it worked is the re-check beside them, because the probe
-// defines success and a sign-in process's exit does not.
+// row used to run. The step hands the operator the provider's own first-party flow with
+// the remedy named — which provider, which account, the invocation, and the home — and
+// **displays** that invocation rather than running it on the operator's behalf. The
+// brokered login lives on the provider-management surface, and `providerAccount.login`
+// and `loginCancel` are excluded from this step's calls, so that a first run never
+// depends on a brokered process the operator did not ask for. So the four things the
+// remedy names are RENDERED, as the wire figures they are, and no control on this row
+// starts a login. What decides whether it worked is the re-check beside them, because
+// the probe defines success and a sign-in process's exit does not.
 //
 // AND `register` / `choose_default` ARE NOT EXECUTED EITHER, for a second reason. They
 // are mutating registry verbs the account registry owns, and no console route serves

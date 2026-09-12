@@ -1,10 +1,10 @@
 // The run pane's body: what a run offers, what it cannot answer yet, and where the
-// bodies another plan authors are mounted.
+// bodies authored elsewhere are mounted.
 //
 // The pane's job is to make a run readable and a parked phase actionable. The
 // snapshot's rendering — phase sections, retry sub-entries, pool waits, outputs —
-// is Plan-017's body and is mounted through this directory's typed slots; what this
-// file owns is everything around them.
+// is the workflow engine's body and is mounted through this directory's typed slots;
+// what this file owns is everything around them.
 //
 // THE PANE'S FRAME IS NOT THIS MODULE'S. `seats/ConsolePaneChrome` draws the section,
 // the kind glyph, the breadcrumb, the control strip and the body box for every pane
@@ -64,7 +64,7 @@
 // second focus mechanism, no phase on the pane address, and no eligibility decided
 // here that the resolution downstream does not already decide.
 //
-// WHY THE CONTROLS RENDER BESIDE AN UNREAD RUN AND THE PLAN-017 BODIES DO NOT MAKE
+// WHY THE CONTROLS RENDER BESIDE AN UNREAD RUN AND THE ENGINE BODIES DO NOT MAKE
 // THAT ODD. "Can I stop this run?" is the first question an operator opening this
 // pane has, and it needs no read to answer: both controls are addressed by the run id
 // this pane was handed, and the snapshot is not an input to either call. So they are
@@ -88,7 +88,7 @@
 // PARK IS READ FROM THE PARK MEMBERS AND NEVER FROM A PHASE'S STATE. The phase state
 // union carries no suspended arm on purpose, and the park members are live-scoped —
 // present for exactly the phases parked when the response was built. That rule binds
-// the Plan-017 body this pane mounts as much as it binds the cards beside it, which
+// the engine body this pane mounts as much as it binds the cards beside it, which
 // is why it is stated on the body that composes both rather than only on one of them.
 //
 // WIRE STATUS. `packages/contracts` registers no `workflow.*` method, so every one of
@@ -127,7 +127,7 @@ export interface WorkflowRunPaneProps {
   readonly context: PaneContextOf<"workflow-run">;
 }
 
-/** The run pane's body. The run detail and the human form inside it are Plan-017's. */
+/** The run pane's body. The run detail and the human form inside it are the engine's. */
 export function WorkflowRunPane(props: WorkflowRunPaneProps): React.JSX.Element {
   const { bridge, sessionStore, focusHue } = props.context;
   // WIDENED ON PURPOSE, and the annotation is the whole of it. This arm's `entity` is

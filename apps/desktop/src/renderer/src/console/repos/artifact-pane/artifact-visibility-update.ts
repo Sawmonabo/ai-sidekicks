@@ -25,9 +25,9 @@
 // correct it. The served answer is applied and a re-read is asked for, exactly as the
 // delete does, and only disposal silences it.
 //
-// THE CLASS THAT LANDS ON THE ROW IS THE DAEMON'S AND NEVER THE REQUEST'S.
-// `api-payload-contracts.md §Plan-014` answers this call with the settled
-// `visibility`, and a policy-blocked share retains the original rather than moving it —
+// THE CLASS THAT LANDS ON THE ROW IS THE DAEMON'S AND NEVER THE REQUEST'S. This call is
+// answered with the settled `visibility`, and a policy-blocked share retains the
+// original rather than moving it —
 // so writing the requested class onto the row would report a change the daemon
 // declined to make, on a row whose own toggle would then offer to undo it.
 
@@ -66,7 +66,7 @@ export class ArtifactVisibilityUpdates {
   }
 
   /**
-   * Re-classify one artifact, because the participant pressed its toggle.
+   * Re-classify one artifact, because the user pressed its toggle.
    *
    * THE CALLER SUPPLIES THE CLASS RATHER THAN A DIRECTION. A `toggle(artifactId)`
    * would have to read the row's current class to know what to ask for, which is the

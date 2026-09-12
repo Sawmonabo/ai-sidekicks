@@ -1,9 +1,8 @@
 // What this session's browser has produced, folded out of the log.
 //
-// `Spec-023 §Console Design (Meridian)` 12.6: "A capture, a completed download, and a
-// bundled asset set each land as an artifact row in the timeline … The pane's overflow
-// control shows the session's recent browser-produced artifacts with a
-// reveal-in-file-manager action on each local one."
+// A capture, a completed download, and a bundled asset set each land as an artifact row
+// in the timeline, and the pane's overflow control shows the session's recent
+// browser-produced artifacts with a reveal-in-file-manager action on each local one.
 //
 // ONE FOLD, NOT A SECOND STORE. The rows come off the session store's own timeline,
 // which is already bounded and already the console's single copy of the log — so this
@@ -24,7 +23,7 @@
 // `docs/specs/006-session-event-taxonomy-and-audit-log.md` nor the `ArtifactPublish` /
 // `ArtifactRead` shapes in `docs/architecture/contracts/api-payload-contracts.md`
 // carry a producer, an origin, or anything else naming what made the object — the
-// manifest's `createdBy` names the publishing PARTICIPANT and not a surface. So a
+// manifest's `createdBy` names the publishing USER and not a surface. So a
 // fold that accepted every readable artifact beat was not folding browser output at
 // all — a repository attachment published from the same session is that exact shape,
 // and it listed under "Produced objects" as though this window had made it.

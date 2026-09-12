@@ -268,7 +268,7 @@ describe("FrameStore — window focus is seeded from the window's own document",
   });
 
   it("gives two windows built under different documents different answers", () => {
-    // I-023-12: an auxiliary window shares no store with the main one, and each one's
+    // An auxiliary window shares no store with the main one, and each one's
     // document is the only thing that says whether anybody is looking at IT.
     const background = underDocumentFocus(UNFOCUSED_DOCUMENT, () => new FrameStore());
     const foreground = underDocumentFocus(FOCUSED_DOCUMENT, () => new FrameStore());

@@ -68,7 +68,7 @@ const CAPTURE_CARD: ProducedObjectCard = {
  */
 function mixedSessionStore(): SessionStore {
   const store = new SessionStore({ sessionId: SESSION_ID });
-  store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+  store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
   const published: readonly string[] = [ATTACHMENT_ID, CAPTURE_ID, ...DAEMON_PRODUCED_IDS];
   store.applyBatch(
     published.map(

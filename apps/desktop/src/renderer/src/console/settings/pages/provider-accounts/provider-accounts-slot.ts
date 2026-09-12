@@ -68,13 +68,11 @@ const FIXTURE_ACCOUNTS_SHELL: SettingsPageBody | undefined = __SIDEKICKS_CONSOLE
  */
 export const PROVIDER_ACCOUNTS_PAGE_SLOT: OwnerSlotProps<SettingsPageBody> = {
   contract: {
-    // The owning plan is named by its SUBJECT rather than by its number, on the
-    // `workflows/owner-slots.ts` precedent: every member here is a runtime string in a
-    // shipped module, and this repository keeps governance identifiers in comments —
-    // which is where the numbers belong and where they are. Plan-029 owns the
-    // provider-account registry and its page body; the session cost half of the
-    // design's combined page is `CostReceiptPage.tsx`, over Plan-016's committed-spend
-    // read.
+    // The owner is named by its SUBJECT, on the `workflows/owner-slots.ts` precedent:
+    // every member here is a runtime string in a shipped module, and a surface is named
+    // by what it does. The provider-account registry owns its page body; the session
+    // cost half of the design's combined page is `CostReceiptPage.tsx`, over the
+    // committed-spend read.
     owningTask:
       "the provider-accounts and credential-homes plan's own page body, with the session figure read through the orchestration plan's committed-spend read",
     mountObligation:

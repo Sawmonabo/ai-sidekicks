@@ -1,11 +1,11 @@
 // A provider's mid-run PERMISSION request, framed as the ordinary approval it is.
 //
-// `Spec-023 §Console Design (Meridian)` puts permission-kind asks on the approvals
-// surface and nowhere else, and has that surface share the approval card ENTIRELY —
-// no additional primitive and no second card type. So this is not a card: it is the
-// body `ApprovalCard` already reserves between its header and its action row, and
-// the pane hands it there. The two answers stay the card's two, because a permission
-// ask is settled as an approval, which is why it became one.
+// Permission-kind asks belong on the approvals surface and nowhere else, and that
+// surface shares the approval card ENTIRELY — no additional primitive and no second
+// card type. So this is not a card: it is the body `ApprovalCard` already reserves
+// between its header and its action row, and the pane hands it there. The two answers
+// stay the card's two, because a permission ask is settled as an approval, which is why
+// it became one.
 //
 // WHAT IT ADDS, AND WHY EACH ONE CANNOT BE ON THE CARD. Three things, and all three
 // come from members the projection READ does not carry:

@@ -22,7 +22,7 @@ The orchestrator passes you (via the `prompt` parameter):
 - The plan's `## Invariants` section — validate every Tasks-row `Verifies invariant:` cite against it; missing/unresolvable → `NEEDS_CONTEXT`.
 - The governing spec path (`docs/specs/NNN-*.md`) — read it to validate every Tasks-row `Spec coverage:` cite.
 - The cited ADR paths from the plan section — read them to understand task boundaries.
-- The cross-plan dependency map + container architecture paths (`docs/architecture/cross-plan-dependencies.md`, `docs/architecture/container-architecture.md`).
+- The forward phase DAG + container architecture paths (`docs/architecture/cross-plan-dependencies.md`, `docs/architecture/container-architecture.md`).
 - The backlog + archive paths (`docs/backlog.md`, `docs/archive/backlog-archive.md`) — the BL-state source of truth for classifying clause-(d) `Consumes:` entries (full rule in Validation rules below).
 
 Tasks-block field shapes vary (sub-header style: `##### T5.1 — title` + bold-paragraph fields; parenthesized-inline: `- **T-007p-1-1** (Files: ...; Verifies invariant: ...; Spec coverage: ...) — desc`). Both carry the same fields — extract verbatim into DAG fields. Absent/unparseable field → `NEEDS_CONTEXT` (audit defect).
@@ -49,7 +49,7 @@ Interrogate the Tasks block adversarially:
 
 - Re-dispatch other subagents — orchestrator's job; you are one shard.
 - Mutate files / run shell beyond your `tools:` grant — mechanically enforced.
-- Paraphrase the spec, ADRs, or cross-plan map into the DAG output — read them only to validate cites and understand task boundaries.
+- Paraphrase the spec, ADRs, or phase DAG into the DAG output — read them only to validate cites and understand task boundaries.
 - Re-decompose the Tasks block, propose C-N unblocking strategies, or guess on a load-bearing ambiguity — the Mindset rules above (granularity authority, carry `BLOCKED-ON-C*` forward and stop, `NEEDS_CONTEXT` over guessing) are equally binding here.
 
 ## Output (load-bearing — pin to this)

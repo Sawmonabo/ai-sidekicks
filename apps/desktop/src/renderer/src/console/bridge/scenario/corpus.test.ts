@@ -12,7 +12,7 @@
 // both scripts below sit on that board, so every one of those legs already runs
 // against them. This file once carried its own census, its own ordering rule, and
 // its own duplicate-call check. Each was a second implementation of a rule that
-// module owns, which `apps/desktop/AGENTS.md` §Tests rejects, and the ordering copy
+// module owns, which this package's test rules reject, and the ordering copy
 // was also the weaker one: it demanded a first beat at sequence 1, where the shipped
 // rule demands the log position the fixture's own session read leaves off at.
 //
@@ -98,7 +98,7 @@ describe("the terminal scenario ends held, then loses its host", () => {
   function holderAfter(beats: readonly ScenarioBeat[]): unknown {
     return beats
       .filter((beat) => beat.event.kind === "pty.control_changed")
-      .map((beat) => beat.event.payload?.["holderParticipantId"])
+      .map((beat) => beat.event.payload?.["holderUserId"])
       .at(-1);
   }
 
@@ -135,9 +135,7 @@ describe("the terminal scenario ends held, then loses its host", () => {
     // script that ended on a plain release would drop the host under a lease nobody
     // held — and the degraded state, which is the frame `runToCompletion()` pins,
     // would have no holder to take away.
-    expect(holderAfter(TERMINAL_SCENARIO.beats)).toBe(
-      TERMINAL_SCENARIO.participantIdsInJoinOrder[0],
-    );
+    expect(holderAfter(TERMINAL_SCENARIO.beats)).toBe(TERMINAL_SCENARIO.userIdsInJoinOrder[0]);
   });
 
   it("would notice a script that ended free", () => {

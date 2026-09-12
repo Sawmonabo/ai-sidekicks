@@ -1,20 +1,18 @@
-// Callback-tool host suite (Plan-005 Phase 3, T3.15 leg 3).
+// Callback-tool host suite (leg 3).
 //
 // Spec coverage under test:
-//   • `Spec-005 §Required Behavior` — the driver answers EVERY callback-tool
-//     invocation and invents no approval bypass. Asserted as: an allow
-//     round-trip answers `completed`, a deny round-trip answers `denied`, and
-//     a stray invocation against a seamless host answers `denied` with a
-//     `DriverDiagnosticRecord` rather than hanging or completing.
-//   • `Spec-012 §Required Behavior` — every tool invocation is adjudicated. The
-//     evaluate-first ordering is asserted through the recorded `approvalBasis`
-//     and through the seam never being consulted for a pre-check refusal.
-//   • `Spec-016 §Provider-Native Subagents` — a child's tool calls route
-//     through the same pipeline as the parent's; asserted as the same host
-//     answering an invocation carrying a subagent-originated call id.
+//   • the driver answers EVERY callback-tool invocation and invents no
+//     approval bypass. Asserted as: an allow round-trip answers `completed`,
+//     a deny round-trip answers `denied`, and a stray invocation against a
+//     seamless host answers `denied` with a `DriverDiagnosticRecord` rather
+//     than hanging or completing.
+//   • every tool invocation is adjudicated. The evaluate-first ordering is
+//     asserted through the recorded `approvalBasis` and through the seam never
+//     being consulted for a pre-check refusal.
+//   • a child's tool calls route through the same pipeline as the
+//     parent's; asserted as the same host answering an invocation carrying
+//     a subagent-originated call id.
 //
-// Verifies invariant: I-005-4 (an unavailable capability degrades rather than
-// throwing — the seamless host DENIES and records, and never rejects).
 
 import { describe, expect, it } from "vitest";
 
@@ -129,7 +127,7 @@ function makeInvocation(overrides?: Partial<CallbackToolInvocation>): CallbackTo
   };
 }
 
-describe("CallbackToolHost — the allow round-trip (T3.15 leg 3)", () => {
+describe("CallbackToolHost — the allow round-trip (leg 3)", () => {
   it("answers `completed` and lands the outcome as a `tool_activity` row", async () => {
     const harness = buildHarness();
     const resolution = harness.host.resolveSpawnRegistry({
@@ -162,8 +160,8 @@ describe("CallbackToolHost — the allow round-trip (T3.15 leg 3)", () => {
   });
 
   it("routes a subagent-originated invocation through the same pipeline", async () => {
-    // `Spec-016 §Provider-Native Subagents`: a child's calls are adjudicated by
-    // the parent's pipeline, so nothing about the host's answer changes.
+    // a child's calls are adjudicated by the parent's pipeline, so nothing
+    // about the host's answer changes.
     const harness = buildHarness();
     harness.host.resolveSpawnRegistry({
       sessionId: TEST_SESSION_ID,
@@ -182,7 +180,7 @@ describe("CallbackToolHost — the allow round-trip (T3.15 leg 3)", () => {
     expect(harness.activityRecords[0]?.approvalBasis).toBe("policy");
   });
 
-  it("records a remembered-rule allow as its own basis, never as a participant grant", async () => {
+  it("records a remembered-rule allow as its own basis, never as a user grant", async () => {
     const harness = buildHarness({ outcome: { decision: "allow", basis: "remembered-rule" } });
     harness.host.resolveSpawnRegistry({
       sessionId: TEST_SESSION_ID,
@@ -197,7 +195,7 @@ describe("CallbackToolHost — the allow round-trip (T3.15 leg 3)", () => {
   });
 });
 
-describe("CallbackToolHost — the deny round-trip (T3.15 leg 3)", () => {
+describe("CallbackToolHost — the deny round-trip (leg 3)", () => {
   it("answers `denied` without executing, and lands it as a `tool_activity` row", async () => {
     const harness = buildHarness({
       outcome: { decision: "deny", basis: "policy", reason: "workspace search is not permitted" },
@@ -466,16 +464,15 @@ describe("describeArgumentRefusal — the named subset, and nothing beyond it", 
 });
 
 // --------------------------------------------------------------------------
-// The composition-root binder and the routed-ask adapter (T3.15 leg 3).
+// The composition-root binder and the routed-ask adapter (leg 3).
 // --------------------------------------------------------------------------
 //
 // Spec coverage added here:
-//   • `Spec-005 §Required Behavior` — the driver answers EVERY callback-tool
-//     invocation. Asserted one layer earlier than the suite above does it: an
-//     ask the driver band cannot even TURN INTO an invocation is still
-//     answered, and still recorded.
-//   • `Spec-012 §Required Behavior` — an approval ask reaching this adapter
-//     with no Plan-012 responder bound is refused rather than allowed.
+//   • the driver answers EVERY callback-tool invocation. Asserted one layer
+//     earlier than the suite above does it: an ask the driver band cannot
+//     even TURN INTO an invocation is still answered, and still recorded.
+//   • an approval ask reaching this adapter with no responder bound is
+//     refused rather than allowed.
 
 /** The two names the provider's `DynamicToolCallParams` supplies. */
 const TOOL_CALL_METHOD = "item/tool/call";
@@ -823,7 +820,7 @@ describe("resolveRegisteredCallbackToolName — the provider-facing name map", (
   });
 });
 
-describe("composeCallbackToolContentItems — per-arm required members (codex round 1)", () => {
+describe("composeCallbackToolContentItems — per-arm required members", () => {
   // `DynamicToolCallOutputContentItem` is a closed union whose arms each carry
   // ONE required member beside the discriminator. A predicate that checked only
   // the discriminator shipped `{ type: "inputImage" }` — an image with no image

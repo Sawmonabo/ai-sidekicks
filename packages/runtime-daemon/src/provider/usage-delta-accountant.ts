@@ -1,20 +1,16 @@
-// Usage-delta accountant (Plan-005 Phase 3, T3.11 — the NS-91 usage-delta leg).
+// Usage-delta accountant (usage-delta leg).
 //
 // Both pinned providers report token usage as a RUNNING TOTAL for the provider
 // session, not a figure for the turn that just completed: the counter resets at
 // no turn boundary, at no context compaction, and on no resume. A normalizer
 // forwarding each reading as though it described one turn re-counts every
-// earlier turn on every later one — measured 22× overstatement of session
-// spend on a long thread, landing on the `Spec-016 §Session Cost Receipt`
-// committed-spend fold rather than on a display. This module is the single
-// metering path both driver legs emit usage through — each session's lifecycle
-// band constructs one and meters every routed usage frame through it — and it
-// enforces
-// I-005-11: a driver never emits a provider's cumulative counter as a per-turn
-// figure, and no normalized token axis counts a token twice.
-//
-// The mechanism, per `Spec-005 §Required Behavior` (2026-08-28, PR #377
-// round-1 fold):
+// earlier turn on every later one — measured 22× overstatement of session spend
+// on a long thread, landing on committed-spend fold rather than on a display.
+// This module is the single metering path both driver legs emit usage through —
+// each session's lifecycle band constructs one and meters every routed usage
+// frame through it — and it enforces: a driver never emits a provider's
+// cumulative counter as a per-turn figure, and no normalized token axis counts
+// a token twice.
 //
 //   - ONE BASE REGISTER PER PROVIDER THREAD AND AXIS, advanced in stream order
 //     as each declared-cumulative reading is consumed. Never a base snapshot
@@ -32,8 +28,8 @@
 //     provider counter starts at zero, transcript injection spends nothing,
 //     and the first turn's large input is real billed spend); a
 //     provider-native resume bases at THE DAEMON'S OWN PRIOR-EMITTED
-//     CUMULATIVE SUM for that thread, rebuilt from the canonical record
-//     (ADR-029), never at the first post-resume reading.
+//     CUMULATIVE SUM for that thread, rebuilt from the canonical record,
+//     never at the first post-resume reading.
 //   - NO COMPACTION RE-BASE: this class exposes no compaction entry point at
 //     all — the provider's counter is unaffected by a compaction, and an API
 //     that re-based there would silently forgive every pre-boundary token.
@@ -53,14 +49,12 @@
 //     BESIDE the input member and proves nothing about nesting); an
 //     unconfirmed identity emits the input figure unsubtracted with a
 //     failed-identity diagnostic. Cache-read and cache-write stay separate
-//     axes on the diagnostic band — the Spec-006 `usage_telemetry` payload
-//     registers no per-cache-axis member and this module mints none.
+//     axes on the diagnostic band — `usage_telemetry` payload registers no
+//     per-cache-axis member and this module mints none.
 //
-// Verifies invariant: I-005-11 (Plan-005 §Invariants). Enforced as the single
-// metering path; asserted by `__tests__/usage-delta-accountant.test.ts`.
+// Enforced as the single metering path; asserted by
+// `__tests__/usage-delta-accountant.test.ts`.
 //
-// Refs: Plan-005 §Phase 3 / T3.11, `Spec-005 §Required Behavior`,
-// `Spec-005 §Interfaces And Contracts`, ADR-029.
 
 import { type DriverDiagnosticsEmitter, type DriverProviderName } from "./driver-diagnostics.js";
 
@@ -174,7 +168,7 @@ export interface CumulativeUsageReading {
  * containment identity confirmed subtraction, and the raw input figure
  * otherwise. `diagnosticBand` retains what the payload deliberately does not
  * carry — the cache-read / cache-write split — observable here rather than
- * discarded, since Spec-006 registers no per-cache-axis member.
+ * discarded, since registers no per-cache-axis member.
  */
 export interface MeteredUsageDelta {
   readonly provider: DriverProviderName;
@@ -445,13 +439,13 @@ export class UsageDeltaAccountant {
 }
 
 // --------------------------------------------------------------------------
-// T3.11 P1-6-producer — 3-tier cost resolution + native-cap provenance.
+// Cost-update provenance — 3-tier cost resolution + native-cap provenance.
 // --------------------------------------------------------------------------
 
-/** The `Spec-006 §Usage Telemetry (usage_telemetry)` cost-status enum. */
+/** The `` cost-status enum. */
 export type UsageCostStatus = "priced" | "unpriced";
 
-/** The full four-value `Spec-006 §Usage Telemetry (usage_telemetry)` cost-provenance enum. */
+/** The full four-value `` cost-provenance enum. */
 export type UsageCostSource =
   | "provider_reported"
   | "derived_exact"
@@ -471,14 +465,14 @@ export interface DerivedCostQuote {
  * for a genuinely unpriceable model is NOT a `usage.cost_update` shape — the
  * ladder's arm (d) emits `usage.budget_warning { reason: 'unpriced-model' }`
  * instead, so the union separates the two emissions rather than smuggling a
- * fifth `costSource` value past the closed Spec-006 enum. `costCents` is
- * structurally absent on the unpriced arm: no per-update value is derivable
- * there, and the USD bound lives on the `run.queued`
- * `admittedUnpricedCapCents`, never on per-update rows.
+ * fifth `costSource` value past the closed enum. `costCents` is structurally
+ * absent on the unpriced arm: no per-update value is derivable there, and
+ * the USD bound lives on the `run.queued` `admittedUnpricedCapCents`, never
+ * on per-update rows.
  *
- * Both arms are stated as partitions of the Spec-006 enums above rather than as
- * re-spelled literals, so widening either enum without placing the new value on
- * an arm is a compile error here rather than a silently unreachable provenance.
+ * Both arms are stated as partitions of enums above rather than as re-spelled
+ * literals, so widening either enum without placing the new value on an arm is
+ * a compile error here rather than a silently unreachable provenance.
  */
 export type CostUpdateResolution =
   | {
@@ -496,20 +490,19 @@ export type CostUpdateResolution =
   | { readonly resolution: "budget-warning"; readonly reason: "unpriced-model" };
 
 /**
- * Resolve one `usage.cost_update`'s provenance per the Plan-005 T3.11
- * P1-6-producer ladder: (a) a provider-emitted cost, sanity-bounded
- * (non-negative, finite, below the configured absurdity ceiling; gross
- * divergence from a derivable estimate is a diagnostic, never a halt) →
- * `provider_reported`; (b) else daemon-derived from the provider's full
- * breakdown × the per-model-family pricing table → `derived_exact` /
- * `derived_family_prefix`; (c) an owner-admitted native-cap run is unpriced
- * BY PROVENANCE → `{ costStatus: 'unpriced', costSource:
- * 'unpriced_native_cap' }`, `costCents` absent; (d) else fail-closed for a
- * genuinely unpriceable model — the budget-warning arm, never a fabricated
- * price and never the surveyed fail-open zero-cost terminal, which is
- * deliberately not ported. The producer never halts and never branches on
- * `costSource` — the B15 accountant owns the single ceiling
- * (`Spec-016 §Budget Policies`).
+ * Resolve one `usage.cost_update`'s provenance ladder: (a) a
+ * provider-emitted cost, sanity-bounded (non-negative, finite, below the
+ * configured absurdity ceiling; gross divergence from a derivable estimate
+ * is a diagnostic, never a halt) → `provider_reported`; (b) else
+ * daemon-derived from the provider's full breakdown × the per-model-family
+ * pricing table → `derived_exact` / `derived_family_prefix`; (c) an
+ * owner-admitted native-cap run is unpriced BY PROVENANCE → `{ costStatus:
+ * 'unpriced', costSource: 'unpriced_native_cap' }`, `costCents` absent; (d)
+ * else fail-closed for a genuinely unpriceable model — the budget-warning
+ * arm, never a fabricated price and never the surveyed fail-open zero-cost
+ * terminal, which is deliberately not ported. The producer never halts and
+ * never branches on `costSource` — the B15 accountant owns the single
+ * ceiling.
  */
 export function resolveCostUpdateProvenance(options: {
   readonly provider: DriverProviderName;
@@ -517,7 +510,7 @@ export function resolveCostUpdateProvenance(options: {
   readonly providerReportedCostCents: number | null;
   /** The pricing-table derivation, or null for an unpriceable model. */
   readonly derivedQuote: DerivedCostQuote | null;
-  /** Whether this run was owner-admitted under a native cap (the C-12 leg). */
+  /** Whether this run was owner-admitted under a native cap. */
   readonly nativeCapAdmitted: boolean;
   readonly absurdityCeilingCents: number;
   /** Reported-vs-derived ratio beyond which divergence is diagnosed. */
@@ -591,10 +584,10 @@ export function resolveCostUpdateProvenance(options: {
 }
 
 // --------------------------------------------------------------------------
-// T3.11 P2-6-producer — window telemetry.
+// Window telemetry.
 // --------------------------------------------------------------------------
 
-/** The `Spec-005 §Interfaces And Contracts` window-provenance vocabulary. */
+/** The `` window-provenance vocabulary. */
 export type WindowSource = "provider_reported" | "model_default" | "estimated";
 
 /** Normalized window telemetry. Counts travel BOTH-OR-NEITHER — a lone
@@ -617,8 +610,8 @@ export type WindowTelemetry =
     };
 
 /**
- * Derive one window-telemetry update at the normalize boundary (Plan-005
- * T3.11 P2-6-producer). The driver stamps `windowSource` and computes
+ * Derive one window-telemetry update at the normalize boundary
+ *. The driver stamps `windowSource` and computes
  * `exceeded`; the Codex leg subtracts its session baseline before deriving
  * `windowUsedTokens` (the ~12k-token constant-overhead reading, supplied by
  * the caller from its capability read rather than hard-coded here — the
@@ -629,9 +622,9 @@ export type WindowTelemetry =
  * On the counts-absent arm `exceeded` is the CALLER'S, because nothing here can
  * derive it: with no numerator or no denominator there is no comparison to
  * make, and a hard-coded `false` would assert "not exceeded" about a window
- * this function never measured. That arm exists precisely because the Spec-006
- * counts-absent update is a provenance-and-`exceeded` signal, so its caller
- * holds the wire's own limit signal and states it here.
+ * this function never measured. That arm exists precisely because counts-absent
+ * update is a provenance-and-`exceeded` signal, so its caller holds the wire's
+ * own limit signal and states it here.
  */
 export function deriveWindowTelemetry(options: {
   readonly windowSource: WindowSource;

@@ -1,4 +1,4 @@
-// Plan-005 PR #159 — driver-contract + runtime-binding schema (inlined SQL).
+// driver-contract + runtime-binding schema (inlined SQL).
 //
 // SQL is inlined as a TypeScript string constant rather than loaded from a
 // sibling `.sql` file — the same rationale as `0001-initial.ts` /
@@ -14,54 +14,47 @@
 //   3. Bundlers (esbuild / webpack / Bun) handle `import.meta.url`
 //      inconsistently; inline strings survive every transform stage.
 //
-// The canonical schema source-of-truth is
-// `docs/architecture/schemas/local-sqlite-schema.md`
-// §"Driver and Runtime Binding Tables (Plan-005)" — the four CREATE TABLE
-// blocks below are copied verbatim from that section (including the
-// `-- Owner:` headers, the per-column comments, and the provider-output
+// The canonical schema source-of-truth is — the four CREATE TABLE blocks
+// below are copied verbatim from that section (including the `-- Owner:`
+// headers, the per-column comments, and the provider-output
 // defense-in-depth CHECK constraints) so the inline constant stays in
 // lockstep with the canonical doc.
 //
 // ----------------------------------------------------------------------------
-// Plan-005 scope (this migration — version 3)
+// Scope (this migration — version 3)
 // ----------------------------------------------------------------------------
 //
-// Plan-005 owns the physical CREATE for four Local SQLite tables:
+// Owns the physical CREATE for four Local SQLite tables:
 //
 //   * runtime_bindings      — driver-instance ↔ run bindings; PK `id`,
 //                             index `idx_runtime_bindings_run` on `run_id`.
-//                             Plan-015 extends with recovery-aware
-//                             persistence methods (CP-005-1); row-level
-//                             recovery state lives in Plan-015's dedicated
-//                             `recovery_checkpoints` table, NOT here.
+//                             extends with recovery-aware persistence
+//                             methods; row-level recovery state lives in
+//                             the dedicated `recovery_checkpoints` table,
+//                             NOT here.
 //   * driver_capabilities   — per-driver 7-flag capability matrix;
 //                             composite PK (driver_name, capability_flag).
 //   * driver_tools          — per-tool metadata; composite PK
-//                             (driver_name, tool_name). Persists each tool's
-//                             `idempotency_class` so the daemon's two-phase
-//                             command-receipt protocol resolves crash-recovery
-//                             dispatch class without round-tripping the driver
-//                             (`Spec-005 §Recovery Consequences`).
+//                             Persists each tool's `idempotency_class` so the
+//                             daemon's two-phase command-receipt protocol
+//                             resolves crash-recovery dispatch class without
+//                             round-tripping the driver.
 //   * driver_contract_meta  — per-driver parent row (PK driver_name) holding
 //                             the single advertised `contract_version` that
-//                             cold-start cache hydration (T2.4) reconstructs
-//                             into GetCapabilitiesResult.capabilities
-//                             .contractVersion without round-tripping the
-//                             driver. DISTINCT from the per-run
+//                             cold-start cache hydration reconstructs into
+//                             GetCapabilitiesResult.capabilities.contractVersion
+//                             without round-tripping the driver. DISTINCT
+//                             from the per-run
 //                             runtime_bindings.contract_version.
 //
 // Out of scope (hard ownership boundaries — do NOT add here):
 //   * No `recovery_state` / `recovery_needed` / `recovery_reason` columns on
-//     runtime_bindings — Plan-015 owns the `recovery_checkpoints` table per
-//     CP-005-1. Plan-005's I-005-5 (resume-failure surfaces recovery-needed)
-//     is satisfied by a typed return-value contract from `resumeSession()`
-//     (T3.1/T3.6), not by persisted column state.
+//     runtime_bindings — owns the `recovery_checkpoints` table.
 //   * No FK to a local `sessions` table — sessions are shared-Postgres-only.
-//     Session-level lookups compose the
-//     caller-supplied active-run ids (the daemon's event-sourced run-state
-//     projection — there is no `runs` table) with the store's binding-by-run
-//     lookups (campaign B6 gloss; the batch `findByRuns` lands with the
-//     campaign's Plan-005 bundle).
+//     Session-level lookups compose the caller-supplied active-run ids (the
+//     daemon's event-sourced run-state projection — there is no `runs`
+//     table) with the store's binding-by-run lookups (campaign B6 gloss; the
+//     batch `findByRuns` lands with the campaign's bundle).
 //
 // Provider-output validation obligation (Phase-2 write-seam, defense-in-depth):
 //   `contract_version` and `resume_handle` are provider-declared strings. The
@@ -69,24 +62,20 @@
 //   NUL-rejection (and non-empty for the NOT NULL `contract_version`, and
 //   non-empty-when-present for the nullable `resume_handle`). The 4096/64
 //   length literals are the canonical bounds reused by the write-path Zod
-//   guards (T2.2 runtime_bindings, T2.4 driver_contract_meta) so the two
-//   defense layers stay consistent. Semver-shape validation is NOT
-//   expressible as a pure-SQLite CHECK (a GLOB cannot model semver), so it is
-//   enforced at the write seam via the `semver` package — NOT here, and NOT
-//   at the contract layer (`packages/contracts/src/provider-driver.ts`).
+//   guards (runtime_bindings driver_contract_meta) so the two defense layers
+//   stay consistent. Semver-shape validation is NOT expressible as a
+//   pure-SQLite CHECK (a GLOB cannot model semver), so it is enforced at the
+//   write seam via the `semver` package — NOT here, and NOT at the contract
+//   layer (`packages/contracts/src/provider-driver.ts`).
 //
-// The `schema_version` anchor table itself is owned by Plan-001
-// (`0001-initial.ts`); this migration only INSERTs its version-3 row.
+// The `schema_version` anchor table itself is this migration only
+// INSERTs its version-3 row.
 
 export const RUNTIME_BINDINGS_MIGRATION_SQL: string = `
--- Owner: Plan-005 | Extended by: Plan-015 (recovery-aware persistence)
--- Provider-output defense-in-depth CHECKs (Plan-005 T2.1): contract_version and
--- resume_handle are provider-declared strings persisted at the write seam. The
--- DB CHECK layer bounds the SQLite-expressible part (length + NUL-rejection);
--- semver-shape validation is NOT expressible as a pure-SQLite CHECK and is
--- enforced at the write seam Zod guard (T2.2 runtime_bindings) using the
--- \`semver\` package. The 4096/64 length literals are the canonical bounds that
--- the T2.2 write-path guard reuses, so the two layers stay consistent.
+-- Provider-output defense-in-depth CHECKs:
+-- contract_version and resume_handle are provider-declared strings persisted at
+-- the write seam. The 4096/64 length literals are the canonical bounds that
+-- write-path guard reuses, so the two layers stay consistent.
 CREATE TABLE runtime_bindings (
   id                TEXT PRIMARY KEY,
   run_id            TEXT NOT NULL,
@@ -102,7 +91,6 @@ CREATE TABLE runtime_bindings (
 
 CREATE INDEX idx_runtime_bindings_run ON runtime_bindings(run_id);
 
--- Owner: Plan-005
 CREATE TABLE driver_capabilities (
   driver_name       TEXT NOT NULL,
   capability_flag   TEXT NOT NULL
@@ -115,11 +103,7 @@ CREATE TABLE driver_capabilities (
   PRIMARY KEY (driver_name, capability_flag)
 );
 
--- Owner: Plan-005
--- Per-tool metadata for the daemon's two-phase command-receipt protocol at
--- crash-recovery dispatch time (idempotency_class lookup without round-tripping
--- the driver per Spec-005 §Recovery Consequences). Normalized per-tool rows mirror the
--- per-flag-row shape of driver_capabilities.
+-- Normalized per-tool rows mirror the per-flag-row shape of driver_capabilities.
 CREATE TABLE driver_tools (
   driver_name        TEXT NOT NULL,
   tool_name          TEXT NOT NULL,
@@ -132,17 +116,15 @@ CREATE TABLE driver_tools (
   PRIMARY KEY (driver_name, tool_name)
 );
 
--- Owner: Plan-005
--- Per-driver capability-contract metadata. The capability cache is keyed by driver_name
--- (driver_capabilities + driver_tools are per-driver children); this parent row holds the
--- single per-driver contract_version so cold-start hydration can reconstruct
--- GetCapabilitiesResult = { capabilities: { flags, contractVersion }, tools } WITHOUT
--- round-tripping the driver (Spec-005 §Recovery Consequences cache-as-source-of-truth). Distinct from
+-- The capability cache is keyed by driver_name (driver_capabilities + driver_tools are
+-- per-driver children); this parent row holds the single per-driver contract_version so
+-- cold-start hydration can reconstruct GetCapabilitiesResult = { capabilities: { flags,
+-- contractVersion }, tools } WITHOUT round-tripping the driver. Distinct from
 -- runtime_bindings.contract_version, which records the version bound to a specific run.
--- Provider-output defense-in-depth CHECK (Plan-005 T2.1): contract_version
--- mirrors the runtime_bindings.contract_version bound (length + NUL-rejection,
--- 64-char ceiling). Semver-shape validation lives at the T2.4 write-path Zod
--- guard (the \`semver\` package) — not expressible as a pure-SQLite CHECK.
+-- Provider-output defense-in-depth CHECK: contract_version mirrors the
+-- runtime_bindings.contract_version bound (length + NUL-rejection, 64-char ceiling).
+-- Semver-shape validation lives write-path Zod guard (the \`semver\` package) — not
+-- expressible as a pure-SQLite CHECK.
 CREATE TABLE driver_contract_meta (
   driver_name       TEXT PRIMARY KEY,
   contract_version  TEXT NOT NULL             -- semver of the driver's advertised capability contract

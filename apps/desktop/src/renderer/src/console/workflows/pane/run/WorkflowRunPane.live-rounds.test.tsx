@@ -145,7 +145,7 @@ describe("workflow run pane — the run moves under the answer on screen", () =>
   it("negative control: a scenario advance carrying no workflow frame puts no second read", async () => {
     // Without this the case above would pass over a pane that re-read on any session
     // transition at all — a read cadence keyed to session traffic rather than to the
-    // run having moved, which is the polling `Spec-023`'s refresh policy forbids.
+    // run having moved, which is the polling the refresh policy forbids.
     const { bridge, runReadCount, controlCallCount, reportRunAdvanced } = bridgeWhoseRunMoves();
     const sessionStore = sessionFedByScenario(bridge);
     const section = renderPane(paneContext(PARKED, bridge, sessionStore));

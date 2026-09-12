@@ -1,9 +1,9 @@
 // The card a channel pins above its timeline: which workflow this room started, how
 // far it has got, and whether it is waiting on somebody.
 //
-// `Spec-023 §Console Design (Meridian)` gives a pane one entity and one body; a channel
-// whose conversation started a workflow has a second thing to say that is not a row in
-// the ledger and not the ledger's subject. So it rides the pane chrome's pinned region
+// The console design gives a pane one entity and one body; a channel whose
+// conversation started a workflow has a second thing to say that is not a row in the
+// ledger and not the ledger's subject. So it rides the pane chrome's pinned region
 // (`seats/pane/pinned-pane-regions.ts`) — above the body, outside the body's scroller, and
 // registered by THIS family rather than by the family that owns the pane, because the
 // progress is this family's fold and a sibling import is what the layering rules refuse.
@@ -14,9 +14,9 @@
 // same park. Nothing else: a pinned region is chrome, and a card that grew a phase list
 // would be the run pane drawn in somebody else's head.
 //
-// ONE RUN, AND NOT BECAUSE THERE IS ONLY ONE. `Spec-017 §Chat-start surface (SA-38)`
-// registers `channelId` as PROVENANCE, so nothing stops a room starting a second run
-// while the first is still going — the pick is `channel-progress.ts`', it is the run
+// ONE RUN, AND NOT BECAUSE THERE IS ONLY ONE. The chat-start surface registers
+// `channelId` as PROVENANCE, so nothing stops a room starting a second run while the
+// first is still going — the pick is `channel-progress.ts`', it is the run
 // list's own parked-first-then-newest-first reading, and it is tested. What the card
 // draws is the head of that order, not the only member of it.
 //
@@ -41,11 +41,11 @@
 // Never reads a park from a phase's `state`, which carries no suspended arm on purpose.
 // Never renders for a channel no run named, and never renders a settled run — both are
 // the region contributing no element, which is what a pinned region's absence IS.
-// Never pins a refusal: the run enumeration is unregistered wire
-// (`Plan-023 §Console growth slate`), so on a live bridge this read refuses for every
-// channel in every session, and a refusal drawn here would be a permanent banner above
-// every conversation reporting a feature the room may never use. The refusal reaches
-// the diagnostic band through the port that raised it and reaches this card as nothing.
+// Never pins a refusal: the run enumeration is unregistered wire, so on a live bridge
+// this read refuses for every channel in every session, and a refusal drawn here would
+// be a permanent banner above every conversation reporting a feature the room may
+// never use. The refusal reaches the diagnostic band through the port that raised it
+// and reaches this card as nothing.
 //
 // States — absent (no channel in scope, no run scoped to it, or every scoped run
 // settled): no element. Unasked and in flight: no element, for the same reason — a

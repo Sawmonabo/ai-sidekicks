@@ -13,8 +13,8 @@ import type {
 
 export interface ApprovalGrowthSignatures {
   // approval — the four methods the approvals pane calls. The corpus REGISTERS all
-  // four method strings (`api-payload-contracts.md §Approval Method-Name Registry`),
-  // and `@ai-sidekicks/contracts` publishes neither half of any of their pairs — so
+  // four method strings in the approval method-name registry, and
+  // `@ai-sidekicks/contracts` publishes neither half of any of their pairs — so
   // they fail the registry's second admission conjunct and are the port's, not
   // `callDaemon`'s. `approval.requestCreate` is the registry's fifth and is
   // daemon-raised, so this console holds no operation for it; `PermissionCheck` is

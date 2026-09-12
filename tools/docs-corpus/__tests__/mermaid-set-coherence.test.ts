@@ -20,76 +20,76 @@ function withFile(content: string, fn: (path: string) => void): void {
 }
 
 describe("mermaid-set-coherence", () => {
-  // PR #27 round 2: NS-22 was added as a :::ready graph node but the prose
-  // enumeration `(NS-01, NS-03, NS-04, NS-11, NS-12, NS-13a, NS-14)` did not
+  // PR #27 round 2: ZZ-22 was added as a :::ready graph node but the prose
+  // enumeration `(ZZ-01, ZZ-03, ZZ-04, ZZ-11, ZZ-12, ZZ-13a, ZZ-14)` did not
   // include it — yet was claimed to "share no code paths" with the rest.
   const PR27_PRE_FIX = `
 # Page
 
 \`\`\`mermaid
 graph TB
-  NS01[NS-01: foo]:::ready
-  NS03[NS-03: bar]:::ready
-  NS04[NS-04: baz]:::ready
-  NS11[NS-11: qux]:::ready
-  NS12[NS-12: quux]:::ready
-  NS13a[NS-13a: corge]:::ready
-  NS14[NS-14: grault]:::ready
-  NS22[NS-22: garply]:::ready
+  ZZ01[ZZ-01: foo]:::ready
+  ZZ03[ZZ-03: bar]:::ready
+  ZZ04[ZZ-04: baz]:::ready
+  ZZ11[ZZ-11: qux]:::ready
+  ZZ12[ZZ-12: quux]:::ready
+  ZZ13a[ZZ-13a: corge]:::ready
+  ZZ14[ZZ-14: grault]:::ready
+  ZZ22[ZZ-22: garply]:::ready
 
   classDef ready fill:#9f9,stroke:#0a0,color:#000
 \`\`\`
 
-The ready set (NS-01, NS-03, NS-04, NS-11, NS-12, NS-13a, NS-14) shares no code paths.
+The ready set (ZZ-01, ZZ-03, ZZ-04, ZZ-11, ZZ-12, ZZ-13a, ZZ-14) shares no code paths.
 `;
 
-  // Fix variant A: NS-22 dropped from graph; prose unchanged.
+  // Fix variant A: ZZ-22 dropped from graph; prose unchanged.
   const PR27_POST_FIX_A = `
 # Page
 
 \`\`\`mermaid
 graph TB
-  NS01[NS-01: foo]:::ready
-  NS03[NS-03: bar]:::ready
+  ZZ01[ZZ-01: foo]:::ready
+  ZZ03[ZZ-03: bar]:::ready
 
   classDef ready fill:#9f9,stroke:#0a0,color:#000
 \`\`\`
 
-The ready set (NS-01, NS-03) shares no code paths.
+The ready set (ZZ-01, ZZ-03) shares no code paths.
 `;
 
-  // Fix variant B: NS-22 reclassified :::blocked (the actual landed fix).
+  // Fix variant B: ZZ-22 reclassified :::blocked (the actual landed fix).
   const PR27_POST_FIX_B = `
 # Page
 
 \`\`\`mermaid
 graph TB
-  NS01[NS-01: foo]:::ready
-  NS22[NS-22: garply]:::blocked
+  ZZ01[ZZ-01: foo]:::ready
+  ZZ22[ZZ-22: garply]:::blocked
 
   classDef ready fill:#9f9,stroke:#0a0,color:#000
   classDef blocked fill:#fcc,stroke:#a00,color:#000
 \`\`\`
 
-The ready set (NS-01) shares no code paths.
+The ready set (ZZ-01) shares no code paths.
 `;
 
-  it("REJECTS the pre-fix PR-#27 round 2 state (NS-22 in :::ready, missing from prose)", () => {
+  it("REJECTS the pre-fix PR-#27 round 2 state (ZZ-22 in :::ready, missing from prose)", () => {
     withFile(PR27_PRE_FIX, (file) => {
       const violations = parseFile(file);
       expect(violations).toHaveLength(1);
-      expect(violations[0].extra).toContain("NS22");
-      expect(formatMermaidViolations(violations)).toMatch(/in graph but not prose: NS22/);
+      expect(violations[0].extra).toContain("ZZ22");
+      expect(formatMermaidViolations(violations)).toMatch(/in graph but not prose: ZZ22/);
     });
   });
 
-  it("ACCEPTS PR-#27 fix variant A (NS-22 dropped from graph + prose)", () => {
+  it("ACCEPTS PR-#27 fix variant A (ZZ-22 dropped from graph + prose)", () => {
     withFile(PR27_POST_FIX_A, (file) => {
       expect(parseFile(file)).toEqual([]);
     });
   });
 
-  it("ACCEPTS PR-#27 fix variant B (NS-22 reclassified :::blocked)", () => {
+  it("ACCEPTS PR-#27 fix variant B (ZZ-22 reclassified :::blocked)", () => {
     withFile(PR27_POST_FIX_B, (file) => {
       expect(parseFile(file)).toEqual([]);
     });
@@ -113,8 +113,8 @@ describe("mermaid-set-coherence — checkMermaidSetCoherence multi-file aggregat
   const GRAPH = [
     "```mermaid",
     "graph TB",
-    "  NS01[NS-01: foo]:::ready",
-    "  NS22[NS-22: garply]:::ready",
+    "  ZZ01[ZZ-01: foo]:::ready",
+    "  ZZ22[ZZ-22: garply]:::ready",
     "",
     "  classDef ready fill:#9f9,stroke:#0a0,color:#000",
     "```",
@@ -124,14 +124,14 @@ describe("mermaid-set-coherence — checkMermaidSetCoherence multi-file aggregat
     "# Page",
     "",
     ...GRAPH,
-    "The ready set (NS-01) shares no code paths.",
+    "The ready set (ZZ-01) shares no code paths.",
     "",
   ].join("\n");
   const CLEAN = [
     "# Page",
     "",
     ...GRAPH,
-    "The ready set (NS-01, NS-22) shares no code paths.",
+    "The ready set (ZZ-01, ZZ-22) shares no code paths.",
     "",
   ].join("\n");
 
@@ -156,7 +156,7 @@ describe("mermaid-set-coherence — checkMermaidSetCoherence multi-file aggregat
       const violations = checkMermaidSetCoherence([first, second]);
       expect(violations).toHaveLength(1);
       expect(violations[0].file).toBe(second);
-      expect(violations[0].extra).toContain("NS22");
+      expect(violations[0].extra).toContain("ZZ22");
     });
   });
 
@@ -176,10 +176,9 @@ describe("mermaid-set-coherence — checkMermaidSetCoherence multi-file aggregat
 // spot is correct. Read the block comment before "fixing" a failure here.
 //
 // Measured 2026-07-28 against the checker's real denominator — the two files in
-// docs/ that carry a mermaid `classDef` (cross-plan-dependencies.md and
-// 2026-05-03-plan-execution-housekeeper-design.md). Running the shipped
+// docs/ that carry a mermaid `classDef`. Running the shipped
 // checkMermaidSetCoherence over both returns []. Every live set claim in
-// cross-plan-dependencies.md uses the brace form `<adjective> set **{…}**`,
+// the corpus uses the brace form `<adjective> set **{…}**`,
 // whose adjectives (ready/blocked/completed/governance) ARE declared classDef
 // names — so the adjective guard passes and only the `(` delimiter blocks the
 // match. This gate has never fired on a corpus line in either form.
@@ -197,29 +196,29 @@ describe("mermaid-set-coherence — KNOWN GAP: shapes the enumeration regex cann
   const GRAPH = [
     "```mermaid",
     "graph TB",
-    "  NS01[NS-01: a]:::ready",
-    "  NS22[NS-22: b]:::ready",
+    "  ZZ01[ZZ-01: a]:::ready",
+    "  ZZ22[ZZ-22: b]:::ready",
     "",
     "  classDef ready fill:#9f9,stroke:#0a0,color:#000",
     "```",
     "",
   ].join("\n");
 
-  // Each prose line below is INCOHERENT with the graph above (it omits NS-22),
+  // Each prose line below is INCOHERENT with the graph above (it omits ZZ-22),
   // so a checker that saw the shape would report exactly one violation.
   const UNSEEN_SHAPES: Array<[label: string, prose: string]> = [
-    ["brace form — the live corpus spelling", "The ready set **{NS-01}** shares no code paths."],
-    ["bare brace form", "The ready set {NS-01} shares no code paths."],
+    ["brace form — the live corpus spelling", "The ready set **{ZZ-01}** shares no code paths."],
+    ["bare brace form", "The ready set {ZZ-01} shares no code paths."],
     // Both endpoints are the SAME real node on purpose. A range spanning a
     // node that does not exist would be unseen for two reasons at once, and
     // this entry has to pin exactly one: the `.` character. Under either
-    // widening — char class alone (list token `NS-01..NS-01`) or true range
-    // expansion (`{NS-01}`) — the set is still incoherent with the graph, so
+    // widening — char class alone (list token `ZZ-01..ZZ-01`) or true range
+    // expansion (`{ZZ-01}`) — the set is still incoherent with the graph, so
     // this entry must go red rather than pass for a second, unstated reason.
-    ["range notation — `.` is outside the list char class", "The ready set (NS-01..NS-01) ships."],
+    ["range notation — `.` is outside the list char class", "The ready set (ZZ-01..ZZ-01) ships."],
     [
       "two-set brace line — the `shrinks from … to …` shape",
-      "The ready set shrinks from **{NS-01, NS-22}** to **{NS-01}**.",
+      "The ready set shrinks from **{ZZ-01, ZZ-22}** to **{ZZ-01}**.",
     ],
   ];
 
@@ -233,10 +232,10 @@ describe("mermaid-set-coherence — KNOWN GAP: shapes the enumeration regex cann
     // Proves the fixtures above fail for their stated reason — the SHAPE —
     // and not because the graph, classDef, or adjective is wrong. Without
     // this, a graph typo would make all four pass vacuously.
-    withFile(`# Page\n\n${GRAPH}\nThe ready set (NS-01) shares no code paths.\n`, (file) => {
+    withFile(`# Page\n\n${GRAPH}\nThe ready set (ZZ-01) shares no code paths.\n`, (file) => {
       const violations = parseFile(file);
       expect(violations).toHaveLength(1);
-      expect(violations[0].extra).toContain("NS22");
+      expect(violations[0].extra).toContain("ZZ22");
     });
   });
 });
@@ -247,13 +246,13 @@ describe("mermaid-set-coherence — KNOWN GAP: shapes the enumeration regex cann
 // info-string'd inner delimiter ended suppression early), and the node scan
 // recognized only an exactly-three-backtick mermaid opener.
 describe("mermaid-set-coherence — fence tracking (shared advanceScanState)", () => {
-  // NS22 decorated :::ready but absent from any (NS-01)-only enumeration — the
+  // ZZ22 decorated :::ready but absent from any (ZZ-01)-only enumeration — the
   // incoherence every fixture below carries.
   const GRAPH_LINES = [
     "```mermaid",
     "graph TB",
-    "  NS01[NS-01: a]:::ready",
-    "  NS22[NS-22: b]:::ready",
+    "  ZZ01[ZZ-01: a]:::ready",
+    "  ZZ22[ZZ-22: b]:::ready",
     "",
     "  classDef ready fill:#9f9,stroke:#0a0,color:#000",
     "```",
@@ -271,7 +270,7 @@ describe("mermaid-set-coherence — fence tracking (shared advanceScanState)", (
       "```markdown",
       "Example of a nested opener rendered literally:",
       "```ts",
-      "The ready set (NS-01) shares no code paths.",
+      "The ready set (ZZ-01) shares no code paths.",
       "```",
       "",
       "Prose after.",
@@ -296,12 +295,12 @@ describe("mermaid-set-coherence — fence tracking (shared advanceScanState)", (
       "literal content",
       "```",
       "",
-      "The ready set (NS-01) shares no code paths.",
+      "The ready set (ZZ-01) shares no code paths.",
     ].join("\n");
     withFile(doc, (file) => {
       const violations = parseFile(file);
       expect(violations).toHaveLength(1);
-      expect(violations[0].extra).toContain("NS22");
+      expect(violations[0].extra).toContain("ZZ22");
     });
   });
 
@@ -312,7 +311,7 @@ describe("mermaid-set-coherence — fence tracking (shared advanceScanState)", (
       ...GRAPH_LINES,
       "",
       "> ```text",
-      "> The ready set (NS-01) shares no code paths.",
+      "> The ready set (ZZ-01) shares no code paths.",
       "> ```",
       "",
       "Prose after.",
@@ -342,12 +341,12 @@ describe("mermaid-set-coherence — fence tracking (shared advanceScanState)", (
       "",
       ...GRAPH_LINES.map((line) => `    ${line}`),
       "",
-      "The ready set (NS-01) shares no code paths.",
+      "The ready set (ZZ-01) shares no code paths.",
     ].join("\n");
     withFile(doc, (file) => {
       const violations = parseFile(file);
       expect(violations).toHaveLength(1);
-      expect(violations[0].extra).toContain("NS22");
+      expect(violations[0].extra).toContain("ZZ22");
     });
   });
 
@@ -357,18 +356,18 @@ describe("mermaid-set-coherence — fence tracking (shared advanceScanState)", (
       "",
       "~~~mermaid",
       "graph TB",
-      "  NS01[NS-01: a]:::ready",
-      "  NS22[NS-22: b]:::ready",
+      "  ZZ01[ZZ-01: a]:::ready",
+      "  ZZ22[ZZ-22: b]:::ready",
       "",
       "  classDef ready fill:#9f9,stroke:#0a0,color:#000",
       "~~~",
       "",
-      "The ready set (NS-01) shares no code paths.",
+      "The ready set (ZZ-01) shares no code paths.",
     ].join("\n");
     withFile(doc, (file) => {
       const violations = parseFile(file);
       expect(violations).toHaveLength(1);
-      expect(violations[0].extra).toContain("NS22");
+      expect(violations[0].extra).toContain("ZZ22");
     });
   });
 
@@ -377,13 +376,13 @@ describe("mermaid-set-coherence — fence tracking (shared advanceScanState)", (
       "# Page",
       "",
       ...GRAPH_LINES,
-      "The ready set (NS-01) shares no code paths.",
+      "The ready set (ZZ-01) shares no code paths.",
       "",
     ].join("\n");
     const violations = parseFile("/virtual/graph.md", () => doc);
     expect(violations).toHaveLength(1);
     expect(violations[0].file).toBe("/virtual/graph.md");
-    expect(violations[0].extra).toContain("NS22");
+    expect(violations[0].extra).toContain("ZZ22");
   });
 });
 
@@ -394,8 +393,8 @@ describe("mermaid-set-coherence — LIVE DEFECT: a two-set line is judged on its
   const GRAPH = [
     "```mermaid",
     "graph TB",
-    "  NS01[NS-01: a]:::ready",
-    "  NS22[NS-22: b]:::ready",
+    "  ZZ01[ZZ-01: a]:::ready",
+    "  ZZ22[ZZ-22: b]:::ready",
     "",
     "  classDef ready fill:#9f9,stroke:#0a0,color:#000",
     "```",
@@ -405,17 +404,17 @@ describe("mermaid-set-coherence — LIVE DEFECT: a two-set line is judged on its
   it("silently keys on the FIRST set, so an after-state that matches still reports", () => {
     // The lazy `^.*?` prefix takes the earliest match, so a "becomes" line is
     // judged against its BEFORE state with no indication that a second set was
-    // present — here the after-state (NS-01, NS-22) is exactly coherent with
+    // present — here the after-state (ZZ-01, ZZ-22) is exactly coherent with
     // the graph, and the line is still reported against the before-state.
     // This is also why widening to braces needs a two-set decision first:
     // every historical "shrinks from {A} to {B}" line would become a violation
     // keyed on A.
     withFile(
-      `# Page\n\n${GRAPH}\nThe ready set (NS-01) becomes the ready set (NS-01, NS-22).\n`,
+      `# Page\n\n${GRAPH}\nThe ready set (ZZ-01) becomes the ready set (ZZ-01, ZZ-22).\n`,
       (file) => {
         const violations = parseFile(file);
         expect(violations).toHaveLength(1);
-        expect(violations[0].prose).toEqual(["NS-01"]);
+        expect(violations[0].prose).toEqual(["ZZ-01"]);
       },
     );
   });

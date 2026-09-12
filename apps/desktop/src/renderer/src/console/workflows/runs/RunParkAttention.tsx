@@ -18,8 +18,8 @@
 // IT OFFERS NOTHING. An attention entry gates no control: starting, resuming,
 // cancelling and re-pinning are the daemon's adjudications reaching the console as
 // typed refusals, and a line that disabled one would be a renderer deciding a question
-// it does not own. Nor does anything here notify — `Spec-019` owns whether a person is
-// interrupted, and this surface mints no OS notification.
+// it does not own. Nor does anything here notify — whether a person is interrupted is
+// the notifications surface's to decide, and this surface mints no OS notification.
 
 import { Chip, DerivedFigure, WireFigure, formatCount } from "../../primitives/index.js";
 import { ParkBadge } from "../parks/ParkBadge.js";

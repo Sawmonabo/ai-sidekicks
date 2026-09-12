@@ -1,6 +1,6 @@
 // Contract coverage for the machine-authored content partition — the sealing
 // codec's content half, the session content key store behind it, and the
-// end-to-end append that joins them (Plan-006 T3.6).
+// end-to-end append that joins them.
 //
 // ---------------------------------------------------------------------------
 // THE ENUMERATION THIS FILE OPENS WITH, AND WHY IT IS A TEST
@@ -11,7 +11,7 @@
 // matching:
 //
 //   * `CODEC_ROUTING_MATRIX` — the three partition combinations the codec must
-//     route (participant PII alone, machine content alone, both on one row)
+//     route (user PII alone, machine content alone, both on one row)
 //     crossed with what each must produce in the two columns and in the signed
 //     payload. The content-only row is the case the shipped code had no path
 //     for at all: an assistant or tool row carries prose and usually no PII, so
@@ -60,11 +60,6 @@
 // truncation arms hold the same discipline across the bound: one body under it,
 // one exactly on it, one over it.
 //
-// Spec coverage: `Spec-006 §Canonical Serialization Rules` (the digest inside
-// the signed payload, the ciphertext outside it), `Spec-022 §Daemon Master Key`
-// (the wrap custody shape), `Spec-022 §Retention Policy` (the rotation the
-// re-wrap entry point serves). Refs: Plan-006 T3.6, I-006-3-05, I-006-3-06,
-// I-006-3-08.
 
 import { randomBytes } from "node:crypto";
 
@@ -95,7 +90,7 @@ import { IngestHaltRegistry } from "../ingest-halt-source.js";
 import {
   BODY_BEARING_EVENT_TYPES,
   PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
-  PII_PARTICIPANT_ID_PAYLOAD_KEY,
+  PII_USER_ID_PAYLOAD_KEY,
   openContentPayload,
   writeEventWithPii,
   type ContentOnlyEventInput,
@@ -127,7 +122,7 @@ import {
 const SESSION: SessionId = SessionIdSchema.parse("0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10");
 const OTHER_SESSION: SessionId = SessionIdSchema.parse("0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f11");
 const ENVELOPE_VERSION = EventEnvelopeVersionSchema.parse("1.0");
-const PARTICIPANT = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f20";
+const USER = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f20";
 
 const DAEMON_PRIVATE_KEY = new Uint8Array(32).fill(11) as Ed25519PrivateKey;
 const DAEMON_PUBLIC_KEY = ed25519.getPublicKey(DAEMON_PRIVATE_KEY) as Ed25519PublicKey;
@@ -192,12 +187,9 @@ class DeterministicPiiEncryptor implements PiiEncryptor {
 
   encrypt(request: PiiEncryptionRequest): Promise<Uint8Array> {
     this.encryptCallCount += 1;
-    const keystream = blake3(
-      new TextEncoder().encode(`${request.participantId} ${request.eventId}`),
-      {
-        dkLen: Math.max(1, request.plaintext.length),
-      },
-    );
+    const keystream = blake3(new TextEncoder().encode(`${request.userId} ${request.eventId}`), {
+      dkLen: Math.max(1, request.plaintext.length),
+    });
     const sealed = new Uint8Array(request.plaintext.length);
     for (let index = 0; index < request.plaintext.length; index += 1) {
       sealed[index] = (request.plaintext[index] ?? 0) ^ (keystream[index] ?? 0);
@@ -253,7 +245,7 @@ function makePiiCarryingInput(overrides?: {
     actor: "agent-1",
     payload: overrides?.payload ?? { sessionId: SESSION, runId: "run-1" },
     version: ENVELOPE_VERSION,
-    piiParticipantId: PARTICIPANT,
+    piiUserId: USER,
     piiPayload: { quoted: "something a person typed" },
     ...(overrides?.withContent === true
       ? { content: { body: "the assistant said this", contentKey: CONTENT_KEY } }
@@ -285,13 +277,13 @@ interface CodecRoutingCase {
 
 const CODEC_ROUTING_MATRIX: readonly CodecRoutingCase[] = [
   {
-    name: "participant partition alone",
+    name: "user partition alone",
     build: () => makePiiCarryingInput(),
     expected: {
       piiColumnPresent: true,
       contentColumnPresent: false,
       encryptorCalled: true,
-      signedPayloadKeys: [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY, PII_PARTICIPANT_ID_PAYLOAD_KEY],
+      signedPayloadKeys: [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY, PII_USER_ID_PAYLOAD_KEY],
     },
   },
   {
@@ -313,7 +305,7 @@ const CODEC_ROUTING_MATRIX: readonly CodecRoutingCase[] = [
       encryptorCalled: true,
       signedPayloadKeys: [
         PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
-        PII_PARTICIPANT_ID_PAYLOAD_KEY,
+        PII_USER_ID_PAYLOAD_KEY,
         CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
         CONTENT_LENGTH_PAYLOAD_KEY,
       ],
@@ -470,7 +462,7 @@ interface CodecRefusalCase {
    * EVIDENCE of pre-encrypt ordering on any content-only row: the injected
    * encryptor is never called for one whatever happens, so the zero says
    * nothing about when the guard fired. The arms that pin the ordering are the
-   * ones carrying a participant partition — where the encrypt step WOULD have
+   * ones carrying a user partition — where the encrypt step WOULD have
    * run — and refusal 9's PII arm asserts `1` for exactly that reason.
    */
   readonly expectedEncryptCalls?: number;
@@ -533,11 +525,11 @@ const CODEC_REFUSAL_MATRIX: readonly CodecRefusalCase[] = [
     message: /neither a PII partition nor a content partition/,
   },
   {
-    name: "a participant id with no participant payload",
+    name: "a user id with no user payload",
     ordinal: 1,
     arm: "half-present PII partition",
-    build: () => contentRowWith({ piiParticipantId: PARTICIPANT }),
-    message: /piiParticipantId with no piiPayload/,
+    build: () => contentRowWith({ piiUserId: USER }),
+    message: /piiUserId with no piiPayload/,
   },
   {
     // The closed set is derived from the contracts union, so this arm is what
@@ -552,7 +544,7 @@ const CODEC_REFUSAL_MATRIX: readonly CodecRefusalCase[] = [
     message: /content partition on event type "session\.created"/,
   },
   {
-    name: "a payload that pre-seeds the participant ciphertext digest",
+    name: "a payload that pre-seeds the user ciphertext digest",
     ordinal: 2,
     arm: "reserved PII digest",
     build: () =>
@@ -568,7 +560,7 @@ const CODEC_REFUSAL_MATRIX: readonly CodecRefusalCase[] = [
     message: new RegExp(PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY),
   },
   {
-    name: "a payload that pre-seeds the participant owner stamp",
+    name: "a payload that pre-seeds the user owner stamp",
     ordinal: 2,
     arm: "reserved PII stamp",
     build: () =>
@@ -576,10 +568,10 @@ const CODEC_REFUSAL_MATRIX: readonly CodecRefusalCase[] = [
         payload: {
           sessionId: SESSION,
           runId: "run-1",
-          [PII_PARTICIPANT_ID_PAYLOAD_KEY]: "planted",
+          [PII_USER_ID_PAYLOAD_KEY]: "planted",
         },
       }) as RawEventInput,
-    message: new RegExp(PII_PARTICIPANT_ID_PAYLOAD_KEY),
+    message: new RegExp(PII_USER_ID_PAYLOAD_KEY),
   },
   {
     name: "a payload that pre-seeds the content ciphertext digest",
@@ -646,11 +638,11 @@ const CODEC_REFUSAL_MATRIX: readonly CodecRefusalCase[] = [
     message: /daemon signing key/,
   },
   {
-    name: "an empty participant id beside a participant payload",
+    name: "an empty user id beside a user payload",
     ordinal: 7,
-    arm: "participant id shape",
-    build: () => ({ ...makePiiCarryingInput(), piiParticipantId: "" }) as unknown as RawEventInput,
-    message: /non-empty piiParticipantId/,
+    arm: "user id shape",
+    build: () => ({ ...makePiiCarryingInput(), piiUserId: "" }) as unknown as RawEventInput,
+    message: /non-empty piiUserId/,
   },
   {
     name: "a body that is not a string",
@@ -729,11 +721,11 @@ const CODEC_REFUSAL_MATRIX: readonly CodecRefusalCase[] = [
   },
   {
     // THE PII ROUTE, and the arm that pins refusal 9's placement. This row
-    // carries a participant partition on a registered type, so the encrypt step
+    // carries a user partition on a registered type, so the encrypt step
     // has already run when the parse refuses — `expectedEncryptCalls: 1` is the
     // assertion, and a `0` here would mean the guard had been hoisted ahead of
     // the seal and was judging a reconstruction rather than the signed form.
-    name: "a participant row whose payload its registered variant rejects",
+    name: "a user row whose payload its registered variant rejects",
     ordinal: 9,
     arm: "composed-variant parse",
     build: () => makePiiCarryingInput({ payload: { runId: "run-1" } }),
@@ -774,7 +766,7 @@ describe("content partition routing and key-failure enumeration", () => {
     // Three combinations, and the count is the claim: a fourth would mean a new
     // partition, and a third arm with neither is refused rather than routed.
     expect(CODEC_ROUTING_MATRIX.map((routingCase) => routingCase.name)).toEqual([
-      "participant partition alone",
+      "user partition alone",
       "machine content partition alone",
       "both partitions on one row",
     ]);
@@ -871,7 +863,7 @@ describe("content partition routing and key-failure enumeration", () => {
       // leaks onto a row that does not carry it.
       const allCodecKeys: readonly string[] = [
         PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
-        PII_PARTICIPANT_ID_PAYLOAD_KEY,
+        PII_USER_ID_PAYLOAD_KEY,
         CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
         CONTENT_LENGTH_PAYLOAD_KEY,
       ];
@@ -974,7 +966,7 @@ describe("machine content sealing", () => {
     expect(payload[CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY]).toBe(
       bytesToHex(blake3(result.contentPayload!)),
     );
-    expect(result.piiParticipantId).toBe(PARTICIPANT);
+    expect(result.piiUserId).toBe(USER);
   });
 });
 
@@ -1170,12 +1162,12 @@ describe("codec refusals over the content partition", () => {
     );
   });
 
-  it("keeps the participant half rather than routing a half-present row as content", async () => {
+  it("keeps the user half rather than routing a half-present row as content", async () => {
     // The negative control for refusal 1's third arm, and the reason that arm
-    // exists: supplying BOTH halves seals the participant partition instead of
+    // exists: supplying BOTH halves seals the user partition instead of
     // silently dropping it, which is what the refused shape would have done.
     const result = await seal(makePiiCarryingInput(), new DeterministicPiiEncryptor());
-    expect(result.piiParticipantId).toBe(PARTICIPANT);
+    expect(result.piiUserId).toBe(USER);
     expect(result.piiPayload).toBeInstanceOf(Uint8Array);
   });
 
@@ -1219,7 +1211,7 @@ describe("codec refusals over the content partition", () => {
     }
   });
 
-  it("refuses a content partition on an unregistered type before spending the participant nonce", async () => {
+  it("refuses a content partition on an unregistered type before spending the user nonce", async () => {
     // The refusal matrix drives this arm on a content-ONLY row, where the
     // encryptor is never called whatever happens. Pairing it with a PII
     // partition is what makes `encryptCallCount` a real assertion: the encrypt
@@ -1242,7 +1234,7 @@ describe("codec refusals over the content partition", () => {
     expect(encryptor.encryptCallCount).toBe(1);
   });
 
-  it("refuses an ill-formed body before spending the participant nonce", async () => {
+  it("refuses an ill-formed body before spending the user nonce", async () => {
     const encryptor = new DeterministicPiiEncryptor();
     const illFormedRow = {
       ...makePiiCarryingInput({ withContent: true }),
@@ -1290,12 +1282,12 @@ describe("codec refusals over the content partition", () => {
     // guard that parsed every row would make this codec the one place the
     // carrier is not tolerated. This payload would satisfy no registered
     // variant — it declares a member none of them knows — and the row seals
-    // anyway, because no variant claims to interpret `participant.exported`.
+    // anyway, because no variant claims to interpret `user.exported`.
     const result = await seal(
       {
         ...makePiiCarryingInput(),
-        type: "participant.exported",
-        category: "participant_lifecycle",
+        type: "user.exported",
+        category: "user_lifecycle",
         payload: { improvisedMember: "a higher-MINOR producer's member" },
       } as unknown as RawEventInput,
       new DeterministicPiiEncryptor(),
@@ -1314,15 +1306,14 @@ describe("codec refusals over the content partition", () => {
   });
 
   it("parses the composed row VERBATIM — nothing is projected away before the guard", async () => {
-    // THE CLAIM THE SEAM RESTS ON. An earlier revision of this guard cut the
-    // two participant bindings out of its parse subject, because no registered
+    // THE CLAIM THE SEAM RESTS ON. An earlier revision of this guard cut the two
+    // user bindings out of its parse subject, because no registered
     // variant declared them and every payload schema is `.strict()`, so a
-    // verbatim parse would have refused every participant row ever written.
+    // verbatim parse would have refused every user row ever written.
     // `packages/contracts/src/event.ts` now registers both as schema-optional
     // members on every variant whose category may carry a PII partition, which
-    // is what `Spec-006 §Canonical Serialization Rules` requires of such a row —
-    // so the cut is gone and the guard judges the signed row exactly as a reader
-    // will get it back.
+    // is what requires of such a row — so the cut is gone and the guard judges
+    // the signed row exactly as a reader will get it back.
     //
     // Asserted on the SUCCESS path, in three legs, because a regression here
     // would be silent: a guard that quietly went back to projecting would still
@@ -1335,7 +1326,7 @@ describe("codec refusals over the content partition", () => {
     // (1) Both bindings are on the row that was signed — the owner stamp the
     // shred selector reads, and the digest the verifier compares.
     const payload = result.envelope.payload as Record<string, unknown>;
-    expect(payload[PII_PARTICIPANT_ID_PAYLOAD_KEY]).toBe(PARTICIPANT);
+    expect(payload[PII_USER_ID_PAYLOAD_KEY]).toBe(USER);
     expect(typeof payload[PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]).toBe("string");
 
     // (2) The signature covers that row: canonical bytes re-derived from the
@@ -1504,7 +1495,7 @@ describe("session content key custody", () => {
     seedTransaction.exclusive(SESSION);
 
     // The rotation runs inside the caller's own BEGIN EXCLUSIVE, exactly as
-    // rotate-on-shred will run it beside the participant-key re-wrap.
+    // rotate-on-shred will run it beside the user-key re-wrap.
     const rotateAndFail = database.transaction((): void => {
       store.rewrapAll(MASTER_KEY, ROTATED_MASTER_KEY);
       throw new Error("the caller's later step failed");
@@ -1766,7 +1757,7 @@ describe("appending a row that carries machine-authored prose", () => {
 
     await service.append(envelope, {
       content: { body: "as you said earlier" },
-      pii: { participantId: PARTICIPANT, piiPayload: { quoted: "something a person typed" } },
+      pii: { userId: USER, piiPayload: { quoted: "something a person typed" } },
     });
 
     const row = readStoredRow(envelope.id);
@@ -2294,7 +2285,7 @@ describe("appending a row that carries machine-authored prose", () => {
       // reconciliation this session held a wrapped DEK forever: it never
       // compacts (there is nothing to compact) so no clearing path would ever
       // reach it, and `rewrapAll` would walk it on every unrelated
-      // participant's erasure for the life of the node.
+      // user's erasure for the life of the node.
       expect(keyRowCount(SESSION)).toBe(0);
       expect(database.prepare(`SELECT COUNT(*) AS total FROM session_events`).get()).toEqual({
         total: 0,
@@ -2419,9 +2410,8 @@ describe("appending a row that carries machine-authored prose", () => {
 // indirection pair, and each spells it in its own vocabulary:
 //
 //   * the codec, per CATEGORY, at `PII_REFUSED_CATEGORY_NAMES` and the switch
-//     that reads it — the refusal that keeps a `pii_payload` off a row
-//     `Plan-006 §Audit Integrity Invariant` says is never compacted and never
-//     crypto-shredded;
+//     that reads it — the refusal that keeps a `pii_payload` off a row says
+//     is never compacted and never crypto-shredded;
 //   * `packages/contracts/src/event.ts`, per registered VARIANT, as the
 //     presence or absence of the two optional members in that variant's payload
 //     shape.
@@ -2433,7 +2423,7 @@ describe("appending a row that carries machine-authored prose", () => {
 // refactor, a category added to `EventCategorySchema` and forgotten here — the
 // codec starts sealing rows whose variants do not register the pair, and the
 // failure surfaces only AFTER the AES seal, on a row class the corpus says
-// never carries participant text at all. The per-variant ratchet in
+// never carries user text at all. The per-variant ratchet in
 // `packages/contracts/src/__tests__/event-source-epoch.test.ts` cannot see
 // that: it knows only what its own file spells.
 //
@@ -2504,7 +2494,7 @@ function readPiiIndirectionVerdict(
 ): PiiIndirectionVariantVerdict {
   const withPair = probeVariant(eventType, category, {
     [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: "0".repeat(64),
-    [PII_PARTICIPANT_ID_PAYLOAD_KEY]: PARTICIPANT,
+    [PII_USER_ID_PAYLOAD_KEY]: USER,
   });
   if (withPair.success) {
     return "admits";
@@ -2513,8 +2503,7 @@ function readPiiIndirectionVerdict(
     (issue) =>
       issue.code === "unrecognized_keys" &&
       issue.keys.some(
-        (key) =>
-          key === PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY || key === PII_PARTICIPANT_ID_PAYLOAD_KEY,
+        (key) => key === PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY || key === PII_USER_ID_PAYLOAD_KEY,
       ),
   );
   if (namesPair) {

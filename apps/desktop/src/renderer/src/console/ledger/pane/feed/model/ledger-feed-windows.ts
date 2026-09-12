@@ -37,7 +37,7 @@
 // that holds this chain.
 //
 // AND ONE WALK, WHICH IS THE OTHER END OF THE LOG. The store's window begins wherever
-// this participant's stream was last acknowledged, and everything below that head was
+// this user's stream was last acknowledged, and everything below that head was
 // never delivered — so the ledger reaches it by asking rather than by scrolling.
 // `useLedgerEarlierPaging` is that walk, held here because this is where the session
 // store is, and handed on to the viewport, where the head control is placed beside
@@ -98,7 +98,7 @@ export interface LedgerFeedWindowsInputs {
  *
  * Published as separate members rather than as the last window alone, because the
  * surfaces above read from three different points in it: the facet bar offers facets
- * derived from the whole unfurled projection (or admitting one participant would take
+ * derived from the whole unfurled projection (or admitting one user would take
  * away the chip that widens back), find classifies an id against every narrowing to
  * say WHICH one is the reason a row is not on screen, and the rows render the folded
  * one.
@@ -130,7 +130,7 @@ export interface LedgerFeedWindows {
    * A MEMBER OF THE CHAIN AND NOT OF A WINDOW, which is the whole of the fix. Whether
    * a request still needs answering is a fact about everything this pane is a log of,
    * and every stage below the projection is a NARROWING somebody chose — a facet chip,
-   * a folded chapter, a folded band. A participant filter that admits a request row
+   * a folded chapter, a folded band. A user filter that admits a request row
    * and excludes the row that answered it must not be able to take the terminal with
    * it: the ask would find none, and the card would offer answer controls for an ask
    * the log had already settled. Carried on `LedgerWindowModel` the fold was rebuilt
@@ -178,7 +178,7 @@ export function useLedgerFeedWindows(inputs: LedgerFeedWindowsInputs): LedgerFee
   // below — the chapter fold, the viewport, the visible window and find — is built
   // over the narrowed model, so no piece has to remember that a filter exists. The
   // facets the bar offers are the exception, and deliberately so: they are derived
-  // from the WHOLE unfurled projection, or admitting one participant would take away
+  // from the WHOLE unfurled projection, or admitting one user would take away
   // the chip that widens back.
   //
   // AND THE FOLD RUNS AFTER IT, which is the ordering the filter needs to be

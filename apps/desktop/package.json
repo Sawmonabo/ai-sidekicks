@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Desktop shell + renderer skeleton (Electron 44.x / Node 22 tier per ADR-016/022).",
+  "description": "Desktop shell + renderer skeleton (Electron 44.x, Node 22).",
   "license": "Apache-2.0",
   "engines": {
     "node": ">=22.14.0"

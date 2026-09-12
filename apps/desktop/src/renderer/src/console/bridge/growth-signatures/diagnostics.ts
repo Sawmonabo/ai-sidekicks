@@ -6,9 +6,9 @@
 //
 // THE SUBSCRIPTION IS NOT HERE, AND ITS ABSENCE IS THE SECTION'S OWN RULE.
 // `healthSubscribe` sits in the session plane serving a different slate row, and
-// `Spec-023 §Console Design (Meridian)` §Diagnostics and health forbids this surface
-// from using one outright — "there is no health subscription, so the surface re-reads
-// on focus, on reconnect, and on run-terminal events". Five reads and one mutation is
+// the diagnostics and health design forbids this surface from using one outright:
+// there is no health subscription, so the surface re-reads on focus, on reconnect,
+// and on run-terminal events. Five reads and one mutation is
 // the whole plane; a sixth signature that streamed would be a wire this page may not
 // call sitting in the table it calls from.
 
@@ -45,7 +45,7 @@ export interface DiagnosticsGrowthSignatures {
   healthStuckRunInspect: { request: { readonly runId: string }; value: GrowthStuckRunInspection };
   // The one mutation of the plane. `reason` is optional on the wire and the page
   // sends none: the console has no field for it and inventing one would put words in
-  // an operator's mouth on a record `Spec-020` makes durable.
+  // an operator's mouth on a record the observability plane makes durable.
   healthRecoveryActionRequest: {
     request: {
       readonly runId: string;

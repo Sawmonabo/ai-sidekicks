@@ -1,4 +1,4 @@
-// DriverCapabilityCache — Plan-005 Phase 4, T4.5.
+// DriverCapabilityCache behaviour.
 //
 // The two properties this suite exists for are the two the plan row states, and
 // both are asserted the way the row demands rather than the way that would be
@@ -14,12 +14,10 @@
 //     driver changes the second reply), which is a property no stored value
 //     could have.
 //
-// The third property is I-005-2's direction: an undeclared capability is
+// The third property is the direction: an undeclared capability is
 // unsupported, so a driver that does not declare `output_speed` gets no
 // vocabulary member at all rather than an empty one.
 //
-// Refs: Plan-005 §Phase 4 / T4.5, `Spec-005 §Capability discovery`,
-// `Spec-005 §The output-speed axis`, invariant I-005-2.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -167,11 +165,11 @@ describe("DriverCapabilityCache — outputSpeedLevels is re-derived, never store
   });
 });
 
-describe("DriverCapabilityCache — I-005-2, undeclared is unsupported", () => {
+describe("DriverCapabilityCache — undeclared is unsupported", () => {
   it("omits the vocabulary entirely for a driver that declares output_speed false", () => {
-    // ABSENT, not empty. `Spec-005 §The output-speed axis` reads absence as "the
-    // axis is unsettable"; an empty array would instead assert a settable axis
-    // with nothing on it, which is a different and false claim.
+    // Reads absence as "the axis is unsettable"; an empty array would instead
+    // assert a settable axis with nothing on it, which is a different and false
+    // claim.
     const cache = new DriverCapabilityCache({
       hydrateDurableCapabilities: () => hydrationHit(flagsWith({ output_speed: false }), "codex"),
     });

@@ -5,7 +5,7 @@
 //
 // ONE FIELD, AND IT IS RUN-KEYED. An agent's activity travels on the `activity.runs`
 // map, edge-triggered by the owning daemon rather than timed by a receiver, and the
-// snapshot below carries that one list. `collaboration/activity-model.ts` holds the
+// snapshot below carries that one list. `channels/activity-model.ts` holds the
 // clear rule the edge implies.
 //
 // NOTHING HERE CARRIES CONTENT. The wire forbids it, so there is no member for it to
@@ -32,7 +32,7 @@ export interface GrowthAgentActivityReading {
  * A SNAPSHOT AND NOT A DELTA FEED, which is the same discipline the runtime-node
  * roster read keeps: Awareness state is a map each publisher owns outright, so the honest thing
  * to hand a consumer is what that map says now. The console diffs it into its own
- * registry (`collaboration/activity-feed.ts`), which is where the clear rule lives —
+ * registry (`channels/activity-feed.ts`), which is where the clear rule lives —
  * and a wire that emitted edges instead would make every consumer responsible for
  * reconstructing the map from a stream it might have joined late.
  *
@@ -46,7 +46,7 @@ export interface GrowthActivitySnapshot {
 }
 
 /**
- * One device behind a participant's aggregated presence.
+ * One device behind a user's aggregated presence.
  *
  * `deviceId` is wire-verbatim and is rendered as such: it is an opaque identifier the
  * console has no vocabulary for, and a friendly name here would be invented.
@@ -67,7 +67,7 @@ export interface GrowthPresenceDeviceReading {
  * this reading is the detail behind it, never a second source of truth for it.
  */
 export interface GrowthPresenceDetail {
-  readonly participantId: string;
+  readonly userId: string;
   readonly devices: readonly GrowthPresenceDeviceReading[];
   readonly aggregateState: string;
 }

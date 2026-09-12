@@ -159,10 +159,10 @@ export class AgentMutationControl<TSettlement> {
    * A settlement and a round in flight are both claims about the projection they
    * were read against, so a projection that has moved retires them: the daemon has
    * spoken more recently than either. A REFUSAL is a different kind of fact. It is
-   * about the participant's own act — this press did not happen and here is why —
+   * about the user's own act — this press did not happen and here is why —
    * and nothing in a projection move is evidence about whether that write was
    * refused. Retiring it takes the reason off the screen with no act of the
-   * participant's, possibly before it was read, on an event they did not cause and
+   * user's, possibly before it was read, on an event they did not cause and
    * cannot see.
    *
    * @returns whether anything was retired. `false` means a refusal was kept, which

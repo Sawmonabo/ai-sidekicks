@@ -115,8 +115,8 @@ function readChain(
  *
  * The label is composed here because `WorkflowVersionChoice.label` is the caller's —
  * the version's own ordinal, through the console's one quantity formatter, which is
- * what `apps/desktop/AGENTS.md` §Chokepoints means by formatting a wire value in one
- * place.
+ * what the chokepoint rule in `apps/desktop/AGENTS.md` means by formatting a wire
+ * value in one place.
  */
 function choicesFrom(
   versions: readonly WorkflowVersionChainEntry[],

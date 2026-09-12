@@ -29,7 +29,7 @@
 //
 // THE RESUME RULE LANDS BESIDE THAT REPAIR, and for the same reason. Every read this
 // entry performs answers with the log's own positions, and the resume rule is the
-// CONSUMER's to obey: read up from where this participant was last acknowledged rather
+// CONSUMER's to obey: read up from where this user was last acknowledged rather
 // than from the bottom of the window every time. `timeline-resume.ts` decides — and
 // says there which arms are real and why there is no lost-event one — and this entry
 // is what ACTS on the decision, which is the half that was missing. The decision was
@@ -66,11 +66,11 @@
 
 import { RealClock, type ConsoleClock, type ConsoleRefusal } from "../../core/index.js";
 import type { EntityProjectorRegistry } from "../entities/index.js";
-// Deep rather than through `read/index.js`, and `store/read/read-triggers.ts`'s own reach back
-// into `session/` is why: that door is an edge to the trigger surface, which reads
-// the session door, which publishes the hooks that reach this directory's registry
-// — so a fifth edge from here would close a ring `no-circular` fails. AGENTS.md
-// §Module shape names this deep edge as the remedy for exactly that shape.
+// Deep rather than through `read/index.js`, and `store/read/read-triggers.ts`'s own reach
+// back into `session/` is why: that door is an edge to the trigger surface, which reads
+// the session door, which publishes the hooks that reach this directory's registry — so a
+// fifth edge from here would close a ring `no-circular` fails. The package's module-shape
+// rule names this deep edge as the remedy for exactly that shape.
 import { ApplyQueue } from "../read/apply-queue.js";
 import { RefreshScheduler, type RefreshReason } from "../read/refresh-scheduler.js";
 import { type ApplyOutcome } from "./apply-outcome.js";

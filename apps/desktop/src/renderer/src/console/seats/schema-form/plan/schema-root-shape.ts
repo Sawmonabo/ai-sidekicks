@@ -60,7 +60,7 @@ const OBJECT_TYPE = "object";
  * The one sentence a person reads, written for the person looking at the form.
  *
  * It names what the definition did rather than what the wire refuses, because the
- * remedy is in the definition and nowhere a participant can reach. What the root
+ * remedy is in the definition and nowhere a user can reach. What the root
  * declared is deliberately not interpolated: `type`, `enum` and `const` are all
  * author-written, and a refusal that echoed one would put an unbounded string where this
  * console renders a fixed sentence.

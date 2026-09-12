@@ -1,8 +1,8 @@
 // Where a bound is actually SPENT, as opposed to where it is declared.
 //
-// `Spec-023 §Console Design (Meridian)` 12.10 closes on one sentence — "every bound
-// is a named constant in one module, and every refusal names the constant it hit" —
-// and the second half of it has to be built somewhere. `browser-bounds.ts` beside
+// The rule is one sentence — every bound is a named constant in one module, and every
+// refusal names the constant it hit — and the second half of it has to be built
+// somewhere. `browser-bounds.ts` beside
 // this module is the first half: twenty named constants and their derivations, which
 // `BudgetMeter.tsx` renders. This module is the second: the three admissions the
 // renderer is in a position to make, each answering with a refusal that names its

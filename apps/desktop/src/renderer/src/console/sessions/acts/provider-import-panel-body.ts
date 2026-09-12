@@ -3,8 +3,8 @@
 // WHY IT EXISTS. Importing a provider thread is the acts bar's THIRD act and the one
 // furthest from the screen's own question: it lives inside the create menu, so reaching
 // it is a press to open the menu and a press to choose the item, and the panel is absent
-// from the tree until both have happened. `apps/desktop/AGENTS.md` §Module shape decides
-// the form by asking whether a body is painted before a person acts, and this one is
+// from the tree until both have happened. The module-shape rule in `apps/desktop/AGENTS.md`
+// decides the form by asking whether a body is painted before a person acts, and this one is
 // not — on any launch, including every launch that never opens that menu.
 //
 // It rode the initial import graph anyway, because `SessionActs.tsx` named the panel by

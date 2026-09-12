@@ -5,14 +5,14 @@ import { PreferenceToggleRow } from "../../shared/PreferenceToggleRow.js";
 import type { ConsoleRefusal } from "../../../core/index.js";
 import {
   type AttentionPreferenceReading,
-  type CallerParticipantReading,
+  type CallerUserReading,
   type PreferenceToggleMember,
 } from "./attention-preference-model.js";
 import { type TogglePreferenceRow } from "./notification-preference-writer.js";
 
 /** What one preference edit is doing right now: busy per record, refused per switch. */
 export interface StoredPreferenceBinding {
-  readonly participantReading: CallerParticipantReading | undefined;
+  readonly userReading: CallerUserReading | undefined;
   readonly preferenceReading: AttentionPreferenceReading | undefined;
   /** True while the set is being read again. The rows stay; they stop taking presses. */
   readonly isReadInFlight: boolean;

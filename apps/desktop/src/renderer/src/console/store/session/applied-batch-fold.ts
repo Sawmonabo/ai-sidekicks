@@ -14,7 +14,7 @@
 // again by whoever committed the state. What it does not touch is the store's own
 // zustand cell — the state is ANSWERED and never set, so the one writer stays one.
 
-import { ParticipantHueAllocator } from "../../tokens/index.js";
+import { ActorHueAllocator } from "../../tokens/index.js";
 import { worstDegradedCause } from "../degradation.js";
 import type { ConsoleSessionEvent } from "../entities/index.js";
 import { EntityProjectionRunner } from "../entities/entity-projection.js";
@@ -35,7 +35,7 @@ export interface AppliedBatchCollaborators {
   readonly reconciler: SequenceReconciler;
   readonly projectionRunner: EntityProjectionRunner;
   readonly preInitialisationBuffer: PreInitialisationBuffer;
-  readonly hueAllocator: ParticipantHueAllocator;
+  readonly hueAllocator: ActorHueAllocator;
   /** The ledger of what is still waiting on a person. Advanced by every admitted row. */
   readonly outstandingAsks: OutstandingAskJournal;
   readonly timelineCap: number | undefined;

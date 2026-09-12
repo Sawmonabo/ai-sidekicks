@@ -12,7 +12,7 @@
 // share the word "rollback" and no table, no reader, and no failure mode — the
 // seam vocabulary can grow by a kind without a line here changing.
 //
-// THE RULES ARE `Spec-013`'s rather than a reading of that rule: the marker is
+// THE RULES ARE THE CONTRACT'S rather than a reading of them: the marker is
 // single-field and present exactly when superseded, EXCEEDS is the comparison so a
 // row at the cutoff survives, marks are epoch-scoped because re-execution reuses
 // ordinals, and a `legacy_stub` can never be ranked or marked because it
@@ -39,8 +39,8 @@ export interface SupersededBand {
  *
  * IDEMPOTENCE IS STRUCTURAL. The derivation reads the window and produces a set;
  * running it twice over the same window produces the same set, because nothing is
- * accumulated across calls. `Spec-013`'s "applying the boundary to already-delivered
- * rows is idempotent" is therefore a property of the shape rather than a
+ * accumulated across calls. Applying the boundary to already-delivered rows is
+ * idempotent, and that is therefore a property of the shape rather than a
  * discipline, and a row that arrived pre-marked is admitted through the same set.
  */
 export class SupersededIndex {
@@ -165,7 +165,7 @@ interface RankableRow {
 }
 
 /**
- * The two arms `Spec-013` allows a superseded marker on.
+ * The two arms a superseded marker is allowed on.
  *
  * `legacy_stub` is excluded structurally rather than filtered: the arm carries no
  * `position` and no `epoch` at all, "because they are unknowable, not because they
@@ -185,7 +185,7 @@ function rankableOf(row: TimelineRow): RankableRow | undefined {
   return undefined;
 }
 
-/** `runId` and `epoch` as one map key. Marks are epoch-scoped (I-013-4). */
+/** `runId` and `epoch` as one map key. Marks are epoch-scoped. */
 function epochKeyOf(runId: string, epoch: number): string {
   return `${runId} ${String(epoch)}`;
 }
@@ -193,8 +193,8 @@ function epochKeyOf(runId: string, epoch: number): string {
 /**
  * The cutoff that supersedes this row, or `undefined` when none does.
  *
- * EXCEEDS, not "at or above": `Spec-013 §Required Behavior` marks rows "whose
- * carried run position exceeds the carried rewind cutoff", so the row AT the
+ * EXCEEDS, not "at or above": the rows marked are those whose carried run position
+ * exceeds the carried rewind cutoff, so the row AT the
  * cutoff is the retained floor and survives. Getting this boundary wrong dims the
  * one turn a person rewound to, which is the turn they are looking at.
  */

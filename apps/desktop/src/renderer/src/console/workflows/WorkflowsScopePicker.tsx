@@ -23,8 +23,8 @@
 // refusal is `error`, carrying the daemon's own code and message, because a closed
 // channel reported as an idle console is a claim about the node that nothing checked.
 // `bridge/growth-port/growth-outcome.ts` answers which is which, once, beside the code
-// it reads. Collapsing any two of these is the conflation
-// `Spec-023 §Console Design (Meridian)`'s five kinds of nothing exist to prevent.
+// it reads. Collapsing any two of these is the conflation the console's five kinds of
+// nothing exist to prevent.
 //
 // A DIRECTORY THAT HAS NOT ANSWERED IS A PARTIAL READ, AND IT SAYS SO — WHICHEVER WAY
 // IT HAS NOT ANSWERED. The two sources are a union, so a directory that refused, or

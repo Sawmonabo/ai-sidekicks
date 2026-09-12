@@ -4,8 +4,8 @@
 // states that matter. That pair is the point of the scenario rather than
 // decoration: the agent card's hardest rule is that the EFFECTIVE binding and a
 // PENDING switch are two different lines and the effective columns move only when
-// the terminal settlement lands (`Spec-023 §Console Design (Meridian)` §The agent
-// card). A scenario with only `agent.attached` beats can never exercise that, so
+// the terminal settlement lands. A scenario with only `agent.attached` beats can
+// never exercise that, so
 // the card would be built against a case that cannot go wrong.
 //
 // Every `kind` is a registered wire event type CARRYING THE REGISTERED PAYLOAD, and
@@ -30,7 +30,7 @@
 //     states one explicitly.
 //
 // WHY THE SWITCH TERMINALS ARE NOT BEATS. `agent.provider_switched` and
-// `agent.provider_switch_failed` are named by `Spec-016 §The mutation surface` and
+// `agent.provider_switch_failed` are named by the mutation surface and
 // are NOT in the shipped census (`packages/contracts/src/event.ts` registers
 // `agent.attached`, `agent.detached`, and `agent.config_updated` and no third agent
 // type), which is why `agents/agent-wire.ts` leaves them out of its own signal set.
@@ -43,7 +43,7 @@
 // these surfaces have, and every axis control is composed from the pair — a model's
 // effort vocabulary from the model catalog, the output-speed vocabulary and the
 // capability gate from the capability report. The vocabularies below are the pinned
-// providers' own published ones (`Spec-005 §Provider Parameter Vocabularies`): they
+// providers' own published parameter vocabularies: they
 // differ PER MODEL, one of them exposes no effort surface at all, and only one of
 // the two drivers declares an output-speed axis. A fixture that gave both drivers
 // one uniform list would let the axis controls be built against a wire shape neither
@@ -59,7 +59,7 @@ import {
   ATTACHED_AGENTS,
   CLAUDE_FLAGS,
   CODEX_FLAGS,
-  PARTICIPANT_YOU,
+  USER_YOU,
   PENDING_SWITCH_ID,
   PROVIDER_ACCOUNT_PERSONAL,
   SESSION_ID,
@@ -85,12 +85,12 @@ export const AGENTS_SCENARIO: ConsoleScenario = {
   purpose:
     "Two attached agents across two providers, one holding a pending switch that displaced an earlier one and one whose switch has already applied with its losses declared — the case that separates the effective binding from a pending one.",
   sessionId: SESSION_ID,
-  participantIdsInJoinOrder: [PARTICIPANT_YOU, AGENT_ARCHITECT, AGENT_IMPLEMENTER],
+  userIdsInJoinOrder: [USER_YOU, AGENT_ARCHITECT, AGENT_IMPLEMENTER],
   // Which of the three this window is — the person, not either agent. Stated rather
   // than inferred: the head of the join order is whoever opened the session on
   // whichever machine, and reading it as "me" is a fabrication a role gate would
   // then be rendered from.
-  viewingParticipantId: PARTICIPANT_YOU,
+  callerUserId: USER_YOU,
   startedAtIso: "2026-01-01T11:30:00.000Z",
   beats: [
     {
@@ -101,7 +101,7 @@ export const AGENTS_SCENARIO: ConsoleScenario = {
         sequence: 1,
         kind: "session.created",
         occurredAt: "2026-01-01T11:30:00.000Z",
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
       },
     },
@@ -115,7 +115,7 @@ export const AGENTS_SCENARIO: ConsoleScenario = {
         occurredAt: agent.attachedAtIso,
         // The person who attached the agent, not the agent. An agent does not attach
         // itself, and the envelope actor is who acted.
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         // The full persona plus the daemon-resolved resulting state, so the `agents`
         // projection rebuilds from the log alone. `name` is the member —
         // `displayName` is not on this wire.
@@ -126,7 +126,7 @@ export const AGENTS_SCENARIO: ConsoleScenario = {
           driverName: agent.driverName,
           modelId: agent.modelId,
           state: "ready",
-          actor: PARTICIPANT_YOU,
+          actor: USER_YOU,
         },
       },
     })),
@@ -138,7 +138,7 @@ export const AGENTS_SCENARIO: ConsoleScenario = {
         sequence: 4,
         kind: "agent.config_updated",
         occurredAt: "2026-01-01T11:30:00.320Z",
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         // The signal that a roster re-read is owed. The census registers no payload
         // variant for this type, so the payload names the agent the mutation
         // addressed and nothing else — the settlement itself travels on the
@@ -155,7 +155,7 @@ export const AGENTS_SCENARIO: ConsoleScenario = {
         sequence: 5,
         kind: "agent.config_updated",
         occurredAt: "2026-01-01T11:30:00.420Z",
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         payload: { sessionId: SESSION_ID, agentId: AGENT_ARCHITECT },
       },
     },

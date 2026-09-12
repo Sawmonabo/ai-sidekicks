@@ -19,7 +19,7 @@
 // not have is a reuse check, because a clone is minted per run and nothing is reused.
 //
 // NOTHING IS RE-READ AFTER A SETTLEMENT BY THIS CLASS. The section owns its own
-// reading and re-reads on the participant's act; a controller that also re-read would
+// reading and re-reads on the user's act; a controller that also re-read would
 // put two reads on the wire for one prepare.
 //
 // AND THE PREPARE ITSELF IS NOT REFRESHABLE, which is why only the check half is
@@ -119,7 +119,7 @@ export class ExecutionRootPrepareController extends ActSurfaceController<
    * Ask whether this branch already has a live checkout on the mount.
    *
    * AN EMPTY BRANCH ASKS NOTHING and puts the reading back to unchecked rather than
-   * sending a request the contract would refuse: a participant who cleared the field
+   * sending a request the contract would refuse: a user who cleared the field
    * has withdrawn the question, and leaving the last verdict on screen would attach it
    * to a branch nobody named.
    */
@@ -128,14 +128,14 @@ export class ExecutionRootPrepareController extends ActSurfaceController<
       this.withdrawPrerequisite();
       return;
     }
-    this.askPrerequisite(branchName, "participant-request");
+    this.askPrerequisite(branchName, "user-request");
   }
 
   /**
    * Prepare a worktree root, reusing a named candidate where the verdict admits one.
    *
-   * THE CONSENT AND THE CANDIDATE TRAVEL TOGETHER OR NOT AT ALL. `Spec-010`'s pair is
-   * two members because naming a candidate and consenting to its uncommitted work are
+   * THE CONSENT AND THE CANDIDATE TRAVEL TOGETHER OR NOT AT ALL. The pair is two
+   * members because naming a candidate and consenting to its uncommitted work are
    * two decisions, and sending the acknowledgement without the id would consent to
    * nothing — which is why the reuse id is what decides whether either is sent.
    */
@@ -186,7 +186,7 @@ export class ExecutionRootPrepareController extends ActSurfaceController<
    * The reuse check, asked for whatever branch name the form currently holds.
    *
    * The round's signal goes straight to the call door, which matters most on exactly
-   * this read: a participant typing a branch name supersedes their own check every
+   * this read: a user typing a branch name supersedes their own check every
    * few keystrokes, and each superseded one now stops at the door instead of being
    * parsed into a verdict for a branch that has already been edited away from.
    */

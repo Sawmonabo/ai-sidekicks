@@ -6,10 +6,10 @@
 // it, which is how a fixture comes to answer a read about an agent no beat attached.
 
 import {
-  ParticipantIdSchema,
+  UserIdSchema,
   RunIdSchema,
   SessionIdSchema,
-  type ParticipantId,
+  type UserId,
   type RunId,
   type SessionId,
 } from "@ai-sidekicks/contracts";
@@ -24,12 +24,8 @@ import {
 // declaration fails the module instead, naming the constant. `AGENT_*` stays
 // unbranded: the corpus registers no `AgentId` brand to mint one through.
 export const SESSION_ID: SessionId = SessionIdSchema.parse("019b7a11-1100-75e5-8510-ada11a5a33a5");
-export const PARTICIPANT_YOU: ParticipantId = ParticipantIdSchema.parse(
-  "019b7a11-1100-79a4-8110-cca0117a0310",
-);
-export const PARTICIPANT_PRIYA: ParticipantId = ParticipantIdSchema.parse(
-  "019b7a11-1100-79a4-8120-cca0117a0320",
-);
+export const USER_YOU: UserId = UserIdSchema.parse("019b7a11-1100-79a4-8110-cca0117a0310");
+export const USER_PRIYA: UserId = UserIdSchema.parse("019b7a11-1100-79a4-8120-cca0117a0320");
 export const AGENT_IMPLEMENTER = "019b7a11-1100-7a6e-8110-d1a4c1150301";
 export const AGENT_REVIEWER = "019b7a11-1100-7a6e-8120-d1a4c1150302";
 export const RUN_ID: RunId = RunIdSchema.parse("019b7a11-1100-740e-8110-d1a4c1150311");

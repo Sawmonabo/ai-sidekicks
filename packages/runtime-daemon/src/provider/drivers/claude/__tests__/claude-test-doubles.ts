@@ -1,4 +1,4 @@
-// Typed test doubles for the Claude driver bands (Plan-005 Phase 3, T3.6 + T3.7).
+// Typed test doubles for the Claude driver bands.
 //
 // Every double implements the REAL port from `lifecycle.ts`, so a drifted port
 // signature fails the typecheck rather than silently passing a test against a
@@ -99,8 +99,8 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
    *
    * `sentTextFrames` deliberately records only WRITTEN frames, so it cannot
    * answer how many times the driver tried — which is exactly the question a
-   * retry ladder is asserted on (T3.22). Counted here instead of inferred, so
-   * "called exactly once" and "called twice" are both directly observable.
+   * retry ladder is asserted on. Counted here instead of inferred, so "called
+   * exactly once" and "called twice" are both directly observable.
    */
   sendUserTextAttempts = 0;
   /**
@@ -194,10 +194,10 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
    * hook, overridable per test.
    *
    * The default carries POSITIVE turn evidence, so an ordinary terminal does
-   * not trip the T3.18 tripwire and every test in this file that merely needs a
-   * turn to end keeps meaning what it meant. A test exercising the tripwire
-   * overrides it — with a zero-turn body, or with a shape the classifier does
-   * not recognize.
+   * not trip tripwire and every test in this file that merely needs a turn to
+   * end keeps meaning what it meant. A test exercising the tripwire overrides
+   * it — with a zero-turn body, or with a shape the classifier does not
+   * recognize.
    *
    * The double supplies a body at all because the transport obligation says it
    * must: the hook carries the frame, and a transport that passed nothing would
@@ -317,10 +317,10 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
   onTurnTerminalFailure: Error | undefined = undefined;
   // When set, the spawned/resumed process announces THIS id instead of the one
   // that was pinned or requested — the fresh-session-on-mismatch behaviour the
-  // Claude CLI exhibits, and the mechanism I-005-5's identity gate catches.
+  // Claude CLI exhibits, and the mechanism the identity gate catches.
   announcedProviderSessionId: string | undefined = undefined;
   resumedSessionPosition: number = 12;
-  // The rewind (T3.15 leg 1) leg. Defaults model the honest happy path: a fork
+  // The rewind (leg 1) leg. Defaults model the honest happy path: a fork
   // announces a NEW provider session id, which is exactly what the driver's
   // fork check requires — a fake that echoed the handle back would make every
   // rewind test exercise the refusal arm instead.
@@ -484,7 +484,7 @@ export function buildInterruptParams(): ApplyInterventionParams {
     targetRunId: TEST_RUN_ID,
     expectedRunVersion: 3,
     clientIdempotencyKey: "3f1d2b4c-0000-4000-8000-000000000002",
-    payload: { reason: "participant pressed stop" },
+    payload: { reason: "user pressed stop" },
   };
 }
 
@@ -494,14 +494,14 @@ export function buildCancelParams(): ApplyInterventionParams {
     targetRunId: TEST_RUN_ID,
     expectedRunVersion: 3,
     clientIdempotencyKey: "3f1d2b4c-0000-4000-8000-000000000003",
-    payload: { reason: "participant cancelled the run" },
+    payload: { reason: "user cancelled the run" },
   };
 }
 
 /**
- * The T3.11 diagnostic band, silenced. The default log sink writes to the
- * console, which would make every policy diagnostic a line of test output; the
- * emitter still retains its records, which is what the assertions read.
+ * The default log sink writes to the console, which would make every policy
+ * diagnostic a line of test output; the emitter still retains its records,
+ * which is what the assertions read.
  */
 export function makeSilentDriverDiagnostics(): DriverDiagnosticsEmitter {
   return new DriverDiagnosticsEmitter({

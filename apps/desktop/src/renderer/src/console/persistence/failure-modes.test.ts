@@ -5,7 +5,7 @@
 // browser refuses to give storage to, a database a newer build already wrote, a
 // runtime with no IndexedDB at all, a quota that is already full. The second is the
 // store the console must not WRITE INTO — a value class outside the closed set,
-// participant-authored prose inside an allowed class, prose smuggled through an
+// user-authored prose inside an allowed class, prose smuggled through an
 // object key.
 //
 // Both live in `persistence/` because both are about the same chokepoint. Opening
@@ -91,7 +91,7 @@ describe("failure matrix — the durable store cannot be opened", () => {
     expect(ambientFactory.openCallCount).toBe(1);
   });
 
-  it("falls back to memory and SAYS SO when the open is refused (I-023-11)", async () => {
+  it("falls back to memory and SAYS SO when the open is refused", async () => {
     // The refusing factory is installed as the AMBIENT global as well as passed,
     // because `idb`'s `openDB` reads the global rather than a parameter — a
     // factory handed only to the option would never have its `open` called, and
@@ -165,7 +165,7 @@ describe("failure matrix — the persistence chokepoint is handed something it m
     expect(consoleTripwires.firingCount("persistence-value-class")).toBe(1);
   });
 
-  it("refuses participant-authored prose inside an allowed class", async () => {
+  it("refuses user-authored prose inside an allowed class", async () => {
     const store = new UiStateStore({ adapter: new MemoryPersistenceAdapter() });
 
     const result = await store.write("session-1", "selection", "selection", {

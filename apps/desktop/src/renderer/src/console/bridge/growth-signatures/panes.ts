@@ -200,16 +200,16 @@ export interface PaneGrowthSignatures {
   /**
    * Take the shared-terminal write lease.
    *
-   * The registered pair, not a console invention: `api-payload-contracts.md
-   * §Session Terminal-Control Method Registry` declares `SessionTakeControlRequest
+   * The registered pair, not a console invention: the terminal-control method
+   * registry declares `SessionTakeControlRequest
    * { sessionId }` answering `SessionTakeControlResponse { controlHolder }`, and a
    * session has exactly one shared terminal, so the session IS the lease's subject
    * on the wire. A pane-keyed request would be refused by the strict schema before
    * either lease operation could run.
    *
    * `controlHolder` is carried because the reply carries it, and is deliberately
-   * NOT what moves the holder line: `Spec-023 §Console Design (Meridian)` 8.8
-   * forbids deriving the holder from the last observed claim and says what the
+   * NOT what moves the holder line: the console's design language forbids
+   * deriving the holder from the last observed claim and says what the
    * holder is instead — a wire field — so this reply is read as the settlement of
    * one claim and `terminalControlHolderRead` below is what any surface asks when
    * it needs to know who holds the lease.

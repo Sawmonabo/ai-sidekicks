@@ -166,7 +166,7 @@ function agentsSessionStore(): SessionStore {
     sessionId: SESSION_ID,
     projectors: COMPOSED_CONSOLE_PROJECTORS,
   });
-  store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+  store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
   store.applyBatch(AGENTS_SCENARIO.beats.map((beat) => beat.event as ConsoleSessionEvent));
   return store;
 }

@@ -1,10 +1,11 @@
 // The file-restore disclosure's chunk root: the one module an `import()` names.
 //
-// WHY IT EXISTS. Nothing on any first paint is a restore. The disclosure is drawn by the
-// runs pane's intervention history, under a settled rollback whose reading carries file
-// enumerations — a pane that is itself loader-backed, inside a row a person has to reach.
-// So `apps/desktop/AGENTS.md` §Module shape answers for it the way it answers for any
-// body: not painted before somebody acts, therefore reached through a loader.
+// WHY IT EXISTS. Nothing on any first paint is a restore. The disclosure is drawn by
+// the runs pane's intervention history, under a settled rollback whose reading carries
+// file enumerations — a pane that is itself loader-backed, inside a row a person has to
+// reach. So the module-shape rule in `apps/desktop/AGENTS.md` answers for it the way it
+// answers for any body: not painted before somebody acts, therefore reached through a
+// loader.
 //
 // IT RODE THE INITIAL IMPORT GRAPH ANYWAY, and the reason is the one that paragraph
 // names out loud: a symbol reachable both statically and dynamically is assigned to the

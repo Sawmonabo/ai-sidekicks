@@ -1,9 +1,8 @@
 // @vitest-environment happy-dom
 //
-// The terminal-instance memory budget, measured — Plan-023 Phase 1C (T-023p-1C-7).
+// The terminal-instance memory budget, measured.
 //
-// `Spec-023 §Console Design (Meridian)` §Budgets bounds "one `terminal` pane
-// instance at the default scrollback" at 20 MiB, and `budgets.json` carries the
+// One `terminal` pane instance at the default scrollback is bounded at 20 MiB, and `budgets.json` carries the
 // ceiling. This file is that row's `measuredBy`.
 //
 // WHY THE READING IS TAKEN HERE AND NOT BESIDE THE ADAPTER
@@ -45,8 +44,8 @@
 //     width by `measureFullScrollbackRetainedBytes`.
 //
 // The second half is measured in THIS process rather than in the window, and not by
-// choice: the byte stream, the scrollback, and the resize report are `Plan-023
-// §Console growth slate` row 3, which the growth port refuses by name, so no wire
+// choice: the byte stream, the scrollback, and the resize report are a
+// growth-slate row the growth port refuses by name, so no wire
 // in this revision can put a line into a mounted pane. The sum is therefore a
 // conservative reading of one terminal — two allocators, so the halves do not share
 // a page — and it is the reading the ceiling is compared against. The day slate row
@@ -162,7 +161,6 @@ describe("the terminal-instance memory budget row", () => {
     expect(budget.measuredBy).toBe(
       "apps/desktop/test/console/endurance/terminal-instance-memory.test.ts",
     );
-    expect(budget.producedBy).toBe("T-023p-1C-7");
   });
 
   // The combining, asserted on figures rather than on a reading: two halves that each

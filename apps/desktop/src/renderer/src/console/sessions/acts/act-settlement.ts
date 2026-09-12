@@ -1,10 +1,10 @@
 // One act, in flight or settled, for the two acts this destination offers.
 //
-// WHAT IT IS NOT, AND WHY IT IS NOT THAT. `collaboration/mutation-coordinator.ts`
+// WHAT IT IS NOT, AND WHY IT IS NOT THAT. `channels/mutation-coordinator.ts`
 // holds a keyed, superseding, single-flight coordinator over a LEDGER of rows: five
 // controls against a subject that moves, each row rendering its own refusal beside
 // its own control. This is not that machine and must not become it — and it also
-// cannot BE it: `collaboration/` is a sibling view family, and
+// cannot BE it: `channels/` is a sibling view family, and
 // `console-view-family-isolation` in `.dependency-cruiser.mjs` fails that import. The
 // remedy the package's structure rules name for a shared contract is the hoist — down
 // into `bridge/`, which is the lowest family that module's own imports reach — and
@@ -63,10 +63,10 @@ const NOTHING_ATTEMPTED: ActSettlement<never> = { status: "unattempted" };
 /**
  * One act's state, held off the render tree.
  *
- * A class rather than three `useState` cells, per `apps/desktop/AGENTS.md` §State and
- * views: the transitions are a machine — a second press while one is unsettled is
- * ANSWERED rather than sent — and a machine spread across cells is a machine no test
- * can drive without a component around it.
+ * A class rather than three `useState` cells, per the state-and-views rule in
+ * `apps/desktop/AGENTS.md`: the transitions are a machine — a second press while one
+ * is unsettled is ANSWERED rather than sent — and a machine spread across cells is a
+ * machine no test can drive without a component around it.
  *
  * The snapshot is REBUILT on transition and held rather than composed per read,
  * because `useSyncExternalStore` compares snapshot identity with `Object.is` and a

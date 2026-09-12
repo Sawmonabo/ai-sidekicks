@@ -1,11 +1,11 @@
 // What a human phase's input schema turns into, and where it stops turning into one.
 //
-// THE RENDER SET IS THE CORPUS'S, NOT THIS MODULE'S. `Spec-017 §Default Behavior` fixes
-// the field types a `human` phase form may declare — text, long text, number, integer,
-// boolean, enum, and an optional artifact field naming an already-ingested artifact —
-// so the six kinds below are that set with `number` and `integer` sharing one control
-// and differing by a flag. A seventh kind would be this renderer inventing a field the
-// engine has no way to ask for.
+// THE RENDER SET IS THE ENGINE'S, NOT THIS MODULE'S. The field types a `human` phase
+// form may declare are fixed elsewhere — text, long text, number, integer, boolean,
+// enum, and an optional artifact field naming an already-ingested artifact — so the six
+// kinds below are that set with `number` and `integer` sharing one control and differing
+// by a flag. A seventh kind would be this renderer inventing a field the engine has no
+// way to ask for.
 //
 // A CONTAINER IS NOT A FIELD. A one-level object and an array of one of those six are
 // both admitted, and neither is a kind: they GROUP fields. Spelling them as kinds would

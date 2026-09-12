@@ -1,10 +1,8 @@
-//! LSP-style Content-Length framing (per ADR-009).
 //!
 //! Wire format: `Content-Length: N\r\n\r\n<N bytes of body>`. Optional
 //! additional headers (e.g., Content-Type) are accepted on read but
 //! ignored — only Content-Length is load-bearing.
 //!
-//! Plan-024 Phase 1 / T-024-1-2.
 
 use std::io::{Error, ErrorKind};
 
@@ -12,10 +10,8 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 
 /// Maximum frame body size (8 MiB).
 ///
-/// Per F-024-1-06 (Plan-024 §Target Areas). ADR-009 §Decision does not pin a
-/// numeric cap; the 8 MiB ceiling is Plan-024 policy chosen to accommodate
-/// `DataFrame` chunking at 8 KiB stdout/stderr boundaries (per Plan-024
-/// §Implementation Step 4) with two-and-a-half orders of magnitude of
+/// The 8 MiB ceiling is policy chosen to accommodate `DataFrame` chunking at
+/// 8 KiB stdout/stderr boundaries with two-and-a-half orders of magnitude of
 /// headroom for control-message envelopes. Larger payloads MUST be chunked
 /// at the protocol layer.
 pub const MAX_FRAME_BODY_BYTES: usize = 8 * 1024 * 1024;
@@ -160,8 +156,8 @@ where
             ));
         }
 
-        // Each header line MUST end with \r\n per LSP/ADR-009. read_line stops
-        // at \n; verify the preceding byte is \r and strip the CRLF.
+        // Each header line MUST end with \r\n per LSP/. read_line stops at \n;
+        // verify the preceding byte is \r and strip the CRLF.
         if !line.ends_with("\r\n") {
             return Err(Error::new(
                 ErrorKind::InvalidData,

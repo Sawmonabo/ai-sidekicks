@@ -35,9 +35,9 @@
 // render-captured guard reading `undefined` while the runtime has already stopped.
 //
 // A CLOSED CONTROL SETTLES AS A REFUSAL AND NOT AS SILENCE, through the same shape
-// the invitation mint's block takes: the shell's own words, minted by
+// every other blocked mutation takes: the shell's own words, minted by
 // `store/shell/shell-mutation-block.ts` so neither surface spells the origin. The
-// participant's text is carried on it exactly as a wire refusal carries it, so the
+// user's text is carried on it exactly as a wire refusal carries it, so the
 // draft survives and pressing again once the runtime is back IS the retry.
 
 import { useCallback, useState } from "react";
@@ -84,7 +84,7 @@ export interface DriverAskAnswer {
  * Deliver an answer to a provider-raised ask, and hold what the wire said about it.
  *
  * The response travels as the `unknown`-typed member the contract declares, so an
- * option's `value` and a participant's free text are one call rather than two paths.
+ * option's `value` and a user's free text are one call rather than two paths.
  *
  * THE ACKNOWLEDGEMENT IS HELD AND THE TERMINAL IS NOT. `DriverAckResult` is an empty
  * envelope, so a served reply means exactly that the answer reached the driver — and

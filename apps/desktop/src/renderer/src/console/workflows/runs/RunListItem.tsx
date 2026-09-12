@@ -11,9 +11,9 @@
 // WHAT A ROW SHOWS, and why it stops there. The definition's name, the run's status,
 // the run id, when it started, whichever parks are live, and whether the run's pin
 // has fallen behind its definition. Everything else about a run — phase sections,
-// retries, pool waits, outputs — is the run pane's subject and Plan-017's body; a
-// list that grew them would be a second run view competing with the one that owns
-// the question.
+// retries, pool waits, outputs — is the run pane's subject and the workflow engine's
+// body; a list that grew them would be a second run view competing with the one that
+// owns the question.
 //
 // ABSENT, NOT DISABLED. A row carries an open control only when the caller supplies
 // the action. A list rendered without one is a list of facts, not a wall of dead

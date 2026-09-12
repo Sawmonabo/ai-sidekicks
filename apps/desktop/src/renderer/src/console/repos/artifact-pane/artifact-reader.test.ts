@@ -88,7 +88,7 @@ describe("artifact pane reader — the four reasons to read, and no fifth", () =
       await readThrough(clock);
       expect(reader.performCount).toBe(1);
 
-      sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+      sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
       sessionStore.applyBatch([eventOfKind(SESSION_ID, kind, 1)]);
       await readThrough(clock);
 
@@ -121,7 +121,7 @@ describe("artifact pane reader — the four reasons to read, and no fifth", () =
     await readThrough(clock);
 
     sessionStore.markDegraded("subscription-closed");
-    sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
     await readThrough(clock);
 
     expect(reader.performCount).toBe(2);
@@ -138,7 +138,7 @@ describe("artifact pane reader — the four reasons to read, and no fifth", () =
     reader.start();
     await readThrough(clock);
 
-    sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
     sessionStore.applyBatch([
       eventOfKind(SESSION_ID, "run.queued", 1),
       eventOfKind(SESSION_ID, "workspace.stale", 2),
@@ -159,7 +159,7 @@ describe("artifact pane reader — the four reasons to read, and no fifth", () =
     expect(clock.pendingCount).toBe(0);
 
     reader.dispose();
-    sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
     sessionStore.applyBatch([eventOfKind(SESSION_ID, "artifact.published", 1)]);
     window.dispatchEvent(new Event("focus"));
     await readThrough(clock);
@@ -188,7 +188,7 @@ describe("artifact pane reader — a pane that has gone", () => {
 });
 
 describe("artifact pane reader — reading again is coalesced, not raced", () => {
-  it("costs one read pair when the participant presses twice in one window", async () => {
+  it("costs one read pair when the user presses twice in one window", async () => {
     // Two presses inside the coalescing window are one reason to re-read, not two. A
     // reader that called the port on every press issues two list calls and two
     // allow-list calls here.

@@ -141,17 +141,17 @@ describe("ActController — the prerequisite half", () => {
 
   it("negative control: a superseded read installs nothing when it answers", async () => {
     const { controller, clock, questionsAsked, answers } = open();
-    controller.ask("first", "participant-request");
+    controller.ask("first", "user-request");
     await runScheduledRead(clock);
     expect(questionsAsked).toStrictEqual(["first"]);
     // The question changes while the first read is still on the wire. Nothing is
     // cancelled — nothing behind a bridge is — so the first call still answers.
-    controller.ask("second", "participant-request");
+    controller.ask("second", "user-request");
     expect(controller.snapshot.prerequisite.status).toBe("reading");
     answers[0]?.serve("first answer");
     await flush();
     // THE ASSERTION: the answer for the abandoned question installed nothing. A
-    // verdict on screen for a branch the participant has edited away from is the one
+    // verdict on screen for a branch the user has edited away from is the one
     // state that would let a consent be given for the wrong tree.
     expect(controller.snapshot.prerequisite.status).toBe("reading");
     await runScheduledRead(clock);
@@ -164,7 +164,7 @@ describe("ActController — the prerequisite half", () => {
 
   it("withdrawing resets the half, and the answer in flight installs nothing", async () => {
     const { controller, clock, answers } = open();
-    controller.ask("first", "participant-request");
+    controller.ask("first", "user-request");
     await runScheduledRead(clock);
     controller.withdraw();
     expect(controller.snapshot.prerequisite.status).toBe("not-read");

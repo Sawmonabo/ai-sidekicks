@@ -50,7 +50,7 @@ afterEach(() => {
 });
 
 describe("AttachController — the roster read", () => {
-  it("asks nothing until a participant opens the dialog", async () => {
+  it("asks nothing until a user opens the dialog", async () => {
     // The roster is read because somebody is attaching. A reconnect arriving while
     // nobody has opened the dialog changes nothing on screen.
     const { controller, clock } = open();
@@ -137,7 +137,7 @@ function nodeFrame(sequence: number): ReturnType<typeof eventOfKind> {
 /** A store with a base state, which is what makes a later frame a frame and not history. */
 function initialisedStore(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: REPOS_SCENARIO.sessionId });
-  sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+  sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
   return sessionStore;
 }
 

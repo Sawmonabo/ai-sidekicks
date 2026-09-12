@@ -1,12 +1,12 @@
 // Canonical transcript fold — the daemon's authoritative record of a provider
-// session's content (Plan-005 Phase 3, T3.19).
+// session's content.
 //
 // The transcript is a PROJECTION, not a store: `CanonicalTranscriptFold.build()`
 // walks the session log every time it is called and keeps nothing between calls.
-// That is the whole point of ADR-029 — a cached transcript is a second record of
-// the conversation, and the moment it disagrees with the log there is no rule
-// that says which one is the session. `builtAtPosition` exists so a caller can
-// SEE the fold move rather than take the property on faith.
+// That is the whole point of — a cached transcript is a second record of the
+// conversation, and the moment it disagrees with the log there is no rule that
+// says which one is the session. `builtAtPosition` exists so a caller can SEE
+// the fold move rather than take the property on faith.
 //
 // ---------------------------------------------------------------------------
 // Why the content source is a separate collaborator
@@ -19,26 +19,24 @@
 //     type, the run a row belongs to, tool names, and tool-call ids. Every one
 //     of those is a member of the CLEAR payload the event read path hands back.
 //
-//   * Every BODY the transcript renders — the participant's own words, assistant
+//   * Every BODY the transcript renders — the user's own words, assistant
 //     prose, reasoning block bodies, serialized tool arguments, tool result
 //     bodies — reaches the fold through the content port instead. Two different
 //     reasons land in the same place, and both are deliberate:
 //
-//       - Assistant and tool payloads are metadata-shaped by construction, per
-//         `Spec-006 §Assistant Output (assistant_output)` and
-//         `Spec-006 §Tool Activity (tool_activity)` — assistant output carries
-//         `contentType` / `contentLength` and never message text, tool activity
-//         carries no tool output — so unbounded content always rides behind a
-//         reference.
+//       - Assistant and tool payloads are metadata-shaped by construction and —
+//         assistant output carries `contentType` / `contentLength` and never
+//         message text, tool activity carries no tool output — so unbounded
+//         content always rides behind a reference.
 //
-//       - The participant's message text IS named in the `user.message` payload
+//       - The user's message text IS named in the `user.message` payload
 //         shape, but it is PII-bearing at that call site and the emitter routes
-//         it through the encrypted `pii_payload` envelope, per
-//         `Spec-006 §User Message Events`. The read path this fold walks exposes
-//         only the clear half, so reading `payload.message` here would answer
-//         `undefined` for every real participant row and silently erase every
-//         participant turn from export and replay under no declared loss. The
-//         port is the seam that keeps that decryption decision out of the fold.
+//         it through the encrypted `pii_payload` envelope. The read path this
+//         fold walks exposes only the clear half, so reading `payload.message`
+//         here would answer `undefined` for every real user row and
+//         silently erase every user turn from export and replay under no
+//         declared loss. The port is the seam that keeps that decryption
+//         decision out of the fold.
 //
 // So the content arrives through `TranscriptContentSource`, a port this module
 // declares and does not implement. Declaring it is not a stub standing in for
@@ -46,15 +44,8 @@
 // content source are different surfaces, and it keeps every ordering, strip, and
 // pairing rule in the transform pipeline testable and shippable today. Where that
 // content durably lives is an open corpus question, and inventing an answer here
-// would put a second record of the conversation exactly where ADR-029 forbids one.
+// would put a second record of the conversation exactly where forbids one.
 //
-// Spec coverage: `Spec-005 §Canonical Transcript Export And Replay` (step 1 of the
-// ordered pipeline), invariant I-005-8.
-//
-// Refs: Plan-005 §Phase 3 / T3.19, ADR-029,
-// `Spec-006 §Assistant Output (assistant_output)`,
-// `Spec-006 §Tool Activity (tool_activity)`,
-// `Spec-006 §User Message Events`.
 
 import type {
   CanonicalReasoningDisclosure,
@@ -127,12 +118,12 @@ export interface TranscriptToolResultBody {
  * `readReasoningBlocks` answers a LIST, so it has two distinct empty answers and
  * both are load-bearing: an empty list is a row that carried no blocks, and an
  * ABSENT list is a row whose blocks could not be read. One return type for both
- * is how summary-disclosure reasoning — participant-visible history that step 3
+ * is how summary-disclosure reasoning — user-visible history that step 3
  * flattens and keeps under no declared loss — leaves an export in silence.
  */
 export interface TranscriptContentSource {
   readAssistantText(reference: TranscriptContentReference): string | undefined;
-  readParticipantText(reference: TranscriptContentReference): string | undefined;
+  readUserText(reference: TranscriptContentReference): string | undefined;
   readReasoningBlocks(
     reference: TranscriptContentReference,
   ): readonly TranscriptReasoningBlock[] | undefined;
@@ -147,7 +138,7 @@ export interface TranscriptContentSource {
 /**
  * The event types that contribute transcript content, in the taxonomy's own
  * spelling. `run.turn_started` contributes no segment but IS in scope: it is the
- * only row that separates two consecutive assistant turns with no participant
+ * only row that separates two consecutive assistant turns with no user
  * message between them, and without it they would coalesce into one.
  */
 export const TRANSCRIPT_BEARING_EVENT_TYPES: readonly string[] = [
@@ -219,9 +210,9 @@ function renderUnkeyedToolResultText(outcome: CanonicalToolResultOutcome, body: 
  * A legacy answer the provider emitted INSIDE a named reasoning block, held
  * until the turn that carried it is complete.
  *
- * Enclosure alone settles nothing. A `summary` block is participant-visible
+ * Enclosure alone settles nothing. A `summary` block is user-visible
  * history, so an answer carried inside one is portable content, and withholding
- * it would drop a body the participant already read AND declare a loss that did
+ * it would drop a body the user already read AND declare a loss that did
  * not happen. What settles it is the enclosing block's OWN disclosure — and the
  * row carrying that block may be logged after the answer it enclosed, so the
  * lookup is taken at turn close rather than row by row.
@@ -564,7 +555,7 @@ export class CanonicalTranscriptFold {
      * Returns the settled segments rather than patching them in place: one of
      * the three arms REMOVES a segment, which an index-keyed patch cannot do.
      *
-     *   * `summary` — participant-visible history. The answer is portable
+     *   * `summary` — user-visible history. The answer is portable
      *     content, rides ordinary legacy text, and loses nothing.
      *
      *   * `private` — the answer is replaced by an empty text segment carrying
@@ -701,9 +692,9 @@ export class CanonicalTranscriptFold {
       // Close a different-role open turn BEFORE the empty-content discard: a
       // readable-but-empty row is still a role boundary, and letting it fall
       // through would coalesce the assistant turns on either side of an empty
-      // participant row — and settle one exchange's enclosures against a later
+      // user row — and settle one exchange's enclosures against a later
       // exchange's reasoning blocks, whose ids are exchange-scoped. Deliberately
-      // symmetric: an empty assistant row closes an open participant turn for
+      // symmetric: an empty assistant row closes an open user turn for
       // the same reason, matching the `run.turn_started` handler below, which
       // closes whatever is open without contributing content. Same-role empty
       // rows still coalesce (no boundary crossed).
@@ -754,7 +745,7 @@ export class CanonicalTranscriptFold {
       };
 
       if (event.type === "user.message") {
-        appendSegments("participant", event.sequence, this.#participantSegmentsFor(reference));
+        appendSegments("user", event.sequence, this.#userSegmentsFor(reference));
         continue;
       }
 
@@ -813,7 +804,7 @@ export class CanonicalTranscriptFold {
   }
 
   /**
-   * The participant's own words, read through the content port for the reason
+   * The user's own words, read through the content port for the reason
    * the header gives: the clear `user.message` payload does not carry them.
    *
    * The unavailable disposition is `assistant.message`'s, deliberately: an
@@ -822,10 +813,8 @@ export class CanonicalTranscriptFold {
    * it. Dropping it instead would erase words a person actually typed and
    * declare nothing — the one reading the declared-loss rule forbids.
    */
-  #participantSegmentsFor(
-    reference: TranscriptContentReference,
-  ): readonly CanonicalTranscriptSegment[] {
-    const text: string | undefined = this.#contentSource.readParticipantText(reference);
+  #userSegmentsFor(reference: TranscriptContentReference): readonly CanonicalTranscriptSegment[] {
+    const text: string | undefined = this.#contentSource.readUserText(reference);
     if (text === undefined) {
       return [{ kind: "text", position: reference.sequence, text: "", contentUnavailable: true }];
     }
@@ -890,11 +879,11 @@ export class CanonicalTranscriptFold {
         // A row carrying NO pairing key is legacy history rather than
         // malformation — the taxonomy made that key mandatory only for live
         // emitters, and older tool rows legally omit it — so it is a tool
-        // invocation the participant actually watched happen. It cannot be
+        // invocation the user actually watched happen. It cannot be
         // carried as a structured call, because the transcript would have to
         // mint the missing id and the never-re-mint rule forbids exactly that at
         // the one moment nobody could tell. Its content rides a TEXT segment
-        // instead. Dropping it would erase participant-visible activity and
+        // instead. Dropping it would erase user-visible activity and
         // declare nothing over it, which is the reading the declared-loss rule
         // forbids of this module everywhere else.
         if (toolCallId === undefined) {

@@ -2,12 +2,12 @@
 // pick from.
 //
 // PURE, AND SEPARATE FROM THE ACT FOR THAT REASON. Everything below is a function of
-// what a participant typed and what the roster read answered; nothing here reaches a
+// what a user typed and what the roster read answered; nothing here reaches a
 // bridge or holds a lifetime. The controller beside it owns both.
 //
-// THE CONSOLE VALIDATES TWO THINGS AND RESOLVES NOTHING. `Spec-009 §Local Trust
-// Envelope (V1 Definition)` makes resolution, containment, symlink following, case
-// folding, and working-tree-boundary awareness DAEMON rules, so this module never
+// THE CONSOLE VALIDATES TWO THINGS AND RESOLVES NOTHING. Resolution, containment,
+// symlink following, case folding, and working-tree-boundary awareness are DAEMON
+// rules, so this module never
 // normalises a path, never joins one, never decides whether two spellings name one
 // place, and never asks whether a path exists. What it does is refuse to put a request
 // on the wire that the contract's own parser would reject unread — an entry with no
@@ -55,7 +55,7 @@ const RUNTIME_NODE_EVENT_NAMESPACE_PREFIX = "runtime_node.";
  * warns against inferring a category from a prefix in any case.
  *
  * AN ARRAY AND NOT A `Set`, on `repos/repo-lifecycle-events.ts`'s shape and for the
- * reason `apps/desktop/AGENTS.md` §State and views states: an exported module-level
+ * usual reason: an exported module-level
  * `Set` is a mutable runtime singleton whatever its annotation says — `ReadonlySet`
  * hides `add` from a reader and from nobody else, and every controller in the window
  * shares the one object. What is derived here is the CENSUS, which is data; the
@@ -76,7 +76,7 @@ export interface AttachFormState {
   /** Exactly what was typed. Never trimmed, normalised, or joined by this console. */
   readonly localPath: string;
   /**
-   * The node a participant PICKED, or none picked yet.
+   * The node a user PICKED, or none picked yet.
    *
    * NEVER THE SOLE-NODE DEFAULT. That default is derived per read by
    * {@link resolveAttachForm} against the roster on screen, so it cannot survive the
@@ -125,7 +125,7 @@ export interface AttachNodeOption {
    * KEPT SEPARATE FROM `state` because the wire keeps them separate: a node whose slot
    * reads `online` and whose presence reads `offline` is a real and reportable
    * disagreement, and a picker that collapsed them into one word would pick which of
-   * the two to believe on the participant's behalf.
+   * the two to believe on the user's behalf.
    */
   readonly healthState: string;
   /** Whether this node reports itself read-only. Disclosed, never used as a gate. */
@@ -136,7 +136,7 @@ export interface AttachNodeOption {
  * Read one form against the roster that is currently served.
  *
  * THE ROSTER IS AN INPUT AND NOT A LATER CHECK. Which node this form is on is a
- * function of what a participant picked AND of what the session still offers, so a
+ * function of what a user picked AND of what the session still offers, so a
  * refresh that removes the picked node closes the control in the same act that removes
  * the row — rather than leaving an enabled button over an id the daemon would refuse.
  *
@@ -215,8 +215,8 @@ export const NO_HEARTBEAT_YET = "no heartbeat yet";
  * The picker's options, in the order the roster returned them.
  *
  * NOT SORTED, NOT FILTERED. The roster read is a faithful projection of every
- * attachment row for the session — `Spec-003 §Acceptance Criteria` requires degraded
- * and offline nodes visible and distinguishable rather than hidden — so a console that
+ * attachment row for the session — degraded and offline nodes stay visible and
+ * distinguishable rather than hidden — so a console that
  * dropped the unhealthy ones would make an attach that is merely refusable look
  * impossible, and one that reordered them would put the console's opinion of node
  * health ahead of the daemon's ordering.

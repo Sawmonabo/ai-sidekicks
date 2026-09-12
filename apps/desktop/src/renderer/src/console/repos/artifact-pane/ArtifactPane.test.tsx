@@ -92,7 +92,7 @@ describe("artifact pane — the chrome it wears", () => {
 
   it("names the reply members a payload fetch is waiting on", () => {
     // The read serves a manifest. Saying so at the top of the body is what keeps a
-    // participant from waiting for a download that no registered reply carries.
+    // user from waiting for a download that no registered reply carries.
     const { container } = renderPane(contextFor(ARTIFACT_ENTITY));
     const note = container.querySelector(".meridian-artifact-pane__read-scope-note");
     expect(note?.textContent).toContain("payloadHandle");
@@ -133,7 +133,7 @@ describe("artifact pane — the ingest bounds disclosure", () => {
     );
   });
 
-  it("names all four bounds a participant can hit", () => {
+  it("names all four bounds a user can hit", () => {
     const { container } = renderPane(contextFor(ARTIFACT_ENTITY));
     const caps = container.querySelector(".meridian-ingest-bounds__caps");
     expect(caps?.textContent).toContain("Per attachment");

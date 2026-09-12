@@ -17,7 +17,7 @@ export interface GitflowGrowthSignatures {
   // than cosmetic: this row carried `{ workspaceId, action } -> { accepted }`, and
   // `docs/architecture/contracts/api-payload-contracts.md` registers
   // `GitActionExecuteRequest` as `{ repoMountId, action, params, causationRunId?,
-  // causationParticipantId? }` answering `{ success, output?, error? }`. `workspaceId`
+  // causationUserId? }` answering `{ success, output?, error? }`. `workspaceId`
   // is on NEITHER side of that contract, `params` is required rather than optional, and
   // `accepted` was never a reply member at all — so every act this console sent would
   // have been refused by a contract-valid daemon before it ran, on a shape no test
@@ -40,7 +40,7 @@ export interface GitflowGrowthSignatures {
       readonly action: string;
       readonly params: Readonly<Record<string, unknown>>;
       readonly causationRunId?: string;
-      readonly causationParticipantId?: string;
+      readonly causationUserId?: string;
     };
     value: {
       readonly success: boolean;
@@ -75,7 +75,7 @@ export interface GitflowGrowthSignatures {
   // written under, and the instant — so this operation establishes that a change set
   // EXISTS and hands back the key to read it. The patch itself comes back through
   // `artifactRead`, which is the artifact plane's own call and is why
-  // `Spec-023 §Console Design (Meridian)`'s diff surface renders the artifact refusal
+  // the console's diff surface renders the artifact refusal
   // codes: a diff IS an artifact once it is minted, and there is no second payload path
   // for one.
   gitflowDiffArtifactCreate: {
@@ -98,7 +98,7 @@ export interface GitflowGrowthSignatures {
   // The workspace execution context.
   //
   // THREE ROOTS AND A MARKER, and the three roots are three facts rather than one
-  // repeated: `Spec-010 §Turn-Boundary Snapshots` separates the workspace's BOUND root
+  // repeated: the turn-boundary snapshot design separates the workspace's BOUND root
   // from the NORMALIZED CHECKOUT root the snapshot service operates on, and the mount's
   // own resolved root is a third that neither is derived from — in `branch` mode all
   // three can differ. The mount root is not on this reply because the console already
@@ -113,8 +113,8 @@ export interface GitflowGrowthSignatures {
   // `fallbackFromMode` IS THE MARKER, and it is the SUPERSEDED mode rather than a
   // boolean, because the badge has to say what was substituted away from. Absent means
   // the workspace is running the mode that was selected, which is the ordinary case.
-  // `Spec-010 §Fallback Behavior` requires the selected mode to be marked distinctly
-  // from normal worktree mode, and a boolean would mark it without saying from what.
+  // A substituted mode has to be marked distinctly from normal worktree mode, and a
+  // boolean would mark it without saying from what.
   workspaceExecutionContextRead: {
     request: { readonly workspaceId: string };
     value: {

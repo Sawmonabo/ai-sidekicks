@@ -3,21 +3,21 @@
 // THE ABSORB-BY-IMPORT RULE, which this file is one half of.
 // `seats/slots/timeline-row-slot.ts` states it: the seat is filled TWICE, in two changes,
 // and the second DELETES the first. This is the first — a row that renders the ledger's cards
-// against fixture scenarios so the timeline surface is real before Plan-013's rows
-// exist. The `timeline/` subtree, which Plan-013 owns, replaces this registration in its
-// own pull request AND DELETES THIS FILE IN THE SAME DIFF.
+// against fixture scenarios so the timeline surface is real before the real rows
+// exist. The `timeline/` subtree replaces this registration in its own pull request AND
+// DELETES THIS FILE IN THE SAME DIFF.
 //
 // THE DELETION IS NOT OPTIONAL AND NOT COSMETIC. The seat is owner-scoped, so a second
 // owner is refused by name rather than winning by import order: a change that registered
-// Plan-013's row without deleting this shell would not render both rows, it would stop
+// the real row without deleting this shell would not render both rows, it would stop
 // the timeline from rendering at all, at import time. Deleting the shell is what makes
 // the replacement work.
 //
-// NOTHING HERE RENDERS A SPEC-013 ENTRY TYPE. The shell is generic over
+// NOTHING HERE RENDERS A TIMELINE ENTRY TYPE. The shell is generic over
 // `TimelineRowSlotProps` — it reads `kind`, `type`, `summary`, `timestamp`, and the
 // three list decisions the seat carries, and nothing else. A shell that modelled the
-// timeline's own entry vocabulary would be authoring the body it exists to stand in for,
-// and Plan-013 would then have two.
+// timeline's own entry vocabulary would be authoring the body it exists to stand in
+// for, and the tree would then have two.
 //
 // THE SHELL HOLDS NO STATE OF ITS OWN, which is what its own header claims and what
 // it now is. A disclosure press writes the row's density to the list's lease table
@@ -122,7 +122,7 @@ export function FixtureShellRow(props: TimelineRowSlotProps): React.JSX.Element 
       return (
         <ToolCard
           row={props.row}
-          participantHue={props.participantHue}
+          actorHue={props.actorHue}
           isSuperseded={props.isSuperseded}
           density={density}
           footnotes={footnotes}
@@ -131,13 +131,13 @@ export function FixtureShellRow(props: TimelineRowSlotProps): React.JSX.Element 
           subFamily={{ contract: TOOL_SUB_FAMILY_SLOT, body: undefined }}
         />
       );
-    case "participant-message":
+    case "user-message":
     case "assistant-message":
     case "assistant-reasoning":
       return (
         <MessageCard
           row={props.row}
-          participantHue={props.participantHue}
+          actorHue={props.actorHue}
           isSuperseded={props.isSuperseded}
           density={density}
           footnotes={footnotes}
@@ -161,7 +161,7 @@ export function FixtureShellRow(props: TimelineRowSlotProps): React.JSX.Element 
  * A function rather than a module-scope call: a module whose import registers a seat
  * cannot be composed twice by a test, and the seat's own owner scoping would then refuse
  * the second composition rather than replace it. The window that mounts the ledger calls
- * this; the change that lands Plan-013's row deletes both the call and this file.
+ * this; the change that lands the real row deletes both the call and this file.
  */
 export function registerFixtureShellRows(): void {
   registerTimelineRowRenderer(FIXTURE_SHELL_OWNER, FixtureShellRow);

@@ -27,7 +27,6 @@ import {
   extractDeclaredTaskIds,
   extractTasksBlock,
   classifyPhaseSize,
-  extractSection5,
   shippedTaskIdsForPhase,
   shippedTaskIdsAcrossManifest,
   gateProjectLocality,
@@ -882,7 +881,7 @@ test("gatePhaseUnshipped fails when all declared tasks appear in manifest (strin
   assert.match(r.halt, /T1\.1, T1\.2/);
 });
 
-test("gatePhaseUnshipped passes on partial-ship (NS-02 lane carve-out)", () => {
+test("gatePhaseUnshipped passes on partial-ship (lane carve-out)", () => {
   // Plan-001 Phase 5 declares T5.1 + T5.5 + T5.6 but PR #30 only shipped T5.1.
   // Gate 3 must NOT halt — T5.5/T5.6 are still pending.
   const planSrc = `# Plan-001
@@ -1221,11 +1220,11 @@ ${SYNTHETIC_PLAN_INVARIANTS}`,
   assert.equal(r.ok, true);
 });
 
-test("resolvePrecondition plan_phase halts on partial-ship false-positive (NS-02 task-set comparison)", () => {
+test("resolvePrecondition plan_phase halts on partial-ship false-positive (task-set comparison)", () => {
   // Codex P2 finding on PR #35 round 7: pre-fix, any phase entry satisfied
   // the precondition (`some(e.phase === entry.phase)`), so Plan-001's T5.1
   // Lane A entry would unblock a downstream Plan-001 Phase 5 dependency
-  // even though T5.5/T5.6 were unshipped. This is the exact NS-02 partial-
+  // even though T5.5/T5.6 were unshipped. This is the exact partial-
   // ship trap the manifest refactor exists to close at the upstream tier.
   const repo = makeTempRepo();
   writeFileSync(
@@ -2321,51 +2320,6 @@ The audit emits:
   assert.deepEqual(extractDeclaredTaskIds(sec), ["T1.1"]);
 });
 
-// ---------- extractSection5 (cross-plan-deps §5 scoping) ----------
-
-test("extractSection5 slices §5 from `## 5. Canonical Build Order` heading", () => {
-  const src = `# Cross-Plan Dependencies
-
-## 4. Plans With No Inter-Plan Dependencies
-
-prose 4
-
-## 5. Canonical Build Order
-
-prose 5
-### Plan-023 Substrate-vs-Namespace Carve-Out (Tier 1 / Tier 8)
-
-carve-out body
-
-## 6. Active Next Steps DAG
-
-prose 6`;
-  const s5 = extractSection5(src);
-  assert.match(s5, /Canonical Build Order/);
-  assert.match(s5, /Plan-023 Substrate-vs-Namespace Carve-Out/);
-  assert.doesNotMatch(s5, /prose 4/);
-  assert.doesNotMatch(s5, /prose 6/);
-});
-
-test("extractSection5 handles `## Section 5 — ...` defensive alternative", () => {
-  const src = `## 4. Foo
-
-prose 4
-
-## Section 5 — Canonical Build Order
-
-prose 5
-
-## 6. After`;
-  const s5 = extractSection5(src);
-  assert.match(s5, /Section 5/);
-  assert.match(s5, /prose 5/);
-});
-
-test("extractSection5 returns null when §5 missing", () => {
-  assert.equal(extractSection5("## 4. Foo\n\nprose\n\n## 6. After"), null);
-});
-
 // ---------- gateAuditCheckbox: lenient top-level (post per-phase migration) ----------
 
 test("gateAuditCheckbox passes on `type: audit_status` anywhere in plan (no checkbox needed)", () => {
@@ -2449,67 +2403,6 @@ preconditions:
   assert.match(r.halt, /Phase\s+2/);
 });
 
-// ---------- cross_plan_carve_out with §5 scoping (closes the loose-match defect) ----------
-
-test("cross_plan_carve_out passes when ref present in §5", () => {
-  const repo = makeTempRepo();
-  writeFileSync(
-    join(repo, "docs", "architecture", "cross-plan-dependencies.md"),
-    `## 4. Foo
-
-prose
-
-## 5. Canonical Build Order
-
-### Plan-023 Substrate-vs-Namespace Carve-Out (Tier 1 / Tier 8)
-
-body
-
-## 6. After`,
-  );
-  const r = resolvePrecondition(
-    { type: "cross_plan_carve_out", ref: "Plan-023 Substrate-vs-Namespace Carve-Out" },
-    { repoRoot: repo },
-  );
-  assert.equal(r.ok, true);
-});
-
-test("cross_plan_carve_out fails when ref appears outside §5 but not inside", () => {
-  // Regression test for the pre-fix loose-match defect: bare
-  // `source.includes(ref)` passed when the ref appeared in §3 prose or
-  // §6 NS-rows even if §5 had no entry.
-  const repo = makeTempRepo();
-  writeFileSync(
-    join(repo, "docs", "architecture", "cross-plan-dependencies.md"),
-    `## 5. Canonical Build Order
-
-(no carve-out entries)
-
-## 6. Active Next Steps DAG
-
-### NS-03: Plan-023-partial Tier 1 — Plan-023 Substrate-vs-Namespace Carve-Out
-
-(ref appears here outside §5)`,
-  );
-  const r = resolvePrecondition(
-    { type: "cross_plan_carve_out", ref: "Plan-023 Substrate-vs-Namespace Carve-Out" },
-    { repoRoot: repo },
-  );
-  assert.equal(r.ok, false);
-  assert.match(r.halt, /not present in cross-plan-dependencies\.md §5/);
-});
-
-test("cross_plan_carve_out fails when cross-plan-dependencies.md has no §5", () => {
-  const repo = makeTempRepo();
-  writeFileSync(
-    join(repo, "docs", "architecture", "cross-plan-dependencies.md"),
-    `## 4. Foo\n\n## 6. After`,
-  );
-  const r = resolvePrecondition({ type: "cross_plan_carve_out", ref: "X" }, { repoRoot: repo });
-  assert.equal(r.ok, false);
-  assert.match(r.halt, /no §5/);
-});
-
 // ---------- audit_status: complete ----------
 
 test("audit_status: complete passes (declaration is the load-bearing assertion)", () => {
@@ -2523,14 +2416,6 @@ test("audit_status: complete passes (declaration is the load-bearing assertion)"
 });
 
 // ---------- audit_status: substrate_exempt ----------
-
-const SUBSTRATE_XPLAN_FIXTURE = `## 5. Canonical Build Order
-
-### Plan-023 Substrate-vs-Namespace Carve-Out (Tier 1 / Tier 8)
-
-substrate carve-out body
-
-## 6. After`;
 
 const SUBSTRATE_PHASE_FIXTURE = `### Phase 1 — Workspace Substrate
 
@@ -2547,21 +2432,10 @@ preconditions:
 - **T-023p-1-2** (Files: b.ts; Verifies invariant: none — toolchain) — desc
 `;
 
-function repoWithXplan(xplanSource) {
-  const repo = makeTempRepo();
-  writeFileSync(join(repo, "docs", "architecture", "cross-plan-dependencies.md"), xplanSource);
-  return repo;
-}
-
-test("audit_status: substrate_exempt passes when §5 ref + sentinel + no bracket-form Spec coverage", () => {
-  const repo = repoWithXplan(SUBSTRATE_XPLAN_FIXTURE);
+test("audit_status: substrate_exempt passes on sentinel + no bracket-form Spec coverage", () => {
   const r = resolvePrecondition(
-    {
-      type: "audit_status",
-      status: "substrate_exempt",
-      carve_out_ref: "Plan-023 Substrate-vs-Namespace Carve-Out",
-    },
-    { repoRoot: repo, phaseSection: SUBSTRATE_PHASE_FIXTURE, phaseNumber: 1 },
+    { type: "audit_status", status: "substrate_exempt" },
+    { phaseSection: SUBSTRATE_PHASE_FIXTURE, phaseNumber: 1 },
   );
   assert.equal(r.ok, true, `halt: ${r.halt}`);
 });
@@ -2572,7 +2446,6 @@ test("audit_status: substrate_exempt tolerates a FENCED bracket-form Spec covera
   // carrying one halts a phase that declares no Spec AC anywhere in its real
   // rows — the fence-blindness class failing in the opposite direction from the
   // phantom task ids (Codex P2, PR #262 round 4).
-  const repo = repoWithXplan(SUBSTRATE_XPLAN_FIXTURE);
   const phaseWithFencedCite = `${SUBSTRATE_PHASE_FIXTURE}
 Row shape, for reference:
 
@@ -2581,12 +2454,8 @@ Row shape, for reference:
 \`\`\`
 `;
   const r = resolvePrecondition(
-    {
-      type: "audit_status",
-      status: "substrate_exempt",
-      carve_out_ref: "Plan-023 Substrate-vs-Namespace Carve-Out",
-    },
-    { repoRoot: repo, phaseSection: phaseWithFencedCite, phaseNumber: 1 },
+    { type: "audit_status", status: "substrate_exempt" },
+    { phaseSection: phaseWithFencedCite, phaseNumber: 1 },
   );
   assert.equal(r.ok, true, `halt: ${r.halt}`);
 });
@@ -2594,47 +2463,17 @@ Row shape, for reference:
 test("audit_status: substrate_exempt still halts on a REAL bracket-form Spec coverage cite", () => {
   // Negative control for the test above: masking must not have blinded the
   // check to the unfenced cite it exists to catch.
-  const repo = repoWithXplan(SUBSTRATE_XPLAN_FIXTURE);
   const phaseWithRealCite = `${SUBSTRATE_PHASE_FIXTURE}- **T-023p-1-9** (Files: z.ts; Spec coverage: [Spec-023 row 4]) — real row
 `;
   const r = resolvePrecondition(
-    {
-      type: "audit_status",
-      status: "substrate_exempt",
-      carve_out_ref: "Plan-023 Substrate-vs-Namespace Carve-Out",
-    },
-    { repoRoot: repo, phaseSection: phaseWithRealCite, phaseNumber: 1 },
+    { type: "audit_status", status: "substrate_exempt" },
+    { phaseSection: phaseWithRealCite, phaseNumber: 1 },
   );
   assert.equal(r.ok, false);
   assert.match(r.halt, /conflicts with Tasks-block Spec coverage cites/);
 });
 
-test("audit_status: substrate_exempt fails when carve_out_ref missing", () => {
-  const repo = repoWithXplan(SUBSTRATE_XPLAN_FIXTURE);
-  const r = resolvePrecondition(
-    { type: "audit_status", status: "substrate_exempt" },
-    { repoRoot: repo, phaseSection: SUBSTRATE_PHASE_FIXTURE, phaseNumber: 1 },
-  );
-  assert.equal(r.ok, false);
-  assert.match(r.halt, /not found within §5 scope/);
-});
-
-test("audit_status: substrate_exempt fails when carve_out_ref not in §5", () => {
-  const repo = repoWithXplan(SUBSTRATE_XPLAN_FIXTURE);
-  const r = resolvePrecondition(
-    {
-      type: "audit_status",
-      status: "substrate_exempt",
-      carve_out_ref: "Plan-999 Phantom Carve-Out",
-    },
-    { repoRoot: repo, phaseSection: SUBSTRATE_PHASE_FIXTURE, phaseNumber: 1 },
-  );
-  assert.equal(r.ok, false);
-  assert.match(r.halt, /not found within §5 scope/);
-});
-
 test("audit_status: substrate_exempt fails when Spec-AC-empty sentinel missing from phase body", () => {
-  const repo = repoWithXplan(SUBSTRATE_XPLAN_FIXTURE);
   const phaseNoSentinel = `### Phase 1 — Workspace Substrate
 
 (no canonical sentinel here)
@@ -2645,19 +2484,14 @@ preconditions:
 \`\`\`
 `;
   const r = resolvePrecondition(
-    {
-      type: "audit_status",
-      status: "substrate_exempt",
-      carve_out_ref: "Plan-023 Substrate-vs-Namespace Carve-Out",
-    },
-    { repoRoot: repo, phaseSection: phaseNoSentinel, phaseNumber: 1 },
+    { type: "audit_status", status: "substrate_exempt" },
+    { phaseSection: phaseNoSentinel, phaseNumber: 1 },
   );
   assert.equal(r.ok, false);
   assert.match(r.halt, /'covers no Spec-NNN acceptance criteria'/);
 });
 
 test("audit_status: substrate_exempt fails when Tasks block has bracket-form Spec coverage", () => {
-  const repo = repoWithXplan(SUBSTRATE_XPLAN_FIXTURE);
   const phaseWithConflict = `### Phase 1 — Workspace Substrate
 
 **Spec-023 AC coverage.** Phase 1 covers no Spec-023 acceptance criteria — the substrate is pre-behavior plumbing.
@@ -2672,12 +2506,8 @@ preconditions:
 - **T-1** (Spec coverage: [Spec-023 row 4]; Verifies invariant: I-023-1) — desc
 `;
   const r = resolvePrecondition(
-    {
-      type: "audit_status",
-      status: "substrate_exempt",
-      carve_out_ref: "Plan-023 Substrate-vs-Namespace Carve-Out",
-    },
-    { repoRoot: repo, phaseSection: phaseWithConflict, phaseNumber: 1 },
+    { type: "audit_status", status: "substrate_exempt" },
+    { phaseSection: phaseWithConflict, phaseNumber: 1 },
   );
   assert.equal(r.ok, false);
   assert.match(r.halt, /conflicts with Tasks-block Spec coverage cites/);
@@ -2688,13 +2518,6 @@ test("audit_status: substrate_exempt tolerates prose-form `Spec coverage:` (no b
   // Plan-008 Phase 1's Tasks use prose-form `Spec coverage: per F-008b-1-06,
   // NO Spec-008 AC at Tier 1` — that describes coverage *absence* and is not
   // a bracketed affirmative cite. The substrate_exempt check must not flag it.
-  const repo = repoWithXplan(`## 5. Canonical Build Order
-
-### Plan-008 Bootstrap-vs-Remainder Carve-Out (Tier 1 / Tier 5)
-
-body
-
-## 6. After`);
   const phase = `### Phase 1 — Bootstrap
 
 **Spec-008 AC coverage.** Phase 1 covers NO Spec-008 AC at Tier 1.
@@ -2709,12 +2532,8 @@ preconditions:
 - **T-008b-1-1** (Files: a.ts; Verifies invariant: I-008-1; Spec coverage: per F-008b-1-06, NO Spec-008 AC at Tier 1) — desc
 `;
   const r = resolvePrecondition(
-    {
-      type: "audit_status",
-      status: "substrate_exempt",
-      carve_out_ref: "Plan-008 Bootstrap-vs-Remainder Carve-Out",
-    },
-    { repoRoot: repo, phaseSection: phase, phaseNumber: 1 },
+    { type: "audit_status", status: "substrate_exempt" },
+    { phaseSection: phase, phaseNumber: 1 },
   );
   assert.equal(r.ok, true, `halt: ${r.halt}`);
 });
@@ -3336,10 +3155,6 @@ test("runPreflight dispatches substrate_exempt phase (Gate 4 skipped, audit_stat
   const repo = makeTempRepo();
   const skillMd = join(repo, ".claude", "skills", "plan-execution", "SKILL.md");
   writeFileSync(skillMd, `---\nname: test\nrequires_files: []\n---\n\nbody`);
-  writeFileSync(
-    join(repo, "docs", "architecture", "cross-plan-dependencies.md"),
-    SUBSTRATE_XPLAN_FIXTURE,
-  );
   const planFile = join(repo, "docs", "plans", "023-test.md");
   writeFileSync(
     planFile,
@@ -3389,10 +3204,6 @@ test("runPreflight halts on phase without audit_status when plan has no checkbox
   writeFileSync(skillMd, `---\nname: test\nrequires_files: []\n---\n\nbody`);
   // Other phase declares audit_status so top-level lenient gate passes; the
   // target phase has no audit_status so per-phase strict gate halts.
-  writeFileSync(
-    join(repo, "docs", "architecture", "cross-plan-dependencies.md"),
-    SUBSTRATE_XPLAN_FIXTURE,
-  );
   const planFile = join(repo, "docs", "plans", "023-test.md");
   writeFileSync(
     planFile,
@@ -3460,11 +3271,6 @@ ${SYNTHETIC_PLAN_INVARIANTS}`,
 // silent-disable class is caught (a durable spawn guard, not a one-time run).
 // REPO_ROOT/SKILL_MD resolve from the script's own __dirname, so the real repo
 // satisfies Gate 1 while the temp plan drives Gates 2–5 from planSource.
-// --allow-stale-manifest is passed because the CLI defaults Gate 6 (manifest
-// freshness) ON and Gate 6 shells the real gh — a fixture plan named 001-*
-// would be cross-checked against the real repo's merged Plan-001 PRs (network
-// in a unit test + a guaranteed stale halt). The flag is the documented
-// offline escape; its stderr skip-line is asserted so the bypass stays loud.
 
 const PREFLIGHT_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "preflight.mjs");
 
@@ -3526,15 +3332,10 @@ shipped: []
 ### Notes
 ${SYNTHETIC_PLAN_INVARIANTS}`,
   );
-  const r = spawnSync(
-    process.execPath,
-    [PREFLIGHT_CLI, planFile, "2", "--allow-stale-manifest", "--allow-unpromoted"],
-    {
-      encoding: "utf8",
-    },
-  );
+  const r = spawnSync(process.execPath, [PREFLIGHT_CLI, planFile, "2", "--allow-unpromoted"], {
+    encoding: "utf8",
+  });
   assert.equal(r.status, 1, `status=${r.status} stdout=${r.stdout} stderr=${r.stderr}`);
-  assert.match(r.stderr, /Gate 6 \(manifest freshness\) SKIPPED via --allow-stale-manifest/);
   assert.match(
     r.stderr,
     /Gate 7 \(status promotion \+ governance preconditions\) SKIPPED via --allow-unpromoted/,
@@ -4025,16 +3826,13 @@ test("CLI entry: review-status plan halts at Gate 7 by default; --allow-unpromot
     planFile,
     `# Plan-001\n\n| Field | Value |\n| --- | --- |\n| **Status** | \`review\` |\n\n## Preconditions\n\n- [x] **Plan-readiness audit complete per runbook.\n`,
   );
-  // Gate 7 fires before Gate 6, so no --allow-stale-manifest is needed —
   // the halt path stays network-free by construction.
   const gated = spawnSync(process.execPath, [PREFLIGHT_CLI, planFile], { encoding: "utf8" });
   assert.equal(gated.status, 1, `status=${gated.status} stdout=${gated.stdout}`);
   assert.match(gated.stdout, /plan not promoted \(Gate 7\)/);
-  const skipped = spawnSync(
-    process.execPath,
-    [PREFLIGHT_CLI, planFile, "--allow-unpromoted", "--allow-stale-manifest"],
-    { encoding: "utf8" },
-  );
+  const skipped = spawnSync(process.execPath, [PREFLIGHT_CLI, planFile, "--allow-unpromoted"], {
+    encoding: "utf8",
+  });
   assert.match(
     skipped.stderr,
     /Gate 7 \(status promotion \+ governance preconditions\) SKIPPED via --allow-unpromoted/,
@@ -4237,11 +4035,9 @@ test("CLI entry: an explicit supplement label prints the label then its size cla
       { n: "1B", title: "Supplement", tasks: ["T-001-1B-1"], invariant: 3 },
     ],
   });
-  const r = spawnSync(
-    process.execPath,
-    [PREFLIGHT_CLI, planFile, "1B", "--allow-stale-manifest", "--allow-unpromoted"],
-    { encoding: "utf8" },
-  );
+  const r = spawnSync(process.execPath, [PREFLIGHT_CLI, planFile, "1B", "--allow-unpromoted"], {
+    encoding: "utf8",
+  });
   assert.equal(r.status, 0, `status=${r.status} stdout=${r.stdout} stderr=${r.stderr}`);
   // The two-line success contract, across the real argv → exit-code plumbing.
   assert.equal(r.stdout, "1B\nsize-class: S\n");
@@ -4252,11 +4048,9 @@ test("CLI entry: a malformed phase argument exits 2 and names both accepted form
     phases: [{ n: 1, title: "Bootstrap", tasks: ["T1.1"] }],
   });
   for (const bad of ["3b", "R2", "abc"]) {
-    const r = spawnSync(
-      process.execPath,
-      [PREFLIGHT_CLI, planFile, bad, "--allow-stale-manifest", "--allow-unpromoted"],
-      { encoding: "utf8" },
-    );
+    const r = spawnSync(process.execPath, [PREFLIGHT_CLI, planFile, bad, "--allow-unpromoted"], {
+      encoding: "utf8",
+    });
     assert.equal(r.status, 2, `${bad}: status=${r.status} stdout=${r.stdout} stderr=${r.stderr}`);
     assert.match(r.stderr, new RegExp(`bad phase argument: ${bad}\\b`));
     assert.match(r.stderr, /supplement label/);

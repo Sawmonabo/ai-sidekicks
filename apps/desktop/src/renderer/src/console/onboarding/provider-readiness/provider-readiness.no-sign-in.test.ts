@@ -1,12 +1,11 @@
 // The provider step performs a probe, and there is no second act for it to perform.
 //
 // THE DEFECT THIS CLOSES. The sign-in remedy used to dispatch a growth operation that
-// asked the daemon to start a provider's login — a sixth `onboarding.*` mutation
-// `Spec-026 §Provider Authentication (Group B)` does not have, on a step that spec
-// requires to display the invocation and never run it on the operator's behalf, and
-// `Spec-029 §Brokered interactive sign-in` keeps the account plane's own login verbs
-// out of the first-run flow besides. The act is gone, the remedy is rendered as text
-// by `ProviderRow.tsx`, and this file measures the deletion from both sides.
+// asked the daemon to start a provider's login — a sixth `onboarding.*` mutation that
+// does not exist, on a step that must display the invocation and never run it on the
+// operator's behalf, and the account plane's own brokered login verbs are kept out of
+// the first-run flow besides. The act is gone, the remedy is rendered as text by
+// `ProviderRow.tsx`, and this file measures the deletion from both sides.
 //
 // WHAT IS ASSERTED IS THE ABSENCE ON THE WIRE, off the growth port's own record,
 // because every state-shaped assertion would pass on a model that dispatched a login

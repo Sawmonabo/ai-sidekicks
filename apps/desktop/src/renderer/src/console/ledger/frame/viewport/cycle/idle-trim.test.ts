@@ -49,8 +49,8 @@ function fixture(rowKeys: readonly string[] = ["row-a", "row-b"]): TrimFixture {
 
 describe("the trim arms nothing", () => {
   it("leaves the clock empty however much activity it is told about", () => {
-    // The property `Spec-023 §Console Design (Meridian)` §The four bars asks for, and
-    // the reason this is a measured gap rather than a dwell timer. A first draft armed
+    // The property the console's steady state asks for, and the reason this is a
+    // measured gap rather than a dwell timer. A first draft armed
     // one and `LedgerViewport.test.tsx`'s settled-frame case caught it.
     const { clock, trim } = fixture();
     for (let beat = 0; beat < 5; beat += 1) {

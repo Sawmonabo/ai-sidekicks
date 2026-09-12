@@ -247,9 +247,8 @@ export function useFrameCommandSurface(input: FrameCommandSurfaceInput): FrameCo
 /**
  * The palette's scoped-context row — what a command would act on if run now.
  *
- * `Spec-023 §Console Design (Meridian)` §Layout grammar requires the row: a
- * palette that lists "Interrupt the run" without naming WHICH run is a palette
- * that invites a mistake.
+ * The layout grammar requires the row: a palette that lists "Interrupt the run" without
+ * naming WHICH run is a palette that invites a mistake.
  */
 export function describeScope(route: ConsoleRoute): string {
   switch (route.kind) {

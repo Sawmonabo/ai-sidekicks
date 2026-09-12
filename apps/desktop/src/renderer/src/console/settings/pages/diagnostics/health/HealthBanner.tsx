@@ -1,10 +1,9 @@
 // The health banner: the node's own verdict, and the components it was reached over.
 //
-// `Spec-023 §Console Design (Meridian)` §Diagnostics and health: "A health banner from
-// `health.statusRead`: an overall verdict plus per-component rows over `healthy`,
-// `degraded`, and `blocked`." Its states section adds the two shapes this component
-// draws: "Empty: all components healthy, the banner collapses to one quiet line.
-// Loading: per-component skeletons."
+// A health banner from `health.statusRead`: an overall verdict plus per-component rows
+// over `healthy`, `degraded`, and `blocked`, with two further shapes this component
+// draws — empty, where all components are healthy and the banner collapses to one quiet
+// line, and loading, which is per-component skeletons.
 //
 // THE VERDICT IS CARRIED, NEVER COMPOSED. `overall` arrives on the reply and is
 // rendered as it came. A banner that folded the component rows into a headline would

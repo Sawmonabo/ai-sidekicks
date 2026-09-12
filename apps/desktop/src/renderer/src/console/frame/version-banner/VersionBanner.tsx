@@ -1,7 +1,7 @@
 // What the frame's version banner says BEYOND its code and its remedy.
 //
-// IT EXISTS ONLY ON THE REFUSED ARM. `Spec-023`'s version banner has two states and one
-// of them draws nothing: compatible renders no element and reserves no space, and
+// IT EXISTS ONLY ON THE REFUSED ARM. The version banner has two states and one of them
+// draws nothing: compatible renders no element and reserves no space, and
 // incompatible is persistent and read-only. So this component takes a mismatch and not
 // a reading — there is no arrangement of props under which it renders a working window
 // a version strip, because the props for one do not exist. The rule that decides WHICH

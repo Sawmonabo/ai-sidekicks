@@ -1,18 +1,17 @@
 // One repo mount, on two axes that never collapse into one.
 //
-// THIS CARD'S OWN JOB, decided here because `Spec-023 §Console Design (Meridian)` puts
-// each surface's composition — what it renders, offers, refuses, and folds — in the
-// console's code: the card says which repository this
+// THIS CARD'S OWN JOB, decided here because each surface's composition — what it
+// renders, offers, refuses, and folds — lives in the console's code: the card says
+// which repository this
 // is, on which node, and whether it is still the repository it was attached as. Four
 // of its rules are structural rather than cosmetic, and each is visible in the markup
 // below:
 //
 //   • TWO PATHS, BOTH SURFACED. `canonicalRoot` is the resolver's output and the key
 //     the trust envelope and the dedupe index are built on; `localPath` is the
-//     participant-entered path kept as provenance. `Spec-009 §Repo Identity And
-//     Common-Directory Keying (V1 Definition)` requires both, because attach persists
-//     the first and the default workspace roots at the second, and attaching from a
-//     nested subdirectory is the case that separates them.
+//     user-entered path kept as provenance. Both are required, because attach
+//     persists the first and the default workspace roots at the second, and attaching
+//     from a nested subdirectory is the case that separates them.
 //   • `canonicalRoot` VERBATIM. No home-directory abbreviation, no basename
 //     shortening, no prettifying. It is middle-truncated by the STYLESHEET at the
 //     measure, with the full string recoverable through the element's title and the
@@ -29,30 +28,30 @@
 //     mode executes in the mount's own checkout and mints no worktree and no clone, so
 //     a card that built gates only from root records reached none of these workspaces
 //     at all. The gate is drawn under the workspace itself, which is the root.
-//   • NO DETACH CONTROL, AND NO SILENCE ABOUT IT. `Spec-009 §Detach Semantics (V1
-//     Definition)` gives the desktop renderer no detach surface in V1, and this card
+//   • NO DETACH CONTROL, AND NO SILENCE ABOUT IT. The desktop renderer has no detach
+//     surface in V1, and this card
 //     DISCLOSES that absence rather than silently omitting it, so the provenance
 //     disclosure names where detach lives instead.
 //   • THE BIND ENTRY POINT SITS ON THE CARD, AND ONLY WHERE BINDS ARE OFFERED.
-//     `Spec-009 §Default Behavior` mints one `read-only` workspace at attach, so every
-//     writable workspace in a session comes from `repo.workspaceBind` — and the mount
+//     Attach mints one `read-only` workspace, so every writable workspace in a
+//     session comes from `repo.workspaceBind` — and the mount
 //     is what that call is scoped to. It is drawn on exactly the posture that admits
 //     it, so a detached, unreachable, or drifted mount shows its withheld sentence
 //     instead of a control the daemon would refuse.
 //   • ONE VERDICT CARRIES A CONTROL, AND IT IS THE PERMANENT ONE. `identity_mismatch`
 //     refuses every bind and every run on this mount until someone acts, and
-//     `Spec-009 §Repo Mount Health (V1 Definition)` names re-attaching as the
-//     recovery — so that verdict, and no other, is drawn with the re-attach beside it.
+//     re-attaching is the named recovery — so that verdict, and no other, is drawn
+//     with the re-attach beside it.
 //     `unreachable` is transient and gets none: its remedy is to make the path
 //     reachable, and a control here would invite a second row for a repository that is
 //     about to answer for itself.
 //
 // WHAT THE CARD DOES NOT DO. It never resolves, canonicalises, or compares a path —
 // containment, symlink resolution, case folding, and working-tree-boundary awareness
-// are daemon rules under `Spec-009 §Local Trust Envelope (V1 Definition)`, so the
-// console sends the string and renders `repo.outside_trust_envelope` if it comes
+// are the daemon's trust-envelope rules, so the console sends the string and renders
+// `repo.outside_trust_envelope` if it comes
 // back. It never computes health and never softens `unreachable`. And it never
-// re-attaches: re-attach mints a new mount row and is a participant-confirmed act.
+// re-attaches: re-attach mints a new mount row and is a user-confirmed act.
 
 import type {
   ExecutionMode,
@@ -139,7 +138,7 @@ export interface MountCardProps {
   readonly frameStore: FrameStore;
   /** Put the resolved root on the clipboard; the host's own refusal is the caller's to render. */
   readonly onCopyCanonicalRoot: (canonicalRoot: string) => void;
-  /** Read the section again, because a participant's act minted a mount it has not seen. */
+  /** Read the section again, because a user's act minted a mount it has not seen. */
   readonly onRequestRead: () => void;
   readonly onSelectExecutionMode: (workspaceId: WorkspaceId, executionMode: ExecutionMode) => void;
   /**
@@ -247,8 +246,8 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
           </dd>
           <dt>Owning node</dt>
           <dd>
-            {/* Always, per `Spec-009 §Implementation Notes`: mount ownership sits on
-                the runtime node that can actually reach the path. */}
+            {/* Always: mount ownership sits on the runtime node that can actually
+                reach the path. */}
             <WireFigure value={mount.nodeId} title={mount.nodeId} />
           </dd>
           <dt>Attached</dt>

@@ -77,7 +77,7 @@ function storeWithWorktree(): SessionStore {
   store.initialise({
     cursor: 1,
     entities: [{ kind: "worktree", id: "worktree-1", state: "dirty" }],
-    participantJoinLog: [],
+    userJoinLog: [],
   });
   return store;
 }
@@ -109,7 +109,7 @@ describe("the inspector with an entity and a session", () => {
     store.initialise({
       cursor: 1,
       entities: [{ kind: "worktree", id: "worktree-1", state: "dirty" }],
-      participantJoinLog: [],
+      userJoinLog: [],
     });
     const container = renderPane({ kind: "worktree", id: "worktree-1" }, store);
     expect(container.querySelector(".meridian-entity-record")?.textContent).toContain("Worktree");

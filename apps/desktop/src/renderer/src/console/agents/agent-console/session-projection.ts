@@ -34,7 +34,7 @@
 // changes nothing about how the read is performed — which is why it is the only
 // thing here that is provisional. The vocabulary lives in `store/read/refresh-scheduler.ts`
 // and is that family's to widen; the member this call site takes the moment a
-// participant-request arm is registered there is `"participant-request"`, and the
+// user-request arm is registered there is `"user-request"`, and the
 // change is this one argument and nothing else.
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
@@ -123,7 +123,7 @@ export class SessionProjectionReRead {
 
   /** Ask for a read. Repeated calls inside the coalescing window cost one read. */
   public request(): void {
-    // Takes `"participant-request"` once the scheduling vocabulary registers that
+    // Takes `"user-request"` once the scheduling vocabulary registers that
     // arm; until then this is the nearest true member, never an invented one.
     this.#scheduler.request("subscribe");
   }

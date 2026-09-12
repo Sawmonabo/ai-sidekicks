@@ -1,9 +1,9 @@
-// Plan-001 PR #2 — Test C4: `Resource limit error matches
+// Test C4: `Resource limit error matches
 // resource.limit_exceeded shape`.
 //
-// Backstops Spec-001 AC8: "Each Resource Limits enforcement returns the
-// standard `{code: 'resource.limit_exceeded', ...}` error shape and does
-// not terminate existing resources."
+// Backstops: "Each Resource Limits enforcement returns the standard
+// `{code: 'resource.limit_exceeded',...}` error shape and does not
+// terminate existing resources."
 //
 // The schema must be tight — daemon/control-plane both produce these and
 // the SDK's retry/backoff logic depends on the wire envelope being exactly
@@ -21,11 +21,11 @@
 //       - non-integer `limit` / `current`
 //       - negative `limit` / `current`
 //
-// Plan-024 Phase 3 §F-024-3-02 — Test: `PtyBackendUnavailable wire shape`.
-// Same shape-checking discipline as the resource.limit_exceeded suite —
-// daemon throwers (PtyHostSelector, RustSidecarPtyHost,
-// resolveSidecarBinaryPath) all produce these envelopes and SDK consumers
-// (UI banners, diagnostics renderers) compare on `code` + `attemptedBackend`.
+// Test: `PtyBackendUnavailable wire shape`. Same shape-checking discipline as
+// the resource.limit_exceeded suite — daemon throwers (PtyHostSelector,
+// RustSidecarPtyHost, resolveSidecarBinaryPath) all produce these envelopes
+// and SDK consumers (UI banners, diagnostics renderers) compare on `code` +
+// `attemptedBackend`.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -67,7 +67,7 @@ describe("ResourceLimitExceededErrorSchema (C4: resource.limit_exceeded shape)",
     expect(RESOURCE_LIMIT_EXCEEDED_CODE).toBe("resource.limit_exceeded");
   });
 
-  it("accepts the canonical `Spec-001 §Limit Enforcement` shape", () => {
+  it("accepts the canonical shape", () => {
     const valid = buildValidError();
     const parsed = ResourceLimitExceededErrorSchema.parse(valid);
     expect(parsed.code).toBe(RESOURCE_LIMIT_EXCEEDED_CODE);
@@ -179,7 +179,7 @@ describe("ResourceLimitExceededErrorSchema (C4: resource.limit_exceeded shape)",
   });
 
   // --------------------------------------------------------------------
-  // Round 3: wireFreeFormString helper applied to free-form fields.
+  // The wireFreeFormString helper, applied to free-form fields.
   // --------------------------------------------------------------------
   // R2-1: `message` and `details.resource` are now hardened with the same
   // wire-layer guards (whitespace-only + NUL-byte rejection) used on
@@ -226,14 +226,13 @@ describe("ResourceLimitExceededErrorSchema (C4: resource.limit_exceeded shape)",
 });
 
 // --------------------------------------------------------------------------
-// PtyBackendUnavailable — Plan-024 Phase 3 §F-024-3-02 wire shape.
 // --------------------------------------------------------------------------
 //
 // Throwers: PtyHostSelector (sidecar binary missing AND fallback also
 // unavailable; env-var coerces to unknown backend), RustSidecarPtyHost
 // (5-failures-per-60s crash budget exhausted), resolveSidecarBinaryPath
-// (all 4 resolution tiers exhausted). Per ADR-019 §Failure Mode Analysis
-// row "Sidecar binary missing on user machine".
+// (all 4 resolution steps exhausted). "Sidecar binary missing on user
+// machine".
 //
 // Coverage shape:
 //   • Accepts the canonical {code, message, details: {attemptedBackend, cause?}}
@@ -255,12 +254,12 @@ const buildValidPtyError = () => ({
   },
 });
 
-describe("PtyBackendUnavailableSchema (Plan-024 §F-024-3-02 wire shape)", () => {
+describe("PtyBackendUnavailableSchema", () => {
   it("exposes the wire code as the literal `PtyBackendUnavailable`", () => {
     expect(PTY_BACKEND_UNAVAILABLE_CODE).toBe("PtyBackendUnavailable");
   });
 
-  it("accepts the canonical Plan-024 §F-024-3-02 shape (cause omitted)", () => {
+  it("accepts the canonical", () => {
     const valid = buildValidPtyError();
     const parsed = PtyBackendUnavailableSchema.parse(valid);
     expect(parsed.code).toBe(PTY_BACKEND_UNAVAILABLE_CODE);
@@ -368,14 +367,12 @@ describe("PtyBackendUnavailableSchema (Plan-024 §F-024-3-02 wire shape)", () =>
 });
 
 // ----------------------------------------------------------------------------
-// VersionFloorExceededError + VersionCeilingExceededError (Plan-001 T2.3)
 // ----------------------------------------------------------------------------
 //
 // Floor and ceiling errors share `VersionBoundExceededDetails` — they are
-// the SAME shape with two different code literals (per ADR-018 §Decision
-// #10). The test suites here are deliberately parallel so a future
-// divergence (e.g. floor variant gaining an extra field) shows up as a
-// test-suite skew at PR review.
+// the SAME shape with two different code literals. The test suites here
+// are deliberately parallel so a future divergence (e.g. floor variant
+// gaining an extra field) shows up as a test-suite skew at PR review.
 
 const buildValidFloorError = () => ({
   code: VERSION_FLOOR_EXCEEDED_CODE,
@@ -512,37 +509,36 @@ describe("VersionCeilingExceededErrorSchema", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Runtime-node attach-time refusal codes (Plan-003 Phase 3, T3.2)
+// Runtime-node attach-time refusal codes
 // ----------------------------------------------------------------------------
 //
-// `runtimenode.attach_conflict` (P9 / I-003-5, transient) and
-// `runtimenode.attach_revoked` (P10, terminal) are code+message-only — no
-// Details/Schema/Error envelope, per the registry-only 409 convention (no AC
-// needs structured details and a conflicting-session-id detail would risk
-// cross-session info-leak). There is therefore no `*Schema` to round-trip; the
-// contract these constants ship is the EXACT wire string each emits, which the
-// control-plane `RuntimeNodeAttach{Conflict,Revoked}Exception.code` literals
+// `runtimenode.attach_conflict` (P9 / transient) and `runtimenode.attach_revoked`
+// (P10, terminal) are code+message-only — no Details/Schema/Error envelope, per
+// the registry-only 409 convention (no AC needs structured details and a
+// conflicting-session-id detail would risk cross-session info-leak). There is
+// therefore no `*Schema` to round-trip; the contract these constants ship is the
+// EXACT wire string each emits, which the control-plane
+// `RuntimeNodeAttach{Conflict,Revoked}Exception.code` literals
 // (runtime-nodes/errors.ts) project onto the wire envelope. This suite pins the
 // literal values so a typo in either constant fails CI before it reaches the
-// service layer (mirrors the `RESOURCE_LIMIT_EXCEEDED_CODE` literal assertion
-// at line 64). The domain token `runtimenode` deliberately matches the method
+// service layer (mirrors the `RESOURCE_LIMIT_EXCEEDED_CODE` literal assertion at
+// line 64). The domain token `runtimenode` deliberately matches the method
 // namespace (`runtimenode.attach`) and AVOIDS the `runtime_node.*` durable
-// event-name namespace (separator differs) so an error code can never collide
-// with an event name (error.ts header; error-contracts.md §Runtime Node).
-// The event-read cursor refusal ships as a code-and-message-only registration —
-// no `*Schema`, the same registry-only shape as the runtime-node 409s below — so
-// the contract it ships IS the literal string. Both ends compare against it: the
-// daemon raises it from the read path, and the desktop console's resume classifier
-// branches on it to tell a lost position from every other read refusal. A typo in
-// the constant would silently make that arm unreachable rather than fail, which is
-// what this assertion exists to stop.
+// event-name namespace (separator differs) so an error code can never collide with
+// an event name (error.ts header). The event-read cursor refusal ships as a
+// code-and-message-only registration — no `*Schema`, the same registry-only shape
+// as the runtime-node 409s below — so the contract it ships IS the literal string.
+// Both ends compare against it: the daemon raises it from the read path, and the
+// desktop console's resume classifier branches on it to tell a lost position from
+// every other read refusal. A typo in the constant would silently make that arm
+// unreachable rather than fail, which is what this assertion exists to stop.
 describe("event-read cursor refusal code", () => {
   it("exposes the cursor code as the literal `event.cursor_unresolvable`", () => {
     expect(EVENT_CURSOR_UNRESOLVABLE_CODE).toBe("event.cursor_unresolvable");
   });
 });
 
-describe("runtime-node attach-conflict codes (Plan-003 T3.2)", () => {
+describe("runtime-node attach-conflict codes", () => {
   it("exposes the conflict code as the literal `runtimenode.attach_conflict`", () => {
     expect(RUNTIME_NODE_ATTACH_CONFLICT_CODE).toBe("runtimenode.attach_conflict");
   });

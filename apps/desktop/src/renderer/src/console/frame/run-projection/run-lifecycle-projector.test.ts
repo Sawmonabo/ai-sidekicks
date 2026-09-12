@@ -42,7 +42,7 @@ function baseStateFor(scenario: ConsoleScenario): SessionSnapshot {
   return {
     cursor: Math.min(...sequences) - 1,
     entities: [],
-    participantJoinLog: [...scenario.participantIdsInJoinOrder],
+    userJoinLog: [...scenario.userIdsInJoinOrder],
   };
 }
 
@@ -208,7 +208,7 @@ describe("the flagship scenario's run, folded", () => {
     expect(run?.touchedAt).toBe(lastTransition.occurredAt);
   });
 
-  it("attributes a run to the participant the envelope names, and only then", () => {
+  it("attributes a run to the user the envelope names, and only then", () => {
     if (flagship === undefined) {
       throw new Error("the flagship scenario is not on the scenario board");
     }
@@ -259,7 +259,7 @@ function storeApplying(events: readonly ConsoleSessionEvent[]): {
     sessionId: SYNTHETIC_SESSION_ID,
     projectors: RUN_LIFECYCLE_PROJECTORS,
   });
-  store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+  store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
   return { store, outcome: store.applyBatch([...events]) };
 }
 

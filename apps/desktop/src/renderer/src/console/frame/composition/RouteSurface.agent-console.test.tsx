@@ -84,7 +84,7 @@ function registryWithSessionAgents(
   registry.open(sessionId).initialise({
     cursor: 0,
     entities: agentIds.map((agentId) => ({ kind: "agent", id: agentId }) as const),
-    participantJoinLog: [],
+    userJoinLog: [],
   });
   return registry;
 }

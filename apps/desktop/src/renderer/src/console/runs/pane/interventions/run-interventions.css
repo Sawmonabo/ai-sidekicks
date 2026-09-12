@@ -74,7 +74,7 @@
   font-size: var(--meridian-text-xs);
 }
 
-/* What a participant actually directed, at full text colour beside the muted figures
+/* What a user actually directed, at full text colour beside the muted figures
    around it: the directive is the only line on a durable row a person WROTE, and
    muting it would set someone's own words below the identifiers that locate them. */
 .meridian-interventions__directive {

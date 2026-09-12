@@ -17,7 +17,7 @@
 //
 // BLANKNESS IS DECIDED BY TRIMMING AND THE TEXT IS NEVER TRIMMED. Whitespace alone is
 // nothing a person would ask to keep, and the send router already decides emptiness
-// the same way; what is preserved on the other arm is the participant's own bytes.
+// the same way; what is preserved on the other arm is the user's own bytes.
 
 import { useCallback, useMemo, useState } from "react";
 

@@ -13,7 +13,7 @@
 // and its value-class enumeration, and a draft is exactly what that family declines.
 //
 // AND IT IS NOT DROPPED ON DISPATCH EITHER, which is the half this arm used to get
-// wrong. Clearing the field the instant the callback returned threw the participant's
+// wrong. Clearing the field the instant the callback returned threw the user's
 // words away before anything knew whether they had reached the driver, so a refused
 // delivery left an empty field, a still-blocked run, and nothing to retry from. The
 // draft now survives until the delivery says `accepted` — the one arm that means the
@@ -58,7 +58,7 @@ export function AskFreeTextArm(props: AskFreeTextArmProps): React.JSX.Element {
   const deliveryStatus = props.delivery.status;
   // THE ONE EFFECT, AND IT IS A TRANSITION RATHER THAN A DERIVATION. The field is
   // cleared when the delivery REACHES `accepted`, which is a moment and not a
-  // condition — rendering an empty value on that status would leave the participant's
+  // condition — rendering an empty value on that status would leave the user's
   // text in state, invisible, and back on screen the moment anything moved the arm
   // out of that status.
   useEffect(() => {

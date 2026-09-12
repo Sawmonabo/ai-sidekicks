@@ -1,7 +1,7 @@
 // The cost page: one figure, and what it is made of.
 //
-// `Spec-023 §Console Design (Meridian)` §The session cost receipt is a decomposition
-// and never a calculator. One accountant produces the figure a session is charged,
+// The session cost receipt is a decomposition and never a calculator. One accountant
+// produces the figure a session is charged,
 // and the receipt shows the same figure split three ways — per run, per party that
 // caused the spend, and per account that pays for it. Each split accounts for the
 // whole figure, which is what makes the receipt answerable rather than merely
@@ -53,7 +53,7 @@ import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-p
 import { ReceiptBody } from "./ReceiptBody.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
-const OWNER = "collaboration-settings-cost";
+const OWNER = "settings-cost";
 
 /** The three ways the one figure is split. Each accounts for the whole of it. */
 const RECEIPT_PARTITIONS: readonly { readonly title: string; readonly detail: string }[] = [
@@ -65,7 +65,7 @@ const RECEIPT_PARTITIONS: readonly { readonly title: string; readonly detail: st
   {
     title: "Per party",
     detail:
-      "One row per participant or for the machine itself, keyed on who the turn was issued by. A turn that carries no such stamp is attributed to whoever started the run, and the row says so rather than guessing.",
+      "One row per user or for the machine itself, keyed on who the turn was issued by. A turn that carries no such stamp is attributed to whoever started the run, and the row says so rather than guessing.",
   },
   {
     title: "Per paying account",

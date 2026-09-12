@@ -1,43 +1,38 @@
-//! `taskkill /T /F /PID <pid>` invocation builder (Plan-024 §Invariants I-024-2).
+//! `taskkill /T /F /PID <pid>` invocation builder.
 //!
-//! Plan-024 §Windows Implementation Gotchas Gotcha 2
-//! (`microsoft/node-pty#437`): a single-PID kill on Windows leaves
+//! `microsoft/node-pty#437`): a single-PID kill on Windows leaves
 //! descendant processes orphaned. The hard-stop teardown MUST invoke
 //! `taskkill /T /F /PID <root-pid>` so the entire descendant tree
-//! terminates. The `/T` flag walks the tree (load-bearing piece for
-//! I-024-2); `/F` forces termination of processes that ignore graceful
-//! signals.
+//! terminates. The `/T` flag walks the tree (load-bearing piece for);
+//! `/F` forces termination of processes that ignore graceful signals.
 //!
 //! ## Why an argv builder, not a `Command::new("taskkill").spawn()`?
 //!
 //! Building the argument vector is **pure** — no I/O, no Win32 calls,
 //! no process spawning. Pure functions are exhaustively unit-testable
-//! without a mock; they encode the I-024-2 contract (`/T` + `/F` + the
-//! exact PID-string format) at the type system rather than burying it
-//! inside a `tokio::process::Command::spawn` call buried in the
-//! dispatcher.
+//! without a mock; they encode contract (`/T` + `/F` + the exact
+//! PID-string format) at the type system rather than burying it inside
+//! a `tokio::process::Command::spawn` call buried in the dispatcher.
 //!
 //! The dispatcher composes [`taskkill_argv`] with
 //! `tokio::process::Command` (or the equivalent Windows process-spawn
-//! primitive) at the wire-through PR (T-024-3-1 follow-up — see
+//! primitive) at the wire-through PR (follow-up — see
 //! `kill_translation.rs` module rustdoc for the same Phase-boundary
-//! note); this module ships the substrate now so the I-024-2
-//! contract — `/T` flag + `/F` flag + correct PID stringification — is
-//! locked in before the wire-through.
+//! note); this module ships the substrate now so contract — `/T` flag
+//! + `/F` flag + correct PID stringification — is locked in before the
+//! wire-through.
 //!
 //! ## Wall-clock bounding
 //!
-//! Plan-024 I-024-2 requires that reaping MUST NOT block the sidecar's
-//! main loop — invoke `taskkill` with a timeout and emit
-//! `ExitCodeNotification` even if reaping is incomplete. The timeout
-//! lives at the dispatcher (the consumer of this argv builder); this
-//! module owns only the argv shape. Centralizing the timeout in the
-//! dispatcher matches the pattern in `node-pty-host.ts::invokeTaskkill`
-//! (the Phase 2 sibling): the argv builder and the wall-clock fence
-//! are different concerns and stay separable.
+//! Requires that reaping MUST NOT block the sidecar's main loop —
+//! invoke `taskkill` with a timeout and emit `ExitCodeNotification`
+//! even if reaping is incomplete. The timeout lives at the dispatcher
+//! (the consumer of this argv builder); this module owns only the argv
+//! shape. Centralizing the timeout in the dispatcher matches the
+//! pattern in `node-pty-host.ts::invokeTaskkill` (the Phase 2 sibling):
+//! the argv builder and the wall-clock fence are different concerns and
+//! stay separable.
 //!
-//! Refs: Plan-024 I-024-2, ADR-019 §Decision item 1, ADR-019 §Failure
-//! Mode Analysis row "kill propagation", `microsoft/node-pty#437`.
 
 #![cfg(target_os = "windows")]
 
@@ -50,11 +45,11 @@
 /// (preferably) prepends the resolved `taskkill.exe` path to defeat
 /// PATH-poisoning attacks.
 ///
-/// `/T` is the descendant-tree flag (load-bearing for I-024-2); `/F`
-/// forces termination of processes that ignore graceful signals. The
-/// PID is rendered as decimal with `to_string()` — Windows accepts
-/// decimal PIDs and `taskkill.exe` parses them with no leading-zero or
-/// hex affordance.
+/// `/T` is the descendant-tree flag (load-bearing for); `/F` forces
+/// termination of processes that ignore graceful signals. The PID is
+/// rendered as decimal with `to_string()` — Windows accepts decimal
+/// PIDs and `taskkill.exe` parses them with no leading-zero or hex
+/// affordance.
 ///
 /// # Why return owned `String`s?
 ///
@@ -74,8 +69,8 @@ pub fn taskkill_argv(pid: u32) -> Vec<String> {
         // tree-kill primitive (e.g., `wmic`).
         "taskkill".to_string(),
         // /T — terminate the named process AND any child processes
-        // started by it. This is the I-024-2 load-bearing piece —
-        // single-PID kill leaves orphans on Windows per
+        // started by it. This is load-bearing piece — single-PID
+        // kill leaves orphans on Windows per
         // `microsoft/node-pty#437`. Documented in `taskkill /?`:
         //   "Specifies to terminate the specified process and any
         //    child processes which were started by it."
@@ -102,11 +97,11 @@ pub fn taskkill_argv(pid: u32) -> Vec<String> {
 mod tests {
     use super::*;
 
-    // I-024-2 verification — the argv MUST contain `/T` and `/F`,
-    // MUST select by PID, and MUST render the PID in decimal. These
-    // unit tests pin every load-bearing argv slot so a future
-    // regression (omitting /T, swapping to /IM, hex-encoding the
-    // PID) trips the build.
+    // Verification — the argv MUST contain `/T` and `/F`, MUST
+    // select by PID, and MUST render the PID in decimal. These unit
+    // tests pin every load-bearing argv slot so a future regression
+    // (omitting /T, swapping to /IM, hex-encoding the PID) trips
+    // the build.
 
     #[test]
     fn argv_invokes_taskkill_program() {
@@ -119,9 +114,9 @@ mod tests {
 
     #[test]
     fn argv_includes_tree_flag() {
-        // I-024-2: `/T` MUST be present so the descendant tree is
-        // walked. Without it Windows orphans every grandchild, the
-        // exact failure `microsoft/node-pty#437` documents.
+        // `/T` MUST be present so the descendant tree is walked.
+        // Without it Windows orphans every grandchild, the exact
+        // failure `microsoft/node-pty#437` documents.
         let argv = taskkill_argv(12345);
         assert!(
             argv.iter().any(|s| s == "/T"),
@@ -131,8 +126,8 @@ mod tests {
 
     #[test]
     fn argv_includes_force_flag() {
-        // I-024-2: `/F` MUST be present so processes that ignore
-        // graceful signals (no message loop) are still terminated.
+        // `/F` MUST be present so processes that ignore graceful
+        // signals (no message loop) are still terminated.
         let argv = taskkill_argv(12345);
         assert!(
             argv.iter().any(|s| s == "/F"),
@@ -197,7 +192,7 @@ mod tests {
         assert_eq!(
             argv.len(),
             5,
-            "argv length is the I-024-2 contract surface; \
+            "argv length is a contract surface; \
              additions need a deliberate test update: {argv:?}"
         );
     }

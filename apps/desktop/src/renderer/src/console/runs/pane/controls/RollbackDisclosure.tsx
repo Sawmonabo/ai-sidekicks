@@ -6,7 +6,7 @@
 // the settlement is a
 // sentence and a disposition chip, the daemon's positions sit beside it as wire
 // figures, and each enumeration is a `<details>` whose summary carries its own
-// count — including when that count is zero, which is a fact the participant needs
+// count — including when that count is zero, which is a fact the user needs
 // rather than a row to omit.
 //
 // THE FILE HALF IS DELEGATED AND NOT RE-DRAWN. This component owns what the rewind
@@ -20,7 +20,7 @@
 // disagree about whether an empty list is an all-clear.
 //
 // AND THAT HALF ARRIVES ON ITS OWN CHUNK. It is drawn only under a settlement that
-// touched files, so `apps/desktop/AGENTS.md` §Module shape reaches it through a loader —
+// touched files, so the package's module-shape rule reaches it through a loader —
 // `file-restore-mount.ts` beside this file, over the loader the primitives door
 // publishes. What renders while the chunk is in flight is the substrate's hidden
 // reserved region: no spinner, no skeleton, nothing that moves this settlement's layout.

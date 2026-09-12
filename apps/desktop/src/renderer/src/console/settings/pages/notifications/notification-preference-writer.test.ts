@@ -32,7 +32,7 @@ const TWO_SWITCHES: readonly AttentionPreference[] = [
 
 /** One update as the writer sent it, so a case can read what was composed. */
 interface RecordedUpdate {
-  readonly participantId: string;
+  readonly userId: string;
   readonly key: string;
   readonly value: Readonly<Record<string, unknown>>;
 }
@@ -302,19 +302,19 @@ describe("the preference writer — a write the daemon refused", () => {
 });
 
 describe("the preference writer — what it will not do", () => {
-  it("writes nothing at all before an identity read has named a participant", async () => {
+  it("writes nothing at all before an identity read has named a user", async () => {
     const store = heldPreferenceStore(TWO_SWITCHES);
     const writer = new NotificationPreferenceWriter({
       port: store.port,
-      participantId: undefined,
-      reReadSet: async () => await store.port.attentionPreferenceRead({ participantId: "nobody" }),
+      userId: undefined,
+      reReadSet: async () => await store.port.attentionPreferenceRead({ userId: "nobody" }),
     });
     const { record, mentions } = twoSwitchRecord();
 
     writer.toggle(record, mentions);
     await drain();
 
-    // A record written under a guessed participant puts one person's answers on
+    // A record written under a guessed user puts one person's answers on
     // another person's screen; the writer fails closed rather than composing one.
     expect(store.updates).toHaveLength(0);
     expect(writer.snapshot().busyRecordKeys.size).toBe(0);

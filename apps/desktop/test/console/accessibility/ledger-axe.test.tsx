@@ -1,9 +1,8 @@
 // The accessibility tier — the ledger.
 //
-// `Spec-023 §Console Design (Meridian)` 14.11 puts WCAG 2.2 AA over every console
-// surface, and the ledger is the one a person spends the day inside: a virtualized
+// WCAG 2.2 AA holds over every console surface, and the ledger is the one a person spends the day inside: a virtualized
 // feed of cards, a facet bar, and a find field, all of them
-// hue-tinted per participant. Almost every rule this tier owns has a way to fail
+// hue-tinted per user. Almost every rule this tier owns has a way to fail
 // here that it has nowhere else — a card whose muted label sits on a tinted ground,
 // a feed whose rows are mounted and unmounted under the reader, a control that is
 // revealed on hover and therefore easy to ship without a name.
@@ -103,7 +102,7 @@ function openStoreOnScenario(scenario: ConsoleScenario): SessionStore {
   sessionStore.initialise({
     cursor: SCENARIO_BASE_CURSOR,
     entities: [],
-    participantJoinLog: [...scenario.participantIdsInJoinOrder],
+    userJoinLog: [...scenario.userIdsInJoinOrder],
   });
   if (scenario.beats.length > 0) {
     sessionStore.applyBatch(scenario.beats.map((beat) => beat.event));

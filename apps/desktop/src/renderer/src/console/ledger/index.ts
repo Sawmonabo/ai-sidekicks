@@ -31,10 +31,10 @@
 // both arrive through one door and one strict descent through the DAG.
 //
 // THE TWO SLOTS, AND WHY THEY NO LONGER MOUNT THE SAME THING. `workspace` is the
-// session's own surface: the cast bar, the deck, and the composer's seat, which is
-// `workspace/Workspace.tsx`. `timeline` is the full-screen ledger WINDOW
-// `Spec-023 §The surface set` names — a `timeline` pane "moved into their own
-// hardened `BrowserWindow`", loading "the same renderer bundle at a window route" — so
+// session's own surface: the session header, the deck, and the composer's seat, which is
+// `workspace/Workspace.tsx`. `timeline` is the full-screen ledger WINDOW — a `timeline`
+// pane moved into its own hardened `BrowserWindow`, loading the same renderer bundle at
+// a window route — so
 // it mounts the pane alone: no deck around it, because an auxiliary window holds one
 // pane, and no composer, because the composer is the session workspace's chrome and this
 // window is not that workspace. The find bar is the pane's own chrome and travels
@@ -56,9 +56,9 @@ import { SessionResumeDegraded } from "./SessionResumeDegraded.js";
 import { LedgerGapFill } from "./pane/window/LedgerGapFill.js";
 import { registerLedgerCommands } from "./structure/structure-commands.js";
 
-// THIS DOOR IMPORTS ITS OWN SHEET AND NO OTHER. `apps/desktop/AGENTS.md` §Module
-// shape: a directory that carries a door has an owner of its own, and reaching into
-// one is the shape that forbids. `frame/`, `structure/`, `structure/seams/`, `cards/`
+// THIS DOOR IMPORTS ITS OWN SHEET AND NO OTHER. A directory that carries a door has an
+// owner of its own, and reaching into one is the shape this package forbids. `frame/`,
+// `structure/`, `structure/seams/`, `cards/`
 // and `cards/markdown/` each carry a door, so each imports the sheet it owns — and
 // `structure/` imports the four its doorless children's sheets are, because it is
 // their nearest owner. Every one of those doors is reachable from this file, so the
@@ -210,7 +210,7 @@ function ledgerSurfaces(composition: LedgerComposition): readonly ConsoleSurface
 }
 
 /**
- * Mount the session workspace: the cast bar, the deck, and the composer's seat.
+ * Mount the session workspace: the session header, the deck, and the composer's seat.
  *
  * The wrapper keeps the surface's full-height grid, which is what lets the deck
  * inside it be the thing that scrolls rather than the window.
@@ -276,10 +276,10 @@ function mountWorkspace(
 /**
  * Mount the ledger's pane alone, through the deck's own door.
  *
- * The pane body is resolved from the pane registry rather than built here, which is
- * `Spec-023 §The surface set`'s "one entity opens one pane, structurally (a single
- * mount door and a tripwire that fails on a second)" applied at the only place a pane
- * is mounted today. It is also what keeps the body single-sourced: the descriptor
+ * The pane body is resolved from the pane registry rather than built here, which is one
+ * entity opening one pane structurally — a single mount door and a tripwire that fails
+ * on a second — applied at the only place a pane is mounted today. It is also what keeps
+ * the body single-sourced: the descriptor
  * `registerLedgerPanes` filed above is the one composition of this pane, so this slot
  * mounts it rather than building a second one of its own.
  *

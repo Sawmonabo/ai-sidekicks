@@ -1,9 +1,9 @@
 // The composer's attach menu, as a seat rather than a list the composer maintains.
 //
-// `Spec-023 §Console Design (Meridian)` 12.1 gives the browser pane two open paths
-// that do not start in the deck: attaching a page to the conversation, and detaching
-// one back out. The first of those is an entry in the composer's `+` menu — which is
-// the composer family's surface, in a family that may not import the browser's.
+// The browser pane has two open paths that do not start in the deck: attaching a page
+// to the conversation, and detaching one back out. The first of those is an entry in
+// the composer's `+` menu — which is the composer family's surface, in a family that
+// may not import the browser's.
 //
 // SO IT IS A SEAT, for `composer-seat.ts`'s own reason applied one level down. A view
 // family never imports a sibling, so the only two shapes available are a registration
@@ -50,14 +50,13 @@ export interface ComposerAttachMenuContext {
 /**
  * One artifact a family has put on the composer's message.
  *
- * ARTIFACT-BACKED, WHICH IS THE ONLY ARM THE WIRE SUPPORTS. `Spec-014 §Required
- * Behavior` types the attachment reference as an ordered list of artifact ids and
- * forbids delivering an attachment over `SteerPayload.attachments`, which
- * `packages/contracts` types `unknown[]`; the corpus registers no operation that hands a
- * conversation a reference to anything else. So a family that wants to attach something
- * puts its bytes through the ingest pipeline first and hands back what that pipeline
- * minted — which is what `repos/attachments/` does for a file a participant chose, and
- * what the browser's capture does for a page.
+ * ARTIFACT-BACKED, WHICH IS THE ONLY ARM THE WIRE SUPPORTS. An attachment reference is
+ * an ordered list of artifact ids, and delivering an attachment over
+ * `SteerPayload.attachments` — which `packages/contracts` types `unknown[]` — is not
+ * supported; no registered operation hands a conversation a reference to anything else.
+ * So a family that wants to attach something puts its bytes through the ingest pipeline
+ * first and hands back what that pipeline minted — which is what `repos/attachments/`
+ * does for a file a user chose, and what the browser's capture does for a page.
  *
  * The two figures beside the id are the pipeline's own answer rather than a second
  * reading of the artifact: a composer row can state what it is carrying and how big it
@@ -158,7 +157,6 @@ export function composerAttachMenuEntries(): readonly ComposerAttachMenuEntry[] 
   return composerAttachMenu.entries();
 }
 
-// Consumed by T-023p-1C-3
 /**
  * Empty the menu.
  *

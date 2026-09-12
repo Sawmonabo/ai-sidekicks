@@ -1,23 +1,20 @@
 // The notification center: one place that answers "what needs me".
 //
-// `Spec-023 §Console Design (Meridian)` §Notification center and the attention
-// plane. Three of its rules decide the shape of this file more than the layout
-// does:
+// Three rules of the notification center and the attention plane decide the shape of
+// this file more than the layout does:
 //
 //   • **It offers no dismiss.** The contract has no dismiss method and no
-//     client-writable resolution field, and `Spec-019 §Required Behavior` makes
-//     emission derived from canonical state rather than from client heuristics — a
-//     dismiss-all control would be exactly that heuristic. An item clears when the
-//     daemon sets `resolvedAt`; opening one navigates and resolves nothing.
-//   • **Mute is global only.** `Spec-023 §Default Behavior` allows a per-session
-//     mute and `Spec-019 §Resolved Questions and V1 Scope Decisions` makes
-//     preferences global in the first release. The conflict resolves to the
-//     notification owner: the global control ships and the per-session control is
-//     ABSENT rather than disabled, because a disabled control is a claim that the
-//     capability exists.
+//     client-writable resolution field, and emission is derived from canonical state
+//     rather than from client heuristics — a dismiss-all control would be exactly
+//     that heuristic. An item clears when the daemon sets `resolvedAt`; opening one
+//     navigates and resolves nothing.
+//   • **Mute is global only.** A per-session mute is conceivable, but notification
+//     preferences are global in the first release: the global control ships and the
+//     per-session control is ABSENT rather than disabled, because a disabled control
+//     is a claim that the capability exists.
 //   • **It re-filters nothing.** Non-matching events are dropped at the control
-//     plane before emission (`Spec-019 §Desktop-to-Desktop Delivery`), so a second
-//     filter here would be a second authority on a decision already made.
+//     plane before emission, so a second filter here would be a second authority on
+//     a decision already made.
 //
 // WHAT IS ON SCREEN TODAY. The projection read (`attention.projectionRead`) is
 // registered in the corpus and absent from `packages/contracts`, from the preload

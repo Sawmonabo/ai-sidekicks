@@ -1,13 +1,12 @@
 // The spring sampler: the oracle behind `motion.ts`'s emitted settle easing.
 //
-// `Spec-023 §Console Libraries`' motion row asks for OUR OWN spring sampler emitting
-// `linear()` easings rather than an animation library on the render path, and this is
-// it. What ships is the string it answers — `CHROME_SETTLE_EASING` in `motion.ts` —
-// because the only call the console ever made passed two module-scope constants, so
-// the closed-form solution, its three damping branches, and the sample loop were
-// riding the initial import graph to recompute the same 106 characters at every
-// mount. A pure function of constants is a constant, and the constant is what the
-// sheet spends.
+// The console's motion rules ask for OUR OWN spring sampler emitting `linear()` easings
+// rather than an animation library on the render path, and this is it. What ships is
+// the string it answers — `CHROME_SETTLE_EASING` in `motion.ts` — because the only call
+// the console ever made passed two module-scope constants, so the closed-form solution,
+// its three damping branches, and the sample loop were riding the initial import graph
+// to recompute the same 106 characters at every mount. A pure function of constants is
+// a constant, and the constant is what the sheet spends.
 //
 // SO THIS MODULE IS `.test-support`, WHICH IS A CLAIM RATHER THAN A LABEL. Nothing
 // that ships imports it — `apps/desktop/.dependency-cruiser.mjs`'s

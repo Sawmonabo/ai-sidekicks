@@ -1,10 +1,9 @@
 // The rail's attention count, published from the one read that knows it.
 //
-// `Spec-023 §The surface set` puts a COUNT on the sessions destination, and the count
-// is how many sessions need a person — the session-scoped aggregate the daemon's own
-// projection carries, read off the plane's grouping rather than recomputed. The
-// renderer counts sessions that were reported as needing somebody; it never decides
-// that a session needs somebody.
+// The sessions destination carries a COUNT, and the count is how many sessions need a
+// person — the session-scoped aggregate the daemon's own projection carries, read off
+// the plane's grouping rather than recomputed. The renderer counts sessions that were
+// reported as needing somebody; it never decides that a session needs somebody.
 //
 // WHY IT IS PUBLISHED RATHER THAN READ. The rail is frame chrome and the attention
 // read is this family's, and the console's family DAG runs one way: `frame/` sits
@@ -16,11 +15,11 @@
 // reason WHERE it is mounted decides how much the badge is worth. It used to be
 // mounted by the sessions destination, so the count went to nothing whenever somebody
 // navigated: a suppressed rail on a machine that was answering, which is the stale-
-// versus-absent distinction `Spec-023 §The surface set` is built on, answered wrongly.
-// It is mounted by the window's frame-lifetime binding now, so what clears the count
-// is the window losing its bridge rather than a person changing screens — and a number
-// left standing after the read that produced it went away is still the stale count
-// that rule refuses, which is why this hook keeps clearing on its own unmount.
+// versus-absent distinction the surface set is built on, answered wrongly. It is
+// mounted by the window's frame-lifetime binding now, so what clears the count is the
+// window losing its bridge rather than a person changing screens — and a number left
+// standing after the read that produced it went away is still the stale count that
+// rule refuses, which is why this hook keeps clearing on its own unmount.
 //
 // AND IT NEVER SHOWS A ZERO. Zero sessions needing a person is the ordinary state of
 // a healthy console, and a badge reading "0" on the most-seen surface in the product
@@ -51,9 +50,9 @@ export function useRailAttentionPublisher(frameStore: FrameStore, reading: Atten
 /**
  * How many sessions the projection reported as needing a person.
  *
- * `undefined` on every arm but the answered one, and that is the suppression rule
- * `Spec-023 §The surface set` states: while the projection is unreachable — not asked,
- * reading, or refused — the rail says nothing rather than a number from before.
+ * `undefined` on every arm but the answered one, and that is the suppression rule:
+ * while the projection is unreachable — not asked, reading, or refused — the rail
+ * says nothing rather than a number from before.
  */
 export function railAttentionCountOf(reading: AttentionReading): number | undefined {
   if (reading.phase !== "read") {

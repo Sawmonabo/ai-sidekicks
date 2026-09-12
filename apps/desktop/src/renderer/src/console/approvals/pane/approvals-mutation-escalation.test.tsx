@@ -1,11 +1,10 @@
 // A mutation that came back saying the session is gone, and where that fact lands.
 //
-// `Spec-023 §Console Design (Meridian)` rule 9 gives a refusal three renderings, and
-// the banner is the frame's. `RemediedRefusal` draws the CARD for a banner-class code
-// because a pure component holds no store — so the handover has to be an explicit act
-// by whoever holds the refusal, and until it was, a resolve that answered
-// `session.not_found` put one line inside one pane while every other pane in the
-// window went on drawing a session that had left the node.
+// A refusal has three renderings, and the banner is the frame's. `RemediedRefusal` draws
+// the CARD for a banner-class code because a pure component holds no store — so the
+// handover has to be an explicit act by whoever holds the refusal, and until it was, a
+// resolve that answered `session.not_found` put one line inside one pane while every
+// other pane in the window went on drawing a session that had left the node.
 //
 // TWO SEAMS, AND THEY ARE NOT THE SAME CLAIM. The reader's two mutation maps can hold
 // a daemon code, because a rejected `approval.resolve` is normalized by the surface's
@@ -14,7 +13,7 @@
 // growth port, whose refusal vocabulary is two closed literals, so today the only
 // thing a goal refusal can be is the "no wire yet" kind of nothing — which is
 // card-class and escalates nothing. The wiring is at the seam regardless, so the day
-// Plan-016 registers the pair the escalation is already its reader.
+// the goal pair is registered the escalation is already its reader.
 
 import { useEffect } from "react";
 import { act, render } from "@testing-library/react";

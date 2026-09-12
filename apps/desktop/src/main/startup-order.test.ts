@@ -1,19 +1,18 @@
-// Plan-023 Phase 1B (T-023p-1B-1) — the main-process startup order.
+// The main-process startup order.
 //
 // Two orderings are load-bearing and neither is visible from reading one file:
 //
 //   1. `protocol.registerSchemesAsPrivileged` must run BEFORE `app.whenReady()`.
 //      Electron refuses the call after ready, and a scheme that never became
 //      `standard` has no origin — so the renderer gets no IndexedDB and no
-//      `localStorage` (Plan-023 I-023-11).
+//      `localStorage`.
 //   2. `protocol.handle` must run BEFORE the first `BrowserWindow` is
 //      constructed, or a window can begin loading against an unhandled scheme.
 //
 // This test records the real call sequence by importing `main/index.ts` under a
 // mocked `electron`, so a diff that moves either call fails here rather than at
-// runtime. Plan-023 Phase 3's T-023r-3-4 inherits these legs and re-asserts the
-// same two orderings after the crash reporter and single-instance lock join the
-// sequence.
+// runtime. When the crash reporter and single-instance lock join the sequence,
+// these same two orderings are re-asserted around them.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -68,7 +67,7 @@ describe("main-process startup order", () => {
     // Ready has not been released yet, so only the synchronous
     // module-evaluation calls are recorded. A `registerRendererScheme()` moved
     // inside `whenReady()` would leave this list without its first entry — the
-    // exact regression Plan-023 I-023-11 exists to prevent, and one that is
+    // exact regression this ordering exists to prevent, and one that is
     // invisible at runtime until the console finds it has no IndexedDB.
     expect(startupSequence()).toEqual(["protocol.registerSchemesAsPrivileged", "app.whenReady"]);
 

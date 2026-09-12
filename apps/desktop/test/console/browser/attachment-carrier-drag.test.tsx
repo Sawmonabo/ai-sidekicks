@@ -149,7 +149,7 @@ describe("dragging an attachment, against the real drag adapter", () => {
     // Both marks are pinned to a COMPUTED value and not only to the attribute: the
     // attribute is this component's and the appearance is the stylesheet's, and a
     // selector that stopped matching would leave the first assertion passing while a
-    // participant saw nothing move.
+    // user saw nothing move.
     expect(getComputedStyle(source).opacity).not.toBe(atRestOpacity);
     expect(getComputedStyle(target).boxShadow).not.toBe(atRestShadow);
 

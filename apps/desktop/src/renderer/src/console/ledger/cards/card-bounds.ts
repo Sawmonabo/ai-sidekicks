@@ -1,8 +1,8 @@
 // The ledger cards' named figures that are not ceilings.
 //
 // THE CEILINGS ARE NOT HERE, and the reason is a rule rather than a preference:
-// `apps/desktop/AGENTS.md` §Config single-sourcing names `core/constants/` the
-// one DIRECTORY a bound may be DECLARED in — its trailing separator is load-bearing,
+// `core/constants/` is the one DIRECTORY a bound may be DECLARED in — its trailing
+// separator is load-bearing,
 // so the flat `core/constants.ts` this home was split out of is not part of it — and
 // rejects a view family that declares one of its own, so the seven this module held —
 // the two cache byte caps, the highlight and worker thresholds, the footnote
@@ -16,8 +16,8 @@
 /**
  * Complete blocks held back from the settled set, behind the incomplete tail.
  *
- * `Spec-023 §Console Libraries`, streaming-markdown row: "settled blocks parse once
- * with a two-block settle lag". Two, because a block boundary is not final when it is first
+ * Settled blocks parse once, with a two-block settle lag. Two, because a block boundary
+ * is not final when it is first
  * seen — a blank line after a paragraph becomes the inside of a list the moment the
  * next line starts with a marker, and a setext underline turns the paragraph above it
  * into a heading. One block of lag closes the setext case and not the list case; two

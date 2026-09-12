@@ -1,12 +1,11 @@
 // The chrome every deck pane wears, and the two tables that make it legible.
 //
-// `Spec-023 §Console Design (Meridian)` puts one entity in one pane behind a single
-// mount door, and §The surface set fixes three of the head's contents — panes are
-// "each headed by an entity breadcrumb and a kind glyph, with the actor's hue as the
-// focus ring". What no committed document says is that each of the six families should
-// draw its own frame, and six frames drawn independently is six spacings, six
-// breadcrumb separators, six control strips, and six answers to where the focus ring
-// goes. So the frame is drawn once, here, and a pane body is what a family writes.
+// One entity lives in one pane behind a single mount door, and three of the head's
+// contents are fixed — panes are each headed by an entity breadcrumb and a kind glyph,
+// with the actor's hue as the focus ring. What no committed document says is that each
+// of the six families should draw its own frame, and six frames drawn independently is
+// six spacings, six breadcrumb separators, six control strips, and six answers to where
+// the focus ring goes. So the frame is drawn once, here, and a pane body is what a family writes.
 //
 // WHY IT LIVES IN `seats/`. Every pane BODY lives inside the family that owns it, a
 // view family may not import another view family, and the deck that provides the two
@@ -17,8 +16,8 @@
 // contract six siblings share belongs.
 //
 // THE CONTROL STRIP IS THIS MODULE'S, because no committed document enumerates it: the
-// kind's own actions, open-in-window where the host permits it (the auxiliary windows
-// §The surface set names), and close. Both host controls arrive either explicitly, from
+// kind's own actions, open-in-window where the host permits it (the two auxiliary
+// windows the console ships), and close. Both host controls arrive either explicitly, from
 // a caller that owns the pane's lifetime, or from `pane-controls.ts`'s context, which
 // the deck provides around every pane body. Explicit wins, so a host that mounts a pane
 // outside a deck and still owns its lifetime is not forced through a context. Both
@@ -36,10 +35,10 @@
 // handler for a non-detachable kind is not making an error to be reported — it is the
 // expected shape — so the control is simply absent.
 //
-// AND THE HEAD IS ALSO THE DRAG HANDLE. `Spec-023 §Console Libraries` puts pointer
-// reorder on `@atlaskit/pragmatic-drag-and-drop`, which binds to an element. The head
-// is the strip that means "this pane" in every deck a person has used, and making the
-// whole pane draggable would turn selecting text in a body into the start of a drag.
+// AND THE HEAD IS ALSO THE DRAG HANDLE. Pointer reorder runs on
+// `@atlaskit/pragmatic-drag-and-drop`, which binds to an element. The head is the
+// strip that means "this pane" in every deck a person has used, and making the whole
+// pane draggable would turn selecting text in a body into the start of a drag.
 // The registration arrives through the same host context the two controls do, so a
 // pane rendered outside a deck is simply not draggable — the absent-not-disabled rule
 // again, applied to a gesture.
@@ -80,9 +79,9 @@ import { pinnedPaneRegionRegistry, type PinnedPaneRegionRegistry } from "./pinne
  * The glyph each pane kind wears, total over the closed set.
  *
  * `Record<PaneKind, …>` rather than a lookup with a fallback: a twelfth pane kind
- * would be a `Spec-023` amendment, and it should fail to compile here rather than
- * render as a nameless square in whichever deck first opened it. Several kinds share a
- * glyph on purpose — `runs` is a list OF runs and `workflow-run` is a run OF a
+ * would be a decision taken outside this package, and it should fail to compile here
+ * rather than render as a nameless square in whichever deck first opened it. Several
+ * kinds share a glyph on purpose — `runs` is a list OF runs and `workflow-run` is a run OF a
  * workflow — and inventing a distinct mark for each would grow the glyph family past
  * what a person can hold, which is the cost `tokens/glyphs.ts` names.
  */

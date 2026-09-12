@@ -1,26 +1,26 @@
 /**
- * Claude driver tool metadata (Plan-005 T3.9).
+ * Claude driver tool metadata.
  *
  * Owns the Claude driver's declared tool catalog and the CLOSING step that
  * makes every entry carry an `idempotency_class`. This module is the Claude
- * side of the recovery contract: `Spec-015` classifies a crash-interrupted
- * tool call by the class recorded on its `driver_tools` row, so an entry that
+ * side of the recovery contract: recovery classifies a crash-interrupted tool
+ * call by the class recorded on its `driver_tools` row, so an entry that
  * reaches the writer without a class would be classified by accident rather
  * than by declaration.
  *
- * ## I-005-3 — the conservative default is STRUCTURAL, not documentary
+ * ## The conservative default is STRUCTURAL, not documentary
  *
- * `Spec-005 §Tool Metadata`: "If a driver does not declare `idempotency_class`
- * for a tool, the runtime MUST treat it as `manual_reconcile_only`." That rule
- * is realized here by {@link closeToolIdempotencyClass}, which is the ONLY
- * constructor of a {@link NormalizedProviderToolMetadata} in this module —
+ * A driver that does not declare `idempotency_class` for a tool has that tool
+ * treated as `manual_reconcile_only`. That rule is realized here by
+ * {@link closeToolIdempotencyClass}, the ONLY constructor of a
+ * {@link NormalizedProviderToolMetadata} in this module —
  * {@link CLAUDE_TOOL_CATALOG} is its output, never a hand-written literal. An
  * entry added to {@link CLAUDE_TOOL_DECLARATIONS} with no class therefore
  * lands at the floor by CONSTRUCTION; there is no path by which forgetting an
  * annotation produces a permissive class. The floor also survives an
  * unrecognized class (see the helper's own note), so untyped ingress — which
- * is what T3.13 routes MCP-discovered tools through — cannot widen a class by
- * shipping a value outside the vocabulary.
+ * is how MCP-discovered tools arrive — cannot widen a class by shipping a
+ * value outside the vocabulary.
  *
  * The contract carries a SECOND, independent application of the same default:
  * `ProviderToolMetadataSchema` in `@ai-sidekicks/contracts` defaults the field
@@ -31,20 +31,19 @@
  *
  * ## Classification discipline
  *
- * `Spec-005 §Tool Metadata` defines `idempotent` as a pure read (or a write
- * whose external target is server-side idempotent) and `manual_reconcile_only`
- * as the class that halts recovery for operator reconciliation. Only tools
- * whose effect is a pure read of local state are annotated `idempotent` here,
- * each with a one-line rationale. Everything else is left UNANNOTATED so the
+ * `idempotent` means a pure read (or a write whose external target is
+ * server-side idempotent); `manual_reconcile_only` is the class that halts
+ * recovery for operator reconciliation. Only tools whose effect is a pure read
+ * of local state are annotated `idempotent` here, each with a one-line
+ * rationale. Everything else is left UNANNOTATED so the
  * floor applies — including the tools whose classification is merely
  * *plausible* (a session-local list write, an HTTP GET whose remote endpoint
  * may not be side-effect-free). An over-permissive class silently re-executes
  * an effect after a crash; the floor only costs an operator prompt.
  *
  * No entry is annotated `compensable`: that class requires a caller-supplied
- * `dedupe_key` the remote honors (`Spec-005 §Tool Metadata`), and no Claude
- * built-in tool accepts one. The vocabulary member is unused here by decision,
- * not by oversight.
+ * `dedupe_key` the remote honors, and no Claude built-in tool accepts one. The
+ * vocabulary member is unused here by decision, not by oversight.
  *
  * No entry carries a `description`: the column exists for the PROVIDER's own
  * tool description, and a sentence written here would be daemon prose posing
@@ -52,19 +51,15 @@
  *
  * ## Catalog scope
  *
- * The catalog is deliberately small — the Claude tool surface attested by the
- * corpus (`docs/reference/provider-wire/claude.md`,
- * `Spec-012 §Required Behavior`'s permission classes, and Plan-006's
- * `TodoWrite`-family result row). A tool name that appears in NO declaration
- * gets no `driver_tools` row at all, which is a different question from this
- * invariant's (an undeclared CLASS on a declared tool): the treatment of a
- * call with no row is the recovery dispatcher's (`Spec-015`), so speculative
- * names bought nothing and would have asserted a wire census this repo has
- * not recorded. MCP-discovered tools are NOT enumerated here; their floor and
- * census are T3.13.
- *
- * @see Spec-005 §Tool Metadata
- * @see Plan-005 T3.9 (I-005-3)
+ * The catalog is deliberately small — the Claude tool surface actually
+ * attested by the pinned wire census, the approval layer's permission classes,
+ * and the `TodoWrite`-family result row. A tool name that appears in NO
+ * declaration gets no `driver_tools` row at all, which is a different question
+ * from an undeclared CLASS on a declared tool: the treatment of a call with no
+ * row belongs to the recovery dispatcher, so speculative names bought nothing
+ * and would have asserted a wire census this repo has not recorded.
+ * MCP-discovered tools are NOT enumerated here; their floor and census are
+ * below.
  */
 
 import { McpServerStatusEmissionSchema } from "@ai-sidekicks/contracts";
@@ -77,13 +72,13 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 // --------------------------------------------------------------------------
-// The conservative default (I-005-3)
+// The conservative default
 // --------------------------------------------------------------------------
 
 /**
- * The class an unannotated tool takes. `Spec-005 §Tool Metadata` fixes this
- * value: it halts recovery for operator reconciliation rather than replaying
- * an effect whose repeat-safety nobody declared.
+ * The class an unannotated tool takes: it halts recovery for operator
+ * reconciliation rather than replaying an effect whose repeat-safety nobody
+ * declared.
  */
 export const DEFAULT_CLAUDE_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";
 
@@ -102,12 +97,12 @@ function isRecognizedIdempotencyClass(value: unknown): value is IdempotencyClass
 }
 
 /**
- * Close one declaration's `idempotency_class`, applying the I-005-3 floor.
+ * Close one declaration's `idempotency_class`, applying the conservative floor.
  *
- * Absent → floor, per `Spec-005 §Tool Metadata`. UNRECOGNIZED → floor too,
- * and deliberately not a throw: the static type is erased at runtime, so a
- * declaration reaching this helper from untyped ingress (T3.13's
- * MCP-discovered tools are the named case) can carry a value outside the
+ * Absent → floor. UNRECOGNIZED → floor too, and deliberately not a throw: the
+ * static type is erased at runtime, so a declaration reaching this helper from
+ * untyped ingress (MCP-discovered tools are the named case) can carry a value
+ * outside the
  * vocabulary — and a value outside the vocabulary is not a declaration of
  * anything, so it takes the same treatment as absence. Throwing would fail an
  * entire capability declaration over one malformed entry; flooring keeps the
@@ -156,15 +151,15 @@ export function closeToolIdempotencyClasses(
 export const CLAUDE_TOOL_DECLARATIONS: readonly ProviderToolMetadata[] = Object.freeze(
   (
     [
-      // Pure local reads — safe to repeat after a crash; nothing observable changes.
-      // `idempotent` per Spec-005 §Tool Metadata ("a pure read").
+      // Pure local reads — safe to repeat after a crash; nothing observable
+      // changes, which is what `idempotent` means.
       { name: "Read", idempotency_class: "idempotent" },
       { name: "Glob", idempotency_class: "idempotent" },
       { name: "Grep", idempotency_class: "idempotent" },
 
       // Everything below is UNANNOTATED on purpose: each either mutates local
       // state, or hands an effect to a target whose repeat-safety the daemon
-      // cannot establish. The I-005-3 floor classifies them.
+      // cannot establish. The conservative floor classifies them.
       { name: "Bash" },
       { name: "Write" },
       { name: "Edit" },
@@ -180,7 +175,7 @@ export const CLAUDE_TOOL_DECLARATIONS: readonly ProviderToolMetadata[] = Object.
 /**
  * The Claude driver's tool catalog as reported by `getCapabilities()` — every
  * entry class-closed. Built by {@link closeToolIdempotencyClasses}; never
- * hand-written, so the I-005-3 floor cannot be bypassed by an author.
+ * hand-written, so the floor cannot be bypassed by an author.
  *
  * Frozen at BOTH levels: a consumer that reads this constant instead of
  * copying it cannot rewrite a tool's class for every later declaration in the
@@ -204,48 +199,48 @@ export function getClaudeToolMetadata(): NormalizedProviderToolMetadata[] {
 }
 
 // ==========================================================================
-// T3.13 — MCP idempotency floor + MCP server-status census (EXTENDs T3.9)
+// MCP idempotency floor + MCP server-status census
 // ==========================================================================
 //
-// The Claude side of Plan-005 T3.13 (P2-7, P2-10-L1). Same three additions as
-// the Codex leg, adapted to this provider's ingress surfaces:
+// The Claude side of the MCP surface. Same three additions as the Codex leg,
+// adapted to this provider's ingress surfaces:
 //
 //   1. The MCP idempotency floor — an MCP-discovered tool is ALWAYS
 //      `manual_reconcile_only`; MCP `ToolAnnotations` self-claims never
-//      derive a class (`Spec-005 §Tool Metadata`, MUST-strength). The floor
-//      here COMPOSES with {@link closeToolIdempotencyClass}: an MCP tool row
+//      derive a class. The floor here COMPOSES with
+//      {@link closeToolIdempotencyClass}: an MCP tool row
 //      never reaches that helper with a permissive class in the first place,
 //      because this classifier is the only source of MCP classes.
 //   2. The durable-task-handle seam (MCP 2025-11-25 Tasks): observe the
 //      receiver-generated `taskId` at task-augmented dispatch and hand it to
 //      the sink, which stores nothing here — the sole writer of
 //      `command_receipts.mcp_task_id` is `provider/mcp-task-handle-recorder.ts`
-//      (T5.1, on the column its own migration lands). A dispatch whose handle
+//      (on the column its own migration lands). A dispatch whose handle
 //      is absent, malformed, or refused by the recorder stores nothing, and
 //      recovery for that receipt stays on the `manual_reconcile_only` halt.
 //   3. The MCP server-status census normalizers for the two Claude ingress
 //      shapes: the `system/init` `mcp_servers[]` member (the per-session
 //      init census) and the `claude mcp list` zero-billed-turn probe's
-//      human-CLI output (glyph lines; Spec-028 §Provider Capability Model
-//      records there is no `--json`). Both normalize into the closed
+//      human-CLI output (glyph lines; there is no `--json` on this surface).
+//      Both normalize into the closed
 //      `McpServerStatus` enum, bounded through
 //      `McpServerStatusEmissionSchema` (`serverName` is untrusted CLI
 //      output) BEFORE anything reaches the daemon-injected
 //      `onMcpServerStatus` producer. SERVERS ONLY — support is not
-//      visibility. Producer-only: the consumer is Plan-028's
-//      `McpStatusNormalizer` (CP-028-2).
+//      visibility. Producer-only: the consumer is the daemon's
+//      `McpStatusNormalizer`.
 //
-// Evidence honesty: unlike the Codex leg, the Claude wire reference does not
-// pin these ingress vocabularies — the recognized status tokens below are
-// Derived (Spec-028 §Status Observation records `pending` and `disabled` as
-// observed Claude states and fixes `pending` → `starting`; the remaining
-// tokens are the ecosystem-observed init-census values). The mapper is
+// Evidence honesty: unlike the Codex leg, the Claude wire census does not pin
+// these ingress vocabularies — the recognized status tokens below are Derived
+// (`pending` and `disabled` are observed Claude states and `pending` maps to
+// `starting`; the remaining tokens are the ecosystem-observed init-census
+// values). The mapper is
 // therefore deliberately tolerant: every unrecognized token lands at
 // `unknown` — honestly no observation — and never at a healthy state, so a
 // vocabulary the vendor widens degrades visibility, never correctness.
 
 /**
- * The class of EVERY MCP-discovered tool (`Spec-005 §Tool Metadata`).
+ * The class of EVERY MCP-discovered tool.
  *
  * Distinct from {@link DEFAULT_CLAUDE_TOOL_IDEMPOTENCY_CLASS} by RULE, not by
  * value: the default is what an unannotated builtin closes to; this is what
@@ -270,10 +265,9 @@ export interface McpToolAnnotationHints {
  * Classify an MCP-discovered tool: always the floor.
  *
  * The `annotations` parameter is accepted and IGNORED — MCP binds clients to
- * treat annotations as untrusted (MUST-strength), and `Spec-005 §Tool
- * Metadata` forbids deriving `idempotency_class` from them. The only upgrade
- * path is the operator-governed assignment surface (Spec-028 §Tool-Level
- * Overrides, Plan-028's), never consulted at this seam.
+ * treat annotations as untrusted (MUST-strength), and deriving
+ * `idempotency_class` from them is forbidden. The only upgrade path is the
+ * operator-governed tool-override surface, never consulted at this seam.
  */
 export function classifyMcpDiscoveredTool(
   annotations?: McpToolAnnotationHints | undefined,
@@ -287,20 +281,19 @@ export function classifyMcpDiscoveredTool(
 // Durable-task-handle seam (observation half)
 // --------------------------------------------------------------------------
 //
-// LIVE, BUT UNCALLED. `observeMcpTaskAcceptance` no longer discards: Plan-005
-// T5.1 replaced the no-op sink this seam was born with by the real writer in
-// `provider/mcp-task-handle-recorder.ts`, which stores the handle on the
-// dispatch's `command_receipts` row so Plan-015 T15.3 recovery can poll
-// `tasks/get` / `tasks/result` instead of halting.
+// LIVE, BUT UNCALLED. `observeMcpTaskAcceptance` no longer discards: the real
+// writer in `provider/mcp-task-handle-recorder.ts` replaced the no-op sink this
+// seam was born with, and it stores the handle on the dispatch's
+// `command_receipts` row so recovery can poll `tasks/get` / `tasks/result`
+// instead of halting.
 //
 // What is missing is the CALLER. Nothing in the daemon issues a task-augmented
-// MCP call, and no plan task owns one — T3.13 owns this observation half, T5.1
-// owns the write half, Plan-015 T15.3 owns the read, and the dispatch itself is
-// unassigned. `Spec-028 §Purpose` moreover holds that the provider CLIs are the
-// MCP clients and "the daemon never joins the MCP wire", which is in tension
-// with the `CreateTaskResult`-at-dispatch observation this seam performs; the
-// method string `tools/call` appears nowhere in the corpus or the code. Resolve
-// that before wiring a caller here — see the header of
+// MCP call: this module owns the observation half, the recorder owns the write
+// half, recovery owns the read, and the dispatch itself is unowned. The
+// provider CLIs are moreover the MCP clients and the daemon never joins the MCP
+// wire, which is in tension with the `CreateTaskResult`-at-dispatch observation
+// this seam performs; the method string `tools/call` appears nowhere in this
+// code. Resolve that before wiring a caller here — see the header of
 // `provider/mcp-task-handle-recorder.ts` for the full statement.
 
 /**
@@ -371,7 +364,7 @@ export function observeMcpTaskAcceptance(
 }
 
 // --------------------------------------------------------------------------
-// MCP server-status census normalization (P2-10-L1)
+// MCP server-status census normalization
 // --------------------------------------------------------------------------
 
 /**
@@ -395,8 +388,7 @@ export interface McpServerStatusIngestResult {
  * the init census's `needs_auth` and the CLI's "Needs authentication" resolve
  * identically.
  *
- *   * `pending` → `starting` is Spec-028 §Status Observation's stated
- *     deterministic map.
+ *   * `pending` → `starting` is the stated deterministic map.
  *   * `disabled` → `unknown`: deliberately not running — there is no live
  *     connection state; enabled/disabled semantics live on the CONSUMER's
  *     inventory entry, never in this enum.
@@ -484,8 +476,8 @@ export function normalizeClaudeMcpServerInitCensus(
 /**
  * Normalize `claude mcp list` probe output — the zero-billed-turn
  * status-refresh path. The CLI prints human-oriented lines
- * (`<name>: <command> - <glyph> <status text>`); there is no `--json`
- * (Spec-028 §Provider Capability Model). The parser is deliberately narrow:
+ * (`<name>: <command> - <glyph> <status text>`) and there is no `--json` on
+ * this surface. The parser is deliberately narrow:
  * a line must carry a `name:` prefix AND a ` - ` status separator to be read
  * at all — headers, blank lines, and prose fall through WITHOUT a rejection
  * (they are formatting, not malformed rows) — and a recognized line whose

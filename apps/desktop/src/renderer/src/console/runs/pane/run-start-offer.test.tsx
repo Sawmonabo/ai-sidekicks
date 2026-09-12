@@ -1,10 +1,9 @@
 // One offer reading, and the two surfaces that must agree about it.
 //
-// `Spec-023 §Console Design (Meridian)` requires every operator action to be
-// palette-reachable, and the empty state's "Write a message" is an operator action.
-// What that costs is a second surface asking the same question — so the question is
-// asked once here, and the case below drives BOTH readers over one reading and
-// compares what each of them offers.
+// Every operator action is palette-reachable, and the empty state's "Write a message"
+// is an operator action. What that costs is a second surface asking the same question —
+// so the question is asked once here, and the case below drives BOTH readers over one
+// reading and compares what each of them offers.
 //
 // The comparison is the point rather than the two halves separately: a suite that
 // checked the button on one reading and the palette row on another would pass over

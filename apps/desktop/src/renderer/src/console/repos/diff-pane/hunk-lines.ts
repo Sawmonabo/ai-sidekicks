@@ -8,7 +8,7 @@
 // counters, and `\ No newline at end of file`. The two levels were one module and the
 // file was the family's longest; nothing but length said they were one subject.
 //
-// IT STAYS ON THE PARSE SIDE OF `Spec-023 §Console Libraries`' seam. The library's
+// IT STAYS ON THE PARSE SIDE OF THE ADOPTED LIBRARY'S SEAM. The library's
 // `parsePatch` hands over hunk bodies as prefixed strings and this is what reads them,
 // so no library boundary is crossed here — the split is inside the parse half.
 

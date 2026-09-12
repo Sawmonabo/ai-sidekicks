@@ -60,11 +60,9 @@ const FIXTURE_MCP_SHELL: SettingsPageBody | undefined = __SIDEKICKS_CONSOLE_FIXT
  */
 export const MCP_SERVERS_PAGE_SLOT: OwnerSlotProps<SettingsPageBody> = {
   contract: {
-    // The owning plan is named by its SUBJECT rather than by its number, on the
-    // `workflows/owner-slots.ts` precedent: every member here is a runtime string in a
-    // shipped module, and this repository keeps governance identifiers in comments —
-    // which is where the number belongs and where it is. Plan-028 owns the MCP
-    // governance surface; its page body mounts here.
+    // The owner is named by its SUBJECT, on the `workflows/owner-slots.ts` precedent:
+    // every member here is a runtime string in a shipped module, and a surface is named
+    // by what it does. The MCP governance surface's page body mounts here.
     owningTask:
       "the MCP server configuration and governance plan's own page body, mounted through the settings page frame",
     mountObligation:

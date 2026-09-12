@@ -2,14 +2,13 @@
 // does to the deck that is holding its slot.
 //
 // TWO CONSOLES OVER ONE SHELL, which is the production topology and the only way to
-// assert the whole path. `Spec-023 §The surface set` gives an auxiliary window its own
-// bridge instance and no shared store, so the window and the deck are two renderers —
-// but they are two renderers of ONE shell, and the shell is what carries the return
-// from the window that closed to the deck that was waiting. `ModelledShell` stands in
-// for that shell, so a case that hands one plane to both halves is modelling what
-// ships rather than shortcutting it. It is scaffolding rather than a fixture answer:
-// a browser-mode run has no main process, and the fixture bridge says so now instead
-// of pretending it opened a window.
+// assert the whole path. An auxiliary window has its own bridge instance and no shared
+// store, so the window and the deck are two renderers — but they are two renderers of ONE
+// shell, and the shell is what carries the return from the window that closed to the deck
+// that was waiting. `ModelledShell` stands in for that shell, so a case that hands one
+// plane to both halves is modelling what ships rather than shortcutting it. It is
+// scaffolding rather than a fixture answer: a browser-mode run has no main process, and
+// the fixture bridge says so now instead of pretending it opened a window.
 //
 // The deck's half is the hand-off, driven directly: what a deck DRAWS for a detached
 // pane is `workspace/`'s to assert, and what the return does to the set behind that

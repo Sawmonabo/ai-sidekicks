@@ -1,17 +1,14 @@
-// ExecutionRootService — Plan-010 Phase 2, T2.4.
+// ExecutionRootService behaviour.
 //
 // Drives the real service over a real test SQLite database (the same lifecycle
-// as the T2.1-T2.3 suites: `openDatabase` factory -> per-test tmp file ->
-// `afterEach` close + remove), against the REAL Plan-009 `WorkspaceService` and
-// RECORDING fakes for the two provisioners below this seam.
+// as - suites: `openDatabase` factory -> per-test tmp file -> `afterEach` close
+// + remove), against the REAL `WorkspaceService` and RECORDING fakes for the
+// two provisioners below this seam.
 //
 // Three harness choices carry the evidential weight:
 //
-//   * The Plan-009 primitives are REAL. Every claim about the reprovision
-//     bracket is a claim about what `beginReprovision` / `completeReprovision` /
-//     `failReprovision` actually do to a row and to the timeline, and only the
-//     real service can be wrong about that. A stub would let this suite agree
-//     with itself about a bracket that does not exist.
+//   * A stub would let this suite agree with itself about a bracket that does
+//     not exist.
 //   * The mode provisioners are FAKES that write REAL rows. `branch_contexts`
 //     carries foreign keys to `worktrees` and `ephemeral_clones`, so a fake that
 //     returned an id without a row would make every polymorphism assertion below
@@ -24,30 +21,17 @@
 //     call into the service with no case noticing.
 //
 // Coverage map (the cites are the contract, not just the ACs):
-//   * `Spec-010 §Required Behavior` — dispatch is on the workspace's ONE selected mode.
-//   * `Spec-010 §Required Behavior` — `branch` mode overrides onto the EXISTING checkout.
-//   * `Spec-010 §Required Behavior` — no arm falls back to the main checkout; failures refuse.
-//   * `Spec-010 §Fallback Behavior` — a failed materialization blocks the run in setup
-//     (`stale` + `lastError`), and the original typed cause reaches the caller.
-//   * `Spec-010 §Fallback Behavior` — a stale workspace refuses, before any process is spawned,
-//     and the read-only arm drives the SAME gate so that a vanished root is
-//     recorded rather than only refused.
-//   * `Spec-010 §State And Data Implications` — the branch context is
-//     persisted per WRITABLE mode, and its shape is polymorphic in which root
-//     it names.
-//   * `Spec-010 §Resolved Questions and V1 Scope Decisions` — `branch`-mode
-//     bind-only verification, and its refusal.
-//
-// Verifies invariant: I-010-5 (one row, at most one root id — all four modes),
-// I-010-6 (the branch-mode arm's only git call is a read, and a mismatch leaves
-// the checkout and the row untouched), I-010-7 (each mode returns ITS root; no
-// arm substitutes another), I-010-10 (the neutralizing `-c core.hooksPath` and
-// `-c core.fsmonitor=false` pairs lead the argv, and the directory the first
-// names is created first), I-010-11
-// (a full prepare with the Plan-009 primitives stubbed out leaves the
-// `workspaces` row byte-identical, so a write from this module's own SQL would
-// be a direct observation), I-010-12 (the gate precedes every writable prepare that finds
-// the CP-010-2 bracket closed, and precedes every git call).
+//   * dispatch is on the workspace's ONE selected mode.
+//   * `branch` mode overrides onto the EXISTING checkout.
+//   * no arm falls back to the main checkout; failures refuse.
+//   * a failed materialization blocks the run in setup (`stale` + `lastError`), and
+//     the original typed cause reaches the caller.
+//   * a stale workspace refuses, before any process is spawned, and the read-only
+//     arm drives the SAME gate so that a vanished root is recorded rather than only
+//     refused.
+//   * the branch context is persisted per WRITABLE mode, and its shape is
+//     polymorphic in which root it names.
+//   * `branch`-mode bind-only verification, and its refusal.
 //
 // Two areas here are about what happens when a step that CANNOT be refused fails
 // anyway. `git invocation` pins the split between an answer (a detached HEAD,
@@ -55,7 +39,7 @@
 // never ran) — the collapse of those two was reporting unreadable repositories to
 // callers as branch disagreements. `compensation` pins the undo for a root that
 // was materialized and then could not be handed over, which nothing else reclaims:
-// T2.2's sweep retires worktrees whose MOUNT detached and cleans rows already
+// the sweep retires worktrees whose MOUNT detached and cleans rows already
 // retired, and an orphan on an attached mount is in neither set.
 //
 // Also pinned here, each as a negative control for a neighbouring claim: a
@@ -132,8 +116,8 @@ const UNKNOWN_WORKSPACE_ID: string = "0190fb17-8394-75a6-9b12-2d3e4f506178";
 
 const CANONICAL_ROOT: string = "/tmp/ai-sidekicks-fixture-exec-mount";
 // The subdirectory a READ-ONLY bind resolved. Deliberately NOT the mount root:
-// answering with the mount root would widen the CP-009-8 approval scope, and a
-// fixture where the two are equal could not tell the two answers apart.
+// answering with the mount root would widen approval scope, and a fixture
+// where the two are equal could not tell the two answers apart.
 const READ_ONLY_BIND_ROOT: string = `${CANONICAL_ROOT}/packages/api`;
 // A writable workspace's PREVIOUS root — the one `beginReprovision` releases.
 const PRIOR_ROOT: string = "/tmp/ai-sidekicks-fixture-exec-prior-root";
@@ -267,9 +251,6 @@ class FakeGit {
 /**
  * Records the directories the service asks to exist.
  *
- * The default fake resolves and forgets, which cannot tell "created the hook
- * neutralization directory" from "never created anything" — and I-010-10 is
- * discharged by that directory EXISTING before git is invoked against it.
  */
 class RecordingFilesystem {
   readonly createdDirectories: string[] = [];
@@ -285,7 +266,7 @@ class RecordingFilesystem {
 // ----------------------------------------------------------------------------
 
 /**
- * Stands in for T2.2, and WRITES the `worktrees` row a real create would write.
+ * Stands in for and WRITES the `worktrees` row a real create would write.
  *
  * The row is not decoration: `branch_contexts.worktree_id` references it, and
  * `validateReuse` answers out of it rather than out of a field on this fake — so
@@ -298,7 +279,7 @@ class FakeWorktreeProvisioner implements ExecutionRootWorktreeProvisioner {
   readonly createdWorktreeIds: string[] = [];
   /** Compensation's target — the orphan-retire leg records here. */
   readonly retiredWorktreeIds: string[] = [];
-  /** When set, `create` rejects with it — the `Spec-010 §Fallback Behavior` failure arm. */
+  /** When set, `create` rejects with it — the `` failure arm. */
   createFailure: Error | null = null;
   /** When set, `retire` rejects — the swallowed-compensation arm. */
   retireFailure: Error | null = null;
@@ -346,7 +327,7 @@ class FakeWorktreeProvisioner implements ExecutionRootWorktreeProvisioner {
   }
 }
 
-/** Stands in for T2.3, and writes the `ephemeral_clones` row a real prepare writes. */
+/** Stands in for and writes the `ephemeral_clones` row a real prepare writes. */
 class FakeClonePreparer implements ExecutionRootClonePreparer {
   readonly inputs: PrepareEphemeralCloneInput[] = [];
   /** The ids this fake minted, so disposal can be held to the one it prepared. */
@@ -354,12 +335,12 @@ class FakeClonePreparer implements ExecutionRootClonePreparer {
   /** Compensation's target for clone mode. */
   readonly disposedCloneIds: string[] = [];
   /**
-   * The base T2.3 OBSERVED, or `null` for a source HEAD commit no branch
+   * The base OBSERVED, or `null` for a source HEAD commit no branch
    * references.
    *
-   * `null` is the case where the clone's own HEAD lands detached and T2.3
-   * reports the field absent — a lawful outcome for it, and the one case where
-   * this service still self-anchors.
+   * `null` is the case where the clone's own HEAD lands detached and reports
+   * the field absent — a lawful outcome for it, and the one case where this
+   * service still self-anchors.
    */
   observedBaseBranch: string | null = SEEDED_BASE_BRANCH;
 
@@ -379,7 +360,7 @@ class FakeClonePreparer implements ExecutionRootClonePreparer {
       workspaceId: input.workspaceId,
       cloneRoot,
       branchName: input.branchName,
-      // Conditional spread, matching T2.3's own contract: `exactOptionalPropertyTypes`
+      // Conditional spread, matching its own contract: `exactOptionalPropertyTypes`
       // makes an absent key and an explicit `undefined` different values, and the
       // detached-clone-HEAD case is ABSENT.
       ...(this.observedBaseBranch === null ? {} : { baseBranch: this.observedBaseBranch }),
@@ -468,7 +449,7 @@ afterEach(() => {
   rmSync(ctx.tmpDir, { recursive: true, force: true });
 });
 
-/** The REAL Plan-009 primitives, wired exactly as a composition root would. */
+/** The REAL primitives, wired exactly as a composition root would. */
 function realPrimitives(): WorkspaceLifecyclePrimitives {
   return {
     assertWritable: (workspaceId) => ctx.workspaces.assertWritable(workspaceId),
@@ -524,7 +505,7 @@ function insertAttachedMount(): void {
  *
  * Raw INSERT rather than `WorkspaceService.bind`: bind resolves a real directory
  * through the trust envelope, which would put a filesystem dependency on every
- * case. Every case that cares about a TRANSITION still drives the real Plan-009
+ * case. Every case that cares about a TRANSITION still drives the real
  * primitives — through the service under test, which is the point.
  */
 function insertWorkspace(options: {
@@ -731,7 +712,6 @@ function readEventTypes(): readonly string[] {
 }
 
 // ============================================================================
-// Mode dispatch (`Spec-010 §Required Behavior`, I-010-7)
 // ============================================================================
 
 describe("mode dispatch", () => {
@@ -743,15 +723,14 @@ describe("mode dispatch", () => {
     });
 
     // The BIND root, not the mount root. Widening to `CANONICAL_ROOT` would hand
-    // Plan-012 an approval scope covering the whole repository (CP-009-8).
+    // an approval scope covering the whole repository.
     expect(prepared.executionRoot).toBe(READ_ONLY_BIND_ROOT);
     expect(prepared.executionMode).toBe("read-only");
     expect(prepared.state).toBe("ready");
     expect(prepared.branchName).toBeUndefined();
     expect(prepared.worktreeId).toBeUndefined();
     expect(prepared.ephemeralCloneId).toBeUndefined();
-    // `Spec-010 §State And Data Implications` scopes the branch context to the
-    // three WRITABLE modes.
+    // scopes the branch context to the three WRITABLE modes.
     expect(prepared.branchContextId).toBeUndefined();
     expect(readBranchContexts()).toHaveLength(0);
     // No bracket: nothing was reprovisioned, so nothing was evented.
@@ -763,10 +742,9 @@ describe("mode dispatch", () => {
     // Pins the decision, which is not the writable one. `assertWritable` PASSES
     // `busy` on purpose, and its docblock says why: the precise `workspace.busy`
     // refusal belongs to `markBusy`, the call that actually contends for the hold,
-    // and duplicating it in the gate would refuse a caller that never takes one.
-    // A read-only prepare is exactly that caller — it hands no root off, so it is
-    // not in contention (the busy-handoff subject of
-    // `Spec-010 §State And Data Implications`) with the run holding this
+    // and duplicating it in the gate would refuse a caller that never takes one. A
+    // read-only prepare is exactly that caller — it hands no root off, so it is
+    // not in contention (the busy-handoff subject of) with the run holding this
     // workspace. The response carries the OBSERVED position: "the position after
     // the bracket" has no bracket to describe here, and answering `ready` for a
     // held workspace would be the fabrication.
@@ -789,7 +767,6 @@ describe("mode dispatch", () => {
       branchName: FEATURE_BRANCH,
     });
 
-    // `Spec-010 §Required Behavior` / `Spec-010 §Turn-Boundary Snapshots` —
     // the execution root IS the shared main checkout.
     expect(prepared.executionRoot).toBe(CANONICAL_ROOT);
     expect(prepared.executionMode).toBe("branch");
@@ -797,14 +774,14 @@ describe("mode dispatch", () => {
     expect(prepared.worktreeId).toBeUndefined();
     expect(prepared.ephemeralCloneId).toBeUndefined();
     expect(prepared.branchContextId).toBeDefined();
-    // I-010-6: the single invocation is a READ of HEAD. Nothing switched.
+    // The single invocation is a READ of HEAD.
     expect(ctx.git.verbs()).toEqual(["symbolic-ref"]);
     // Nothing was delegated — branch mode creates no worktree and no clone.
     expect(ctx.worktrees.createInputs).toHaveLength(0);
     expect(ctx.clones.inputs).toHaveLength(0);
   });
 
-  it("worktree mode delegates to T2.2 and reports the created root", async () => {
+  it("worktree mode delegates to and reports the created root", async () => {
     insertWorkspace({ executionMode: "worktree", state: "provisioning" });
 
     const prepared = await makeService().prepare({
@@ -817,19 +794,17 @@ describe("mode dispatch", () => {
     expect(createInput?.repoMountId).toBe(REPO_MOUNT_ID);
     expect(createInput?.sessionId).toBe(SESSION_ID);
     expect(createInput?.branchName).toBe(FEATURE_BRANCH);
-    // D-010-15 / the request default: a collision REFUSES unless asked otherwise,
-    // because a silent suffix changes the branch the run publishes from.
     expect(createInput?.onCollision).toBe("refuse");
 
     expect(prepared.executionMode).toBe("worktree");
     expect(prepared.worktreeId).toBeDefined();
     expect(prepared.executionRoot).toBe(readWorktreeRow(prepared.worktreeId ?? "").fs_root);
     expect(prepared.ephemeralCloneId).toBeUndefined();
-    // The main checkout is never consulted for a worktree prepare (I-010-6).
+    // The main checkout is never consulted for a worktree prepare.
     expect(ctx.git.invocations).toHaveLength(0);
   });
 
-  it("ephemeral clone mode delegates to T2.3 and reports the clone root", async () => {
+  it("ephemeral clone mode delegates to and reports the clone root", async () => {
     insertWorkspace({ executionMode: "ephemeral clone", state: "provisioning" });
 
     const prepared = await makeService().prepare({
@@ -840,7 +815,7 @@ describe("mode dispatch", () => {
     expect(ctx.clones.inputs).toEqual([{ workspaceId: WORKSPACE_ID, branchName: FEATURE_BRANCH }]);
     expect(prepared.executionMode).toBe("ephemeral clone");
     expect(prepared.ephemeralCloneId).toBeDefined();
-    // The root T2.3 PERSISTED, not merely a path shaped like one — a substring
+    // The root PERSISTED, not merely a path shaped like one — a substring
     // check would pass on a root this service invented for itself.
     expect(prepared.executionRoot).toBe(readCloneRoot(prepared.ephemeralCloneId ?? ""));
     expect(prepared.worktreeId).toBeUndefined();
@@ -849,18 +824,17 @@ describe("mode dispatch", () => {
 });
 
 // ============================================================================
-// The read-only arm's gate (`Spec-010 §Fallback Behavior`, CP-009-8)
+// The read-only arm's gate
 // ============================================================================
 
 describe("read-only gate", () => {
   it("persists the stale transition it observes, rather than only refusing", async () => {
     // THE case that justifies calling a write-named gate from a read-only path.
     // Observing a vanished root obliges the daemon to RECORD it, and that record
-    // is a `workspaces` write I-010-11 forbids this module from making — so the
-    // gate is not decoration over a local probe, it is the only lawful way to make
-    // the finding durable. Without it the next `list` answers `ready` for a
-    // workspace this call already knows is gone, and CP-009-8 hands that root to
-    // Plan-012 as an approval scope.
+    // is a `workspaces` write forbids this module from making — so the gate is not
+    // decoration over a local probe, it is the only lawful way to make the finding
+    // durable. Without it the next `list` answers `ready` for a workspace this
+    // call already knows is gone, and hands that root to as an approval scope.
     insertWorkspace({ executionMode: "read-only", state: "ready", fsRoot: READ_ONLY_BIND_ROOT });
     ctx.unreachablePaths.add(READ_ONLY_BIND_ROOT);
 
@@ -887,9 +861,9 @@ describe("read-only gate", () => {
   it("refuses a released root as stale rather than as a defect", async () => {
     // `fs_root IS NULL` under a `ready` read-only row: something released the root
     // (`beginReprovision` is the only writer that does). Refused BEFORE the gate,
-    // because Plan-009's health projector treats a NULL root under a probe-bearing
-    // state as its own precondition failure — which would answer a gone root with
-    // an unrelated defect instead of the `workspace.stale` whose repair fits.
+    // because the health projector treats a NULL root under a probe-bearing state
+    // as its own precondition failure — which would answer a gone root with an
+    // unrelated defect instead of the `workspace.stale` whose repair fits.
     insertWorkspace({ executionMode: "read-only", state: "ready", fsRoot: null });
 
     const rejection = await captureRejection(() =>
@@ -901,11 +875,11 @@ describe("read-only gate", () => {
 
   it("reports an archived read-only workspace as this module's own defect", async () => {
     // Refused BEFORE the gate too, but for the opposite reason: `assertWritable`
-    // answers `archived` with Plan-009's anonymous `illegal_state_transition`,
-    // where this module has a kind that names the actual condition — a read-only
-    // workspace that cannot serve a root.
-    // No root on the fixture on purpose: the STATE alone decides here, ahead of
-    // the released-root check, so a row without one still takes this arm.
+    // answers `archived` with the anonymous `illegal_state_transition`, where
+    // this module has a kind that names the actual condition — a read-only
+    // workspace that cannot serve a root. No root on the fixture on purpose: the
+    // STATE alone decides here, ahead of the released-root check, so a row
+    // without one still takes this arm.
     insertWorkspace({ executionMode: "read-only", state: "archived" });
 
     const rejection = await captureRejection(() =>
@@ -926,7 +900,7 @@ describe("read-only gate", () => {
 // ============================================================================
 
 describe("pre-bracket refusals", () => {
-  it("refuses a stale workspace before any git call (`Spec-010 §Fallback Behavior`, I-010-12)", async () => {
+  it("refuses a stale workspace before any git call", async () => {
     // `branch` mode deliberately: it is the ONLY mode that calls git, so "before
     // any git call" is a claim with content here and vacuous elsewhere.
     insertWorkspace({ executionMode: "branch", state: "ready", fsRoot: PRIOR_ROOT });
@@ -941,7 +915,7 @@ describe("pre-bracket refusals", () => {
     expect(readBranchContexts()).toHaveLength(0);
   });
 
-  it("refuses a branch-mode mismatch without mutating the checkout (D-010-9)", async () => {
+  it("refuses a branch-mode mismatch without mutating the checkout", async () => {
     insertWorkspace({ executionMode: "branch", state: "ready", fsRoot: PRIOR_ROOT });
     ctx.git.headBranch = MAIN_BRANCH;
 
@@ -958,12 +932,10 @@ describe("pre-bracket refusals", () => {
       currentBranchName: MAIN_BRANCH,
     });
 
-    // I-010-6, the whole point: the ONLY invocation was the read, so no checkout
-    // command ran at all. A `switch`/`checkout` here would be the mutation.
+    // The whole point: the ONLY invocation was the read, so no checkout command
+    // ran at all. A `switch`/`checkout` here would be the mutation.
     expect(ctx.git.verbs()).toEqual(["symbolic-ref"]);
 
-    // And the ROW is untouched: a mismatch is a caller disagreement, not a fault,
-    // so `Spec-010 §Fallback Behavior`'s `stale` disposition must not fire.
     const row = readWorkspaceRow();
     expect(row.state).toBe("ready");
     expect(row.fs_root).toBe(PRIOR_ROOT);
@@ -993,8 +965,8 @@ describe("pre-bracket refusals", () => {
       makeService().prepare({ workspaceId: WORKSPACE_ID }),
     );
 
-    // D-010-19: the slug rule's inputs are gate-only, so a wire-originated
-    // pre-run prepare must carry the branch.
+    // The slug rule's inputs are gate-only, so a wire-originated pre-run
+    // prepare must carry the branch.
     expect(rejection).toBeInstanceOf(WorkspaceBranchNameRequiredError);
     expect(ctx.git.invocations).toHaveLength(0);
     expect(ctx.worktrees.createInputs).toHaveLength(0);
@@ -1015,10 +987,10 @@ describe("pre-bracket refusals", () => {
     expect(ctx.worktrees.createInputs).toHaveLength(0);
   });
 
-  it("refuses a busy workspace with the holding run id (`Spec-010 §State And Data Implications`)", async () => {
+  it("refuses a busy workspace with the holding run id", async () => {
     insertWorkspace({ executionMode: "worktree", state: "ready", fsRoot: PRIOR_ROOT });
     // Through the REAL primitive, so the metadata this service reads is metadata
-    // Plan-009 wrote.
+    // wrote.
     await ctx.workspaces.markBusy(WORKSPACE_ID, RUN_ID);
 
     const rejection = await captureRejection(() =>
@@ -1026,9 +998,8 @@ describe("pre-bracket refusals", () => {
     );
 
     expect(rejection).toBeInstanceOf(WorkspaceBusyError);
-    // The attribution is the whole repair affordance: a caller told only "busy"
-    // cannot tell whose run to wait for. Reading it back out of the metadata
-    // Plan-009 wrote is what makes a `null` here a real regression.
+    // Reading it back out of the metadata wrote is what makes a `null` here a
+    // real regression.
     expect(rejection).toMatchObject({ workspaceId: WORKSPACE_ID, holdingRunId: RUN_ID });
     expect(ctx.worktrees.createInputs).toHaveLength(0);
     expect(readWorkspaceRow().state).toBe("busy");
@@ -1051,7 +1022,6 @@ describe("pre-bracket refusals", () => {
 });
 
 // ============================================================================
-// The git invocation (I-010-10, I-010-6)
 // ============================================================================
 
 const HOOK_NEUTRALIZATION_DIRECTORY: string = join(
@@ -1128,7 +1098,6 @@ describe("git invocation", () => {
 });
 
 // ============================================================================
-// Branch-name resolution (D-010-19)
 // ============================================================================
 
 describe("branch-name resolution", () => {
@@ -1138,7 +1107,7 @@ describe("branch-name resolution", () => {
     const prepared = await makeService().prepare({ workspaceId: WORKSPACE_ID, runId: RUN_ID });
 
     // The delegated service receives a RESOLVED name — it holds no slug-rule
-    // inputs of its own, which is why T2.4 must resolve before dispatch.
+    // inputs of its own, which is why must resolve before dispatch.
     expect(ctx.worktrees.createInputs[0]?.branchName).toBe(DERIVED_RUN_BRANCH);
     expect(ctx.worktrees.createInputs[0]?.runId).toBe(RUN_ID);
     expect(prepared.branchName).toBe(DERIVED_RUN_BRANCH);
@@ -1171,8 +1140,8 @@ describe("branch-name resolution", () => {
 
     // Trimming per use site was the defect: branch-name resolution trimmed and the
     // create did not, so the branch derived from the trimmed id while the PADDED
-    // one went to T2.2 to be persisted as `created_by_run_id` — provenance naming
-    // a run that does not exist. Both readers must see the same value.
+    // one went on to be persisted as `created_by_run_id` — provenance naming a run
+    // that does not exist. Both readers must see the same value.
     expect(prepared.branchName).toBe(DERIVED_RUN_BRANCH);
     expect(ctx.worktrees.createInputs[0]?.runId).toBe(RUN_ID);
   });
@@ -1198,8 +1167,8 @@ describe("request pass-through", () => {
   });
 
   it("passes the dirty-candidate acknowledgement to the reuse", async () => {
-    // D-010-15's separate consent. T2.2 decides what to do with it; this service
-    // must not decide FOR it by dropping the field.
+    // Decides what to do with it; this service must not decide FOR it by
+    // dropping the field.
     insertWorktreeRow({
       worktreeId: SEEDED_WORKTREE_ID,
       branchName: FEATURE_BRANCH,
@@ -1226,7 +1195,7 @@ describe("request pass-through", () => {
 });
 
 // ============================================================================
-// Explicit reuse and the `branch_contexts` pair keying (D-010-15)
+// Explicit reuse and the `branch_contexts` pair keying
 // ============================================================================
 
 describe("explicit worktree reuse", () => {
@@ -1260,7 +1229,7 @@ describe("explicit worktree reuse", () => {
       reuseWorktreeId: SEEDED_WORKTREE_ID,
     });
 
-    // Mount consistency is T2.2's obligation, and it can only discharge it if the
+    // Mount consistency is the obligation, and it can only discharge it if the
     // binding WORKSPACE's mount is what it receives.
     expect(ctx.worktrees.reuseInputs[0]?.repoMountId).toBe(REPO_MOUNT_ID);
 
@@ -1369,12 +1338,12 @@ describe("explicit worktree reuse", () => {
   });
 
   it("refuses a candidate whose directory a busy workspace holds, before the bracket", async () => {
-    // The concurrent root HANDOFF `Spec-010 §State And Data Implications`
-    // refuses: the candidate's own workspace is busy IN that directory, and a
-    // second workspace asks to bind the same working tree. The refusal must
-    // name the HOLDER and must fire pre-bracket — routed through the
-    // materialization catch it would `failReprovision` the requester into
-    // `stale` repair for someone else's live run.
+    // The concurrent root HANDOFF refuses: the candidate's own workspace is
+    // busy IN that directory, and a second workspace asks to bind the same
+    // working tree. The refusal must name the HOLDER and must fire
+    // pre-bracket — routed through the materialization catch it would
+    // `failReprovision` the requester into `stale` repair for someone else's
+    // live run.
     const candidateRoot = `${EXECUTION_ROOTS_DIRECTORY}/${REPO_MOUNT_ID}/worktrees/${SEEDED_WORKTREE_ID}`;
     insertWorktreeRow({
       worktreeId: SEEDED_WORKTREE_ID,
@@ -1499,7 +1468,6 @@ describe("explicit worktree reuse", () => {
 });
 
 // ============================================================================
-// `branch_contexts` polymorphism (`Spec-010 §State And Data Implications`, I-010-5)
 // ============================================================================
 
 describe("branch_contexts polymorphism", () => {
@@ -1527,7 +1495,7 @@ describe("branch_contexts polymorphism", () => {
     const row = readBranchContext(prepared.branchContextId ?? "");
     expect(row.ephemeral_clone_id).toBe(prepared.ephemeralCloneId);
     expect(row.worktree_id).toBeNull();
-    // The base T2.3 OBSERVED, not a self-anchor. This service cannot see the source
+    // The base OBSERVED, not a self-anchor. This service cannot see the source
     // HEAD; the one that cloned it can, and reporting its measurement is the whole
     // reason the field exists.
     expect(row.base_branch).toBe(SEEDED_BASE_BRANCH);
@@ -1535,11 +1503,9 @@ describe("branch_contexts polymorphism", () => {
   });
 
   it("self-anchors a clone whose source commit no branch references", async () => {
-    // The ONLY case left where the recorded base is not a measurement. T2.3 omits
-    // the field when the clone's own HEAD lands detached — lawful there, not a
+    // The ONLY case left where the recorded base is not a measurement. omits the
+    // field when the clone's own HEAD lands detached — lawful there, not a
     // failure — and `base_branch` is TEXT NOT NULL, so something must be written.
-    // The head branch is the one true statement available: a clone whose HEAD
-    // landed detached has no branch it descends from.
     insertWorkspace({ executionMode: "ephemeral clone", state: "provisioning" });
     ctx.clones.observedBaseBranch = null;
 
@@ -1560,17 +1526,17 @@ describe("branch_contexts polymorphism", () => {
 
     const first = await service.prepare({ workspaceId: WORKSPACE_ID, branchName: FEATURE_BRANCH });
     const row = readBranchContext(first.branchContextId ?? "");
-    // The main checkout carries no Plan-010 root row, so the context references
-    // NEITHER — which is exactly what makes it a branch-mode row.
+    // The main checkout carries no root row, so the context references NEITHER
+    // — which is exactly what makes it a branch-mode row.
     expect(row.worktree_id).toBeNull();
     expect(row.ephemeral_clone_id).toBeNull();
 
     // A second branch-mode prepare ACCUMULATES. Nothing needs a workspace-scoped
     // "current row" — `BranchContextReadRequest` has no workspace-only arm, and
-    // Plan-011 reaches a specific row through `run_execution_contexts`. Refreshing
-    // in place would instead destroy the previous binding's recorded branches.
-    // The user moves the shared checkout, which is the scenario where the two rows
-    // differ and the history is worth something.
+    // reaches a specific row through `run_execution_contexts`. Refreshing in place
+    // would instead destroy the previous binding's recorded branches. The user
+    // moves the shared checkout, which is the scenario where the two rows differ
+    // and the history is worth something.
     ctx.git.headBranch = MAIN_BRANCH;
     const second = await service.prepare({ workspaceId: WORKSPACE_ID, branchName: MAIN_BRANCH });
 
@@ -1593,7 +1559,6 @@ describe("branch_contexts polymorphism", () => {
 });
 
 // ============================================================================
-// The reprovision bracket (CP-010-2)
 // ============================================================================
 
 describe("the reprovision bracket", () => {
@@ -1611,8 +1576,8 @@ describe("the reprovision bracket", () => {
     expect(row.fs_root).toBe(prepared.executionRoot);
     expect(row.fs_root).not.toBe(PRIOR_ROOT);
     expect(prepared.state).toBe("ready");
-    // The bracket rode the Plan-009 primitives, which is what put these on the
-    // timeline. A raw row write would have produced neither (I-010-11).
+    // The bracket rode primitives, which is what put these on the timeline. A
+    // raw row write would have produced neither.
     expect(readEventTypes()).toEqual(["workspace.provisioning", "workspace.ready"]);
   });
 
@@ -1625,11 +1590,11 @@ describe("the reprovision bracket", () => {
       makeService().prepare({ workspaceId: WORKSPACE_ID, branchName: FEATURE_BRANCH }),
     );
 
-    // The ORIGINAL typed cause reaches the caller — D-010-16 makes wrapping the
+    // The ORIGINAL typed cause reaches the caller — makes wrapping the
     // run-setup gate's job, and it wraps by code.
     expect(rejection).toBe(failure);
 
-    // `Spec-010 §Fallback Behavior` — the run blocks in setup rather than degrading.
+    // the run blocks in setup rather than degrading.
     const row = readWorkspaceRow();
     expect(row.state).toBe("stale");
     expect(row.fs_root).toBeNull();
@@ -1641,7 +1606,7 @@ describe("the reprovision bracket", () => {
 
   it("does not double-begin a first-bind workspace", async () => {
     // A writable bind lands `provisioning` and stays there for this call, so
-    // beginning again would fail Plan-009's `ready | stale` compare-and-swap.
+    // beginning again would fail the `ready | stale` compare-and-swap.
     insertWorkspace({ executionMode: "worktree", state: "provisioning" });
 
     const prepared = await makeService().prepare({
@@ -1694,7 +1659,7 @@ describe("compensation", () => {
   const COMPLETION_FAILURE_MESSAGE = "completeReprovision could not reach the database";
 
   it("retires a worktree this call created, and first removes the row binding it", async () => {
-    // Without compensation this leaks permanently: T2.2's sweep retires worktrees
+    // Without compensation this leaks permanently: the sweep retires worktrees
     // whose MOUNT detached and cleans rows already `retired`, and an orphan on an
     // attached mount is in neither set.
     insertWorkspace({ executionMode: "worktree", state: "provisioning" });
@@ -1709,9 +1674,9 @@ describe("compensation", () => {
 
     // The caller is owed the failure that actually happened.
     expect(rejection).toBe(failure);
-    // The row goes first: T2.2's retirement refuses while a `busy` workspace is
-    // bound to the worktree, and it finds that binding by joining `branch_contexts`
-    // on `worktree_id`. Ours is a binding for a handover that never happened.
+    // The row goes first: the retirement refuses while a `busy` workspace is bound
+    // to the worktree, and it finds that binding by joining `branch_contexts` on
+    // `worktree_id`. Ours is a binding for a handover that never happened.
     expect(readBranchContexts()).toHaveLength(0);
     // Against the id this call MINTED, not against whatever rows exist: the claim
     // is that compensation retires its own root, and a count would also pass if it
@@ -1835,10 +1800,10 @@ describe("compensation", () => {
 });
 
 // ============================================================================
-// I-010-11 — every workspace write rides the Plan-009 primitives
+// Every workspace write rides primitives
 // ============================================================================
 
-describe("I-010-11 — no raw workspaces write", () => {
+describe("no raw workspaces write", () => {
   it("leaves the workspaces row byte-identical when the primitives are stubbed out", async () => {
     // With the primitives replaced by recording no-ops, any
     // change to the row could only have come from this module's own SQL — so an
@@ -1892,8 +1857,8 @@ describe("unknown workspace", () => {
       makeService().prepare({ workspaceId: UNKNOWN_WORKSPACE_ID }),
     );
 
-    // Plan-009's carrier, not a Plan-010 re-mint — one code with two classes
-    // would make `instanceof` depend on which module a throw site imported.
+    // The carrier, not a re-mint — one code with two classes would make
+    // `instanceof` depend on which module a throw site imported.
     expect(rejection).toBeInstanceOf(WorkspaceNotFoundError);
   });
 });

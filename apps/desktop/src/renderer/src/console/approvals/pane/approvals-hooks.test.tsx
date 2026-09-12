@@ -40,7 +40,7 @@ describe("the read that follows a reconnect", () => {
     expect(requestRead).not.toHaveBeenCalled();
 
     act(() => {
-      sessionStore.initialise({ cursor: 4, entities: [], participantJoinLog: [] });
+      sessionStore.initialise({ cursor: 4, entities: [], userJoinLog: [] });
     });
     expect(requestRead).toHaveBeenCalledTimes(1);
     expect(requestRead).toHaveBeenCalledWith("reconnect");
@@ -54,7 +54,7 @@ describe("the read that follows a reconnect", () => {
     const requestRead = vi.spyOn(reader, "requestRead");
 
     act(() => {
-      sessionStore.initialise({ cursor: 4, entities: [], participantJoinLog: [] });
+      sessionStore.initialise({ cursor: 4, entities: [], userJoinLog: [] });
     });
     expect(requestRead).not.toHaveBeenCalled();
   });
@@ -69,7 +69,7 @@ describe("the read that follows a reconnect", () => {
         sessionStore.markDegraded("sequence-gap");
       });
       act(() => {
-        sessionStore.initialise({ cursor, entities: [], participantJoinLog: [] });
+        sessionStore.initialise({ cursor, entities: [], userJoinLog: [] });
       });
     }
     expect(requestRead).toHaveBeenCalledTimes(2);
@@ -229,7 +229,7 @@ describe("the reader is bound to the session it reads", () => {
     const requestRead = vi.spyOn(readers.second, "requestRead");
 
     act(() => {
-      second.initialise({ cursor: 4, entities: [], participantJoinLog: [] });
+      second.initialise({ cursor: 4, entities: [], userJoinLog: [] });
     });
     expect(requestRead).not.toHaveBeenCalledWith("reconnect");
   });

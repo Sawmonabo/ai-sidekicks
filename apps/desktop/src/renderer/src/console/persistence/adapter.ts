@@ -1,10 +1,8 @@
 // The persistence adapter seam, and the honest reasons there are two of them.
 //
-// `Spec-023 §Console Design (Meridian)` §Persistence on the renderer scheme, which
-// is also invariant I-023-11: "IndexedDB is available to the renderer only because
-// the custom scheme is registered `standard: true` before `app.ready`; a renderer
-// that finds no storage falls back to in-memory state and SAYS SO rather than
-// failing opaquely."
+// IndexedDB is available to the renderer only because the custom scheme is registered
+// `standard: true` before `app.ready`; a renderer that finds no storage falls back to
+// in-memory state and SAYS SO rather than failing opaquely.
 //
 // So the adapter is not an abstraction for its own sake. It exists because exactly
 // one of two things is true at runtime and the console has to be honest about
@@ -75,7 +73,7 @@ export interface PartitionSummary {
  *
  * `unavailableReason` is on the gauge rather than only on the adapter because the
  * gauge is what a storage surface reads, and a gauge that reported three absent
- * numbers with no reason would be exactly the "failing opaquely" I-023-11 forbids:
+ * numbers with no reason would be exactly the failing opaquely that rule forbids:
  * a person would see nothing measured and could not tell an unmeasurable browser
  * quota from a window that has no durable store at all. It is required rather than
  * optional so every producer has to state which of the two it is.

@@ -9,12 +9,12 @@
 // drift, and the surface that lists a name stops agreeing with the path that acts on
 // it while every test stays green.
 //
-// The vocabulary is Spec-017's C-18: the slash prefix is reserved for client
-// commands, and `//` is the escape for a message that really begins with a slash.
+// The slash prefix is reserved for client commands, and `//` is the escape for a
+// message that really begins with a slash.
 //
 // A DIRECTIVE OPENS ITS LINE, AND THE TRIGGER IS THE FIRST CHARACTER. The reading
 // used to `trimStart()` first, so an indented line still named a command. It cannot
-// any more, because the send router now hands this module the participant's text
+// any more, because the send router now hands this module the user's text
 // UNTOUCHED — trimming is a test there and never a transform — and a grammar that
 // skipped leading whitespace would claim pasted code whose first non-blank character
 // happens to be a slash. Indented text beginning with a slash is prose; a command

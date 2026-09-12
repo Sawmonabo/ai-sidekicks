@@ -1,10 +1,9 @@
 // What the pane KNOWS about the session's pages, as opposed to what the strip draws.
 //
-// `Spec-023 §Console Design (Meridian)` 12.2 gives the strip and the page picker one
-// reading between them — "one tab per page this session owns" and "every page the
-// session owns ... including background pages" are two renderings of one list — so
-// the subscription and the shape it yields live here, and neither component holds a
-// second copy of either. The rule this protects is the section's own: the chrome
+// The strip and the page picker share one reading — one tab per page this session
+// owns, and every page the session owns including background pages, are two renderings
+// of one list — so the subscription and the shape it yields live here, and neither
+// component holds a second copy of either. The rule this protects: the chrome
 // derives nothing. Which tab is selected, which page is shown, and whether a page is
 // loading are all read off the frame, never inferred from the last act dispatched.
 //

@@ -1,14 +1,13 @@
 // The comparand a steer is guarded with, and where the fresh one comes from.
 //
-// `expectedRunVersion` is MANDATORY and fail-closed on `run.intervene` (D-004-1), and
-// the composer used to read it from one place only: the run entity the session store
+// `expectedRunVersion` is MANDATORY and fail-closed on `run.intervene`, and the
+// composer used to read it from one place only: the run entity the session store
 // projects. That is sound for every advance the wire broadcasts and wrong for the one
-// it does not. An APPLIED NATIVE STEER advances the run version without a `run.*`
-// state change — `api-payload-contracts.md §Plan-004` says so in terms, which is why
-// the response carries `runVersion` at all — so after a successful steer the store's
-// projection is one behind, and the next steer sent under it is correctly refused as
-// stale. Two steers in a row were impossible without an unrelated run event landing
-// between them.
+// it does not. An APPLIED NATIVE STEER advances the run version without a `run.*` state
+// change — which is why the response carries `runVersion` at all — so after a
+// successful steer the store's projection is one behind, and the next steer sent under
+// it is correctly refused as stale. Two steers in a row were impossible without an
+// unrelated run event landing between them.
 //
 // SO THE ANSWER IS READ AND KEPT, AND RECONCILED RATHER THAN PREFERRED. The run also
 // advances through the state stream with no intervention pressed at all, so neither

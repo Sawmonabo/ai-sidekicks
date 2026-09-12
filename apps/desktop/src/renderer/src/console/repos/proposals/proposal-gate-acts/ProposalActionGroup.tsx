@@ -31,17 +31,17 @@ import { PROPOSAL_ACTION_PRESENTATION, type ProposalAction } from "../proposal-a
  * A WITHHELD ACT STILL SAYS WHY. Where the model withholds the remote act because the
  * proposal on screen is not ready to send, its sentence renders at the head of this
  * group — so the missing row is an absence with a reason rather than a control a
- * participant hunts for. The sentence is the model's; this file neither composes it nor
+ * user hunts for. The sentence is the model's; this file neither composes it nor
  * knows which act it is about.
  *
  * `isBlocked` is not an eligibility derivation: it is the presence of an unanswered
- * blocking choice on this very surface, which `Spec-011 §Fallback Behavior` requires
- * to be answered before proceeding. Every other reason an act might fail is the
+ * blocking choice on this very surface, which has to be answered before proceeding.
+ * Every other reason an act might fail is the
  * daemon's, is not consulted here, and renders as the refusal beside the act.
  *
  * `inFlightAction` is the second such fact and the last. While the holder is waiting
  * on the bridge the controls are held and an open confirm is withdrawn, so a
- * participant cannot confirm a second act against a payload whose answer has not
+ * user cannot confirm a second act against a payload whose answer has not
  * arrived. That is not the daemon's rule either — the holder refuses a second request
  * whatever this component draws — it is this surface declining to invite one.
  */
@@ -131,7 +131,7 @@ export function ProposalActionGroup(props: {
             ) : null}
             {refusal === undefined ? null : (
               // Inline, beside the control that produced it, and the control stays:
-              // the act did not happen and the participant may try another one.
+              // the act did not happen and the user may try another one.
               <InlineRefusal code={refusal.code} detail={refusal.detail} />
             )}
           </div>

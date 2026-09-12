@@ -10,15 +10,14 @@
 // `banner-announcements.ts`.
 //
 // AND IT RUNS ON THE WINDOW'S CLOCK, not on the wall clock. The announcer arms one
-// timeout — the hold before a standing message is cleared and the next one is
-// spoken — and that is a timer like any other, so `Spec-023 §Console Design
-// (Meridian)` §The fixture bridge's "the fixture clock is the only clock the
-// renderer reads in fixture mode" binds it. Left on `RealClock` it was the one
-// subsystem in a fixture window still reading wall time: a refusal raised by a
-// scenario beat cleared on how fast the runner happened to be, so what a reader
-// hears and what a screenshot captures both depended on the host. `useConsoleClock`
-// is the same answer `frame/bindings/ui-state-lifecycle.ts` and `frame/session/session-lifecycle.ts` ask for,
-// and the frame is where it is asked because `primitives/` sits below `bridge/` in
+// timeout — the hold before a standing message is cleared and the next one is spoken —
+// and that is a timer like any other, so the rule that the fixture clock is the only
+// clock the renderer reads in fixture mode binds it. Left on `RealClock` it was the one
+// subsystem in a fixture window still reading wall time: a refusal raised by a scenario
+// beat cleared on how fast the runner happened to be, so what a reader hears and what a
+// screenshot captures both depended on the host. `useConsoleClock` is the same answer
+// `frame/bindings/ui-state-lifecycle.ts` and `frame/session/session-lifecycle.ts` ask
+// for, and the frame is where it is asked because `primitives/` sits below `bridge/` in
 // the family DAG and cannot ask for itself.
 //
 // THE CHROME ITSELF IS `FrameChrome.tsx`, and the split is not only the

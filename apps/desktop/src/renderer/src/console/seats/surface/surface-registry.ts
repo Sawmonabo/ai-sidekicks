@@ -49,7 +49,7 @@ export const CONSOLE_SURFACE_SLOTS = [
   // and the palette's scope row still names the session, because the address is still
   // the session's. A slot rather than a branch inside `workspace`'s renderer, because
   // the two bodies belong to two different families: the workspace seat is the
-  // participant roster's until a console-authored workspace lands, and the run pane a
+  // user roster's until a console-authored workspace lands, and the run pane a
   // phase address opens is the workflows family's.
   "workflow-phase",
   "workflows",
@@ -200,7 +200,7 @@ export function registerConsoleSurface(registration: ConsoleSurfaceRegistration)
  *
  * The workspace arm is the one that answers with two slots, and the member it reads is
  * the one the address grammar carries: a phase focus names a run and a phase, which is
- * a subject the participant roster on the bare workspace slot cannot show. Read through
+ * a subject the user roster on the bare workspace slot cannot show. Read through
  * the arm rather than through `routeWorkflowPhase`, because the switch has already
  * narrowed to the arm that declares it and a second reading would be an accessor
  * consulted where the type already answered.

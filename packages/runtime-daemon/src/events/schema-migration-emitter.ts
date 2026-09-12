@@ -1,12 +1,11 @@
-// Plan-006 T3.4 — the schema-migration emitter.
+// The schema-migration emitter.
 //
 // One `schema.migrated` event per completed migration BATCH, appended to the
 // daemon's own log under the daemon-scope sentinel session. Batch granularity
-// is the spec's own, not a simplification: `Spec-006 §Event Maintenance
-// (event_maintenance)` fires this type "once per migration batch (equivalent to
-// Flyway's `AFTER_MIGRATE_OPERATION_FINISH`), not once per SQL statement", so a
-// start that applies versions 5 through 8 produces exactly one row carrying the
-// whole batch.
+// is the spec's own, not a simplification: fires this type "once per migration
+// batch (equivalent to Flyway's `AFTER_MIGRATE_OPERATION_FINISH`), not once per
+// SQL statement", so a start that applies versions 5 through 8 produces exactly
+// one row carrying the whole batch.
 //
 // ----------------------------------------------------------------------------
 // Two entry points, one emission seam — and why BOTH are needed
@@ -44,15 +43,9 @@
 //
 // `checksum` is BLAKE3 over the migrations' SQL bytes, concatenated in ascending
 // `version` order and hashed once; the digest is carried base64, matching how
-// every other byte field in this package reaches the wire. Plan-006 T3.4 and the
-// `checksum` field comment in `@ai-sidekicks/contracts` both specify the
-// construction as "over concatenated migration file contents", so the framing a
-// hash construction would normally want (length prefixes, an id bound in) is
-// deliberately absent: changing it is a corpus edit first, then this file, then
-// any verifier — the same ordering `merkle-anchor-service.ts` records for its
-// own construction. What the corpus leaves free is the ORDER, pinned here to
-// ascending version so the digest is a function of the batch's content and not
-// of the caller's array order.
+// every other byte field in this package reaches the wire. What the corpus
+// leaves free is the ORDER, pinned here to ascending version so the digest is a
+// function of the batch's content and not of the caller's array order.
 //
 // RESIDUAL, stated rather than closed: an unframed concatenation cannot tell a
 // statement that MOVED between two migrations in the same batch from one that
@@ -90,9 +83,9 @@
 // A batch that applied NOTHING produces no event, in both of its cases:
 //
 //   * Nothing to do (the ordinary start, every migration already applied). The
-//     `event_maintenance` rows are never compacted and never shredded
-//     (`Spec-006 §Event Maintenance (event_maintenance)`), so a row per daemon
-//     start is unbounded permanent growth recording that nothing happened.
+//     `event_maintenance` rows are never compacted and never shredded, so a
+//     row per daemon start is unbounded permanent growth recording that
+//     nothing happened.
 //   * A batch that FAILED before committing anything. There is no honest row to
 //     write: `migrationId` and `checksum` are required non-empty fields, and
 //     neither has a value when no migration landed. Minting a `schema.migrated`
@@ -104,20 +97,16 @@
 // where the flag carries information the sequence of committed versions cannot.
 //
 // THE TWO CORPUS LINES THIS RULE HAS TO ANSWER TO, since both look like they say
-// otherwise. `Spec-006 §Event Maintenance (event_maintenance)` pins the row at
-// "one event per `sidekicks db migrate` invocation, not one per migration file",
-// which is a statement about GRANULARITY — batch rather than file — and says
-// nothing about which outcomes are recordable; this file honours it by emitting
-// once per batch regardless of how many migrations the batch spans. And
-// `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session
-// Event Taxonomy` glosses the field as "false is representable — a failed batch
-// is the row worth auditing", which this rule agrees with wherever the row can
-// be built: `success: false` is emitted for every batch that committed anything.
-// The total-failure row is not withheld by policy, it is UNCONSTRUCTIBLE —
-// `MigrationBatchResult` reports only committed migrations, so a batch that
-// committed none carries no migration to name in `migrationId` and no bytes to
-// hash into `checksum`. Recording that outcome would need a payload shape that
-// can describe an ATTEMPT, which is a contracts change and not this file's.
+// otherwise. pins the row at "one event per `sidekicks db migrate` invocation,
+// not one per migration file", which is a statement about GRANULARITY — batch
+// rather than file — and says nothing about which outcomes are recordable; this
+// file honours it by emitting once per batch regardless of how many migrations
+// the batch spans. The total-failure row is not withheld by policy, it is
+// UNCONSTRUCTIBLE — `MigrationBatchResult` reports only committed migrations, so
+// a batch that committed none carries no migration to name in `migrationId` and
+// no bytes to hash into `checksum`. Recording that outcome would need a payload
+// shape that can describe an ATTEMPT, which is a contracts change and not this
+// file's.
 //
 // ----------------------------------------------------------------------------
 // Which failures propagate, and which substitute
@@ -155,10 +144,7 @@
 // The gap query is `MAX(sequence)` over `schema.migrated` rows SCOPED TO THE
 // SENTINEL SESSION. The scope is load-bearing rather than defensive: `sequence`
 // is allocated per session, so an unscoped maximum compares positions in
-// different hash chains. Every `event_maintenance` row is sentinel-bound
-// (`Spec-006 §Event Maintenance (event_maintenance)`), and the one carve-out in
-// that rule is scoped to `event.compacted`, so for this type the sentinel is the
-// only chain the row can be in.
+// different hash chains.
 //
 // ONE event fills the whole gap, however many versions it spans. The original
 // batch boundaries are not recoverable — `schema_version` records a version, a
@@ -195,11 +181,11 @@
 // Wiring status
 // ----------------------------------------------------------------------------
 //
-// Nothing calls this yet. `migration-runner.ts` is outside T3.4's Files clause
+// Nothing calls this yet. `migration-runner.ts` is outside the Files clause
 // and has no callback seam today, so attaching the primary path to the runner
 // and the reconcile call to daemon startup is a separate change against the
-// composition root. Both paths ship complete here — T3.5 owns their coverage —
-// so that change is a wiring edit rather than a design one.
+// composition root. Both paths ship complete here — owns their coverage — so
+// that change is a wiring edit rather than a design one.
 //
 // ONE PRECONDITION THAT WIRING INHERITS, because it is not obvious and it bites
 // hardest on the case everyone tests first. This is the tree's first appender on
@@ -208,19 +194,15 @@
 // when the session has no `daemon_signing_keys` row. That table is created BY
 // migration 5, so on a genuinely fresh database the very batch that establishes
 // the schema cannot have a signable sentinel key at the moment it finishes: the
-// key store did not exist when the batch began, and provisioning is CP-006-7's,
-// not this file's. The first-run event is therefore expected to fail its append
-// and be picked up by the NEXT start's reconcile, once the sentinel key has been
+// key store did not exist when the batch began, and provisioning the key is the
+// key store's job, not this file's. The first-run event is therefore expected to fail its append and
+// be picked up by the NEXT start's reconcile, once the sentinel key has been
 // provisioned. Wiring that treats a failed first-run emit as fatal would turn
 // the ordinary bootstrap into a crash loop.
 //
-// Spec coverage: `Spec-006 §Event Maintenance (event_maintenance)`
-// (schema.migrated — batch granularity, sentinel binding, payload extension).
-// Verifies invariant: none — no Plan-006 §Invariants entry names this task. The
-// invariants this file must not BREAK belong to the append path, and it reaches
-// the log only through `EventLogService.append`, which owns them.
-// Refs: Plan-006 T3.4, Plan-001 (`schema_version` — owner; read-only here),
-// `docs/architecture/schemas/local-sqlite-schema.md`.
+// Verifies invariant: none — no. The invariants this file must not BREAK belong
+// to the append path, and it reaches the log only through
+// `EventLogService.append`, which owns them..
 
 import {
   DAEMON_SCOPE_SENTINEL_SESSION_ID,
@@ -243,8 +225,8 @@ import { mintUuidV7 } from "../ids/uuid-v7.js";
  * The append surface this emitter needs, and nothing more.
  *
  * A `Pick` off the real service rather than a fresh interface: the seam stays
- * substitutable for a test double while remaining bound to T3.1's signature, so
- * a change to `append` fails here at compile time instead of drifting.
+ * substitutable for a test double while remaining bound to the signature, so a
+ * change to `append` fails here at compile time instead of drifting.
  */
 export type SchemaMigrationEventLog = Pick<EventLogService, "append">;
 
@@ -313,9 +295,8 @@ export interface MigrationBatchResult {
   readonly success: boolean;
   /**
    * Groups the event with anything else the same operation emitted — Liquibase's
-   * `DEPLOYMENT_ID` role, per the `schema.migrated` precedent in
-   * `Spec-006 §Event Maintenance (event_maintenance)`. Minted per batch when
-   * absent.
+   * `DEPLOYMENT_ID` role, per the `schema.migrated` precedent. Minted per batch
+   * when absent.
    */
   readonly operationId?: string;
 }
@@ -329,7 +310,7 @@ export interface SchemaMigrationEmitterDeps {
   readonly db: Database;
   /** This daemon's NodeId, carried on every emitted payload. */
   readonly nodeId: NodeId;
-  /** The sole durable append path (T3.1). */
+  /** The sole durable append path. */
   readonly eventLog: SchemaMigrationEventLog;
   /**
    * What `appliedBy` reports: the component that ran the migrations, and on the
@@ -546,7 +527,7 @@ export class SchemaMigrationEmitter {
     this.#eventIdFactory = deps.eventIdFactory ?? mintUuidV7;
     this.#operationIdFactory = deps.operationIdFactory ?? mintUuidV7;
 
-    // Plan-001 owns `schema_version`; this emitter only ever reads it. The
+    // Owns `schema_version`; this emitter only ever reads it. The
     // descriptions come from here rather than from `MigrationSource` because
     // they are what the migration DECLARED about itself at apply time, and
     // because the reconcile path has no other source for them.
@@ -750,10 +731,9 @@ export class SchemaMigrationEmitter {
    *
    * READING THE STORED PAYLOAD AT ALL IS SOUND FOR ONE REASON: `schema.migrated`
    * is an `event_maintenance` row, and those are never compacted and never
-   * shredded (`Spec-006 §Event Maintenance (event_maintenance)`). The gap query
-   * can therefore trust that a row it finds still carries its payload, which is
-   * not true of the compactable categories, whose stubs would read as a payload
-   * with the field missing.
+   * shredded. The gap query can therefore trust that a row it finds still
+   * carries its payload, which is not true of the compactable categories, whose
+   * stubs would read as a payload with the field missing.
    *
    * The parsed version is bounded by {@link requireSchemaVersion} like every
    * other version in this file. `/^\d+$/` alone admits digit strings past

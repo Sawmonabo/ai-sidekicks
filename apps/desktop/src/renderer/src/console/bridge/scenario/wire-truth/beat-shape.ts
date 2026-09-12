@@ -40,8 +40,8 @@
 // issue at `path: ["type"]` and nothing else. A branch it DID enter reports issues
 // inside that branch, under `payload` or beside it. So a failure whose every issue
 // sits on the discriminator means the strict layer registers nothing for this kind
-// — Plan-006 registers sixteen of the census's types today and the rest arrive with
-// their owning plans — and the beat is held to the legs that do not need one. Any
+// — sixteen of the census's types are registered today and the rest arrive with the
+// wires that own them — and the beat is held to the legs that do not need one. Any
 // other failure is the beat's.
 //
 // AND WHAT THAT ESCAPE IS NOW SCOPED TO. It no longer means "held to the census and

@@ -1,8 +1,8 @@
 // The window itself: which rows a scroll position needs, at what offset, under what
 // total height.
 //
-// ONE ADOPTION SITE FOR TWO SCROLLERS. `Spec-023 §Console Libraries` ADOPTs
-// `@tanstack/react-virtual` with constraints, and this family has two lists long
+// ONE ADOPTION SITE FOR TWO SCROLLERS. `@tanstack/react-virtual` is adopted with
+// constraints, and this family has two lists long
 // enough to need it: the rows of a diff, and the CHANGED-FILE LIST beside them. The
 // file list used to add a scrolling class past its threshold and mount every entry
 // anyway, so a repository-wide patch cost thousands of buttons before the already

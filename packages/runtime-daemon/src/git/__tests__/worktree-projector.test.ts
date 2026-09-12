@@ -1,13 +1,12 @@
-// worktree-projector — Plan-010 Phase 2 T2.5.
+// worktree-projector behaviour.
 //
-// Exercises the daemon-owned status-read projection the Phase-3 binder answers
-// `repo.worktreeStatusRead` from. No database, no temp directory, no clock: the
-// module under test performs no I/O, so every branch is driven by handing it
-// rows directly. Both halves of that are enforced statically in
-// eslint.config.mjs: a `no-restricted-imports` allow-list holding the module to
-// `@ai-sidekicks/contracts` alone, so no sibling can pull I/O in behind it, and
-// a `no-restricted-globals` ban on `Date` / `performance` making I-010-20's
-// clock math unavailable rather than merely unwritten.
+// No database, no temp directory, no clock: the module under test performs no
+// I/O, so every branch is driven by handing it rows directly. Both halves of
+// that are enforced statically in eslint.config.mjs: a `no-restricted-imports`
+// allow-list holding the module to `@ai-sidekicks/contracts` alone, so no
+// sibling can pull I/O in behind it, and a `no-restricted-globals` ban on
+// `Date` / `performance` making the clock math unavailable rather than merely
+// unwritten.
 //
 // Coverage map (cites are the authoritative contract, not just the ACs):
 //   * Never-hide: a fixture generated FROM the pinned state rosters — one row
@@ -38,8 +37,8 @@
 //     `exactOptionalPropertyTypes` plus `.strict()`, both an absent key and an
 //     explicit `undefined` typecheck and parse, so only `Object.keys` catches
 //     the second. Two INPUT shapes reach that census — a `null` column, and a
-//     column the query never selected, which arrives `undefined` through
-//     T3.4's unchecked row cast — and both must project as an absent key.
+//     column the query never selected, which arrives `undefined` through the
+//     unchecked row cast — and both must project as an absent key.
 //   * The `repoMountId` filter narrows BOTH arrays; omitted returns the whole
 //     session; a mount holding nothing returns two empty arrays, as does an
 //     empty read.
@@ -56,17 +55,6 @@
 //     no dynamic-import or require escape hatch, checked by an extractor that
 //     is itself negative-controlled across all three static import forms.
 //
-// Spec coverage: `Spec-010 §Interfaces And Contracts` (the `WorktreeStatusRead`
-// bullet — the session's worktree and ephemeral-clone records exposing
-// lifecycle state, branch, cleanup bookkeeping, and provenance as a
-// daemon-owned read surface); `Spec-010 §State And Data Implications` (dirty
-// and merged state belong to daemon-owned projections — carried verbatim here,
-// inferred nowhere).
-// Verifies invariant: I-010-20 (the daemon half — every rendered value is
-// resolved daemon-side and travels byte-identical to its column, so no view
-// does expiry math, cleanliness inference, or root computation), I-010-19 (the
-// daemon half — the projection filters no row out by state, so a view has
-// every row to render).
 
 import { randomUUID } from "node:crypto";
 
@@ -120,8 +108,8 @@ const CLONE_ROOT: string = "/srv/sessions/execution-roots/clones/task-b/";
 // `satisfies` proves every element is a real member, and the `_AssertExtends`
 // alias beneath proves every member is an element. With only the first, a
 // state added to contracts would leave the never-hide fixture passing
-// VACUOUSLY over a stale roster — precisely the drift I-010-19's daemon half
-// exists to catch.
+// VACUOUSLY over a stale roster — precisely the drift the daemon half exists
+// to catch.
 const ALL_WORKTREE_STATES = [
   "creating",
   "ready",
@@ -143,7 +131,7 @@ const ALL_EPHEMERAL_CLONE_STATES = [
 // same idiom `worktree-event-emitter.ts` uses to recover event names from its
 // variant interfaces. Without it this roster would be the one pin with no
 // completeness check, and a third policy would leave the cleanup-bookkeeping
-// axis of `Spec-010 §Interfaces And Contracts` asserted over a stale pair.
+// axis of asserted over a stale pair.
 type CleanupPolicyOnTheWire =
   WorktreeStatusReadResponse["ephemeralClones"][number]["cleanupPolicy"];
 
@@ -216,7 +204,7 @@ function rowSet(
 /**
  * A row as a query that FORGOT a column hands it over: the key is absent, so
  * the field reads `undefined` rather than `null`. The row interfaces cannot
- * express that — hence the one row-shape cast in this file — but T3.4's rows
+ * express that — hence the one row-shape cast in this file — but the rows
  * will arrive through an unchecked cast of their own, which is exactly why
  * the projection tests positive membership rather than `=== null`.
  */
@@ -287,10 +275,10 @@ function messageThrownBy(call: () => unknown): string {
 }
 
 // ----------------------------------------------------------------------------
-// Never-hide — I-010-19's daemon half
+// Never-hide — the daemon half
 // ----------------------------------------------------------------------------
 
-describe("projectWorktreeStatusRead — never-hide (I-010-19, daemon half)", () => {
+describe("projectWorktreeStatusRead — never-hide (daemon half)", () => {
   it("projects a worktree row in EVERY state, `failed` and `retired` included", () => {
     const rows = ALL_WORKTREE_STATES.map((state) => worktreeRow({ state }));
 
@@ -347,7 +335,6 @@ describe("projectWorktreeStatusRead — never-hide (I-010-19, daemon half)", () 
 
 // ----------------------------------------------------------------------------
 // Lifecycle, branch, cleanup bookkeeping, provenance
-// (`Spec-010 §Interfaces And Contracts`)
 // ----------------------------------------------------------------------------
 
 describe("projectWorktreeStatusRead — the four axes of the status read", () => {
@@ -418,7 +405,7 @@ describe("projectWorktreeStatusRead — the four axes of the status read", () =>
     expect("createdByRunId" in record).toBe(false);
   });
 
-  it("omits `cleanedAt` on a retired-but-unswept row — I-010-9's observable half", () => {
+  it("omits `cleanedAt` on a retired-but-unswept row — the observable half", () => {
     // A `retired` row whose disk removal has not run yet carries no cleanup
     // stamp. That absence is missing information about the WORLD, not a
     // missing field, and the two shapes must stay distinguishable.
@@ -449,9 +436,9 @@ describe("projectWorktreeStatusRead — the four axes of the status read", () =>
 
   it("omits an optional field when the QUERY omitted the column, not just when it is null", () => {
     // The row interfaces declare these columns `string | null`, so this shape
-    // is one the compiler says cannot happen — and T3.4 will produce it
-    // anyway, because driver rows reach the fold through an unchecked cast and
-    // a `SELECT` that forgets a column yields `undefined`, not `null`. A
+    // is one the compiler says cannot happen — and will produce it anyway,
+    // because driver rows reach the fold through an unchecked cast and a
+    // `SELECT` that forgets a column yields `undefined`, not `null`. A
     // null-only test would ship `{ createdByRunId: undefined }`: a present key
     // carrying nothing, which is the one shape the census above forbids.
     //
@@ -496,10 +483,8 @@ describe("projectWorktreeStatusRead — the four axes of the status read", () =>
   });
 
   it("reports the CREATING session, not the reading one — provenance survives", () => {
-    // The read scopes on the mount's session; `created_by_session_id` answers
-    // a different question and is untouched by scoping (I-010-3: provenance is
-    // unconditional and survives retirement). A worktree an earlier session
-    // created on a mount this session now reads still names its creator.
+    // A worktree an earlier session created on a mount this session now reads
+    // still names its creator.
     const row = worktreeRow({
       session_id: SESSION_ID,
       created_by_session_id: CREATING_SESSION_ID,
@@ -514,14 +499,13 @@ describe("projectWorktreeStatusRead — the four axes of the status read", () =>
 });
 
 // ----------------------------------------------------------------------------
-// Daemon-owned projections — `Spec-010 §State And Data Implications`, I-010-20
 // ----------------------------------------------------------------------------
 
-describe("projectWorktreeStatusRead — daemon-owned verdicts (I-010-20, daemon half)", () => {
+describe("projectWorktreeStatusRead — daemon-owned verdicts (daemon half)", () => {
   it("carries the daemon's `dirty` and `merged` verdicts verbatim, inferring neither", () => {
-    // Spec-010: dirty and merged state belong to daemon-owned projections.
-    // They are resolved onto the row by the transitioning service; this fold
-    // reports them and reads no working tree — it could not, owning no I/O.
+    // Dirty and merged state belong to daemon-owned projections. They are
+    // resolved onto the row by the transitioning service; this fold reports
+    // them and reads no working tree — it could not, owning no I/O.
     const dirtyRow = worktreeRow({ state: "dirty" });
     const mergedRow = worktreeRow({ state: "merged" });
 

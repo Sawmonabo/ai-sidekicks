@@ -33,7 +33,7 @@ const UNREADABLE_BODY: HydratedSessionEventContent = {
 describe("the card family classifier", () => {
   it("gives each body-bearing event type its own family", () => {
     const familyFor = (type: string): string => classifyCardFamily(sampleRunRow({ type })).family;
-    expect(familyFor("user.message")).toBe("participant-message");
+    expect(familyFor("user.message")).toBe("user-message");
     expect(familyFor("assistant.message")).toBe("assistant-message");
     expect(familyFor("assistant.thinking_update")).toBe("assistant-reasoning");
     expect(familyFor("tool.invoked")).toBe("tool-activity");
@@ -68,7 +68,7 @@ describe("the card family classifier", () => {
   });
 
   it("opens message bodies and keeps tool rows and receipts to one line", () => {
-    expect(cardFamilyDescriptor("participant-message").layout).toBe("body-open");
+    expect(cardFamilyDescriptor("user-message").layout).toBe("body-open");
     expect(cardFamilyDescriptor("assistant-message").layout).toBe("body-open");
     expect(cardFamilyDescriptor("assistant-reasoning").layout).toBe("body-open");
     expect(cardFamilyDescriptor("tool-activity").layout).toBe("one-line");

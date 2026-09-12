@@ -15,4 +15,4 @@ When upstream publishes new vectors:
 
 | Date | Commit SHA | sha256 | Reason |
 | --- | --- | --- | --- |
-| 2026-05-20 | `32d7406591eb022f9eff88abb84106dd9d42c0f2` | `0b72948b65d1f73f574c9ad2aa3481ec27bf8c632f5f6e1596cd41f5b9703387` | Initial vendor for Plan-025 Tier 1 Partial |
+| 2026-05-20 | `32d7406591eb022f9eff88abb84106dd9d42c0f2` | `0b72948b65d1f73f574c9ad2aa3481ec27bf8c632f5f6e1596cd41f5b9703387` | Initial vendor |

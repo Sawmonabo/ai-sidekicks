@@ -1,21 +1,20 @@
 // What a send would carry, and what stops it carrying it.
 //
-// AN ATTACHMENT REFERENCE IS AN ORDERED LIST OF ARTIFACT IDS AND NEVER BYTES. That is
-// `Spec-014 §Required Behavior`'s shape, and the ORDER is the participant's own —
-// caller-declared and preserved end to end — so this fold reads the carrier's ledger in
-// its published order and never sorts, groups, or de-duplicates. The ledger is the
-// record; a second ordering here would be a second answer to which attachment is first.
+// AN ATTACHMENT REFERENCE IS AN ORDERED LIST OF ARTIFACT IDS AND NEVER BYTES, and the
+// ORDER is the user's own — caller-declared and preserved end to end — so this
+// fold reads the carrier's ledger in its published order and never sorts, groups, or
+// de-duplicates. The ledger is the record; a second ordering here would be a second
+// answer to which attachment is first.
 //
 // AND IT IS COMPOSED EVEN THOUGH NOTHING DELIVERS IT YET, which is the decision this
 // module exists to record. The registered carriers a composer send resolves to are
 // `run.queueCreate` and `run.intervene`, and the attachment arm on the second is
-// `unknown[]` — an UNTYPED arm, which `Spec-014 §Interfaces And Contracts` forbids
-// delivering an attachment over, each arm's retyping being a prerequisite of the first
-// delivery wiring through it. So the reference is composed, rendered, and NOT put on a
-// request: a console that quietly dropped it would leave a person watching an upload
-// finish and a message send with nothing attached and no word about it, and a console
-// that pushed it onto the untyped arm would break the one rule the contract states
-// outright.
+// `unknown[]` — an UNTYPED arm, and an attachment is never delivered over one, each
+// arm's retyping being a prerequisite of the first delivery wiring through it. So the
+// reference is composed, rendered, and NOT put on a request: a console that quietly
+// dropped it would leave a person watching an upload finish and a message send with
+// nothing attached and no word about it, and a console that pushed it onto the untyped
+// arm would break the one rule the contract states outright.
 //
 // WHICH IS WHY THE HELD ARM IS A VALUE AND NOT A SILENCE. The disposition below is what
 // the surface renders, so the reason a settled artifact is not riding this turn is on
@@ -36,7 +35,7 @@ export type SendAttachmentReference =
   | { readonly disposition: "none" }
   | {
       readonly disposition: "held";
-      /** The minted artifacts, in the order the participant declared them. */
+      /** The minted artifacts, in the order the user declared them. */
       readonly artifactIds: readonly string[];
       /** Uploads still running or refused, which are not part of the reference yet. */
       readonly unsettledCount: number;

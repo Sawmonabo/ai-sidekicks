@@ -30,8 +30,8 @@
 // binding alone and refuses the project- and local-scoped ones; a trust grant binds at
 // the daemon, so it answers for both bindings that are effective in runs and refuses
 // the one that is not; and a binding this scenario declares nowhere is refused as
-// absent rather than answered with a neighbour. The rule is `Spec-028 §Configuration
-// Mutation`'s scope applicability, which this module stands in for the daemon to apply
+// absent rather than answered with a neighbour. The rule is the configuration
+// mutation's scope applicability, which this module stands in for the daemon to apply
 // — the same posture `repos-mutation-replies.ts` takes when it compares a path.
 //
 // A THROWN ENVELOPE IS WHAT LETS ONE ENTRY HOLD BOTH ANSWERS. The reply table is keyed

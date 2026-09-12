@@ -55,7 +55,7 @@ export interface ProposalGateBinding {
  *
  * The session store is the reader's own collaborator rather than the surface's: it is
  * what carries the reconnect edge and the `workspace.stale` frame, two of the four
- * reasons `Spec-023 §Rules every console surface obeys` names.
+ * admitted refresh reasons.
  *
  * THE CLOCK COMES FROM THE BRIDGE, on `repo-mounts-reader.ts`'s reason: `consoleClockFor`
  * is the one answer to which clock a window runs on, so the gate's refresh window

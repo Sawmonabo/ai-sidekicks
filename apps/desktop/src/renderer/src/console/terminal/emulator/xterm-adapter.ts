@@ -59,7 +59,7 @@ export interface XtermTerminalAdapterOptions {
   readonly pool?: TerminalRendererPool | undefined;
   readonly scrollbackLines?: number | undefined;
   /**
-   * Whether the lease ALREADY says this participant may type, at build time.
+   * Whether the lease ALREADY says this user may type, at build time.
    *
    * Watch mode is the default, so absent means shut. It is a construction input
    * rather than a call the caller makes afterwards because a surface builds a fresh
@@ -68,7 +68,7 @@ export interface XtermTerminalAdapterOptions {
    * was briefly wrong, and one whose correction a caller can forget to make.
    */
   readonly isWriteEnabled?: boolean | undefined;
-  /** Where a participant's keystrokes go. Absent means this surface never writes. */
+  /** Where a user's keystrokes go. Absent means this surface never writes. */
   readonly onKeystroke?: ((data: string) => void) | undefined;
   /** Where an allowed link goes. Absent means links render and never activate. */
   readonly onActivateLink?: ((url: string) => void) | undefined;
@@ -198,7 +198,7 @@ export class XtermTerminalAdapter {
     this.#hostBinding.detach();
   }
 
-  /** Say whether this participant may type. The answer is the lease's, handed down. */
+  /** Say whether this user may type. The answer is the lease's, handed down. */
   public setWriteEnabled(isWriteEnabled: boolean): void {
     this.#hostBinding.setWriteEnabled(isWriteEnabled);
   }

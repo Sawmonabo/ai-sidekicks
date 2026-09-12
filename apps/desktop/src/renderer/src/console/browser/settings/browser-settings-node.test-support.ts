@@ -22,7 +22,7 @@ export const EMPTY_SCENARIO: FixtureScenario = {
   label: "Browser settings, with nothing scripted",
   purpose: "Drives the browser settings carrier against a node whose replies a case supplies.",
   sessionId: "session-browser-settings",
-  participantIdsInJoinOrder: [],
+  userIdsInJoinOrder: [],
   beats: [],
   replies: [],
   startedAtIso: "2026-01-01T10:05:00.000Z",

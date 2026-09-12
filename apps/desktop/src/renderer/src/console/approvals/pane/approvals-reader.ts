@@ -4,9 +4,9 @@
 // rules this surface has to keep are rules about a MACHINE and not about a render:
 //
 //   • **Two reads, one scheduler.** Both the projection read and the standing-rule
-//     list refresh through `store/read/refresh-scheduler.ts`'s `RefreshScheduler`, which is the
-//     console's one refresh chokepoint (`Spec-023 §Rules every console surface
-//     obeys`). Nothing here arms a timer of its own and nothing polls.
+//     list refresh through `store/read/refresh-scheduler.ts`'s `RefreshScheduler`,
+//     which is the console's one refresh chokepoint. Nothing here arms a timer of its
+//     own and nothing polls.
 //   • **A control is disabled while ITS call is in flight, and only that one.**
 //     THIS SURFACE'S OWN RULE, because no committed document states it: exactly one
 //     call per answer. A single global busy flag would also disable the other cards,
@@ -66,10 +66,9 @@ export const APPROVALS_REFUSAL_ORIGIN = "approvals";
 /**
  * Where one read has got to.
  *
- * Four arms because these are four different sentences and `Spec-023 §Meridian, the
- * design language` rule 8 forbids collapsing any two — "A renderer that collapses
- * two of these into one is wrong": nobody has asked, a read is in flight, a read
- * answered (with however many rows, including none), and a read was refused.
+ * Four arms because these are four different sentences and collapsing any two of them
+ * is wrong: nobody has asked, a read is in flight, a read answered (with however many
+ * rows, including none), and a read was refused.
  */
 export type ReadPhase<TRow> =
   | { readonly status: "not-checked" }
@@ -99,9 +98,9 @@ export interface ApprovalsReaderOptions {
   /**
    * The clock every timer this surface arms is minted through.
    *
-   * Required rather than defaulted, so a caller cannot accidentally leave the
-   * fixture reading the wall clock — §The fixture bridge makes the frozen clock the
-   * only clock the renderer reads in fixture mode.
+   * Required rather than defaulted, so a caller cannot accidentally leave the fixture
+   * reading the wall clock — the frozen clock is the only clock the renderer reads in
+   * fixture mode.
    */
   readonly clock: ConsoleClock;
 }
@@ -121,7 +120,7 @@ export class ApprovalsReader implements ReadTriggerTarget {
    *
    * BOTH FAMILIES, because both reads refresh together: a remembered rule is minted
    * by resolving an approval, so a grant moment and a decision moment are the same
-   * participant action seen from two sides. A lookup rather than two `includes`
+   * user action seen from two sides. A lookup rather than two `includes`
    * scans, and declared HERE rather than at the surface that mounts the reader —
    * which events change this answer is a property of the question.
    */

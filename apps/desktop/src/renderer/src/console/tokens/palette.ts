@@ -1,16 +1,16 @@
 // The Meridian palette — the single source of truth for every console color.
 //
-// `Spec-023 §Console Design (Meridian)` rule 2 (the participant hue system),
-// rule 3 (the two-hue rule and its WCAG 2.2 AA contrast floors) and rule 4
-// (type and figures) are realised here and nowhere else: `meridian.css` is
-// GENERATED from this module by `generate-css.ts` and byte-diffed against it by
-// the console's assets tier, so a color edited in CSS alone fails the build.
+// Design-language rule 2 (the user hue system), rule 3 (the two-hue rule and its
+// WCAG 2.2 AA contrast floors) and rule 4 (type and figures) are realised here and
+// nowhere else: `meridian.css` is GENERATED from this module by `generate-css.ts` and
+// byte-diffed against it by the console's assets tier, so a color edited in CSS alone
+// fails the build.
 //
-// Authoring rules this file obeys, each of them a rule the spec states:
+// Authoring rules this file obeys, each of them a design-language rule:
 //
-//   • Hue answers "who" and never "how urgent". The twelve participant steps
+//   • Hue answers "who" and never "how urgent". The twelve user steps
 //     below are one scheme-independent set, because a person's identity does not
-//     change when the operator flips the theme. One lightness (`PARTICIPANT_HUE_
+//     change when the operator flips the theme. One lightness (`ACTOR_HUE_
 //     LIGHTNESS`) clears 3:1 as an edge, ring, or mark against BOTH schemes'
 //     grounds — which is exactly what rule 3 asks for and why the lightness sits
 //     mid-scale rather than at either extreme.
@@ -217,11 +217,11 @@ export const TOKEN_ALIASES: Readonly<Record<string, string>> = {
   "ansi-bright-white": "text",
 };
 
-/** Steps on the participant wheel. Twelve, per `Spec-023 §Console Design (Meridian)` rule 2. */
-export const PARTICIPANT_HUE_STEPS = 12;
+/** Steps on the user wheel. Twelve, per design-language rule 2. */
+export const ACTOR_HUE_STEPS = 12;
 
 /**
- * Fixed lightness for every participant hue — one value for both schemes, because
+ * Fixed lightness for every user hue — one value for both schemes, because
  * a person's identity colour does not change when the operator flips the theme.
  *
  * It is not a taste choice. Holding the whole wheel to 3:1 leaves exactly one
@@ -233,28 +233,28 @@ export const PARTICIPANT_HUE_STEPS = 12;
  * band, which is why both schemes clear the floor with comparable headroom
  * (~3.43 light, ~3.37 dark) rather than one of them scraping past.
  */
-export const PARTICIPANT_HUE_LIGHTNESS = 0.57;
+export const ACTOR_HUE_LIGHTNESS = 0.57;
 
 /**
- * Requested chroma for every participant hue. Green and cyan cannot hold it in
+ * Requested chroma for every user hue. Green and cyan cannot hold it in
  * sRGB at this lightness, so those steps are chroma-fitted down; the wheel stays
  * perceptually even in lightness, which is what carries the "one family" reading.
  */
-export const PARTICIPANT_HUE_CHROMA = 0.135;
+export const ACTOR_HUE_CHROMA = 0.135;
 
 /**
- * Hue angle of step 0. Offset off 0° so no participant lands on the pure red
+ * Hue angle of step 0. Offset off 0° so no user lands on the pure red
  * that the failed-state token owns, which would make identity read as failure at
  * a glance.
  */
-export const PARTICIPANT_HUE_ORIGIN_DEGREES = 20;
+export const ACTOR_HUE_ORIGIN_DEGREES = 20;
 
 /** Degrees between adjacent wheel steps. */
-export const PARTICIPANT_HUE_STEP_DEGREES: number = 360 / PARTICIPANT_HUE_STEPS;
+export const ACTOR_HUE_STEP_DEGREES: number = 360 / ACTOR_HUE_STEPS;
 
 /** The hue angle of a wheel step, in degrees. */
-export function participantHueAngle(step: number): number {
-  return (PARTICIPANT_HUE_ORIGIN_DEGREES + step * PARTICIPANT_HUE_STEP_DEGREES + 360) % 360;
+export function actorHueAngle(step: number): number {
+  return (ACTOR_HUE_ORIGIN_DEGREES + step * ACTOR_HUE_STEP_DEGREES + 360) % 360;
 }
 
 /**

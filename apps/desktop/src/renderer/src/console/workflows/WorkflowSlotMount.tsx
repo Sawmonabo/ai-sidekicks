@@ -18,13 +18,13 @@
 // because a component composed inline on each render is a new type each time and
 // React remounts it.
 //
-// THE CONTRACT IS CARRIED AND NEVER RENDERED. `contract` names governance work — a
-// task id, a mount obligation, a deletion obligation — and the seat's own rule is that
+// THE CONTRACT IS CARRIED AND NEVER RENDERED. `contract` names work owned elsewhere —
+// an owner, a mount obligation, a deletion obligation — and the seat's own rule is that
 // no console surface may display one. The copy a person sees is the caller's, written
 // for a person. The contract travels anyway, because a mount that took only the body
 // would let a sixth slot appear with nobody named against it — and it travels as the
 // seat's OWN shape rather than as a member copied out of it: these props extend
-// `OwnerSlotProps`, so the pair a mounting family renders a plan-owned slot with is
+// `OwnerSlotProps`, so the pair a mounting family renders an owned slot with is
 // declared once, in `seats/`, and read here. It used to be rebuilt into a local value
 // whose `contract` nothing then consulted, which is the second activation route
 // `owner-slots.ts` teaches against with the body member it deleted for the same

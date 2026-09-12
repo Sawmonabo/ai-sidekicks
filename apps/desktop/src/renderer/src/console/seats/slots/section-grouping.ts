@@ -1,12 +1,12 @@
 // How every sidebar section body splits its rows into groups, in one place.
 //
-// `Spec-023 §The surface set` makes each sidebar section "a composition of its own
-// read, opening panes", and the sidebar's own density rule is counts, not lists,
-// until a section is open. What each body then draws is the same three things — a
-// count, a heading per group, and a row that opens a pane — over rows of its own
-// shape. THE GROUPING IS THE PART THAT IS IDENTICAL, so it lives here rather than
-// once per body: three near-copies of a fold is how the fourth section gets a
-// different sort order than its neighbours and nobody notices.
+// Each sidebar section is a composition of its own read, opening panes, and the
+// sidebar's own density rule is counts, not lists, until a section is open. What each
+// body then draws is the same three things — a count, a heading per group, and a row
+// that opens a pane — over rows of its own shape. THE GROUPING IS THE PART THAT IS
+// IDENTICAL, so it lives here rather than once per body: three near-copies of a fold is
+// how the fourth section gets a different sort order than its neighbours and nobody
+// notices.
 //
 // WHAT IS THIS MODULE'S AND WHAT IS THE SECTION'S. This module owns the SHAPE of the
 // fold — filter first, then group, then order within a group, with absent rather than

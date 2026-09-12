@@ -69,7 +69,7 @@ class RosterUnderTest {
 /** A store with a base state, which is what makes a later frame a frame and not history. */
 function initialisedStore(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: REPOS_SCENARIO.sessionId });
-  sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+  sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
   return sessionStore;
 }
 

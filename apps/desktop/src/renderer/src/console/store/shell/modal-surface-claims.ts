@@ -35,7 +35,7 @@
  * The open modal surfaces of one window, each holding its own claim.
  *
  * ONE INSTANCE PER FRAME STORE, never a module-level singleton: the fact is about a
- * WINDOW, and an auxiliary window shares no store with the main one (I-023-12).
+ * WINDOW, and an auxiliary window shares no store with the main one.
  */
 export class ModalSurfaceClaims {
   readonly #publishIsAnyHeld: (isAnyHeld: boolean) => void;

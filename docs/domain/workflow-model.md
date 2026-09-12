@@ -24,7 +24,7 @@ The workflow model is the source of truth for how reusable, multi-phase executio
 - A workflow is not a free-form conversation or ad-hoc sequence of runs. It is an authored definition with explicit phase structure.
 - A workflow definition is not an artifact. Definitions are first-class persisted records. Artifact publication may represent derivative exports or summaries but must not be the canonical source of workflow definition truth.
 - A workflow run is not a single run in the run-state-machine sense. A workflow run orchestrates multiple phase executions, each of which may create runs through `OrchestrationRunCreate`.
-- A workflow is not an external workflow engine (Temporal, Restate). Execution uses the existing local-first persistence and run primitives per ADR-002.
+- A workflow is not an external workflow engine (Temporal, Restate). Execution uses the existing daemon-local persistence and run primitives per ADR-002.
 
 ## Invariants
 
@@ -57,7 +57,7 @@ The workflow model is the source of truth for how reusable, multi-phase executio
 | `suspended` | A phase of the run is parked — awaiting a human, or waiting out a provider usage limit — and the run is neither progressing nor finished. The park's cause, and the resume instant where one was armed, are per-phase state (`Spec-017 §Park integrity and cancellability (SA-42)`). |
 | `completed` | All phases have reached terminal states and the workflow finished successfully. |
 | `failed` | The workflow ended because a phase failed and the configured failure behavior resulted in a stop. |
-| `cancelled` | The workflow was explicitly cancelled by a participant or system action, through `workflow.runCancel` (`Spec-017 §Operator run control (SA-45)`). |
+| `cancelled` | The workflow was explicitly cancelled by a user or system action, through `workflow.runCancel` (`Spec-017 §Operator run control (SA-45)`). |
 
 Allowed transitions:
 

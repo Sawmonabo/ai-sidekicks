@@ -6,19 +6,17 @@
 // presence, mermaid-set-coherence, cite-target-existence). Same coverage; one
 // less layer of config.
 //
-// argv: zero or more file paths, partitioned into two disjoint per-file lanes
-// by SHAPE (extension/prefix) and EXISTENCE (present in the git index or on
-// disk — see `runChecks`): staged `.md` governance docs (mermaid + table
-// checks + cite) and staged `packages/**`+`apps/**` TypeScript (the label-cite
-// floor).
+// argv: zero or more file paths, filtered by SHAPE (extension) and EXISTENCE
+// (present in the git index or on disk — see `runChecks`) to staged `.md`
+// governance docs (mermaid + table checks + cite).
 // path-canonical-ripple, plan-manifest-presence, and plan-status-readability
 // run unconditionally (each does its own whole-repo enumeration — path-ripple
 // greps the registry `scope` globs, and the two plan checks share
 // `git ls-files docs/plans/`).
 //
-// Optional `--min-md=N` / `--min-code=N` arm a per-lane floor (see
+// Optional `--min-md=N` arms a floor on the resolved `.md` lane (see
 // `parseRunnerArguments`). Off by default, which is the pre-commit posture;
-// CI arms both because there an empty lane means enumeration failed rather
+// CI arms it because there an empty lane means enumeration failed rather
 // than "this commit touched nothing of that kind".
 //
 // Cite-target-existence runs against the staged `.md` files PLUS any
@@ -26,11 +24,6 @@
 // set — see `../lib/inbound-cite-discovery.ts`. This widens local pre-commit
 // coverage to match the inbound-ripple class CI's `custom-checks` repo-wide
 // sweep catches.
-//
-// label-cite runs against staged code files: governance LABEL cites
-// (`Spec-NNN:LL`) in comments get the SAME deterministic floor as markdown
-// `file.md:NNN` cites — closing the gap where a spec amendment silently
-// invalidated code-comment line cites (PR #139). See `../lib/label-cite.ts`.
 //
 // table-total-coherence runs against the staged `.md` lane: a breakdown table
 // marked `<!-- corpus:total-check column="..." -->` has that column re-summed
@@ -59,13 +52,11 @@ import {
 } from "../lib/cite-target-existence.ts";
 import {
   expandToInboundCiteCorpus,
-  findGovernanceCitersOfCode,
   getRepoRoot,
   listGitIndexPaths,
   makeCommitSnapshotReader,
 } from "../lib/inbound-cite-discovery.ts";
 import {
-  checkLabelCiteTargets,
   checkMarkdownVolatileCites,
   checkSectionCites,
   extractLabelCites,
@@ -91,7 +82,7 @@ import {
   formatTableTotalViolations,
 } from "../lib/table-total-coherence.ts";
 
-// Lane predicates split SHAPE (extension/prefix rules on the path string)
+// The lane predicate splits SHAPE (the extension rule on the path string)
 // from EXISTENCE (membership below): shape is pure, existence is
 // index-OR-worktree, and `runChecks` composes them.
 function isMdPath(p: string): boolean {
@@ -122,32 +113,17 @@ function isInGovernanceCorpus(p: string): boolean {
   return !PER_FILE_CHECK_EXCLUDED_PREFIXES.some((prefix) => p.startsWith(prefix));
 }
 
-// Code files carry governance LABEL cites (`Spec-NNN:LL`) in comments; they get
-// the deterministic floor via label-cite, NOT the markdown-only per-file checks
-// (mermaid, inbound-expansion). Scoped to first-party TypeScript under
-// `packages/` + `apps/`; `dist/` is generated output and `.d.ts` are emitted
-// declarations — neither hand-authored, so both are excluded to keep the
-// required gate to source a developer actually edits.
-const CODE_FILE_RE = /\.(ts|tsx|mts|cts)$/;
-
-function isCodePath(p: string): boolean {
-  if (!CODE_FILE_RE.test(p) || p.endsWith(".d.ts")) return false;
-  if (p.includes("/dist/") || p.startsWith("dist/")) return false;
-  return p.startsWith("packages/") || p.startsWith("apps/");
-}
-
 export interface RunnerArguments {
   files: string[];
   minimumMd: number;
-  minimumCode: number;
 }
 
-const LANE_FLOOR_RE = /^--min-(md|code)(?:=(.*))?$/;
+const LANE_FLOOR_RE = /^--min-(md)(?:=(.*))?$/;
 
 /**
- * Split argv into file paths and the two optional per-lane floors.
+ * Split argv into file paths and the optional `.md` lane floor.
  *
- * The floors default to `0` — OFF — because the same runner serves two callers
+ * The floor defaults to `0` — OFF — because the same runner serves two callers
  * for which an empty lane means opposite things. At pre-commit, lefthook passes
  * `{staged_files}`: a commit touching only `.json` derives an empty `.md` lane
  * legitimately, and a hook that refused it would block work it has nothing to
@@ -162,7 +138,6 @@ const LANE_FLOOR_RE = /^--min-(md|code)(?:=(.*))?$/;
 export function parseRunnerArguments(argv: string[]): RunnerArguments {
   const files: string[] = [];
   let minimumMd = 0;
-  let minimumCode = 0;
 
   for (const argument of argv) {
     const floorMatch = LANE_FLOOR_RE.exec(argument);
@@ -190,7 +165,6 @@ export function parseRunnerArguments(argv: string[]): RunnerArguments {
       }
       const parsed = Number(rawValue);
       if (lane === "md") minimumMd = parsed;
-      else minimumCode = parsed;
       continue;
     }
     // Unknown options THROW rather than falling through to the file list. Both
@@ -204,18 +178,17 @@ export function parseRunnerArguments(argv: string[]): RunnerArguments {
     files.push(argument);
   }
 
-  return { files, minimumMd, minimumCode };
+  return { files, minimumMd };
 }
 
 export interface RunChecksResult {
   exitCode: number;
   messages: string[];
-  laneCounts: { md: number; code: number };
+  laneCounts: { md: number };
 }
 
 export interface LaneFloors {
   minimumMd?: number;
-  minimumCode?: number;
 }
 
 export function runChecks(args: string[], floors: LaneFloors = {}): RunChecksResult {
@@ -234,42 +207,35 @@ export function runChecks(args: string[], floors: LaneFloors = {}): RunChecksRes
   const existsForLane = (p: string): boolean =>
     (gitIndexPaths !== null && gitIndexPaths.has(resolve(p))) || statIsFile(p);
   const stagedMd = args.filter((p) => isMdPath(p) && existsForLane(p)).filter(isInGovernanceCorpus);
-  const stagedCode = args.filter((p) => isCodePath(p) && existsForLane(p));
-  const laneCounts = { md: stagedMd.length, code: stagedCode.length };
+  const laneCounts = { md: stagedMd.length };
   const messages: string[] = [];
   let exitCode = 0;
 
-  // Lane floors are enforced on the PARTITIONED lanes, not on raw argv, and
-  // before any check runs.
+  // The floor is enforced on the RESOLVED lane, not on raw argv, and before
+  // any check runs.
   //
-  // The partition is exactly where a collapse stops being visible. CI passes
-  // `"${md_files[@]}" "${code_files[@]}"` as one flat argv, so if the `.md`
-  // enumeration collapses while the code one survives, argv is still hundreds
-  // of entries long and an argv-total floor passes — while five of the six
-  // argv-scoped checks (mermaid, table-total, cite-target, section-cite, md
-  // deny) are skipped by their `stagedMd.length > 0` guards and the required
-  // check reports success. Only a per-lane count can see that.
+  // The partition is exactly where a collapse stops being visible: argv can
+  // still be hundreds of entries long while the `.md` enumeration collapses,
+  // so an argv-total floor passes — and every argv-scoped check (mermaid,
+  // table-total, table-arity, cite-target, section-cite, md deny) is skipped
+  // by its `stagedMd.length > 0` guard and the required check reports success.
+  // Only the resolved lane count can see that.
   //
   // Returns BEFORE running anything, unlike the per-check failures below: a
   // verdict computed over a collapsed lane is precisely the false clean the
   // floor exists to prevent, and printing it beside the breach invites reading
   // it as coverage.
-  const { minimumMd = 0, minimumCode = 0 } = floors;
+  const { minimumMd = 0 } = floors;
   const floorBreaches: string[] = [];
   if (stagedMd.length < minimumMd) {
     floorBreaches.push(
       `  .md lane resolved ${stagedMd.length} file(s), --min-md=${minimumMd} required`,
     );
   }
-  if (stagedCode.length < minimumCode) {
-    floorBreaches.push(
-      `  code lane resolved ${stagedCode.length} file(s), --min-code=${minimumCode} required`,
-    );
-  }
   if (floorBreaches.length > 0) {
     messages.push(
       [
-        "docs-corpus: a lane resolved fewer files than its floor — refusing to report a verdict.",
+        "docs-corpus: the .md lane resolved fewer files than its floor — refusing to report a verdict.",
         ...floorBreaches,
         "Either the corpus lost files or the caller's enumeration stopped matching them.",
         "Checks scoped to a collapsed lane are SKIPPED, so the run would otherwise exit 0 having validated almost nothing.",
@@ -412,49 +378,6 @@ export function runChecks(args: string[], floors: LaneFloors = {}): RunChecksRes
     }
   }
 
-  if (stagedCode.length > 0) {
-    // Governance LABEL cites (`Spec-NNN:LL`) — the deterministic floor the
-    // markdown-only walk never reached. Citers and their resolved doc
-    // targets both read the shared commit-snapshot reader: the code lane's
-    // deny (passes 5-6) gates introduction on the staged blob exactly like
-    // the md deny above. No inbound-expansion for code: CI's full-tree
-    // sweep re-checks every code cite on each PR, the backstop for the doc-
-    // only-amend case (a spec shifts with no code file staged), so code-side
-    // inbound discovery would only duplicate it.
-    //
-    // Backtick PATH-form cites (`docs/specs/003-x.md:12`) are deliberately NOT
-    // floored here: that extractor resolves the target repo-root-relative —
-    // correct for governance docs, but it mints false positives on the
-    // package-relative code-to-code refs that dominate comments
-    // (`internal/branded.ts:25` → `packages/contracts/src/internal/branded.ts`).
-    // The lone governance path-cite in code was normalized to the LABEL form;
-    // NEW path / basename line-word spellings are denied by label-cite
-    // passes 5-6 (CAT-07 ratchet), wrap-split pairs included — the
-    // audit-layer residual via /ripple-check is what no static key reaches
-    // (label-less continuations; semantic drift under an intact anchor).
-    const labelHits = checkLabelCiteTargets(stagedCode, reader);
-    if (labelHits.length > 0) {
-      messages.push(formatLabelCiteViolations(labelHits));
-      exitCode = 1;
-    }
-
-    // C-lite reverse-direction advisory (never blocks): a staged code file
-    // that governance docs cite may have moved/removed the cited content —
-    // tell the developer which citers to eyeball. CI's full sweep remains
-    // the enforcement backstop.
-    const reverseCiters = findGovernanceCitersOfCode(stagedCode, repoRoot, reader);
-    if (reverseCiters.size > 0) {
-      const warnLines = [
-        "WARNING (advisory): staged code is cited by governance docs — if this edit moved or removed the cited content, update the citing docs:",
-      ];
-      for (const [citer, targets] of reverseCiters) {
-        warnLines.push(`  ${citer} → ${targets.join(", ")}`);
-      }
-      messages.push(warnLines.join("\n"));
-      // exitCode deliberately NOT set.
-    }
-  }
-
   return { exitCode, messages, laneCounts };
 }
 
@@ -466,18 +389,16 @@ function main(): number {
     console.error(`docs-corpus: ${error instanceof Error ? error.message : String(error)}`);
     return 2;
   }
-  const { files, minimumMd, minimumCode } = parsed;
-  const { exitCode, messages, laneCounts } = runChecks(files, { minimumMd, minimumCode });
+  const { files, minimumMd } = parsed;
+  const { exitCode, messages, laneCounts } = runChecks(files, { minimumMd });
   // Disclosed only when a floor is armed, which is the enforcement context.
   // A floor that is merely CLEARED still hides a partial drop — 260 `.md`
   // files falling to 40 passes `--min-md=20` silently — so the resolved counts
   // are printed for a human to notice, the same reason run-node-tests prints
   // its resolved file count. The hook path stays quiet: unarmed means
   // per-commit, where the counts are noise on every single commit.
-  if (minimumMd > 0 || minimumCode > 0) {
-    console.log(
-      `docs-corpus: lanes resolved — ${laneCounts.md} .md file(s), ${laneCounts.code} code file(s)`,
-    );
+  if (minimumMd > 0) {
+    console.log(`docs-corpus: .md lane resolved — ${laneCounts.md} file(s)`);
   }
   if (messages.length > 0) {
     console.error(messages.join("\n\n"));

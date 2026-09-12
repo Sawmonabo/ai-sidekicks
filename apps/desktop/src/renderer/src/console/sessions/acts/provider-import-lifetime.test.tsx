@@ -12,11 +12,10 @@
 // TWO CLAIMS, AND THEY ARE DIFFERENT CLAIMS. The first is that the import survives its
 // panel: the state moved above the condition, so an unmount of the panel costs the
 // reading nothing. The second is that the switch closes while a reading is underway —
-// `Spec-023 §Console Design (Meridian)` rule 9, disabled with its sentence beside it
-// rather than hidden — because this panel is the only place this window reports an
-// import. Both are worth having: the guard keeps a person from losing sight of a
-// running import, and the lift is what makes the guard a courtesy rather than the
-// only thing standing between them and a lost one.
+// disabled with its sentence beside it rather than hidden — because this panel is the
+// only place this window reports an import. Both are worth having: the guard keeps a
+// person from losing sight of a running import, and the lift is what makes the guard
+// a courtesy rather than the only thing standing between them and a lost one.
 //
 // WHICH IS WHY THE FIRST CLAIM IS DRIVEN THROUGH A PROBE. The acts bar no longer
 // offers a way to unmount this panel mid-import, so a case that went through the bar

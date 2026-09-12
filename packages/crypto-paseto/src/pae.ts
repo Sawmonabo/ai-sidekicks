@@ -1,10 +1,9 @@
 /**
  * PAE — Pre-Authentication Encoding.
  *
- * Defined in paseto-spec/docs/01-Protocol-Versions/Common.md §Authentication
- * Padding. Encodes a list of byte-strings into a single length-prefixed
- * concatenation that defends against canonicalization attacks (two different
- * piece-sets producing the same byte stream).
+ * Encodes a list of byte-strings into a single length-prefixed concatenation
+ * that defends against canonicalization attacks (two different piece-sets
+ * producing the same byte stream).
  *
  *   PAE(pieces) = LE64(len(pieces))
  *               || LE64(len(pieces[0])) || pieces[0]

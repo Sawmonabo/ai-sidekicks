@@ -1,10 +1,9 @@
 /**
- * Plan-005 T3.23 — spawn-time binary resolution, the in-band version read, and
- * the ratified floor gate (I-005-10).
+ * Spawn-time binary resolution, the in-band version read, and the ratified
+ * floor gate.
  *
- * Coverage targets, taken from the task's own Tests field and from
- * `Spec-005 §Required Behavior` (2026-08-26) rather than restated from the
- * module under test:
+ * Coverage targets, taken from the task's own Tests field and rather than
+ * restated from the module under test:
  *
  *   * A below-floor build refuses attach as `driver.cli_version_below_floor`
  *     BEFORE session creation, before any capability probe, and before any
@@ -118,7 +117,6 @@ function codexUserAgent(codexVersion: string, clientVersion = "0.9.0"): string {
 }
 
 // --------------------------------------------------------------------------
-// Auto-update suppression (Spec-005 §Required Behavior, 2026-08-26)
 // --------------------------------------------------------------------------
 
 describe("auto-update suppression in the spawned child", () => {
@@ -458,10 +456,10 @@ describe("in-band version read — Codex initialize userAgent", () => {
 });
 
 // --------------------------------------------------------------------------
-// The ratified floor gate at the spawn (I-005-10)
+// The ratified floor gate at the spawn
 // --------------------------------------------------------------------------
 
-describe("the ratified floor gate at the spawn (T3.23, I-005-10)", () => {
+describe("the ratified floor gate at the spawn", () => {
   const CODEX_EXECUTABLE = "/opt/homebrew/Cellar/codex/0.149.1/bin/codex";
 
   function passthroughResolver(): {
@@ -523,7 +521,7 @@ describe("the ratified floor gate at the spawn (T3.23, I-005-10)", () => {
     });
     expect(handshake.requests).toHaveLength(1);
     expect(sink.calls).toHaveLength(0);
-    // T3.24 joins "every use of that process beyond the handshake": a build the
+    // Joins "every use of that process beyond the handshake": a build the
     // daemon has already refused is never asked what it can do, so not even the
     // probe channel's negative control is issued against it.
     expect(probe.requests).toHaveLength(0);
@@ -540,8 +538,8 @@ describe("the ratified floor gate at the spawn (T3.23, I-005-10)", () => {
   });
 
   it("ATTACHES an above-the-pin build — newer-than-measured is not a refusal", async () => {
-    // `Spec-005 §Required Behavior`: the floor comparison is the whole of the
-    // version gate, and a build above the measured pin attaches.
+    // the floor comparison is the whole of the version gate, and a build
+    // above the measured pin attaches.
     const handshake = new RecordingHandshake({
       [CODEX_EXECUTABLE]: { userAgent: codexUserAgent("9.99.0") },
     });
@@ -601,7 +599,7 @@ describe("the ratified floor gate at the spawn (T3.23, I-005-10)", () => {
 // The binding write persists THAT SAME reading
 // --------------------------------------------------------------------------
 
-describe("the binding carriers come from one reading (T3.23, EXTEND T2.2)", () => {
+describe("the binding carriers come from one reading", () => {
   const READING: SpawnedProviderVersionReading = {
     driverName: "claude",
     resolvedExecutablePath: "/opt/homebrew/Cellar/claude/2.1.245/bin/claude",

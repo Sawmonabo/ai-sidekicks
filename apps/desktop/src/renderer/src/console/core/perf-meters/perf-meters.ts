@@ -4,16 +4,16 @@
 // should pay for: frame time per feed, reveal drain per frame, apply latency, and
 // store sizes.
 //
-// EXACTLY ONE OF THE FOUR IS A FIGURE A BUDGET IS STATED OVER, and saying so is the
-// point of this paragraph. `Spec-023 §Budgets` is an eight-row table, and the one row
-// naming a reading this module takes is "Frame time, four lanes streaming | p95 ≤
-// 16.7 ms on the reference machine". Reveal drain, apply latency, and store size are
-// stated over no budget row in that table and carry no row in `budgets.json` either:
-// they are what THIS module proposes, because the frame budget is the only one of the
-// four whose regressions the others make legible — an overrunning drain, a stalled
-// apply, and a store that grew are each a way of spending the p95 that budget bounds,
-// and none of them is visible in the p95 itself. Naming the split is what lets a later
-// lane re-derive the budget set from `budgets.json` and find it agrees.
+// EXACTLY ONE OF THE FOUR IS A FIGURE A BUDGET IS STATED OVER, and saying so is the point
+// of this paragraph. The budget table has eight rows, and the one row naming a reading
+// this module takes is "Frame time, four lanes streaming | p95 ≤ 16.7 ms on the reference
+// machine". Reveal drain, apply latency, and store size are stated over no budget row in
+// that table and carry no row in `budgets.json` either: they are what THIS module
+// proposes, because the frame budget is the only one of the four whose regressions the
+// others make legible — an overrunning drain, a stalled apply, and a store that grew are
+// each a way of spending the p95 that budget bounds, and none of them is visible in the
+// p95 itself. Naming the split is what lets a later lane re-derive the budget set from
+// `budgets.json` and find it agrees.
 //
 // COMPILED OUT OF RELEASE BY THE FIXTURE DEFINE, not gated at runtime. Every
 // recording entry point below is a `if (__SIDEKICKS_CONSOLE_FIXTURES__)` body, which
@@ -27,10 +27,6 @@
 // does it cost when it is bad. One bounded series type answers it once, so the p95
 // the frame-time budget is written against and the p95 an author reads for apply
 // latency are the same computation rather than two that agree until one is edited.
-//
-// OWNER. The measurement task of Plan-023 Phase 1C, T-023p-1C-8, whose text names
-// the budgets and the tiers that read them but not the meters that feed them. No
-// other task's text names this module; naming it here is the proposal.
 //
 // AND THE METERS NEVER SCHEDULE ANYTHING. There is no sampling timer, no animation
 // frame, no interval: a producer records what it already measured, and a reader

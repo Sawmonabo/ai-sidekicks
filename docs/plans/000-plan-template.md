@@ -16,17 +16,17 @@
   - Do not restate the entire spec; reference it and translate it into execution
 -->
 
-| Field               | Value                                                                     |
-| ------------------- | ------------------------------------------------------------------------- |
-| **Status**          | `draft` · `review` · `approved` · `completed`                             |
-| **NNN**             | `{NNN}`                                                                   |
-| **Slug**            | `{kebab-case-slug}`                                                       |
-| **Date**            | `YYYY-MM-DD`                                                              |
-| **Author(s)**       | `{name(s)}`                                                               |
-| **Spec**            | `{link to specs/NNN-...}`                                                 |
-| **Required ADRs**   | `{link(s)}`                                                               |
-| **Dependencies**    | `{Plan-NNN (reason), or None}`                                            |
-| **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
+| Field               | Value                                         |
+| ------------------- | --------------------------------------------- |
+| **Status**          | `draft` · `review` · `approved` · `completed` |
+| **NNN**             | `{NNN}`                                       |
+| **Slug**            | `{kebab-case-slug}`                           |
+| **Date**            | `YYYY-MM-DD`                                  |
+| **Author(s)**       | `{name(s)}`                                   |
+| **Spec**            | `{link to specs/NNN-...}`                     |
+| **Required ADRs**   | `{link(s)}`                                   |
+| **Dependencies**    | `{Plan-NNN (reason), or None}`                |
+| **Cross-Plan Deps** | Cross-Plan Dependency Graph                   |
 
 ## Goal
 
@@ -59,7 +59,7 @@
 
 ## Invariants
 
-The following invariants are **load-bearing** and MUST be preserved across all Plan-NNN PRs and downstream extensions. Any change that would weaken or remove an invariant requires a coordinated cross-plan amendment (see [cross-plan-dependencies.md](../architecture/cross-plan-dependencies.md)).
+The following invariants are **load-bearing** and MUST be preserved across all Plan-NNN PRs and downstream extensions. Any change that would weaken or remove an invariant requires a coordinated cross-plan amendment (see cross-plan-dependencies.md).
 
 **Grounding (required of every invariant authored or amended from 2026-08-08 forward).** Such an invariant MUST either (a) name the governing text it holds the implementation to — a spec clause or an accepted ADR's clause in the durable `Spec-NNN §Heading` / `ADR-NNN §Heading` form per AGENTS.md §Durable-Cite Rule, or a canonical document under `docs/architecture/` — or (b) explicitly declare itself **plan-owned**. Governing means the document binds: specs and ADRs carry their own status lifecycles, and `docs/architecture/` is canonical when merged. What satisfies (a) is the target a clause names, never the label on it: [Plan-005 §Invariants](./005-provider-driver-contract-and-capabilities.md#invariants) writes its grounding as a `Source:` clause naming `Spec-005 §Required Behavior` and is grounded, while [Plan-024 §Invariants](./024-rust-pty-sidecar.md#invariants) writes the same keyword over `Plan-024 §Windows Implementation Gotchas` and is not. A plan citing itself has grounded nothing however well the rationale there is sourced — Plan-024's rests on upstream `microsoft/node-pty` issues, which are evidence and not authority — and a sibling plan's precedent fails the same way. Saying that out loud is what (b) is for. The obligation attaches to the entry, not to a fixed paragraph slot, so it is satisfied in place by whichever entry form the plan uses: the heading form sketched below, a bullet entry with a trailing `Cite:` clause ([Plan-006 §Invariants](./006-session-event-taxonomy-and-audit-log.md#invariants) I-006-4-04, which cites two Spec-006 sections for one claim), or a table row carrying the link inside its cell ([Plan-004 §Invariants](./004-queue-steer-pause-resume.md#invariants) I-004-3). Plan-owned is a first-class outcome, not a failure to find a citation — a cardinality or census count no spec states, and an enforcement mechanism a plan designs on top of a spec's detection-only signal, are legitimately plan-owned. What the rule forbids is the third state: an assertion that reads as if a governing document required it while none does. Exemplars worth copying: [Plan-028 §Invariants](./028-mcp-server-configuration-and-governance.md#invariants) I-028-4, which anchors each half of the claim to the spec clause that half rests on; [Plan-003 §Invariants](./003-runtime-node-attach.md#invariants) I-003-5, which anchors and then quotes the spec sentence it ratifies; [Plan-006 §Invariants](./006-session-event-taxonomy-and-audit-log.md#invariants) I-006-3-02, which grounds a type-level structural claim in `ADR-017 §Decision`, the decision that made it structural.
 
@@ -173,8 +173,8 @@ Plan-NNN implementation lands as a sequence of small PRs. Each PR exercises one 
 
 <!--
   Machine-readable preconditions (consumed by plan-execution preflight tool).
-  Supported types: pr_merged, adr_accepted, plan_phase, cross_plan_carve_out,
-  audit_status, external_plan_phase_merged. Required for plans authored from
+  Supported types: pr_merged, adr_accepted, plan_phase, audit_status,
+  external_plan_phase_merged. Required for plans authored from
   2026-04-30 onward; legacy plans use prose fallback parsing of the
   `**Precondition:**` line above.
 
@@ -190,7 +190,6 @@ Plan-NNN implementation lands as a sequence of small PRs. Each PR exercises one 
       already-matched `Plan-NNN Phase K merged`.
 
   YAML-only (no prose analog — declare in the block below):
-    - cross_plan_carve_out
     - audit_status: complete | substrate_exempt
     - external_plan_phase_merged — the structured cross-plan phase gate:
       `{ type: external_plan_phase_merged, plan: NNN, phase: <value> }`.
@@ -209,7 +208,7 @@ Plan-NNN implementation lands as a sequence of small PRs. Each PR exercises one 
       explicit-prefix nor bare-form regex matches these shapes, so the
       dependency drops to "unparseable prose; legacy free-form silent
       pass" and is NOT machine-enforced. Express it as a YAML
-      `cross_plan_carve_out` + `pr_merged` pair so the gate enforces.
+      `pr_merged` or `external_plan_phase_merged` entry so the gate enforces.
 -->
 
 ```yaml
@@ -219,7 +218,7 @@ preconditions:
   - { type: plan_phase, plan: 1, phase: 5, status: merged }
 ```
 
-For plans that ship across tiers via the substrate-vs-namespace decomposition pattern (Plan-007 / Plan-008 / Plan-023 carve-outs), use the `audit_status` precondition type. Two values are permitted (see [audit runbook §Per-Phase Audit Semantics](../operations/plan-implementation-readiness-audit-runbook.md#per-phase-audit-semantics)). The YAML examples below are wrapped in `<!-- prettier-ignore -->` so each list item stays on a single line — `parsePreconditionsBlock` parses flow-form entries one line at a time, so a Prettier-wrapped multi-line `{ ... }` mapping silently fails to parse.
+For plans that ship across tiers via the substrate-vs-namespace decomposition pattern (Plan-007 / Plan-023 carve-outs), use the `audit_status` precondition type. Two values are permitted (see [audit runbook §Per-Phase Audit Semantics](../operations/plan-implementation-readiness-audit-runbook.md#per-phase-audit-semantics)). The YAML examples below are wrapped in `<!-- prettier-ignore -->` so each list item stays on a single line — `parsePreconditionsBlock` parses flow-form entries one line at a time, so a Prettier-wrapped multi-line `{ ... }` mapping silently fails to parse.
 
 <!-- prettier-ignore -->
 ```yaml
@@ -230,10 +229,9 @@ preconditions:
 
 <!-- prettier-ignore -->
 ```yaml
-# Phase is a substrate slice of a §5 carve-out; ships before its tier-level audit
+# Phase is a substrate slice of a carve-out; ships before its tier-level audit
 preconditions:
-  - { type: cross_plan_carve_out, ref: "Plan-NNN Substrate-vs-Namespace Carve-Out" }
-  - { type: audit_status, status: substrate_exempt, carve_out_ref: "Plan-NNN Substrate-vs-Namespace Carve-Out" }
+  - { type: audit_status, status: substrate_exempt }
 ```
 
 **Goal:** {What tests go green; what behavior is delivered.}

@@ -1,11 +1,10 @@
-// Drafts: participant-authored text, held in this window's memory and nowhere else.
+// Drafts: user-authored text, held in this window's memory and nowhere else.
 //
-// `Spec-023 §Console Design (Meridian)` §Persistence on the renderer scheme:
-// "Composer drafts are deliberately NOT persisted — they are participant-authored
+// Composer drafts are deliberately NOT persisted — they are user-authored
 // content, and the composer says so on first focus after a restart rather than
-// silently losing them."
+// silently losing them.
 //
-// This class is the whole implementation of that sentence, and it is deliberately
+// This class is the whole implementation of that rule, and it is deliberately
 // NOT built on `UiStateStore`. It could not be: draft text is prose, so the write
 // chokepoint's identifier-shaped rule refuses it by construction. That is the
 // design working, not an obstacle to route around — the two classes are separate
@@ -15,15 +14,14 @@
 // contradiction: this directory owns what the console does about durability, and
 // what it does about drafts is refuse. A `Map` and a disclosure, no adapter, no
 // import at all — the file imports nothing, and it must never start, because acquiring
-// an adapter here is the first move of persisting a
-// draft. A durable copy would need the encrypted, PII-mapped storage `Spec-022`
-// specifies for participant-authored content, which the renderer does not have; an
-// IndexedDB copy would put a person's prose in an unencrypted origin-scoped
-// database outside every erasure selector the corpus defines.
+// an adapter here is the first move of persisting a draft. A durable copy would need
+// the encrypted, PII-mapped storage user-authored content requires, which the
+// renderer does not have; an IndexedDB copy would put a person's prose in an
+// unencrypted origin-scoped database outside every erasure selector there is.
 //
 // The one durable thing a draft leaves behind is the DISCLOSURE. `restartNotice`
 // is armed at construction and cleared the first time a composer is focused, so the
-// participant is told once that unsent text does not survive a restart — which is
+// user is told once that unsent text does not survive a restart — which is
 // what makes the non-persistence a stated property rather than a silent loss.
 //
 // EVICTION IS THE SECOND WAY TEXT GOES, AND IT IS DISCLOSED THE SAME WAY. The live
@@ -54,7 +52,7 @@ export interface DraftStoreOptions {
    */
   readonly now?: () => number;
   /**
-   * Whether the participant still needs telling that drafts do not survive a
+   * Whether the user still needs telling that drafts do not survive a
    * restart. True for a real window; a test that does not care passes false.
    */
   readonly restartNoticePending?: boolean;
@@ -106,7 +104,7 @@ export class DraftStore {
     return this.#restartNoticePending;
   }
 
-  /** The sentence the composer shows. Fixed text; no participant content in it. */
+  /** The sentence the composer shows. Fixed text; no user content in it. */
   public get restartNoticeText(): string {
     return "Unsent text stays in this window and is not saved between restarts.";
   }
@@ -121,14 +119,14 @@ export class DraftStore {
    * The composer already learns that its draft is GONE — the eviction notifies its
    * subscribers with `undefined`, exactly as a clear does — and that is precisely
    * why the notice is needed: cleared, sent, and evicted are three different facts
-   * arriving through one signal, and only one of them is a loss the participant did
+   * arriving through one signal, and only one of them is a loss the user did
    * not ask for.
    */
   public evictionNoticePendingFor(draftKey: string): boolean {
     return this.#evictedKeys.has(draftKey);
   }
 
-  /** The sentence the composer shows. Fixed text; no participant content in it. */
+  /** The sentence the composer shows. Fixed text; no user content in it. */
   public get evictionNoticeText(): string {
     return "Unsent text here was dropped to keep this window bounded, because other composers were used more recently.";
   }
@@ -148,7 +146,7 @@ export class DraftStore {
       this.clear(draftKey);
       return;
     }
-    // Typing here is the participant answering the notice: there is text in this
+    // Typing here is the user answering the notice: there is text in this
     // composer again, so there is nothing left to disclose about the text that went.
     this.#evictedKeys.delete(draftKey);
     this.#draftsByKey.set(draftKey, { draftKey, text, updatedAt: this.#now() });
@@ -157,7 +155,7 @@ export class DraftStore {
   }
 
   public clear(draftKey: string): void {
-    // A clear is the participant's own act — sending, or emptying the box — so it
+    // A clear is the user's own act — sending, or emptying the box — so it
     // retires any notice standing on this key rather than leaving one beside text
     // that went for a reason they chose.
     this.#evictedKeys.delete(draftKey);

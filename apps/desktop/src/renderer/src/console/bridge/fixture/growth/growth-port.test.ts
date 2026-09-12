@@ -37,14 +37,14 @@ import { APPROVALS_SCENARIO } from "../../scenario/approvals/approvals.js";
 import { FIRST_RUN_SCENARIO } from "../../scenario/first-run.js";
 import { FLAGSHIP_SCENARIO } from "../../scenario/flagship/flagship.js";
 import { WORKFLOWS_SCENARIO } from "../../scenario/workflows/workflows.js";
-import { createTier1Bridge } from "@ai-sidekicks/contracts";
+import { createStubBridge } from "@ai-sidekicks/contracts";
 
 /**
  * A scenario whose `session.read` reply declares `state`.
  *
  * The first-run scenario with its one reply rewritten, so the directory reads
  * through the shape a real scenario has. Local to this suite: the co-located
- * `collaboration/session-directory.test.ts` drives the derivation directly and this one
+ * `session/session-directory.test.ts` drives the derivation directly and this one
  * drives it through the port, which is the seam each is about.
  */
 function scenarioDeclaring(state: string): ConsoleScenario {
@@ -283,7 +283,7 @@ describe("the fixture growth port — what it serves, and what it still refuses"
     // literal would have been right for exactly as long as the served set drew on
     // one slate row, and the assertion it makes — that a refusal attributes to the
     // row that owes ITS wire — is the ledger's claim, not this file's.
-    const bridge = createLiveBridge(createTier1Bridge());
+    const bridge = createLiveBridge(createStubBridge());
 
     expect([...bridge.growthServedOperations]).toStrictEqual([]);
     for (const operationId of FIXTURE_SERVED_GROWTH_OPERATION_IDS) {
@@ -306,9 +306,7 @@ describe("the fixture growth port — what it serves, and what it still refuses"
       // Cursor zero, so the store admits the scenario's first beat rather than
       // discarding a stream that starts below its base state.
       expect(outcome.value.cursor).toBe(0);
-      expect(outcome.value.participantJoinLog).toStrictEqual(
-        FLAGSHIP_SCENARIO.participantIdsInJoinOrder,
-      );
+      expect(outcome.value.userJoinLog).toStrictEqual(FLAGSHIP_SCENARIO.userIdsInJoinOrder);
     }
   });
 
@@ -319,7 +317,7 @@ describe("the fixture growth port — what it serves, and what it still refuses"
 
     expect(outcome.status).toBe("served");
     if (outcome.status === "served") {
-      expect(outcome.value.participantJoinLog).toStrictEqual([]);
+      expect(outcome.value.userJoinLog).toStrictEqual([]);
     }
   });
 
@@ -345,7 +343,7 @@ describe("the fixture growth port — what it serves, and what it still refuses"
     // unconditionally, so the FIRST-RUN scenario — a fresh install whose whole
     // purpose is "no sessions, no agents, no history" — listed a session row on the
     // one surface whose committed screenshot baselines exist to pin the EMPTY kind
-    // of nothing (`Spec-023 §Console Design (Meridian)` §The five kinds of nothing).
+    // of nothing.
     //
     // Derived from what the scenario DECLARES rather than from which scenario it is:
     // first-run's `session.read` reply says `provisioning`, which is a session still

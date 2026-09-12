@@ -23,7 +23,6 @@ describe("un-measured budget report", () => {
     const report = formatUnavailableBudgetReport(registry);
     for (const budget of registry.unavailableBudgets()) {
       expect(report, `${budget.id} missing from the report`).toContain(budget.id);
-      expect(report).toContain(budget.producedBy);
       expect(report).toContain(budget.notMeasurableReason ?? "");
     }
     for (const budget of registry.enforcedBudgets()) {

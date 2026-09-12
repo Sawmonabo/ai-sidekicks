@@ -1,24 +1,10 @@
-// T4.7 — the recovery-needed RETURN-VALUE contract (Plan-005 Phase 4).
+// The recovery-needed RETURN-VALUE contract.
 //
-// Verifies I-005-5 — a driver MUST NOT silently create a replacement provider
-// session when a resume fails; the failure surfaces as an explicit
-// `recovery-needed` condition — mapping to `Spec-005 §Acceptance Criteria` AC3
-// and `Spec-005 §Fallback Behavior`.
-//
-// WHAT THIS FILE ASSERTS, AND WHAT IT DELIBERATELY DOES NOT. Plan-005's own T4.8
-// note settles the division: T4.7 is "the return-value CONTRACT-test leg that
-// asserts the `DriverResumeResult.failed` carrier shape — not a recovery
-// dispatcher". Three layers exist and each is tested where it lives:
+// WHAT THIS FILE ASSERTS, AND WHAT IT DELIBERATELY DOES NOT. Three layers exist
+// and each is tested where it lives:
 //
 //   * BEHAVIOR — that a real driver, handed a refused resume, returns the typed
-//     failure and issues no `createSession()` call. Already asserted against the
-//     real drivers with real spies, three ways on the Codex leg
-//     (`runtime-daemon/src/provider/drivers/codex/__tests__/lifecycle.test.ts`,
-//     the `CodexDriver resumeSession (I-005-5, Spec-005 §Fallback Behavior)`
-//     block) and across the refusal band on the Claude leg
-//     (`.../claude/__tests__/lifecycle.test.ts`, its `I-005-5:`-prefixed cases,
-//     including the table-driven `issues no createSession call on a failed
-//     resume` sweep over every way that band can refuse). That is where a
+//     failure and issues no `createSession()` call. That is where a
 //     `createSession` spy is meaningful, because there is a real driver on the
 //     other side of it. Restating it here would mean building a double and then
 //     asserting the double behaved — a test that proves only that the fixture
@@ -28,16 +14,14 @@
 //     CANNOT express a silent replacement. That is this file's first half, and
 //     it is the half nothing else covers: the driver tests assert what their
 //     driver did, not what the type would have permitted a different driver to
-//     do. Encoding I-005-5 in the type is strictly stronger than asserting it
-//     per driver, because it also binds every driver not yet written.
+//     do. Encoding in the type is strictly stronger than asserting it per
+//     driver, because it also binds every driver not yet written.
 //
 //   * REACHABILITY — that no client-facing route exists through which a caller
 //     could observe a failed resume and answer it by minting a session. That is
 //     this file's second half, asserted end-to-end through the shipped SDK
 //     factory rather than by reading the interface.
 //
-// Event emission (`run.failed` carrying `recoveryCondition`) is Plan-015's per
-// CP-005-5 and is asserted by that plan's tests; nothing here touches it.
 
 import { describe, expect, it } from "vitest";
 
@@ -73,9 +57,9 @@ const TEST_AGENT_ID = "00000000-0000-4000-8000-000000000005";
  * The result a Codex resume refusal produces: the provider declines to restore
  * the recorded thread, so the driver reports a typed failure instead of starting
  * a fresh one. `unclassifiable` is the honest span reading for a resume that
- * never reached the provider's work — `Spec-005 §Fallback Behavior` requires a
- * driver that cannot classify to say so rather than to omit the field, and a
- * consumer must treat it exactly as `irreversible`.
+ * never reached the provider's work — requires a driver that cannot classify to
+ * say so rather than to omit the field, and a consumer must treat it exactly as
+ * `irreversible`.
  */
 const CODEX_RESUME_REFUSAL: DriverResumeResult = {
   status: "failed",
@@ -104,7 +88,7 @@ const FAILURE_CARRYING_A_REPLACEMENT_BINDING: unknown = {
 // The carrier shape — a failure is expressible, a silent replacement is not
 // ----------------------------------------------------------------------------
 
-describe("DriverResumeResult — the recovery-needed carrier (I-005-5, AC3)", () => {
+describe("DriverResumeResult — the recovery-needed carrier", () => {
   it("parses a Codex resume refusal and preserves recovery-needed exactly", () => {
     const parsed = DriverResumeResultSchema.parse(CODEX_RESUME_REFUSAL);
 
@@ -112,13 +96,13 @@ describe("DriverResumeResult — the recovery-needed carrier (I-005-5, AC3)", ()
     expect(parsed.status).toBe("failed");
     if (parsed.status === "failed") {
       expect(parsed.recoveryCondition).toBe("recovery-needed");
-      // The detail surface is mandated by `Spec-005 §Fallback Behavior`: a
-      // condition with no detail leaves an operator a halt and no reason for it.
+      // The detail surface is: a condition with no detail leaves an operator a
+      // halt and no reason for it.
       expect(parsed.providerFailureDetail.length).toBeGreaterThan(0);
     }
   });
 
-  it("REJECTS a failed result that carries a replacement binding — I-005-5 encoded in the type", () => {
+  it("REJECTS a failed result that carries a replacement binding — encoded in the type", () => {
     // The sharpest form of the invariant. A driver that resumed nothing and
     // started something new cannot report both facts in one result: the `failed`
     // arm is `.strict()`, so `bindingId` and `sessionPosition` have nowhere to
@@ -156,7 +140,7 @@ describe("DriverResumeResult — the recovery-needed carrier (I-005-5, AC3)", ()
 
   it("REJECTS an invented recovery condition — the vocabulary is closed at two values", () => {
     // A free-string condition would let a driver report `session-replaced` and
-    // technically satisfy "surfaces a condition" while doing exactly what I-005-5
+    // technically satisfy "surfaces a condition" while doing exactly what
     // forbids. The enum is what makes the invariant checkable by a consumer that
     // has never heard of the driver.
     const outcome = DriverResumeResultSchema.safeParse({
@@ -242,7 +226,7 @@ function createRecordingTransport(): ClientTransport & { readonly sentMethods: s
   };
 }
 
-describe("DriverClient — no client-facing route mints a replacement session (I-005-5, AC3)", () => {
+describe("DriverClient — no client-facing route mints a replacement session", () => {
   it("sends only ratified driver.* verbs across its whole surface, and no session-lifecycle verb", async () => {
     const transport = createRecordingTransport();
     const client = createDaemonProviderClient(

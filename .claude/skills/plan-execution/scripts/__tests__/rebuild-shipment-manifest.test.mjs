@@ -940,9 +940,9 @@ test("rebuildManifest excludes PRs whose title lacks the Plan-NNN token (lane-2 
   }
 });
 
-// ---------- non_shipment_prs (ratified Gate 6 exemptions) ----------
+// ---------- non_shipment_prs (ratified manifest reconciliation exemptions) ----------
 
-// This tool is the remedy preflight Gate 6's halt prescribes, so the two must
+// This tool is the remedy the shipment-manifest rebuild tool prescribes, so the two must
 // agree on the population. When they disagreed the pair DEADLOCKED: on
 // 2026-08-15 the gate halted naming PR #216 while this tool declined to emit an
 // entry for it. Both halves of the fix are pinned here — the shared title-token
@@ -956,9 +956,9 @@ const COMPOUND_TITLE_PR = {
   files: [{ path: ".github/workflows/docs-corpus.yml" }],
 };
 
-test("rebuildManifest agrees with Gate 6: a tokenizer-only match is not a Plan-025 shipment", async () => {
+test("rebuildManifest agrees with manifest reconciliation: a tokenizer-only match is not a Plan-025 shipment", async () => {
   // `Plan-025` never occurs literally in `Plan-007/025` — GitHub's tokenizer
-  // returns it anyway, and Gate 6 now drops it. This tool must drop it too (it
+  // returns it anyway, and manifest reconciliation now drops it. This tool must drop it too (it
   // always did; the arm pins the imported predicate as the reason).
   const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
   try {
@@ -1027,7 +1027,7 @@ test("rebuildManifest skips a ratified non_shipment_prs PR without a gh round-tr
 
 test("rebuildManifest round-trips non_shipment_prs into the dry-run YAML stream", async () => {
   // The operator applies this stream to the plan file. Dropping the key would
-  // silently re-arm every Gate 6 halt it suppresses.
+  // silently re-arm every manifest reconciliation halt it suppresses.
   const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
   try {
     const planDir = join(tmp, "docs", "plans");

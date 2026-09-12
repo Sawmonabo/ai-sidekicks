@@ -21,15 +21,15 @@ import {
   type MountedMovablePage,
 } from "../../settings-page-mount.test-support.js";
 import { NotificationsPage } from "./NotificationsPage.js";
-// The caller participant every notifications suite reads as, from the module that
+// The caller user every notifications suite reads as, from the module that
 // DECLARES it: the page chain and the writer chain answer for the same person, and a
 // second copy of the id here is how one of them comes to read as somebody else.
-import { PARTICIPANT_ID } from "./notification-preference-writer.test-support.js";
+import { USER_ID } from "./notification-preference-writer.test-support.js";
 import type {
   AttentionPreference,
   AttentionPreferenceReadOutcome,
 } from "./attention-preference-model.js";
-import type { CallerParticipantOutcome } from "../../../seats/index.js";
+import type { CallerUserOutcome } from "../../../seats/index.js";
 import { settle as settleReactWork } from "../../../core/settle.test-support.js";
 import { settleScheduledRead } from "../../../bridge/readings/scheduled-read.test-support.js";
 
@@ -42,11 +42,11 @@ afterEach(() => {
 });
 
 /** A scenario that scripts nothing: the growth overrides are what these cases drive. */
-export const SCENARIO: ConsoleScenario = unscriptedScenario("collaboration-notifications-test");
+export const SCENARIO: ConsoleScenario = unscriptedScenario("notifications-test");
 
-export const SERVED_PARTICIPANT: CallerParticipantOutcome = {
+export const SERVED_USER: CallerUserOutcome = {
   status: "served",
-  value: { participantId: PARTICIPANT_ID },
+  value: { userId: USER_ID },
 };
 
 /** The real fixture bridge, with only the operations a case drives overridden. */
@@ -65,7 +65,7 @@ export function servedPreferences(
  *
  * TWO, AND BOTH OF THEM ARE READS. The identity read is scheduled now — it takes the
  * window's own triggers so a refused one is asked again on the next focus — and the
- * participant it names is the subject the preference reading is minted under, so that
+ * user it names is the subject the preference reading is minted under, so that
  * reading does not exist to ask for its own set until the first window has elapsed and
  * answered. A harness that advanced once would fire the identity read and then report
  * the absence of a preference read it never gave the scheduler a chance to perform.

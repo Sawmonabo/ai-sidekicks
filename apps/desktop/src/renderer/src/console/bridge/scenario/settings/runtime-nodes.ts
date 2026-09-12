@@ -13,13 +13,13 @@
 import {
   EventEnvelopeVersionSchema,
   NodeIdSchema,
-  ParticipantIdSchema,
+  UserIdSchema,
   SessionIdSchema,
 } from "@ai-sidekicks/contracts";
 import type {
   EventEnvelopeVersion,
   NodeId,
-  ParticipantId,
+  UserId,
   RuntimeNodeAttachResponse,
   RuntimeNodeRosterEntry,
   SessionId,
@@ -34,7 +34,7 @@ import type { ScenarioReply, ScenarioRuntimeNodeRosterFrame } from "../runtime/i
 //
 // The three the ROSTER read carries are branded at their declaration rather than at
 // each of the four rows that use them: `RuntimeNodeRosterEntry` types `nodeId`,
-// `participantId`, and `clientVersion` as brands, an event payload types every
+// `userId`, and `clientVersion` as brands, an event payload types every
 // member `unknown`, and one brand per constant is what keeps the rows free of casts.
 // MINTED THROUGH THE REGISTERED SCHEMAS RATHER THAN `as`-CAST: a cast asserts the
 // brand and checks nothing, so a malformed value surfaced at the first `.strict()`
@@ -42,9 +42,7 @@ import type { ScenarioReply, ScenarioRuntimeNodeRosterFrame } from "../runtime/i
 // this module instead, and the bridge seam's test still checks the frames it
 // composes against the registered `RuntimeNodeRosterResponseSchema`.
 export const SESSION_ID: SessionId = SessionIdSchema.parse("019b7892-1c00-75e5-8510-ada11a5a55a5");
-export const PARTICIPANT_YOU: ParticipantId = ParticipantIdSchema.parse(
-  "019b7892-1c00-79a4-8110-cca0117a0550",
-);
+export const USER_YOU: UserId = UserIdSchema.parse("019b7892-1c00-79a4-8110-cca0117a0550");
 const NODE_WORKSTATION = NodeIdSchema.parse("node-workstation");
 const NODE_BUILDER = NodeIdSchema.parse("node-builder");
 // The machine the attach control is offered FOR, and it is deliberately not one of
@@ -129,7 +127,7 @@ export function occurredAt(offsetMs: number): string {
  *
  * A factory rather than four hand-written literals, on the same rule the node table
  * above states: the two frames below are two READINGS of the same two machines, and
- * a hand-copied `participantId` or `capabilities` map is exactly where two readings
+ * a hand-copied `userId` or `capabilities` map is exactly where two readings
  * of one machine drift with nothing to catch it. What varies between readings is
  * what the caller passes — the two health axes and the heartbeat that moves with
  * them — so the parameter list is the list of things this scenario is actually
@@ -146,9 +144,9 @@ function rosterRow(fields: {
 }): RuntimeNodeRosterEntry {
   return {
     nodeId: fields.nodeId,
-    // One participant owns both machines here, which is the ordinary case: a person
+    // One user owns both machines here, which is the ordinary case: a person
     // attaches their laptop and their build box to the same session.
-    participantId: PARTICIPANT_YOU,
+    userId: USER_YOU,
     state: fields.state,
     healthState: fields.healthState,
     lastHeartbeatAt:
@@ -182,7 +180,7 @@ function rosterRow(fields: {
  *
  * `controlHolder` carries both of its readings across the four frames. Nobody holds
  * the session's shared shell while the machines are still registering, and this
- * participant holds it from 160 on — so the page renders an advertised holder and a
+ * user holds it from 160 on — so the page renders an advertised holder and a
  * free lease without a scenario swap. A `null` here is deliberately undecomposable:
  * a free lease and a holder suppressed behind an offline producer arrive the same
  * way, and no client is entitled to tell them apart.
@@ -221,7 +219,7 @@ export const RUNTIME_NODE_ROSTER_FRAMES: readonly ScenarioRuntimeNodeRosterFrame
   },
   {
     atMs: 160,
-    controlHolder: PARTICIPANT_YOU,
+    controlHolder: USER_YOU,
     nodes: [
       rosterRow({
         nodeId: NODE_WORKSTATION,
@@ -248,7 +246,7 @@ export const RUNTIME_NODE_ROSTER_FRAMES: readonly ScenarioRuntimeNodeRosterFrame
   },
   {
     atMs: 320,
-    controlHolder: PARTICIPANT_YOU,
+    controlHolder: USER_YOU,
     nodes: [
       rosterRow({
         nodeId: NODE_WORKSTATION,
@@ -276,7 +274,7 @@ export const RUNTIME_NODE_ROSTER_FRAMES: readonly ScenarioRuntimeNodeRosterFrame
  * The declaration a third machine makes about itself, for the attach control to review.
  *
  * A NODE'S OWN CLAIM, AND THE FIXTURE IS STANDING IN FOR THE PROCESS THAT MAKES IT.
- * `Spec-023 §Trust Stance` puts the composition of an attach draft in the main
+ * The console's trust stance puts the composition of an attach draft in the main
  * process, off the node registry, because identity, contract version, health, and
  * capability set are things a machine asserts and a renderer may not assert on its
  * behalf. So the console resolves this and composes nothing: the deck supplies it the
@@ -289,7 +287,7 @@ export const RUNTIME_NODE_ROSTER_FRAMES: readonly ScenarioRuntimeNodeRosterFrame
  * arrival in one view.
  */
 export const SETTINGS_RUNTIME_NODE_ATTACH_DRAFT: RuntimeNodeAttachDraft = {
-  participantId: PARTICIPANT_YOU,
+  userId: USER_YOU,
   nodeId: NODE_LAPTOP,
   clientVersion: CLIENT_VERSION_CURRENT,
   // The same one-capability shape the roster rows carry, and typed `unknown` on the

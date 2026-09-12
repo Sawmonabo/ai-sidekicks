@@ -1,17 +1,16 @@
 // One run: its status, its elapsed, its controls, and everything else one click
 // away.
 //
-// THIS ROW'S OWN DENSITY RULE, because no committed document states it: one row per
-// run with status, elapsed, and the posture chip, while queue, intervention
-// history, and per-run detail are collapsed and one click away — the shape
-// `Spec-023 §Meridian, the design language` rule 7 gives every console surface,
-// where "secondary controls live one click away". The posture chip is on the row at
-// its ROW density: mode, network, and the writable-root count visible, the rest one
+// THIS ROW'S OWN DENSITY RULE, because no committed document states it: one row per run
+// with status, elapsed, and the posture chip, while queue, intervention history, and
+// per-run detail are collapsed and one click away — the shape every console surface
+// takes, where secondary controls live one click away. The posture chip is on the row
+// at its ROW density: mode, network, and the writable-root count visible, the rest one
 // disclosure away. What is deliberately absent is a REMEMBERED posture —
 // `RunStateChangeEvent.executionPosture` is stamped only on `run.running`, the fold
 // carries the delivered transition's own member and no other, and a run in any other
-// state therefore renders the chip's unknown arm rather than the last boundary
-// anybody saw. Absence reads as unknown, never as unrestricted.
+// state therefore renders the chip's unknown arm rather than the last boundary anybody
+// saw. Absence reads as unknown, never as unrestricted.
 //
 // THREE STATEMENTS THE ROW MAKES, EACH OF THEM THE WIRE'S.
 //
@@ -57,7 +56,7 @@ import { StatusHistory } from "./StatusHistory.js";
 /**
  * The hue step a run row's attribution edge takes.
  *
- * `RunStateChangeEvent` carries no participant and no agent member, so there is
+ * `RunStateChangeEvent` carries no user and no agent member, so there is
  * nobody to attribute a run to — and `LedgerRow` treats a step outside the wheel as
  * unattributed and takes the neutral boundary rather than borrowing a hue. `-1` is
  * how this row states that, and it is deliberately not `0`, which would attribute
@@ -116,7 +115,7 @@ export function RunRow(props: RunRowProps): React.JSX.Element {
 
   return (
     <LedgerRow
-      participantHueStep={UNATTRIBUTED_HUE_STEP}
+      actorHueStep={UNATTRIBUTED_HUE_STEP}
       occurredAtIso={run.updatedAtIso}
       actorLabel={run.runId}
       kindLabel={run.state}

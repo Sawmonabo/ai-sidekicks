@@ -1,47 +1,32 @@
-// Trust-envelope containment validator (Plan-009 Phase 1 T1.6) — the single
-// place a `WorkspaceBind` request's execution root is proven to sit inside the
-// session's declared local trust envelope before Phase 2 persists it as
-// `workspaces.fs_root`.
+// Trust-envelope containment validator — the single place a `WorkspaceBind`
+// request's execution root is proven to sit inside the session's declared
+// local trust envelope before Phase 2 persists it as `workspaces.fs_root`.
 //
-// Spec coverage:
-//   * `Spec-009 §Required Behavior` — "The system must reject path traversal or
-//     workspace binding outside the declared local trust envelope."
-//   * `Spec-009 §Local Trust Envelope (V1 Definition)` — the envelope of a
-//     session is "the set of fully resolved canonical roots of its attached
-//     repo mounts"; a root is inside iff "its fully resolved form (absolute,
-//     symlink-resolved, platform-normalized) is path-contained within the fully
-//     resolved canonical root of a repo mount attached to the same session",
-//     with containment "path-component-boundary-aware (`/repo-evil` is not
-//     within `/repo`) and case-folded on case-insensitive filesystems (Windows
-//     tier per ADR-019)"; and `WorkspaceBind`'s optional `directory` is
-//     "resolved against the mount's canonical root and containment is
-//     re-checked AFTER symlink resolution", with "`..` traversal, absolute-path
-//     redirection, and symlink escape outside the mount root" rejected.
+//   * "The system must reject path traversal or workspace binding outside the
+//     declared local trust envelope."
 //
-// Invariant enforced here (canonical text in
-// `docs/plans/009-repo-attachment-and-workspace-binding.md §Invariants`):
-//   * I-009-3 — trust-envelope containment. This module owns the ENFORCEMENT
-//     leg; T1.4's `TrustEnvelopeViolationError` owns the carrier leg. Every
-//     value this module returns has been symlink-resolved by the filesystem and
-//     then proven component-contained within a root the caller declared
-//     admitted. There is no other successful exit.
+// Invariant enforced here (canonical text):
+//   * This module owns the ENFORCEMENT leg; the `TrustEnvelopeViolationError`
+//     owns the carrier leg. Every value this module returns has been
+//     symlink-resolved by the filesystem and then proven component-contained
+//     within a root the caller declared admitted. There is no other successful
+//     exit.
 //
-// Bind-side only. Attach performs no containment check at all: attach IS
-// envelope admission (`Spec-009 §Local Trust Envelope (V1 Definition)` — the
-// resolved root JOINS the envelope), and validating it against an envelope
-// would reject every first attach. This module is therefore reached from
-// `WorkspaceBind` (Phase 2 T2.4) and from nowhere else.
+// Attach performs no containment check at all: attach IS envelope admission
+// (the resolved root JOINS the envelope), and validating it against an
+// envelope would reject every first attach. This module is therefore reached
+// from `WorkspaceBind` and from nowhere else.
 //
 // Daemon-PROVISIONED roots are outside its remit for a different reason. The
-// same spec section admits Plan-010 worktrees and ephemeral clones under the
-// daemon's execution-roots directory BY PROVENANCE — daemon-created
-// derivatives of an admitted mount, never user-supplied paths — so the
-// containment rule governs user-supplied bind paths only. Those roots sit
-// outside the mount canonical root, so applying this validator defensively at
-// the CP-009-2 `completeReprovision(workspaceId, fsRoot)` seam would refuse
-// every worktree and ephemeral-clone root Plan-010 provisions.
+// same spec section admits worktrees and ephemeral clones under the daemon's
+// execution-roots directory BY PROVENANCE — daemon-created derivatives of an
+// admitted mount, never user-supplied paths — so the containment rule governs
+// user-supplied bind paths only. Those roots sit outside the mount canonical
+// root, so applying this validator defensively
+// `completeReprovision(workspaceId, fsRoot)` seam would refuse every worktree
+// and ephemeral-clone root provisions.
 //
-// Two layers, because I-009-3 has two clauses
+// Two layers, because has two clauses
 // --------------------------------------------------------------------------
 // The invariant reads "within the canonical root of a repo mount attached to
 // THE SAME SESSION". Both halves are checked, in order:
@@ -57,9 +42,9 @@
 //      refused before the filesystem is touched.
 //   2. CONTAINMENT — the resolved candidate must be inside that one anchor,
 //      NOT merely inside some member of the envelope. `WorkspaceBind` is
-//      mount-scoped (D-009-4, mount-first), and the spec resolves `directory`
-//      against "the mount's canonical root" and rejects escape "outside the
-//      MOUNT root". So `directory: "../other-mount/sub"` is refused even when
+//      mount-scoped (mount-first), and the spec resolves `directory` against
+//      "the mount's canonical root" and rejects escape "outside the MOUNT
+//      root". So `directory: "../other-mount/sub"` is refused even when
 //      `other-mount` is itself attached to the same session and the result
 //      would satisfy the looser envelope-wide reading.
 //
@@ -90,10 +75,10 @@
 // sides makes them agree again and the validator returns a root outside the
 // envelope that was actually admitted. Comparing the resolved candidate against
 // the root as admitted can only ever reject more — an anchor that is stale,
-// aliased, or otherwise not what T1.5 produced fails closed.
+// aliased, or otherwise not what produced fails closed.
 //
 // This is also why a non-absolute or non-canonical anchor needs no elaborate
-// guard. T1.5's resolver postcondition is that a persisted `canonical_root` is
+// guard. the resolver postcondition is that a persisted `canonical_root` is
 // absolute and `realpath`-ed; the absoluteness check below is a garbage-in
 // refusal that keeps a relative anchor from being completed against the
 // daemon's own working directory during the join, and everything else a
@@ -106,8 +91,8 @@
 // rather than by remembering to append a separator to a string prefix.
 //
 // Case folding follows the injected path module's `sep` (win32 ⇒ case-folded),
-// mirroring T1.5's derivation, so POSIX CI drives the Windows branch by
-// injecting `path.win32` rather than waiting on a Windows runner. Folding is
+// mirroring the derivation, so POSIX CI drives the Windows branch by injecting
+// `path.win32` rather than waiting on a Windows runner. Folding is
 // `toLowerCase`, never `toLocaleLowerCase`: under a Turkish locale the latter
 // maps `I` to `ı`, which would fold two distinct components together — a
 // widening of a security boundary keyed off the operator's locale.
@@ -147,7 +132,7 @@
 //
 // The anchor's PROVENANCE is what makes that true, and it is worth stating
 // rather than assuming: `mountCanonicalRoot` is not operator text. It is a value
-// T1.5's resolver produced under this same primitive, so it carries on-disk
+// the resolver produced under this same primitive, so it carries on-disk
 // spelling before it is ever admitted. The claim would not hold for an anchor
 // persisted as typed.
 //
@@ -178,30 +163,24 @@
 // whether because it is not a directory at all or because it is one that grants
 // traversal and refuses listing. Fail-closed is the only available answer —
 // neither containment nor usability can be PROVEN of a path the filesystem will
-// not answer for, and T1.4 gives this code no channel through which a path
-// could reach the wire.
+// not answer for, and gives this code no channel through which a path could
+// reach the wire.
 //
 // The residual: an execution root that has VANISHED — an unplugged volume, a
-// deleted mount root — is an availability condition (`Spec-009 §Fallback
-// Behavior`'s `stale` transition, I-009-7), and it surfaces from here as a
-// trust-envelope refusal. The readability check WIDENS that residual rather
-// than adding a second one: a root that disappears between the `realpath` and
-// the probe, one that was a regular file all along, and one that cannot be
-// listed are reported identically, because the carrier takes no arguments and
-// cannot say which. T2.4 should probe
-// root reachability — presence AND enumerability, an `opendir`-class check
-// rather than a bare existence test, since a root that permits traversal and
-// refuses listing is unreachable for every purpose a workspace has — through
-// the T2.5 health projection BEFORE calling this validator, so an operational
-// outage is reported as `stale` rather than masquerading as a security
-// violation.
+// deleted mount root — is an availability condition (the `stale` transition),
+// and it surfaces from here as a trust-envelope refusal. should probe root
+// reachability — presence AND enumerability, an `opendir`-class check rather
+// than a bare existence test, since a root that permits traversal and refuses
+// listing is unreachable for every purpose a workspace has — through health
+// projection BEFORE calling this validator, so an operational outage is
+// reported as `stale` rather than masquerading as a security violation.
 //
 // The admission layer carries the same shape of residual. A bind naming a
 // `detached` mount produces an anchor that no attached root matches, so it too
-// arrives as `repo.outside_trust_envelope`. T2.4 should scope its envelope
-// query to `state = 'attached'` and refuse a non-attached or unknown mount id
-// with its own typed error first, so admission does not shadow two distinct
-// client mistakes under one code.
+// arrives as `repo.outside_trust_envelope`. should scope its envelope query to
+// `state = 'attached'` and refuse a non-attached or unknown mount id with its
+// own typed error first, so admission does not shadow two distinct client
+// mistakes under one code.
 //
 // What the return value is, and is not
 // --------------------------------------------------------------------------
@@ -217,11 +196,11 @@
 // process is later asked to run inside. A regular file that passes containment
 // would persist a workspace that can never spawn anything; a `0111` directory
 // would persist one whose contents cannot be listed. Nothing downstream catches
-// either: T2.4's bind flow resolves this path, refuses escapes, and writes it.
+// either: the bind flow resolves this path, refuses escapes, and writes it.
 // Refusing at the one chokepoint that already proves things about this path is
 // the fail-closed direction; the alternative is a row that looks bound and
-// fails at first use. Plan-010's provisioned roots are unaffected — they never
-// reach this module (see the daemon-PROVISIONED paragraph above).
+// fails at first use. the provisioned roots are unaffected — they never reach
+// this module (see the daemon-PROVISIONED paragraph above).
 //
 // The guarantee is point-in-time, and that covers the readability probe exactly
 // as it covers the resolution. Nothing here (or anywhere) prevents the
@@ -253,20 +232,17 @@ export interface WorkspaceExecutionRootCandidate {
    * Canonical root of the repo mount named by the bind request — the anchor
    * the candidate must resolve inside.
    *
-   * Absolute and `realpath`-ed by T1.5's postcondition. It is used AS GIVEN;
+   * Absolute and `realpath`-ed by the postcondition. It is used AS GIVEN;
    * see the header on why re-resolving it would widen the boundary.
    */
   readonly mountCanonicalRoot: string;
   /**
    * `WorkspaceBindRequest.directory` — a mount-root-relative subdirectory.
    *
-   * Absent (or empty) binds the mount root itself. A COMPLETE absolute value
-   * is not refused outright: it replaces the anchor as the candidate and is
-   * held to the same containment rule, so one that stays inside the mount is
-   * admitted and one that redirects outside is refused. A win32 driveless
-   * rooted form (`\evil`, `/evil`) IS refused up front — it names no volume,
-   * so only the daemon's current drive could complete it, which is the same
-   * daemon-side-state borrowing T1.5's resolver refuses. `..` is left for the
+   * Absent (or empty) binds the mount root itself. A win32 driveless rooted
+   * form (`\evil`, `/evil`) IS refused up front — it names no volume, so only
+   * the daemon's current drive could complete it, which is the same
+   * daemon-side-state borrowing the resolver refuses. `..` is left for the
    * filesystem to apply after symlink resolution (header).
    */
   readonly directory?: string | undefined;
@@ -284,7 +260,7 @@ export interface WorkspaceExecutionRootCandidate {
 // Injected seams
 // --------------------------------------------------------------------------
 //
-// Same seam DISCIPLINE as T1.5's resolver, and — since the readability probe
+// Same seam DISCIPLINE as the resolver, and — since the readability probe
 // below replaced this module's earlier `stat` — the same three questions. Two
 // are injectable for the resolver's reason: the win32 branch of a rule only
 // Windows can exercise (case folding, drive and UNC roots) is otherwise
@@ -312,9 +288,9 @@ export interface WorkspaceExecutionRootCandidate {
 export type PathRealpathResolver = (path: string) => Promise<string>;
 
 /**
- * Directory-readability seam, narrowed to the one question this module and
- * T1.5's resolver both ask of the root they hand onward: can the daemon OPEN it
- * for enumeration?
+ * Directory-readability seam, narrowed to the one question this module and the
+ * resolver both ask of the root they hand onward: can the daemon OPEN it for
+ * enumeration?
  *
  * Resolves when it can. Rejects with a Node `ErrnoException` when it cannot,
  * which is the only channel it has — nothing is returned, because nothing about
@@ -357,16 +333,15 @@ export type DirectoryReadabilityProbe = (path: string) => Promise<void>;
  * The slice of `node:path` this module reads. A structural subset, so both
  * `path.win32` and `path.posix` satisfy it — which is the point of the seam.
  *
- * A same-named twin lives in `./repo-root-resolver.js` (T1.5), with the same
- * three members and the same purpose. The duplication is deliberate, and the
- * reason is now a CYCLE rather than a missing task-graph edge: the resolver
- * imports this module's component-comparison helpers for its own root
- * verification, so the edge runs T1.5 → T1.6, and importing the resolver's
- * copy back would close a real import cycle. (Hoisting both into a shared
- * module remains a file neither task owns.) Being structurally IDENTICAL, the
- * two are mutually assignable, so the duplication costs a doubled auto-import
- * suggestion and nothing else. Keep them identical: a member added to one
- * belongs in the other.
+ * A same-named twin lives in `./repo-root-resolver.js`, with the same three
+ * members and the same purpose. The duplication is deliberate, and the reason
+ * is now a CYCLE rather than a missing task-graph edge: the resolver imports
+ * this module's component-comparison helpers for its own root verification,
+ * so the edge runs and importing the resolver's copy back would close a real
+ * import cycle. (Hoisting both into a shared module remains a file neither
+ * task owns.) Being structurally IDENTICAL, the two are mutually assignable,
+ * so the duplication costs a doubled auto-import suggestion and nothing else.
+ * Keep them identical: a member added to one belongs in the other.
  *
  * That instruction governs SIX surfaces, not this interface alone. The pair
  * of modules duplicates:
@@ -399,17 +374,13 @@ export type DirectoryReadabilityProbe = (path: string) => Promise<void>;
  * divergence there changes which paths are admitted, silently and only on
  * Windows. It is the one a future editor most needs flagged.
  *
- * The SIXTH is TEST-enforced instead. Each suite pins its own module's default
- * by identity against `node:fs/promises`' `realpath`, so drift in either module
- * fails that module's own suite; and because both pins name the same external
- * binding, the two defaults cannot silently diverge from each other either.
- * That matters beyond tidiness — the anchor-provenance argument in the header
- * above holds only while T1.5 resolves under the same primitive this module
- * does.
+ * The SIXTH is TEST-enforced instead. That matters beyond tidiness — the
+ * anchor-provenance argument in the header above holds only while resolves
+ * under the same primitive this module does.
  *
  * The list has never grown when the resolver started importing from here, and
  * the SHARED set is the reason. The component-comparison helpers below are
- * shared, not duplicated: T1.5 calls the same three functions this module's own
+ * shared, not duplicated: calls the same three functions this module's own
  * boundary check calls, so its `root_mismatch` verification and this module's
  * bind-side containment agree by construction. `DirectoryReadabilityProbe` and
  * `DEFAULT_DIRECTORY_READABILITY_PROBE` joined that set rather than the list
@@ -453,7 +424,6 @@ export interface TrustEnvelopeValidatorDeps {
    *     casing one is benign HERE because the win32 branch folds case; the other
    *     two resolve to a refusal, which is the safe direction.
    *
-   * Primary sources, also in `Plan-009 §References`:
    *   * Node `fs` — https://nodejs.org/api/fs.html#fsrealpathnativepath-options-callback
    *   * libuv `uv_fs_realpath` — https://docs.libuv.org/en/v1.x/fs.html
    */
@@ -488,9 +458,9 @@ export interface TrustEnvelopeValidatorDeps {
    * Defaults to `node:path`, already bound to the host platform. Injected as
    * `path.win32` by the suite to drive case-folded comparison and win32 root
    * shapes from POSIX CI. Read by EVERY path operation in this module: unlike
-   * T1.5, there is no backstop here that deliberately uses the real
-   * `node:path`, because a mismatch between the seam and the anchor's spelling
-   * fails containment rather than loosening it.
+   * there is no backstop here that deliberately uses the real `node:path`,
+   * because a mismatch between the seam and the anchor's spelling fails
+   * containment rather than loosening it.
    */
   readonly platformPath: PlatformPathModule;
 }
@@ -510,7 +480,7 @@ export const DEFAULT_REALPATH: PathRealpathResolver = realpathFromFilesystem;
 
 /**
  * The readability probe used when no seam is injected: open the directory,
- * close it, keep nothing. Exported because T1.5's resolver defaults to this
+ * close it, keep nothing. Exported because the resolver defaults to this
  * same binding — one implementation, so the two cannot drift.
  *
  * Closing is not housekeeping. An unclosed `Dir` holds a descriptor until the
@@ -537,7 +507,7 @@ function resolveDeps(partial: Partial<TrustEnvelopeValidatorDeps>): TrustEnvelop
 // Component-wise path comparison
 // --------------------------------------------------------------------------
 //
-// The three functions below are exported for ONE consumer: T1.5's resolver
+// The three functions below are exported for ONE consumer: the resolver
 // (`./repo-root-resolver.js`), whose `root_mismatch` check must decide the same
 // containment question this module's bind-side boundary decides. Sharing the
 // implementation rather than re-spelling it is what keeps the two verdicts
@@ -569,7 +539,7 @@ function stripTrailingSeparators(path: string, separator: string): string {
  *
  * Splitting on the platform separator alone is deliberate. On win32 the
  * filesystem accepts `/` as well, but both values reaching this function in
- * production are separator-normalized — the anchor by T1.5's `realpath`, the
+ * production are separator-normalized — the anchor by the `realpath`, the
  * candidate by the `realpath` in the pipeline below — so a mixed-separator
  * value can only arrive from a caller that broke that postcondition, and it
  * fails containment rather than sliding past it.
@@ -643,8 +613,8 @@ export class TrustEnvelopeValidator {
    *   malformed anchor, an escape by traversal, symlink, or absolute
    *   redirection, any candidate the filesystem declines to resolve, and a
    *   resolved root that cannot be opened for enumeration, whether because it
-   *   is not a directory or because it is one that will not be listed (I-009-3;
-   *   the fail-closed residual is documented in the header).
+   *   is not a directory or because it is one that will not be listed (the
+   *   fail-closed residual is documented in the header).
    */
   public async validateExecutionRoot(candidate: WorkspaceExecutionRootCandidate): Promise<string> {
     const { platformPath } = this.deps;
@@ -692,8 +662,8 @@ export class TrustEnvelopeValidator {
     // component that a degenerate resolved value (`C:`, ``) also matches. A
     // real `realpath` cannot produce either, so this closes a broken-seam path
     // rather than a reachable one. It deliberately uses the INJECTED module —
-    // T1.5's real-`node:path` backstop pattern would reject every win32 value
-    // on a POSIX host, disabling the win32 tests instead of guarding them.
+    // the real-`node:path` backstop pattern would reject every win32 value on
+    // a POSIX host, disabling the win32 tests instead of guarding them.
     if (!platformPath.isAbsolute(resolvedRoot)) {
       throw new TrustEnvelopeViolationError();
     }
@@ -740,9 +710,9 @@ export class TrustEnvelopeValidator {
       // against the daemon's CURRENT DRIVE. Containment alone would still hold
       // the boundary, but the verdict on one identical request would become a
       // property of ambient host state — and its accept arm is unpinnable from
-      // POSIX CI. T1.5 refuses the same shape on its own input for the same
-      // reason; the parsed root separates the classes, since every complete
-      // win32 root (`C:\`, `\\server\share\`) is longer than one character.
+      // POSIX CI. refuses the same shape on its own input for the same reason;
+      // the parsed root separates the classes, since every complete win32 root
+      // (`C:\`, `\\server\share\`) is longer than one character.
       if (
         platformPath.sep === WINDOWS_PATH_SEPARATOR &&
         platformPath.parse(directory).root.length <= 1

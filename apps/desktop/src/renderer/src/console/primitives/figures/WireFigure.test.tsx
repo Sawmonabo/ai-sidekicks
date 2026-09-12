@@ -50,8 +50,8 @@ describe("WireFigure — verbatim, and never hiding the value it formats", () =>
   });
 
   it("carries the exact wire value in `title` when the text is a reading of it", () => {
-    // A byte count rendered "1.0 KiB" with the exact figure one hover away — the
-    // shape §The eight rules requires of every formatted quantity.
+    // A byte count rendered "1.0 KiB" with the exact figure one hover away — the shape
+    // the eight rules require of every formatted quantity.
     const figure = renderFigure(<WireFigure value="1.0 KiB" title="1024" />);
     expect(figure.getAttribute("title")).toBe("1024");
     expect(figure.textContent).not.toBe("1024");

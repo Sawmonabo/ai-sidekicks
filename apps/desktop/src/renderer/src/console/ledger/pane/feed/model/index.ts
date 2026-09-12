@@ -1,8 +1,8 @@
 // The feed's model door: what the feed works out, published to what draws it.
 //
 // A DOOR HERE BECAUSE THIS DIRECTORY HAS A SIBLING READER, which is the whole of the
-// condition `apps/desktop/AGENTS.md` §Module shape states — no sibling reader means no
-// door, and one sibling reader means a door publishing what that sibling takes.
+// condition this package states — no sibling reader means no door, and one sibling
+// reader means a door publishing what that sibling takes.
 // `row-offers/` next door is the same rule applied one directory over: it carries a
 // door because the row renderer draws its control and the feed binds it, and both are
 // modules other than the ones that declare those names.

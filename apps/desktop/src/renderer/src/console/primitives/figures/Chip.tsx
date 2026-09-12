@@ -1,8 +1,7 @@
 // The chip: one fact, in one word, with at most one colour.
 //
-// Chips are where the two-hue rule is most easily broken, so the tone set is closed
-// at four and each one is spent on exactly the meaning
-// `Spec-023 §Console Design (Meridian)` rule 3 assigns it:
+// Chips are where the two-hue rule is most easily broken, so the tone set is closed at
+// four and each one is spent on exactly the meaning rule 3 assigns it:
 //
 //   • `neutral`   — the common case, and the default. A chip that carries no
 //                   urgency carries no colour. Most chips in a healthy session are

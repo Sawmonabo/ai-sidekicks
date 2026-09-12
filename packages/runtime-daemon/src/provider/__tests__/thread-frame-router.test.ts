@@ -1,22 +1,18 @@
-// Thread-frame router suite (Plan-005 T3.11 — the NS-91 child-routing leg).
+// Thread-frame router suite (child-routing leg).
 //
 // Spec coverage under test:
-//   • `Spec-005 §Required Behavior` — the family-scoped, fail-closed
-//     child-frame routing rule: thread-scoped families route by explicit
-//     thread identity, censused connection-scoped families route without one,
-//     child identities register from the provider's parent-linked
-//     announcements, a present-but-unregistered identity is held in a bounded
-//     pending-registration buffer, and an absent or unrecognized identity is
-//     quarantined — never projected or guessed into the parent.
-//   • `Spec-016 §Provider-Native Subagents` — child-raised interactive
-//     requests carve through to the same approval pipeline as the parent's;
-//     provider-attributed subagent spend rides the subagent identity while
-//     provider-internal child spend attributes to the parent run.
+//   • the family-scoped, fail-closed child-frame routing rule: thread-scoped
+//     families route by explicit thread identity, censused connection-scoped
+//     families route without one, child identities register from the
+//     provider's parent-linked announcements, a present-but-unregistered
+//     identity is held in a bounded pending-registration buffer, and an
+//     absent or unrecognized identity is quarantined — never projected or
+//     guessed into the parent.
+//   • child-raised interactive requests carve through to the same approval
+//     pipeline as the parent's; provider-attributed subagent spend rides
+//     the subagent identity while provider-internal child spend attributes
+//     to the parent run.
 //
-// Verifies invariant: I-005-12 (no child-thread frame is projected into the
-// parent session's timeline or metered into the parent's usage except through
-// the registered-carve-out decisions; the `subagent.started` /
-// `subagent.completed` pair is the child's only timeline presence).
 
 import { describe, expect, it } from "vitest";
 
@@ -50,7 +46,7 @@ function usageFrame(
   return { rawWireType, familyClass: { scope: "thread", capability: "usage" }, threadId };
 }
 
-describe("ThreadFrameRouter (T3.11, I-005-12)", () => {
+describe("ThreadFrameRouter", () => {
   it("censused connection-scoped families route without a thread id (api_retry / rate-limit census pass)", () => {
     const { router, diagnostics } = makeRouter();
     router.registerSessionThread("session-thread");

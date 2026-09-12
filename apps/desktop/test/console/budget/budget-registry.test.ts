@@ -1,20 +1,20 @@
 // The registry's SHAPE — which rows exist, and what each one must carry.
 //
 // `budgets.json` is the single source of truth for every numeric budget the
-// console is gated on (`Spec-023 §Console Design (Meridian)` §Budgets, Plan-023
-// invariant I-023-14), and two of the three failure modes that would make it
+// console is gated on, and two of the three failure modes that would make it
 // worthless are shape failures this file closes:
 //
-//   • A budget quietly missing. Every row of the spec's §Budgets table is
-//     asserted present by id, so deleting one fails here rather than going
-//     unnoticed as a gate nobody runs.
+//   • A budget quietly missing. Every product budget is asserted present by id,
+//     so deleting one fails here rather than going unnoticed as a gate nobody
+//     runs.
 //
-//   • A budget quietly ungated. Every `"n/a"` entry must name the Plan-023 task
-//     that makes it measurable and the reason it is not measurable yet.
+//   • A budget quietly ungated. Every `"n/a"` entry must say why it is not
+//     measurable yet.
 //
 //   • A budget gated by a claim rather than by a measurement. A `harness` row's
-//     figure has no spec behind it, so the document states the derivation once
-//     for that whole set and each row points at it rather than carrying a copy.
+//     figure has no product figure behind it, so the document states the
+//     derivation once for that whole set and each row points at it rather than
+//     carrying a copy.
 //
 // Three neighbouring questions are deliberately elsewhere, each beside the module
 // that answers it: whether the loader REFUSES a malformed document is
@@ -32,7 +32,7 @@ import {
   DEFAULT_BUDGETS_FILE_PATH,
 } from "../../../scripts/budget/budget-registry.mjs";
 
-/** Every row of `Spec-023 §Console Design (Meridian)` §Budgets, by registry id. */
+/** Every product budget, by registry id. */
 const EXPECTED_PRODUCT_BUDGET_IDS: readonly string[] = [
   "renderer-initial-bundle",
   "frame-time-p95-four-lanes",
@@ -134,12 +134,11 @@ describe("console budget registry", () => {
   it("loads the one budgets file the harnesses read", () => {
     expect(registry.budgetsFilePath).toBe(DEFAULT_BUDGETS_FILE_PATH);
     expect(registry.schemaVersion).toBe(3);
-    expect(registry.source).toContain("023-desktop-shell-and-renderer.md");
   });
 
-  it("carries every budget the spec's §Budgets table names, and no others", () => {
+  it("carries every product budget, and no others", () => {
     // Scoped to the product rows, which is what makes this claim survive the
-    // harness rows joining the file: the spec's table is a closed set and the
+    // harness rows joining the file: the product list is a closed set and the
     // scaffolding's own bounds are not part of it.
     expect(
       registry
@@ -172,7 +171,6 @@ describe("console budget registry", () => {
       expect(budget.notes.length, `${budget.id}: notes`).toBeGreaterThan(0);
       expect(budget.limit.comparison, `${budget.id}: comparison`).toBe("<=");
       expect(budget.limit.value, `${budget.id}: limit value`).toBeGreaterThan(0);
-      expect(budget.producedBy, `${budget.id}: producedBy`).toMatch(/^T-023[pr]-/);
     }
   });
 
@@ -233,7 +231,7 @@ describe("console budget registry", () => {
     expect(openings.size, "harness rows repeat one derivation verbatim").toBe(harnessNotes.length);
   });
 
-  it("makes every un-measurable budget name its producing task and its reason", () => {
+  it("makes every un-measurable budget give its reason", () => {
     const unavailable = registry.unavailableBudgets();
     expect(unavailable.length).toBe(
       EXPECTED_PRODUCT_BUDGET_IDS.length +
@@ -248,7 +246,6 @@ describe("console budget registry", () => {
         (budget.notMeasurableReason ?? "").length,
         `${budget.id}: reason length`,
       ).toBeGreaterThan(40);
-      expect(budget.producedBy, `${budget.id}: producedBy`).toMatch(/^T-023p-1C-[2-8]$/);
     }
   });
 });

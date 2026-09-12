@@ -3,7 +3,7 @@
 // It sits apart from the served-set sweep in `growth-port.test.ts` because
 // its subject is different: that sweep checks WHICH operations answer, and these
 // check WHAT the answer says. The projection is the one served value the console
-// must not compute for itself (Plan-019 I-019-4), so a fixture that answered
+// must not compute for itself, so a fixture that answered
 // plausibly-but-wrongly would train every attention surface against a projection no
 // daemon will ever send.
 //
@@ -23,7 +23,7 @@ import { FLAGSHIP_SCENARIO } from "../../scenario/flagship/flagship.js";
 import { findScenarioWireTruthDefects } from "../../scenario/wire-truth/wire-truth.js";
 
 const ATTENTION_SESSION_ID = "019b7a11-0280-75e5-8510-ada11a5a33a5";
-const ATTENTION_PARTICIPANT_ID = "019b7a11-0280-79a4-8110-cca0117a0330";
+const ATTENTION_USER_ID = "019b7a11-0280-79a4-8110-cca0117a0330";
 const RUN_AWAITING_APPROVAL = "019b7a11-0280-740e-8110-d1a4c1150021";
 const RUN_FINISHED = "019b7a11-0280-740e-8120-d1a4c1150022";
 const RUN_FAILED = "019b7a11-0280-740e-8130-d1a4c1150023";
@@ -90,7 +90,7 @@ function twoRunAttentionScenario(extraBeats: readonly ScenarioBeat[] = []): Cons
     purpose:
       "Drives the fixture's attention derivation over an actionable and an informational contributor.",
     sessionId: ATTENTION_SESSION_ID,
-    participantIdsInJoinOrder: [ATTENTION_PARTICIPANT_ID],
+    userIdsInJoinOrder: [ATTENTION_USER_ID],
     startedAtIso: "2026-01-01T16:00:00.000Z",
     beats: [
       runTransition(100, 1, RUN_FINISHED, "running", "completed"),
@@ -114,7 +114,7 @@ function failedRunScenario(extraBeats: readonly ScenarioBeat[] = []): ConsoleSce
     label: "One run, and it failed",
     purpose: "Drives the fixture's attention derivation over a terminal run failure.",
     sessionId: ATTENTION_SESSION_ID,
-    participantIdsInJoinOrder: [ATTENTION_PARTICIPANT_ID],
+    userIdsInJoinOrder: [ATTENTION_USER_ID],
     startedAtIso: "2026-01-01T16:00:00.000Z",
     beats: [runTransition(100, 1, RUN_FAILED, "running", "failed"), ...extraBeats],
     replies: [],
@@ -149,7 +149,7 @@ async function readAttentionItems(
 describe("the fixture's attention projection — derived from the scenario, never invented", () => {
   it("serves an empty projection for the flagship, whose runs never reach an attention state", async () => {
     // Honest emptiness, not a stub: the flagship's newest run transition is
-    // `starting`, which `Spec-019 §Default Behavior` classifies as neither
+    // `starting`, which is classified as neither
     // actionable nor informational. The scenario is read for that fact here rather
     // than asserted about, and the cases below prove the fold is not simply inert.
     const { port, advanceToEnd } = playScenario(FLAGSHIP_SCENARIO);
@@ -262,10 +262,9 @@ describe("the fixture's attention projection — derived from the scenario, neve
     // The state the projection exists for, and the one it used to drop: before this
     // classification a `run.failed` beat fell through the fold's delete branch, so a
     // scenario that played a failure served an EMPTY projection and every
-    // failure-oriented surface would have been built against it. `Spec-019 §Required
-    // Behavior` makes run failure a required trigger, and a terminal run blocks on no
-    // participant, so the severity is the informational one that spec's own class
-    // definition assigns.
+    // failure-oriented surface would have been built against it. Run failure is a
+    // required trigger, and a terminal run blocks on no user, so the severity
+    // is the informational one the class definition assigns.
     const scenario = failedRunScenario();
     const { port, advanceToEnd } = playScenario(scenario);
     advanceToEnd();
@@ -299,8 +298,8 @@ describe("the fixture's attention projection — derived from the scenario, neve
   });
 
   it("negative control: an outstanding approval still makes that same aggregate actionable", async () => {
-    // D-019-2's rule, driven from the other side. Without this the case above would
-    // hold over a fold that returned `informational` for every aggregate — which would
+    // The aggregation rule, driven from the other side. Without this the case above
+    // would hold over a fold that returned `informational` for every aggregate — which would
     // hide exactly the blocking state the two severities exist to separate.
     const withFailure = twoRunAttentionScenario([
       runTransition(300, 3, RUN_FAILED, "running", "failed"),
@@ -370,9 +369,9 @@ describe("the fixture's attention projection — derived from the scenario, neve
     const { port } = playScenario(twoRunAttentionScenario());
 
     for (const outcome of [
-      await port.attentionPreferenceRead({ participantId: ATTENTION_PARTICIPANT_ID }),
+      await port.attentionPreferenceRead({ userId: ATTENTION_USER_ID }),
       await port.attentionPreferenceUpdate({
-        participantId: ATTENTION_PARTICIPANT_ID,
+        userId: ATTENTION_USER_ID,
         key: "mute-all",
         value: { enabled: true },
       }),
@@ -380,7 +379,7 @@ describe("the fixture's attention projection — derived from the scenario, neve
       expect(outcome.status).toBe("unavailable");
       if (outcome.status === "unavailable") {
         expect(outcome.slateRow).toBe("attention-plane");
-        expect(outcome.owningDocument).toContain("Spec-019");
+        expect(outcome.owningDocument).toContain("the attention design");
       }
     }
   });

@@ -43,7 +43,7 @@ export interface LedgerCastMemberLookup {
 /** Who is in the room before any run starts. */
 export interface LedgerOpeningInput {
   readonly sessionId: string;
-  /** The participant who opened the session, and whose window this is. */
+  /** The user who opened the session, and whose window this is. */
   readonly openedBy: string;
   /** The cast, each attached at the tick beside it. */
   readonly cast: readonly (LedgerCastMember & { readonly attachedAtMs: number })[];

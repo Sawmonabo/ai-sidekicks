@@ -46,7 +46,7 @@
 //     seams, and the meter is not on any of them. Flagship is
 //     the scenario that moves the meter; a second one here would be a reading no surface
 //     in this session's frame reads. Scripting one would carry every member
-//     `Spec-006 §Usage Telemetry (usage_telemetry)` makes required of a post-amendment
+//     the usage-telemetry family makes required of a post-amendment
 //     emitter — `costStatus`, `costSource`, and `effectivePrincipal` — exactly as
 //     flagship's own builder does.
 //   • **A machine body.** `assistant.*` and `tool.*` payloads carry their body's
@@ -61,8 +61,8 @@ import {
   AGENT_REVIEWER,
   EVENT_ID_STEM,
   LEDGER_AGENTS,
-  PARTICIPANT_PRIYA,
-  PARTICIPANT_YOU,
+  USER_PRIYA,
+  USER_YOU,
   SESSION_ID,
   STARTED_AT_ISO,
   attachedAtIso,
@@ -81,16 +81,10 @@ export const LEDGER_SCENARIO: ConsoleScenario = {
   sessionId: SESSION_ID,
   // Join order IS hue order: two people first, then the agents in attach order,
   // which is what a real session's join log looks like.
-  participantIdsInJoinOrder: [
-    PARTICIPANT_YOU,
-    PARTICIPANT_PRIYA,
-    AGENT_ARCHITECT,
-    AGENT_IMPLEMENTER,
-    AGENT_REVIEWER,
-  ],
+  userIdsInJoinOrder: [USER_YOU, USER_PRIYA, AGENT_ARCHITECT, AGENT_IMPLEMENTER, AGENT_REVIEWER],
   // Which of the roster this window is. Stated rather than read off the head of the
   // join order, which is whoever opened the session on whichever machine.
-  viewingParticipantId: PARTICIPANT_YOU,
+  callerUserId: USER_YOU,
   startedAtIso: STARTED_AT_ISO,
   beats: scriptLedgerBeats({
     sessionId: SESSION_ID,
@@ -155,7 +149,7 @@ export const LEDGER_SCENARIO: ConsoleScenario = {
         // resume cycle reachable at all: the store submits whatever a read
         // acknowledged on its NEXT read, and a reply carrying only `latest` names
         // no position to submit. Behind `latest`, as a real one is — this
-        // participant has read most of the log and not all of it.
+        // user has read most of the log and not all of it.
         timelineCursors: { latest: "ledger-cursor-33", acknowledged: "ledger-cursor-30" },
       },
     },
@@ -199,8 +193,8 @@ export const LEDGER_SCENARIO: ConsoleScenario = {
     // no demonstration window carries a claim about the operator's own install.
     //
     // It does not contradict the three lanes above it. An incompatible handshake
-    // blocks MUTATING dispatch and leaves reads alone (`Spec-023 §Daemon Supervision
-    // Lifecycle` step 3), and every beat this session plays is a replayed event —
+    // blocks MUTATING dispatch and leaves reads alone, and every beat this session
+    // plays is a replayed event —
     // which is what makes a refusal and a streaming ledger true at once rather than
     // an inconsistency the script papered over.
     REFUSED_NEGOTIATION_REPLY,

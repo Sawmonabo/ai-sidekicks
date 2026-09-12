@@ -1,30 +1,24 @@
-// Provider-output write-seam validation (Plan-005 Phase 2).
+// Provider-output write-seam validation.
 //
 // Single source of truth for the bounds applied to PROVIDER-DECLARED strings at
 // the moment they cross into durable Local SQLite storage. This is
 // DEFENSE-IN-DEPTH layered on top of the SQLite CHECK constraints shipped in
-// `migrations/0003-runtime-bindings.ts` (Plan-005 T2.1) — NOT a contract-layer
-// schema. `packages/contracts/src/provider-driver.ts` deliberately does NOT
-// re-parse these fields; it documents that they are "bounded at the Plan-005
-// Phase-2 write seam", and THIS module is that seam.
+// `migrations/0003-runtime-bindings.ts` — NOT a contract-layer schema.
+// `packages/contracts/src/provider-driver.ts` deliberately does NOT re-parse
+// these fields; it documents that they are "bounded Phase-2 write seam", and
+// THIS module is that seam.
 //
 // Why a shared module (not inlined into RuntimeBindingStore):
-//   The same bounds govern two provider-output columns with identical SQL
-//   CHECKs — `runtime_bindings.contract_version` (T2.2, this task) AND
-//   `driver_contract_meta.contract_version` (T2.4). Centralizing the bounds +
-//   the assert functions here means the const↔Zod↔SQL-CHECK coherence is
-//   asserted in ONE place and reused, rather than drifting across two call
-//   sites. The `cli_version_raw` / `cli_version_semver` pair added by migration
+//   The same bounds govern two provider-output columns with identical SQL CHECKs
+//   — `runtime_bindings.contract_version` (this task) AND
+//   `driver_contract_meta.contract_version`. Centralizing the bounds + the
+//   assert functions here means the const↔Zod↔SQL-CHECK coherence is asserted in
+//   ONE place and reused, rather than drifting across two call sites. The
+//   `cli_version_raw` / `cli_version_semver` pair added by migration
 //   `0011-driver-capability-currency.ts` has exactly the same two-table shape
-//   (`runtime_bindings` at T2.6, `driver_contract_meta` at the capability-writer
+//   (`runtime_bindings` `driver_contract_meta` at the capability-writer
 //   widening), so `assertValidCliVersionReport` lands here for the same reason.
 //
-// Spec coverage: `Spec-005 §Required Behavior` (resume_handle is a provider-owned opaque handle,
-// bounded at the write seam) and `Spec-005 §State And Data Implications` (the binding record
-// stores the provider's reported CLI version, so the pair is bounded at this same seam).
-//
-// Refs: Plan-005 §Phase 2 / T2.2 + T2.4 + T2.6, `Spec-005 §Required Behavior`,
-// `Spec-005 §State And Data Implications`.
 
 // No `DriverCliVersionReport` type import: `assertValidCliVersionReport` takes
 // `unknown` on purpose (see its docstring), so this module has no TYPE-level
@@ -101,15 +95,9 @@ export const CLI_VERSION_SEMVER_MAX_LEN = 64;
 /**
  * Thrown when a provider-declared output field fails write-seam validation.
  *
- * Discriminated by CLASS IDENTITY, never by a dotted `code` member.
- * `docs/architecture/contracts/error-contracts.md §Driver` is a CLOSED
- * registry and carries no `driver.provider_output_invalid` row, so a `code`
- * here would be an unregistered literal asserting a wire contract that does not
- * exist — the call `CodexSessionAlreadyLiveError` and `CodexDriverConfigError`
- * already make in the driver trees ("discriminated by CLASS-LOCAL state rather
- * than by a second dotted code: the error-contract registry is closed"). Nor is
- * one reachable: `mapJsonRpcError` discriminates by `instanceof` over a fixed
- * class list this type is not on, so this error never rides the wire as a typed
+ * Discriminated by CLASS IDENTITY, never by a dotted `code` member. Nor is one
+ * reachable: `mapJsonRpcError` discriminates by `instanceof` over a fixed class
+ * list this type is not on, so this error never rides the wire as a typed
  * envelope at all. Callers get the class plus an optional `fields` carrying
  * STRUCTURED throw-site detail — `{ field, reason }` — which every throw site
  * in this module sets.
@@ -154,20 +142,18 @@ export class ProviderOutputValidationError extends Error {
 //   * `=== v` is fail-closed canonical-identity. It ACCEPTS `1.2.3`, `1.0.0`,
 //     `2.1.0-rc.1`, `1.0.0-alpha.1` (canonical, incl. prerelease); it REJECTS
 //     `1.0`, `1`, `01.2.3` (malformed), `v1.2.3`, `" 1.2.3 "` (loose), and
-//     `1.2.3+build.5` (build metadata — per SemVer §10 build metadata is
+//     `1.2.3+build.5` (build metadata — per SemVer section 10 build metadata is
 //     NON-identifying, so we reject it from a contract-*identity* field rather
 //     than silently stripping it). Rejecting (not normalizing) keeps the stored
 //     value BYTE-IDENTICAL to what passed validation — no transform, no
 //     mutation of provider data.
 //
-// The build-metadata rejection is a DOCUMENTED CONTRACT RULE, not an incidental
-// side effect of `semver.valid`: `contract_version` is a canonical, IDENTIFYING
-// semver string. Accepting `1.2.3+build.5` and `1.2.3+build.6` as DISTINCT
-// stored values would spuriously fire `runtime_node.capability_updated` on a
-// non-change (SemVer §10 says they denote the SAME version) — the same defect
-// class as the tool-sort canonical-ordering guard. See the matching note in
-// docs/architecture/schemas/local-sqlite-schema.md (`driver_contract_meta` /
-// `runtime_bindings` `contract_version` columns).
+// The build-metadata rejection is a DOCUMENTED CONTRACT RULE, not an incidental side
+// effect of `semver.valid`: `contract_version` is a canonical, IDENTIFYING semver
+// string. Accepting `1.2.3+build.5` and `1.2.3+build.6` as DISTINCT stored values
+// would spuriously fire `runtime_node.capability_updated` on a non-change (SemVer
+// section 10 says they denote the SAME version) — the same defect class as the
+// tool-sort canonical-ordering guard.
 //
 // This is why the refinement is `semver.valid(v) === v` and not `!== null`.
 const contractVersionSchema = wireFreeFormString(
@@ -176,7 +162,7 @@ const contractVersionSchema = wireFreeFormString(
 ).refine((value) => semver.valid(value) === value, {
   message:
     "contract_version must be a canonical, identifying semver string (no build metadata; " +
-    "SemVer §10 build metadata is non-identifying and is rejected from this identity field).",
+    "SemVer section 10 build metadata is non-identifying and is rejected from this identity field).",
 });
 
 // `wireFreeFormString`'s `/\S/` adds an ALL-WHITESPACE rejection BEYOND the DB
@@ -200,10 +186,10 @@ const resumeHandleSchema = wireFreeFormString(RESUME_HANDLE_MAX_LEN, "resume_han
 // authority for a provider's version string, and every well-behaved driver
 // derives `semver` canonically by construction. What this refinement closes is
 // the seam accepting a bounded-but-unparseable string from ANY caller and
-// persisting it, where it would poison the T3.23 floor comparison at a call
-// site far from the row that produced it (Codex PR #372 round 1). The DDL
-// CHECK on this pair stays bounds-only — the shipped `0011` migration is
-// frozen — so Zod is deliberately the tighter gate, the module-wide pattern.
+// persisting it, where it would poison floor comparison at a call site far
+// from the row that produced it. The DDL CHECK on this
+// pair stays bounds-only — the shipped `0011` migration is frozen — so Zod is
+// deliberately the tighter gate, the module-wide pattern.
 const cliVersionRawSchema = wireFreeFormString(CLI_VERSION_RAW_MAX_LEN, "cli_version_raw");
 const cliVersionSemverSchema = wireFreeFormString(
   CLI_VERSION_SEMVER_MAX_LEN,
@@ -232,7 +218,7 @@ export function assertValidContractVersion(value: string): void {
       field: "contract_version",
       reason:
         "must be a canonical, identifying semver string within length bounds " +
-        "(no build metadata; SemVer §10 build metadata is non-identifying and is rejected)",
+        "(no build metadata; SemVer section 10 build metadata is non-identifying and is rejected)",
     });
   }
 }
@@ -328,8 +314,8 @@ export function assertValidCliVersionReport(driverName: string, report: unknown)
  * downstream validators (`assertValidCapabilityFlags`,
  * `assertValidContractVersion`, `ProviderToolMetadataSchema.safeParse`). Full
  * value-normalization stays the Phase-3 driver adapter's job (see this module's
- * header / provider-driver.ts §1(b) boundary). Structural shape-guarding so no
- * raw error escapes is THIS seam's job; value-normalization is NOT.
+ * header / provider-driver.ts) boundary). Structural shape-guarding so no raw
+ * error escapes is THIS seam's job; value-normalization is NOT.
  */
 export function assertValidGetCapabilitiesResultShape(result: unknown): void {
   if (typeof result !== "object" || result === null || Array.isArray(result)) {
@@ -377,7 +363,7 @@ export function assertValidGetCapabilitiesResultShape(result: unknown): void {
  * Validate a provider-declared capability `flags` map at the write seam. Throws
  * `ProviderOutputValidationError` on failure.
  *
- * This guards T2.4's OWN cardinality invariant: `DriverCapabilitiesWriter`
+ * This guards the OWN cardinality invariant: `DriverCapabilitiesWriter`
  * explodes `flags` into one CHECK-constrained `driver_capabilities` row per
  * flag, so the table requires EXACTLY the canonical set — no more, no fewer.
  * An extra/typo'd key would otherwise hit the SQL CHECK mid-transaction (a
@@ -388,8 +374,8 @@ export function assertValidGetCapabilitiesResultShape(result: unknown): void {
  * sourced from the contract (`DRIVER_CAPABILITY_FLAGS`), kept in lockstep with
  * the frozen migration-0003 CHECK list.
  *
- * NOT a re-parse of already-normalized provider output (provider-driver.ts
- * §1(b) value-normalization stays the Phase-3 driver adapter's job) — only the
+ * NOT a re-parse of already-normalized provider output (provider-driver.ts)
+ * value-normalization stays the Phase-3 driver adapter's job) — only the
  * key-set cardinality this writer's schema choice created.
  *
  * Both halves are on an OWN-key basis (the cardinality check via `Object.keys`;

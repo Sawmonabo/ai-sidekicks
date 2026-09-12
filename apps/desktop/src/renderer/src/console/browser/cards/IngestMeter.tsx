@@ -1,7 +1,7 @@
 // What arrived, against what was declared — one meter, for both cards.
 //
-// `Spec-023 §Console Design (Meridian)` 12.6 requires an in-flight row to show
-// received bytes AGAINST the declared total, and the browser family produces two
+// An in-flight row has to show received bytes AGAINST the declared total, and the
+// browser family produces two
 // kinds of object that can be in flight: a capture and a download. The bytes went
 // through one pipeline, `artifact-ingest.ts` gives them one state vocabulary, and
 // this is the third and last piece of that seam — the RENDERING, which was written

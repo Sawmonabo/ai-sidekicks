@@ -22,10 +22,8 @@
 // arm a row is in is `cloneExpiryReading`'s, exactly as the two deadline arms are.
 //
 // THE COUNTDOWN NEVER TICKS. `nowMilliseconds` is a prop, the reading is a pure
-// function of it, and `Spec-023 §Rules every console surface obeys`' "No interval
-// polling" is therefore structural
-// here: this file contains no timer and can contain none, because it owns no state
-// to move.
+// function of it, and the no-interval-polling rule is therefore structural here: this
+// file contains no timer and can contain none, because it owns no state to move.
 //
 // WHAT THIS CARD DOES NOT OFFER: no dispose control, for the retire control's
 // reason on the worktree card — the dispose confirm is a consent surface that

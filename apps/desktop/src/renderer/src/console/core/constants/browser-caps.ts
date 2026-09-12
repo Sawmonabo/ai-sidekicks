@@ -25,14 +25,13 @@ export const POSITION_SIBLING_OBSERVER_CAP = 64;
 /**
  * Partitions the site-data table renders before the rest fold behind a disclosure.
  *
- * `Spec-023 §Console Design (Meridian)` 13.16 fixes the number — "the table folds
- * past ten partitions" — and ten is the point past which a table stops being read
- * and starts being scanned: a node holding more sessions than that has a list, not
- * a table.
+ * The table folds past ten partitions, and ten is the point past which a table stops
+ * being read and starts being scanned: a node holding more sessions than that has a
+ * list, not a table.
  *
  * It lives here rather than beside the page that spends it because a bound declared
- * in a view family is a ceiling nobody audits. `apps/desktop/AGENTS.md` §Config
- * single-sourcing states the rule, over `_THRESHOLD` as well as `_CAP` and `_MAX`.
+ * in a view family is a ceiling nobody audits. The config single-sourcing rule in
+ * `apps/desktop/AGENTS.md` covers `_THRESHOLD` as well as `_CAP` and `_MAX`.
  */
 export const PARTITION_FOLD_THRESHOLD = 10;
 

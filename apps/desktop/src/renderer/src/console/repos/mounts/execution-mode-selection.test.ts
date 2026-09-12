@@ -172,7 +172,7 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
 
   it("accepts the corrected choice once the first has settled", async () => {
     // The whole point of refusing the second press rather than dropping it: the
-    // participant's correction is not lost, it is deferred to a picker that comes back.
+    // user's correction is not lost, it is deferred to a picker that comes back.
     const { reader, port } = await openWithHeldSelect();
     void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
     await crossMacrotaskBoundary();
@@ -206,7 +206,7 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
   });
 
   it("leaves the daemon's own refusal on the row and releases the picker", async () => {
-    // `Spec-010 §Required Behavior` forbids silent substitution, so a refused switch
+    // Silent substitution is forbidden, so a refused switch
     // does not re-pick and does not re-read — and the picker comes back, because
     // holding it after the answer arrived would strand the row on a switch that is over.
     const { reader, port } = await openWithHeldSelect("rejected");
@@ -246,7 +246,7 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
 describe("ExecutionModeSelections — a retry clears the refusal it is retrying", () => {
   it("shows no stale refusal while the retried switch is on the wire", async () => {
     // The defect: `#hold` published the pending mode and left the old entry in
-    // `workspaceRefusals.bySelection`, so the picker showed the failure the participant had
+    // `workspaceRefusals.bySelection`, so the picker showed the failure the user had
     // just retried away from beside "Switching to …" for the whole flight — and, on an
     // accepted switch, until the follow-up read finished.
     const { reader, port } = await openWithHeldSelect(["rejected", "served"]);

@@ -145,7 +145,7 @@ export const CONSOLE_TIME_READING_SELECTORS = [
     // `String(row.touchedAt).localeCompare(...)`. Both were measured.
     //
     // `localeCompare` on anything else is untouched: sorting a display path, a repo
-    // name, or a participant handle is what it is for.
+    // name, or a user handle is what it is for.
     selector: `CallExpression[callee.property.name="localeCompare"]:has(:matches(MemberExpression[property.name=/${WIRE_STAMP_NAME_SUFFIX}/], Identifier[name=/${WIRE_STAMP_NAME_SUFFIX}/]))`,
     message:
       "Two RFC 3339 stamps are not lexically ordered: an offset form and a `Z` form naming the same moment differ, and a `+01:00` stamp sorts AFTER the `Z` stamp it PRECEDES. Order them with `compareInstants` from `console/core/instant.ts`, which compares the moments; `localeCompare` on a name, a path, or a handle is untouched.",
@@ -203,8 +203,8 @@ export const CONSOLE_TIME_READING_EXEMPT_FILES = [
  * and this one is lifted for nothing.
  */
 export const EXPORTED_COLLECTION_SELECTOR = {
-  // A COLLECTION PUBLISHED THROUGH A MODULE DOOR, which `apps/desktop/AGENTS.md`
-  // §State and views rejects and no gate could see: a `ReadonlySet` or
+  // A COLLECTION PUBLISHED THROUGH A MODULE DOOR, which the state-and-views rules
+  // in `apps/desktop/AGENTS.md` reject and no gate could see: a `ReadonlySet` or
   // `ReadonlyMap` annotation hides `add` and `set` from a READER and from
   // nothing at runtime, so an exported one is a single object every importer
   // in the window shares and any of them can grow. It is the one collection

@@ -2,7 +2,7 @@
 //
 // The defect this closes: a run that branches parks more than one phase on a person
 // at once, and the pane resolved the FIRST addressable wait and mounted its form.
-// Every other card said the wait "ends when a participant fills in and submits this
+// Every other card said the wait "ends when a user fills in and submits this
 // phase's form" and offered no way to reach that form, so a parallel run could not
 // be advanced from the pane that was showing it.
 //

@@ -20,18 +20,17 @@
 //
 // WHY THERE IS NO SIGN-IN ACT HERE. There was one, and it was a defect: it dispatched
 // a growth operation that asked the daemon to start a provider's login.
-// `Spec-026 §Provider Authentication (Group B)` requires this step to **display** the
-// invocation and never run it on the operator's behalf, and holds the five
-// `onboarding.*` methods "unchanged in name, count, and shape"; `Spec-029 §Brokered
-// interactive sign-in` puts the brokered login on the provider-management surface and
-// says the first-run step's `providerAccount.*` calls exclude `providerAccount.login`
-// and `loginCancel`, "so that a first run never depends on a brokered process the
-// operator did not ask for". The remedy is rendered by `ProviderRow.tsx` out of the
-// readiness entry the daemon already composed, and nothing dispatches it.
+// This step **displays** the invocation and never runs it on the operator's behalf, and
+// the five `onboarding.*` methods are fixed in name, count, and shape. The brokered
+// login lives on the provider-management surface, and the first-run step's
+// `providerAccount.*` calls exclude `providerAccount.login` and `loginCancel`, so that a
+// first run never depends on a brokered process the operator did not ask for. The remedy
+// is rendered by `ProviderRow.tsx` out of the readiness entry the daemon already
+// composed, and nothing dispatches it.
 //
 // AND THE ACT DOES NOT REPORT ITS OWN SUCCESS. A probe's own reply is not the row's
-// new state — the readiness derivation is, per `Spec-029` — which is why this leg ends
-// at `readProjection` and why nothing here composes a reading of its own.
+// new state — the readiness derivation is — which is why this leg ends at
+// `readProjection` and why nothing here composes a reading of its own.
 
 import type { ProviderAccountId } from "@ai-sidekicks/contracts";
 

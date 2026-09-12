@@ -55,7 +55,7 @@ import type { ConsoleSurfaceRegistry } from "../seats/index.js";
 export function registerSettingsSurface(registry: ConsoleSurfaceRegistry): void {
   registry.register({
     slot: "settings",
-    owner: "collaboration-settings",
+    owner: "settings",
     body: () => import("./settings-surface-body.js"),
   });
 }

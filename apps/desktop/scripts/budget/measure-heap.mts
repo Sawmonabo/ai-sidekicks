@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Renderer heap-at-rest budget — Plan-023 Phase 1C (T-023p-1C-1).
+// Renderer heap-at-rest budget.
 //
 // This file measures nothing, and that is its whole point. The budget's subject
 // is a RENDERER heap, and a person who runs `pnpm budget:heap` is told here which
@@ -19,7 +19,7 @@
 // WHERE THE READING LIVES INSTEAD
 //
 // `apps/desktop/test/console/endurance/heap-at-rest.test.ts`, which is what the
-// registry row names. `Spec-023 §Console Test Tiers` puts heap readings on the
+// registry row names. Heap readings belong on the
 // endurance tier, and that tier launches the built console in the Electron shell:
 // it opens the flagship scenario's own session, walks the frozen clock over the
 // whole script so the session has content, asserts the store admitted it through
@@ -91,8 +91,6 @@ export interface HeapAtRestDelegationRecord {
   readonly status: "measured-elsewhere";
   /** The harness the registry names, verbatim. */
   readonly measuredBy: string;
-  /** The Plan-023 task that took the reading. */
-  readonly producedBy: string;
   readonly limitCanonicalValue: number;
   readonly canonicalUnit: string;
 }
@@ -136,7 +134,6 @@ export class ConsoleHeapAtRestGate {
       budgetId: this.#budget.id,
       status: "measured-elsewhere",
       measuredBy: this.#requireMeasurerElsewhere(),
-      producedBy: this.#budget.producedBy,
       limitCanonicalValue: this.#budget.limit.canonicalValue,
       canonicalUnit: this.#budget.limit.canonicalUnit,
     });
@@ -156,14 +153,13 @@ export class ConsoleHeapAtRestGate {
   public report(): string {
     const budget = this.#budget;
     return [
-      "Renderer heap-at-rest budget — Plan-023 T-023p-1C-1",
+      "Renderer heap-at-rest budget",
       // The row's own id, printed rather than left to the reader to infer from
       // the heading. It used to reach this report only through the ungated block
       // below, which a gated row is correctly absent from — so a report about a
       // budget stopped naming it exactly when the budget started being enforced.
       `  budget id:     ${this.#budget.id}`,
       `  registry:      ${this.#registry.budgetsFilePath}`,
-      `  spec source:   ${this.#registry.source}`,
       `  subject:       ${budget.subject}`,
       "",
       "Reading — none taken here. This harness measures nothing, by design: the figure",
@@ -174,7 +170,6 @@ export class ConsoleHeapAtRestGate {
       `  limit:         ${formatBytes(budget.limit.canonicalValue)} (${budget.limit.value} ${budget.limit.unit})`,
       "  measured:      — nothing measured here, so there is no figure to compare",
       "  verdict:       MEASURED ELSEWHERE",
-      `  produced by:   ${budget.producedBy}`,
       `  measured by:   ${this.#requireMeasurerElsewhere()}`,
       "",
       formatUnavailableBudgetReport(this.#registry),
@@ -182,7 +177,7 @@ export class ConsoleHeapAtRestGate {
   }
 }
 
-const USAGE = `measure-heap.mts — renderer heap-at-rest budget (Plan-023 T-023p-1C-1)
+const USAGE = `measure-heap.mts — renderer heap-at-rest budget
 
   --json             emit the budget row and its delegation record as JSON on stdout
   -h, --help         this text

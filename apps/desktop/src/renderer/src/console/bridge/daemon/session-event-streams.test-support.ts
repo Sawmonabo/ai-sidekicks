@@ -15,8 +15,8 @@
 // wire-verbatim string registered, and as what" — a string question. What leaves this
 // module is therefore the derived reading rather than the collection: an exported
 // `Map` is one mutable object every importer shares however it is annotated, which is
-// what `no-restricted-syntax` says here and what `apps/desktop/AGENTS.md` §State and
-// views says everywhere.
+// what `no-restricted-syntax` says here and what this package's state rules say
+// everywhere.
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE, type EventCategory } from "@ai-sidekicks/contracts";
 

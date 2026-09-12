@@ -12,7 +12,7 @@
 // Bootstrap contract: a single `session.created` event MUST yield a
 // snapshot naming the owner (read off the envelope's `actor`) AND carrying
 // the bootstrap main channel, whose id is derived via the shared
-// `deriveMainChannelId` from `@ai-sidekicks/contracts` (RFC 9562 §5.8
+// `deriveMainChannelId` from `@ai-sidekicks/contracts` (RFC 9562 section 5.8
 // UUIDv8). Every newly-created session therefore has a stable id, a known
 // owner, and a default channel from its first event onward — the projector
 // synthesizes the channel rather than waiting for a separate

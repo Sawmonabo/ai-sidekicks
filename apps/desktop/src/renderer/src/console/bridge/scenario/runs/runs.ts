@@ -27,7 +27,7 @@
 import type { ConsoleScenario } from "../runtime/index.js";
 import {
   AGENT_IMPLEMENTER,
-  PARTICIPANT_YOU,
+  USER_YOU,
   QUEUE_ITEM_ADMITTED,
   QUEUE_ITEM_EXPIRING,
   QUEUE_ITEM_WAITING,
@@ -43,11 +43,11 @@ export const RUNS_SCENARIO: ConsoleScenario = {
   purpose:
     "One run moving through block, unblock, pause, resume, and rewind beside a queue whose rows arrive, are admitted, and expire — the vocabulary the runs pane must render without inventing a state.",
   sessionId: SESSION_ID,
-  participantIdsInJoinOrder: [PARTICIPANT_YOU, AGENT_IMPLEMENTER],
+  userIdsInJoinOrder: [USER_YOU, AGENT_IMPLEMENTER],
   // The person watching the run, stated rather than inferred. Absent, the fixture
   // refuses the caller-identity read and every control resolving a role from it renders
   // as though the role had been checked and found absent.
-  viewingParticipantId: PARTICIPANT_YOU,
+  callerUserId: USER_YOU,
   startedAtIso: "2026-01-01T16:00:00.000Z",
   beats: [
     {
@@ -58,7 +58,7 @@ export const RUNS_SCENARIO: ConsoleScenario = {
         sequence: 1,
         kind: "session.created",
         occurredAt: "2026-01-01T16:00:00.000Z",
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         // The registered shape, verbatim: a session's display name reaches the console
         // from the session read, and this payload's `.strict()` schema rejects a title.
         payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
@@ -72,7 +72,7 @@ export const RUNS_SCENARIO: ConsoleScenario = {
         sequence: 2,
         kind: "agent.attached",
         occurredAt: "2026-01-01T16:00:00.040Z",
-        actorId: PARTICIPANT_YOU, // The person who attached it, not the agent.
+        actorId: USER_YOU, // The person who attached it, not the agent.
         payload: {
           sessionId: SESSION_ID,
           agentId: AGENT_IMPLEMENTER,
@@ -80,7 +80,7 @@ export const RUNS_SCENARIO: ConsoleScenario = {
           driverName: "claude",
           modelId: "claude-sonnet-5",
           state: "ready",
-          actor: PARTICIPANT_YOU,
+          actor: USER_YOU,
         },
       },
     },
@@ -92,7 +92,7 @@ export const RUNS_SCENARIO: ConsoleScenario = {
         sequence: 3,
         kind: "run.queued",
         occurredAt: "2026-01-01T16:00:00.100Z",
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         payload: {
           sessionId: SESSION_ID,
           runId: RUN_ID,
@@ -108,11 +108,11 @@ export const RUNS_SCENARIO: ConsoleScenario = {
         id: "019b7a22-2200-7e00-8110-e5e0c2250004",
         sessionId: SESSION_ID,
         sequence: 4,
-        // The queue's first row. `Spec-006 §Queue Events` registers the payload as
+        // The queue's first row. The queue event family registers the payload as
         // `{sessionId, queueItemId, channelId?, state}` — the ITEM's state, not the run's.
         kind: "queue_item.created",
         occurredAt: "2026-01-01T16:00:00.130Z",
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         payload: { sessionId: SESSION_ID, queueItemId: QUEUE_ITEM_ADMITTED, state: "queued" },
       },
     },
@@ -204,7 +204,7 @@ export const RUNS_SCENARIO: ConsoleScenario = {
         // grows: the person kept typing.
         kind: "queue_item.created",
         occurredAt: "2026-01-01T16:00:00.410Z",
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         payload: { sessionId: SESSION_ID, queueItemId: QUEUE_ITEM_WAITING, state: "queued" },
       },
     },
@@ -218,7 +218,7 @@ export const RUNS_SCENARIO: ConsoleScenario = {
         // unblock verb, and inventing one would name a wire nobody serves.
         kind: "run.running",
         occurredAt: "2026-01-01T16:00:00.520Z",
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         payload: {
           sessionId: SESSION_ID,
           runId: RUN_ID,
@@ -236,7 +236,7 @@ export const RUNS_SCENARIO: ConsoleScenario = {
         sequence: 11,
         kind: "queue_item.created",
         occurredAt: "2026-01-01T16:00:00.640Z",
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         payload: { sessionId: SESSION_ID, queueItemId: QUEUE_ITEM_EXPIRING, state: "queued" },
       },
     },
@@ -248,7 +248,7 @@ export const RUNS_SCENARIO: ConsoleScenario = {
         sequence: 12,
         kind: "run.paused",
         occurredAt: "2026-01-01T16:00:00.700Z",
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         payload: {
           sessionId: SESSION_ID,
           runId: RUN_ID,
@@ -282,7 +282,7 @@ export const RUNS_SCENARIO: ConsoleScenario = {
         // them distinguishable without a verb the wire does not have.
         kind: "run.running",
         occurredAt: "2026-01-01T16:00:00.880Z",
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         payload: {
           sessionId: SESSION_ID,
           runId: RUN_ID,
@@ -299,14 +299,14 @@ export const RUNS_SCENARIO: ConsoleScenario = {
         sessionId: SESSION_ID,
         sequence: 15,
         // The rewind: the second arm of the `run.subscribeState` stream, FORWARD and
-        // NON-STATE. Its registered payload (`Spec-006 §Run Lifecycle (run_lifecycle)`:
-        // `{sessionId, runId, runVersion, channelId?, targetPosition}`) carries no
+        // NON-STATE. Its registered payload —
+        // `{sessionId, runId, runVersion, channelId?, targetPosition}` — carries no
         // `previousState` / `newState`, because a rollback is not a transition and a
         // consumer that fabricated one would corrupt the stream others replay. The
         // version still advances, so a stale comparand's next guarded control refuses.
         kind: "run.rolled_back",
         occurredAt: "2026-01-01T16:00:00.980Z",
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         payload: {
           sessionId: SESSION_ID,
           runId: RUN_ID,

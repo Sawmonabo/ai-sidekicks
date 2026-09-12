@@ -1,4 +1,4 @@
-// Plan-023 Phase 1B (T-023p-1B-2) — the navigation policy, as installed.
+// The navigation policy, as installed.
 //
 // `assert-webprefs.ts` proves the locked `webPreferences` literal is correct and
 // singular. It says nothing about NAVIGATION, and a locked window that can be

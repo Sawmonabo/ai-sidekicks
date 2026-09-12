@@ -1,25 +1,25 @@
 // The axis a subject key cannot carry: which SESSION STORE a held resource reads
 // against.
 //
-// `store/subject-scoped/subject-scoped-resource.ts` holds one resource per `(subject, key)`, and every
-// reading in the console that watches a session has THREE collaborators for those two
-// slots — the bridge it calls through, the identity it is addressed by, and the store
-// whose repair edge and named frames are two of the three reasons
-// `Spec-023 §Rules every console surface obeys` admits. The bridge is the subject and
-// the identity is the key, so the store is the one left over: a projection rebuilt for
-// the same session under an unchanged bridge keeps the whole address, the seam holds
-// the resource in place, and the resource goes on listening to a store nothing else
-// reads. Every refresh the new store publishes reaches nobody, and the surface sits on
-// the answer it read before the reconnect with nothing on screen saying why.
+// `store/subject-scoped/subject-scoped-resource.ts` holds one resource per `(subject,
+// key)`, and every reading in the console that watches a session has THREE collaborators
+// for those two slots — the bridge it calls through, the identity it is addressed by, and
+// the store whose repair edge and named frames are two of the three admitted read
+// reasons. The bridge is the subject and the identity is the key, so the store is the one
+// left over: a projection rebuilt for the same session under an unchanged bridge keeps
+// the whole address, the seam holds the resource in place, and the resource goes on
+// listening to a store nothing else reads. Every refresh the new store publishes reaches
+// nobody, and the surface sits on the answer it read before the reconnect with nothing on
+// screen saying why.
 //
-// THE RULE IS WRITTEN ONCE HERE BECAUSE FOUR BINDINGS WOULD OTHERWISE WRITE IT. The
-// three repos act controllers reach it through `store/act/use-act-controller.ts`, which every
+// THE RULE IS WRITTEN ONCE HERE BECAUSE FOUR BINDINGS WOULD OTHERWISE WRITE IT. The three
+// repos act controllers reach it through `store/act/use-act-controller.ts`, which every
 // act controller binds through, and the workspace execution-context reader calls it
-// directly beside its own `useSubjectScopedResource`. `apps/desktop/AGENTS.md`
-// §Shared code hoists on the second use, and the shape a copy of this drifts in is
-// the COMPARISON: a binding that compared session ids rather than store identities
-// would look identical in a diff and would never rebind at all, because the id is
-// exactly what the key already carries.
+// directly beside its own `useSubjectScopedResource`. The package's shared-code rule
+// hoists on the second use, and the shape a copy of this drifts in is the COMPARISON: a
+// binding that compared session ids rather than store identities would look identical in
+// a diff and would never rebind at all, because the id is exactly what the key already
+// carries.
 //
 // THE REPLACEMENT IS PUBLISHED THROUGH THE SEAM AND NEVER CONSTRUCTED IN A RENDER.
 // `settle()` names the visit ON SCREEN, so the resource this mints is installed as the

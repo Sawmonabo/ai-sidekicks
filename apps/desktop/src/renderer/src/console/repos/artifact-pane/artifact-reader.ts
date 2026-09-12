@@ -1,8 +1,8 @@
 // What the artifact pane holds, what it can act on, and who is told when it changes.
 //
-// Three reads, all on `Plan-023 §Console
-// growth slate` and all refused by name today: `artifactList` and `artifactRead`
-// against `artifact-ingest-and-crud`, `artifactAllowlistRead` against
+// Three reads, all on the growth slate and all refused by name today: `artifactList`
+// and `artifactRead` against `artifact-ingest-and-crud`, `artifactAllowlistRead`
+// against
 // `artifact-allowlist-and-abort`.
 //
 // THE ONE DECISION IN THIS FILE IS WHAT TO DO WITH A SERVED LIST, AND IT HAS CHANGED.
@@ -13,7 +13,7 @@
 // were present. So a served list was REFUSED with the console's own code rather than
 // mapped, and that refusal named the gap "so the day the shape lands the fix is a
 // mapping and not an archaeology". The shape landed: `GrowthArtifactSummary` now
-// mirrors `api-payload-contracts.md §ArtifactManifest` member for member. The fix is
+// mirrors the registered artifact manifest member for member. The fix is
 // the mapping, and it lives on the model beside the vocabularies it fills
 // (`repos/artifacts/artifact-model.ts:artifactManifestRowFromSummary`) rather than here, because
 // what a served row IS is a model question and this file owns only who asked.
@@ -78,15 +78,15 @@ export class ArtifactPaneReader extends ArtifactReadSchedule {
   }
 
   /**
-   * Read again, because a participant asked. The only other reason there is.
+   * Read again, because a user asked. The only other reason there is.
    *
    * Routed through the schedule rather than performed here, so a second press inside
    * the coalescing window costs no second read pair and a press made while a read is
    * outstanding becomes the NEXT read rather than a parallel one.
    *
-   * THE REASON IS `participant-request`, WHICH THE SET NOW NAMES. `RefreshReason`
+   * THE REASON IS `user-request`, WHICH THE SET NOW NAMES. `RefreshReason`
    * (`store/read/refresh-scheduler.ts`) is a closed SIX-member set — subscribe, window-focus,
-   * reconnect, terminal-event, gap-repull, participant-request — and the last of
+   * reconnect, terminal-event, gap-repull, user-request — and the last of
    * those is exactly this press. This call used to request `subscribe`, because at
    * the time the set had five members and none of them was true: `subscribe` was the
    * one whose meaning was not FALSE, since the press asks for the same whole-pane
@@ -96,7 +96,7 @@ export class ArtifactPaneReader extends ArtifactReadSchedule {
    * that never opened, which is the fabricated reason that module's own doc forbids.
    */
   public refresh(): void {
-    this.requestRead("participant-request");
+    this.requestRead("user-request");
   }
 
   /**
@@ -115,7 +115,7 @@ export class ArtifactPaneReader extends ArtifactReadSchedule {
     return this.#actions.fetchPayload(artifactId);
   }
 
-  /** Delete one artifact, after the participant confirmed the consequence. */
+  /** Delete one artifact, after the user confirmed the consequence. */
   public async deleteArtifact(artifactId: string): Promise<ArtifactDeleteOutcome> {
     return this.#actions.deleteArtifact(artifactId);
   }

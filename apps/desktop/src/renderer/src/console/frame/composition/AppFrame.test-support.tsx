@@ -6,7 +6,7 @@
 // card's addressing, the banner, and the live regions each have one reader and stay
 // beside it.
 
-import { createTier1Bridge } from "@ai-sidekicks/contracts";
+import { createStubBridge } from "@ai-sidekicks/contracts";
 import type { ReactNode } from "react";
 
 import { SidekicksBridgeProvider, type ConsoleBridge } from "../../bridge/index.js";
@@ -53,7 +53,7 @@ export function frameProps(
  * `AppFrame` mounts the live announcer, and the announcer arms the one timeout the
  * console's idle budget counts — so which clock it runs on is a property of the
  * WINDOW rather than of the primitive, and the frame reads it from the bridge. Both
- * arms are the real thing: `createTier1Bridge()` is the object the preload exposes
+ * arms are the real thing: `createStubBridge()` is the object the preload exposes
  * to a shipped window, and `createFixtureBridge` builds the real engine over the
  * real flagship scenario.
  */
@@ -69,7 +69,7 @@ export function bridgeWrapper(
 export function liveBridgeWrapper(): (props: {
   readonly children: ReactNode;
 }) => React.JSX.Element {
-  return bridgeWrapper(createLiveBridge(createTier1Bridge()));
+  return bridgeWrapper(createLiveBridge(createStubBridge()));
 }
 
 export function backgroundOf(container: HTMLElement): HTMLElement {

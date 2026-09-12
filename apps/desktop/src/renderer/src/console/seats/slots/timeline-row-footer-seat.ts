@@ -2,7 +2,7 @@
 //
 // WHY A SECOND SEAT BESIDE THE ROW SLOT. `timeline-row-slot.ts` hands out the whole
 // row body, and the family that fills it owns everything inside. The edit-and-resend
-// affordance is not inside it: the pencil belongs in the footer of a participant
+// affordance is not inside it: the pencil belongs in the footer of a user
 // message row, the body it opens is authored by the run-controls plan, and neither
 // of those is the row's renderer. Handing that plan the row slot would make it the
 // owner of every row in the ledger to obtain one control on one kind of row.
@@ -28,7 +28,7 @@
 // survives that replacement. The card's hole stays a hole the shell hands nothing.
 //
 // WHICH ROWS GET ONE IS THE MOUNT'S DECISION AND IS WIRE-VERBATIM. The footer is
-// offered on participant message rows, read off the row's own `type`. That is a
+// offered on user message rows, read off the row's own `type`. That is a
 // fact the wire states, not a rule this console invents.
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
@@ -47,7 +47,7 @@ import { SingleSlotSeat } from "./single-slot-seat.js";
 export const TIMELINE_ROW_FOOTER_SLOT_CONTRACT: OwnerSlotContract = {
   owningTask: "the queue-and-intervention plan's edit-and-resend affordance",
   mountObligation:
-    "the ledger renders this footer under the body of a participant message row and supplies the row wire-verbatim beside the list's supersession ranking; the body owns the hover affordance, the eligibility predicate it projects from the daemon, and the intervention it dispatches",
+    "the ledger renders this footer under the body of a user message row and supplies the row wire-verbatim beside the list's supersession ranking; the body owns the hover affordance, the eligibility predicate it projects from the daemon, and the intervention it dispatches",
   deleteShellIn: "the PR that registers the edit-and-resend affordance in this seat",
 };
 
@@ -106,8 +106,8 @@ export function timelineRowFooterRenderer(): TimelineRowFooterRenderer | undefin
  * The row types that get a footer.
  *
  * A closed tuple with one member today rather than a bare comparison, so the
- * membership question has one home: the affordance corrects what a participant
- * SENT, and no other row is a thing a participant sent.
+ * membership question has one home: the affordance corrects what a user
+ * SENT, and no other row is a thing a user sent.
  */
 export const TIMELINE_ROW_FOOTER_TYPES = ["user.message"] as const;
 

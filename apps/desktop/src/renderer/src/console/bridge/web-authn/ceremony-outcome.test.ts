@@ -7,7 +7,7 @@
 // those as success would put a person in front of a signed-in console on the
 // strength of nothing.
 
-import type { ParticipantId } from "@ai-sidekicks/contracts";
+import type { UserId } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -21,8 +21,8 @@ import { encodeCeremonyResolution } from "./ceremony-resolution.js";
 
 const HANDOFF = { verificationUri: "http://127.0.0.1:8419/callback", userCode: "JQPD-4KTM" };
 
-/** The identity claims an authenticated arm carries. A real participant id, branded. */
-const CLAIMS = { participantId: "019b78c9-0a80-79a4-8110-cca0117a3301" as ParticipantId };
+/** The identity claims an authenticated arm carries. A real user id, branded. */
+const CLAIMS = { userId: "019b78c9-0a80-79a4-8110-cca0117a3301" as UserId };
 
 describe("the ceremony reader — what it accepts", () => {
   it("round-trips every arm the fixture can write", () => {
@@ -76,8 +76,8 @@ describe("the ceremony reader — what it refuses to read", () => {
     ["an unknown custody state", { ceremonyOutcome: { kind: "authenticated", custody: "disk" } }],
     ["a custody state that is missing", { ceremonyOutcome: { kind: "authenticated" } }],
     // The identity half of the same claim, and the reason the arm is the strictest
-    // one: `Spec-023 §WebAuthn Credential Flow` step 7 makes the participant claims
-    // the whole of what crosses the bridge, so an authenticated resolution that names
+    // one: the credential flow makes the user claims the whole of what
+    // crosses the bridge, so an authenticated resolution that names
     // nobody is an authentication with no subject. Reading it as success would sign a
     // person in as whoever the surface happened to be showing.
     [
@@ -95,28 +95,28 @@ describe("the ceremony reader — what it refuses to read", () => {
       },
     ],
     [
-      "claims naming no participant",
+      "claims naming no user",
       { ceremonyOutcome: { kind: "authenticated", custody: "durable", claims: {} } },
     ],
     [
-      "a participant the contract's own schema refuses",
+      "a user the contract's own schema refuses",
       {
         ceremonyOutcome: {
           kind: "authenticated",
           custody: "durable",
-          // Not a participant id: the brand is a UUID, and a label is what a
+          // Not a user id: the brand is a UUID, and a label is what a
           // hand-written `typeof value === "string"` narrowing would have admitted.
-          claims: { participantId: "you" },
+          claims: { userId: "you" },
         },
       },
     ],
     [
-      "a participant present as an empty string",
+      "a user present as an empty string",
       {
         ceremonyOutcome: {
           kind: "authenticated",
           custody: "durable",
-          claims: { participantId: "" },
+          claims: { userId: "" },
         },
       },
     ],

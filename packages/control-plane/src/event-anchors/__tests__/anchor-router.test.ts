@@ -1,35 +1,34 @@
-// Plan-006 T3.3 — `eventanchor.upload` resolves through the MERGED host.
+// `eventanchor.upload` resolves through the MERGED host.
 //
 // Every test here dispatches an HTTP request at
 // `buildControlPlaneFetchHandler` rather than driving the router factory
 // through `t.createCallerFactory`, and that is the point rather than an
 // incidental choice. Three things are only observable on the HTTP path:
 //
-//   1. THE MOUNT (Plan-006 CP-006-2). A 200 at `/trpc/eventanchor.upload` is
-//      reachable only if `t.mergeRouters` composed this router flat alongside
-//      the session and runtime-node siblings. A regression that re-nested it or
-//      dropped it from the merge surfaces here as a 404 while every in-process
-//      caller test would still pass — the same gap
+//   1. A 200 at `/trpc/eventanchor.upload` is reachable only if
+//      `t.mergeRouters` composed this router flat alongside the session and
+//      runtime-node siblings. A regression that re-nested it or dropped it from
+//      the merge surfaces here as a 404 while every in-process caller test
+//      would still pass — the same gap
 //      `server/__tests__/host-runtime-node.test.ts` closes for `runtimenode.*`.
 //   2. THE `.input()` REFUSAL as a wire STATUS. The metadata-only invariant
-//      (I-006-3-02) is enforced by a `.strict()` schema at the procedure
-//      boundary, and a caller needs to see a 4xx — not a 200 with the extra
-//      member quietly dropped.
-//   3. THE I-008-1 GATE still intercepting. Adding a third router to the merge
-//      must not open a path around the dual gate.
+//      is enforced by a `.strict()` schema at the procedure boundary, and a
+//      caller needs to see a 4xx — not a 200 with the extra member quietly
+//      dropped.
+//   3. Adding a third router to the merge must not open a path around the dual
+//      gate.
 //
 // The store's own behaviour (idempotency mechanics, byte fidelity, the FK arm)
 // is covered against PGlite in the sibling `anchor-store.test.ts`; this file
 // asserts the transport contract on top of it and does not re-derive it.
 //
-// Refs: Plan-006 T3.3, `Plan-006 §Cross-Plan Obligations` CP-006-2, ADR-014,
-// ADR-017, `packages/control-plane/src/server/host.ts` (the `t.mergeRouters`
+// `packages/control-plane/src/server/host.ts` (the `t.mergeRouters`
 // composition).
 
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { AnchorPayload, NodeId, ParticipantId, SessionId } from "@ai-sidekicks/contracts";
+import type { AnchorPayload, NodeId, UserId, SessionId } from "@ai-sidekicks/contracts";
 
 import { buildControlPlaneFetchHandler, type ControlPlaneEnv } from "../../server/host.js";
 import { makePassThroughDeps } from "../../server/__tests__/_helpers.js";
@@ -42,7 +41,7 @@ import { applyMigrations, type Querier } from "../../sessions/migration-runner.j
 const SESSION_ID = "01970000-0000-7000-8000-00000000a001" as SessionId;
 const SESSION_OWNER_ID = "01970000-0000-7000-8000-00000000b0ff";
 const ABSENT_SESSION_ID = "01970000-0000-7000-8000-00000000dead" as SessionId;
-const CURRENT_PARTICIPANT_ID = "01970000-0000-7000-8000-00000000b001" as ParticipantId;
+const CURRENT_USER_ID = "01970000-0000-7000-8000-00000000b001" as UserId;
 const NEXT_SESSION_ID = "01970000-0000-7000-8000-00000000a002" as SessionId;
 const NODE_ID = "node-alpha" as NodeId;
 const ANCHORED_AT = "2026-08-04T00:00:00.000Z";
@@ -129,7 +128,7 @@ beforeEach(async () => {
   const querier: Querier = adaptPGlite(pg);
   await applyMigrations(querier);
   // A session needs the user who owns it — `owner_user_id` is NOT NULL.
-  await querier.query("INSERT INTO participants (id) VALUES ($1)", [SESSION_OWNER_ID]);
+  await querier.query("INSERT INTO users (id) VALUES ($1)", [SESSION_OWNER_ID]);
   await querier.query("INSERT INTO sessions (id, owner_user_id) VALUES ($1, $2)", [
     SESSION_ID,
     SESSION_OWNER_ID,
@@ -137,7 +136,7 @@ beforeEach(async () => {
   handler = buildControlPlaneFetchHandler(
     makePassThroughDeps({
       querier,
-      currentParticipantId: CURRENT_PARTICIPANT_ID,
+      currentUserId: CURRENT_USER_ID,
       nextSessionId: NEXT_SESSION_ID,
     }),
   );
@@ -161,10 +160,9 @@ async function readErrorCode(response: Response): Promise<unknown> {
 }
 
 // ----------------------------------------------------------------------------
-// The mount (CP-006-2)
 // ----------------------------------------------------------------------------
 
-describe("merged host — eventanchor.upload resolves through t.mergeRouters (CP-006-2)", () => {
+describe("merged host — eventanchor.upload resolves through t.mergeRouters", () => {
   it("dispatches an anchor upload and returns 200 + { stored: true }", async () => {
     const response = await handler(buildUploadRequest(anchorFixture()), PASSING_ENV);
 
@@ -198,10 +196,10 @@ describe("merged host — eventanchor.upload resolves through t.mergeRouters (CP
 });
 
 // ----------------------------------------------------------------------------
-// I-006-3-02 at the transport boundary
+// At the transport boundary
 // ----------------------------------------------------------------------------
 
-describe("eventanchor.upload — metadata-only refusal on the wire (I-006-3-02)", () => {
+describe("eventanchor.upload — metadata-only refusal on the wire", () => {
   for (const smuggledMember of ["payload", "events", "pii_payload"] as const) {
     it(`REFUSES a request body carrying \`${smuggledMember}\` with a 4xx`, async () => {
       const response = await handler(
@@ -256,10 +254,9 @@ describe("eventanchor.upload — unknown session", () => {
 });
 
 // ----------------------------------------------------------------------------
-// The I-008-1 gate still intercepts
 // ----------------------------------------------------------------------------
 
-describe("eventanchor.upload — the I-008-1 dual gate is not bypassed by the new mount", () => {
+describe("eventanchor.upload — dual gate is not bypassed by the new mount", () => {
   it("refuses with 503 before router dispatch when the kill-switch is off", async () => {
     // Adding a third router to the merge must not open a path around the gate.
     // `makePassThroughDeps` supplies a live querier here, so a 503 proves the

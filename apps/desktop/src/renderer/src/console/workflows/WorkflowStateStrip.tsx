@@ -3,10 +3,9 @@
 //
 // The three surfaces in this family — the definitions browser, the run view, the
 // node-graph builder — differ in what they hold and agree completely on how they say
-// they are holding nothing. `Spec-023 §Console Design (Meridian)` rules 8 and 9 give
-// all three the same two vocabularies, and written per surface that agreement would
-// be three absence blocks that drift in copy shape, which only the screenshot tier
-// would ever notice.
+// they are holding nothing. Console design rules 8 and 9 give all three the same two
+// vocabularies, and written per surface that agreement would be three absence blocks
+// that drift in copy shape, which only the screenshot tier would ever notice.
 //
 // IT DRAWS NO HEADING AND NO FRAME, AND THAT IS THE WHOLE OF WHAT CHANGED. This was
 // the family's own pane chrome — a `<section>`, a kind glyph, an `<h2>` and a body

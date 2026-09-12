@@ -22,7 +22,7 @@ function runEntity(id: string, agentId: string, touchedAt: string | undefined): 
 /** A store holding exactly the run rows a case is about, and nothing else. */
 function storeHolding(...runs: readonly ConsoleEntity[]): SessionStore {
   const store = new SessionStore({ sessionId: SESSION_ID });
-  store.initialise({ cursor: runs.length, entities: [...runs], participantJoinLog: [] });
+  store.initialise({ cursor: runs.length, entities: [...runs], userJoinLog: [] });
   return store;
 }
 

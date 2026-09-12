@@ -49,7 +49,7 @@ type WireMemberReaderName = "string" | "number" | "boolean" | "object";
  * value of the right shape, never what the value means.
  */
 const RUN_BODY_MEMBER_READERS = {
-  /** The run aggregate's progression counter, as `Spec-006` spells it. */
+  /** The run aggregate's progression counter, as the taxonomy spells it. */
   runVersion: "number",
   /** The state the run left, absent on `run.queued` and on the non-state kinds. */
   previousState: "string",
@@ -95,12 +95,12 @@ type RunKindWithUndeclaredMembers = Extract<
  * The per-type members those four kinds register, and the reader that carries
  * each onto the body.
  *
- * PER TYPE, not merged into the table above, because that is what the corpus
- * registers: `Spec-006 §Run Lifecycle (run_lifecycle)` gives each of these rows
- * its own payload shape, so `provider` is a member of an initialization report and
- * of nothing else, and `position` is a member of a turn boundary and of nothing
- * else. A single flat table would read either one off any run beat that happened
- * to spell it, which is a body member with no registration behind it.
+ * PER TYPE, not merged into the table above, because that is what the corpus registers:
+ * each of these rows has its own payload shape, so `provider` is a member of an
+ * initialization report and of nothing else, and `position` is a member of a turn
+ * boundary and of nothing else. A single flat table would read either one off any run
+ * beat that happened to spell it, which is a body member with no registration behind
+ * it.
  *
  * Every entry is a member the two `run.subscribeState` shapes do not declare — a
  * member either one DOES declare belongs in the derived table above and would be

@@ -45,25 +45,25 @@ import type { ConsoleScenario } from "./runtime/index.js";
 export const CONSOLE_SCENARIOS: readonly ConsoleScenario[] = [
   FIRST_RUN_SCENARIO,
   FLAGSHIP_SCENARIO,
-  // T-023p-1C-2 ledger. Two families ship three scenarios where the others ship one,
+  // The ledger. Two families ship three scenarios where the others ship one,
   // and for the same reason: three surfaces with three different states worth pinning,
   // which folding into one session would make reachable only through each other's noise
   // — here the ledger at rest, its first sixty seconds, and a quiet session.
   LEDGER_SCENARIO,
   LEDGER_FIRST_SIXTY_SCENARIO,
   LEDGER_QUIET_SCENARIO,
-  // T-023p-1C-3 composer — the composer, the runs pane, and the approvals pane.
+  // The composer, the runs pane, and the approvals pane.
   COMPOSER_SCENARIO,
   RUNS_SCENARIO,
   APPROVALS_SCENARIO,
   AGENTS_SCENARIO,
   SETTINGS_SCENARIO,
-  REPOS_SCENARIO, // T-023p-1C-5 repos
-  WORKFLOWS_SCENARIO, // T-023p-1C-6 workflows
+  REPOS_SCENARIO,
+  WORKFLOWS_SCENARIO,
   BROWSER_SCENARIO,
   TERMINAL_SCENARIO,
   SHELL_SCENARIO,
-  // T-023p-1C-8 gallery
+  // The gallery.
   BRING_YOUR_HISTORY_SCENARIO,
   ONBOARDING_SCENARIO, // sign-in and onboarding
   // The `incident` class, last on purpose: these are evidence rather than composition.

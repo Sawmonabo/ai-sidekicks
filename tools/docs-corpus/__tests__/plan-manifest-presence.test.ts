@@ -309,7 +309,7 @@ describe("plan-manifest-presence", () => {
       expect(valid.version).toBe(1);
       expect(valid.shipped).toEqual([]);
       // `nonShipmentPrs` is declared ALWAYS present on the success branch (`[]`
-      // when the optional key is absent, as here). preflight Gate 6 subtracts it
+      // when the optional key is absent, as here). manifest reconciliation subtracts it
       // without a nullish guard, so a runtime that stopped emitting it on the
       // key-absent path would throw there rather than fail a type check.
       expect(valid.nonShipmentPrs).toEqual([]);

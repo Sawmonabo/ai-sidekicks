@@ -1,9 +1,9 @@
-// Plan-008 §Phase 1 §T-008b-1-3: createSessionSubscribeSse factory.
+// `createSessionSubscribeSse` factory.
 //
 // Builds the `session.subscribe` tRPC subscription procedure. The procedure
-// body delegates to the constructor-injected `eventStreamProvider`
-// (per §I-008-3 #1) so the procedure cannot reach a `Querier` or `pg.Pool`
-// directly — the same enforcement boundary asserted for the CRUD trio in
+// body delegates to the constructor-injected `eventStreamProvider` so the
+// procedure cannot reach a `Querier` or `pg.Pool` directly — the same
+// enforcement boundary asserted for the CRUD trio in
 // session-router.factory.ts.
 //
 // The async generator yields `TrackedEnvelope<SessionEvent>` values produced
@@ -15,13 +15,9 @@
 // `responseMeta` in `host.ts` (one place to wire it for the whole app).
 //
 // Direct `pg` / `Pool` / `Client` imports here are forbidden by the ESLint
-// `no-restricted-imports` rule layered in eslint.config.mjs (per §T-008b-1-4)
-// and asserted by the AST-introspection test (per §T-008b-1-T11).
+// `no-restricted-imports` rule layered in eslint.config.mjs and asserted by
+// the AST-introspection test.
 //
-// Refs: docs/plans/008-control-plane-relay-and-session-join.md §I-008-3 #1,
-//       docs/plans/008-control-plane-relay-and-session-join.md §T-008b-1-3,
-//       docs/plans/008-control-plane-relay-and-session-join.md §CP-008-3,
-//       docs/architecture/contracts/api-payload-contracts.md §Tier 1 (Plan-008).
 
 import {
   SessionSubscribeRequestSchema,
@@ -81,7 +77,7 @@ export function createSessionSubscribeSse(deps: SessionRouterDeps): SessionSubsc
     // `SessionSubscribeRequest` doc in @ai-sidekicks/contracts for the
     // two-transport rationale), (c) thread the abort signal through,
     // (d) re-yield the tracked envelopes verbatim.
-    // Tier 5 swaps the provider; this generator body is the stable surface.
+    // A later phase swaps the provider; this generator body is the stable surface.
     yield* deps.eventStreamProvider({
       sessionId: input.sessionId,
       afterCursor: input.lastEventId ?? input.afterCursor,

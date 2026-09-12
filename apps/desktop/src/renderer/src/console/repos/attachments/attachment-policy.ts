@@ -1,7 +1,8 @@
 // What the DAEMON decided about an attachment, transcribed and nothing else.
 //
-// THE SEAM, IN ONE SENTENCE: this module changes when `Spec-014` changes, and for no
-// other reason. The allow-list, the two named refusal codes, what each refusal means
+// THE SEAM, IN ONE SENTENCE: this module changes when the daemon's attachment contract
+// changes, and for no other reason. The allow-list, the two named refusal codes, what
+// each refusal means
 // for the next act, and the six causes an attachment can be unresolved for are all the
 // daemon's vocabulary — the console chooses none of them. So nothing here reads an
 // entry, renders a figure, or knows that a `Blob` exists, and this module imports
@@ -20,8 +21,8 @@
 
 // --- The default allow-list ----------------------------------------------
 //
-// `Spec-014 §Bounds (normative defaults; operator-tunable)` ships this value-for-value,
-// and an operator override REPLACES it wholesale with no merge semantics — so the hint is this list or the operator's, never
+// The normative default ships this value-for-value, and an operator override REPLACES
+// it wholesale with no merge semantics — so the hint is this list or the operator's, never
 // this list plus a set of edits. `image/svg+xml` is deliberately absent: it is the one
 // image type that is also a scriptable document, and its exclusion is a recorded
 // decision rather than an oversight.
@@ -55,15 +56,15 @@ export const ATTACHMENT_ALLOWLIST_DEFAULT: readonly string[] = [
 ];
 
 /**
- * What a refusal means for the NEXT act, which is the only thing a participant can use.
+ * What a refusal means for the NEXT act, which is the only thing a user can use.
  *
- * `Spec-014 §Interfaces And Contracts` makes every call of the ingest trio retry-safe —
- * a replayed chunk is acknowledged without re-appending, and a replayed completion
+ * Every call of the ingest trio is retry-safe — a replayed chunk is acknowledged
+ * without re-appending, and a replayed completion
  * replays its original response verbatim — so a lost response is retried in place and
  * never restarted. The two named codes are the exceptions and they are deliberately
  * distinct: `artifact.ingest_stream_invalid` (409) is terminal for the stream and means
  * begin again, `artifact.ingest_capacity_exhausted` (429) is transient with no stream
- * state created and means wait and retry. Collapsing them would tell a participant to
+ * state created and means wait and retry. Collapsing them would tell a user to
  * re-upload a hundred megabytes because the daemon was momentarily busy.
  */
 export const INGEST_REFUSAL_DISPOSITIONS = ["retry-in-place", "wait-and-retry", "restart"] as const;
@@ -75,7 +76,7 @@ export type IngestRefusalDisposition = (typeof INGEST_REFUSAL_DISPOSITIONS)[numb
  * The two daemon codes whose disposition differs from the retry-safe default.
  *
  * Named here as strings because `packages/contracts` registers NEITHER — there is no
- * artifact error namespace in `error.ts` at all. They are `Spec-014`'s codes, matched
+ * artifact error namespace in `error.ts` at all. They are the daemon's codes, matched
  * against whatever a refusal carries, and they are not method names, event types, or
  * wire fields: a code the console does not recognise takes the retry-in-place arm,
  * which is the contract's own default rather than a guess.
@@ -83,7 +84,7 @@ export type IngestRefusalDisposition = (typeof INGEST_REFUSAL_DISPOSITIONS)[numb
 export const INGEST_STREAM_INVALID_CODE = "artifact.ingest_stream_invalid";
 export const INGEST_CAPACITY_EXHAUSTED_CODE = "artifact.ingest_capacity_exhausted";
 
-/** What a participant should do next about this refusal. Total over every code. */
+/** What a user should do next about this refusal. Total over every code. */
 export function ingestRefusalDisposition(code: string): IngestRefusalDisposition {
   if (code === INGEST_STREAM_INVALID_CODE) {
     return "restart";
@@ -113,8 +114,8 @@ export const INGEST_ABANDON_COPY =
 /**
  * Why an attachment could not be resolved where it sits. Closed at six.
  *
- * `Spec-014 §Fallback Behavior` requires the turn to PROCEED and the marker to sit in
- * the attachment's declared position — never appended, never footnoted — so this is a
+ * The turn PROCEEDS and the marker sits in the attachment's declared position — never
+ * appended, never footnoted — so this is a
  * per-position reading and not a page-level banner.
  */
 export const UNRESOLVED_ATTACHMENT_CAUSES = [

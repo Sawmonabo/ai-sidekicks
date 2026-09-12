@@ -1,4 +1,4 @@
-// The auxiliary-window factory — Plan-023 Phase 1B (T-023p-1B-2).
+// The auxiliary-window factory.
 //
 // An auxiliary window is the same locked `BrowserWindow` as the main one, at a
 // window route: `./window.ts` owns HOW a window is constructed and loaded, and
@@ -15,11 +15,11 @@ import { z } from "zod";
 // of which Rollup can drop: every schema is a top-level factory call, which a
 // bundler must treat as potentially side-effectful. Importing the barrel for
 // one branded id put 233 kB of unreachable wire schemas into the main-process
-// bundle — a startup-path cost on the process `Spec-023 §Console Design
-// (Meridian)` holds to "light on the machine". The `./session` subpath is
-// declared in `packages/contracts/package.json` with the same three conditions
-// as the barrel, so source resolution under vitest and dist resolution in a
-// build both behave exactly as they do for `.`.
+// bundle — a startup-path cost on a process that is meant to stay light on the
+// machine. The `./session` subpath is declared in
+// `packages/contracts/package.json` with the same three conditions as the
+// barrel, so source resolution under vitest and dist resolution in a build both
+// behave exactly as they do for `.`.
 import { SessionIdSchema } from "@ai-sidekicks/contracts/session";
 
 import {
@@ -57,7 +57,7 @@ export type { AuxiliaryRouteName } from "../shared/auxiliary-routes.js";
  * console FOR, so on that route an `agentId` is required the moment any context
  * is present. The menu-bar path carries no context at all — it has no pane to
  * read one from — and opens the bare route, leaving the choice to the auxiliary
- * renderer's own context picker (Phase 1C).
+ * renderer's own context picker.
  *
  * `windowId` is the DETACH path's member and the menu-bar path's absence. The
  * shell mints a handle when a deck asks for a window and keeps a slot for the
@@ -124,10 +124,10 @@ const AUXILIARY_WINDOW_GEOMETRY: Record<AuxiliaryRouteName, LockedWindowOptions>
 // The two id validators.
 //
 // `SessionIdSchema` is the contracts package's own branded schema and is used
-// verbatim. `AgentId` has no canonical brand yet — its home is Plan-016's
-// unshipped `packages/contracts/src/orchestration.ts`, and minting a second
-// branded schema here would be the duplicate source of truth that contracts
-// file's existing branded-id doctrine forbids — so the agent id is UUID-shape
+// verbatim. `AgentId` has no canonical brand yet — its home is the unshipped
+// `packages/contracts/src/orchestration.ts`, and minting a second branded
+// schema here would be the duplicate source of truth that contracts file's
+// existing branded-id doctrine forbids — so the agent id is UUID-shape
 // validated at the seam, the same treatment `provider-driver.ts` gives its own
 // `agentId` member for the same reason. Nothing here re-implements a check the
 // corpus already exports.
@@ -238,7 +238,7 @@ function resolveAuxiliaryLaunch(launch: AuxiliaryWindowLaunch): ResolvedAuxiliar
 
 /**
  * An auxiliary window: the same locked factory, the same bundle, at a window
- * route (Plan-023 I-023-12).
+ * route.
  *
  * It holds no reference to the main window and reads none of its state — it is
  * constructed, pointed at a route, and handed back. Because it mints its own
@@ -262,9 +262,9 @@ export function createAuxiliaryWindow(
   // empty frame. Deliberately NOT registered on the main window: closing that
   // one on a renderer crash would fire `window-all-closed` and quit the
   // application out from under the user, and main-window crash handling belongs
-  // to the Tier-8 crash reporter. This listener tells no deck anything — the
-  // pane-error slot `Spec-023 §Console Design (Meridian)` names is fed by
-  // `./auxiliary-window-ipc.ts`, which registers its own listener on the same
+  // to the crash reporter. This listener tells no deck anything — the deck's
+  // pane-error slot is fed by `./auxiliary-window-ipc.ts`, which registers its
+  // own listener on the same
   // event and knows which renderer asked for this window. Two listeners and not
   // one shared arm, because the two acts have different owners: disposing a dead
   // window belongs to whoever built it, and reporting the loss belongs to

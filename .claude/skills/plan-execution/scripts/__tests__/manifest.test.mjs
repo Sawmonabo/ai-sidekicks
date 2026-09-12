@@ -273,7 +273,7 @@ shipped:
 
 // ---------- non_shipment_prs (optional top-level key) ----------
 
-// Operator-ratified exemptions from preflight Gate 6 freshness: merged PRs that
+// Operator-ratified exemptions from manifest reconciliation freshness: merged PRs that
 // carry the plan's `Plan-NNN` title token but shipped none of its tasks (the
 // 2026-08-15 PR #216 class). Additive and optional — it does NOT bump the
 // schema version — and parsed STRICTLY, because a typo that widened the
@@ -393,7 +393,7 @@ test("non_shipment_prs: a PR ALSO recorded in shipped[] is REJECTED", () => {
   // The two keys make opposite assertions about one merge. Unchecked, the
   // contradiction is not inert: rebuild-shipment-manifest.mjs skips ratified
   // PRs ahead of its existing-entry reuse path, so #30 would silently vanish
-  // from the --dry-run stream the Gate 6 halt tells the operator to apply back.
+  // from the --dry-run stream the manifest reconciliation halt tells the operator to apply back.
   const plan = `### Shipment Manifest
 
 \`\`\`yaml
@@ -475,7 +475,7 @@ test("serializeNonShipmentPrs: emits a parseable inline flow array (round trip)"
 test("appendManifestEntry preserves non_shipment_prs above AND below shipped[]", () => {
   // The append path splices into the existing YAML lines rather than
   // re-rendering the block, so unrelated top-level keys survive — but only if
-  // the splice point respects them. A dropped key silently re-arms every Gate 6
+  // the splice point respects them. A dropped key silently re-arms every manifest reconciliation
   // halt the operator ratified away.
   const entry = {
     phase: 1,

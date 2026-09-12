@@ -1,12 +1,11 @@
 // Which host carries the view, and the value that stands in for none.
 //
-// `Spec-023 §Console Design (Meridian)` 12.11: "The one platform-shaped decision is
-// the wiring table that picks the host: a scripted host under fixture and end-to-end
-// runs, the real view where a window exists, and an **unavailable** host otherwise.
-// Unavailable is a value, never a null, so every path that consumes a host gets one
-// sentence back instead of a dereference and one missed check cannot become a crash
-// inside a tool call. The unavailable host is also what gates the tool set: no host,
-// no tools."
+// The one platform-shaped decision is the wiring table that picks the host: a scripted
+// host under fixture and end-to-end runs, the real view where a window exists, and an
+// **unavailable** host otherwise. Unavailable is a value, never a null, so every path
+// that consumes a host gets one sentence back instead of a dereference and one missed
+// check cannot become a crash inside a tool call. The unavailable host is also what
+// gates the tool set: no host, no tools.
 //
 // The module is separate from `pane-geometry.ts` because it answers a different
 // question — WHERE a sample goes, rather than what the sample is — and because the

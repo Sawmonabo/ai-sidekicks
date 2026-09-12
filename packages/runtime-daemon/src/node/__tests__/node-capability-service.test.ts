@@ -1,4 +1,4 @@
-// NodeCapabilityService — Plan-003 Phase 2 (T2.2).
+// NodeCapabilityService behaviour.
 //
 // Exercises capability declaration + change-detected emission over a real test
 // SQLite DB (mirrors `node-event-emitter.test.ts` / `session-service.test.ts`
@@ -9,14 +9,12 @@
 // on the emitter's append running on that connection).
 //
 // Coverage map (cites are the authoritative contract, not just the ACs):
-//   * D2 path 1 (declare → capability_declared, `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`): a first
-//     declaration emits exactly one `runtime_node.capability_declared` event
-//     (reduced base + {capability, capabilityDetails}) + a `node_capabilities`
-//     row.
-//   * D2 path 2 (re-declare changed → capability_updated, `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`): a
-//     re-declare with CHANGED details emits exactly one
-//     `runtime_node.capability_updated` carrying the prior + new snapshots, and
-//     the row's `capability_value` is updated.
+//   * D2 path 1 (declare → capability_declared): a first declaration emits exactly
+//     one `runtime_node.capability_declared` event (reduced base + {capability,
+//     capabilityDetails}) + a `node_capabilities` row.
+//   * D2 path 2 (re-declare changed → capability_updated): a re-declare with CHANGED
+//     details emits exactly one `runtime_node.capability_updated` carrying the prior
+//     + new snapshots, and the row's `capability_value` is updated.
 //   * D2 path 3 (re-declare identical → idempotent): a re-declare with IDENTICAL
 //     details emits NO further event AND does NOT write (the row's `updated_at`
 //     stays at the last actual change — proven with an ADVANCING clock).
@@ -26,47 +24,29 @@
 //     write. This FAILS a naive raw-stringify / raw-incoming compare and PASSES
 //     the both-sides-normalized `isDeepStrictEqual`.
 //   * Atomicity, two arms — the `nextSequence` injection seam they used to ride
-//     is gone with the T3.1 re-point, so each drives a REAL failure of the real
-//     append path instead. (a) ROLLBACK: the emitter is pinned to an event id
-//     that already exists, so the event INSERT violates `session_events`' PRIMARY
-//     KEY AFTER the upsert prelude ran inside the transaction — the
+//     is gone with re-point, so each drives a REAL failure of the real append
+//     path instead. (a) ROLLBACK: the emitter is pinned to an event id that
+//     already exists, so the event INSERT violates `session_events`' PRIMARY KEY
+//     AFTER the upsert prelude ran inside the transaction — the
 //     `node_capabilities` upsert rolls back (no row). (b) The stronger property
 //     the re-point bought: a signing-key source that REJECTS makes the append
-//     refuse before opening its transaction, so the prelude never runs at all
-//     and there is no partial state to roll back.
-//   * I-003-2 (the declaration is the precondition that gates `online`): a
-//     `runtime_node.capability_declared` event lands for the node id — the event
-//     a Phase-3/T2.4 `online` gate waits for.
-//   * T2.4 / D3 (online only after capability_declared, I-003-2; `Spec-003 §Default Behavior`):
-//     bringOnline returns false + emits nothing before any declaration EXISTS —
-//     the node stays in its non-online (registering) state (`Spec-003 §Default Behavior`, "online
-//     only after capability declaration succeeds"). After declare it returns true
-//     and appends `runtime_node.online` (newState online, previousState
-//     registering) AFTER the capability_declared event. This is declaration
-//     ABSENCE (the :57 gate), NOT capability-validation FAILURE: `Spec-003 §Fallback Behavior`
-//     ("validation FAILS → degraded/offline, not healthy") is a DIFFERENT path,
-//     server-derived — Phase 2 has no `degraded`/`offline`-on-invalid emission
-//     (the emitter/schemas V1.1-gate `degraded`/`revoked` durable events on the
-//     node-identity anchor, ADR-017), so D3 codifies NONE of :76.
-//   * T2.4 gate-reads-ROW-not-EVENT (§357 regression guard): after an identical
-//     no-op re-declare that emitted NO second event, bringOnline still onlines —
-//     proving the gate read the durable node-keyed ROW, not the event stream
-//     (the WHY of the gate-on-row design; Model A would never online here).
+//     refuse before opening its transaction, so the prelude never runs at all and
+//     there is no partial state to roll back.
+//   * D3 (online only after capability_declared): bringOnline returns false + emits
+//     nothing before any declaration EXISTS — the node stays in its non-online
+//     (registering) state ("online only after capability declaration succeeds").
+//     After declare it returns true and appends `runtime_node.online` (newState
+//     online, previousState registering) AFTER the capability_declared event.
+//   * Gate-reads-ROW-not-EVENT: after an identical no-op re-declare that emitted
+//     NO second event, bringOnline still onlines — proving the gate read the
+//     durable node-keyed ROW, not the event stream (the WHY of the gate-on-row
+//     design; Model A would never online here).
 //
-// Spec coverage: `Spec-003 §Default Behavior` (online only after capability declaration — the
-// T2.4 gate D3 verifies: no online until a declaration EXISTS;
-// least-privilege schedulability — declaration is the path that makes a
-// capability schedulable, proven by path 1's `node_capabilities` row),
-// `Spec-003 §State And Data Implications` (capability/trust changes emitted
-// as session events), and the T2.4 gate contract (serial re-attach
-// satisfies the node-scoped gate without re-declaring — the gate-reads-ROW block).
-// (`Spec-003 §Fallback Behavior` — validation FAILURE → degraded/offline — is NOT covered here: it is
-// a server-derived path, no Phase-2 `degraded` emit shape; D3 tests declaration
-// ABSENCE via the :57 gate, not validation failure. `Spec-003 §Pitfalls To Avoid` — no implicit
-// exposure on ATTACH — is the register path's obligation, exercised in
-// node-registry.test.ts where `register` carries capabilities yet writes zero
-// `node_capabilities` rows.) Verifies invariant: I-003-2 (the declaration is the
-// precondition that gates `online`).
+// (validation FAILURE → degraded/offline — is NOT covered here: it is a
+// server-derived path, no Phase-2 `degraded` emit shape; D3 tests declaration
+// ABSENCE via the:57 gate, not validation failure. — no implicit exposure on ATTACH
+// — is the register path's obligation, exercised in node-registry.test.ts where
+// `register` carries capabilities yet writes zero `node_capabilities` rows.).
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -286,12 +266,12 @@ function makeAdvancingClock(): () => string {
   };
 }
 
-// Wire the Phase-2 object graph over the current `ctx.db`. `now` defaults
-// to an advancing clock; the emitter id source is a collision-free counter.
-// The seam is ASYNC-TRANSACTIONAL post the Plan-006 T3.1 re-point
-// (node-event-emitter.ts's header owns the contract): `EventLogService.append`
-// over the SAME connection backs it, which is what lets the service's upsert
-// travel as a `transactionalPrelude` and join the append's transaction.
+// Wire the Phase-2 object graph over the current `ctx.db`. `now` defaults to
+// an advancing clock; the emitter id source is a collision-free counter. The
+// seam is ASYNC-TRANSACTIONAL post re-point (node-event-emitter.ts's header
+// owns the contract): `EventLogService.append` over the SAME connection backs
+// it, which is what lets the service's upsert travel as a
+// `transactionalPrelude` and join the append's transaction.
 function makeCapabilityService(
   now: () => string = makeAdvancingClock(),
   signingKeySource: DaemonSigningKeySource = new FixedDaemonSigningKeySource(),
@@ -314,7 +294,7 @@ function makeCapabilityService(
 }
 
 // ----------------------------------------------------------------------------
-// D2 path 1 — first declaration emits capability_declared (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`)
+// D2 path 1 — first declaration emits capability_declared
 // ----------------------------------------------------------------------------
 
 describe("NodeCapabilityService — D2 path 1 (first declaration → capability_declared)", () => {
@@ -335,9 +315,9 @@ describe("NodeCapabilityService — D2 path 1 (first declaration → capability_
     expect(event.type).toBe("runtime_node.capability_declared");
     expect(event.category).toBe("runtime_node_lifecycle");
 
-    // `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` shape: reduced base + {capability, capabilityDetails}. NO
-    // previousState/newState NodeState fields (capability events are not
-    // NodeState transitions).
+    // shape: reduced base + {capability, capabilityDetails}. NO
+    // previousState/newState NodeState fields (capability events are not NodeState
+    // transitions).
     const payload = JSON.parse(event.payload) as Record<string, unknown>;
     expect(payload).toEqual({
       sessionId: SESSION_ID,
@@ -358,7 +338,7 @@ describe("NodeCapabilityService — D2 path 1 (first declaration → capability_
 });
 
 // ----------------------------------------------------------------------------
-// D2 path 2 — changed re-declare emits capability_updated (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`)
+// D2 path 2 — changed re-declare emits capability_updated
 // ----------------------------------------------------------------------------
 
 describe("NodeCapabilityService — D2 path 2 (changed re-declare → capability_updated)", () => {
@@ -392,7 +372,7 @@ describe("NodeCapabilityService — D2 path 2 (changed re-declare → capability
     expect(updatedEvent).toBeDefined();
     if (updatedEvent === undefined) return;
     const payload = JSON.parse(updatedEvent.payload) as Record<string, unknown>;
-    // `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` shape: reduced base + {capability, previousState, newState} as
+    // shape: reduced base + {capability, previousState, newState} as
     // CapabilityDetails SNAPSHOTS carrying the prior + new details.
     expect(payload).toEqual({
       sessionId: SESSION_ID,
@@ -496,10 +476,10 @@ describe("NodeCapabilityService — D2 path 3 (identical re-declare → idempote
 });
 
 // ----------------------------------------------------------------------------
-// I-003-2 — the declaration is the precondition that gates `online`
+// The declaration is the precondition that gates `online`
 // ----------------------------------------------------------------------------
 
-describe("NodeCapabilityService — I-003-2 (declaration is the precondition that gates online)", () => {
+describe("NodeCapabilityService", () => {
   it("lands a runtime_node.capability_declared event for the node — the event a later online gate waits for", async () => {
     const service: NodeCapabilityService = makeCapabilityService();
     await service.declare({
@@ -510,15 +490,15 @@ describe("NodeCapabilityService — I-003-2 (declaration is the precondition tha
     });
 
     const events: ReadonlyArray<EventRow> = readEventRows(ctx.db, SESSION_ID);
-    // The capability_declared event exists in the durable log: the T2.4 ordering
-    // gate (I-003-2) is allowed to emit `online` only AFTER observing this event
-    // for the same node id. Here we prove the gating event is produced + durable.
+    // The capability_declared event exists in the durable log: ordering gate is
+    // allowed to emit `online` only AFTER observing this event for the same node
+    // id. Here we prove the gating event is produced + durable.
     const declared = events.find((e) => e.type === "runtime_node.capability_declared");
     expect(declared).toBeDefined();
     const payload = JSON.parse(declared?.payload ?? "null") as Record<string, unknown>;
     expect(payload["nodeId"]).toBe(NODE_ID);
     // No `online` event is emitted by THIS service — declaration does not itself
-    // bring the node online (that is the T2.4 producer's job).
+    // bring the node online (that is producer's job).
     expect(events.some((e) => e.type === "runtime_node.online")).toBe(false);
   });
 });
@@ -686,8 +666,8 @@ describe("NodeCapabilityService — change-detection is node-scoped, not session
       capabilityDetails: details,
     });
     // Re-declare the SAME node + capability + details under a DIFFERENT session — a
-    // supported serial re-attach (`Spec-003 §Resolved Questions and V1 Scope Decisions`). `node_capabilities` is node-keyed
-    // (no session_id column), so the existing row is found and this is a no-op: NO
+    // supported serial re-attach. `node_capabilities` is node-keyed (no session_id
+    // column), so the existing row is found and this is a no-op: NO
     // capability_declared lands in session two. (The daemon `online` gate reads the
     // node-keyed row, not a per-session event, so S2-online does not depend on a
     // fresh declaration event here — see node-capability-service.ts SELECT comment.)
@@ -714,19 +694,18 @@ describe("NodeCapabilityService — change-detection is node-scoped, not session
 });
 
 // ----------------------------------------------------------------------------
-// T2.4 / D3 — online only after capability_declared (I-003-2 ordering gate)
+// D3 — online only after capability_declared (ordering gate)
 // ----------------------------------------------------------------------------
 
-describe("NodeCapabilityService — T2.4/D3 (online only after capability_declared, I-003-2)", () => {
+describe("NodeCapabilityService — D3 (online only after capability_declared)", () => {
   it("gates online on a prior declaration: no online before declare; online follows capability_declared for the same node", async () => {
     const service: NodeCapabilityService = makeCapabilityService();
 
-    // Before any declaration the I-003-2 precondition is unmet: bringOnline reads
-    // the (absent) node-keyed row, emits NOTHING, and returns false. The node
-    // stays in its non-online (registering) state (`Spec-003 §Default Behavior`). Registration is
-    // deliberately NOT performed — the gate reads `node_capabilities`, not
-    // `node_trust_state`, so this test stays focused on the declaration→online
-    // gate without coupling to NodeRegistry.
+    // Before any declaration precondition is unmet: bringOnline reads the (absent)
+    // node-keyed row, emits NOTHING, and returns false. The node stays in its
+    // non-online (registering) state. Registration is deliberately NOT performed —
+    // the gate reads `node_capabilities`, not `node_trust_state`, so this test stays
+    // focused on the declaration→online gate without coupling to NodeRegistry.
     expect(await service.bringOnline({ nodeId: NODE_ID, sessionId: SESSION_ID })).toBe(false);
     expect(readEventRows(ctx.db, SESSION_ID)).toHaveLength(0);
 
@@ -743,14 +722,14 @@ describe("NodeCapabilityService — T2.4/D3 (online only after capability_declar
     expect(await service.bringOnline({ nodeId: NODE_ID, sessionId: SESSION_ID })).toBe(true);
 
     const events: ReadonlyArray<EventRow> = readEventRows(ctx.db, SESSION_ID);
-    // The exact ordered sequence: capability_declared THEN online (I-003-2 — online
-    // follows the declaration for the same node id).
+    // The exact ordered sequence: capability_declared THEN online (online follows
+    // the declaration for the same node id).
     expect(events.map((e) => e.type)).toEqual([
       "runtime_node.capability_declared",
       "runtime_node.online",
     ]);
 
-    // The online payload is the registering→online transition (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` base).
+    // The online payload is the registering→online transition (base).
     const onlineEvent = events[1];
     expect(onlineEvent).toBeDefined();
     if (onlineEvent === undefined) return;
@@ -763,17 +742,17 @@ describe("NodeCapabilityService — T2.4/D3 (online only after capability_declar
 });
 
 // ----------------------------------------------------------------------------
-// T2.4 — the gate reads the durable ROW, not the capability_declared EVENT (§357)
+// The gate reads the durable ROW, not the capability_declared EVENT
 // ----------------------------------------------------------------------------
 
-describe("NodeCapabilityService — T2.4 gate reads the durable ROW, not the event (§357)", () => {
+describe("NodeCapabilityService — gate reads the durable ROW, not the event", () => {
   it("onlines after an identical no-op re-declare emitted no second event — proving the gate read the row, not the event", async () => {
     // This is the regression guard for the WHY of the gate-on-row design: if the
     // gate keyed on a `capability_declared` EVENT, a node that already declared
-    // (row present) but re-declares as an identical no-op (which emits NO event,
-    // T2.2 / Model B) would never online — Model A resurfacing at the emission
-    // layer. Gating on the durable ROW makes "has this node declared?" correct
-    // across re-declares. Single-session; no re-attach plumbing.
+    // (row present) but re-declares as an identical no-op (which emits NO event
+    // Model B) would never online — Model A resurfacing at the emission layer.
+    // Gating on the durable ROW makes "has this node declared?" correct across
+    // re-declares. Single-session; no re-attach plumbing.
     const service: NodeCapabilityService = makeCapabilityService();
     const details: Record<string, unknown> = { contractVersion: "1.0", flags: { streaming: true } };
 
@@ -785,7 +764,7 @@ describe("NodeCapabilityService — T2.4 gate reads the durable ROW, not the eve
       capabilityDetails: details,
     });
 
-    // Identical re-declare → the committed no-op: NO second event (T2.2 / Model B).
+    // Identical re-declare → the committed no-op: NO second event (Model B).
     await service.declare({
       nodeId: NODE_ID,
       sessionId: SESSION_ID,

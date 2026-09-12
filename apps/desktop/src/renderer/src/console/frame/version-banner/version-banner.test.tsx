@@ -127,8 +127,7 @@ describe("useConsoleVersionReading — one read, four phases", () => {
 
     await settleReactWork();
     const settled = lastReading(observed);
-    // The whole arm, asserted whole: `Spec-023` says a compatible handshake renders
-    // nothing, and an arm carrying facts would be an invitation to draw them.
+    // The whole arm, asserted whole: a compatible handshake renders nothing, and an arm carrying facts would be an invitation to draw them.
     expect(settled).toStrictEqual({ phase: "agreed" });
   });
 

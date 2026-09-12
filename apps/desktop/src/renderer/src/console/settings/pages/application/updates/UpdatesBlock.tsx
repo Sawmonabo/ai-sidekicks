@@ -1,14 +1,13 @@
 // Where the update stands, and who decides when it lands.
 //
-// `Spec-023 §Console Design (Meridian)` §Application updates: "An automatic-update
-// toggle, and the five-arm state read-out: `idle`, `checking`, `downloading` with
-// its percent, `ready`, and `error` with its message. A feed that cannot be reached
-// is not an error arm and does not render as one."
+// An automatic-update toggle, and the five-arm state read-out: `idle`, `checking`,
+// `downloading` with its percent, `ready`, and `error` with its message. A feed that
+// cannot be reached is not an error arm and does not render as one.
 //
 // THE FIVE ARMS ARE THE WIRE'S, AND THE SIXTH STATE IS NOT AN ARM
 //
 // `UpdateState` is a registered union on the preload contract and this file renders
-// exactly its five members. A bridge that cannot answer at all — the shipped Tier-1
+// exactly its five members. A bridge that cannot answer at all — the shipped stub
 // stub throws, and the fixture has no updater behind it — is a different fact: the
 // feed was not reached, nothing failed, and rendering that as `error` would put a
 // message on screen that no updater ever wrote. It takes the quiet informational
@@ -22,7 +21,7 @@
 // `downloading` has one, and only `downloading` renders a bar.
 //
 // This is one BLOCK of the application page rather than a page of its own: the
-// section set `Spec-023 §Console Design (Meridian)` fixes has no updates section,
+// fixed settings section set has no updates section,
 // and `ApplicationPage.tsx` is where the two blocks about the application itself
 // are composed. It lives UNDER that page's directory and is named for what it is,
 // because a directory of its own under `pages/` registered nothing and read as a
@@ -133,7 +132,7 @@ export function UpdatesBlock(props: {
   // written once rather than duplicated per button.
   //
   // THE INVOCATION IS INSIDE THE BOUNDARY, and that is the whole point of the
-  // `await`. The shipped Tier-1 bridge implements every updater method as a
+  // `await`. The shipped stub bridge implements every updater method as a
   // synchronous `throw`, while the fixture's refusals arrive as rejected promises —
   // so a shape that attached a handler to the RETURNED promise would catch the
   // fixture and let the release build's throw escape the React event handler, with

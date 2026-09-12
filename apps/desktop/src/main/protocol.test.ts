@@ -1,5 +1,5 @@
-// Plan-023 Phase 1B (T-023p-1B-1) — the Electron seam: scheme registration and
-// the response policy the handler answers with.
+// The Electron seam: scheme registration and the response policy the handler
+// answers with.
 //
 // Scoped to what needs `electron`. The verdicts this policy is built on are
 // asserted without a mock in `./renderer-assets.test.ts`, and the failure
@@ -158,8 +158,8 @@ describe("registerRendererScheme", () => {
     expect(electronMock.registerSchemesAsPrivileged).toHaveBeenCalledWith([
       {
         scheme: RENDERER_SCHEME,
-        // `standard: true` is what gives the origin IndexedDB and localStorage
-        // (Plan-023 I-023-11); `secure: true` is what keeps the document out of
+        // `standard: true` is what gives the origin IndexedDB and localStorage;
+        // `secure: true` is what keeps the document out of
         // Chromium's mixed-content and insecure-origin restrictions.
         privileges: { standard: true, secure: true, supportFetchAPI: true },
       },

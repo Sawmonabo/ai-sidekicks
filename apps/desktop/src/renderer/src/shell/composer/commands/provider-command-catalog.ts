@@ -4,14 +4,13 @@
 // worth pinning are decisions rather than renders: when the discovery surface is
 // open at all, and which entries survive the prefix a person has typed.
 //
-// TWO SOURCES, ONE LIST, AND THEY ARE NOT INTERCHANGEABLE. A console entry is an
-// act this client performs — Spec-017's C-18 reserves the slash prefix for exactly
-// those. A provider entry is DISCOVERY: `Spec-023 §Signature Feature Composition
-// Sketches` §The Session Composer has the autocomplete "surface what the bound
-// provider offers" and states that selecting one "inserts nothing into the message
-// box and starts no turn". So the entry type is a discriminated union rather than one
-// shape with an optional command id: the difference decides whether an entry can be
-// acted on at all, and an optional member would let a render forget to ask.
+// TWO SOURCES, ONE LIST, AND THEY ARE NOT INTERCHANGEABLE. A console entry is an act
+// this client performs, and the slash prefix is reserved for exactly those. A provider
+// entry is DISCOVERY: the autocomplete surfaces what the bound provider offers, and
+// selecting one inserts nothing into the message box and starts no turn. So the entry
+// type is a discriminated union rather than one shape with an optional command id: the
+// difference decides whether an entry can be acted on at all, and an optional member
+// would let a render forget to ask.
 //
 // EVERY PROVIDER FIELD IS WIRE-VERBATIM OR ABSENT. `description`, `scope`, and
 // `enabled` are each present exactly when the provider declared one — the contract is
@@ -24,9 +23,9 @@
 // Codex one — so it carries ONE GROUP PER BINDING, each naming the `runId` and the
 // `(driverName, providerAccountId)` it was read under. Passing every group into the
 // catalog put commands and skills from bindings the addressed run does not use under
-// the addressed run's own name, which is the routing invariant `Spec-005 §The
-// provider command and skill surface` exists to forbid. `selectAddressedBindingGroup`
-// is where that selection happens, once, for both readers of this enumeration.
+// the addressed run's own name — and the routing rule is that a command enumerated
+// under one binding is never offered under another. `selectAddressedBindingGroup` is
+// where that selection happens, once, for both readers of this enumeration.
 
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
 

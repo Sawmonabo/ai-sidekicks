@@ -73,18 +73,16 @@ export interface RunStateFeed {
   /**
    * Whether the read that says WHICH RUNS EXIST has completed.
    *
-   * Deliberately not "the stream delivered something". `run.subscribeState` is a
-   * live tail: it carries transitions, and a session with no runs produces no
-   * transition, so a feed that flipped this on its first delivery could never
-   * answer `true` with an empty list — the pane's empty state would be
-   * unreachable and a session that has never run anything would read "Reading the
-   * runs" forever. The wire registers no replay-complete marker on this stream
-   * either (`api-payload-contracts.md §Plan-004`'s registry lists the stream's
-   * response as `RunStateChangeEvent | RunRolledBackEvent` and nothing else), so
-   * the completion signal is the SESSION STORE's: its snapshot read is what
-   * establishes the session's base state, the run partition inside it is the
-   * source of truth for which runs exist, and this stream is the tail that keeps
-   * them current.
+   * Deliberately not "the stream delivered something". `run.subscribeState` is a live
+   * tail: it carries transitions, and a session with no runs produces no transition, so
+   * a feed that flipped this on its first delivery could never answer `true` with an
+   * empty list — the pane's empty state would be unreachable and a session that has
+   * never run anything would read "Reading the runs" forever. The wire registers no
+   * replay-complete marker on this stream either — the stream's registered response is
+   * `RunStateChangeEvent | RunRolledBackEvent` and nothing else — so the completion
+   * signal is the SESSION STORE's: its snapshot read is what establishes the session's
+   * base state, the run partition inside it is the source of truth for which runs
+   * exist, and this stream is the tail that keeps them current.
    */
   readonly hasRead: boolean;
   /**

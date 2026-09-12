@@ -48,7 +48,7 @@ describe("pinned pane regions — claiming a kind", () => {
     board.register("timeline", { owner: "workflows", render: () => "first" });
 
     expect(() => {
-      board.register("timeline", { owner: "collaboration", render: () => "second" });
+      board.register("timeline", { owner: "channels", render: () => "second" });
     }).toThrow(DuplicateRegistrationError);
     // The hot reload: the owning family's module re-runs and replaces its own claim.
     board.register("timeline", { owner: "workflows", render: () => "reloaded" });

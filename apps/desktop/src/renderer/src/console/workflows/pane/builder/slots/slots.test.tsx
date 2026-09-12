@@ -2,7 +2,7 @@
 //
 //   1. **The shell stands while nobody has filled it**, and says the feature has
 //      not been built — never a shape that reads as a broken one, and never a word
-//      of the governance prose the contract carries.
+//      of the ownership prose the contract carries.
 //   2. **The mount obligation is delivered.** A slot's props type is a promise
 //      about what the body receives, and a promise nothing checks is prose. Each
 //      case below supplies a body and reads back exactly what arrived.
@@ -68,7 +68,7 @@ describe("an unfilled builder slot is reserved, not stubbed", () => {
   });
 
   it.each(unfilledSlots())(
-    "%s renders none of the contract's governance prose",
+    "%s renders none of the contract's ownership prose",
     (_name, element) => {
       const { container } = render(element);
       for (const slot of [WORKFLOW_GRAPH_SLOT, WORKFLOW_DRAFT_SLOT]) {
@@ -118,7 +118,7 @@ describe("a filled builder slot receives exactly what the mount promised", () =>
     const body = vi.fn((_mount: DraftsMount) => <p>inspector body</p>);
     render(<DraftsSlot workflowDefinitionId={DEFINITION_ID} draftStore={draftStore} body={body} />);
     // The durable store is absent by design and not by omission: a draft that
-    // survived a restart would be participant prose in a durable home.
+    // survived a restart would be user prose in a durable home.
     expect(body.mock.calls[0]?.[0]?.draftStore).toBe(draftStore);
     expect(body.mock.calls[0]?.[0]).toStrictEqual({
       workflowDefinitionId: DEFINITION_ID,

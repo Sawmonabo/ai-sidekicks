@@ -1,14 +1,9 @@
-// Plan-013 T1.1 — the `TimelineRow` discriminated union: the single row shape
-// every timeline surface returns, on read windows, on `childRunExpand`, and on
-// the live subscribe stream alike.
+// The `TimelineRow` discriminated union: the single row shape every timeline
+// surface returns, on read windows, on `childRunExpand`, and on the live
+// subscribe stream alike.
 //
-// PROVENANCE. The canonical shapes are
-// `docs/architecture/contracts/api-payload-contracts.md` §"Plan-013 — Live
-// Timeline Visibility And Reasoning Surfaces"; the behavior they serve is
-// `Spec-013 §Timeline Entry Types`, `Spec-013 §Required Behavior` (the
-// superseded-turn rendering bullet), and `Spec-013 §Fallback Behavior` (the
-// compacted-stub arms). This module APPLIES all three; it decides none of
-// them. Adding, removing, or renaming a member is a doc edit first.
+// This module APPLIES all three; it decides none of them. Adding, removing,
+// or renaming a member is a doc edit first.
 //
 // ----------------------------------------------------------------------------
 // Why the discriminator is `kind` and not `type`
@@ -16,31 +11,23 @@
 //
 // `type` is the projection's free-form event-type string — deliberately
 // `string` and not the `SessionEventType` census union, because a row projected
-// from a higher-MINOR producer's event must still parse (`ADR-018 §Decision`
-// #5, #8, #9, the same tolerance `EventEnvelope.type` carries). A consumer that
-// discriminated on it would be probing an open vocabulary and would have to
-// guess which of the four attribution shapes it was holding.
+// from a higher-MINOR producer's event must still parse (#5, #8, #9, the same
+// tolerance `EventEnvelope.type` carries). A consumer that discriminated on it
+// would be probing an open vocabulary and would have to guess which of the four
+// attribution shapes it was holding.
 //
 // `kind` is the closed four-value literal the projector stamps from the event
 // family, so `row.kind === "run"` narrows STRUCTURALLY to a row that carries
-// the full attribution triple. Arm selection is by `kind` FIRST: a run-scoped
-// row missing any of `runId` / `position` / `epoch` fails ITS OWN arm and is
-// never re-offered to the `general` or `legacy_stub` arm, which is exactly what
-// `z.discriminatedUnion` buys over `z.union` and exactly what I-013-1's
-// all-or-none attribution requires (`Plan-013 §Invariants` I-013-1; the
-// malformed-row case in `Plan-013 §Test And Verification Plan`).
+// the full attribution triple.
 //
 // ----------------------------------------------------------------------------
 // Why the `superseded` marker is one field
 // ----------------------------------------------------------------------------
 //
-// I-013-3: the marker is `{ targetPosition }` and nothing else. Its run
-// identity and source epoch ARE the containing row's own `runId` + `epoch`, so
-// there are no duplicated fields that could disagree, and the marker a live
-// subscriber computes from a boundary's cutoff is identical BY CONSTRUCTION to
-// the one a replay window arrives with. `.strict()` on the marker is what
-// enforces that: a producer that helpfully added `runId` to the marker is
-// refused rather than accepted into a second source of attribution truth.
+// The marker is `{ targetPosition }` and nothing else. `.strict()` on the
+// marker is what enforces that: a producer that helpfully added `runId` to the
+// marker is refused rather than accepted into a second source of attribution
+// truth.
 //
 // ----------------------------------------------------------------------------
 // Parse cost
@@ -81,10 +68,9 @@ import { ChildRunSummarySchema, type ChildRunSummary } from "./child-run-summary
 export const TIMELINE_ROW_SUMMARY_MAX_LEN = 4096;
 
 /**
- * The `run.rolled_back` event-type literal the boundary arm pins its `type` to.
  * Declared here rather than spelled at the two use sites so the arm's schema
- * and its interface cannot drift; the string itself is Plan-006's, registered
- * in `SESSION_EVENT_TYPES`.
+ * and its interface cannot drift; the string itself is the one registered in
+ * `SESSION_EVENT_TYPES`.
  */
 export const TIMELINE_ROLLBACK_BOUNDARY_TYPE = "run.rolled_back" as const;
 
@@ -92,13 +78,13 @@ export const TIMELINE_ROLLBACK_BOUNDARY_TYPE = "run.rolled_back" as const;
  * The event category every run-scoped row family projects from, and the one
  * the boundary arm pins.
  *
- * `Spec-006 §Run Lifecycle (run_lifecycle)` registers thirteen
- * `run_lifecycle` types and every one is run-scoped: the nine state
- * transitions share a payload shape carrying a required `runId`, and each of
- * the four non-state rows (`run.rolled_back`, `run.provider_initialized`,
- * `run.turn_started`, `run.worker_shutdown`) re-lists `runId` in its own
- * shape. That census is what lets the `general` arm refuse this category
- * outright — see {@link refuseRunLifecycleOnNonRunArm}.
+ * registers thirteen `run_lifecycle` types and every one is run-scoped: the
+ * nine state transitions share a payload shape carrying a required `runId`,
+ * and each of the four non-state rows (`run.rolled_back`,
+ * `run.provider_initialized`, `run.turn_started`, `run.worker_shutdown`)
+ * re-lists `runId` in its own shape. That census is what lets the `general`
+ * arm refuse this category outright — see {@link
+ * refuseRunLifecycleOnNonRunArm}.
  */
 export const TIMELINE_RUN_LIFECYCLE_CATEGORY = "run_lifecycle" as const;
 
@@ -106,12 +92,12 @@ export const TIMELINE_RUN_LIFECYCLE_CATEGORY = "run_lifecycle" as const;
  * The payload key a projected row uses to name a run, and the key the
  * intervention family uses instead.
  *
- * TWO KEYS, NOT ONE. `Spec-006` spells run identity `runId` on every
- * run-attributed family except interventions, whose registered shape is
- * `{sessionId, interventionId, targetRunId, …}` — the same fact under a name
- * that says which side of the relationship the run is on. A guard that read
- * only `runId` would let every intervention row through the general arm, so
- * both spellings are checked and neither is treated as the canonical one.
+ * TWO KEYS, NOT ONE. spells run identity `runId` on every run-attributed
+ * family except interventions, whose registered shape is `{sessionId,
+ * interventionId, targetRunId, …}` — the same fact under a name that says
+ * which side of the relationship the run is on. A guard that read only
+ * `runId` would let every intervention row through the general arm, so both
+ * spellings are checked and neither is treated as the canonical one.
  */
 export const TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS: readonly string[] = Object.freeze([
   "runId",
@@ -121,9 +107,8 @@ export const TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS: readonly string[] = Object.f
 /**
  * The `interactive_request` types whose registered payload names NO run.
  *
- * `Spec-006 §Queue and Intervention (interactive_request)` gives that category
- * four subfamilies with three different shapes, so it is the one run-scoped
- * category that cannot be taken wholesale:
+ * gives that category four subfamilies with three different shapes, so it is
+ * the one run-scoped category that cannot be taken wholesale:
  *
  *   * queue events — `{sessionId, queueItemId, channelId?, state}`. A queue
  *     item's target run lives in the `queue_items` row, NOT in the event, so
@@ -154,15 +139,15 @@ const INTERACTIVE_REQUEST_TYPES_WITHOUT_REQUIRED_RUN: ReadonlySet<string> = new 
  * The two `usage_telemetry` types whose per-type payload pins `runId`
  * REQUIRED, listed positively because their category's shared shape does not.
  *
- * `Spec-006 §Usage Telemetry (usage_telemetry)` declares
- * `{sessionId, runId?, …}` for the family, so the category cannot be taken
- * wholesale in either direction: `usage.rate_limit_update` is account-plane
- * and binds to the node-scope sentinel session with no run anywhere in its
- * shape, while `usage.context_compacted` and `usage.model_rerouted` each
- * re-list `runId` as required in their own per-type shapes. The five that
- * stay optional (`token_count`, `cost_update`, `context_window_update`,
- * `budget_warning`, `api_retry`) are decided per row by the payload-key leg —
- * a session-scoped budget warning is a real row and must keep its arm.
+ * declares `{sessionId, runId?, …}` for the family, so the category cannot be
+ * taken wholesale in either direction: `usage.rate_limit_update` is
+ * account-plane and binds to the node-scope sentinel session with no run
+ * anywhere in its shape, while `usage.context_compacted` and
+ * `usage.model_rerouted` each re-list `runId` as required in their own
+ * per-type shapes. The five that stay optional (`token_count`, `cost_update`,
+ * `context_window_update`, `budget_warning`, `api_retry`) are decided per row
+ * by the payload-key leg — a session-scoped budget warning is a real row and
+ * must keep its arm.
  *
  * `artifact_publication` is absent from this file for the same reason with no
  * exceptions at all: its shared shape is `{sessionId, artifactId?, runId?, …}`
@@ -175,16 +160,15 @@ const USAGE_TELEMETRY_TYPES_WITH_REQUIRED_RUN: readonly string[] = Object.freeze
 ] as const);
 
 /**
- * Every canonical event type whose registered `Spec-006` payload names a run
+ * Every canonical event type whose registered payload names a run
  * UNCONDITIONALLY — the type-side leg of the general arm's refusal.
  *
- * DERIVED, NOT TRANSCRIBED. The members come from Plan-006's own per-category
- * arrays in `../event.js`, so a type added to `run_lifecycle`,
- * `assistant_output`, `tool_activity`, or `interactive_request` enters this
- * set by growing the taxonomy rather than by anyone remembering to mirror it
- * here. The count is pinned in `../__tests__/timeline.test.ts` precisely so a
- * taxonomy growth that SHOULD change this set fails a test instead of
- * changing it silently.
+ * The members come from its own per-category arrays in `../event.js`, so a
+ * type added to `run_lifecycle`, `assistant_output`, `tool_activity`, or
+ * `interactive_request` enters this set by growing the taxonomy rather than
+ * by anyone remembering to mirror it here. The count is pinned in
+ * `../__tests__/timeline.test.ts` precisely so a taxonomy growth that SHOULD
+ * change this set fails a test instead of changing it silently.
  *
  * WHY A TYPE LEG AT ALL, GIVEN THE PAYLOAD LEG. `payload` on a projected row
  * is the projector's own open record, not the canonical event payload
@@ -205,8 +189,8 @@ export const TIMELINE_RUN_SCOPED_EVENT_TYPES: ReadonlySet<string> = new Set<stri
 ]);
 
 /**
- * The single-field superseded marker (I-013-3). Present exactly when the row's
- * turn is superseded; ABSENCE means current — there is no `superseded: false`
+ * The single-field superseded marker. Present exactly when the row's turn is
+ * superseded; ABSENCE means current — there is no `superseded: false`
  * spelling, because two ways to say "current" is two things to keep in sync.
  *
  * `targetPosition` is the superseding rollback's rewind cutoff: the first
@@ -238,7 +222,7 @@ export interface TimelineRowBase {
   /**
    * The SESSION event sequence. Never a run position: reused ordinals mean the
    * two are not interchangeable, which is why a run-scoped row carries
-   * `position` separately (`Plan-013 §API And Transport Changes`).
+   * `position` separately.
    */
   sequence: number;
   category: EventCategory;
@@ -279,10 +263,10 @@ const buildTimelineRowCommonShape = () => ({
  * to its own payload. That guard exists because the envelope's parse output is
  * hashed: a key Zod's record parser silently drops would collapse two distinct
  * wire byte-strings onto one `row_hash`. A timeline row is a read projection —
- * never hashed, never chained, never signed (`Spec-013 §State And Data
- * Implications`: "timeline rows are read projections, not canonical events
- * themselves") — so the collapse hazard does not reach it, and the anti-
- * pollution drop Zod performs is the whole of the security requirement here.
+ * never hashed, never chained, never signed ("timeline rows are read
+ * projections, not canonical events themselves") — so the collapse hazard does
+ * not reach it, and the anti- pollution drop Zod performs is the whole of the
+ * security requirement here.
  */
 const projectedPayloadSchema = z.record(z.string(), z.unknown());
 
@@ -297,19 +281,18 @@ export interface TimelineEntry extends TimelineRowBase {
 }
 
 /**
- * `kind: "run"` — the REQUIRED-ATTRIBUTION arm (I-013-1).
+ * `kind: "run"` — the REQUIRED-ATTRIBUTION arm.
  *
  * `runId` + `position` + `epoch` are all-or-none by construction: they are
  * three required members of one arm, and the arm is selected by `kind` before
  * they are read, so a partial row fails HERE and is never re-offered to
  * `general` or `legacy_stub`.
  *
- * `position` is the projection-resolved originating run position (Plan-004
- * T3.14's uniform row-to-turn assignment) — the comparand the `run.rolled_back`
- * live rule ranks against the boundary's carried cutoff. `epoch` is the
- * projection-resolved execution epoch, and it is a separate member rather than
- * something derivable because re-execution REUSES ordinals: `position` alone
- * can never recover it (I-013-4).
+ * `position` is the projection-resolved originating run position (the uniform
+ * row-to-turn assignment) — the comparand the `run.rolled_back` live rule ranks
+ * against the boundary's carried cutoff. `epoch` is the projection-resolved
+ * execution epoch, and it is a separate member rather than something derivable
+ * because re-execution REUSES ordinals: `position` alone can never recover it.
  */
 export interface RunScopedTimelineEntry extends TimelineRowBase {
   kind: "run";
@@ -321,7 +304,7 @@ export interface RunScopedTimelineEntry extends TimelineRowBase {
 
 /**
  * `kind: "legacy_stub"` — a run-scoped audit stub compacted in the
- * vacuous-attribution era (`Spec-006 §Compacted Event Format`).
+ * vacuous-attribution era.
  *
  * `runId` is PRESERVED (every run-scoped stub preserves it) while `position`
  * and `epoch` are structurally ABSENT because they are unknowable, not because
@@ -329,10 +312,9 @@ export interface RunScopedTimelineEntry extends TimelineRowBase {
  * fails parse rather than being accepted as an invented ordinal.
  *
  * The arm carries no `superseded` marker and cannot: such a row can never be
- * ranked, and Plan-004's span check treats a run holding one as the
- * standing-refusal class, so that run can never admit a rollback while the stub
- * exists (`Spec-013 §Fallback Behavior`). The row renders the compaction
- * placeholder alone.
+ * ranked, and the span check treats a run holding one as the standing-refusal
+ * class, so that run can never admit a rollback while the stub exists. The row
+ * renders the compaction placeholder alone.
  */
 export interface LegacyStubTimelineEntry extends TimelineRowBase {
   kind: "legacy_stub";
@@ -340,8 +322,8 @@ export interface LegacyStubTimelineEntry extends TimelineRowBase {
 }
 
 /**
- * `kind: "rollback_boundary"` — the typed `run.rolled_back` boundary entry
- * (I-013-5).
+ * `kind: "rollback_boundary"` — the typed `run.rolled_back` boundary
+ * entry.
  *
  * `payload` is the TYPED {@link RunRolledBackEvent}, not the open projected
  * record the other three arms carry: the live client rule reads
@@ -398,14 +380,14 @@ export interface TimelineRollbackBoundary extends Omit<
 /**
  * The rollback event type belongs to the boundary arm and nowhere else.
  *
- * Without this, a producer could emit `kind: "run"` carrying
- * `type: "run.rolled_back"` and it would parse: the `run` arm's `type` is the
- * base's free-form string. The row would then reach a consumer that narrows on
- * `kind` — the narrowing this module exists to guarantee — as an ordinary run
- * row, and the rewind cutoff it carries in its untyped `payload` would never be
- * read. That is the exact failure I-013-5 forbids ("no consumer receives an
- * untyped cutoff"), reached by the back door of the discriminator being right
- * and the type being wrong.
+ * Without this, a producer could emit `kind: "run"` carrying `type:
+ * "run.rolled_back"` and it would parse: the `run` arm's `type` is the base's
+ * free-form string. The row would then reach a consumer that narrows on `kind`
+ * — the narrowing this module exists to guarantee — as an ordinary run row, and
+ * the rewind cutoff it carries in its untyped `payload` would never be read.
+ * That is the exact failure forbids ("no consumer receives an untyped cutoff"),
+ * reached by the back door of the discriminator being right and the type being
+ * wrong.
  *
  * Refusing it here means the two fields cannot disagree in the one direction
  * that loses data. The reverse direction is already closed: the boundary arm
@@ -430,19 +412,12 @@ const refuseBoundaryTypeOnNonBoundaryArm = (
 /**
  * A superseded marker must actually supersede the row that carries it.
  *
- * `Spec-013 §Required Behavior` states the comparison exactly: the boundary
- * entry instructs the client to mark "that run's already-delivered rows whose
- * carried run position exceeds the carried rewind cutoff". EXCEEDS — so a row
- * at the cutoff is the retained floor and is NOT superseded, and a row below it
- * survives. A marker on either is a projection defect, and the marker is
- * deliberately single-field (I-013-3) precisely so that the row's own position
- * is the only thing it can be ranked against.
+ * states the comparison exactly: the boundary entry instructs the client to
+ * mark "that run's already-delivered rows whose carried run position exceeds
+ * the carried rewind cutoff".
  *
- * Epoch is NOT compared here, and that is not an omission. I-013-3 keeps the
- * marker single-field so identity is read from the containing row; the row's
- * epoch selects WHICH cutoff applies upstream, in the projection, and there is
- * no second epoch inside the marker for a row-local check to compare against.
- * The in-row invariant is exactly this ordering.
+ * Epoch is NOT compared here, and that is not an omission. The in-row
+ * invariant is exactly this ordering.
  */
 const requireMarkerToOutrankRow = (
   row: { position: number; superseded?: SupersededMarker | undefined },
@@ -475,12 +450,12 @@ const requireMarkerToOutrankRow = (
  * run-attributed row with its whole attribution triple structurally absent,
  * and it parses.
  *
- * That is I-013-1's failure by the back door, and the consequence is not
- * cosmetic: a row with no outer `runId` / `position` / `epoch` cannot be
- * reached by rollback projection or by a run filter, so a superseded turn
- * renders as PERMANENTLY CURRENT and a run-scoped read silently omits it. The
- * invariant's guarantee is all-or-none attribution enforced by arm selection —
- * a run-scoped row missing any of the triple fails ITS OWN arm — and a
+ * That is the failure by the back door, and the consequence is not cosmetic: a
+ * row with no outer `runId` / `position` / `epoch` cannot be reached by
+ * rollback projection or by a run filter, so a superseded turn renders as
+ * PERMANENTLY CURRENT and a run-scoped read silently omits it. The invariant's
+ * guarantee is all-or-none attribution enforced by arm selection — a
+ * run-scoped row missing any of the triple fails ITS OWN arm — and a
  * misclassified row never reaches that arm for the check to run.
  *
  * The three legs, in the order they fire:
@@ -488,8 +463,8 @@ const requireMarkerToOutrankRow = (
  *   1. **Category.** `run_lifecycle` is closed on the run-scoped side —
  *      thirteen registered types, every one carrying a required `runId` — so
  *      the category alone is decisive and stays decisive for a type this
- *      build's census has never seen (`ADR-018`'s higher-MINOR tolerance
- *      means `type` is an open vocabulary). See
+ *      build's census has never seen (the higher-MINOR tolerance means
+ *      `type` is an open vocabulary).
  *      {@link TIMELINE_RUN_LIFECYCLE_CATEGORY}.
  *   2. **Canonical type.** Four more categories carry run-attributed types —
  *      `assistant_output`, `tool_activity`, the run-scoped part of
@@ -576,10 +551,10 @@ const refuseRunScopedRowOnGeneralArm = (
  *
  * Equality is the right relation for BOTH keys, not just the first. An
  * intervention event's registered shape names no run other than the one it
- * targets (`Spec-006 §Queue and Intervention (interactive_request)`), so the
- * run a projection files such a row under IS `targetRunId`; that is the same
- * premise {@link refuseRunScopedRowOnGeneralArm} already acts on when it
- * treats a payload `targetRunId` as making a row run-attributed.
+ * targets, so the run a projection files such a row under IS `targetRunId`;
+ * that is the same premise {@link refuseRunScopedRowOnGeneralArm} already
+ * acts on when it treats a payload `targetRunId` as making a row
+ * run-attributed.
  *
  * Applied to the `legacy_stub` arm as well as `run`. A stub preserves its
  * `runId` and loses only its ordinals, so a stub whose payload names another
@@ -623,13 +598,13 @@ const requirePayloadRunIdentityToAgree = (
  *
  * The check is CONDITIONAL on presence, not a requirement that the keys be
  * echoed. A projection is free to summarize a payload down to nothing, and
- * `Spec-013` requires no particular payload content. What it may not do is
- * carry a value that disagrees — so absence passes and disagreement fails,
- * with the issue path naming the payload key rather than the outer field,
- * because the outer triple is the arm's own required contract and the payload
- * copy is the derived one.
+ * requires no particular payload content. What it may not do is carry a value
+ * that disagrees — so absence passes and disagreement fails, with the issue
+ * path naming the payload key rather than the outer field, because the outer
+ * triple is the arm's own required contract and the payload copy is the
+ * derived one.
  *
- * `sourceEpoch` and `sourcePosition` are the canonical spellings Plan-006
+ * `sourceEpoch` and `sourcePosition` are the canonical spellings
  * registers for a row's origin coordinates; they are imported rather than
  * spelled here so a rename in the taxonomy reaches this guard.
  */
@@ -791,7 +766,7 @@ export type TimelineRow =
 /**
  * Runtime validator for {@link TimelineRow}. Arm selection is by `kind`, so an
  * arm-specific failure is reported against THAT arm and never retried against a
- * sibling — the property I-013-1's all-or-none attribution rests on.
+ * sibling — the property the all-or-none attribution rests on.
  */
 export const TimelineRowSchema: z.ZodType<TimelineRow> = z.discriminatedUnion("kind", [
   timelineRollbackBoundaryArmSchema,

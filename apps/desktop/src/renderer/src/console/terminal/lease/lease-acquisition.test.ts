@@ -12,9 +12,9 @@ import { refuse, type ConsoleRefusal } from "../../core/index.js";
 import { resolveTerminalClaimAffordance } from "./lease-acquisition.js";
 import type { TerminalLeaseHolding } from "./lease-model.js";
 import type { TerminalViewerIdentity } from "./viewer-identity.js";
-import { VIEWER_PARTICIPANT } from "./lease-model.test-support.js";
+import { VIEWER_USER } from "./lease-model.test-support.js";
 
-const IDENTITY_READ: TerminalViewerIdentity = { status: "read", participantId: VIEWER_PARTICIPANT };
+const IDENTITY_READ: TerminalViewerIdentity = { status: "read", userId: VIEWER_USER };
 const READ_REFUSAL: ConsoleRefusal = refuse("terminal-viewer-identity", "wire-unregistered", "No.");
 
 function resolve(holding: TerminalLeaseHolding, viewerIdentity: TerminalViewerIdentity) {

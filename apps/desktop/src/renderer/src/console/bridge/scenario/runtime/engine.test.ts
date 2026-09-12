@@ -30,7 +30,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { BASE_STATE_CURSOR } from "../../fixture/collaboration/session-snapshot.js";
+import { BASE_STATE_CURSOR } from "../../fixture/session/session-snapshot.js";
 import { ScenarioEngine } from "./engine.js";
 import type { ConsoleScenario } from "./vocabulary.js";
 import { SessionStore } from "../../../store/index.js";
@@ -45,7 +45,7 @@ function scenarioWithBeatsDueAt(dueMilliseconds: readonly number[]): ConsoleScen
     label: "Beat order",
     purpose: "Drives the engine's due-prefix rule with a script written in one exact order.",
     sessionId: SESSION_ID,
-    participantIdsInJoinOrder: [],
+    userIdsInJoinOrder: [],
     startedAtIso: "2026-01-01T00:00:00.000Z",
     replies: [],
     beats: dueMilliseconds.map((atMs, beatIndex) => ({
@@ -167,7 +167,7 @@ describe("ScenarioEngine — a whole-session subscription that attaches late", (
    */
   function storeAtBaseState(scenario: ConsoleScenario): SessionStore {
     const store = new SessionStore({ sessionId: scenario.sessionId });
-    store.initialise({ cursor: BASE_STATE_CURSOR, entities: [], participantJoinLog: [] });
+    store.initialise({ cursor: BASE_STATE_CURSOR, entities: [], userJoinLog: [] });
     return store;
   }
 
@@ -276,7 +276,7 @@ describe("ScenarioEngine — the advance subscription", () => {
     // The finding: `subscribeToAdvances` and `subscribeToAdvance` shipped side by side
     // over one emitter, and the fixture's schedule-driven namespaces were split between
     // them — two identical wrappers, which is the duplicate-implementation drift
-    // `apps/desktop/AGENTS.md` §Shared code forbids. Read off the prototype rather than
+    // this package's shared-code rule forbids. Read off the prototype rather than
     // compared against a written list, so a second name added later fails here whatever
     // it happens to be called.
     const advanceSubscriptions = Object.getOwnPropertyNames(ScenarioEngine.prototype).filter(
@@ -332,13 +332,13 @@ describe("ScenarioEngine — the computed-reply ordinal", () => {
     const engine = new ScenarioEngine({ scenario: scenarioWithBeatsDueAt([]) });
 
     const minted = [
-      engine.nextComputedReplyOrdinal("invite.create"),
-      engine.nextComputedReplyOrdinal("invite.create"),
-      engine.nextComputedReplyOrdinal("invite.create"),
+      engine.nextComputedReplyOrdinal("channel.create"),
+      engine.nextComputedReplyOrdinal("channel.create"),
+      engine.nextComputedReplyOrdinal("channel.create"),
     ];
 
     expect(minted).toStrictEqual([1, 2, 3]);
-    expect(engine.nextComputedReplyOrdinal("invite.revoke")).toBe(1);
+    expect(engine.nextComputedReplyOrdinal("channel.archive")).toBe(1);
   });
 
   it("negative control: the frozen clock cannot stand in for it", () => {
@@ -350,9 +350,9 @@ describe("ScenarioEngine — the computed-reply ordinal", () => {
     const engine = new ScenarioEngine({ scenario: scenarioWithBeatsDueAt([]) });
 
     const firstInstant = engine.clock.now();
-    const firstOrdinal = engine.nextComputedReplyOrdinal("invite.create");
+    const firstOrdinal = engine.nextComputedReplyOrdinal("channel.create");
     const secondInstant = engine.clock.now();
-    const secondOrdinal = engine.nextComputedReplyOrdinal("invite.create");
+    const secondOrdinal = engine.nextComputedReplyOrdinal("channel.create");
 
     expect(secondInstant).toBe(firstInstant);
     expect(secondOrdinal).not.toBe(firstOrdinal);

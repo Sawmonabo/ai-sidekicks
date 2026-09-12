@@ -19,7 +19,7 @@
 //     closed dozens of times in one.
 //
 // WHAT THIS FILE IS NOT. It is not the `terminal-instance-memory` budget's gate,
-// and — since 2026-09-04 — it makes no ceiling claim at all. That row's subject is
+// and it makes no ceiling claim at all. That row's subject is
 // a populated terminal PANE, and its harness beside this file in this tier now
 // prices BOTH halves of it and compares their sum to the ceiling once. Measuring a
 // full scrollback against that same ceiling HERE was not a second opinion, it was a

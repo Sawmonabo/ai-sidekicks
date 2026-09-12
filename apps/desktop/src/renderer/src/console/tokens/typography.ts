@@ -16,9 +16,9 @@
 // box plus its padding — so this file stays a LEAF that imports nothing local and
 // the dependency cannot become a cycle.
 //
-// `Spec-023 §Console Design (Meridian)` rule 4 governs everything here: UI text in
-// a humanist grotesque, every wire-true figure in mono, and the two set on one
-// shared scale so a figure and its label sit on the same baseline.
+// Design-language rule 4 governs everything here: UI text in a humanist grotesque,
+// every wire-true figure in mono, and the two set on one shared scale so a figure and
+// its label sit on the same baseline.
 //
 // WHERE THE OPENTYPE FEATURES ARE NOT, AND WHY. Rule 4 asks for a slashed zero and
 // tabular figures, and this file declares neither.
@@ -27,7 +27,7 @@
 //   inside its two `@font-face` rules in `frame/bindings/typeface.ts`. It was on
 //   `body` here first, and that was the wrong home twice over: rule 4 makes mono
 //   the signature that a number came from the wire, and `font-feature-settings`
-//   INHERITS, so a root declaration slashed the zero in every participant name,
+//   INHERITS, so a root declaration slashed the zero in every user name,
 //   repo path, and branch name in the console — and then, because CSS Fonts 4
 //   gives that property precedence over the features `font-variant-*` computes,
 //   left no descendant able to scope the feature back.
@@ -65,19 +65,17 @@ export const TYPE_SCALE_REM: Readonly<Record<string, number>> = {
 };
 
 /**
- * The font stacks. IBM Plex Sans and IBM Plex Mono are the ratified faces
- * (`Spec-023 §Console Design (Meridian)` rule 4 and `§Console Libraries`, the
- * motion/fonts/icons row), and the console self-hosts the VARIABLE builds those
- * two places name: `frame/bindings/typeface.ts` declares two `@font-face` rules per
- * family over `@ibm/plex-sans-variable` and `@ibm/plex-mono-variable` — the Roman
- * and Italic Latin-1 splits of each, so an italic run gets the italic the foundry
- * cut rather than a browser-slanted upright. What ships is the FONT FILES, admitted
- * as distributed OFL-1.1 assets by ADR-020's Decision Log; the two packages are
- * build-time-only `devDependencies`, because the bundler resolves those `?url`
- * imports while building and nothing resolves either specifier at runtime. The
- * platform fallbacks stay, and they are not decoration — each face carries a
- * `unicode-range`, so a codepoint outside Latin-1 falls through to them rather than
- * rendering as a notdef box.
+ * The font stacks. IBM Plex Sans and IBM Plex Mono are the ratified faces — rule 4's
+ * choice, admitted by the console's fonts rules — and the console self-hosts the
+ * VARIABLE builds both name: `frame/bindings/typeface.ts` declares two `@font-face`
+ * rules per family over `@ibm/plex-sans-variable` and `@ibm/plex-mono-variable` — the
+ * Roman and Italic Latin-1 splits of each, so an italic run gets the italic the foundry
+ * cut rather than a browser-slanted upright. What ships is the FONT FILES, admitted as
+ * distributed OFL-1.1 assets; the two packages are build-time-only `devDependencies`,
+ * because the bundler resolves those `?url` imports while building and nothing resolves
+ * either specifier at runtime. The platform fallbacks stay, and they are not decoration
+ * — each face carries a `unicode-range`, so a codepoint outside Latin-1 falls through
+ * to them rather than rendering as a notdef box.
  *
  * These two constants did not move when the faces arrived, which was the point of
  * naming the families here before anything loaded them: the stack is the design's

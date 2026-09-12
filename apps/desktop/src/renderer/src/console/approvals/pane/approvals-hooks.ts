@@ -1,13 +1,12 @@
 // What the approvals surface asks for, and the one hook that says when.
 //
-// `Spec-023 §Rules every console surface obeys`: "Reads happen on subscribe, on
-// window focus, on reconnect, and on the terminal events the owning spec names".
-// All four are wired by `useReadTriggers`, which every console reading now shares —
-// this module used to write them out itself, and writing them out is how the queue
-// and quota readings came to have none of the four. What stays here is the part that
-// is this surface's: the reader, its mutation, and its disposal. WHICH events
-// trigger it is `ApprovalsReader`'s own declaration, beside the reads they refresh.
-// There is no interval, no `setTimeout`, and no second subscription.
+// Reads happen on subscribe, on window focus, on reconnect, and on the terminal events
+// this surface names. All four are wired by `useReadTriggers`, which every console
+// reading now shares — this module used to write them out itself, and writing them out
+// is how the queue and quota readings came to have none of the four. What stays here is
+// the part that is this surface's: the reader, its mutation, and its disposal. WHICH
+// events trigger it is `ApprovalsReader`'s own declaration, beside the reads they
+// refresh. There is no interval, no `setTimeout`, and no second subscription.
 //
 // WHAT RECONNECT IS, HERE. The console has no wire-level connection state to read —
 // what it has is the session store's own sticky degraded flag, which is raised for a
@@ -70,11 +69,10 @@ export const SESSION_GOAL_REFUSAL_ORIGIN = "session-goal";
  * not need to be — construction arms no timer and opens no subscription, so it is
  * plain garbage until an effect asks it to read.
  *
- * The clock is the fixture's frozen one wherever a scenario is playing and the real
- * one otherwise, resolved once per reader rather than per render — §The fixture
- * bridge makes the frozen clock the only clock the renderer reads in fixture mode,
- * and a surface that reached for `RealClock` unconditionally would be the one place
- * a fixture frame drifted.
+ * The clock is the fixture's frozen one wherever a scenario is playing and the real one
+ * otherwise, resolved once per reader rather than per render — the frozen clock is the
+ * only clock the renderer reads in fixture mode, and a surface that reached for
+ * `RealClock` unconditionally would be the one place a fixture frame drifted.
  */
 export function useApprovalsReader(
   bridge: ConsoleBridge,

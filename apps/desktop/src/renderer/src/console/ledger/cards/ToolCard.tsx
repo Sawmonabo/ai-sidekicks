@@ -1,7 +1,7 @@
 // The tool card — one line until opened.
 //
-// `Spec-023 §Meridian, the design language` rule 7: "Tool rows render as one line until
-// opened." `card-family.ts` owns the five states that one line reports, and the density
+// Tool rows render as one line until opened. `card-family.ts` owns the five states that
+// one line reports, and the density
 // budget puts the collapse state in the LIST's hands rather than the row's. So this card renders
 // exactly what its `density` prop says and owns no open state: two rows disagreeing
 // about whether they are open is a bug a fixture would never surface and a long session
@@ -50,7 +50,7 @@ export interface ToolCardProps extends LedgerCardProps {
    *
    * Optional because density belongs to the list: where a list supplies no way to
    * change it, the card renders a state rather than a control. The fixture shell
-   * supplies one, which is what makes a collapsed tool row openable before Plan-013's
+   * supplies one, which is what makes a collapsed tool row openable before the real
    * list exists.
    */
   readonly onDensityToggle?: (() => void) | undefined;
@@ -91,10 +91,8 @@ export function ToolCard(props: ToolCardProps): React.JSX.Element {
   return (
     <LedgerRowGroup groupLabel="a tool row">
       <LedgerRow
-        participantHueStep={hueStepOf(props)}
-        {...(props.participantHue === undefined
-          ? {}
-          : { ringTreatment: props.participantHue.ringTreatment })}
+        actorHueStep={hueStepOf(props)}
+        {...(props.actorHue === undefined ? {} : { ringTreatment: props.actorHue.ringTreatment })}
         occurredAtIso={props.row.timestamp}
         actorLabel={props.row.actor ?? family.label}
         kindLabel={props.row.type}
@@ -185,6 +183,6 @@ export function clampSummary(summary: string): string {
  * outside the wheel as unattributed and falls back to the neutral control boundary. That
  * is the fail-closed answer, and it is the primitive's rule rather than a second one.
  */
-function hueStepOf(props: Pick<ToolCardProps, "participantHue">): number {
-  return props.participantHue?.step ?? -1;
+function hueStepOf(props: Pick<ToolCardProps, "actorHue">): number {
+  return props.actorHue?.step ?? -1;
 }

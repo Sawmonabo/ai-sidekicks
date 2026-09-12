@@ -1,7 +1,7 @@
 // The composition the screenshot tier pins, asserted element by element.
 //
-// `Spec-023 §Console Test Tiers` puts the flagship frame at its frozen tick on that
-// tier, and a reference image cannot say WHY it is the right frame: a capture of a
+// The screenshot tier captures the flagship frame at its frozen tick, and a
+// reference image cannot say WHY it is the right frame: a capture of a
 // session missing half its story is a perfectly stable image that compares green
 // forever. So the elements are named here, in the file that owns the script, and the
 // image pins how they look rather than whether they are there.
@@ -109,8 +109,8 @@ describe("the flagship frame — the park, counting down", () => {
 });
 
 describe("the flagship frame — the cast and the receipt", () => {
-  it("seats at least five participants, so the bar has a cast to show", () => {
-    expect(FLAGSHIP_SCENARIO.participantIdsInJoinOrder.length).toBeGreaterThanOrEqual(5);
+  it("seats at least five users, so the bar has a cast to show", () => {
+    expect(FLAGSHIP_SCENARIO.userIdsInJoinOrder.length).toBeGreaterThanOrEqual(5);
   });
 
   it("answers the accountant, so the bar's figure is the receipt's own", () => {

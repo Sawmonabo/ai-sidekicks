@@ -1,7 +1,7 @@
-// Plan-023 BrowserWindow lifecycle-reachability regression test.
+// BrowserWindow lifecycle-reachability regression test.
 //
 // Closes the gap left by the smoke test: `launch.smoke.test.ts` proves the
-// renderer's Spec-023 §Security Hardening Baseline invariants, but it cannot
+// renderer's security-hardening invariants, but it cannot
 // observe whether the main-process `BrowserWindow` handle stays reachable
 // past the `app.whenReady().then(...)` callback unwind. The smoke test
 // exits via `app.exit(0)` the moment the probe completes, so V8 never
@@ -14,19 +14,16 @@
 //   holds a stable count AND `window-all-closed` does not fire, and once every
 //   window is closed and the close has unwound the count drops by at least one
 //   per window (the per-window delta that distinguishes the instance from the
-//   fixed non-instance match a count-only sample cannot identify). Per ADR-024
-//   §Antithesis, the load-bearing reachability mechanism is Electron's
-//   native-side `BaseWindow::self_ref_` (`v8::Global<v8::Value>` strong-
-//   rooted in `BaseWindow::InitWith` and released only in `~BaseWindow` at
-//   native destruction; tag-exact lines in
-//   `ADR-024 §Primary sources (Electron v41.6.1)`). The user-side
-//   module-scope `let mainWindow` in `apps/desktop/src/main/index.ts` is
-//   defensive consistency with the canonical Electron community pattern,
-//   not the primary GC anchor — reverting it does NOT produce a failure
-//   in this test on Electron 41.6.1 (the empirical falsification recorded
-//   in ADR-024 §Antithesis). Re-run green on the 44.x pin at Plan-023
-//   T-023p-1B-4 — the version bump this test's own tripwire row names as
-//   its trigger.
+//   fixed non-instance match a count-only sample cannot identify). The
+//   load-bearing reachability mechanism is Electron's native-side
+//   `BaseWindow::self_ref_` (`v8::Global<v8::Value>` strong-rooted in
+//   `BaseWindow::InitWith` and released only in `~BaseWindow` at native
+//   destruction, read against Electron v41.6.1). The user-side module-scope
+//   `let mainWindow` in `apps/desktop/src/main/index.ts` is defensive
+//   consistency with the canonical Electron community pattern, not the
+//   primary GC anchor — reverting it does NOT produce a failure in this test
+//   on Electron 41.6.1. Re-run green on the 44.x pin, the version bump this
+//   test's own tripwire row names as its trigger.
 //
 //   The test therefore serves as a future-regression guard against:
 //     • A future Electron release shifting `self_ref_` lifetime semantics
@@ -50,10 +47,10 @@
 //     (`probe.openCount - probe.closedCount < probe.windowsOpened`), meaning
 //     the surviving match was never the instance. Asserted by the two
 //     `expect`s on those quantities; a bare `min >= 1` cannot tell the
-//     instance from the fixed match ADR-024 §Antithesis records.
+//     instance from the fixed match.
 //   • Shape B — `allClosedFired === true`: the probe-scoped listener
 //     captured `window-all-closed` firing during the iteration loop.
-//     Per ADR-024 this should never happen while a user-created window
+//     This should never happen while a user-created window
 //     is intended to be reachable; if it does, the BrowserWindow lifecycle
 //     invariant broke (likely a future-Electron `self_ref_` semantics
 //     shift). Asserted by `expect(probe.allClosedFired).toBe(false)`.
@@ -76,8 +73,6 @@ import {
   spawnElectronGcProbe,
 } from "./helpers/gc-probe.js";
 
-// Governing docs for this suite (Plan-023, ADR-024 §Antithesis) are named in
-// the file header and the per-assertion comments — never in test titles.
 describe("BrowserWindow lifecycle reachability", () => {
   it("verifies smoke bundle exists before spawning Electron", () => {
     expect(
@@ -104,8 +99,8 @@ describe("BrowserWindow lifecycle reachability", () => {
       // missing `xvfb-run` on a Linux runner without `$DISPLAY`, smoke
       // bundle not built (release bundle tree-shakes the probe), or
       // `--js-flags=--expose-gc` not forwarded. A genuine BrowserWindow
-      // lifecycle regression (per ADR-024 §Antithesis, a future-Electron
-      // `self_ref_` semantics shift would be the proximate cause) would
+      // lifecycle regression (a future-Electron `self_ref_` semantics shift
+      // would be the proximate cause) would
       // also land here. Surface stdout / stderr / exit code so a CI
       // failure is debuggable without re-running.
       if (!result.probe) {
@@ -113,7 +108,7 @@ describe("BrowserWindow lifecycle reachability", () => {
           `GC probe did not emit \`${GC_PROBE_TAG}\` line within ${String(SPAWN_TIMEOUT_MS)}ms.\n` +
             `Most likely cause: environmental (xvfb-run missing on a headless Linux runner, ` +
             `smoke bundle not built, --js-flags=--expose-gc not forwarded). A genuine ` +
-            `BrowserWindow lifecycle regression (ADR-024) is also possible — check the ` +
+            `BrowserWindow lifecycle regression is also possible — check the ` +
             `Electron version and the BaseWindow::self_ref_ semantics if so.\n` +
             `Exit code: ${String(result.exitCode)}, signal: ${String(result.signal)}, elapsed: ${String(result.elapsedMs)}ms.\n` +
             `--- stdout ---\n${result.stdout}\n` +
@@ -143,13 +138,13 @@ describe("BrowserWindow lifecycle reachability", () => {
       // wrapper collected mid-loop — AND drops by at least one per window once
       // every window is closed and the close has unwound. The per-window delta
       // is what distinguishes the user-created instance from the fixed
-      // non-instance match a count-only sample cannot identify (ADR-024
-      // §Antithesis — The Strongest Case Against): a bare `min >= 1` still
-      // passes with the instance gone and that match remaining.
+      // non-instance match a count-only sample cannot identify: a bare
+      // `min >= 1` still passes with the instance gone and that match
+      // remaining.
       expect(
         probe.max - probe.min,
         `Probe saw queryObjects(BrowserWindow) drift across the loop (counts: ${JSON.stringify(probe.counts)}). ` +
-          `Per ADR-024, a reachable window's count must hold across GC pressure — the proximate cause is most likely a future-Electron BaseWindow::self_ref_ semantics shift.`,
+          `A reachable window's count must hold across GC pressure — the proximate cause is most likely a future-Electron BaseWindow::self_ref_ semantics shift.`,
       ).toBe(0);
       expect(
         probe.windowsOpened,
@@ -158,20 +153,20 @@ describe("BrowserWindow lifecycle reachability", () => {
       expect(
         probe.openCount - probe.closedCount,
         `Closing ${String(probe.windowsOpened)} window(s) moved queryObjects(BrowserWindow) ${String(probe.openCount)} → ${String(probe.closedCount)}. ` +
-          `Per ADR-024, each open window holds exactly one reachable instance that the close releases; a smaller delta means the count was carried by something other than the instance.`,
+          `Each open window holds exactly one reachable instance that the close releases; a smaller delta means the count was carried by something other than the instance.`,
       ).toBeGreaterThanOrEqual(probe.windowsOpened);
 
       // Shape B: `allClosedFired === false`. The probe-scoped listener
       // captures whether `window-all-closed` fired during the iteration
-      // loop. Per ADR-024 §Antithesis this should never happen while a
-      // user-created window is intended to be reachable — `self_ref_`
+      // loop. This should never happen while a user-created window is
+      // intended to be reachable — `self_ref_`
       // strong-roots the wrapper, so the native window is alive, so
       // `WindowList::RemoveWindow` cannot fire on it. A true value here
       // is the strongest evidence that the lifecycle invariant broke.
       expect(
         probe.allClosedFired,
         `Probe-scoped listener observed window-all-closed firing during the iteration loop. ` +
-          `Per ADR-024, this should not be possible while a user-created window is intended to be reachable — the BrowserWindow lifecycle invariant broke.`,
+          `This should not be possible while a user-created window is intended to be reachable — the BrowserWindow lifecycle invariant broke.`,
       ).toBe(false);
 
       // Probe exited cleanly via `app.exit(0)`. Non-zero or signal-killed

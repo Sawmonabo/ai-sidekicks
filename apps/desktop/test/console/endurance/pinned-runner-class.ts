@@ -35,7 +35,7 @@ import process from "node:process";
 /**
  * The runner class `.github/workflows/ci.yml` names for the desktop tiers.
  *
- * `ubuntu-latest` is the only entry in the tier-1 job's matrix, and the endurance
+ * `ubuntu-latest` is the only entry in the `test-node22` job's matrix, and the endurance
  * tier runs in that job's desktop step. Stated once so the name a reported run
  * prints and the name the guard tests are the same string.
  */

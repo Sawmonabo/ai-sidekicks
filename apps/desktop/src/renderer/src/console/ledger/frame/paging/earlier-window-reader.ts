@@ -1,7 +1,7 @@
 // Reaching the rows BEFORE the window this console was given.
 //
 // WHY THERE IS ANYTHING TO REACH. A session's stream replays from the position this
-// participant was last acknowledged at, so a resumed read establishes a window whose
+// user was last acknowledged at, so a resumed read establishes a window whose
 // head is somewhere in the middle of the log. Everything below that head exists, was
 // never delivered, and is unreachable by scrolling: the store appends at the tail and
 // the viewport prunes toward it, so no amount of reading moves the head. One
@@ -24,9 +24,9 @@
 // rather than queued: the control is a button a person can press repeatedly, and two
 // backward reads from one cursor fetch the same rows twice and then merge one of them
 // into a log that already holds it. The exclusion is a field here rather than the
-// collaboration family's wire-mutation coordinator, and that is a DAG fact rather than
+// channels family's wire-mutation coordinator, and that is a DAG fact rather than
 // a preference — `console-view-family-isolation` forbids one view family importing
-// another, so a ledger read cannot reach a coordinator that lives in `collaboration/`,
+// another, so a ledger read cannot reach a coordinator that lives in `channels/`,
 // and the refusals that coordinator raises name that family as their origin.
 //
 // AND A PAGE CAN OUTLIVE THE WINDOW IT WAS ADDRESSED FROM. A refresh re-establishes

@@ -3,8 +3,8 @@
 // A LOADER-BACKED BODY, so the page, its policy rows, its partition table and the clear
 // control's arming rounds are not on the initial import graph. The page is a SETTINGS
 // section: a person navigates to settings and then chooses a section, which is two acts
-// after the first paint — the registration question `apps/desktop/AGENTS.md §Import
-// boundaries` asks, answered the way the sidekicks page beside it answers it.
+// after the first paint — the registration question the package's import boundaries
+// ask, answered the way the sidekicks page beside it answers it.
 //
 // WHY THIS ROOT EXISTS AT ALL, RATHER THAN THE SETTINGS REGISTRATION NAMING THE FAMILY
 // DOOR. `agents/definitions/sidekick-definitions-page-body.ts` states the mechanism and

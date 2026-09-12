@@ -1,7 +1,7 @@
 // The binding one agent is running under right now, and what is only promised.
 //
-// `Spec-023 §Console Design (Meridian)` §The agent card gives this surface one hard
-// rule and four refusals, and every one of them is about keeping two lines apart:
+// This surface has one hard rule and four refusals, and every one of them is about
+// keeping two lines apart:
 //
 //   • The EFFECTIVE line is the binding the agent runs under NOW. It moves only when
 //     a terminal event lands, so a pending switch never touches it.

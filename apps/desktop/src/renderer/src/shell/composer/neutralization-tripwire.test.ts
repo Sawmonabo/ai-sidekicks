@@ -14,7 +14,7 @@ describe("readTextNeutralization — the fixed form, read the way the wire says 
   });
 
   it("keeps the detail verbatim, so the mono figure is what the daemon sent", () => {
-    const detail = "driver.text_neutralization_failed origin=participant_text";
+    const detail = "driver.text_neutralization_failed origin=human_text";
     expect(readTextNeutralization(detail)?.wireDetail).toBe(detail);
   });
 

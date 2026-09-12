@@ -1,16 +1,13 @@
-// Regression coverage for `IngestHaltRegistry`'s TWO-MECHANISM concurrency fix
-// (Plan-006 T3.1, F-006-HALT-07).
+// Regression coverage for `IngestHaltRegistry`'s TWO-MECHANISM concurrency
+// fix.
 //
 // WHY THIS FILE EXISTS, and what it is deliberately NOT. It is not general
-// coverage of the halt seam — T3.5 owns that, and its arms are sequential
+// coverage of the halt seam — another suite owns that, and its arms are sequential
 // halt/clear round-trips. This file pins the two mechanisms those arms cannot
 // see, because both are invisible to any serial call order:
 //
 //   * `#pendingClears` — without it, a `halt()` racing a QUEUED `clear()`
 //     no-ops on set membership before the lock and is then silently undone.
-//   * `#haltGenerations` — without it, a REENTRANT `halt()` (the T4.2
-//     observer's own shape: it already holds the session's append lock) runs
-//     AHEAD of a clear that queued earlier and is then deleted by it.
 //
 // Both are fail-OPEN on a security gate: an `await halt(S)` that resolved
 // successfully leaves S admitting writes. Delete either mechanism and every
@@ -24,8 +21,8 @@
 //   * Rest state — after the contended round the registry is unwedged AND the
 //     pre-lock fast path is available again (the observable proof that no
 //     `#pendingClears` entry was stranded).
-//   * F-006-HALT-07 — a repeat `halt(S)` with no clear in flight resolves
-//     WITHOUT acquiring, while a `clear(S)` in the same position blocks.
+//   * A repeat `halt(S)` with no clear in flight resolves WITHOUT
+//     acquiring, while a `clear(S)` in the same position blocks.
 //
 // FIXTURE PROPERTY THAT MAKES THE REENTRANT ARM DISCRIMINATING (read before
 // editing it): the racing `clear()` must be issued from OUTSIDE the hold's
@@ -41,7 +38,7 @@ import { IngestHaltRegistry } from "../ingest-halt-source.js";
 import { __resetSessionAppendLocksForTest, withSessionAppendLock } from "../session-append-lock.js";
 
 const SESSION: SessionId = SessionIdSchema.parse("0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f00");
-/** The SAME logical session as `SESSION`, spelled in uppercase hex — RFC 9562 §4
+/** The SAME logical session as `SESSION`, spelled in uppercase hex — RFC 9562 section 4
  * makes the two denote one UUID, and the branded schema admits both unchanged. */
 const SESSION_UPPERCASE: SessionId = SessionIdSchema.parse(SESSION.toUpperCase());
 const SENTINEL_UPPERCASE: SessionId = SessionIdSchema.parse(
@@ -164,8 +161,8 @@ describe("IngestHaltRegistry — reentrant halt vs a queued clear (Mechanism 2, 
   it("keeps the session halted when a lock-holding caller halts reentrantly while a clear waits behind its hold", async () => {
     await registry.halt(SESSION);
 
-    // The T4.2 observer's shape: it holds the session's append lock across an
-    // await and publishes its halt from INSIDE that critical section, where the
+    // Observer's shape: it holds the session's append lock across an await and
+    // publishes its halt from INSIDE that critical section, where the
     // acquisition is reentrant and therefore does not queue.
     let release!: () => void;
     const parked: Promise<void> = new Promise<void>((resolve) => {
@@ -219,9 +216,9 @@ describe("IngestHaltRegistry — returns to rest state after a contended round",
 
     // THE OBSERVABLE DRAIN ASSERTION. A `#pendingClears` entry stranded by the
     // contended round would force every later `halt()` for this session onto the
-    // lock forever — a silent, permanent loss of the F-006-HALT-07 property
-    // rather than a wrong answer. Reaching for the private map would test the
-    // implementation; parking the lock tests the consequence.
+    // lock forever — a silent, permanent loss of property rather than a wrong
+    // answer. Reaching for the private map would test the implementation;
+    // parking the lock tests the consequence.
     const blockingHold: ParkedHold = await parkSessionLock(SESSION);
     expect(await settlesWithoutAcquiring(registry.halt(SESSION))).toBe("resolved");
     blockingHold.release();
@@ -230,10 +227,10 @@ describe("IngestHaltRegistry — returns to rest state after a contended round",
 });
 
 // ----------------------------------------------------------------------------
-// F-006-HALT-07 — the pre-lock fast path survives the fix
+// The pre-lock fast path survives the fix
 // ----------------------------------------------------------------------------
 
-describe("IngestHaltRegistry — F-006-HALT-07 (a repeat halt never queues behind a parked append)", () => {
+describe("IngestHaltRegistry", () => {
   it("resolves a repeat halt under a live hold, while a clear in the same position blocks", async () => {
     await registry.halt(SESSION);
     const hold: ParkedHold = await parkSessionLock(SESSION);

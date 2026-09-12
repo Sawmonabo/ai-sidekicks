@@ -145,15 +145,15 @@ describe("applyMigrations — per-version loop applies all registered migrations
     // would slip past version-only probes but surface here.
     expect(versionProbe.rows).toEqual([
       { version: 1, description: "Initial schema" },
-      { version: 3, description: "Runtime node attachments and presence" },
-      { version: 4, description: "Event log anchors (integrity witness)" },
+      { version: 2, description: "Runtime node attachments and presence" },
+      { version: 3, description: "Event log anchors (integrity witness)" },
     ]);
 
     // (b) every registered migration's deliverable table is materialized
     // through the runner. A regression where a version's INSERT row landed in
     // schema_migrations but its DDL was skipped (impossible under the current
-    // per-version-transaction shape but worth pinning) would surface here. v3
-    // ships `runtime_node_attachments` + `runtime_node_presence`; v4 ships
+    // per-version-transaction shape but worth pinning) would surface here. v2
+    // ships `runtime_node_attachments` + `runtime_node_presence`; v3 ships
     // `event_log_anchors`.
     const attachTableProbe = await ctx.querier.query<{ exists: boolean }>(
       `SELECT EXISTS (
@@ -214,6 +214,6 @@ describe("applyMigrations — canonical-path idempotency on re-call", () => {
     const probe = await ctx.querier.query<{ version: number }>(
       "SELECT version FROM schema_migrations ORDER BY version ASC",
     );
-    expect(probe.rows).toEqual([{ version: 1 }, { version: 3 }, { version: 4 }]);
+    expect(probe.rows).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }]);
   });
 });

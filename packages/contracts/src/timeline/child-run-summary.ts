@@ -15,8 +15,8 @@
 //
 // WHY A DISCRIMINATED MEMBER AND NOT A BOOLEAN. A bare `incomplete: true` says
 // that something is missing without saying what, which leaves a consumer no
-// basis to decide between retrying, waiting, and giving up — and those are the
-// three different right answers for the three causes below. The member is also
+// basis to decide between retrying and giving up — and those are the two
+// different right answers for the two causes below. The member is also
 // REQUIRED rather than optional: an absent marker would be a third state
 // meaning "probably fine", and the rule is that incompleteness is
 // STATED. Before this member the only signal was a low `eventCount`, which is
@@ -25,19 +25,12 @@
 // THE CAUSE SET IS CLOSED AND BORROWED, NOT INVENTED. Each member is a term
 // this codebase already owns, so this surface adds no vocabulary:
 //   * `detail_fetch_failed` — a child-run detail fetch failed. Transient.
-//   * `pending_backfill` — the history-coverage term, reused verbatim. It is
-//     the same condition at a narrower scope: one child run's rows rather
-//     than the session's whole history. Transient, clearing when the peer
-//     serves.
 //   * `compacted` — already the shipped vocabulary on this subdirectory's own
 //     `ReasoningSurfaceReadResponse` availability arm and on
 //     `HydratedContentUnavailableReason`. Terminal; no retry recovers it.
-// Deliberately NOT reused: `session.history_backfill_unavailable` (a
-// response-level error code — a coverage state is `pending_backfill`, never
-// this code), `NodeState`'s `offline` (a node lifecycle state, the INPUT to
-// `pending_backfill` rather than a synonym), and `RepoMountHealth`'s
-// `unreachable` (scoped to filesystem mounts, and its own module warns against
-// overloading that word across axes).
+// Deliberately NOT reused: `RepoMountHealth`'s `unreachable` (scoped to
+// filesystem mounts, and its own module warns against overloading that word
+// across axes).
 import { z } from "zod";
 
 import { NodeIdSchema, type NodeId } from "../node-id.js";
@@ -49,7 +42,7 @@ import { RunStateSchema, type RunState } from "../runControl.js";
  * header for the provenance of each member and for the near-misses that were
  * deliberately not reused.
  */
-export type ChildRunIncompleteCause = "detail_fetch_failed" | "pending_backfill" | "compacted";
+export type ChildRunIncompleteCause = "detail_fetch_failed" | "compacted";
 
 /**
  * Whether a summary row reflects the child run's full activity, and if not,
@@ -67,8 +60,8 @@ export type ChildRunCompleteness =
 /**
  * Runtime validator for {@link ChildRunCompleteness}.
  *
- * `observedAt` is required on the incomplete arm because two of the three
- * causes are transient: a consumer deciding whether to retry and a renderer
+ * `observedAt` is required on the incomplete arm because one of the two
+ * causes is transient: a consumer deciding whether to retry and a renderer
  * deciding whether to age the notice both need to know how old the reading is.
  * A cause with no time attached is unactionable.
  */
@@ -79,7 +72,7 @@ export const ChildRunCompletenessSchema: z.ZodType<ChildRunCompleteness> = z.dis
     z
       .object({
         state: z.literal("incomplete"),
-        cause: z.enum(["detail_fetch_failed", "pending_backfill", "compacted"]),
+        cause: z.enum(["detail_fetch_failed", "compacted"]),
         observedAt: z.iso.datetime({ offset: true }),
       })
       .strict(),
@@ -94,7 +87,6 @@ export const ChildRunCompletenessSchema: z.ZodType<ChildRunCompleteness> = z.dis
  */
 export const CHILD_RUN_INCOMPLETE_CAUSES: readonly ChildRunIncompleteCause[] = Object.freeze([
   "detail_fetch_failed",
-  "pending_backfill",
   "compacted",
 ] as const);
 

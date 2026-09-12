@@ -1,15 +1,14 @@
 // Compile-time icon resolution — one plugin, one weight, three consumers.
 //
-// `Spec-023 §Console Libraries` admits the Tabler set through `unplugin-icons`
-// with our own signature glyphs "in the same collection", compiled at build
-// time. This module is the whole of that wiring: `~icons/tabler/<name>` and
+// The Tabler set is admitted through `unplugin-icons` with our own signature
+// glyphs in the same collection, compiled at build time. This module is the whole of that wiring: `~icons/tabler/<name>` and
 // `~icons/signature/<name>` both resolve here, both are compiled to a React
 // component by `@svgr`, and both leave carrying the same stroke contract.
 //
 // WHY ONE MODULE AND NOT THREE BLOCKS. The renderer is compiled in three
 // places — `electron.vite.config.ts` builds it, every console Vitest tier
 // resolves it, and the root `renderer` project compiles console source for the
-// Tier-1 components that reach it — and an icon that resolved in one and not in
+// Pre-console components that reach it — and an icon that resolved in one and not in
 // another would fail at import with a specifier no reader could place. Worse,
 // three copies of the stroke contract would drift silently: a face is legible
 // at any weight, so nothing goes red when one of the three is edited and the
@@ -222,9 +221,8 @@ async function compileFaceToReactComponent(
  */
 export function iconCompilationPlugin(): Plugin | Plugin[] {
   return Icons({
-    // `Spec-023 §Console Libraries`' own row names the `@svgr` path, and this is
-    // it — see the compiler above for the one respect in which it is spelled out
-    // rather than named. `extension` is what makes the resolved specifier end in
+    // The `@svgr` path — see the compiler above for the one respect in which it
+    // is spelled out rather than named. `extension` is what makes the resolved specifier end in
     // `.jsx`, so the bundler applies its JSX transform to what comes back.
     compiler: { compiler: compileFaceToReactComponent, extension: "jsx" },
     customCollections: {

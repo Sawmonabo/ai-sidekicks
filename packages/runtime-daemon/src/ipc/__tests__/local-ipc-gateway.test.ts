@@ -1,38 +1,29 @@
-// W-007p-2-T2..T6 + T10 — LocalIpcGateway test suite (T-007p-2-6).
+// LocalIpcGateway test suite.
 //
-// Spec coverage:
-//   * `Spec-007 §Wire Format` — JSON-RPC 2.0 + LSP-style Content-Length framing;
-//     1 MB max-message-size.
-//   * `Spec-007 §Required Behavior` — OS-local default
-//     transport (Unix domain socket on Unix-like; named pipe on Windows).
-//   * ADR-009 (docs/decisions/009-json-rpc-ipc-wire-format.md) — wire-
-//     format decision rationale per F-007p-2-08 (header citation
-//     required on the gateway test file).
+//   * JSON-RPC 2.0 + LSP-style Content-Length framing; 1 MB max-message-size.
+//   * OS-local default transport (Unix domain socket on Unix-like; named
+//     pipe on Windows).
+//   * Wire- format decision rationale.
 //
-// W-tests covered here (per `Plan-007 §Phase 2 — Wire Substrate (W-007p-2-T1..T11)`):
-//   * W-007p-2-T2 — Transport: Unix domain socket round-trip
-//   * W-007p-2-T3 — Transport: Windows named pipe round-trip
-//                   (it.skipIf(process.platform !== "win32") — Tier 1
-//                   conservative; the OS-local socket in vitest CI is
-//                   Linux per the matrix).
-//   * W-007p-2-T4 — Transport: gated loopback fallback (Tier 1
-//                   conservative gate, per F-007p-2-09). The
-//                   `transport.unavailable` envelope code surface does
-//                   not exist at the gateway layer today —
+//   * Transport: Unix domain socket round-trip
+//   * Transport: Windows named pipe round-trip
+//                   (it.skipIf(process.platform !== "win32"); the
+//                   OS-local socket in vitest CI is Linux per the
+//                   matrix).
+//   * Transport: gated loopback fallback.
+//                   The `transport.unavailable` envelope code surface
+//                   does not exist at the gateway layer today —
 //                   `SecureDefaults.load` refuses non-loopback at
-//                   config-time with `invalid_bind_address`. Use
-//                   `it.todo` per the task contract authorization for
-//                   absent surfaces; the test ID is preserved so the
-//                   audit trace remains complete.
-//   * W-007p-2-T5 — 1MB max-message-size enforcement (per F-007p-2-05).
-//                   Body > 1MB → connection close + `-32600` error
-//                   frame, per `Plan-007 §Phase 2 — Wire Substrate (W-007p-2-T1..T11)`. The mapping is wired
-//                   in `jsonrpc-error-mapping.ts` (oversized_body
-//                   → -32600 InvalidRequest per `Plan-007 §Phase 2: Wire Substrate` Tasks, T-007p-2-2).
-//   * W-007p-2-T6 — Content-Length framing parser correctness:
+//                   config-time with `invalid_bind_address`, so the
+//                   case is `it.todo` until that gate moves.
+//   * 1MB max-message-size enforcement.
+//                   Body > 1MB → connection close + `-32600` error frame. The
+//                   mapping is wired in `jsonrpc-error-mapping.ts`
+//                   (oversized_body → -32600 InvalidRequest).
+//   * Content-Length framing parser correctness:
 //                   single message, multi-message buffer,
 //                   partial-buffer wait, malformed framing.
-//   * W-007p-2-T10 — Handler-thrown error mapping (I-007-8): unhandled
+//   * Handler-thrown error mapping: unhandled
 //                    handler exception → `-32603` with sanitized
 //                    message; no stack/secret leak.
 //
@@ -84,13 +75,11 @@ import { passthroughSchema } from "./__fixtures__/zod-schemas.js";
 // ----------------------------------------------------------------------------
 
 /**
- * Canonical envelope-level `protocolVersion` for gateway-routed test
- * fixtures. `Spec-007 §Wire Format` (BL-102 ratified 2026-05-01) requires every
- * non-handshake request to carry an ISO 8601 `YYYY-MM-DD` date-string.
- * The substrate enforces this BEFORE handler dispatch
- * (`local-ipc-gateway.ts#dispatchFrame` Step 3.5); fixtures below mirror
- * the constant so a single update propagates if the negotiated version
- * advances.
+ * Canonical envelope-level `protocolVersion` for gateway-routed test fixtures.
+ * requires every non-handshake request to carry an ISO 8601 `YYYY-MM-DD`
+ * date-string. The substrate enforces this BEFORE handler dispatch
+ * (`local-ipc-gateway.ts#dispatchFrame` Step 3.5); fixtures below mirror the
+ * constant so a single update propagates if the negotiated version advances.
  */
 const TEST_PROTOCOL_VERSION = "2026-05-01";
 
@@ -204,7 +193,7 @@ afterEach(() => {
 });
 
 // ----------------------------------------------------------------------------
-// W-007p-2-T6 — parseFrame / encodeFrame correctness (synchronous)
+// parseFrame / encodeFrame correctness (synchronous)
 // ----------------------------------------------------------------------------
 //
 // These cases exercise the framing parser directly without binding the
@@ -214,10 +203,10 @@ afterEach(() => {
 //   * multi-message buffer
 //   * partial-buffer wait
 //   * malformed framing → connection close (the connection-close branch is
-//     covered in W-007p-2-T5/T10 via the gateway path; here we assert the
+//     covered via the gateway path; here we assert the
 //     parser-throw shape that the gateway converts into the disconnect).
 
-describe("W-007p-2-T6 — Content-Length framing parser correctness", () => {
+describe("Content-Length framing parser correctness", () => {
   it("decodes a single complete frame and reports byte-correct `consumed`", () => {
     const envelope = { jsonrpc: JSONRPC_VERSION, id: 1, method: "x.y", params: {} };
     const frame = encodeFrame(envelope);
@@ -345,10 +334,10 @@ describe("W-007p-2-T6 — Content-Length framing parser correctness", () => {
 });
 
 // ----------------------------------------------------------------------------
-// W-007p-2-T2 — Unix domain socket round-trip
+// Unix domain socket round-trip
 // ----------------------------------------------------------------------------
 
-describe("W-007p-2-T2 — Unix domain socket round-trip", () => {
+describe("Unix domain socket round-trip", () => {
   it("binds, accepts a connection, dispatches a request, and returns the typed result", async () => {
     const socketPath = ephemeralSocketPath("t2");
     bootstrap({
@@ -407,16 +396,15 @@ describe("W-007p-2-T2 — Unix domain socket round-trip", () => {
 });
 
 // ----------------------------------------------------------------------------
-// W-007p-2-T3 — Windows named pipe round-trip
+// Windows named pipe round-trip
 // ----------------------------------------------------------------------------
 //
-// Tier 1's CI matrix is Linux-only per ADR-022 + ADR-023; the Windows
-// pipe transport surface is verified at Tier 4 once the Windows runner
-// lands. The conservative posture here is `it.skipIf` so the test ID
-// is preserved for audit + the case re-activates automatically when
-// the Windows runner arrives.
+// The CI matrix is Linux-only, so the Windows pipe transport surface is
+// verified once the Windows runner lands. The conservative posture here
+// is `it.skipIf` so the case re-activates automatically when the Windows
+// runner arrives.
 
-describe("W-007p-2-T3 — Windows named pipe round-trip", () => {
+describe("Windows named pipe round-trip", () => {
   it.skipIf(process.platform !== "win32")(
     "binds a named pipe, accepts a connection, dispatches a request, and returns the typed result",
     async () => {
@@ -473,38 +461,33 @@ describe("W-007p-2-T3 — Windows named pipe round-trip", () => {
 });
 
 // ----------------------------------------------------------------------------
-// W-007p-2-T4 — Gated loopback fallback (Tier 1 conservative gate)
+// Gated loopback fallback (conservative gate)
 // ----------------------------------------------------------------------------
 //
-// Per F-007p-2-09, attempting a non-loopback bind path at Tier 1 must
-// fail with the `transport.unavailable` wire envelope. Today's Tier 1
-// surface refuses non-loopback at `SecureDefaults.load` time with
-// `invalid_bind_address` (config-time, not gateway-time); the
-// `transport.unavailable` gate fires at gateway-time and is deferred to
-// Tier 4. Marked `it.todo` per task contract authorization for absent
-// surfaces; the test ID is preserved so Tier 4's widening pass picks up
-// the inflation. (The two-layer envelope mapping itself exists post-
-// BL-103, so when the gateway-time gate lands at Tier 4 the assertion
-// will project through `mapJsonRpcError` exactly like the
-// `unknown_setting` envelope test in `secure-defaults.test.ts`.)
+// Attempting a non-loopback bind path must fail with the
+// `transport.unavailable` wire envelope. Marked `it.todo` because that
+// surface does not exist at the gateway layer yet. The two-layer envelope
+// mapping itself already exists, so when the gateway-time gate lands the
+// assertion will project through `mapJsonRpcError` exactly like the
+// `unknown_setting` envelope test in `secure-defaults.test.ts`.
 
-describe("W-007p-2-T4 — gated loopback fallback (Tier 1)", () => {
+describe("gated loopback fallback", () => {
   it.todo(
-    "non-loopback bind attempt fails at the gateway with `transport.unavailable` envelope (surface deferred to Tier 4 where the gate fires at gateway-time rather than config-time)",
+    "non-loopback bind attempt fails at the gateway with `transport.unavailable` envelope (surface deferred until the gate fires at gateway-time rather than config-time)",
   );
 });
 
 // ----------------------------------------------------------------------------
-// W-007p-2-T5 — 1MB max-message-size enforcement
+// 1MB max-message-size enforcement
 // ----------------------------------------------------------------------------
 //
-// Per `Plan-007 §Phase 2 — Wire Substrate (W-007p-2-T1..T11)`: "Body > 1MB → connection close + `-32600` error
-// frame; subsequent reconnect succeeds." The mapping (oversized_body →
-// -32600 InvalidRequest) lives at jsonrpc-error-mapping.ts:175-199; the
-// disconnect-then-reconnect contract is enforced by the gateway's
-// framing-error tear-down path at local-ipc-gateway.ts:858-882.
+// "Body > 1MB → connection close + `-32600` error frame; subsequent reconnect
+// succeeds." The mapping (oversized_body → -32600 InvalidRequest) lives at
+// jsonrpc-error-mapping.ts:175-199; the disconnect-then-reconnect contract is
+// enforced by the gateway's framing-error tear-down path at
+// local-ipc-gateway.ts:858-882.
 
-describe("W-007p-2-T5 — 1MB max-message-size enforcement", () => {
+describe("1MB max-message-size enforcement", () => {
   it("oversized body → connection close + `-32600` InvalidRequest error frame; reconnect succeeds", async () => {
     const socketPath = ephemeralSocketPath("t5");
     bootstrap({
@@ -551,28 +534,25 @@ describe("W-007p-2-T5 — 1MB max-message-size enforcement", () => {
         ]);
         // The gateway emits the error frame BEFORE destroying the
         // socket, so we expect either:
-        //   * a parse-able error frame in `received` AND a subsequent
-        //     close (best-effort emit + tear-down per the same T-007p-2-2 row), OR
         //   * close-only when the kernel already shut the socket
         //     before the error frame's flush completed (race).
-        // `Plan-007 §Phase 2: Wire Substrate` (T-007p-2-2 oversized-body row) mandates the error-frame surface; we assert it
-        // here and let the test fail loudly if the implementation
-        // tears down without writing.
+        // mandates the error-frame surface; we assert it here and let the test
+        // fail loudly if the implementation tears down without writing.
         expect(racer).not.toBe("closed");
         if (typeof racer === "object") {
           const response = decodeOneFrame(racer.acc) as JsonRpcErrorResponse;
           expect(response.jsonrpc).toBe(JSONRPC_VERSION);
           expect(response.id).toBeNull();
-          // Plan-specified error code per `Plan-007 §Phase 2: Wire Substrate` Tasks (T-007p-2-2) + `Plan-007 §Phase 2 — Wire Substrate (W-007p-2-T1..T11)`: -32600
-          // InvalidRequest (oversized_body framing path). Mapping wired
-          // at jsonrpc-error-mapping.ts §framingErrorDataType.
+          // Plan-specified error code Tasks +: -32600 InvalidRequest
+          // (oversized_body framing path). Mapping wired at
+          // jsonrpc-error-mapping.ts.
           expect(response.error.code).toBe(JsonRpcErrorCode.InvalidRequest);
-          // BL-103 two-layer envelope: `data.type` carries the canonical
+          // Two-layer envelope: `data.type` carries the canonical
           // project code `transport.message_too_large` (HTTP 413
-          // semantic per error-contracts.md §Transport — distinct from
-          // Spec-001's `resource.limit_exceeded` HTTP-429 quota code);
-          // `data.fields` carries the throw-site `{ limit, observed }`
-          // detail captured at local-ipc-gateway.ts §parseFrame.
+          // semantic — distinct from the `resource.limit_exceeded`
+          // HTTP-429 quota code); `data.fields` carries the throw-site
+          // `{ limit, observed }` detail captured at
+          // local-ipc-gateway.ts.
           expect(response.error.data).toMatchObject({
             type: "transport.message_too_large",
             fields: {
@@ -622,7 +602,7 @@ describe("W-007p-2-T5 — 1MB max-message-size enforcement", () => {
 });
 
 // ----------------------------------------------------------------------------
-// W-007p-2-T10 — Handler-thrown error mapping (I-007-8)
+// Handler-thrown error mapping
 // ----------------------------------------------------------------------------
 //
 // The handler throws an Error whose message contains a Unix absolute
@@ -630,11 +610,11 @@ describe("W-007p-2-T5 — 1MB max-message-size enforcement", () => {
 // `sanitizeErrorMessage` pipeline is expected to:
 //   1. Map the unhandled throw to `-32603 InternalError` (per
 //      jsonrpc-error-mapping.ts lines 358-360).
-//   2. Replace the absolute path with `<redacted-path>` per the
-//      I-007-8 contract.
+//   2. Replace the absolute path with `<redacted-path>`
+//      contract.
 //   3. NEVER emit `.stack` content on the wire.
 
-describe("W-007p-2-T10 — handler-thrown error mapping (I-007-8)", () => {
+describe("handler-thrown error mapping", () => {
   it("unhandled handler exception → `-32603` with sanitized message; no path/stack leak", async () => {
     const socketPath = ephemeralSocketPath("t10");
     bootstrap({
@@ -644,8 +624,8 @@ describe("W-007p-2-T10 — handler-thrown error mapping (I-007-8)", () => {
     });
     const registry = new MethodRegistryImpl();
     const handler: Handler<unknown, unknown> = async () => {
-      // This message contains a Unix path that I-007-8 must redact and
-      // a stable token ("BOOM") the test asserts survives.
+      // This message contains a Unix path that must redact and a
+      // stable token ("BOOM") the test asserts survives.
       throw new Error("BOOM at /home/secret/path/to/file.ts:42:7");
     };
     registry.register(
@@ -742,7 +722,7 @@ describe("W-007p-2-T10 — handler-thrown error mapping (I-007-8)", () => {
       expect(onConnect).toHaveBeenCalledTimes(1);
       const transportArg = onConnect.mock.calls[0]?.[0];
       expect(transportArg).toBeDefined();
-      // Family is "unix" on Linux Tier 1.
+      // Family is "unix" on Linux.
       if (
         transportArg !== null &&
         typeof transportArg === "object" &&
@@ -762,34 +742,35 @@ describe("W-007p-2-T10 — handler-thrown error mapping (I-007-8)", () => {
 });
 
 // ----------------------------------------------------------------------------
-// I-007-1 enforcement — assertLoadedForBind throws at gateway start without prior bootstrap
+// Enforcement — assertLoadedForBind throws at gateway start without prior
+// bootstrap
 // ----------------------------------------------------------------------------
 //
 // Bonus coverage that ties the gateway to the Phase 1 bootstrap seam.
 // SecureDefaults is reset in beforeEach but bootstrap is NOT called; the
 // gateway's first action is `assertLoadedForBind()` which must throw.
 
-describe("I-007-1 enforcement (gateway side)", () => {
+describe("enforcement (gateway side)", () => {
   it("LocalIpcGateway.start() throws synchronously when SecureDefaults has not been loaded", async () => {
     const registry = new MethodRegistryImpl();
     const gateway = new LocalIpcGateway({ registry });
-    await expect(gateway.start()).rejects.toThrow(/SecureDefaults\.load|I-007-1/);
+    await expect(gateway.start()).rejects.toThrow(/SecureDefaults\.load/);
   });
 });
 
 // ----------------------------------------------------------------------------
-// RT-codex-1 finding #1 — start() rolls back state on listen failure
+// start() rolls back state on listen failure
 // ----------------------------------------------------------------------------
 //
-// Codex P1: lines 714-715 previously set `#server` and `#started = true`
-// BEFORE `await server.listen(...)` resolved. A failed bind (e.g.
+// `#server` and `#started = true` must not be set BEFORE
+// `await server.listen(...)` resolves. A failed bind (e.g.
 // EADDRINUSE) left `#started = true` against a never-bound listener, so
 // every subsequent `start()` retry threw "gateway already started" — a
 // daemon-bootstrap-retry deadlock. The fix moves the state mutation
 // AFTER the await; a rejected `start()` MUST leave the instance in the
 // pre-call state so a retry is permitted.
 
-describe("RT-codex-1 finding #1 — start() rollback on listen failure", () => {
+describe("start() rollback on listen failure", () => {
   it("rejects on EADDRINUSE and permits a subsequent start() retry (no 'gateway already started' wedge)", async () => {
     const socketPath = ephemeralSocketPath("rollback");
     bootstrap({
@@ -853,18 +834,15 @@ describe("RT-codex-1 finding #1 — start() rollback on listen failure", () => {
 });
 
 // ----------------------------------------------------------------------------
-// RT-codex-1 finding #2 — Reject malformed request id BEFORE handler dispatch
+// Reject malformed request id BEFORE handler dispatch
 // ----------------------------------------------------------------------------
 //
-// Codex P1 / I-007-7: per JSON-RPC §4 + contracts/jsonrpc.ts:74, an `id`
-// field — when present — MUST be String, Number, or NULL. Anything else
-// (object, array, boolean) is an Invalid Request and MUST be rejected
-// at -32600 BEFORE the handler dispatches. The previous code treated
-// `{"id": {}}` as a valid request, ran the handler, and silently coerced
-// the bad id to `null` for the response — masking a wire-protocol
-// violation.
+// Anything else (object, array, boolean) is an Invalid Request and MUST be
+// rejected at -32600 BEFORE the handler dispatches. The previous code treated
+// `{"id": {}}` as a valid request, ran the handler, and silently coerced the
+// bad id to `null` for the response — masking a wire-protocol violation.
 
-describe("RT-codex-1 finding #2 — malformed request id rejected before dispatch", () => {
+describe("malformed request id rejected before dispatch", () => {
   // Each malformed id value should produce a -32600 InvalidRequest with
   // id=null and the registered handler MUST NOT be invoked.
   const malformedIds: ReadonlyArray<{ readonly label: string; readonly idJson: string }> = [
@@ -912,12 +890,12 @@ describe("RT-codex-1 finding #2 — malformed request id rejected before dispatc
           });
           const response = decodeOneFrame(acc) as JsonRpcErrorResponse;
           expect(response.jsonrpc).toBe(JSONRPC_VERSION);
-          // Per JSON-RPC §5: when id detection fails / id is invalid,
+          // Per JSON-RPC section 5: when id detection fails / id is invalid,
           // the error response id MUST be Null.
           expect(response.id).toBeNull();
           expect(response.error.code).toBe(JsonRpcErrorCode.InvalidRequest);
           // The crucial assertion: the handler MUST NOT have run. The
-          // -32600 fires BEFORE dispatch per I-007-7.
+          // -32600 fires BEFORE dispatch.
           expect(handlerSpy).not.toHaveBeenCalled();
         } finally {
           await client.close();
@@ -932,7 +910,7 @@ describe("RT-codex-1 finding #2 — malformed request id rejected before dispatc
 
 // ----------------------------------------------------------------------------
 //
-// Codex round-4 P2: the `id` is echoed verbatim, so it is the one response
+// The `id` is echoed verbatim, so it is the one response
 // member the CALLER sizes. An id that fits the inbound frame can still make
 // every reply to it un-encodable — and the send path cannot transmit the reply
 // that failed to encode, so it destroys the socket. Left unbounded, a caller
@@ -1096,18 +1074,18 @@ describe("JSON_RPC_ID_MAX_BYTES — an oversized request id is refused, never ec
 });
 
 // ----------------------------------------------------------------------------
-// RT-codex-1 finding #3 — header section length cap fires WITH delimiter present
+// Header section length cap fires WITH delimiter present
 // ----------------------------------------------------------------------------
 //
-// Codex P2: the 1024-byte header guard previously fired only inside the
+// The 1024-byte header guard must not fire only inside the
 // `separatorIndex === -1` branch (delimiter not yet seen). A peer who
 // sent megabytes of header followed by CRLFCRLF bypassed the cap — the
 // parser proceeded to ASCII-decode and parse the oversized header
-// block. F-007p-2-11's MAX_MESSAGE_BYTES cap only governs the BODY per
-// the file's own comment. Fix: an unconditional `separatorIndex > 1024`
-// throw closes the symmetric DoS surface.
+// block. the MAX_MESSAGE_BYTES cap only governs the BODY per the file's
+// own comment. Fix: an unconditional `separatorIndex > 1024` throw
+// closes the symmetric DoS surface.
 
-describe("RT-codex-1 finding #3 — parseFrame caps header section even when delimiter is present", () => {
+describe("parseFrame caps header section even when delimiter is present", () => {
   it("throws FramingError(`header_too_long`) when header section exceeds 1024 bytes despite a valid CRLFCRLF terminator", () => {
     // Build a frame with a valid CRLFCRLF terminator but a header
     // section >1 KB. We pad with a synthetic `X-Pad: <2000 a's>` line
@@ -1147,18 +1125,17 @@ describe("RT-codex-1 finding #3 — parseFrame caps header section even when del
 });
 
 // ----------------------------------------------------------------------------
-// RT-codex-2 finding #4 — envelope-level `protocolVersion` substrate gate
+// Envelope-level `protocolVersion` substrate gate
 // ----------------------------------------------------------------------------
 //
-// `Spec-007 §Wire Format` (BL-102 ratified 2026-05-01) mandates:
-// "Every request (except health checks) must include a `protocolVersion`
-// field carrying an ISO 8601 date-string in `YYYY-MM-DD` form." Prior to
-// this gate, `local-ipc-gateway.ts#dispatchFrame` validated only
-// `jsonrpc` / `method` / `id`-shape and dispatched to the handler — the
-// per-request `protocolVersion` field went uninspected. The narrowed
-// type at `packages/contracts/src/jsonrpc.ts:100` is COMPILE-TIME only;
-// peer wire bytes can carry any shape, so the substrate must enforce
-// per I-007-7 (validation runs before handler dispatch).
+// mandates: "Every request (except health checks) must include a
+// `protocolVersion` field carrying an ISO 8601 date-string in
+// `YYYY-MM-DD` form." Prior to this gate,
+// `local-ipc-gateway.ts#dispatchFrame` validated only `jsonrpc` /
+// `method` / `id`-shape and dispatched to the handler — the per-request
+// `protocolVersion` field went uninspected. The narrowed type at
+// `packages/contracts/src/jsonrpc.ts:100` is COMPILE-TIME only; peer
+// wire bytes can carry any shape, so the substrate must enforce.
 //
 // The gate fires three discriminated reasons in `data.fields.reason`:
 //   * `missing` — the field is absent from the envelope.
@@ -1173,21 +1150,19 @@ describe("RT-codex-1 finding #3 — parseFrame caps header section even when del
 // is canonical at `packages/contracts/src/jsonrpc.ts`.
 //
 // Wire shape (post-gate): `-32600 InvalidRequest` + `data.type:
-// "transport.invalid_protocol_version"` + `data.fields: { reason, ... }`
-// per error-contracts.md §Plan-007 Tier 1 Domain Identifiers + §Transport
-// (BL-103 lineage).
+// "transport.invalid_protocol_version"` + `data.fields: { reason,...
 //
 // Connection-stay-open semantic: this gate is an envelope-level
 // violation, NOT a framing violation. The connection MUST stay open so
 // a corrected reconnect-less retry succeeds (mirrors the `id`-shape
 // gate at lines 1059-1073 of `local-ipc-gateway.ts`).
 //
-// Notification path: per JSON-RPC §4.1 the server MUST NOT reply to a
+// Notification path: per JSON-RPC section 4.1 the server MUST NOT reply to a
 // notification, even on envelope violation. The substrate drops the
 // frame and surfaces via supervision `onError` so operators can
 // correlate notification-side wire violations.
 
-describe("RT-codex-2 finding #4 — envelope-level protocolVersion substrate gate", () => {
+describe("envelope-level protocolVersion substrate gate", () => {
   // -- helpers --------------------------------------------------------------
 
   /**
@@ -1220,10 +1195,9 @@ describe("RT-codex-2 finding #4 — envelope-level protocolVersion substrate gat
   }
 
   /**
-   * Register `session.create`-style stub on the registry so the gate
-   * has a real method-name to validate against. The handler MUST NOT
-   * be invoked when the gate fires — the `handlerSpy` assertion proves
-   * this on every gate-firing case (I-007-7 substrate-side).
+   * The handler MUST NOT be invoked when the gate fires — the
+   * `handlerSpy` assertion proves this on every gate-firing case
+   * (substrate-side).
    */
   function makeRegistry(method = "session.create"): {
     readonly registry: MethodRegistryImpl;
@@ -1363,7 +1337,7 @@ describe("RT-codex-2 finding #4 — envelope-level protocolVersion substrate gat
             type: "transport.invalid_protocol_version",
             fields: expectedFields,
           });
-          // Handler never invoked — I-007-7 substrate-side guarantee.
+          // Handler never invoked — substrate-side guarantee.
           expect(handlerSpy).not.toHaveBeenCalled();
         } finally {
           await client.close();
@@ -1483,7 +1457,7 @@ describe("RT-codex-2 finding #4 — envelope-level protocolVersion substrate gat
       await gateway.start();
       const client = await makeClient(socketPath);
       try {
-        // Notification with NO protocolVersion. Per JSON-RPC §4.1 the
+        // Notification with NO protocolVersion. Per JSON-RPC section 4.1 the
         // server MUST NOT respond. The substrate drops the frame and
         // surfaces via onError supervision.
         client.socket.write(frameNotificationWithProtocolVersion("session.create", null));
@@ -1552,7 +1526,7 @@ describe("RT-codex-2 finding #4 — envelope-level protocolVersion substrate gat
         });
         const response = decodeOneFrame(acc) as JsonRpcErrorResponse;
         expect(response.jsonrpc).toBe(JSONRPC_VERSION);
-        // Per JSON-RPC §5: when id can't be detected/recovered, the
+        // Per JSON-RPC section 5: when id can't be detected/recovered, the
         // error response id MUST be Null. Our id-shape gate sends
         // `null` literally per `mapJsonRpcError(wrapped, null)` at
         // local-ipc-gateway.ts:1070.

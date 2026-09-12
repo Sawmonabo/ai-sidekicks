@@ -34,14 +34,14 @@
 // the newest kind of loss.
 
 import { Glyph, LedgerRow, Nothing } from "../../../primitives/index.js";
-import { type ParticipantHueAssignment } from "../../../tokens/index.js";
+import { type ActorHueAssignment } from "../../../tokens/index.js";
 import { SEAM_WIRE_BINDINGS, SWITCH_CONTINUITY_MEMO } from "./seam-vocabulary.js";
 import { type LedgerSeam } from "./seams.js";
 
 export interface SeamRowProps {
   readonly seam: LedgerSeam;
   /** The actor's allocated hue, or `undefined` on an unattributed seam. */
-  readonly participantHue?: ParticipantHueAssignment | undefined;
+  readonly actorHue?: ActorHueAssignment | undefined;
   /** Whether a rollback later in the log put this seam behind it. */
   readonly isSuperseded?: boolean | undefined;
 }
@@ -52,10 +52,8 @@ export function SeamRow(props: SeamRowProps): React.JSX.Element {
   const binding = SEAM_WIRE_BINDINGS[seam.kind];
   return (
     <LedgerRow
-      participantHueStep={props.participantHue?.step ?? -1}
-      {...(props.participantHue === undefined
-        ? {}
-        : { ringTreatment: props.participantHue.ringTreatment })}
+      actorHueStep={props.actorHue?.step ?? -1}
+      {...(props.actorHue === undefined ? {} : { ringTreatment: props.actorHue.ringTreatment })}
       occurredAtIso={seam.timestamp}
       actorLabel={seam.actorId ?? "Session"}
       kindLabel={seam.wireType}

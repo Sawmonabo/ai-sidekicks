@@ -1,11 +1,11 @@
 // That the candidates are enumerated WHILE the name is typed, in the real composer.
 //
-// `Spec-017 §Chat-start surface (SA-38)` asks for an autocomplete that "enumerates
-// candidates via `workflow.definitionList`". The accelerator read that enumeration
-// only after Enter, to resolve a name somebody had to know already — so a person who
-// did not know it was told the name they guessed does not exist and offered nothing
-// instead. These cases drive the shipped composer: the real seat, the real discovery
-// popover, and the real fixture bridge with this one growth operation scripted.
+// The autocomplete enumerates candidates via `workflow.definitionList`. The accelerator
+// read that enumeration only after Enter, to resolve a name somebody had to know
+// already — so a person who did not know it was told the name they guessed does not
+// exist and offered nothing instead. These cases drive the shipped composer: the real
+// seat, the real discovery popover, and the real fixture bridge with this one growth
+// operation scripted.
 //
 // The negative control is the one that makes the rest mean anything: a line that is
 // not this command's asks the wire nothing, so the read is driven by the typed

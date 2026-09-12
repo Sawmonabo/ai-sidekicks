@@ -1,14 +1,14 @@
 // GOLDEN VECTOR — Codex `ServerRequest` method census.
 //
-//   Source doc      : docs/reference/provider-wire/codex.md
-//   Section         : §Server-requests — the callback / interactive / approval
+//   Source doc: docs/reference/provider-wire/codex.md Section: — the callback
+//   / interactive / approval
 //                     surface (Codex -> daemon)
 //   Pin             : codex-cli 0.150.1 (the `latest` dist-tag of
 //                     `@openai/codex` at that doc's authoring)
 //   Provenance      : Generated schema (`codex app-server generate-json-schema`
 //                     / `generate-ts`), regenerated 2026-08-28
-//   Trust           : Verified at 0.150.1
-//   Derived by      : Plan-005 T3.5, transcribed from the reference's verbatim
+//   Trust: Verified at 0.150.1 Derived by: transcribed from the reference's
+//   verbatim
 //                     enumeration. NOTHING here is invented: codex.md records
 //                     `ServerRequest` as carrying exactly ten methods at the
 //                     pin ("the same 10 as at 0.141.0 — the one root that has
@@ -32,9 +32,8 @@
 // protocol root, and their experimental gating — and payload-shaped cases go
 // through typed constructors in `__tests__/event-normalizer.test.ts`.
 //
-// Regeneration: when the Codex pin moves, re-run the commands in codex.md
-// §Regeneration against the new binary and re-derive this file from the new
-// generation. Do not hand-edit a method string here to make a test pass.
+// Regeneration: when the Codex pin moves, re-run the commands in codex.md.
+// Do not hand-edit a method string here to make a test pass.
 
 /** One row of the pinned `ServerRequest` method census. */
 export interface CodexServerRequestMethodVector {
@@ -53,15 +52,14 @@ export interface CodexServerRequestMethodVector {
 /**
  * All ten `ServerRequest` methods at `codex-cli 0.150.1`.
  *
- * codex.md §Server-requests, verbatim structure: callback tools
- * (`item/tool/call`); interactive input (`item/tool/requestUserInput`
- * — marked EXPERIMENTAL, "a default app-server session never delivers this
- * method, so the Plan-005 interactive-request leg must opt in at
- * `initialize`" — and `mcpServer/elicitation/request`); approvals modern
- * (`item/commandExecution/requestApproval`, `item/fileChange/requestApproval`,
- * `item/permissions/requestApproval`) and legacy (`execCommandApproval`,
- * `applyPatchApproval`); "also `attestation/generate`,
- * `account/chatgptAuthTokens/refresh`".
+ * codex.md verbatim structure: callback tools (`item/tool/call`); interactive
+ * input (`item/tool/requestUserInput` — marked EXPERIMENTAL, "a default
+ * app-server session never delivers this method, so interactive-request leg
+ * must opt in at `initialize`" — and `mcpServer/elicitation/request`);
+ * approvals modern (`item/commandExecution/requestApproval`,
+ * `item/fileChange/requestApproval`, `item/permissions/requestApproval`) and
+ * legacy (`execCommandApproval`, `applyPatchApproval`); "also
+ * `attestation/generate`, `account/chatgptAuthTokens/refresh`".
  */
 export const CODEX_SERVER_REQUEST_METHOD_VECTORS: readonly CodexServerRequestMethodVector[] =
   Object.freeze([
@@ -119,8 +117,8 @@ export const CODEX_SERVER_REQUEST_METHOD_VECTORS: readonly CodexServerRequestMet
 
 /**
  * The `ServerRequest` root's arity at the pin, quoted from codex.md
- * §Server-requests: "`ServerRequest` carries 10 methods at `0.150.1` — the
- * same 10 as at `0.141.0`".
+ * "`ServerRequest` carries 10 methods at `0.150.1` — the same 10 as at
+ * `0.141.0`".
  *
  * Pinned as a value so the vector list above cannot silently lose or gain a
  * row: the test asserts the list length against this count, which fails loudly

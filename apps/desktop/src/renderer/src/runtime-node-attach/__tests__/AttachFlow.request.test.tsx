@@ -1,26 +1,23 @@
 // What the attach flow SENDS, and what it settles to — the wire half of the suite.
 //
 // Split from the render half on the seam `attach-request.ts` draws: this file drives
-// the composed request, the four settlement paths a bridge reply can take, and the
-// CP-003-3 source tripwire over both of the view's modules. What the operator SEES on
-// each of those states is `AttachFlow.render.test.tsx`, over the one cast in
-// `attach-flow.test-support.ts`.
+// the composed request and the four settlement paths a bridge reply can take. What
+// the operator SEES on each of those states is `AttachFlow.render.test.tsx`, over the
+// one cast in `attach-flow.test-support.ts`.
 //
-// Spec coverage:
-//   • `Spec-003 §Required Behavior` (attach carries node identity, declared
-//     capabilities, health, and trust context): the composed-payload case asserts the
-//     exact `runtimenode.attach` input the view sends.
-//   • Spec-023 §Trust Stance + `Plan-003 §Cross-Plan Obligations` CP-003-3: the view
-//     reaches the control plane ONLY through `window.sidekicks` (the mock bridge IS
-//     that seam), and the source scan at the bottom of this file.
+// What the cases hold the view to:
+//   • An attach carries node identity, declared capabilities, health, and trust
+//     context: the composed-payload case asserts the exact `runtimenode.attach` input
+//     the view sends.
+//   • The renderer is untrusted, so the view reaches the control plane ONLY through
+//     `window.sidekicks` — the mock bridge IS that seam.
 //
-// Harness: the Vitest `renderer` project (happy-dom) + `@testing-library/react` —
-// see `ADR-022 §Decision Log` (2026-08-25).
+// Harness: the Vitest `renderer` project (happy-dom) + `@testing-library/react`.
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { NotImplementedAtTier1Error } from "@ai-sidekicks/contracts";
+import { NotImplementedError } from "@ai-sidekicks/contracts";
 
 import { AttachFlow } from "../AttachFlow.js";
 import type { RuntimeNodeAttachDraft } from "../attach-request.js";
@@ -98,7 +95,7 @@ describe("AttachFlow — the request it sends and how it settles", () => {
       clickAttach();
 
       // The count is asserted only AFTER the attach settles. The violation this
-      // forbids — a coupled membership mutation — would most plausibly be
+      // forbids — a coupled ownership mutation — would most plausibly be
       // chained off attach success, so a count taken while the promise is
       // still pending would be blind to exactly the shape it exists to catch.
       await screen.findByLabelText("runtime-node-attach-resolved");
@@ -148,11 +145,11 @@ describe("AttachFlow — the request it sends and how it settles", () => {
     });
 
     it("catches a bridge method that throws synchronously", async () => {
-      // The Tier-1 bridge stub throws `NotImplementedAtTier1Error` SYNCHRONOUSLY
+      // The stub bridge throws `NotImplementedError` SYNCHRONOUSLY
       // rather than returning a rejected promise; the view must land in its
       // error state instead of letting the throw escape the click handler.
       const controlPlaneCall = vi.fn(() => {
-        throw new NotImplementedAtTier1Error("controlPlane.call");
+        throw new NotImplementedError("controlPlane.call");
       });
       installMockBridge(controlPlaneCall);
 
@@ -162,7 +159,7 @@ describe("AttachFlow — the request it sends and how it settles", () => {
       const errorSection = await screen.findByRole("alert", {
         name: "runtime-node-attach-error",
       });
-      expect(errorSection.textContent).toContain("NotImplementedAtTier1Error");
+      expect(errorSection.textContent).toContain("NotImplementedError");
     });
 
     it("renders a non-object rejection through the string fallback", async () => {

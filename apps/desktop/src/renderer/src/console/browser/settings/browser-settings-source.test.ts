@@ -147,7 +147,7 @@ describe("the browser settings carrier — an act supersedes the reads before it
     view.start();
     view.requestRead("window-focus");
     view.requestRead("reconnect");
-    view.requestRead("participant-request");
+    view.requestRead("user-request");
     await settleScheduledRead(bridge);
 
     expect(node.listCallCount).toBe(1);

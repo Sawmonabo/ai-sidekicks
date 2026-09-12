@@ -45,7 +45,7 @@ import { settleScriptedReply, type ScenarioEngine } from "../../scenario/runtime
  *   • **Unscripted** is the CALLER's to answer, and its answer is an outcome rather
  *     than a value — because the honest reading differs per operation and neither
  *     arm may be forced on the other. The list reads' is a served EMPTY state: a
- *     session with no invites and a node with no saved sidekick definitions are
+ *     session with no channels and a node with no saved sidekick definitions are
  *     ordinary, and a surface has to draw them. The approvals reads', the branch
  *     read's, and every workflow read's is a refusal: a scenario that models no
  *     approvals has left the question unasked, the registered branch-context reply is
@@ -128,7 +128,7 @@ export async function answerFromScriptedReply<TOperationId extends GrowthOperati
  *
  * The precondition is read off `engine.scenario` BEFORE the settlement rather than as a
  * fifth settlement arm inside `answerFromScriptedReply`, because it is a fact about the
- * SCENARIO rather than about the settlement — `callerParticipantRead` in the port reads
+ * SCENARIO rather than about the settlement — `callerUserRead` in the port reads
  * its own precondition the same way and for the same reason. What is left after the
  * check is exactly the settlement the seam reports, so the parked, abandoned, and
  * over-cap arms all keep their own answers.

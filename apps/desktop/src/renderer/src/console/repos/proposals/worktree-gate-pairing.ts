@@ -24,8 +24,8 @@
 // belonging to somebody else's work.
 //
 // A mount with NO workspace does not pair either, and that case is not hypothetical
-// dressing: attach mints a default workspace (`Spec-009 §Default Behavior`), so a
-// mount with none means the roster and the mount disagree — which `MountCard` already
+// dressing: attach mints a default workspace, so a mount with none means the roster
+// and the mount disagree — which `MountCard` already
 // says out loud — and a gate is not the surface to resolve it on.
 
 import type { ProposalGateSubject } from "./proposal-gate-model.js";

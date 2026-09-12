@@ -223,42 +223,33 @@ jobs:
 
       - name: docs-corpus checks (full repo)
         # Single runner composing path-canonical-ripple + plan-manifest-presence
-        # + mermaid-set-coherence + cite-target-existence + label-cite +
-        # table-total-coherence. The runner partitions argv by extension: `.md`
-        # governance docs get the per-file markdown checks (mermaid + cite +
-        # table-total), and `packages/**`+`apps/**` TypeScript
-        # gets the label-cite floor (governance `Spec-NNN:LL` cites in code
-        # comments). path-canonical-ripple + plan-manifest-presence run
-        # unconditionally (each does its own whole-repo enumeration — path-ripple
-        # greps the registry `scope` globs; manifest-presence walks
-        # `git ls-files docs/plans/`). Passing the FULL code tree (not just the PR
-        # diff) is the backstop for the doc-only-amend case: a spec amendment that
-        # shifts line numbers with no code file in the diff still re-checks every
-        # `Spec-NNN:LL` code cite repo-wide here.
+        # + mermaid-set-coherence + cite-target-existence + section-cite
+        # verification + the md volatile-cite deny + table-total-coherence +
+        # table-arity, over the `.md` governance corpus.
+        # path-canonical-ripple + plan-manifest-presence run unconditionally
+        # (each does its own whole-repo enumeration — path-ripple greps the
+        # registry `scope` globs; manifest-presence walks
+        # `git ls-files docs/plans/`).
         #
-        # `--min-md` / `--min-code` arm the runner's per-lane floors. Both
-        # pipelines below end in `|| true`, so a `git ls-files` that fails —
-        # or a `grep` whose pattern stops matching after an unrelated edit —
-        # yields an EMPTY array rather than a non-zero exit, and every check
-        # scoped to that lane is silently skipped while this required job
-        # exits 0. The floors are per-lane, not a total, because argv is one
-        # flat list here: an `.md` collapse alongside a healthy code lane
-        # still leaves argv hundreds of entries long.
+        # `--min-md` arms the runner's lane floor. The pipeline below ends in
+        # `|| true`, so a `git ls-files` that fails — or a `grep` whose pattern
+        # stops matching after an unrelated edit — yields an EMPTY array rather
+        # than a non-zero exit, and every check scoped to that lane is silently
+        # skipped while this required job exits 0.
         #
-        # Each floor sits at roughly HALF the live lane (~230 `.md` after the
-        # runner drops `docs/reference/`, ~230 code), because the two failure
-        # directions are handled by different mechanisms: the floor is the
-        # tripwire for a COLLAPSE (enumeration breaks, the lane goes to ~0),
-        # while a partial drop is caught by the `lanes resolved` counts the
-        # runner prints whenever a floor is armed. Buying collapse-detection
-        # cheaply matters more than a tight bound here — this is a required
-        # check, so a floor that false-trips blocks every PR. A breach means
-        # enumeration broke; repair it rather than lowering the floor.
+        # The floor sits at roughly HALF the live lane (~230 `.md` after the
+        # runner drops `docs/reference/`), because the two failure directions
+        # are handled by different mechanisms: the floor is the tripwire for a
+        # COLLAPSE (enumeration breaks, the lane goes to ~0), while a partial
+        # drop is caught by the `lane resolved` count the runner prints whenever
+        # the floor is armed. Buying collapse-detection cheaply matters more
+        # than a tight bound here — this is a required check, so a floor that
+        # false-trips blocks every PR. A breach means enumeration broke; repair
+        # it rather than lowering the floor.
         run: |
           mapfile -t md_files < <(git ls-files '*.md' | grep -v '^docs/archive/' || true)
-          mapfile -t code_files < <(git ls-files 'packages/' 'apps/' | grep -E '\.(ts|tsx|mts|cts)$' | grep -v '/dist/' || true)
           node --experimental-strip-types tools/docs-corpus/bin/pre-commit-runner.ts \
-            --min-md=100 --min-code=100 "${md_files[@]}" "${code_files[@]}"
+            --min-md=100 "${md_files[@]}"
 
       - name: plan-cite Gate-4 survey (enforced)
         # Corpus-wide Gate-4 cite screen over every survey unit — each walked plan
@@ -268,10 +259,10 @@ jobs:
         # cite-swept, K uncovered` line so a clean verdict is only readable as
         # clean when the screen actually reached every plan. ARMED:
         # `--survey --enforce-cites` folds citeAnomalies into the exit, so a new or
-        # edited plan carrying a malformed Gate-4 cite fails the gate. The two
-        # compact-inline legacy plans (Plan-008/023) are diverted via
-        # LEGACY_INLINE_CITE_EXEMPT in preflight.mjs — their debt prints as visible
-        # but non-blocking, and the stale-exemption ratchet fails the moment one is
+        # edited plan carrying a malformed Gate-4 cite fails the gate. The one
+        # compact-inline legacy plan (Plan-023) is diverted via
+        # LEGACY_INLINE_CITE_EXEMPT in preflight.mjs — its debt prints as visible
+        # but non-blocking, and the stale-exemption ratchet fails the moment it is
         # re-authored clean. See preflight-contract.md § Survey mode exit contract.
         #
         # DELIBERATELY STRICTER THAN DISPATCH: the survey folds every Gate-4
@@ -308,20 +299,20 @@ jobs:
     # Enforces the lane-1 title-token boundary from CONTRIBUTING.md §How Code
     # Lands: a PR whose title cites `Plan-NNN` (case-insensitive) while its
     # diff touches material paths (packages/ + apps/ + .github/ + deploy/ —
-    # G6's MATERIAL_PATH_PREFIXES) must DECLARE lane-1 shipment for that plan —
+    # manifest reconciliation's MATERIAL_PATH_PREFIXES) must DECLARE lane-1 shipment for that plan —
     # a plan-scoped branch (<type>/plan-NNN-*, any CONTRIBUTING §Type-segment
     # type) or a docs/plans/NNN-*.md edit in the same diff. The Shipment
     # Manifest entry cannot be required in-PR (its sha: field is this PR's
     # own squash SHA; Phase E lands it via the post-merge housekeeping PR).
     # Otherwise the merged title pollutes the manifest-freshness gate's
     # title-search recovery — the one remaining way to re-create shipment
-    # drift. Docs-only diffs pass (G6's own narrowing): docs PRs may
-    # legitimately name plans. Reverts get no exemption (G6 has none: a
+    # drift. Docs-only diffs pass (manifest reconciliation's own narrowing): docs PRs may
+    # legitimately name plans. Reverts get no exemption (manifest reconciliation has none: a
     # merged material revert title carrying the token becomes an
     # unmanifested shipment in the freshness population — drop the token or
     # carry a plan-doc edit that actually touches manifest content), and the
     # inverse mislabel fails too: a material diff on a plan-scoped branch
-    # whose title does not cite that same plan would be invisible to G6's
+    # whose title does not cite that same plan would be invisible to manifest reconciliation's
     # title search.
     #
     # PR-metadata guard, so it runs only on pull_request events; on push the

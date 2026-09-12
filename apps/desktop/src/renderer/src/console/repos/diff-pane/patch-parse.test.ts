@@ -85,7 +85,7 @@ describe("parseUnifiedPatch — the hunk header is the patch's own", () => {
 
 describe("parseUnifiedPatch", () => {
   it("carries the create call's attribution and compared states rather than reading them", () => {
-    // Neither is in the patch text — `Spec-011` puts both on the create call — so a
+    // Neither is in the patch text — both ride the create call — so a
     // parser that produced them from the body would be inventing them.
     const model = parsePlain(PLAIN_PATCH);
     expect(model.attribution).toStrictEqual(RUN_ATTRIBUTION);

@@ -37,8 +37,8 @@ describe("diff model — attribution", () => {
   });
 
   it("negative control: the workspace arm carries no run to read", () => {
-    // The claim `Spec-011 §Pitfalls To Avoid` names — never pretend a workspace
-    // diff is run-attributed — is enforced by the union's shape rather than by a
+    // The claim — never pretend a workspace diff is run-attributed — is enforced by
+    // the union's shape rather than by a
     // renderer's discipline, and this is what says so at runtime.
     expect(Object.hasOwn(WORKSPACE_FALLBACK_ATTRIBUTION, "runId")).toBe(false);
     expect(Object.hasOwn(RUN_ATTRIBUTED_ATTRIBUTION, "workspaceId")).toBe(false);

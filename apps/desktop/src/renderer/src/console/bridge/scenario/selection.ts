@@ -11,8 +11,8 @@
 //
 // WHY A QUERY PARAMETER AND NOT A RUNTIME SWITCH
 //
-// `Spec-023 §Console Design (Meridian)` §The fixture bridge makes the fixture a
-// `define`-gated build-time constant. That decides WHETHER there are scenarios at
+// The fixture bridge is a `define`-gated build-time constant. That decides WHETHER
+// there are scenarios at
 // all; it does not decide which one plays, and a build carrying six scenarios and
 // no way to name one can only ever play the first. The id therefore travels on the
 // document URL — a value the window is BORN with, like its opening route — and is
@@ -47,8 +47,8 @@ import { LEDGER_FIRST_SIXTY_SCENARIO_ID } from "./ledger/ledger-scenario-id.js";
 /**
  * What a fixture window plays when its URL names no scenario.
  *
- * THE DEMO, and not the empty console it used to be. `Spec-023 §The four bars`,
- * Richness, names the first sixty seconds a designed composition, and a build that
+ * THE DEMO, and not the empty console it used to be. Richness names the first sixty
+ * seconds a designed composition, and a build that
  * only ever reached it by hand-typing a fixture id into a query string had a
  * composition nobody would see. So the unnamed case is the one a person launching
  * the product gets, and the empty first-run frame is named explicitly — by the

@@ -20,8 +20,8 @@
 // session the person believes was never made.
 //
 // AND THE ATTACH LEG GOES THROUGH THE GROWTH PORT RATHER THAN REFUSING LOCALLY.
-// `agent.attach` is on `Plan-023 §Console growth slate`'s `agent-snapshot-axes` row
-// and reaches the console as a growth operation the fixture serves from a script, so
+// `agent.attach` is on the console growth slate's `agent-snapshot-axes` row and
+// reaches the console as a growth operation the fixture serves from a script, so
 // a draft that refused it by name was refusing a call it could have made — and, on
 // the live bridge, was minting a second sentence for the refusal the port already
 // composes. The port's own refusal travels instead, which is what names the document
@@ -275,7 +275,7 @@ async function queueFirstTurn(
     return { queued: true, refusal: undefined };
   }
   // Blankness is decided by trimming and the text is never trimmed: what reaches the
-  // wire is the participant's own bytes, so a first turn that opens with indented code
+  // wire is the user's own bytes, so a first turn that opens with indented code
   // keeps its shape. `send-router.ts` states the same rule for the composer's path.
   if (request.firstTurn.trim().length === 0) {
     return {

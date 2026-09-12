@@ -4,7 +4,7 @@
 // The two questions were one module, and they are not one job. This half is a
 // READER: it holds the wire vocabulary the daemon sends, the shape each reason
 // obliges the payload to have, the two ways an event is read off that payload, and
-// the sentence one transition renders as. It knows nothing about a viewer, a holding
+// the sentence one transition renders as. It knows nothing about a device, a holding
 // node, a ledger cap, or which of five holdings the surface settles into — all of
 // which are `lease-model.ts`'s, because all of them are properties of the SEQUENCE
 // rather than of the event.
@@ -59,7 +59,7 @@ export type TerminalLeaseTransitionReason = (typeof TERMINAL_LEASE_TRANSITION_RE
  * tolerantly beside it: any non-empty string became a holder and everything else
  * became the free lease. So a `taken` whose payload named nobody was presented as a
  * FREE lease — a shell the daemon has just handed to someone, offered here as one
- * anybody may claim — and a `released` that carried the viewer's own id was presented
+ * anybody may claim — and a `released` that carried this device's own id was presented
  * as `held-by-you`, which opens stdin until the daemon rejects the writes. Neither
  * payload is a transition this build understands, and the honest reading of a
  * transition it cannot understand is the unread one.
@@ -68,8 +68,8 @@ export type TerminalLeaseTransitionReason = (typeof TERMINAL_LEASE_TRANSITION_RE
  * a take names who holds it, and every release — the operator's own and the three
  * automatic ones alike — leaves nobody holding it. The member is documented as who
  * holds the lease AFTER the transition, so a release that named a holder is
- * contradicting itself rather than naming the participant it took the shell from;
- * that participant is the `previousHolderParticipantId` the same payload carries.
+ * contradicting itself rather than naming the user it took the shell from;
+ * that user is the `previousHolderUserId` the same payload carries.
  *
  * The check is HERE because there is nowhere else for it. `packages/contracts`
  * registers `pty.control_changed` as an event type and no payload variant for it, so
@@ -94,8 +94,8 @@ export interface TerminalLeaseTransition {
   readonly occurredAtIso: string;
   readonly reason: TerminalLeaseTransitionReason;
   /** Who holds it after this transition; `null` is the free lease, explicitly. */
-  readonly holderParticipantId: string | null;
-  readonly previousHolderParticipantId: string | null;
+  readonly holderUserId: string | null;
+  readonly previousHolderUserId: string | null;
   /** Who the log attributes the event to, when it names anyone. */
   readonly actorId: string | undefined;
 }
@@ -134,7 +134,7 @@ export function asTerminalLeaseTransitionReason(
  * Both halves have to agree. A recognised reason with a holder shape that
  * contradicts it is not a transition this build can read, and returning it with the
  * holder quietly normalised is how a malformed `taken` became a free lease and a
- * `released` carrying the viewer became `held-by-you`.
+ * `released` carrying this device became `held-by-you`.
  */
 export function readTerminalLeaseTransition(
   event: ConsoleSessionEvent,
@@ -147,8 +147,8 @@ export function readTerminalLeaseTransition(
   if (reason === undefined) {
     return undefined;
   }
-  const holderParticipantId = readParticipantId(payload["holderParticipantId"]);
-  const namesAHolder = holderParticipantId !== null;
+  const holderUserId = readUserId(payload["holderUserId"]);
+  const namesAHolder = holderUserId !== null;
   if (namesAHolder !== (TRANSITION_HOLDER_SHAPES[reason] === "names-the-holder")) {
     return undefined;
   }
@@ -156,8 +156,8 @@ export function readTerminalLeaseTransition(
     sequence: event.sequence,
     occurredAtIso: event.occurredAt,
     reason,
-    holderParticipantId,
-    previousHolderParticipantId: readParticipantId(payload["previousHolderParticipantId"]),
+    holderUserId,
+    previousHolderUserId: readUserId(payload["previousHolderUserId"]),
     actorId: event.actorId,
   };
 }
@@ -210,7 +210,7 @@ export function terminalLeaseTransitionSentence(transition: TerminalLeaseTransit
 }
 
 /**
- * A participant id, or the free lease.
+ * A user id, or the free lease.
  *
  * Anything that is not a non-empty string reads as the free lease rather than as
  * an identity: an absent member and an explicit null both mean "nobody holds it",
@@ -221,6 +221,6 @@ export function terminalLeaseTransitionSentence(transition: TerminalLeaseTransit
  * the mapping of its absence onto the free lease, which is a lease fact and not a
  * wire one.
  */
-function readParticipantId(candidate: unknown): string | null {
+function readUserId(candidate: unknown): string | null {
   return readWireString(candidate) ?? null;
 }

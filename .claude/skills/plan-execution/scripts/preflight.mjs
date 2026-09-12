@@ -693,8 +693,8 @@ export function countCites(phaseSection) {
 // on countCites (a bare substring count) and MUST stay byte-identical, so this
 // finer classification lives only in --survey. It separates BOLD field markers
 // (`**Spec coverage:**` / `**Verifies invariant:**` — the only shape
-// extractCiteAnchors parses) from UNBOLD/inline field markers (the Plan-008
-// `- **T-…** (…; Verifies invariant: …; Spec coverage: …)` style the bold
+// extractCiteAnchors parses) from UNBOLD/inline field markers (the
+// compact-inline `- **T-…** (…; Verifies invariant: …; Spec coverage: …)` style the bold
 // extractor silently skips). Both alternatives are line-anchored to a field
 // position — a bullet head (`- Spec coverage:`) or an inline `;`/`(` delimiter
 // — so a prose sentence mentioning "Spec coverage" without a field colon is
@@ -754,8 +754,8 @@ export function parsePreconditionsBlock(phaseSection) {
   // Returning [] for them conflated "no preconditions block" with "empty
   // preconditions list", which made gatePreconditions skip the prose
   // **Precondition:** fallback and vacuously pass — the silent gate-disable seen
-  // on the last phase of every manifested plan (Plan-001 P5, Plan-002 P6,
-  // Plan-003 P5) and on Plan-002 Phase 2's in-body example. Return null (no
+  // on the last phase of every manifested plan, and on a phase whose body
+  // carries a yaml example of its own. Return null (no
   // preconditions block) so the prose fallback runs.
   let blockBody = null;
   for (const m of phaseSection.matchAll(/```ya?ml\s*\n([\s\S]*?)\n```/g)) {
@@ -837,18 +837,14 @@ export function regexParsePreconditionsLine(line, localPlanNumber) {
   // phases (no `### Phase` sections, no shipment manifest) is the prose form
   // `Plan-NNN Tier M (merged|complete|ships) …` — distinct from the
   // `Plan-NNN Phase N merged` form above (resolved against the upstream's
-  // per-phase manifest by the plan_phase case). Corpus examples: Plan-002
-  // Phase 4 (`[Plan-021](…) Tier 6 ships the rateLimitProcedure …`), Plan-002
-  // Phase 2 (`[Plan-025 Tier 1 Partial](…) merged`), Plan-002 Phase 6
-  // (`Plan-023 Tier 1 Partial complete`). Without this branch the line falls
-  // through to gatePreconditions' "unparseable prose → legacy free-form →
+  // per-phase manifest by the plan_phase case). Without this branch the line
+  // falls through to gatePreconditions' "unparseable prose → legacy free-form →
   // silent pass", which lets a phase whose ONLY other precondition token is
   // already satisfied (e.g. a local `Phase 2 merged`) resolve eligible while
-  // its cross-tier substrate is still absent — the Plan-002 Phase 4
-  // false-eligible the auto-walk hit before this fix. The optional `](url)`
-  // groups absorb the markdown link whether the plan number sits in the link
-  // TARGET (`[Plan-021](url) Tier 6 ships`) or inside the link TEXT
-  // (`[Plan-025 Tier 1 Partial](url) merged`).
+  // its cross-tier substrate is still absent. The optional `](url)` groups
+  // absorb the markdown link whether the plan number sits in the link TARGET
+  // (`[Plan-021](url) Tier 6 ships`) or inside the link TEXT
+  // (`[Plan-023 Tier 1 Partial](url) merged`).
   for (const m of line.matchAll(
     /Plan-(\d{3})(?:\]\([^)]*\))?\s+Tier\s+\d+(?:\s+Partial)?(?:\]\([^)]*\))?\s+(?:merged|complete|ships)\b/gi,
   )) {
@@ -906,8 +902,8 @@ export function planLabel(planNumber) {
 }
 
 // Same convention for ADR references: `{type: adr_accepted, ref: 14}` rendered
-// raw reads "ADR-14" against a corpus that writes `ADR-014` (Plan-008 carries
-// exactly that live entry). Display-only, like `planLabel`.
+// raw reads "ADR-14" against a corpus that writes `ADR-014`. Display-only,
+// like `planLabel`.
 export function adrLabel(adrNumber) {
   return `ADR-${String(adrNumber).padStart(3, "0")}`;
 }
@@ -981,7 +977,7 @@ export function extractTasksBlock(phaseSection) {
   // multi-line code spans; a 2-space list indent is none of those).
   const scanned = maskNonContentLines(phaseSection);
   // A phase's declared tasks are the UNION of all its `#### Tasks` blocks —
-  // refinement-lane phases (Plan-007 Phase 3, Plan-008 Phase 1) carry a second
+  // refinement-lane phases carry a second
   // block, and reading only the first made its task ids invisible to Gate 3:
   // the phase could read fully_shipped while lane tasks were still pending
   // (same class as the Codex P1 on PR #190; found by the omission survey).
@@ -1192,12 +1188,12 @@ export function classifyInvariantReference(id) {
 // A correction worth keeping, because the wrong version of it survived a
 // review: an earlier comment here explained facet invisibility by that
 // rejection path. The rejection is real, but it was NOT the operative cause —
-// every facet in the corpus lives in Plan-008, which carries zero bold markers,
+// every facet lived in a plan carrying zero bold markers,
 // so its ids never reached the bold extractor to BE rejected. Right conclusion,
 // wrong mechanism; the same class as a comment describing a branch that turned
 // out to be dead. Corpus shape: 7 distinct facet spellings across 24 `.md`
 // occurrences (21 under docs/plans/), all bases declared, exactly one in field-
-// VALUE position (Plan-008 task `T-008r-1-4`).
+// VALUE position.
 
 // Test-tier ids from a plan's `## Test And Verification Plan` tables (`I5`)
 // share the `I` prefix with invariant ids and carry NO plan segment. They are
@@ -1369,36 +1365,11 @@ export function extractDeclaredFilePaths(phaseSection) {
   return paths;
 }
 
-// Extract §5 (Canonical Build Order) from cross-plan-dependencies.md. Used by
-// the cross_plan_carve_out and audit_status:substrate_exempt resolvers to
-// scope membership checks to §5 only — pre-fix cross_plan_carve_out used a
-// bare `source.includes(ref)` substring match, which passed when the ref
-// appeared anywhere in the file (e.g., §3 prose, §6 NS-rows) even if §5 had
-// no entry. Returns the §5 slice (from its heading line through the
-// character before the next `^## ` heading), or null when §5 is missing.
-//
-// Heading shape supports both `## 5. Canonical Build Order` (dot-then-space
-// form — the current shape) and `## Section 5 — ...` (defensive alternative).
-// The `\b` lives inside the `Section 5` alternative only: putting it after
-// `5\.` would look for a word boundary between `.` (non-word) and ` `
-// (non-word) and fail to match.
-export function extractSection5(xplanSource) {
-  const startRe = /^##\s+(?:5\.\s|Section\s+5\b).*$/m;
-  const startMatch = startRe.exec(xplanSource);
-  if (!startMatch) return null;
-  const startIdx = startMatch.index;
-  const after = xplanSource.slice(startIdx + startMatch[0].length);
-  const nextRe = /^##\s+/m;
-  const nextMatch = nextRe.exec(after);
-  const endIdx = nextMatch ? startIdx + startMatch[0].length + nextMatch.index : xplanSource.length;
-  return xplanSource.slice(startIdx, endIdx);
-}
-
 // Extract a single backlog item's section — its `### BL-NNN` / `#### BL-NNN`
 // heading (active backlog uses h3, the archive uses h4) through the line before
 // the next ATX heading or `---` horizontal rule — or null if the item heading
-// is absent. Heading-anchored (not a bare substring) with the same
-// scoped-not-loose rigor as extractSection5: a `[BL-NNN](…)` cross-reference or
+// is absent. Heading-anchored (not a bare substring) rather than
+// scoped-loose: a `[BL-NNN](…)` cross-reference or
 // a mention inside a neighbor item's prose must not be mistaken for the item
 // itself, so the Status read in the bl_closed resolver comes only from the
 // item's own block. `\b` after the id rejects longer-number collisions
@@ -1442,7 +1413,8 @@ function judgeBacklogCompletion(section) {
 
 // Extract the set of task ids shipped for a given phase from the parsed
 // manifest. Single-string `task` and array-form `task` (legacy multi-task
-// PRs predating NS-02) both contribute their ids. Returns a Set.
+// PRs predating task-level manifest granularity) both contribute their ids.
+// Returns a Set.
 export function shippedTaskIdsForPhase(manifest, phaseNumber) {
   const out = new Set();
   if (!manifest || !manifest.ok) return out;
@@ -1557,292 +1529,35 @@ export function gateAuditCheckbox(planSource, planFile) {
   };
 }
 
-// Gate 6 — manifest freshness. Plan-level: numbered by accretion order (Gates
-// 1-5 keep their historical numbers — docs, tests, and halt messages reference
-// them by number), but EXECUTED between Gate 2 and the per-phase walk, because
-// a stale manifest corrupts Gate 3's declared-vs-shipped set comparison (a
-// merged-but-unrecorded shipment re-opens an already-shipped phase).
-//
-// This is NOT a return to the pre-Commit-3 gh-search shipment inference that
-// the manifest refactor removed (see preflight-contract.md §Gate 3 "Why
-// manifest set-comparison, not gh search"). The manifest remains the sole
-// authority for phase selection; gh is consulted only to cross-check manifest
-// COMPLETENESS — the BL-110 doctrine that ground truth stays git and the
-// manifest is a cache. Three deliberate narrowings keep the old false-match
-// classes out: (1) `in:title` only — never `in:title,body` (PR bodies cite
-// plans in passing constantly; titles cite the plan they ship for — empirical
-// sweep 2026-07-06: title-search precision was exact across all 27 plans),
-// and the returned titles are re-filtered locally through `hasPlanTitleToken`
-// because GitHub's search tokenizer is looser than a word-boundary match (see
-// that predicate's sync contract);
-// This recall trade IS the enhancement-lane boundary (CONTRIBUTING.md §How Code
-// Lands): lane-2 enhancement and lane-3 tooling PRs deliberately omit the token,
-// so they are invisible to this gate BY DESIGN — only lane-1 plan-task shipments
-// participate in manifest freshness.
-// (2) only PRs whose diff touches a MATERIAL_PATH_PREFIXES path count —
-// packages/ + apps/ are the ownership map's code families, .github/ covers
-// workflow-only shipments (Plan-024 T-024-4-1 ships sidecar-build.yml alone;
-// Codex P2 on PR #182), and deploy/ covers self-host compose shipments
-// (Plan-025 T-025d-14-1 ships deploy/self-host/* alone — formerly the G6
-// blind spot). The inverted form (material = anything outside docs/)
-// was rejected on corpus evidence: governance PRs whose titles cite plans also
-// touch root files (PR #1 ships .gitignore/README.md/AGENTS.md under a
-// Plan-001 title), so exclude-docs would permanently false-halt Plan-001;
-// (3) a missing entry HALTS
-// with the rebuild tool as remediation — the gate never derives or writes
-// manifest entries itself (rebuild's operator-confirmation model owns phase /
-// task attribution ambiguity).
-//
-// Fail-closed contract (ADR-023 gate-vs-detector discipline: gates fail
-// closed, detectors warn): gh unreachable, malformed output, fetch
-// saturation, and file-list truncation all HALT rather than pass. The
-// explicit CLI escape is --allow-stale-manifest (skip is logged to stderr).
-export const FRESHNESS_FETCH_LIMIT = 100;
-// Sync contract: tools/docs-corpus/bin/lane-boundary-check.ts mirrors this
-// constant (the CI lane guard must classify "material" exactly as G6 does);
-// a deep-equality test in tools/docs-corpus/__tests__/lane-boundary-check.test.ts
-// fails CI on divergence.
+// Shared with tools/docs-corpus/bin/lane-boundary-check.ts, which mirrors this
+// constant so the CI lane guard classifies "material" exactly as this file
+// does; a deep-equality test in
+// tools/docs-corpus/__tests__/lane-boundary-check.test.ts fails CI on
+// divergence.
 export const MATERIAL_PATH_PREFIXES = ["packages/", "apps/", ".github/", "deploy/"];
 
 // Does `title` carry a genuine `Plan-NNN` token? GitHub's `in:title` search is
 // a TOKENIZER match, not a substring or word-boundary match, so `gh pr list`
 // returns titles the plan is not actually cited in.
 //
-// Sync contract: `rebuild-shipment-manifest.mjs` — the tool Gate 6's own halt
-// text prescribes as the remedy — imports this predicate to decide which
-// merged PRs it will emit manifest entries for. The two MUST agree on the
-// population or the tools DEADLOCK. They did on 2026-08-15: Gate 6 halted
-// Plan-025 naming merged PR #216 `chore(repo): retire Plan-007/025
-// compact-inline cite exemptions` (GitHub tokenized the compound `Plan-007/025`
-// and matched it for `Plan-025 in:title`, though the literal token `Plan-025`
-// never occurs in it), while rebuild's word-boundary test correctly refused to
-// emit an entry — leaving the operator with a halt and no move. Sharing one
-// predicate makes that divergence unrepresentable.
+// Sync contract: `rebuild-shipment-manifest.mjs` imports this predicate to
+// decide which merged PRs it will emit manifest entries for. Sharing one
+// predicate keeps the two tools from disagreeing about the population.
 //
-// A THIRD matcher exists and is deliberately not shared:
+// A second matcher exists and is deliberately not shared:
 // `tools/docs-corpus/bin/lane-boundary-check.ts` §extractTitlePlanTokens runs
-// pre-merge in CI and EXTRACTS every cited plan from one title (`/\bplan-(\d{3})\b/gi`)
-// rather than testing one plan, so it cannot take a `paddedPlan` argument. It
-// agrees with this predicate by construction — same `\b…\b` boundaries, same
-// case-insensitivity, same 3-digit width — verified 2026-08-15 across the
-// compound, lowercase, 4-digit, `workplan-` and `ADR-024`/`cp-004-12`
-// shapes. That guard left-shifts PART of the class `non_shipment_prs` cleans
-// up after, and it is important not to overstate which part: it fails a
-// tokened material PR only when NEITHER a `<type>/plan-NNN-*` branch NOR a
-// `docs/plans/NNN-*.md` edit is present. PR #216 itself would PASS it — its
-// diff touches `docs/plans/007-*.md` and the Plan-025 doc alongside one
-// material file, and that plan-doc allowance is presence-only by design (a
-// content check cannot tell an amendment from a prose edit). So the ratified-
-// non-shipment residual is permanent, not a pre-guard legacy: a tooling PR
-// that edits plan docs can still merge with a token and reach this gate.
+// pre-merge in CI and EXTRACTS every cited plan from one title
+// (`/\bplan-(\d{3})\b/gi`) rather than testing one plan, so it cannot take a
+// `paddedPlan` argument. It agrees with this predicate by construction — same
+// `\b…\b` boundaries, same case-insensitivity, same 3-digit width.
 //
-// This filter can only REMOVE candidates, so its risk is blinding the gate,
-// not false-halting it. Corpus sweep 2026-08-15 over all 28 plans: 118 of 125
-// tokenizer matches survive this predicate, and of the 7 it rejects only #216
-// touches a material path (the other 6 — `ADR-024`/`cp-004-12`-style numeric
-// collisions — are docs-only and were already invisible via the material-path
-// filter). So the gate loses no shipment it was catching.
-//
-// The predicate is deliberately NOT loosened to cover the residual: `Plan-007`
-// IS a real token in `Plan-007/025` (`/` is a word boundary), yet that PR
-// shipped no Plan-007 task. That class is closed by the manifest's ratified
-// `non_shipment_prs` key — an explicit, reviewable operator assertion — rather
-// than by a matcher heuristic that would silently widen for every plan.
+// The predicate is deliberately NOT loosened: `Plan-007` IS a real token in a
+// compound like `Plan-007/025` (`/` is a word boundary) even when that PR
+// shipped no Plan-007 task. Widening the matcher to chase that residual would
+// silently widen it for every plan.
 export function hasPlanTitleToken(title, paddedPlan) {
   if (typeof title !== "string") return false;
   return new RegExp(`\\bPlan-${paddedPlan}\\b`, "i").test(title);
-}
-
-export function gateManifestFreshness(planSource, planNumber) {
-  const manifest = parseManifestBlock(planSource);
-  // Structural manifest defects halt in Gate 3 with richer remediation text;
-  // freshness only cross-checks a manifest that already parses. Future-schema
-  // manifests stay opaque per the lib/manifest.mjs fail-open policy.
-  if (!manifest.ok) return { ok: true, reason: "deferred_to_gate3" };
-  if (manifest.version > MANIFEST_SCHEMA_VERSION) {
-    return { ok: true, reason: "manifest_future_schema" };
-  }
-  const manifestPrs = new Set(manifest.shipped.map((entry) => entry.pr));
-  const paddedPlan = String(planNumber).padStart(3, "0");
-  const listRun = runGh(
-    `gh pr list --state merged --search "Plan-${paddedPlan} in:title" ` +
-      `--json number,title,mergedAt --limit ${FRESHNESS_FETCH_LIMIT}`,
-  );
-  if (!listRun.ok) return ghUnreachableHalt(paddedPlan, listRun.error);
-  let merged;
-  try {
-    merged = JSON.parse(listRun.out);
-  } catch (e) {
-    return ghMalformedHalt(paddedPlan, `gh pr list output is not JSON: ${e.message}`);
-  }
-  if (!Array.isArray(merged)) {
-    return ghMalformedHalt(paddedPlan, "gh pr list output is not a JSON array");
-  }
-  if (merged.length === FRESHNESS_FETCH_LIMIT) {
-    return {
-      ok: false,
-      kind: "freshness_fetch_saturated",
-      halt: [
-        "## Preflight halt: manifest-freshness fetch saturated (Gate 6)",
-        "",
-        `gh pr list returned exactly ${FRESHNESS_FETCH_LIMIT} matches for`,
-        `"Plan-${paddedPlan} in:title" — the result MAY be truncated, so manifest`,
-        "completeness cannot be cross-checked. Raise FRESHNESS_FETCH_LIMIT in",
-        "preflight.mjs (mirroring rebuild-shipment-manifest.mjs's FETCH_LIMIT",
-        "anti-silent-truncation discipline) and re-run.",
-      ].join("\n"),
-    };
-  }
-  // Narrow the tokenizer's population to real title tokens, then subtract the
-  // operator-ratified non-shipments. Both run BEFORE the manifest-membership
-  // check and the per-PR `gh pr view` fetch below, so a removed candidate
-  // costs no API call. Saturation is measured on the RAW fetch above — a
-  // truncated page is untrustworthy however few of its rows survive here.
-  const ratifiedNonShipmentPrs = new Set(manifest.nonShipmentPrs);
-  const candidates = merged.filter(
-    (pullRequest) =>
-      hasPlanTitleToken(pullRequest.title, paddedPlan) &&
-      !ratifiedNonShipmentPrs.has(pullRequest.number),
-  );
-  const stale = [];
-  for (const pullRequest of candidates) {
-    if (manifestPrs.has(pullRequest.number)) continue;
-    // Two commands, the shape rebuild-shipment-manifest.mjs uses and the
-    // lane-boundary CI step already used: `gh pr view` for the authoritative
-    // count, and the REST file endpoint walked with `--paginate` for the list.
-    // `gh pr view --json files` is NOT asked for it — that compiles to a single
-    // `pullRequest.files(first: 100)` GraphQL page, so every candidate above
-    // 100 files halted this gate on a truncation it created itself.
-    const viewRun = runGh(`gh pr view ${pullRequest.number} --json changedFiles`);
-    if (!viewRun.ok) return ghUnreachableHalt(paddedPlan, viewRun.error);
-    let details;
-    try {
-      details = JSON.parse(viewRun.out);
-    } catch (e) {
-      return ghMalformedHalt(
-        paddedPlan,
-        `gh pr view ${pullRequest.number} output is not JSON: ${e.message}`,
-      );
-    }
-    // `{owner}`/`{repo}` are gh's own placeholders, filled from the repository
-    // of the current directory.
-    const filesEndpoint = `repos/{owner}/{repo}/pulls/${pullRequest.number}/files`;
-    const filesRun = runGh(`gh api ${filesEndpoint} --paginate --jq '.[].filename'`);
-    if (!filesRun.ok) return ghUnreachableHalt(paddedPlan, filesRun.error);
-    const files = filesRun.out.split(/\r?\n/).filter((line) => line.length > 0);
-    // Fail closed on ANY disagreement and on a missing count. Short means the
-    // walk stopped early — that endpoint returns at most 3000 files and stops
-    // there with no in-band signal — and long means a path carrying a newline
-    // was split by the raw `--jq` stream. Either way the material-path
-    // classification would rest on a list that does not describe the PR.
-    if (typeof details.changedFiles !== "number" || files.length !== details.changedFiles) {
-      const countPhrase =
-        typeof details.changedFiles === "number"
-          ? `${details.changedFiles} changed files`
-          : "an absent changedFiles count";
-      return {
-        ok: false,
-        kind: "freshness_files_unreconciled",
-        halt: [
-          "## Preflight halt: manifest-freshness file list did not reconcile (Gate 6)",
-          "",
-          `gh api ${filesEndpoint} --paginate returned ${files.length} of`,
-          `${countPhrase}, so the material-path classification for`,
-          `PR #${pullRequest.number} cannot be trusted (mirrors`,
-          "rebuild-shipment-manifest.mjs exit-7 discipline). That endpoint",
-          "returns at most 3000 files; a PR above that ceiling halts here rather",
-          "than being classified off a partial list. Classify the PR manually,",
-          "reconcile the manifest, and re-run — or bypass explicitly with",
-          "--allow-stale-manifest.",
-        ].join("\n"),
-      };
-    }
-    const materialFileCount = files.filter((path) =>
-      MATERIAL_PATH_PREFIXES.some((prefix) => path.startsWith(prefix)),
-    ).length;
-    if (materialFileCount > 0) {
-      stale.push({
-        number: pullRequest.number,
-        title: pullRequest.title,
-        mergedAt: pullRequest.mergedAt,
-        materialFileCount,
-      });
-    }
-  }
-  if (stale.length === 0) return { ok: true };
-  return {
-    ok: false,
-    kind: "manifest_stale",
-    stale,
-    halt: [
-      "## Preflight halt: shipment manifest is stale (Gate 6 — manifest freshness)",
-      "",
-      `Plan-${paddedPlan}'s ### Shipment Manifest has no entry for ${stale.length} merged`,
-      `material PR(s) whose title cites Plan-${paddedPlan} (diff touches`,
-      `${MATERIAL_PATH_PREFIXES.join(" / ")}):`,
-      "",
-      ...stale.map(
-        (p) =>
-          `  - PR #${p.number} (merged ${String(p.mergedAt ?? "").split("T")[0]}, ` +
-          `${p.materialFileCount} material file(s)): ${p.title}`,
-      ),
-      "",
-      "Gate 3 selects the next phase by comparing declared tasks against this",
-      "manifest; a missing entry can re-open an already-shipped phase and",
-      "re-dispatch completed work. Ground truth stays git — the manifest is the",
-      "cache (BL-110). Reconcile, then re-run preflight:",
-      "",
-      "  node --experimental-strip-types \\",
-      "    .claude/skills/plan-execution/scripts/rebuild-shipment-manifest.mjs \\",
-      `    --plan ${paddedPlan} --dry-run`,
-      "",
-      "Inspect the emitted entries, resolve operator-confirmation ambiguities",
-      "(phase/task attribution), apply them to the plan file, and land the",
-      "manifest edit through a PR.",
-      "",
-      "If a listed PR shipped NO task of this plan — a lane-2/lane-3 PR that",
-      "picked up the title token by accident, which rebuild will also decline to",
-      "emit an entry for — ratify it instead by adding its number to the",
-      "manifest's optional `non_shipment_prs: [...]` key, with a comment saying",
-      "why. That is an explicit, reviewed assertion; unratified title-tokened",
-      "material PRs keep halting. Emergency bypass (gh outage / offline):",
-      "re-run preflight with --allow-stale-manifest (skip is logged to stderr).",
-    ].join("\n"),
-  };
-}
-
-function ghUnreachableHalt(paddedPlan, error) {
-  return {
-    ok: false,
-    kind: "freshness_gh_unreachable",
-    halt: [
-      "## Preflight halt: manifest-freshness cross-check unavailable (Gate 6)",
-      "",
-      `gh failed while cross-checking Plan-${paddedPlan}'s manifest against merged`,
-      `PRs: ${error}`,
-      "",
-      "Gate 6 fails closed (ADR-023 gate discipline): a manifest that cannot be",
-      "cross-checked is treated as potentially stale rather than silently",
-      "trusted. Fix gh (auth/network) and re-run, or bypass explicitly with",
-      "--allow-stale-manifest (skip is logged to stderr).",
-    ].join("\n"),
-  };
-}
-
-function ghMalformedHalt(paddedPlan, detail) {
-  return {
-    ok: false,
-    kind: "freshness_gh_malformed",
-    halt: [
-      "## Preflight halt: manifest-freshness cross-check unavailable (Gate 6)",
-      "",
-      `Unexpected gh output while cross-checking Plan-${paddedPlan}'s manifest:`,
-      detail,
-      "",
-      "Gate 6 fails closed. Investigate the gh installation / API response and",
-      "re-run, or bypass explicitly with --allow-stale-manifest.",
-    ].join("\n"),
-  };
 }
 
 // Strict per-phase audit gate, called inside _checkPhase after the target
@@ -1870,8 +1585,8 @@ export function gatePhaseAuditCheckbox(planSource, phaseSection, planFile, phase
       "Either complete the plan-readiness audit and tick the plan-level checkbox,",
       "OR declare an `audit_status` precondition entry on this phase. Two values",
       "are permitted: `complete` (with evidence_pr + baseline_tag) or",
-      "`substrate_exempt` (with carve_out_ref pointing to a §5 carve-out entry in",
-      "docs/architecture/cross-plan-dependencies.md).",
+      "`substrate_exempt` (whose phase body must declare that it covers no",
+      "Spec-NNN acceptance criteria).",
     ].join("\n"),
   };
 }
@@ -1999,8 +1714,8 @@ export function gatePhaseUnshipped(planSource, planNumber, phase) {
         "  - invalid_non_shipment_prs: the optional `non_shipment_prs:` key is present but",
         "    is not a list of positive integers. Write it as `non_shipment_prs: [216]` (or",
         "    an indented `- 216` list), or omit the key entirely when there is nothing to",
-        "    ratify — it is parsed strictly so a typo cannot silently widen a Gate 6",
-        "    freshness exemption.",
+        "    ratify — it is parsed strictly so a typo cannot silently widen the",
+        "    ratified set.",
         ...(result.errors ?? []).map((message) => `      ${message}`),
       ].join("\n"),
     };
@@ -2058,7 +1773,7 @@ export function gatePhaseUnshipped(planSource, planNumber, phase) {
 // Pipeline order is load-bearing: Unicode dashes (en-dash U+2013 `–`,
 // em-dash U+2014 `—`) are normalised to ASCII `-` BEFORE tokenisation or
 // pattern-match. Without this the compound-range rejection rule misses
-// `lines 85–86`-shape defects (Plan-002 T3.3 form).
+// `lines 85–86`-shape defects.
 
 const UNICODE_DASH_RE = /[–—]/g;
 
@@ -2098,7 +1813,7 @@ export function extractIdentifierTokens(text) {
   return out;
 }
 
-// Namespace prefixes (`Plan-021`, `Spec-002`, `ADR-018`) are cross-reference
+// Namespace prefixes (`Plan-021`, `Spec-001`, `ADR-018`) are cross-reference
 // markers, not contract subjects. Strip them before identifier extraction so
 // `Plan` doesn't surface as a false-positive subject when a descriptor cites
 // another doc (e.g., `... per Plan-021 §RateLimitResponse canonical shape`).
@@ -2132,7 +1847,7 @@ const TOP_LEVEL_NS_LOOKAHEAD =
 // case is load-bearing because TS-object-literal descriptors like
 // `{deviceType, focusedSessionId, lastActivityAt}` carry top-level commas
 // that would otherwise be treated as anchor separators (Codex P1 on PR #96
-// line 873; Plan-002 T1.3 regression).
+// line 873).
 function bracketDelta(ch) {
   if (ch === "(" || ch === "[" || ch === "{") return 1;
   if (ch === ")" || ch === "]" || ch === "}") return -1;
@@ -2462,7 +2177,7 @@ function parseSpecSegmentInner(segment) {
 
   // First-anchor-position Plan-local-ID defect: bare token immediately after
   // `Spec-NNN ` (no `line`/`lines`/`AC`/`§` keyword) that matches a Plan-local
-  // pattern (Cn / Pn / Pr-n / In). Discriminator vs pass case 10 (C5 (Spec-002 ...)):
+  // pattern (Cn / Pn / Pr-n / In). Discriminator vs pass case 10 (C5 (Spec-NNN ...)):
   // here the Plan-local-ID sits in the namespace-prefix position; in pass case
   // 10 the segment STARTS with the Plan-local-ID and Spec lives inside a paren.
   const firstToken = body.match(/^([\w-]+)\b/);
@@ -2507,8 +2222,8 @@ function parseSpecSegmentInner(segment) {
   }
 
   // Multi-line list with per-line descriptors: `lines N1 (desc1), N2
-  // (desc2), N3 (desc3)`. Required to accept Plan-002 T2.1 / T2.2 shapes
-  // already on develop — `Spec-002 §Token Security Properties lines 110
+  // (desc2), N3 (desc3)`. Required to accept the multi-line list shapes
+  // already on develop — `Spec-NNN §Token Security Properties lines 110
   // (Entropy/CSPRNG), 111 (hash storage), 113 (Token payload structure)`
   // (Codex P1 on PR #96 line 873). Brace-aware splitWithinNamespace
   // handles TS-object-literal descriptors. Requires ≥2 entries so we
@@ -2548,7 +2263,7 @@ function parseSpecSegmentInner(segment) {
 
   // General split on `,` and ` + ` for everything else (AC, line, line+AC).
   // Descriptor forms accepted: `(parens)` OR ` - dash-separated` (the latter
-  // appears inside nested plan-local-id paren wrappers like `C5 (Spec-002
+  // appears inside nested plan-local-id paren wrappers like `C5 (Spec-NNN
   // line 15 — ChannelList)` where the inner em-dash normalizes to `-` and
   // the wrapping paren is already consumed by the plan-local-id parser).
   //
@@ -2557,7 +2272,7 @@ function parseSpecSegmentInner(segment) {
   // whenever a sub-token begins with its own `§<Section>` qualifier.
   // `inLinesList` admits bare-digit continuation tokens (`111 (hash
   // storage)`) immediately after a `§Section lines <N> (desc)` sub-token —
-  // required for Plan-002 T2.2-shape cites (Codex P1 on PR #96 line 873).
+  // required for multi-line list cites (Codex P1 on PR #96 line 873).
   const subTokens = splitWithinNamespace(body);
   const anchors = [];
   let currentSection = section;
@@ -2577,7 +2292,7 @@ function parseSpecSegmentInner(segment) {
     // §Acceptance Criteria and treats the line as a hint, this one names the
     // line the criterion sits on and leaves the ordinal implicit. Established
     // corpus vocabulary rather than a one-plan idiom — 16 marker payloads
-    // across Plan-011, Plan-014, and Plan-025 — so the grammar learns the
+    // across three plans — so the grammar learns the
     // shape instead of three plans being rewritten. It gets its OWN anchor
     // type and is deliberately NOT folded into the plain `line` anchor:
     // verifyAcLineAnchor additionally proves the cited line sits inside the
@@ -2708,8 +2423,8 @@ function parseSpecSegmentInner(segment) {
       continue;
     }
     // Re-section sub-anchor: `§<Section> line[s] YY[ (descriptor)]` inside a
-    // comma-separated multi-section Spec cite (e.g., `Spec-002 §A line 12,
-    // §B line 13` or `Spec-002 §A lines 12 (x), 13 (y), §B lines 20 (z)`).
+    // comma-separated multi-section Spec cite (e.g., `Spec-NNN §A line 12,
+    // §B line 13` or `Spec-NNN §A lines 12 (x), 13 (y), §B lines 20 (z)`).
     // Without this branch the second sub-token falls into the unparseable
     // fallback and the gate halts on shapes already in approved plans.
     const reSectionLineMatch = token.match(
@@ -3013,7 +2728,7 @@ export function parseCitePayload(rawPayload) {
   //
   // Parity alone is NOT sufficient. An EVEN number of quotes straddling a
   // bracket boundary produces the same silent truncation without ever
-  // unbalancing the count: `Spec-002 line 10 (5" window), line 99999 (30"
+  // unbalancing the count: `Spec-NNN line 10 (5" window), line 99999 (30"
   // grace)` yields ONE anchor (`line 10`) and zero failures, because the
   // quoted run swallowed the first group's `)` and stranded the splitters'
   // depth above 0 — the `line 99999` claim is discarded unverified, while the
@@ -3329,7 +3044,7 @@ function normalizeTokenForMatch(tok) {
 // `Spec-NNN §Section line N` / `§Section lines N1, N2` / `§Section AC-X` —
 // the parser attaches `.section` to line / line-range / AC anchors so the
 // verifier can reject phantom-section names alongside the line / AC check.
-// Without this, `Spec-002 §NotARealSection line 13` accepts as long as line
+// Without this, `Spec-NNN §NotARealSection line 13` accepts as long as line
 // 13 exists (Codex P2 on PR #96 line 1301).
 // Suffix comparison normalizer. Unlike normalizeTokenForMatch it PRESERVES
 // punctuation — `(v1.0)` and `(v10)` are distinct versions and must not
@@ -3371,8 +3086,8 @@ function leadingParenGroup(text) {
 }
 
 // Trailing parenthetical suffix of a heading, balanced: walks back from
-// the end so a suffix whose content itself nests parens — the Plan-008
-// CP-008-8 heading's markdown links, a `(RFC 9111 (shared cache))` — is
+// the end so a suffix whose content itself nests parens — a heading's own
+// markdown links, a `(RFC 9111 (shared cache))` — is
 // ONE suffix instead of a regex truncation (Codex round-4, PR #224).
 // Returns { suffix, start } — the inner text and the opening paren's
 // index — or null when the heading does not end with a balanced group.
@@ -3435,7 +3150,7 @@ export function findSectionHeading(sectionName, specLines, citedDescriptorTail =
   // none of them citable headings — and a 7-plus-hash pseudo-heading is
   // prose (CommonMark caps ATX at six). Suffix extraction is
   // balanced-paren on both sides, so a nested trailing suffix
-  // (`(RFC 9111 (shared cache))`, the Plan-008 CP-008-8 link shape)
+  // (`(RFC 9111 (shared cache))`, the nested-link heading shape)
   // strips and compares as one token.
   // Widens-only vs the pre-fallback matcher: exact matches still win, and
   // the PR #96 heading-prefix laxity does not return.
@@ -3907,7 +3622,7 @@ function verifyAcAnchor(anchor, source, specLines) {
     }
     // Bind the hint to the specific AC-N index: the hinted line must be the
     // N-th `- [ ]` bullet within §Acceptance Criteria. Without this check
-    // `Spec-002 AC3 (line 45)` false-passes when line 45 is actually AC1
+    // `Spec-NNN AC3 (line 45)` false-passes when line 45 is actually AC1
     // (Codex P2 on PR #96 line 1571).
     if (anchor.lineHint !== targetBulletLineNum) {
       return {
@@ -4137,12 +3852,12 @@ export function gateTasksBlockCites(phaseSection, planNumber, phaseNumber, opts 
   return { ok: false, halt: lines.join("\n"), findings: allFailures, hasCiteMarkers: true };
 }
 
-// resolvePrecondition signature is additive-backwards-compatible. The four
-// existing cases (pr_merged, adr_accepted, plan_phase, cross_plan_carve_out)
+// resolvePrecondition signature is additive-backwards-compatible. The three
+// oldest cases (pr_merged, adr_accepted, plan_phase)
 // ignore the new params; the audit_status case introduced in this version
 // needs phaseSection + phaseNumber to evaluate the substrate_exempt criterion
 // (3) check (Spec-AC-empty sentinel + Tasks-block bracket-form conflict). The
-// bl_closed case (added for the Plan-003 Phase 3 / NS-32 backlog gate) reads
+// bl_closed case (added for the Plan-003 Phase 3 backlog gate) reads
 // only repoRoot — already present — so it too is purely additive. The
 // precondition_box_checked case (Codex P1, PR #212 round 4) additionally
 // reads planSource, threaded from the phase walk the same way phaseSection is.
@@ -4255,7 +3970,7 @@ export function resolvePrecondition(
         default:
           // Defensive: classifyPhaseShipment kinds are exhaustive today; this
           // branch fires only if a future kind lands without a handler. Halt
-          // loudly rather than silently fall through to cross_plan_carve_out.
+          // loudly rather than silently fall through to the next resolver case.
           return {
             ok: false,
             halt: `unhandled classifyPhaseShipment kind: ${result.kind}`,
@@ -4399,62 +4114,17 @@ export function resolvePrecondition(
         halt: `${planLabel(entry.plan)} Phase ${entry.phase} not shipped — missing tasks: ${missing.join(", ")}`,
       };
     }
-    case "cross_plan_carve_out": {
-      const xplanPath = resolve(repoRoot, "docs", "architecture", "cross-plan-dependencies.md");
-      let source;
-      try {
-        source = readFileSync(xplanPath, "utf8");
-      } catch (e) {
-        return { ok: false, halt: `cross-plan-dependencies.md unreadable: ${e.message}` };
-      }
-      // Scope the membership check to §5 only. Pre-this-version the resolver
-      // used `source.includes(ref)` over the whole file, which passed when
-      // the ref appeared in §3 prose or §6 NS-rows even if §5 had no entry.
-      const section5 = extractSection5(source);
-      if (section5 === null) {
-        return {
-          ok: false,
-          halt: `cross-plan-dependencies.md has no §5 (Canonical Build Order) section; cannot evaluate cross_plan_carve_out`,
-        };
-      }
-      if (section5.includes(String(entry.ref))) return { ok: true };
-      return {
-        ok: false,
-        halt: `cross_plan_carve_out ref=${entry.ref} not present in cross-plan-dependencies.md §5`,
-      };
-    }
     case "audit_status": {
       // Two values per runbook §Per-Phase Audit Semantics:
       //   - complete: the act of declaring `complete` is the load-bearing
       //     assertion (matches the existing Gate 2 behavior of trusting the
       //     human-set checkbox); evidence_pr + baseline_tag are documentary.
-      //   - substrate_exempt: requires three criteria. (1)+(2) are
-      //     human-judged at audit time and live in the §5 carve-out entry
-      //     itself; (3) is mechanically verified here — Spec coverage
+      //   - substrate_exempt: criteria (1)+(2) are human-judged at audit
+      //     time; (3) is mechanically verified here — Spec coverage
       //     declaration must be explicitly empty in the phase body, and the
       //     Tasks block must not cite Spec coverage in bracketed-list form.
       if (entry.status === "complete") return { ok: true };
       if (entry.status === "substrate_exempt") {
-        const xplanPath = resolve(repoRoot, "docs", "architecture", "cross-plan-dependencies.md");
-        let xplanSource;
-        try {
-          xplanSource = readFileSync(xplanPath, "utf8");
-        } catch (e) {
-          return { ok: false, halt: `cross-plan-dependencies.md unreadable: ${e.message}` };
-        }
-        const section5 = extractSection5(xplanSource);
-        if (section5 === null) {
-          return {
-            ok: false,
-            halt: `cross-plan-dependencies.md has no §5 (Canonical Build Order) section; cannot evaluate audit_status: substrate_exempt`,
-          };
-        }
-        if (!entry.carve_out_ref || !section5.includes(entry.carve_out_ref)) {
-          return {
-            ok: false,
-            halt: `audit_status: substrate_exempt requires carve_out_ref present in cross-plan-dependencies.md §5; "${entry.carve_out_ref ?? "<missing>"}" not found within §5 scope`,
-          };
-        }
         // Criterion (3) sentinel: phase body explicitly disclaims Spec AC
         // coverage. Three canonical phrasings accepted.
         const specAcSentinel =
@@ -4468,8 +4138,8 @@ export function resolvePrecondition(
         // Criterion (3) sibling consistency: Tasks-block rows MUST NOT cite
         // Spec coverage in bracketed-list form (`Spec coverage: [...]`).
         // Bracket-form is the audit-runbook G4 traceability cite shape;
-        // prose-form mentions (e.g., `Spec coverage: per F-008b-1-06, NO
-        // Spec-008 AC at Tier 1`) are not in scope because they describe
+        // prose-form mentions (e.g., a `Spec coverage:` value recording that
+        // NO spec AC applies at this tier) are not in scope because they describe
         // coverage *absence*. A bracketed value is the affirmative cite.
         const tasksBlock = extractTasksBlock(phaseSection ?? "");
         if (tasksBlock !== null) {
@@ -4499,7 +4169,7 @@ export function resolvePrecondition(
       // reach its Exit Criteria until a governance change lands, but that change
       // is neither a merged PR nor an accepted ADR — so no artifact number
       // exists at declaration time to gate on with pr_merged / adr_accepted
-      // (Codex #3 on PR #138: Plan-003 Phase 3 / NS-32 is blocked on a Spec-003
+      // (Codex #3 on PR #138: Plan-003 Phase 3 is blocked on a Spec-003
       // §Default-Behavior heartbeat-threshold amendment whose PR number is
       // unknowable now, and the threshold value is a spec value, not
       // ADR-worthy). The honest machine-readable primitive that exists at
@@ -4795,7 +4465,7 @@ export function gatePreconditions(phaseSection, planFile, phaseNumber, opts = {}
 // shipped), which is the truthful message for it. A missing or
 // unparseable row halts (fail closed). CLI runs default the gate ON;
 // --allow-unpromoted is the explicit authoring-time escape for inspecting
-// draft/review plans, mirroring --allow-stale-manifest.
+// draft/review plans.
 export function gateStatusPromotion(planSource, planFile) {
   // Scope the search to the plan header — everything before the first `##`
   // section heading. A whole-document match could hit an embedded example
@@ -5092,8 +4762,8 @@ export function extractInlineCitePayloads(phaseSection) {
   //
   // Detection only. The PAYLOAD BOUNDARY walk below stays on `scanned` and the
   // payload BYTES stay on the raw input, because a masked-view slice would blank
-  // the live backticked payloads (`I-008-9, I-008-11, I-008-7c (substrate — the
-  // `relay_connections` rows …)` at Plan-008 task T-008r-1-4 and 31 siblings) before
+  // the live backticked payloads (`I-NNN-9, I-NNN-11, I-NNN-7c (substrate — the
+  // `relay_connections` rows …)` at one compact-inline task and 31 siblings) before
   // parseCitePayload ever saw them, degrading failures[].raw for the facet
   // roll-up and the existence floor at once.
   const markerView = maskInlineCodeSpans(scanned);
@@ -5768,8 +5438,8 @@ function nearestTaskIdAt(lines, lineNo) {
  * TWO CHANNELS, REPORTED SEPARATELY, NEVER SUMMED. `extractCiteAnchors` reads
  * only the bold `**Verifies invariant:**` form; the compact-inline form
  * (`- **T-…** (…; Verifies invariant: …)`) is `extractInlineCitePayloads`'s.
- * Screening only the first is how 56 ids across Plan-008 — a plan with ZERO
- * bold markers — reached no screen while the gate printed a clean total. There
+ * Screening only the first is how 56 ids across one plan with ZERO bold
+ * markers reached no screen while the gate printed a clean total. There
  * is deliberately no combined `resolved` field: when the legacy channel is
  * retired its number must go visibly to zero as a CHANNEL CLOSING, not vanish
  * into a total that quietly shrinks.
@@ -5916,7 +5586,7 @@ export function verifyInvariantReferences(
   // parse failure in a Verifies-invariant field". Measured across the corpus, the
   // field carries exactly three parse-failure instances beyond the one live facet:
   // two `unparseable-cite` prose descriptors (`substrate boots` at Plan-023 T-023p-1-7,
-  // `substrate - the audited primitive libraries …` at Plan-008 task T-008r-4-1), and the
+  // `substrate - the audited primitive libraries …` in a compact-inline task field), and the
   // field also carries three Spec-§ references (Plan-023 T-023p-1-3 / T-023p-1-4 / T-023p-1-6) that parse
   // cleanly as spec anchors. Whether the field may name a spec clause at all is a
   // FIELD-CONTENT question under separate adjudication; answering it here would
@@ -6247,9 +5917,9 @@ export function surveyCorpus({
         // coverage line counts as swept and outside every unit that screens
         // anything. The whole-document fallback cannot rescue them: it fires only
         // at `surveyUnits.length === 0`, so ONE phase heading pins a plan to the
-        // per-phase path permanently. Plan-025 is the live instance — 32 of its
-        // 42 Gate-4 markers sit above its single phase heading, and screening
-        // them surfaces findings the armed survey has never once produced while
+        // per-phase path permanently. The live instance carried 32 of its 42
+        // Gate-4 markers above its single phase heading, and screening them
+        // surfaced findings the armed survey had never once produced while
         // printing `cite anomalies: none`.
         //
         // The discriminator is POSITION, not heading shape. A fix keyed on which
@@ -6566,7 +6236,7 @@ export function surveyCorpus({
           const realInvariant = markers.boldInvariant + markers.unboldInvariant;
           // W4 legacy-unbold: inline/unbold field markers are invisible to the
           // bold cite extractor, so their anchors are never verified — a
-          // false-green audit (the Plan-008 inline style). countCites can read
+          // false-green audit (the compact-inline style). countCites can read
           // > 0 and the extractor still parse nothing.
           const unboldMarkers = markers.unboldSpec + markers.unboldInvariant;
           if (unboldMarkers > 0) {
@@ -7065,12 +6735,7 @@ function _checkPhase(planSource, planNumber, phase, planFile, opts) {
 export function runPreflight(
   planFile,
   phaseArg,
-  {
-    repoRoot = REPO_ROOT,
-    skillMd = SKILL_MD,
-    checkFreshness = false,
-    checkStatusPromotion = false,
-  } = {},
+  { repoRoot = REPO_ROOT, skillMd = SKILL_MD, checkStatusPromotion = false } = {},
 ) {
   const g1 = gateProjectLocality({ repoRoot, skillMd });
   if (!g1.ok) return { exit: 1, stdout: g1.halt };
@@ -7086,9 +6751,8 @@ export function runPreflight(
   if (!g2.ok) return { exit: 1, stdout: g2.halt };
 
   // Gate 7 sits with the plan-level gates, before the phase walk: promotion
-  // is a plan property, and halting here keeps the CLI status check
-  // network-free (it fires before Gate 6's gh calls). Same CLI-on /
-  // programmatic-opt-in split as checkFreshness.
+  // is a plan property. CLI runs default it ON; programmatic and test callers
+  // opt in.
   if (checkStatusPromotion) {
     const g7 = gateStatusPromotion(planSource, planFile);
     if (!g7.ok) return { exit: 1, stdout: g7.halt };
@@ -7105,15 +6769,6 @@ export function runPreflight(
       exit: 2,
       stderr: `no \`### Phase N\` headers found in ${planFile} (accepted separators: \`—\`, \`:\`, \`-\`)`,
     };
-
-  // Gate 6 — manifest freshness. CLI runs default it ON (--allow-stale-manifest
-  // is the explicit escape); programmatic/test callers opt in via
-  // checkFreshness so fixture-driven suites stay network-free. Runs before the
-  // phase walk because a stale manifest corrupts Gate 3's phase selection.
-  if (checkFreshness) {
-    const g6 = gateManifestFreshness(planSource, planNumber);
-    if (!g6.ok) return { exit: 1, stdout: g6.halt };
-  }
 
   // One invariant-declaration cache per RUN, so the auto-walk parses each owning
   // plan's `## Invariants` block once and reports a structural failure on it once
@@ -7228,14 +6883,7 @@ export function runPreflight(
 
 async function main() {
   const args = process.argv.slice(2);
-  const knownFlags = new Set([
-    "--allow-stale-manifest",
-    "--allow-unpromoted",
-    "--help",
-    "-h",
-    "--survey",
-    "--enforce-cites",
-  ]);
+  const knownFlags = new Set(["--allow-unpromoted", "--help", "-h", "--survey", "--enforce-cites"]);
   const unknownFlags = args.filter((a) => a.startsWith("-") && !knownFlags.has(a));
   if (unknownFlags.length > 0) {
     process.stderr.write(`unknown flag(s): ${unknownFlags.join(", ")}\n`);
@@ -7265,10 +6913,10 @@ async function main() {
     //
     // ARMED (2026-07-17): the docs-corpus CI step runs `--survey --enforce-cites`,
     // so citeAnomalies fold into the exit. The live corpus reaches 0 GATED cite
-    // anomalies because the two compact-inline plans (Plan-008/023) divert
+    // anomalies because the one compact-inline plan (Plan-023) diverts
     // to the printed exemptCiteAnomalies channel via LEGACY_INLINE_CITE_EXEMPT —
-    // their legacy-unbold / partial-marker debt stays visible but non-blocking, and
-    // the stale-exemption ratchet fails the moment one is re-authored clean. To
+    // its legacy-unbold / partial-marker debt stays visible but non-blocking, and
+    // the stale-exemption ratchet fails the moment it is re-authored clean. To
     // retire an exemption: re-author the plan into expanded one-marker-per-line
     // cites, then delete its LEGACY_INLINE_CITE_EXEMPT entry (the ratchet enforces
     // the pairing). Real-corpus guards live in preflight-survey.test.mjs.
@@ -7283,12 +6931,11 @@ async function main() {
     process.exitCode = blockingCount > 0 ? 1 : 0;
     return;
   }
-  const allowStaleManifest = args.includes("--allow-stale-manifest");
   const allowUnpromoted = args.includes("--allow-unpromoted");
   const positional = args.filter((a) => !a.startsWith("-"));
   if (positional.length === 0 || args.includes("--help") || args.includes("-h")) {
     process.stderr.write(
-      "Usage: node preflight.mjs <plan-file> [phase] [--allow-stale-manifest] [--allow-unpromoted] | --survey [--enforce-cites]\n" +
+      "Usage: node preflight.mjs <plan-file> [phase] [--allow-unpromoted] | --survey [--enforce-cites]\n" +
         "  [phase] — a phase number (`4`) or a supplement label (`3B`). Omit it to auto-walk\n" +
         "  the numeric phases; supplements are dispatch-by-name and are never auto-selected.\n" +
         "See ../references/preflight-contract.md.\n",
@@ -7304,18 +6951,12 @@ async function main() {
     );
     process.exit(2);
   }
-  if (allowStaleManifest) {
-    process.stderr.write(
-      "preflight: Gate 6 (manifest freshness) SKIPPED via --allow-stale-manifest\n",
-    );
-  }
   if (allowUnpromoted) {
     process.stderr.write(
       "preflight: Gate 7 (status promotion + governance preconditions) SKIPPED via --allow-unpromoted\n",
     );
   }
   const result = runPreflight(planFile, phaseArg, {
-    checkFreshness: !allowStaleManifest,
     checkStatusPromotion: !allowUnpromoted,
   });
   const warningLines = (result.warnings ?? []).map(

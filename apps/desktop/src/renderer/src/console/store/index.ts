@@ -4,12 +4,12 @@
 // shell's own state), their React hooks, the entity vocabulary they project into,
 // and the two schedulers that decide WHEN a store notifies.
 //
-// WHY THE HOOKS SHIP THROUGH THE SAME DOOR AS THE STORES. A surface that reads a
-// store through `useSyncExternalStore` itself would be a second subscription path
-// with its own equality rule, and the whole point of `session/session-hooks.ts` and
-// `shell/frame-hooks.ts` is that there is exactly one — `Spec-023 §Console Design (Meridian)` §The eight rules, rule 6:
-// a store is read through its selector and never by reaching into its state.
-// Exporting the stores without the hooks would quietly invite the second path.
+// WHY THE HOOKS SHIP THROUGH THE SAME DOOR AS THE STORES. A surface that reads a store
+// through `useSyncExternalStore` itself would be a second subscription path with its own
+// equality rule, and the whole point of `session/session-hooks.ts` and
+// `shell/frame-hooks.ts` is that there is exactly one: a store is read through its
+// selector and never by reaching into its state. Exporting the stores without the hooks
+// would quietly invite the second path.
 //
 // `readable.ts` narrows a `zustand` store to the two methods a consumer needs, so
 // nothing outside this family holds a handle that can also WRITE.
@@ -22,7 +22,7 @@
 // The kind vocabulary leaves the family beside the reference it keys, because the
 // seat that decides which entity kinds a pane is a view of has to decide it for
 // EVERY kind — a list of the admitted ones grows a hole the day a kind is added,
-// which is how repo and invite went missing from the inspector's scope. The
+// which is how a kind goes missing from the inspector's scope. The
 // enumeration ships beside the union for the same reason the deck needs both: the
 // inspector keys one record body per kind and its table is total over this set by
 // type, so a new kind fails to compile at the table rather than reaching a deck
@@ -41,7 +41,7 @@ export { CONSOLE_ENTITY_KINDS } from "./entities/entities.js";
 // more readers: the inspector's entity-detail registry is keyed by the KIND it
 // renders, and a family that reads a PARTITION of the projection — rather than one
 // entity by reference — has to name the row type to derive anything from it, as the
-// membership ledger and the agent console's session projection both do.
+// inspector's session detail and the agent console's session projection both do.
 export type {
   ConsoleEntity,
   ConsoleEntityKind,
@@ -69,7 +69,7 @@ export {
 
 export { SessionStore, type SessionStoreState } from "./session/session-store.js";
 // What the session still has open, from the module that HOLDS it rather than from the
-// store that publishes one reading of it. It leaves the family because the cast bar
+// store that publishes one reading of it. It leaves the family because the session header
 // renders the strip's all-clear line, and that line is a claim about lifecycles rather
 // than about rows: the journal is kept apart from the window precisely so a pruned or
 // re-read timeline cannot silently clear an approval, and a surface reading the window
@@ -100,8 +100,8 @@ export {
 
 // The window-scoped modal's half of the shell's `inert` guard. Through this door
 // rather than either overlay's, because its callers are sibling VIEW families —
-// `sign-in/`, `onboarding/`, and the deep-link invite lifecycle in `collaboration/` —
-// which reach each other through nothing, and because the cell it writes lives in this
+// `sign-in/` and `onboarding/` — which reach each other through nothing, and because
+// the cell it writes lives in this
 // family's own store. Written twice before it was hoisted, and the second copy was
 // missing: a walkthrough that trapped focus and left the whole route surface reachable
 // behind it.
@@ -135,10 +135,10 @@ export type {
 //
 // `currentShellBlock` ships beside `useShellBlockFor` because a dispatching surface
 // needs both and they answer different questions: the subscribed block draws the control,
-// and the current one decides whether the call is put. Six surfaces take it — the
-// membership ledger, the sent-invite ledger, the invitation mint, the sessions
-// destination's act block, the onboarding step's re-check, and the ledger's answer to a
-// provider-raised ask — and a family that could not reach it through this door would spell
+// and the current one decides whether the call is put. Three surfaces take it — the
+// sessions destination's act block, the onboarding step's re-check, and the ledger's
+// answer to a provider-raised ask — and a family that could not reach it through this
+// door would spell
 // `getState().shellState` for itself, which is the second reading of which cell carries
 // the shell condition.
 //
@@ -269,19 +269,19 @@ export {
 // two members they read do not.
 export { SessionRefreshTriggers } from "./read/refresh-triggers.js";
 
-// `useSessionPartition` joins the door with its cross-family consumers: the
-// composer reads the `agent`, `run`, and `channel` partitions to resolve what a
-// send is addressed to, and the frame's agent step reads a session's agents. It is
-// the partitioned subscription rule 6 asks for — a surface that reached for
-// `useSessionStore` with a selector of its own would be the second subscription
-// path this module exists to prevent.
-// `useSessionStore` ships beside them for the reason stated above: it is the ONE
-// selector-shaped read of a session store, and a surface that could not reach it
-// through this door would reach for `useSyncExternalStore` and become the second
-// subscription path with its own equality rule. `SessionStoreState` travels with
-// it because a caller hoisting a selector to module scope has to name the state
-// it selects from — and until T-023p-1C-7 every caller of that second act lived
-// inside this family, so the one path now serves a view family too.
+// `useSessionPartition` joins the door with its cross-family consumers: the composer
+// reads the `agent`, `run`, and `channel` partitions to resolve what a send is
+// addressed to, and the frame's agent step reads a session's agents. It is the
+// partitioned subscription rule 6 asks for — a surface that reached for
+// `useSessionStore` with a selector of its own would be the second subscription path
+// this module exists to prevent. `useSessionStore` ships beside them for the reason
+// stated above: it is the ONE selector-shaped read of a session store, and a surface
+// that could not reach it through this door would reach for `useSyncExternalStore` and
+// become the second subscription path with its own equality rule. `SessionStoreState`
+// travels with it because a caller hoisting a selector to module scope has to name the
+// state it selects from — and until the browser-terminal family landed every caller of
+// that second act lived inside this family, so the one path now serves a view family
+// too.
 //
 // `useSessionInitialised` and `useSessionDegradedCause` are the two absences a
 // partition read cannot express: a map with no rows means one thing before the
@@ -351,9 +351,9 @@ export { earliestFutureDeadline, useDeadlineWake } from "./subject-scoped/deadli
 //
 // The `@consumedBy` tags are the dead-code gate's one exemption, on this package's
 // terms: they name the task that imports the symbol, and they are deleted in the PR
-// that does. See `apps/desktop/AGENTS.md` §Mechanical gates.
+// that does. The package's mechanical-gate rules say so.
 export {
-  /** @consumedBy T-023p-1C-8 */
+  /** @consumedBy a view family that has not landed yet */
   SubjectScopedHolder,
 } from "./subject-scoped/subject-scoped-holder.js";
 export { useSubjectScopedState } from "./subject-scoped/subject-scoped-state.js";

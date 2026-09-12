@@ -19,7 +19,7 @@ import { ComposerSendBar } from "./ComposerSendBar.js";
 
 export function openSessionStore(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: ["participant-you"] });
+  sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: ["user-you"] });
   return sessionStore;
 }
 
@@ -71,7 +71,7 @@ export const SECOND_RUN_ID = "3d4e5f60-7182-4293-83a4-b5c6d7e8f001";
 // The fixed form `neutralization-tripwire.ts` reads, which is what puts the card
 // on screen at all. Both agents carry one, so re-addressing moves between two
 // tripped targets rather than between a tripped one and no card.
-export const TRIPWIRE_DETAIL = "driver.text_neutralization_failed origin=participant_text";
+export const TRIPWIRE_DETAIL = "driver.text_neutralization_failed origin=human_text";
 
 /** A store holding two agents, each with a steerable run that has tripped. */
 export function storeWithTwoTrippedAgents(): SessionStore {
@@ -102,7 +102,7 @@ export function storeWithTwoTrippedAgents(): SessionStore {
         },
       },
     ],
-    participantJoinLog: ["participant-you"],
+    userJoinLog: ["user-you"],
   });
   return sessionStore;
 }

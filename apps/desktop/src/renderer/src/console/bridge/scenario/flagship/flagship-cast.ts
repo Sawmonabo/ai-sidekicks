@@ -7,9 +7,9 @@
 // hundred lines of script to find it.
 //
 // THE IDENTIFIERS ARE UUIDs, spelled as the wire spells them. `SessionId`,
-// `ParticipantId`, `MembershipId`, `AgentId`, and `RunId` are branded UUIDs
-// (`§Branded ID Types` in `docs/architecture/contracts/api-payload-contracts.md`), and
-// the strict layer refuses anything else. A readable `"agent-scout"` would also have
+// `UserId`, `AgentId`, and `RunId` are branded UUIDs
+// declared once in the payload contracts, and the strict layer refuses anything
+// else. A readable `"agent-scout"` would also have
 // rendered at a third of the width a real one does, which is a design lie in a fixture
 // whose whole job is to be measured.
 
@@ -38,8 +38,8 @@ export const SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a11a5";
  * answering.
  */
 export const EVENT_ID_STEM = "019b79ee-0280-7ea1-8110-e5e0d115";
-export const PARTICIPANT_YOU = "019b79ee-0280-79a4-8110-cca0117a0110";
-export const PARTICIPANT_PRIYA = "019b79ee-0280-79a4-8120-cca0117a0120";
+export const USER_YOU = "019b79ee-0280-79a4-8110-cca0117a0110";
+export const USER_PRIYA = "019b79ee-0280-79a4-8120-cca0117a0120";
 export const AGENT_ARCHITECT = "019b79ee-0280-7a6e-8110-d1a4c1150001";
 export const AGENT_IMPLEMENTER = "019b79ee-0280-7a6e-8120-d1a4c1150002";
 export const AGENT_REVIEWER = "019b79ee-0280-7a6e-8130-d1a4c1150003";
@@ -69,7 +69,7 @@ export const STARTED_AT_ISO: string = new Date(startedAtMs).toISOString();
  *
  * One table rather than a literal per beat and a second literal per reply: the
  * `agent.attached` payload and the `agent.list` row are two views of one record
- * (`Spec-006 §Channel and Agent Lifecycle (session_lifecycle)` makes the event replay-complete
+ * (the agent lifecycle makes the event replay-complete
  * precisely so the projection can be rebuilt from it), and two hand-written copies
  * of one agent would drift in exactly the direction nothing catches.
  *

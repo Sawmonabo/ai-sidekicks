@@ -129,7 +129,7 @@ export function AccountsShell(props: { readonly bridge: ConsoleBridge }): ReactN
               // refused — asking again is exactly what a person pressing this means.
               // Nothing is re-mounted: the reading is the window's, so a second page
               // watching it does not get its flow thrown away by this press.
-              requestRegistryRead("participant-request");
+              requestRegistryRead("user-request");
             }}
           >
             Try again

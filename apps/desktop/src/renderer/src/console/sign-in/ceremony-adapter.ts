@@ -1,38 +1,36 @@
 // The ONE module in this console that names the `webAuthn` bridge namespace.
 //
-// WHY IT IS ONE MODULE. `Spec-023 §WebAuthn Credential Flow` step 1 fixes the
-// ceremony's eventual shape — `webAuthn.signIn()`, taking no argument, answering a
-// `WebAuthnCeremonyOutcome` — and the bridge this build ships carries the Tier-1
-// three-method stub instead (`createCredential`, `getAssertion`, `deriveKeyMaterial`,
-// declared in `packages/contracts/src/desktop-bridge.ts`). Narrowing that surface is
-// T-023r-2-5's work, not this console's, so every line that knows which methods exist
+// WHY IT IS ONE MODULE. The credential flow fixes the ceremony's eventual shape —
+// `webAuthn.signIn()`, taking no argument, answering a `WebAuthnCeremonyOutcome` — and
+// the bridge this build ships carries the three-method stub instead
+// (`createCredential`, `getAssertion`, `deriveKeyMaterial`, declared in
+// `packages/contracts/src/desktop-bridge.ts`). Narrowing that surface is the contracts
+// package's work, not this console's, so every line that knows which methods exist
 // today lives here and the narrowing is a change to this file alone: the model above
 // it, the two cards, and the overlay name only {@link SignInCeremony}.
 //
-// WHAT THE RENDERER SUPPLIES, WHICH IS NOTHING (I-023-16). Main fetches the
-// server-issued options — `rpId`, origin, challenge, transaction id — over its own
-// authenticated channel and validates them against the control-plane origin pinned
-// when this install was paired. So no challenge, no relying-party identifier, and no
-// PRF salt crosses the bridge, and the empty object below is the whole of the
-// renderer's contribution to a ceremony. It is a literal rather than a named
-// constant precisely so a reader meets the emptiness at the call.
+// WHAT THE RENDERER SUPPLIES, WHICH IS NOTHING. Main fetches the server-issued options
+// — `rpId`, origin, challenge, transaction id — over its own authenticated channel and
+// validates them against the control-plane origin pinned when this install was paired.
+// So no challenge, no relying-party identifier, and no PRF salt crosses the bridge, and
+// the empty object below is the whole of the renderer's contribution to a ceremony. It
+// is a literal rather than a named constant precisely so a reader meets the emptiness
+// at the call.
 //
-// WHY `deriveKeyMaterial` IS NAMED HERE AND NEVER CALLED. It is the third method on
-// the shipped stub and it is main's, both by step 5 of that flow — the wrapping key
-// "lives in its own address space and is never exposed to the renderer" — and by
-// I-023-16, which leaves the renderer with no salt to derive against. Calling it
-// from here would be this console choosing a PRF input, which is exactly the
-// trust-boundary inversion the invariant was minted to close. This module's own
-// suite holds the family to that by reading every shipped source in the directory.
+// WHY `deriveKeyMaterial` IS NAMED HERE AND NEVER CALLED. It is the third method on the
+// shipped stub and it is main's: the wrapping key lives in its own address space and is
+// never exposed to the renderer, and the renderer holds no salt to derive against.
+// Calling it from here would be this console choosing a PRF input, which is exactly the
+// trust-boundary inversion this split exists to close. This module's own suite holds the
+// family to that by reading every shipped source in the directory.
 //
-// WHY THE DEVICE-GRANT WAIT IS A SECOND CALL AND NOT A POLL. `Spec-023 §Fallback
-// Behavior` puts the loopback capture in the main process — "surfaced as a
-// `localhost:<port>/callback` browser capture" — and the blueprint's own wire table
-// records that no wire method exists for it and none is needed. So the renderer opens
-// the browser and then awaits the ceremony once more: main is already holding this
-// window's grant, and it answers when the callback lands. One awaited call, no timer,
-// no repeat read — which is the console's no-interval-polling rule met rather than
-// worked around.
+// WHY THE DEVICE-GRANT WAIT IS A SECOND CALL AND NOT A POLL. The fallback path puts the
+// loopback capture in the main process — "surfaced as a `localhost:<port>/callback`
+// browser capture" — and the blueprint's own wire table records that no wire method
+// exists for it and none is needed. So the renderer opens the browser and then awaits
+// the ceremony once more: main is already holding this window's grant, and it answers
+// when the callback lands. One awaited call, no timer, no repeat read — which is the
+// console's no-interval-polling rule met rather than worked around.
 
 import type { ConsoleBridge } from "../bridge/index.js";
 import { readCeremonyOutcome, type WebAuthnCeremonyOutcome } from "../bridge/index.js";
@@ -74,18 +72,18 @@ export class SignInCeremony {
    * Run the sign-in ceremony for whatever authenticator this host probed.
    *
    * `getAssertion` is the shipped stub's authentication method and the one
-   * `signIn()` replaces. The renderer passes no options, per I-023-16.
+   * `signIn()` replaces. The renderer passes no options.
    */
   public async signIn(): Promise<WebAuthnCeremonyOutcome> {
     return this.#run(async () => this.#bridge.sidekicks.webAuthn.getAssertion({}));
   }
 
   /**
-   * Enrol a credential for a participant this install is already signed in as.
+   * Enrol a credential for a user this install is already signed in as.
    *
    * `createCredential` is the shipped stub's registration method and the one
-   * `register()` replaces. `Spec-023 §WebAuthn Credential Flow` makes the enrolment
-   * path the authenticated one, which is why the surface offers it only from a
+   * `register()` replaces. The credential flow makes the enrolment path the
+   * authenticated one, which is why the surface offers it only from a
    * signed-in state and never as a way in.
    */
   public async register(): Promise<WebAuthnCeremonyOutcome> {
@@ -109,7 +107,7 @@ export class SignInCeremony {
    * Run one ceremony call and read its answer, whichever way it settles.
    *
    * FAIL-CLOSED IN BOTH DIRECTIONS. A resolution the reader does not recognise is
-   * `unavailable` and never `authenticated` — the Tier-1 preload throws and a fixture
+   * `unavailable` and never `authenticated` — the stub preload throws and a fixture
    * with no scripted host refuses, so "this build has no ceremony" is the ordinary
    * case, and reading an unrecognised value as success would put a person in front of
    * a signed-in console on the strength of nothing. A rejection is `unavailable` too,

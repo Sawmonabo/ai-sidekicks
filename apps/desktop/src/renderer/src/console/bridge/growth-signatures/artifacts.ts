@@ -22,7 +22,7 @@ export interface ArtifactGrowthSignatures {
   // admit it under the signature-exempt branch and is refused. A leading-byte signature
   // determines nothing for `application/json` or `text/markdown`, so an ordinary text
   // attachment is exactly the case that needs the declaration forwarded. Absent is a
-  // first-class state, so the member is OMITTED when the participant's file declared
+  // first-class state, so the member is OMITTED when the user's file declared
   // nothing — never sent as an empty string, which would be a declaration of nothing
   // rather than the absence the contract names.
   //
@@ -40,14 +40,14 @@ export interface ArtifactGrowthSignatures {
   };
   // The three members `AttachmentIngestChunkRequest` registers, spelled the way it
   // spells them. `sequenceNumber` is 0-based and strictly consecutive, and `chunk` is
-  // the RFC 4648 §4 base64 of at most one chunk cap of RAW bytes — the wire is JSON
+  // the RFC 4648 section 4 base64 of at most one chunk cap of RAW bytes — the wire is JSON
   // with no binary serialization, so a payload byte reaches the daemon encoded or it
   // does not reach it at all. An offset is not among them: the daemon appends in
   // sequence order and keeps the spooled count itself.
   //
-  // AND IT ANSWERS THAT COUNT, WHICH IS WHY THIS IS NOT `void`.
-  // `api-payload-contracts.md §Plan-014 — Artifacts Files And Attachments` registers
-  // `AttachmentIngestChunkResponse` as `{ ingestId, receivedBytes }`, the second being
+  // AND IT ANSWERS THAT COUNT, WHICH IS WHY THIS IS NOT `void`. The payload
+  // contracts register `AttachmentIngestChunkResponse` as
+  // `{ ingestId, receivedBytes }`, the second being
   // the spooled running total of DECODED bytes after this chunk and the very bound the
   // daemon enforces. Declared `void`, a contract-shaped implementation could not
   // satisfy this port without a cast, and the caller could not say which stream had
@@ -88,7 +88,7 @@ export interface ArtifactGrowthSignatures {
     value: GrowthArtifactDeleteReceipt;
   };
   // THE REPLY IS THE SETTLED CLASS AND NOT `void`, which is what makes this an act a
-  // surface can render the answer to. `api-payload-contracts.md §Plan-014` registers
+  // surface can render the answer to. The payload contracts register
   // `ArtifactVisibilityUpdateResponse` as `{ artifactId, visibility, updatedAt }`, and
   // the middle member is the DAEMON's word on where the artifact ended up rather than
   // the one the request asked for: a policy-blocked share retains the original, so a

@@ -1,11 +1,11 @@
 // What the console can hand the shipped attach flow, and what it deliberately cannot.
 //
-// `runtime-node-attach/AttachFlow.tsx` is Plan-003's, absorbed by import and never
-// edited here. Until it took an optional transport seam it reached the installed
-// preload bridge itself, which made it unrenderable under a fixture build twice over:
-// in a window with no preload it throws into a surface boundary and reads as a crash,
-// and in the fixture build it would answer from the live daemon beside fixture data in
-// the same window — worse than answering nothing. This module builds the seam from the
+// `runtime-node-attach/AttachFlow.tsx` belongs to the shipped attach surface, absorbed
+// by import and never edited here. Until it took an optional transport seam it reached
+// the installed preload bridge itself, which made it unrenderable under a fixture build
+// twice over: in a window with no preload it throws into a surface boundary and reads as
+// a crash, and in the fixture build it would answer from the live daemon beside fixture
+// data in the same window — worse than answering nothing. This module builds the seam from the
 // bridge the console has already resolved, exactly as `node-roster-seam.ts` builds the
 // roster's, so the flow asks whichever transport this window is running on.
 //
@@ -15,13 +15,13 @@
 // would make the console a second home for a registered wire string, which is the
 // divergence the roster seam's header records as having already happened once.
 //
-// AND THE DECLARATION IS NOT COMPOSED HERE EITHER. `Spec-023 §Trust Stance` puts the
-// attach draft — a machine's claim about its own identity, contract version, health
-// and capability set — in the main process, off the node registry. A renderer may not
-// vouch for a machine on its own word, so this module RESOLVES a draft where one has
-// been supplied and invents none where one has not. Under the fixture the scenario
-// supplies it, which is fixture data reaching a surface through the fixture; under the
-// live bridge nothing supplies one yet, and the mount says so rather than guessing.
+// AND THE DECLARATION IS NOT COMPOSED HERE EITHER. The attach draft — a machine's claim
+// about its own identity, contract version, health and capability set — is composed in
+// the main process, off the node registry. A renderer may not vouch for a machine on
+// its own word, so this module RESOLVES a draft where one has been supplied and invents
+// none where one has not. Under the fixture the scenario supplies it, which is fixture
+// data reaching a surface through the fixture; under the live bridge nothing supplies
+// one yet, and the mount says so rather than guessing.
 //
 // THAT ABSENCE IS A REGISTERED GAP AND NOT AN OVERSIGHT. `node-self-declaration` on
 // the growth slate is the missing wire, filed as a `bridge-member` prerequisite rather

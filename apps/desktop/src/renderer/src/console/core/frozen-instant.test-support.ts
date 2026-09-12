@@ -16,7 +16,7 @@
 //
 // IT LIVES IN `core/` because `core/` is the bottom of the family DAG and every
 // family plus every `test/console/` tier may reach it. The previous home was
-// `collaboration/`, a view family the sessions family may not import — which is
+// `channels/`, a view family the sessions family may not import — which is
 // exactly why the sessions family wrote the stamp again.
 
 import { parseInstant } from "./instant.js";

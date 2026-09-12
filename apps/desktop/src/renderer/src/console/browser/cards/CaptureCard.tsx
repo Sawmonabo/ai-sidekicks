@@ -1,25 +1,24 @@
 // One capture, as the object the ingest pipeline made of it.
 //
-// `Spec-023 §Console Design (Meridian)` 12.6: a capture "lands as an artifact row",
-// collapsed to "name, kind, and size, with the preview one click away". This card is
+// A capture lands as an artifact row, collapsed to name, kind, and size, with the
+// preview one click away. This card is
 // that row's browser-side shape — the overflow's reading of what this session's
 // browser has produced, beside the timeline's own row for the same artifact.
 //
 // TWO RULES THIS CARD EXISTS TO KEEP.
 //
-//   • **A capture is never rendered inline as trusted markup.** 12.6 states it
-//     directly, and `Spec-014 §Scope limits, stated rather than implied` relies on
-//     artifacts being explicit fetches for the agreement-consistent polyglot case.
+//   • **A capture is never rendered inline as trusted markup.** The ingest pipeline's
+//     scope limits rely on artifacts being explicit fetches for the
+//     agreement-consistent polyglot case.
 //     So there is no `img` element here and no data URI: the preview is a control
 //     the CALLER supplies, and where no fetch route exists the control is simply
 //     absent rather than drawn and inert.
 //
 //   • **The media type is rendered, never checked.** `image/svg+xml` is outside the
-//     shipped default allow-list of
-//     `Spec-014 §Bounds (normative defaults; operator-tunable)`, and a bundle carrying
-//     one is refused with a refusal that says so — by the pipeline. A console-side
-//     allow-list would be a second validation path for browser bytes, which is
-//     precisely what that section's one-pipeline rule forbids. The type arrives as a
+//     ingest pipeline's shipped default allow-list, and a bundle carrying one is
+//     refused with a refusal that says so — by the pipeline. A console-side allow-list
+//     would be a second validation path for browser bytes, which is precisely what the
+//     one-pipeline rule forbids. The type arrives as a
 //     wire string and renders verbatim in mono.
 //
 // The reveal control takes no path. 12.6: "Reveal in file manager takes no path from
@@ -52,9 +51,9 @@ import {
 } from "../../primitives/index.js";
 
 /**
- * What part of the page a capture covers. Closed at the three
- * `Spec-023 §Console Design (Meridian)` 12.7 gives `page.screenshot` — "viewport,
- * bounded clip, or height-capped full page" — with the union derived from the tuple.
+ * What part of the page a capture covers. Closed at the three `page.screenshot`
+ * admits — viewport, bounded clip, or height-capped full page — with the union derived
+ * from the tuple.
  */
 export const BROWSER_CAPTURE_SCOPES = ["viewport", "clip", "full-page"] as const;
 

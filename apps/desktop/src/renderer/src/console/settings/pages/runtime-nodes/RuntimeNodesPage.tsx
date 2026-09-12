@@ -1,10 +1,10 @@
 // The nodes page: which machines a session's agents can run on, and what each one
 // is allowed to do.
 //
-// `Spec-023 §Console Design (Meridian)` §Runtime nodes: "Show every runtime node
-// attached to a session and let its owner manage its own attachment … Both health
-// axes side by side, never collapsed into one scalar, because they have different
-// owners and a recovery on one must never mask a degradation on the other."
+// Show every runtime node attached to a session and let its owner manage its own
+// attachment. Both health axes go side by side, never collapsed into one scalar,
+// because they have different owners and a recovery on one must never mask a
+// degradation on the other.
 //
 // THE ROSTER IS ABSORBED, NOT REWRITTEN
 //
@@ -22,7 +22,7 @@
 //
 // That view renders five of the roster entry's nine members and neither the capability
 // map a node declares about itself nor the client version a floor verdict is computed
-// from. Both are Plan-003's own shipped views — `CapabilityDeclaration` and
+// from. Both are the runtime-node surface's own shipped views — `CapabilityDeclaration` and
 // `MixedVersionStatus`, absorbed by import beside the roster — and this page mounts
 // them in its own block from the SAME read: `seats/node-roster/node-roster-seam.ts` records each
 // response as it passes through the console's own read seam on its way to that view,
@@ -52,8 +52,9 @@
 // absence when there is none. The attach control mounts the shipped flow through
 // `seats/surface/absorbed-surfaces.ts`, which resolves the attach draft rather than accepting
 // one: that draft is a machine's claim about its own identity, contract version,
-// health and capability set, and `Spec-023 §Trust Stance` puts its composition in the
-// main process, off the node registry. So the page names the control and the SEAT
+// health and capability set, and an untrusted renderer may not compose one — that
+// happens in the main process, off the node registry. So the page names the control
+// and the SEAT
 // decides whether there is a declaration to review — a scenario's under the fixture,
 // nothing under the live bridge until a registered read delivers one — and the absence
 // it renders is a statement about this window rather than about attaching.
@@ -67,7 +68,7 @@ import { Chip, Nothing } from "../../../primitives/index.js";
 import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
-const OWNER = "collaboration-settings-nodes";
+const OWNER = "settings-nodes";
 
 export function RuntimeNodesPage(props: { readonly context: SettingsPageContext }): ReactNode {
   const { bridge, retainedSessionId, retainedSessionStore } = props.context;

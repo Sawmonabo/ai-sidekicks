@@ -9,11 +9,11 @@
 // modal overlay inerts, because a region under `inert` leaves the accessibility
 // tree and a refusal raised from inside a dialog would be announced to nobody.
 //
-// Which CLOCK the announcer holds its message on belongs here rather than beside
-// the primitive: `Spec-023 §Console Design (Meridian)` §The fixture bridge makes the
-// fixture clock the only clock the renderer reads in fixture mode, the announcer
-// arms the one timeout the idle-CPU budget counts, and the frame is what resolves
-// the clock for the window. Both arms are cases and each is the other's control.
+// Which CLOCK the announcer holds its message on belongs here rather than beside the
+// primitive: the fixture clock is the only clock the renderer reads in fixture mode,
+// the announcer arms the one timeout the idle-CPU budget counts, and the frame is what
+// resolves the clock for the window. Both arms are cases and each is the other's
+// control.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -149,13 +149,11 @@ describe("AppFrame — the window has one live announcer, and the banner reaches
 
 describe("AppFrame — the announcer runs on the window's clock", () => {
   it("holds a fixture window's announcement until the scenario's own clock moves", () => {
-    // `Spec-023 §Console Design (Meridian)` §The fixture bridge: "the fixture clock
-    // is the only clock the renderer reads in fixture mode". The announcer arms the
-    // one timeout the idle-CPU budget counts, so on the wall clock it was a
-    // subsystem reaching past the frozen one — the assertive region cleared on how
-    // fast the runner happened to be, which makes an accessibility assertion and a
-    // screenshot of a standing refusal both depend on the host rather than on the
-    // beat that advanced time.
+    // The fixture clock is the only clock the renderer reads in fixture mode. The announcer
+    // arms the one timeout the idle-CPU budget counts, so on the wall clock it was a
+    // subsystem reaching past the frozen one — the assertive region cleared on how fast the
+    // runner happened to be, which makes an accessibility assertion and a screenshot of a
+    // standing refusal both depend on the host rather than on the beat that advanced time.
     //
     // The engine, the scenario, and the announcer are all the real ones: the only
     // instrument is fake timers, which stand in for wall time and for nothing under
@@ -189,7 +187,7 @@ describe("AppFrame — the announcer runs on the window's clock", () => {
   });
 
   it("negative control: a live window's announcement clears on wall time", () => {
-    // The other arm of the same seam, over the REAL live bridge — `createTier1Bridge`
+    // The other arm of the same seam, over the REAL live bridge — `createStubBridge`
     // is the object the preload exposes. Without this the case above would be
     // satisfied by an announcer that had simply stopped clearing at all, and the
     // frozen-clock claim would say nothing about which clock is read.

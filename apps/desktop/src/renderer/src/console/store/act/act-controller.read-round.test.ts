@@ -1,12 +1,12 @@
 // The prerequisite half's round: which signal a read is handed, and what ends it.
 //
 // A SUITE OF ITS OWN AND NOT MORE CASES IN `act-controller.test.ts`. That file drives
-// both halves through every arm and is about what the controller PUBLISHES; these
-// cases are about the pairing underneath — that a prerequisite read is performed
-// inside a round, that the round is the scheduler's own rather than a second register
-// beside it, and that the two ways a round ends reach the read itself and not only its
-// settlement. Splitting them keeps each file's subject singular, which is the seam
-// `apps/desktop/AGENTS.md` §Module shape splits on.
+// both halves through every arm and is about what the controller PUBLISHES; these cases
+// are about the pairing underneath — that a prerequisite read is performed inside a
+// round, that the round is the scheduler's own rather than a second register beside it,
+// and that the two ways a round ends reach the read itself and not only its settlement.
+// Splitting them keeps each file's subject singular, which is the seam the package's
+// module-shape rule splits on.
 //
 // THE REAL CLASS, THE REAL SCHEDULER, AND THE REAL SCOPE. Only the read closure is the
 // test's — it is a parameter of the class — which is what lets these cases hold an
@@ -172,9 +172,9 @@ describe("ActController — a prerequisite read is performed inside a round", ()
     // The published half of supersession, and the signal half beside it: by the time
     // the second question is being read, the first read's round is over.
     const { controller, clock, reads } = open();
-    controller.ask("first", "participant-request");
+    controller.ask("first", "user-request");
     await runScheduledRead(clock);
-    controller.ask("second", "participant-request");
+    controller.ask("second", "user-request");
     reads[0]?.serve("first answer");
     await flush();
     expect(controller.snapshot.prerequisite.status).toBe("reading");
@@ -194,7 +194,7 @@ describe("ActController — a prerequisite read is performed inside a round", ()
     // flight — which is exactly why the question check is a separate fact and not a
     // second copy of the round's rule.
     const { controller, clock, reads } = open();
-    controller.ask("first", "participant-request");
+    controller.ask("first", "user-request");
     await runScheduledRead(clock);
     controller.withdraw();
     expect(controller.snapshot.prerequisite.status).toBe("not-read");

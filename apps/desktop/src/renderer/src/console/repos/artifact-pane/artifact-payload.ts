@@ -155,8 +155,8 @@ const BASE64_GROUP_BYTES = 3;
  * A FACTOR AND NOT A CEILING, which is why it sits beside the two base64 facts above
  * rather than in `core/constants/` with the console's bounds. Nothing is checked
  * against it — it is multiplied by, to turn a character cap into the byte length that
- * certainly holds it — and `apps/desktop/AGENTS.md` §Config single-sourcing draws
- * exactly that line between a bound and a measurement. It was named `UTF8_MAX_…` after
+ * certainly holds it — and the single-sourcing rule draws exactly that line between a
+ * bound and a measurement. It was named `UTF8_MAX_…` after
  * the encoding's own word
  * for it, which read as a ceiling this module had invented.
  */
@@ -213,7 +213,7 @@ function decodedPayloadText(
   const bounded = inputBounded ? payload.slice(0, prefixLength) : payload;
   let bytes: Uint8Array;
   try {
-    // RFC 4648 §4, which is what the ingest side encodes with — the two sides of one
+    // RFC 4648 section 4, which is what the ingest side encodes with — two sides of one
     // seam, and `atob` is the platform's own decoder for it.
     const binary = atob(bounded);
     // A written loop rather than `Uint8Array.from(binary, mapper)`: the mapper is one

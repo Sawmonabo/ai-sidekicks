@@ -13,9 +13,9 @@
 // and the sub-family itself. Nothing is derived from the tool's NAME, which is the
 // invention `card-family.ts` refuses and the reason this slot exists at all.
 //
-// THE UNRECOGNIZED ARM PRINTS WHAT WAS SENT. `Spec-023 §Rules every console surface
-// obeys` requires an unknown enum member to render as the explicit unrecognized badge,
-// so a seventh sub-family shipped by a newer daemon reads as a value this build does
+// THE UNRECOGNIZED ARM PRINTS WHAT WAS SENT. An unknown enum member renders as the
+// explicit unrecognized badge, so a seventh sub-family shipped by a newer daemon reads
+// as a value this build does
 // not know rather than as no sub-family at all.
 
 import { Chip, WireFigure } from "../../../primitives/index.js";

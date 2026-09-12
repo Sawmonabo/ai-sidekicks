@@ -12,7 +12,7 @@
 
 ### 1.1 Purpose
 
-This document defines the design contract for the `@ai-sidekicks/crypto-paseto` workspace package: its public interfaces, cryptographic invariants, threat model, and the seams it preserves for downstream consumers ([Plan-018](../../plans/018-identity-and-participant-state.md) Tier 5 refresh-token persistence; Plan-025 Tier 7 relay-server token verification).
+This document defines the design contract for the `@ai-sidekicks/crypto-paseto` workspace package: its public interfaces, cryptographic invariants, threat model, and the seams it preserves for downstream consumers ([Plan-018](../../plans/018-identity-and-user-state.md) Tier 5 refresh-token persistence; Plan-025 Tier 7 relay-server token verification).
 
 The package ships PASETO v4.public and v4.local primitives plus a PAE helper and an in-memory KeyRing — together they form the cryptographic substrate that V1 authentication tracks depend on.
 
@@ -21,9 +21,9 @@ The package ships PASETO v4.public and v4.local primitives plus a PAE helper and
 This design spec deliberately does **not** cover:
 
 - **Relay-server wire protocol** — owned by Spec-008 (v2 wire protocol) + Spec-025 (Node.js deployment), implemented in Plan-025 Tier 7.
-- **Persistence backend for KeyRing** — owned by [Plan-018](../../plans/018-identity-and-participant-state.md) Tier 5. The constructor seam (§8) is the integration surface; substance lives downstream.
+- **Persistence backend for KeyRing** — owned by [Plan-018](../../plans/018-identity-and-user-state.md) Tier 5. The constructor seam (§8) is the integration surface; substance lives downstream.
 - **Operator-facing config and deployment posture** — owned by Spec-025 (Docker / Caddy / reverse-proxy topology).
-- **End-user-facing token issuance flows** — owned by Plan-002 (invite tokens) and [Plan-018](../../plans/018-identity-and-participant-state.md) (refresh tokens).
+- **End-user-facing token issuance flows** — owned by Plan-002 (invite tokens) and [Plan-018](../../plans/018-identity-and-user-state.md) (refresh tokens).
 
 ### 1.3 Why `substrate_exempt`
 
@@ -319,7 +319,7 @@ The Phase 1 KeyRing is **in-memory only**. No file I/O, no database access, no o
 
 ### 8.1 Why in-memory only
 
-[Cross-plan dependencies §5](../../architecture/cross-plan-dependencies.md) names [Plan-018](../../plans/018-identity-and-participant-state.md) Tier 5 as the owner of identity-state persistence (the table that stores `KeyRingEntry` rows). The substrate must not pre-empt that storage decision — different deployment targets (SQLite for self-host, Postgres for hosted) need different schemas, and Plan-018 is the canonical place to make that call.
+Cross-plan dependencies §5 names [Plan-018](../../plans/018-identity-and-user-state.md) Tier 5 as the owner of identity-state persistence (the table that stores `KeyRingEntry` rows). The substrate must not pre-empt that storage decision — different deployment targets (SQLite for self-host, Postgres for hosted) need different schemas, and Plan-018 is the canonical place to make that call.
 
 ### 8.2 The persistence seam
 
@@ -469,7 +469,7 @@ The following six decisions were settled during planning and are recorded here f
 - [ADR-010: PASETO + WebAuthn + MLS Auth](../../decisions/010-paseto-webauthn-mls-auth.md) — lines 29, 129–136
 - Plan-025: Self-Hostable Node Relay — §Scope, §Target Areas, §Tier 1 Partial PR Sequence
 - Spec-025: Self-Hostable Node Relay — context only (no Phase 1 ACs; `spec_coverage: []`)
-- [Cross-plan dependencies](../../architecture/cross-plan-dependencies.md) — §5 Tier 1 row + Plan-025 Substrate-vs-Namespace Carve-Out
+- Cross-plan dependencies — §5 Tier 1 row + Plan-025 Substrate-vs-Namespace Carve-Out
 - [Plan-implementation readiness-audit runbook](../../operations/plan-implementation-readiness-audit-runbook.md) — §Per-Phase Audit Semantics
 - [CONTRIBUTING.md](../../../CONTRIBUTING.md) — GitFlow-lite, Conventional Branch, Conventional Commits
 - [AGENTS.md](../../../AGENTS.md) — primary-source citation discipline

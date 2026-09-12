@@ -1,12 +1,11 @@
 // What is waiting, in the daemon's order, with a way to take one back.
 //
-// THIS SURFACE'S OWN DENSITY RULE, because no committed document states it: one
-// line per item, with anything secondary one click away and never expanded by
-// default — the shape `Spec-023 §Meridian, the design language` rule 7 gives every
-// console surface, where "secondary controls live one click away — a row's hover
-// footer or its context menu". Here there is nothing secondary to fold: the line
-// carries what the wire supplies — id, state, priority, channel, the two timestamps,
-// and the run the row is bound to — and nothing it does not.
+// THIS SURFACE'S OWN DENSITY RULE, because no committed document states it: one line
+// per item, with anything secondary one click away and never expanded by default — the
+// shape every console surface takes, where secondary controls live one click away, in a
+// row's hover footer or its context menu. Here there is nothing secondary to fold: the
+// line carries what the wire supplies — id, state, priority, channel, the two
+// timestamps, and the run the row is bound to — and nothing it does not.
 //
 // THE RUN BINDING IS THE ONE FIGURE THE SUMMARY DOES NOT CARRY. `QueueItemSummary`
 // registers no run member, so the durable `queue_items.target_run_id` arrives as its

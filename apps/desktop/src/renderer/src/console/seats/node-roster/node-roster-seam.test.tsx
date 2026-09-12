@@ -52,10 +52,10 @@ function ObservationProbe(props: {
  * genuinely carries — building two node arrays would mean inventing nine members per
  * entry to distinguish two replies by their length.
  */
-function rosterHeldBy(participantId: string): RuntimeNodeRosterResponse {
+function rosterHeldBy(userId: string): RuntimeNodeRosterResponse {
   return {
     nodes: [],
-    controlHolder: participantId as RuntimeNodeRosterResponse["controlHolder"],
+    controlHolder: userId as RuntimeNodeRosterResponse["controlHolder"],
   };
 }
 
@@ -175,13 +175,13 @@ describe("two roster reads in flight at once", () => {
     const newerRead = reads.readRoster({ sessionId });
 
     await act(async () => {
-      held.settleRead(1, rosterHeldBy("participant-newer"));
-      held.settleRead(0, rosterHeldBy("participant-older"));
+      held.settleRead(1, rosterHeldBy("user-newer"));
+      held.settleRead(0, rosterHeldBy("user-older"));
       await Promise.all([olderRead, newerRead]);
       await crossMacrotaskBoundary();
     });
 
-    expect(screen.getByTestId("holder").textContent).toBe("participant-newer");
+    expect(screen.getByTestId("holder").textContent).toBe("user-newer");
   });
 
   it("negative control: one read on its own is still recorded", async () => {
@@ -194,11 +194,11 @@ describe("two roster reads in flight at once", () => {
 
     await act(async () => {
       const onlyRead = reads.readRoster({ sessionId });
-      held.settleRead(0, rosterHeldBy("participant-only"));
+      held.settleRead(0, rosterHeldBy("user-only"));
       await onlyRead;
       await crossMacrotaskBoundary();
     });
 
-    expect(screen.getByTestId("holder").textContent).toBe("participant-only");
+    expect(screen.getByTestId("holder").textContent).toBe("user-only");
   });
 });

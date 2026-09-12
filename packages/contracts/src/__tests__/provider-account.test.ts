@@ -1,4 +1,4 @@
-// Plan-029 T1.1 + T1.4 — `providerAccount.*` contract coverage.
+// `providerAccount.*` contract coverage.
 //
 // Three groups, and the third is the one that has to keep working after this PR
 // is forgotten:
@@ -7,18 +7,15 @@
 //      `.strict()` buys on every shape.
 //   2. The tolerant observation boundary, with the closed wire union proved
 //      closed beside it — the tolerance must not have leaked onto the wire.
-//   3. The I-029-11 CENSUS. It DERIVES its subject set from
-//      `PROVIDER_ACCOUNT_WIRE_SHAPES` and cross-checks that registry against the
-//      module's own exports, so a shape added later is either censused or
-//      caught. It closes with the fourth direction the schema registry cannot
-//      reach — the ERROR channel, whose `fields` is `Record<string, unknown>` —
-//      by censusing representative refusal envelopes both by member name and by
-//      value against the token fixture. Every part of it carries a negative
-//      control, because a checker that has never been shown to fail proves
-//      nothing about a clean result.
+//   3. It DERIVES its subject set from `PROVIDER_ACCOUNT_WIRE_SHAPES` and
+//      cross-checks that registry against the module's own exports, so a shape
+//      added later is either censused or caught. It closes with the fourth
+//      direction the schema registry cannot reach — the ERROR channel, whose
+//      `fields` is `Record<string, unknown>` — by censusing representative
+//      refusal envelopes both by member name and by value against the token
+//      fixture. Every part of it carries a negative control, because a checker
+//      that has never been shown to fail proves nothing about a clean result.
 //
-// Refs: Plan-029 T1.1, T1.4, I-029-1, I-029-2, I-029-11, I-029-13; ADR-028
-// (bounded non-interactive token custody).
 
 import { describe, expect, it } from "vitest";
 import type { z } from "zod";
@@ -314,7 +311,7 @@ describe("ProviderAccount record", () => {
 
   it("carries no credential-home path", () => {
     // The prohibition, asserted rather than trusted to the header: on every
-    // surface a session participant can reach, a credential home names a column
+    // surface a session user can reach, a credential home names a column
     // and nothing else. The one wire member that carries a home is the readiness
     // remedy's sign-in arm.
     expect(
@@ -401,11 +398,10 @@ describe("readiness and its remedy union", () => {
   });
 
   it("binds each readiness state to the one remedy its state calls for", () => {
-    // The mapping `Spec-029 §Node provider readiness and the sign-in handoff`
-    // states as "three different actions, not one". Before this refinement the
-    // union's discriminant was free of the state beside it, so a `no_account`
-    // entry could carry a `sign_in` remedy and disclose a credential-home path
-    // for a resolution that reached no account at all.
+    // The mapping states as "three different actions, not one". Before this
+    // refinement the union's discriminant was free of the state beside it, so
+    // a `no_account` entry could carry a `sign_in` remedy and disclose a
+    // credential-home path for a resolution that reached no account at all.
     const signIn = {
       kind: "sign_in",
       accountId: ACCOUNT_ID,
@@ -489,11 +485,11 @@ describe("readiness and its remedy union", () => {
   });
 
   it("keeps requiredness with the producer while checking presence", () => {
-    // The member stays `.optional()` on every arm: `Spec-029` settles it
-    // schema-optional and PRODUCER-obligated, and a strict parser cannot express
-    // per-arm requiredness without splitting the interface. What the parser now
-    // enforces is the other half — a remedy that IS present must be the right
-    // one. Absence still parses on a state that owes one.
+    // The member stays `.optional()` on every arm: settles it schema-optional
+    // and PRODUCER-obligated, and a strict parser cannot express per-arm
+    // requiredness without splitting the interface. What the parser now enforces
+    // is the other half — a remedy that IS present must be the right one.
+    // Absence still parses on a state that owes one.
     expect(
       ProviderReadinessSchema.safeParse({ provider: "codex", state: "no_account" }).success,
     ).toBe(true);
@@ -508,7 +504,7 @@ describe("readiness and its remedy union", () => {
     });
     // A remedy naming a DIFFERENT account points the operator at one account's
     // credential home to repair another's — the arbitrary cross-account election
-    // I-029-5 refuses, arriving as guidance instead of as a binding.
+    // refuses, arriving as guidance instead of as a binding.
     expect(
       ProviderReadinessSchema.safeParse({
         provider: "claude",
@@ -538,7 +534,7 @@ describe("readiness and its remedy union", () => {
   });
 });
 
-describe("quota-window shape (I-029-13)", () => {
+describe("quota-window shape", () => {
   it("accepts a reading and treats the window length as an attribute of it", () => {
     expect(ProviderAccountUsageWindowSchema.safeParse(validUsageWindow()).success).toBe(true);
     // Three limits sharing one window length is the case the key exists for.
@@ -896,7 +892,6 @@ describe("request/response pairs", () => {
 });
 
 // --------------------------------------------------------------------------
-// The I-029-11 census
 // --------------------------------------------------------------------------
 
 /**
@@ -1008,7 +1003,7 @@ function stringValuesDeep(value: unknown): readonly string[] {
   return found;
 }
 
-describe("I-029-11 — one credential-accepting input, zero credential-bearing outputs", () => {
+describe("one credential-accepting input, zero credential-bearing outputs", () => {
   it("registers every request, response, and notification schema the module exports", () => {
     // The completeness check that keeps the census from going vacuous: a shape
     // added later without a registry entry fails HERE rather than silently
@@ -1170,13 +1165,12 @@ describe("I-029-11 — one credential-accepting input, zero credential-bearing o
   // logging the token.
   //
   // What is censused instead is REPRESENTATIVE mapped envelopes: each code is
-  // transcribed from `docs/architecture/contracts/error-contracts.md`
-  // §"Provider Account", and each `fields` shape is composed to be consistent
-  // with that row's prose rather than copied from it, because the doc declares
-  // the permitted contents and does not exhibit an envelope. They are scanned
-  // two ways: by member NAME with the same detector the wire census uses, and
-  // by VALUE against the one token fixture this suite registers. The value scan
-  // is the one that matters for `provideraccount.token_class_refused`, whose
+  // transcribed and each `fields` shape is composed to be consistent with that
+  // row's prose rather than copied from it, because the doc declares the
+  // permitted contents and does not exhibit an envelope. They are scanned two
+  // ways: by member NAME with the same detector the wire census uses, and by
+  // VALUE against the one token fixture this suite registers. The value scan is
+  // the one that matters for `provideraccount.token_class_refused`, whose
   // normative rule is about the VALUE and not the name — "names which condition
   // failed and never quotes, echoes, or excerpts the supplied value" — so a
   // field innocently called `supplied` or `observed` carrying the token is
@@ -1287,9 +1281,6 @@ describe("I-029-11 — one credential-accepting input, zero credential-bearing o
 
   it("covers every provider-account refusal code exactly once", () => {
     const codes = PROVIDER_ACCOUNT_REFUSAL_ENVELOPES.map((envelope) => envelope.type);
-    // Transcribed from `error-contracts.md` §"Provider Account". The count is
-    // asserted so a row added there and mirrored here cannot be half-done, and
-    // uniqueness so a copy-paste cannot make the coverage look wider than it is.
     expect(new Set(codes).size).toBe(codes.length);
     expect(codes).toHaveLength(12);
     for (const code of codes) {

@@ -1,30 +1,26 @@
 // Streaming primitive — `LocalSubscriptionProducer<T>` server-side producer with
-// `$/subscription/notify` outbound emission and `$/subscription/cancel`
-// inbound handling (Plan-007 Phase 2, T-007p-2-5).
+// `$/subscription/notify` outbound emission and `$/subscription/cancel` inbound
+// handling.
 //
-// Spec coverage:
-//   * `Spec-007 §Required Behavior` + `Spec-007 §Wire Format`
-//     (docs/specs/007-local-ipc-and-daemon-control.md) — Local IPC supports
-//     bidirectional streaming notifications; the wire envelope is the same
-//     `Content-Length`-framed JSON-RPC envelope as request/response.
+//   * Local IPC supports bidirectional streaming notifications; the wire
+//     envelope is the same `Content-Length`-framed JSON-RPC envelope as
+//     request/response.
 //
-// Invariants this module owns at the streaming boundary (canonical text in
-// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-6 through I-007-9):
-//   * I-007-7 (schema validation runs before handler dispatch) streaming
-//     analog: every emitted `$/subscription/notify` value MUST conform to
-//     the per-subscription `valueSchema` BEFORE the gateway sends the
-//     frame. Validation failure throws `StreamingValidationError`
-//     (programmer error — the producer returned malformed data); mirrors
-//     the registry's `invalid_result` posture from
-//     `MethodRegistryImpl.dispatch` step 4. The cancel-method dispatch
-//     path uses the registry's standard I-007-7 path
+// Invariants this module owns at the streaming boundary (canonical text through):
+//   * Streaming analog: every emitted `$/subscription/notify` value MUST
+//     conform to the per-subscription `valueSchema` BEFORE the gateway
+//     sends the frame. Validation failure throws
+//     `StreamingValidationError` (programmer error — the producer
+//     returned malformed data); mirrors the registry's `invalid_result`
+//     posture from `MethodRegistryImpl.dispatch` step 4. The
+//     cancel-method dispatch path uses the registry's standard path
 //     (`SubscriptionCancelParamsSchema`) — no special-case handling here.
 //
 // Plan citations:
-//   * F-007p-2-14 — Phase 2 ships the PRIMITIVE only; handler binding
-//     (`session.subscribe`) lands in Phase 3 (T-007p-3-1). The streaming
-//     primitive is a CONSTRUCTION-TIME utility for Phase 3 handlers; the
-//     Phase 2 substrate does NOT bind it to any specific domain method.
+//   * Phase 2 ships the PRIMITIVE only; handler binding
+//     (`session.subscribe`) lands in Phase 3. The streaming primitive is
+//     a CONSTRUCTION-TIME utility for Phase 3 handlers; the Phase 2
+//     substrate does NOT bind it to any specific domain method.
 //
 // What this module does NOT do (deferred to sibling tasks):
 //   * Cross-package wire-envelope schemas (`SubscriptionNotifyParamsSchema`,
@@ -33,20 +29,19 @@
 //     `packages/contracts/src/jsonrpc-streaming.ts`. The runtime-daemon's
 //     `package.json` deliberately does NOT depend on `zod`, so the Zod
 //     schemas live in the contracts package; this module IMPORTS them.
-//   * Outbound framing — owned by T-007p-2-1 (`local-ipc-gateway.ts`).
-//     The streaming primitive emits a `JsonRpcNotification` envelope and
+//   * The streaming primitive emits a `JsonRpcNotification` envelope and
 //     delegates the framing to a `send` callback the bootstrap
 //     orchestrator wires to the gateway's per-connection write path.
 //   * Phase 3 `session.subscribe` (or other domain-method) handlers that
-//     bind the primitive — owned by T-007p-3-* tasks.
+//     bind the primitive — -* tasks.
 //
 // Architectural shape — composition (NOT gateway-method patching):
 //   The gateway's `#sendEnvelope(state, JsonRpcResponse | JsonRpcErrorResponse)`
 //   is a private surface deliberately typed for response envelopes only;
-//   notifications are not in that union (T-007p-2-1's framing decision —
-//   the gateway dispatch path is request/response oriented, with
-//   notifications being a SUBSTRATE-emitted side channel that the
-//   gateway has no opinion on except "frame it via `encodeFrame`"). The
+//   notifications are not in that union (the framing decision — the gateway
+//   dispatch path is request/response oriented, with notifications being a
+//   SUBSTRATE-emitted side channel that the gateway has no opinion on except
+//   "frame it via `encodeFrame`").
 //   streaming primitive therefore takes a `send: (transportId, frame) =>
 //   void` callback at construction; the bootstrap orchestrator wires the
 //   callback to whichever per-transport write path is appropriate.
@@ -56,26 +51,22 @@
 //     notification surface (e.g. `gateway.sendNotification(transportId,
 //     frame)`).
 //   Why this wins: the gateway's public surface is INTENTIONALLY MINIMAL
-//     per T-007p-2-1's "Recommendation alternative considered: module-
-//     singleton matching `SecureDefaults`" rationale — every public method
-//     is a stability commitment. Adding a notification-emission method
-//     widens the gateway's contract before Phase 3 has demonstrated the
-//     final shape. Composition lets the Phase-3 wiring evolve without
-//     touching the gateway, and keeps T-007p-2-5's task scope strictly
-//     additive (the task contract's "out of scope: local-ipc-gateway.ts
-//     modification" directive).
+//     Adding a notification-emission method widens the gateway's contract
+//     before Phase 3 has demonstrated the final shape. Composition lets
+//     the Phase-3 wiring evolve without touching the gateway, and keeps
+//     the task scope strictly additive (the task contract's "out of scope:
+//     local-ipc-gateway.ts modification" directive).
 //   Trade-off accepted: the bootstrap orchestrator must plumb the per-
-//     transport write path into the streaming primitive. Tier 1 has
+//     transport write path into the streaming primitive. There is
 //     exactly one consumer (the orchestrator), which makes the plumbing
 //     a one-line lambda.
 //
-// `subscriptionId` is a UUID string at runtime; `crypto.randomUUID()`
-// (Node 22.12+ native) emits RFC 9562 UUIDs that match
-// `SubscriptionIdSchema` (the RFC 9562 predicate + `.brand<>()`). The brand symbol
-// convention follows session.ts §Branded ID Types verbatim; the
-// contracts-side schema enforces it. Per BL-102 no-mirror disposition,
-// the brand is canonical in `packages/contracts/src/jsonrpc-streaming.ts`
-// and `api-payload-contracts.md` does not maintain a doc-side mirror.
+// `subscriptionId` is a UUID string at runtime; `crypto.randomUUID()` (Node 22.12+
+// native) emits RFC 9562 UUIDs that match `SubscriptionIdSchema` (the RFC 9562
+// predicate + `.brand<>()`). The brand symbol convention follows session.ts the
+// contracts-side schema enforces it. no-mirror disposition, the brand is canonical
+// in `packages/contracts/src/jsonrpc-streaming.ts` and does not maintain a
+// doc-side mirror.
 
 import type {
   Handler,
@@ -115,7 +106,7 @@ import {
  * Why throw synchronously rather than returning false / silently dropping:
  *   1. The handler author SHOULD see this fail at the call site so the
  *      bug is visible in the daemon's logs (not a silent data loss).
- *   2. The wire envelope is a NOTIFICATION — by JSON-RPC §4.1, the daemon
+ *   2. The wire envelope is a NOTIFICATION — by JSON-RPC section 4.1, the daemon
  *      MUST NOT emit a response. Even if we wanted to surface the
  *      validation failure to the client, the wire has no place to put it.
  *      Throwing in-process is the only honest signal.
@@ -273,7 +264,7 @@ export class StreamingPrimitive {
     this.#send = options.send;
     this.#subscriptions = new Map();
     this.#subscriptionsByTransport = new Map();
-    // Eager registration: bootstrap-deterministic per the I-007-6
+    // Eager registration: bootstrap-deterministic
     // duplicate-registration check in `MethodRegistryImpl.register` —
     // a duplicate `$/subscription/cancel` registration (e.g. someone
     // constructed two primitives sharing one registry) throws here at
@@ -300,7 +291,7 @@ export class StreamingPrimitive {
    *   ownership key for cancel-authorization (`$/subscription/cancel`
    *   from a different transport is refused).
    * @param valueSchema - Per-subscription Zod schema validating each
-   *   `value` argument to `subscription.next(value)` (I-007-7 streaming
+   *   `value` argument to `subscription.next(value)` (streaming
    *   analog).
    */
   createSubscription<T>(
@@ -392,9 +383,9 @@ export class StreamingPrimitive {
         if (entry.state !== "active") {
           return;
         }
-        // I-007-7 streaming analog: validate before send. `safeParse`
-        // returns `{ success: false, error }` rather than throwing —
-        // we structure the throw ourselves with the subscription
+        // Streaming analog: validate before send. `safeParse` returns
+        // `{ success: false, error }` rather than throwing — we
+        // structure the throw ourselves with the subscription
         // correlation key.
         const parsed = entry.valueSchema.safeParse(value);
         if (!parsed.success) {

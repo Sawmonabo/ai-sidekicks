@@ -1,12 +1,12 @@
 // The one edge into the graph renderer's code, and the only one that is asynchronous.
 //
-// WHY THIS MODULE EXISTS. `Spec-023 §Console Design (Meridian)` bounds the renderer's
-// initial bundle "excluding lazy chunks (terminal, node graph, math, diagrams,
-// browser tools)" — the node graph is named a LAZY chunk by the budget it is measured
-// against. The chunk's door pulls in `@xyflow/react`, its `@xyflow/system` runtime
-// sibling, the library's own `base.css` and this directory's sheet; reached by a
-// static import from a pane the console can open at boot, every one of those bytes
-// lands in the document the operator waits for whether or not a run is ever drawn.
+// WHY THIS MODULE EXISTS. The console bounds the renderer's initial bundle excluding
+// lazy chunks — terminal, node graph, math, diagrams, browser tools — so the node
+// graph is a LAZY chunk by the budget it is measured against. The chunk's door pulls
+// in `@xyflow/react`, its `@xyflow/system` runtime sibling, the library's own
+// `base.css` and this directory's sheet; reached by a static import from a pane the
+// console can open at boot, every one of those bytes lands in the document the
+// operator waits for whether or not a run is ever drawn.
 //
 // So the door is reached through `import()` and through nothing else. That makes this
 // module the bundler's split point: everything only `phase-graph/index.js` reaches is

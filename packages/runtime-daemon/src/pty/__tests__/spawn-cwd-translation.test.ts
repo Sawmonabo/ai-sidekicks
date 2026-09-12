@@ -1,14 +1,14 @@
-// Test W2 — Plan-024 Phase 3 (T-024-3-4) — verifies invariant I-024-5.
+// Test W2 — spawn cwd translation.
 //
 // What this asserts
 // -----------------
 //
-// The Plan-001 CP-001-2 daemon-layer cwd translator
+// Daemon-layer cwd translator
 // (`packages/runtime-daemon/src/session/spawn-cwd-translator.ts`) routes
-// a logical worktree-path `SpawnRequest.cwd` through the
-// (stable parent dir, prefixed command) tuple BEFORE the request
-// reaches `RustSidecarPtyHost.spawn`. The wire-shape `SpawnRequest`
-// frame the supervisor writes to the sidecar's stdin therefore carries:
+// a logical worktree-path `SpawnRequest.cwd` through the (stable parent
+// dir, prefixed command) tuple BEFORE the request reaches
+// `RustSidecarPtyHost.spawn`. The wire-shape `SpawnRequest` frame the
+// supervisor writes to the sidecar's stdin therefore carries:
 //
 //   1. `cwd === <stable parent>` — the path the OS spawn-call sees and
 //      could potentially hold a Windows directory lock on. The
@@ -21,27 +21,23 @@
 //      Windows `cmd.exe /d /s /v:off /c "..."`), so the user's
 //      logical cwd is preserved at the application layer.
 //
-// This is the INTEGRATION assertion at the seam translator → host →
-// wire envelope; it complements the pure-transform tests in
+// This is the INTEGRATION assertion at the seam translator → host → wire
+// envelope; it complements the pure-transform tests in
 // `packages/runtime-daemon/src/session/__tests__/spawn-cwd-translator.test.ts`
-// (and the `.windows.test.ts` sibling) which exercise the translator
-// against an in-memory recording host. By driving through
-// `RustSidecarPtyHost` and parsing the actual Content-Length-framed
-// JSON written to the sidecar's stdin, we prove the wire-side payload
-// honours I-024-5 — the property the sidecar (and the OS spawn syscall
-// it ultimately makes) actually observes.
+// (and the `.windows.test.ts` sibling) which exercise the translator against
+// an in-memory recording host. By driving through `RustSidecarPtyHost` and
+// parsing the actual Content-Length-framed JSON written to the sidecar's
+// stdin, we prove the wire-side payload honours — the property the sidecar
+// (and the OS spawn syscall it ultimately makes) actually observes.
 //
 // Why this file lives next to `rust-sidecar-pty-host.test.ts`
 // ----------------------------------------------------------
 //
 // Tests in this directory exercise the host's wire-side surface; the
 // translator is the upstream daemon-layer component whose OUTPUT
-// becomes the host's INPUT. T-024-3-4 verifies the integration of the
-// two — appropriate scope for `pty/__tests__`.
+// becomes the host's INPUT. verifies the integration of the two —
+// appropriate scope for `pty/__tests__`.
 //
-// Refs: Plan-024 §Invariants I-024-5; Plan-024 §Implementation Phase
-// Sequence Phase 3 (T-024-3-4); Plan-001 §Cross-Plan Obligations
-// CP-001-2; ADR-019 §Decision item 1.
 
 import { Buffer } from "node:buffer";
 import { EventEmitter } from "node:events";
@@ -204,19 +200,19 @@ function makeLogicalSpec(cwd: string): SpawnRequest {
 // W2 — POSIX cd-prefix wire-shape integration
 // ----------------------------------------------------------------------------
 
-describe("translateSpawnCwd × RustSidecarPtyHost (Test W2 / I-024-5) — POSIX cd-prefix", () => {
+describe("translateSpawnCwd × RustSidecarPtyHost (Test W2 /) — POSIX cd-prefix", () => {
   it("the wire-frame written to the sidecar carries the stable parent in cwd; worktree path is recoverable from args[1] of the sh -c wrapping script", async () => {
     // Logical request — its cwd points at a worktree path that, if
     // forwarded to the spawn syscall directly, would let Windows hold
     // an OS-level lock on the worktree directory.
     const logical: SpawnRequest = makeLogicalSpec(POSIX_PATHS.worktree);
 
-    // CP-001-2 daemon-layer translation. Consumer picks `cd-prefix` for
-    // shell-session spawns per the dispatch table in
-    // `spawn-cwd-translator.ts` module header. We force `wrappingShell:
-    // "posix"` so this assertion is platform-stable (the suite runs on
-    // every platform; the Windows-shell flavor is exercised in the
-    // sibling `describe` block below).
+    // Consumer picks `cd-prefix` for shell-session spawns per the
+    // dispatch table in `spawn-cwd-translator.ts` module header. We
+    // force `wrappingShell: "posix"` so this assertion is
+    // platform-stable (the suite runs on every platform; the
+    // Windows-shell flavor is exercised in the sibling `describe` block
+    // below).
     const translated: SpawnRequest = translateSpawnCwd({
       spec: logical,
       strategy: "cd-prefix",
@@ -318,9 +314,9 @@ describe("translateSpawnCwd × RustSidecarPtyHost (Test W2 / I-024-5) — POSIX 
 // pure transform; we override `wrappingShell` explicitly). This block
 // proves the wire-shape contract holds for the cmd.exe flavor that
 // `RustSidecarPtyHost` will see in production on Windows once the
-// `PtyHostSelector` default flips at Plan-024 Phase 5.
+// `PtyHostSelector` default flips.
 
-describe("translateSpawnCwd × RustSidecarPtyHost (Test W2 / I-024-5) — Windows cmd.exe cd-prefix", () => {
+describe("translateSpawnCwd × RustSidecarPtyHost (Test W2 /) — Windows cmd.exe cd-prefix", () => {
   it("the wire-frame carries the stable parent in cwd; worktree path is recoverable from args[4] of the cmd.exe /d /s /v:off /c wrapping script", async () => {
     const logical: SpawnRequest = makeLogicalSpec(WINDOWS_PATHS.worktree);
 

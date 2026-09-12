@@ -24,9 +24,8 @@
 // dialog — which was right while nothing could carry an upload, and is wrong now that
 // the ingest is served: the read refuses on every build the console can run on, so a
 // picker gated on it could never open. The allow-list travels as the disclosure beside
-// the control, named as the shipped default, which is the arm `Spec-014 §Bounds
-// (normative defaults; operator-tunable)` gives a deployment whose effective list
-// cannot be read.
+// the control, named as the shipped default, which is what a deployment whose
+// effective list cannot be read falls back to.
 //
 // KEYBOARD, NOT MOUSE-ONLY. The disclosure is a real button with `aria-expanded`;
 // Escape closes and returns focus to it. An icon-only trigger carries its name in

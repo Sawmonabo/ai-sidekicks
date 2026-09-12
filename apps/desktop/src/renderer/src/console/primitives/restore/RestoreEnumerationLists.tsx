@@ -3,7 +3,7 @@ import { type RestoreEnumerations } from "./restore-enumerations.js";
 
 /**
  * Both enumerations, always, in this surface's own density: counts on the face, lists
- * one click away, on `Spec-023 §Meridian, the design language` rule 7.
+ * one click away, on the design language's rule 7.
  *
  * They render even at zero — that is what "never silent" means on this surface — and
  * the empty pair carries the sentence that stops it reading as an all-clear.

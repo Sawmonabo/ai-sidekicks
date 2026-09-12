@@ -1,4 +1,4 @@
-// Plan-003 Phase 5 T5.3 — which arm `MixedVersionStatus` puts a refused write on.
+// Which arm `MixedVersionStatus` puts a refused write on.
 //
 // One of the view's two axes. This file is about how a rejected version-sensitive
 // write is surfaced; the access verdict the view projects beside it is
@@ -6,26 +6,20 @@
 // `mixed-version-status.test-support.ts`. How many times an unstable rejection is
 // READ is a third file, `MixedVersionStatus.unstable-rejection.test.tsx`.
 //
-// Spec coverage:
-//   • `Spec-003 §Acceptance Criteria` AC4 (a below-floor node surfaces the typed
-//     `VERSION_FLOOR_EXCEEDED` outcome of a version-sensitive write and is never
-//     ejected for the mismatch): the cases pin the typed envelope's code and message
-//     surfacing verbatim, and EVERY refusal case asserts the node block still renders
-//     — the never-ejected clause, structurally.
-//   • I-003-1 (admit-not-eject — and the T5.3 posture that this view NEVER re-derives
-//     the floor verdict): the tripwire case renders a `read-write` entry TOGETHER WITH
-//     a `version.floor_exceeded` write rejection and asserts the access verdict stays
-//     `read-write`. A view that inferred the verdict from the refusal would flip it
-//     and fail here.
-//   • Spec-023 §Trust Stance + `Plan-003 §Cross-Plan Obligations` CP-003-3: the
-//     bridge-projection source scan at the bottom of this file.
+// What the cases hold the view to:
+//   • A below-floor node surfaces the typed `VERSION_FLOOR_EXCEEDED` outcome of a
+//     version-sensitive write and is never ejected for the mismatch: the cases pin
+//     the typed envelope's code and message surfacing verbatim, and EVERY refusal
+//     case asserts the node block still renders.
+//   • The view NEVER re-derives the floor verdict: the tripwire case renders a
+//     `read-write` entry TOGETHER WITH a `version.floor_exceeded` write rejection
+//     and asserts the access verdict stays `read-write`. A view that inferred the
+//     verdict from the refusal would flip it and fail here.
 //
-// Harness: the Vitest `renderer` project (happy-dom) + `@testing-library/react` — the
-// shipped desktop renderer stack; `ADR-022 §Decision Log` (2026-08-25) records why
-// renderer component tests run there rather than under Browser Mode. Queries are
-// accessible-first (`getByRole` / `getByLabelText`); `data-*` assertions are reserved
-// for the deliberate machine-readable enum tokens the view emits for exactly that
-// purpose.
+// Harness: the Vitest `renderer` project (happy-dom) + `@testing-library/react`, the
+// shipped desktop renderer stack. Queries are accessible-first (`getByRole` /
+// `getByLabelText`); `data-*` assertions are reserved for the deliberate
+// machine-readable enum tokens the view emits for exactly that purpose.
 
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -62,8 +56,8 @@ describe("MixedVersionStatus — how a refused write is surfaced", () => {
     });
 
     it("surfaces the typed VERSION_FLOOR_EXCEEDED envelope verbatim and keeps the node visible", () => {
-      // `Spec-003 §Acceptance Criteria` AC4: the typed refusal is surfaced, and
-      // the node is NOT ejected — the node facts render on the refusal arm.
+      // The typed refusal is surfaced, and the node is NOT ejected — the node
+      // facts render on the refusal arm.
       render(
         <MixedVersionStatus
           rosterEntry={buildRosterEntry({
@@ -86,7 +80,6 @@ describe("MixedVersionStatus — how a refused write is surfaced", () => {
       expect(screen.getByText(`node id: ${ATTACHED_NODE_ID}`)).toBeDefined();
     });
 
-    // Plan-003 I-003-1 tripwire.
     it("does NOT let a floor refusal re-derive the access verdict", () => {
       // The verdict comes from the server-resolved `readOnly` axis ALONE. This
       // deliberately inconsistent pairing — a read-write entry plus a floor

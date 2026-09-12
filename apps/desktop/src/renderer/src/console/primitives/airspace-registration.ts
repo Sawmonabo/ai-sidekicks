@@ -1,10 +1,10 @@
 // How an overlay primitive joins the window's airspace.
 //
-// `Spec-023 §Console Design (Meridian)` 12.3: "Registration happens once, at the
-// primitive layer, never per overlay instance", and its Never bullet: "No consumer
-// registers an overlay by hand at a call site." This hook is the primitive layer's
-// half of both — one registration site the overlay primitives share, so a surface
-// that opens a dialog says which KIND of overlay it is and nothing else.
+// The airspace rule: registration happens once, at the primitive layer, never per
+// overlay instance, and no consumer registers an overlay by hand at a call site. This
+// hook is the primitive layer's half of both — one registration site the overlay
+// primitives share, so a surface that opens a dialog says which KIND of overlay it is
+// and nothing else.
 //
 // THE REGISTRY IS `core/`'s AND THE OBSERVATION IS NOT. The set lives at the DAG
 // floor so this family can reach it at all; the size observation is armed here,

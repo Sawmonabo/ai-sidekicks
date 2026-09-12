@@ -41,7 +41,7 @@
 //
 // AND THE DRAFT IS STAMPED WITH THE BINDING IT WAS COMPOSED AGAINST. The view stays
 // mounted while the agent it is about is re-read — a terminal event applying the
-// switch, another participant moving the same agent — so an unstamped draft would go
+// switch, another user moving the same agent — so an unstamped draft would go
 // on taking precedence over values that had already moved, keep its actions offered,
 // and submit a second switch that moved the agent BACK. A draft is a proposed
 // difference from a binding, so when the binding moves the difference is recomputed
@@ -175,7 +175,7 @@ export function targetChainOf(draft: AxisDraft, binding: AxisDraft): ResolvedAxi
  * An axis the binding has caught up with is no longer a difference and stops being an
  * edit: its control returns to showing the agent's own value and, where it was the
  * only edit, the actions go away rather than offering a switch that would move
- * nothing. An axis that still differs is the participant's work and is kept.
+ * nothing. An axis that still differs is the user's work and is kept.
  */
 export function rebasedAxes(held: HeldAxisDraft, binding: AxisDraft): AxisDraft {
   if (isSameBinding(held.binding, binding)) {

@@ -25,7 +25,7 @@ function rowAt(sequence: number, overrides: Partial<TimelineRow> = {}): Timeline
     sessionId: SESSION_ID,
     sequence,
     category: "presence",
-    type: "participant.joined",
+    type: "user.joined",
     summary: `row ${String(sequence)}`,
     timestamp: "2026-01-01T11:00:00.000Z",
     payload: { note: sequence },
@@ -36,7 +36,7 @@ function rowAt(sequence: number, overrides: Partial<TimelineRow> = {}): Timeline
 describe("readEarlierTimelinePage — one window, read as the store's own log", () => {
   it("carries every member the log holds, renaming exactly two", () => {
     const response = TimelineReadResponseSchema.parse({
-      entries: [rowAt(7, { actor: "participant-a" })],
+      entries: [rowAt(7, { actor: "user-a" })],
       hasMore: false,
     } satisfies TimelineReadResponse);
 
@@ -47,9 +47,9 @@ describe("readEarlierTimelinePage — one window, read as the store's own log", 
         id: "event-7",
         sessionId: SESSION_ID,
         sequence: 7,
-        kind: "participant.joined",
+        kind: "user.joined",
         occurredAt: "2026-01-01T11:00:00.000Z",
-        actorId: "participant-a",
+        actorId: "user-a",
         payload: { note: 7 },
       },
     ]);

@@ -1,13 +1,12 @@
-// T3.4 — Codex per-tool metadata declaration.
+// Codex per-tool metadata declaration.
 //
 // Coverage targets (audit-derived, not just the plan ACs):
-//   * `Spec-005 §Required Behavior` — a driver declares a per-tool
-//     `idempotency_class` alongside its tool list.
-//   * `Spec-005 §Tool Metadata` — an undeclared class is treated as
-//     `manual_reconcile_only`.
-//   * I-005-3 — the default is STRUCTURAL: nothing can leave this module
-//     unclassified, and the driver-local floor is pinned to the contract's own
-//     floor so the two cannot drift apart silently.
+//   * a driver declares a per-tool `idempotency_class` alongside
+//     its tool list.
+//   * an undeclared class is treated as `manual_reconcile_only`.
+//   * The default is STRUCTURAL: nothing can leave this module unclassified,
+//     and the driver-local floor is pinned to the contract's own floor so the
+//     two cannot drift apart silently.
 
 import { ProviderToolMetadataSchema } from "@ai-sidekicks/contracts";
 import type { IdempotencyClass, NormalizedProviderToolMetadata } from "@ai-sidekicks/contracts";
@@ -48,8 +47,8 @@ function findTool(name: string): NormalizedProviderToolMetadata {
   return tool;
 }
 
-describe("Codex tool metadata declaration (T3.4)", () => {
-  it("declares an idempotency_class for EVERY tool in the census (I-005-3)", () => {
+describe("Codex tool metadata declaration", () => {
+  it("declares an idempotency_class for EVERY tool in the census", () => {
     expect(CODEX_TOOL_METADATA.length).toBeGreaterThan(0);
     const permittedClasses: readonly IdempotencyClass[] = [
       "idempotent",
@@ -85,16 +84,14 @@ describe("Codex tool metadata declaration (T3.4)", () => {
   });
 
   it("keeps CODEX_TOOL_NAMES and the emitted census in exact agreement", () => {
-    // `CODEX_TOOL_NAMES` is the seam T3.5's normalizer imports. If it drifts
-    // from what is actually declared, the normalizer resolves an identity that
-    // has no `driver_tools` row and recovery dispatch silently misses.
+    // `CODEX_TOOL_NAMES` is the seam the normalizer imports. If it drifts from
+    // what is actually declared, the normalizer resolves an identity that has
+    // no `driver_tools` row and recovery dispatch silently misses.
     expect(CODEX_TOOL_METADATA.map((tool) => tool.name)).toEqual([...CODEX_TOOL_NAMES]);
     expect(new Set(CODEX_TOOL_NAMES).size).toBe(CODEX_TOOL_NAMES.length);
   });
 
   it("does NOT declare the MCP or dynamic-tool item arms (PR-B / session-registry boundary)", () => {
-    // `mcpToolCall` rows are keyed by (server, tool) and are Plan-005 T3.13's;
-    // `dynamicToolCall` classes come from the session callback-tool registry.
     // Declaring either here would assert a class for an identity no receipt
     // records. This assertion is the tripwire on that boundary.
     const declaredNames = CODEX_TOOL_METADATA.map((tool) => tool.name);
@@ -103,7 +100,7 @@ describe("Codex tool metadata declaration (T3.4)", () => {
     expect(declaredNames).not.toContain("subAgentActivity");
   });
 
-  it("emits rows the T2.4 write seam accepts verbatim", () => {
+  it("emits rows write seam accepts verbatim", () => {
     // `DriverCapabilitiesWriter.declare` runs each tool through this schema
     // before opening its transaction. A census entry that fails here would be
     // rejected at declaration time rather than caught in review.
@@ -158,19 +155,18 @@ describe("Codex tool metadata declaration (T3.4)", () => {
 });
 
 // ==========================================================================
-// T3.13 — MCP idempotency floor + dormant task-handle seam + status census
+// MCP idempotency floor + dormant task-handle seam + status census
 // ==========================================================================
 
-describe("Codex MCP idempotency floor (T3.13 P2-7)", () => {
+describe("Codex MCP idempotency floor", () => {
   it("classifies an MCP-discovered tool manual_reconcile_only with no annotations", () => {
     expect(classifyMcpDiscoveredTool()).toBe("manual_reconcile_only");
     expect(classifyMcpDiscoveredTool(undefined)).toBe("manual_reconcile_only");
   });
 
   it("LOAD-BEARING NEGATIVE: readOnlyHint/idempotentHint self-claims never upgrade the class", () => {
-    // MCP 2025-11-25 binds clients to treat ToolAnnotations as untrusted;
-    // Spec-005 §Tool Metadata forbids deriving the class from them. A server
-    // advertising itself maximally safe still lands on the floor.
+    // MCP 2025-11-25 binds clients to treat ToolAnnotations as untrusted. A
+    // server advertising itself maximally safe still lands on the floor.
     expect(
       classifyMcpDiscoveredTool({
         readOnlyHint: true,
@@ -190,7 +186,7 @@ describe("Codex MCP idempotency floor (T3.13 P2-7)", () => {
   });
 });
 
-describe("Codex durable MCP task-handle seam (T3.13 observation, T5.1 active)", () => {
+describe("Codex durable MCP task-handle seam (observation active)", () => {
   it("extracts the receiver-generated taskId from a CreateTaskResult acceptance", () => {
     expect(extractMcpTaskId({ task: { taskId: "task-123" } })).toBe("task-123");
   });
@@ -229,7 +225,7 @@ describe("Codex durable MCP task-handle seam (T3.13 observation, T5.1 active)", 
   it("never calls the sink when the acceptance carries no handle", () => {
     // A crash before the receiver's acceptance is durably stored reaches this
     // path: no handle observed, so nothing is offered to the recorder and the
-    // receipt's column stays NULL — the manual_reconcile_only halt (I-005-3).
+    // receipt's column stays NULL — the manual_reconcile_only halt.
     const observations: McpTaskHandleObservation[] = [];
     observeMcpTaskAcceptance(
       (observation) => observations.push(observation),
@@ -240,7 +236,7 @@ describe("Codex durable MCP task-handle seam (T3.13 observation, T5.1 active)", 
   });
 });
 
-describe("Codex MCP server-status census normalization (T3.13 P2-10-L1)", () => {
+describe("Codex MCP server-status census normalization", () => {
   const listRow = (overrides: Record<string, unknown>): Record<string, unknown> => ({
     name: "filesystem",
     authStatus: "oAuth",

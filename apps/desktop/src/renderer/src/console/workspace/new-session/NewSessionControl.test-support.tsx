@@ -122,7 +122,7 @@ export function bridgeFor(options: {
     label: "New session control",
     purpose: "Drives the composed-draft control's two reachable wire calls.",
     sessionId: "session-draft",
-    participantIdsInJoinOrder: ["participant-you"],
+    userIdsInJoinOrder: ["user-you"],
     startedAtIso: "2026-01-01T09:00:00.000Z",
     beats: [],
     replies: [

@@ -139,8 +139,8 @@ export function isImportUnderway(
  *
  * `importId` is `undefined` until the begin call settles, and that absence is the
  * `unsubscribed` arm rather than an empty `open` one: nothing has been asked, and a
- * surface rendering "no progress yet" for a question nobody put is the conflation
- * `Spec-023 §Console Design (Meridian)` rule 8 exists to prevent.
+ * surface rendering "no progress yet" for a question nobody put is the conflation the
+ * console's five-kinds-of-nothing rule exists to prevent.
  *
  * THE CALL AND THE ITERATOR FAIL THE SAME WAY AND SETTLE THE SAME WAY. One `try`
  * covers both, because a subscription that never opened and one that broke leave the

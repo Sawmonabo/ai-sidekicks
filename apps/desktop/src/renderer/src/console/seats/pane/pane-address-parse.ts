@@ -46,9 +46,8 @@ const PANE_ENTITY_ID_MAX_LENGTH = IDENTIFIER_MAX_LENGTH;
  *
  * The two callers are the boundaries where the compiler has no claim to make: a
  * layout snapshot read back off disk, which may predate or postdate this build,
- * and a route a person can type. `Spec-023 §Console Design (Meridian)` §The
- * surface set requires that "an unknown pane kind is dropped and reported, and
- * an entity id that fails validation is rejected"; this is the predicate both
+ * and a route a person can type. An unknown pane kind is dropped and reported, and
+ * an entity id that fails validation is rejected; this is the predicate both
  * drops are made against, so neither boundary decides for itself.
  *
  * A refusal rather than a throw, per `core/refusal.ts`: a restored layout with
@@ -124,8 +123,8 @@ export function parseConsolePaneAddress(
  * The id is held to the console's ONE identifier grammar rather than to `id.length`.
  * A non-empty check admits whitespace, a NUL, a path, and a string of any length, and
  * the parse then answered with a valid pane address whose body would query a store key
- * that can never exist — `Spec-023 §Console Design (Meridian)` §The surface set's "an
- * entity id that fails validation is rejected", unenforced.
+ * that can never exist — the rule that an entity id failing validation is rejected,
+ * unenforced.
  *
  * The grammar is `persistence/identifier-grammar.ts`'s, imported rather than restated:
  * the layout snapshot this parse reads back is written through that family's value

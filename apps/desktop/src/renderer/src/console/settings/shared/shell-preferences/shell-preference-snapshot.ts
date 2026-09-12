@@ -1,9 +1,8 @@
 // The shell preference vocabulary: the key set, the readings, and the snapshot.
 //
 // Three toggles across three pages are the same kind of value — a boolean the SHELL
-// owns rather than the daemon or the session: the OS-toast mute
-// (`Spec-023 §Console Design (Meridian)` §Notifications, "Mute OS toasts for this
-// machine, renderer-local"), automatic updates ("renderer-local preference"), and
+// owns rather than the daemon or the session: the OS-toast mute (muting OS toasts for
+// this machine is renderer-local), automatic updates (a renderer-local preference), and
 // the crash-reporting opt-out ("through the shell-config preference carrier on the
 // growth slate … held renderer-side until that carrier lands").
 //

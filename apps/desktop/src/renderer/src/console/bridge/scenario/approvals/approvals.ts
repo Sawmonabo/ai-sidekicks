@@ -11,7 +11,7 @@
 //
 // The lifecycle beats are opaque re-read triggers by design: the surface's rule is
 // that those five event payloads are never decoded. They still carry the REGISTERED
-// payload — `Spec-006 §Approval Flow (approval_flow)` shapes it
+// payload — the approval-flow family shapes it
 // `{sessionId, runId?, approvalRequestId?, askId?, category, scope, requestedBy?,
 // resourceDescriptor?, expiryAt?, approver?, effectiveScope?, …}` — because a
 // payload a surface does not read is still a payload a daemon emits, and a beat
@@ -21,7 +21,7 @@
 // `scenario/wire-truth/wire-truth.ts` holds the beats to the census
 // (`SESSION_EVENT_CATEGORY_BY_TYPE`) and to the strict payload layer
 // (`SessionEventSchema`), both in `packages/contracts/src/event.ts`. The `approval.*`
-// beats reach the census leg alone, since Plan-012 has not registered their variants
+// beats reach the census leg alone, since nothing has registered their variants
 // yet; `session.created` and `agent.attached` reach both, which is why the first
 // carries `{sessionId, config, metadata}` and the second carries `name` rather than
 // the `displayName` that is on no wire in this corpus.
@@ -33,7 +33,7 @@
 // a wire that does not exist, and the surface would then be tested against the lie.
 //
 // IDENTIFIERS ARE UUIDS, with one deliberate exception. `SessionId`,
-// `ParticipantId`, `AgentId`, `RunId`, and `ApprovalRequestId` are branded ids the
+// `UserId`, `AgentId`, `RunId`, and `ApprovalRequestId` are branded ids the
 // contracts declare over UUID values, and a readable `approval-01` also renders at a
 // third of the width a real one does — a design lie in a fixture whose whole job is
 // to be measured. `NodeId` is the exception: `packages/contracts/src/node-id.ts`
@@ -43,8 +43,8 @@
 import type { ConsoleScenario } from "../runtime/index.js";
 import {
   SESSION_ID,
-  PARTICIPANT_YOU,
-  PARTICIPANT_AWAY,
+  USER_YOU,
+  USER_AWAY,
   AGENT_IMPLEMENTER,
   AGENT_REVIEWER,
   RUN_ID,
@@ -62,11 +62,11 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
   purpose:
     "Two requests waiting beside four that are settled — every member of the closed five-state union, so the approvals pane and its history can be held to dropping none of them.",
   sessionId: SESSION_ID,
-  participantIdsInJoinOrder: [PARTICIPANT_YOU, PARTICIPANT_AWAY, AGENT_IMPLEMENTER, AGENT_REVIEWER],
+  userIdsInJoinOrder: [USER_YOU, USER_AWAY, AGENT_IMPLEMENTER, AGENT_REVIEWER],
   // The person the two pending cards are addressed to. Stated rather than inferred:
-  // an approvals surface that guessed its viewer would render an approve control for
+  // an approvals surface that guessed its caller would render an approve control for
   // whoever happens to be first in the join log.
-  viewingParticipantId: PARTICIPANT_YOU,
+  callerUserId: USER_YOU,
   startedAtIso: "2026-01-01T13:30:00.000Z",
   beats: [
     {
@@ -77,7 +77,7 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
         sequence: 1,
         kind: "session.created",
         occurredAt: "2026-01-01T13:30:00.000Z",
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
       },
     },
@@ -90,7 +90,7 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
         kind: "agent.attached",
         occurredAt: "2026-01-01T13:30:00.040Z",
         // The person who attached the agent, not the agent.
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         payload: {
           sessionId: SESSION_ID,
           agentId: AGENT_IMPLEMENTER,
@@ -98,7 +98,7 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
           driverName: "claude",
           modelId: "claude-sonnet-5",
           state: "ready",
-          actor: PARTICIPANT_YOU,
+          actor: USER_YOU,
         },
       },
     },
@@ -161,7 +161,7 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
         sequence: 5,
         kind: "approval.approved",
         occurredAt: "2026-01-01T13:30:00.420Z",
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         // The resolution events carry the approver and the scope that took effect.
         // `effectiveScope` is never broader than what was requested.
         payload: {
@@ -170,7 +170,7 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
           approvalRequestId: APPROVAL_RESOLVED,
           category: "tool_execution",
           scope: "run",
-          approver: PARTICIPANT_YOU,
+          approver: USER_YOU,
           effectiveScope: "run",
         },
       },

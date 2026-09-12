@@ -1,8 +1,7 @@
 // Run chapters — the fold that makes parallel runs read as parallel stories.
 //
-// `Spec-023 §Meridian, the design language` rule 7 fixes the collapse behaviour: "run
-// chapters collapse once terminal and the live chapter stays open." THE GROUPING IS THIS
-// MODULE'S, because no committed document states it: a run's rows sit under one chapter
+// The collapse behaviour is fixed: run chapters collapse once terminal and the live
+// chapter stays open. THE GROUPING IS THIS MODULE'S: a run's rows sit under one chapter
 // header so parallel runs read as parallel stories, one chapter per run, a terminal
 // chapter folded to a header and a past-tense receipt, and nothing re-ordered.
 //
@@ -295,8 +294,8 @@ function absorbRow(accumulator: ChapterAccumulator, row: TimelineRow): void {
   accumulator.payingAccountId ??= payingAccountIdOf(row);
   // First actor wins. A chapter is one run and a run has one agent; a later row
   // naming a different actor is a human steering inside the agent's chapter,
-  // which `Spec-023 §Meridian, the design language` rule 1 keeps on the ROW's own
-  // "2 px attribution edge in the author's hue" rather than moving the chapter's
+  // which stays on the ROW's own 2 px attribution edge in the author's hue rather
+  // than moving the chapter's
   // header onto the person who interrupted it.
   accumulator.actorId ??= row.actor;
   if (isRunStateEventType(row.type)) {

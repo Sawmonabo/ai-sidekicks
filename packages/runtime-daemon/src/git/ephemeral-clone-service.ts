@@ -1,57 +1,41 @@
 // Ephemeral-clone lifecycle service — the daemon-side owner of the
 // `ephemeral_clones` table and of every git invocation that provisions a
-// disposable clone root (Plan-010 Phase 2, T2.3).
+// disposable clone root.
 //
-// Spec coverage:
-//   * `Spec-010 §Required Behavior` — `ephemeral clone` mode provisions a
-//     disposable isolated clone before writable execution begins.
-//   * `Spec-010 §Default Behavior` — provisioning git invocations neutralize
-//     repository-controlled hook execution at the invocation layer. The claim
-//     is HOOKS-scoped, exactly as the spec states it; the checkout-time
-//     filter-driver residual it does not cover is recorded at the I-010-10
-//     section below.
-//   * `Spec-010 §Fallback Behavior` — a failed clone preparation leaves the run
-//     blocked in setup rather than substituting another execution mode; the
-//     sweep records retirement with metadata preserved and removes the disk root
-//     afterwards; retiring the clone backing a live `ephemeral clone`-mode
-//     workspace's current root returns that workspace to `provisioning`, and
-//     `stale` is reserved for fault paths.
-//   * `Spec-010 §Resolved Questions and V1 Scope Decisions` — the TTL is daemon
-//     configuration (default 24 hours) rather than a wire parameter, and clone
-//     transitions are not separately evented in V1.
-//
-// Verifies invariant: I-010-9 (retirement is recorded before any disk mutation,
-// and `cleaned_at` is stamped only after the removal succeeded), I-010-10 (every
-// provisioning git invocation is hook-neutralized).
-//
-// Cross-plan obligations consumed here: CP-010-7 (this Plan-010-owned `src/git/`
-// subtree) and CP-010-2 — the Plan-009 reprovision primitive, which arrives
-// INJECTED (see {@link WorkspaceReprovisionBeginner}) rather than by importing
-// `WorkspaceService`. CP-009-8 is what makes the disposition load-bearing rather
-// than cosmetic: `workspaces.fs_root` is handed to Plan-012 as an approval scope
-// root, so a `ready` workspace whose `fs_root` still names a disposed clone
-// scopes approvals to a directory that is being deleted.
+//   * `ephemeral clone` mode provisions a disposable isolated clone
+//     before writable execution begins.
+//   * provisioning git invocations neutralize repository-controlled hook
+//     execution at the invocation layer. The claim is HOOKS-scoped, exactly
+//     as the spec states it; the checkout-time filter-driver residual it does
+//     not cover is recorded section below.
+//   * a failed clone preparation leaves the run blocked in setup rather than
+//     substituting another execution mode; the sweep records retirement with
+//     metadata preserved and removes the disk root afterwards; retiring the
+//     clone backing a live `ephemeral clone`-mode workspace's current root
+//     returns that workspace to `provisioning`, and `stale` is reserved for
+//     fault paths.
+//   * the TTL is daemon configuration (default 24 hours) rather than a wire
+//     parameter, and clone transitions are not separately evented in V1.
 //
 // ---------------------------------------------------------------------------
-// D-010-11 — this service emits NOTHING, deliberately
+// This service emits NOTHING, deliberately
 // ---------------------------------------------------------------------------
 //
 // There is no event seam on this class and no `events` dependency. Ephemeral
-// clones have no event types in the Spec-006 taxonomy: `Spec-010 §Resolved
-// Questions and V1 Scope Decisions` keeps that registry closed and routes every
-// clone transition through the OWNING WORKSPACE's lifecycle events plus the
-// status-read surface. So the observable trail of a prepare is the caller's
+// clones have no event types taxonomy: keeps that registry closed and routes
+// every clone transition through the OWNING WORKSPACE's lifecycle events plus
+// the status-read surface. So the observable trail of a prepare is the caller's
 // `workspace.provisioning` / `workspace.ready` pair, the trail of a failed
 // prepare is the caller's `workspace.stale` (carrying the failure detail), and
 // the trail of a sweep disposition is the `workspace.provisioning` that the
-// injected reprovision primitive appends on Plan-009's side.
+// injected reprovision primitive appends on the side.
 //
 // The rows are still written for every transition — `creating`, `ready`,
 // `failed`, `retired`, `cleaned_at` — because the status-read surface is what
 // makes a failed or expired clone queryable at all.
 //
 // ---------------------------------------------------------------------------
-// I-010-10 — hook neutralization is STRUCTURAL
+// Hook neutralization is STRUCTURAL
 // ---------------------------------------------------------------------------
 //
 // Every git invocation in this module goes through one private `#runGit`, and
@@ -66,8 +50,8 @@
 // new clone's persistent config.
 //
 // That placement matters more here than it does for a worktree. `git clone`
-// reads the SOURCE repository (whose hooks are the hostile ones D-010-10 is
-// about) and then writes a fresh repository of its own, and the freshly written
+// reads the SOURCE repository (whose hooks are the hostile ones is about) and
+// then writes a fresh repository of its own, and the freshly written
 // `.git/hooks` is populated from git's templates rather than from the source —
 // so the neutralization has to cover the invocation, and the clone that results
 // carries no `core.hooksPath` of ours into later commands run against it.
@@ -104,7 +88,7 @@
 // minted under its own execution-roots directory.
 //
 // The unit tier asserts this discharge by argv inspection — what this module
-// passes, not what git does with it. The real-git half is landed: T2.6's
+// passes, not what git does with it. The real-git half is landed: the
 // `__tests__/worktree-lifecycle.acceptance.test.ts` runs a clone preparation
 // against a hostile-repository sentinel fixture — a repo whose hooks would
 // write a marker file if they ran — behind proof the sentinels are armed, and
@@ -123,11 +107,10 @@
 // configured, git-lfs being the canonical case. Neutralizing them is
 // deliberately NOT attempted: git offers no blanket filter-disable switch, the
 // driver namespace cannot be enumerated from here, and pointing the smudge
-// chain at nothing would silently corrupt every LFS-managed checkout. I-010-10
-// stays HOOKS-scoped, here as at the sibling.
+// chain at nothing would silently corrupt every LFS-managed checkout. stays
+// HOOKS-scoped, here as at the sibling.
 //
 // ---------------------------------------------------------------------------
-// I-010-9 — recorded, then cleaned; and why the DISPOSITION comes first
 // ---------------------------------------------------------------------------
 //
 // A retirement writes `state = 'retired'` and stops. `cleaned_at` stays NULL and
@@ -149,20 +132,20 @@
 //     next tick re-retires, because the clone is still expired.
 //   * The reverse order leaves the opposite window: a `retired` clone whose
 //     workspace is still `ready` and still advertising the retired root as its
-//     `fs_root`, which is exactly the CP-009-8 hazard above, and which a run
-//     starting in that window would execute inside.
+//     `fs_root`, which is exactly hazard above, and which a run starting in
+//     that window would execute inside.
 //
-// Neither write is a disk mutation, so I-010-9's "recorded before any disk
+// Neither write is a disk mutation, so the "recorded before any disk
 // mutation" claim holds across both: leg (d) of the tick is the only thing in
 // this file that touches the filesystem for a retirement.
 //
 // ---------------------------------------------------------------------------
-// I-010-11 — no `workspaces` write happens here, and what that FORCES
+// No `workspaces` write happens here, and what that FORCES
 // ---------------------------------------------------------------------------
 //
 // This service holds no statement that writes `workspaces`. It READS the table
 // (to resolve a prepare's mount, and to decide a retirement's disposition), and
-// every write rides the injected Plan-009 primitive.
+// every write rides the injected primitive.
 //
 // That constraint is what decides the busy-holder case, rather than a safety
 // rule this module chose. `beginReprovision`'s legal predecessors are `ready`
@@ -180,18 +163,16 @@
 // The guard is deliberately MODE-AGNOSTIC while the disposition is not. The
 // guard asks "is a run executing in this directory", which is a fact about
 // `workspaces.fs_root` and `busy` whatever the row calls its mode; the
-// disposition asks the narrower `Spec-010 §Fallback Behavior` question — the
-// clone backing a live `ephemeral clone`-mode workspace's current root — and so
-// carries the mode check as well.
+// disposition asks the narrower question — the clone backing a live `ephemeral
+// clone`-mode workspace's current root — and so carries the mode check as well.
 //
 // `dispose` is the one path that retires a busy-held clone anyway: it is an
-// explicit operator or wire disposal, `error-contracts.md §Ephemeral Clone`
-// ratifies no conflict code to refuse it with, and the disk removal still defers
-// (leg (d) carries the same guard), so the running run keeps its directory until
-// it releases.
+// explicit operator or wire disposal ratifies no conflict code to refuse it
+// with, and the disk removal still defers (leg (d) carries the same guard), so
+// the running run keeps its directory until it releases.
 //
 // ---------------------------------------------------------------------------
-// D-010-13 — which sweep legs live here
+// Which sweep legs live here
 // ---------------------------------------------------------------------------
 //
 // {@link EphemeralCloneService.cleanupTick} runs the CLONE legs:
@@ -202,7 +183,7 @@
 //       column stamped.
 //
 // Leg (c) — the inactive-mount cascade — is NOT here. It operates on
-// `worktrees`, which T2.2 owns, and a sweep that reached into another task's
+// `worktrees`, which owns, and a sweep that reached into another task's
 // table would give that table two writers. A clone on a detached mount is
 // reached by leg (a) instead, when its TTL expires.
 //
@@ -220,12 +201,12 @@
 // The TTL is CONFIGURATION, and its comparison is a string comparison
 // ---------------------------------------------------------------------------
 //
-// `Spec-010 §Resolved Questions and V1 Scope Decisions` fixes the TTL as daemon
-// configuration with a 24-hour default and explicitly not a wire parameter —
-// which is why it is a constructor dependency and why no method signature in
-// this file accepts one. `packages/contracts/src/worktree.ts`'s prepare request
-// is `.strict()` and carries no TTL field of any spelling, so the wire cannot
-// smuggle one in either.
+// fixes the TTL as daemon configuration with a 24-hour default and explicitly
+// not a wire parameter — which is why it is a constructor dependency and why no
+// method signature in this file accepts one.
+// `packages/contracts/src/worktree.ts`'s prepare request is `.strict()` and
+// carries no TTL field of any spelling, so the wire cannot smuggle one in
+// either.
 //
 // `expires_at` is written as `Date.prototype.toISOString()` output and leg (a)
 // compares it against `@now` with SQL `<=`. That is a lexicographic comparison
@@ -238,30 +219,28 @@
 // ---------------------------------------------------------------------------
 //
 // The points this file can fail a prepare are told apart by
-// {@link ClonePrepareFailureReason}, which T2.3 supplied to the carrier from
-// these throw sites. What the discriminant does NOT settle is the policy behind
+// {@link ClonePrepareFailureReason}, supplied to the carrier from these throw
+// sites. What the discriminant does NOT settle is the policy behind
 // one of them.
 //
 // `git clone` leaves HEAD on the source's default branch, so a prepare whose
 // `branchName` equals that branch asks git to create a branch that already
 // exists, and it fails — a request a caller would consider perfectly reasonable,
 // reported as `head_branch_unavailable` with `clone.prepare_failed`'s notional
-// 500. Creating the supplied head branch is the T2.3 task row's obligation —
-// D-010-19 separately makes the name REQUIRED here rather than derivable — and
-// this seam does not silently bind an existing one, which is the
-// "user intent is never silently adapted" posture D-010-7 takes for worktree
-// branch collisions — but the worktree surface answers its collision with a
-// dedicated 409, and the clone surface's ratified registry has no such row.
+// 500. Creating the supplied head branch is task row's obligation
+// Separately makes the name REQUIRED here rather than derivable — and this
+// seam does not silently bind an existing one, which is the "user intent is
+// never silently adapted" posture takes for worktree branch collisions — but
+// the worktree surface answers its collision with a dedicated 409, and the
+// clone surface's ratified registry has no such row.
 //
 // So the residual is the STATUS and the arm, not the taxonomy: whether a clone
 // head-branch collision deserves a `clone.branch_collision` row of its own, and
 // whether a bind arm should exist at all, are governance questions for the owner
 // of the error contract rather than liberties this task may take. The suite pins
-// today's outcome so it is a recorded decision rather than a discovery T2.6
-// makes against real git.
+// today's outcome so it is a recorded decision rather than a discovery makes
+// against real git.
 //
-// Refs: Plan-010 (worktree lifecycle and execution modes), Plan-009 (the
-// `beginReprovision` primitive and the statement-per-transition precedent),
 // `./worktree-service.ts` (the sibling this module's seams and git layer mirror).
 
 import { execFile } from "node:child_process";
@@ -312,11 +291,7 @@ export interface EphemeralCloneGitInvocationOptions {
  * working directory, which is what makes the argv the whole invocation. Not
  * every invocation carries `-C`: `clone` names its source and target
  * positionally and runs in no repository at all, while the base-branch read and
- * `checkout` both run inside the clone and need one. A `cwd` option would put
- * half the target outside the recorded argv, and I-010-10 is asserted by
- * inspecting recorded argvs: a suite that can see `clone` but not which
- * repository it ran against cannot tell a clone provisioning from a command
- * against the user's own checkout.
+ * `checkout` both run inside the clone and need one.
  *
  * Declared LOCALLY rather than imported from `./worktree-service.ts`, whose
  * `WorktreeGitRunner` is structurally identical. The two are interchangeable by
@@ -324,12 +299,12 @@ export interface EphemeralCloneGitInvocationOptions {
  * is structural — while the declaration keeps this module's git contract
  * readable without a hop into the sibling, and keeps a later change to one
  * service's invocation shape from silently retyping the other's. Same reasoning
- * `./worktree-service.ts` gives for not importing Plan-009's `GitFileExecutor`.
+ * `./worktree-service.ts` gives for not importing the `GitFileExecutor`.
  *
  * Rejections are opaque to this module: nothing reads a field off the thrown
  * value, so a fake may reject with anything. That is deliberate — the git
- * `stderr` is exactly the value the `error-contracts.md §Ephemeral Clone`
- * no-path-echo rule keeps out of the typed carrier.
+ * `stderr` is exactly the value no-path-echo rule keeps out of the typed
+ * carrier.
  */
 export type EphemeralCloneGitRunner = (
   argv: readonly string[],
@@ -337,10 +312,10 @@ export type EphemeralCloneGitRunner = (
 ) => Promise<EphemeralCloneGitInvocationResult>;
 
 /**
- * The filesystem seam. Two verbs, both idempotent: `createDirectory` creates
- * leading directories and tolerates an existing one, `removeDirectory` removes
- * recursively and tolerates a missing one. The tolerance is load-bearing for
- * I-010-9 — the tick's removal is retried until `cleaned_at` is stamped.
+ * Two verbs, both idempotent: `createDirectory` creates leading directories
+ * and tolerates an existing one, `removeDirectory` removes recursively and
+ * tolerates a missing one. The tolerance is load-bearing for — the tick's
+ * removal is retried until `cleaned_at` is stamped.
  */
 export interface EphemeralCloneFilesystem {
   createDirectory(path: string): Promise<void>;
@@ -348,8 +323,7 @@ export interface EphemeralCloneFilesystem {
 }
 
 /**
- * The Plan-009 reprovision primitive (CP-010-2), narrowed to the two arguments
- * this service supplies.
+ * Reprovision primitive, narrowed to the two arguments this service supplies.
  *
  * `WorkspaceService.beginReprovision` is assignable to it as written: its third
  * parameter is optional, and a function that ignores parameters its caller does
@@ -357,12 +331,9 @@ export interface EphemeralCloneFilesystem {
  * `(workspaceId, targetMode) => workspaceService.beginReprovision(workspaceId, targetMode)`
  * — or the bound method itself.
  *
- * INJECTED rather than imported as a class, for two reasons. It keeps I-010-11
- * legible: this module cannot write `workspaces` because it holds no writer, not
- * because it refrains from calling one. And it keeps the Plan-010 `src/git/`
- * subtree free of a structural dependency on the Plan-009 service object, whose
- * constructor pulls in the event log and the signing-key source that a clone
- * sweep has no use for.
+ * INJECTED rather than imported as a class, for two reasons. It keeps legible:
+ * this module cannot write `workspaces` because it holds no writer, not because
+ * it refrains from calling one.
  *
  * The primitive is ASYNC because it appends `workspace.provisioning`, which is
  * the reason no `better-sqlite3` transaction can span the disposition and the
@@ -389,30 +360,27 @@ export interface EphemeralCloneServiceDeps {
    */
   readonly database: Database;
   /**
-   * The daemon's execution-roots directory (D-010-6). Clone roots are placed at
+   * The daemon's execution-roots directory. Clone roots are placed at
    * `<executionRootsDirectory>/<repoMountId>/clones/<cloneId>`, and the
    * hook-neutralization directory is a sibling under the same root — the same
    * layout, and the same directory, `./worktree-service.ts` uses.
    *
    * Absolute by contract: it is the prefix of every `clone_root` this service
-   * writes, and CP-009-8 hands the workspace's `fs_root` to Plan-012 as an
-   * approval scope root — a relative one would be completed against whatever
-   * working directory a tool process happens to hold. Not re-validated here; the
-   * daemon's configuration layer owns that check, and duplicating it would put
-   * one rule in two places.
+   * writes, and hands the workspace's `fs_root` to as an approval scope root — a
+   * relative one would be completed against whatever working directory a tool
+   * process happens to hold. Not re-validated here; the daemon's configuration
+   * layer owns that check, and duplicating it would put one rule in two places.
    */
   readonly executionRootsDirectory: string;
   /**
-   * Plan-009's `beginReprovision` (CP-010-2). Called for exactly one case — the
-   * `Spec-010 §Fallback Behavior` disposition that returns a live clone-mode
+   * Called for exactly one case — disposition that returns a live clone-mode
    * workspace to `provisioning` when the clone backing its current root retires.
    */
   readonly beginWorkspaceReprovision: WorkspaceReprovisionBeginner;
   /**
    * Clone lifetime in milliseconds; defaults to
    * {@link DEFAULT_EPHEMERAL_CLONE_TTL_MS} (24 hours). Daemon CONFIGURATION, per
-   * `Spec-010 §Resolved Questions and V1 Scope Decisions` — never a wire
-   * parameter, which is why it is here and not on a method.
+   * never a wire parameter, which is why it is here and not on a method.
    */
   readonly ttlMs?: number;
   /** Git process seam; defaults to `execFile` against `git`. */
@@ -443,14 +411,13 @@ export interface EphemeralCloneServiceDeps {
 /**
  * Inputs for {@link EphemeralCloneService.prepare}.
  *
- * `branchName` is REQUIRED — the D-010-19 seam. The caller (T2.4's run-setup
- * gate) resolves the name first, through `deriveWorktreeBranchName` when it is a
- * derived one, so this service never sees a nameless request and derives
- * nothing.
+ * `branchName` is REQUIRED — seam. The caller (the run-setup gate) resolves the
+ * name first, through `deriveWorktreeBranchName` when it is a derived one, so
+ * this service never sees a nameless request and derives nothing.
  *
- * There is no `ttlMs` and no `expiresAt`: the TTL is daemon configuration
- * (`Spec-010 §Resolved Questions and V1 Scope Decisions`), and accepting one
- * here would make it a per-request value one wire-facing caller away.
+ * There is no `ttlMs` and no `expiresAt`: the TTL is daemon configuration,
+ * and accepting one here would make it a per-request value one wire-facing
+ * caller away.
  *
  * The workspace's `execution_mode` is NOT checked. Mode dispatch is the gate's
  * surface — it is what decides that a request is a clone-mode prepare at all —
@@ -460,14 +427,12 @@ export interface EphemeralCloneServiceDeps {
 export interface PrepareEphemeralCloneInput {
   /** The workspace this clone belongs to. Resolves the mount to clone from. */
   readonly workspaceId: string;
-  /** The head branch to create in the clone. REQUIRED (D-010-19). */
+  /** The head branch to create in the clone. REQUIRED. */
   readonly branchName: string;
   /**
    * What retires this clone. Defaults to `on_run_complete`: the disposable
-   * per-run clone is the case `Spec-010 §Required Behavior` describes, and
-   * `manual` is the opt-out a caller states explicitly. `manual` clones are
-   * exempt from {@link EphemeralCloneService.retireRunClone} and are retired
-   * by {@link EphemeralCloneService.dispose} or by their TTL.
+   * per-run clone is the case describes, and `manual` is the opt-out a
+   * caller states explicitly.
    */
   readonly cleanupPolicy?: EphemeralCloneCleanupPolicy;
 }
@@ -527,7 +492,7 @@ export type EphemeralCloneRetirementTrigger = "on_run_complete";
 export interface PreparedEphemeralClone {
   readonly cloneId: string;
   readonly workspaceId: string;
-  /** `<executionRootsDirectory>/<repoMountId>/clones/<cloneId>` (D-010-6). */
+  /** `<executionRootsDirectory>/<repoMountId>/clones/<cloneId>`. */
   readonly cloneRoot: string;
   /**
    * The branch that was created and persisted in `branch_name`. Reported back so
@@ -574,12 +539,12 @@ export interface EphemeralCloneCleanupTickResult {
   /** Clones whose root was removed and whose `cleaned_at` was stamped — leg (d). */
   readonly cleanedCloneIds: readonly string[];
   /**
-   * Workspaces handed back to `provisioning` (`Spec-010 §Fallback Behavior`),
-   * from EITHER disposition site: the retirement in legs (a)/(b), and leg (d)
-   * for a clone whose disposition was still owed because `dispose` retired it
-   * while the workspace was busy. Reported separately because it is the only
-   * effect of a tick that reaches outside this service's own table, and a caller
-   * reconciling daemon state wants it without re-querying.
+   * Workspaces handed back to `provisioning`, from EITHER disposition site: the
+   * retirement in legs (a)/(b), and leg (d) for a clone whose disposition was
+   * still owed because `dispose` retired it while the workspace was busy.
+   * Reported separately because it is the only effect of a tick that reaches
+   * outside this service's own table, and a caller reconciling daemon state
+   * wants it without re-querying.
    *
    * A workspace appears at most once per tick even though both legs can run for
    * the same clone: legs (a)/(b) dispose only a `ready` workspace, and the
@@ -594,22 +559,22 @@ export interface EphemeralCloneCleanupTickResult {
 // --------------------------------------------------------------------------
 
 /**
- * The default clone lifetime: 24 hours, per `Spec-010 §Resolved Questions and V1
- * Scope Decisions`. Exported so a composition root can express a configured
- * override as a delta from the ratified default rather than re-spelling it.
+ * The default clone lifetime: 24 hours. Exported so a composition root can
+ * express a configured override as a delta from the ratified default rather than
+ * re-spelling it.
  */
 export const DEFAULT_EPHEMERAL_CLONE_TTL_MS: number = 24 * 60 * 60 * 1000;
 
-// D-010-6's path shape: `<executionRootsDir>/<repoMountId>/clones/<id>`. The
+// The path shape: `<executionRootsDir>/<repoMountId>/clones/<id>`. The
 // `worktrees` sibling segment is `./worktree-service.ts`'s; both hang off the
 // same per-mount directory so a mount's roots can be reasoned about as a unit.
 const CLONE_ROOTS_SEGMENT = "clones";
 
-// The empty directory `core.hooksPath` points at (I-010-10). A dotted sibling of
-// the per-mount root directories, so it can never collide with a mount id.
-// Spelled identically to `./worktree-service.ts`'s: both services neutralize
-// against the SAME directory under a shared execution-roots directory, and two
-// spellings would mean two directories, either of which a reaper could remove.
+// A dotted sibling of the per-mount root directories, so it can never collide
+// with a mount id. Spelled identically to `./worktree-service.ts`'s: both
+// services neutralize against the SAME directory under a shared execution-roots
+// directory, and two spellings would mean two directories, either of which a
+// reaper could remove.
 const HOOK_NEUTRALIZATION_SEGMENT = ".hook-neutralization";
 
 // Per-invocation git timeout. Five times `./worktree-service.ts`'s bound because
@@ -618,12 +583,12 @@ const HOOK_NEUTRALIZATION_SEGMENT = ".hook-neutralization";
 // itself — on a large repository, a two-minute ceiling would kill a healthy
 // provisioning.
 //
-// INVENTED rather than ratified: D-010-6 and Spec-010 fix the placement and the
-// TTL, not an invocation ceiling. The direction of the risk is stated rather
-// than hidden — a ceiling that is too high lets a wedged clone hold a `creating`
-// row until it fires, while one that is too low fails a healthy prepare and
-// parks the run in setup, and the second is the worse outcome because it is
-// silent about being a timeout.
+// INVENTED rather than ratified: fix the placement and the TTL, not an
+// invocation ceiling. The direction of the risk is stated rather than hidden — a
+// ceiling that is too high lets a wedged clone hold a `creating` row until it
+// fires, while one that is too low fails a healthy prepare and parks the run in
+// setup, and the second is the worse outcome because it is silent about being a
+// timeout.
 const DEFAULT_CLONE_GIT_TIMEOUT_MS = 600_000;
 
 // stdout ceiling. Neither `clone` nor `checkout` writes progress to stdout when
@@ -635,12 +600,12 @@ const GIT_STDIO_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 // The clone states a retirement may still act on. `retired` is excluded because
 // it is the target, and `failed` because a failed prepare already disposed of
 // whatever it left on disk — sweeping it again would retire rows whose only
-// remaining value is the queryable failure record (D-010-11).
+// remaining value is the queryable failure record.
 const RETIRABLE_CLONE_STATE_PREDICATE = "clones.state IN ('creating', 'ready')";
 
 // The busy-holder deferral, spelled ONCE and interpolated into all three
-// candidate reads (see the header's I-010-11 section for why deferral is the
-// only branch available rather than a policy this module chose).
+// candidate reads (see the header for why deferral is the only
+// branch available rather than a policy this module chose).
 //
 // `NOT EXISTS` rather than a `LEFT JOIN` plus a negated comparison: with an
 // outer join, a clone whose workspace row is missing yields NULL on every
@@ -651,9 +616,9 @@ const RETIRABLE_CLONE_STATE_PREDICATE = "clones.state IN ('creating', 'ready')";
 //
 // MODE-AGNOSTIC on purpose: the question is whether a run is executing in this
 // directory, which `busy` plus `fs_root` answers whatever the row's
-// `execution_mode` says. The narrower `Spec-010 §Fallback Behavior` question —
-// the clone backing a live `ephemeral clone`-mode workspace's current root — is
-// the DISPOSITION's, and carries the mode check separately.
+// `execution_mode` says. The narrower question — the clone backing a live
+// `ephemeral clone`-mode workspace's current root — is the DISPOSITION's, and
+// carries the mode check separately.
 const CLONE_NOT_HELD_BY_BUSY_WORKSPACE_PREDICATE = `NOT EXISTS (
        SELECT 1
          FROM workspaces AS holder
@@ -879,19 +844,19 @@ function addMillisecondsToInstant(instant: string, milliseconds: number): string
 }
 
 /**
- * Whether retiring this clone must hand its workspace back to `provisioning`
- * (`Spec-010 §Fallback Behavior`).
+ * Whether retiring this clone must hand its workspace back to
+ * `provisioning`.
  *
  * All three conditions are the sentence's: the workspace is LIVE (`ready` — a
  * `busy` one never reaches here, and an `archived` or `provisioning` one has no
  * live root to lose), it is in clone MODE, and the retiring clone is its CURRENT
  * root rather than a predecessor the workspace already moved off.
  *
- * `stale` is deliberately not a member. `Spec-010 §Fallback Behavior` reserves it
- * for fault paths, and `beginReprovision` would clear the `metadata.lastError`
- * that a stale workspace's repair path exists to surface — so a stale workspace
- * keeps its dangling `fs_root` until that repair reprovisions it, which is the
- * path that owns the field.
+ * `stale` is deliberately not a member. reserves it for fault paths, and
+ * `beginReprovision` would clear the `metadata.lastError` that a stale
+ * workspace's repair path exists to surface — so a stale workspace keeps its
+ * dangling `fs_root` until that repair reprovisions it, which is the path that
+ * owns the field.
  */
 function requiresReturnToProvisioning(row: CloneRetirementRow): boolean {
   return (
@@ -963,21 +928,20 @@ export class EphemeralCloneService {
         WHERE id = @workspace_id`,
     );
 
-    // Scoped to `state = 'attached'`, the Plan-009 ordering obligation: a
-    // detached mount is not a provisioning target, and `repo.not_found` is a
-    // more honest answer than letting it reach the git layer.
+    // Scoped to `state = 'attached'` ordering obligation: a detached mount
+    // is not a provisioning target, and `repo.not_found` is a more honest
+    // answer than letting it reach the git layer.
     this.#selectAttachedMountStmt = database.prepare<MountLookupParams, AttachedMountRow>(
       `SELECT id, canonical_root
          FROM repo_mounts
         WHERE id = @repo_mount_id AND state = 'attached'`,
     );
 
-    // `dispose`'s read. Unfiltered by state — an already-`retired` row is the
-    // idempotent case and has to be readable to be recognized — and it carries
-    // the workspace facts so an explicit disposal applies the same disposition
-    // the sweep does (CP-009-8: a `ready` workspace whose `fs_root` names a
-    // disposed root hands Plan-012 a stale approval scope root, whichever path
-    // disposed of it).
+    // Unfiltered by state — an already-`retired` row is the idempotent case
+    // and has to be readable to be recognized — and it carries the workspace
+    // facts so an explicit disposal applies the same disposition the sweep
+    // does (a `ready` workspace whose `fs_root` names a disposed root hands a
+    // stale approval scope root, whichever path disposed of it).
     this.#selectCloneStmt = database.prepare<CloneLookupParams, CloneRetirementRow>(
       `SELECT clones.id, clones.workspace_id, clones.clone_root, clones.state,
               workspaces.state AS workspace_state,
@@ -1012,7 +976,7 @@ export class EphemeralCloneService {
         ORDER BY clones.created_at ASC, clones.id ASC`,
     );
 
-    // D-010-13 legs (a) and (b), as one query: TTL expiry OR an archived owning
+    // Legs (a) and (b), as one query: TTL expiry OR an archived owning
     // workspace. One pass rather than two so a clone that is both is retired
     // once, and so the busy-holder deferral is applied identically to both.
     //
@@ -1038,14 +1002,13 @@ export class EphemeralCloneService {
     // Reads the FULL retirement shape rather than the root alone, because a
     // disposition can still be OWED at this point. `dispose` skips it for a
     // busy-held clone — a `busy` workspace is not a legal `beginReprovision`
-    // predecessor — and when the run ends, Plan-009's `releaseBusy` returns the
+    // predecessor — and when the run ends, the `releaseBusy` returns the
     // workspace to `ready` without clearing `fs_root`, deliberately. That leaves
     // a `ready` workspace still naming the retired clone's root, and removing
-    // the directory without first disposing of the workspace is precisely the
-    // CP-009-8 strand: the row would keep advertising an execution root that is
-    // no longer there, resolvable only by the health probe deriving `stale` —
-    // the FAULT state, where `Spec-010 §Fallback Behavior` prescribes
-    // `provisioning`.
+    // the directory without first disposing of the workspace is precisely
+    // strand: the row would keep advertising an execution root that is no longer
+    // there, resolvable only by the health probe deriving `stale` — the FAULT
+    // state, where prescribes `provisioning`.
     this.#selectUncleanedRetiredStmt = database.prepare<[], CloneRetirementRow>(
       `SELECT clones.id, clones.workspace_id, clones.clone_root, clones.state,
               workspaces.state AS workspace_state,
@@ -1078,8 +1041,8 @@ export class EphemeralCloneService {
         WHERE id = @clone_id AND state = 'creating'`,
     );
 
-    // No event accompanies this one (D-010-11): the failure incident surfaces as
-    // the caller's `workspace.stale`, which carries the detail.
+    // No event accompanies this one: the failure incident surfaces as the
+    // caller's `workspace.stale`, which carries the detail.
     this.#markFailedStmt = database.prepare<CloneTransitionParams>(
       `UPDATE ephemeral_clones
           SET state = 'failed', updated_at = @now
@@ -1114,7 +1077,7 @@ export class EphemeralCloneService {
 
   /**
    * Provision a disposable clone: resolve the workspace's mount, record the
-   * `creating` row, clone the canonical root to the D-010-6 path with hooks
+   * `creating` row, clone the canonical root to path with hooks
    * neutralized, create the supplied head branch, then record `ready`.
    *
    * The ORDER is the contract, and each step sits where its failure is
@@ -1126,23 +1089,23 @@ export class EphemeralCloneService {
    * 2. **The `creating` row is durable before git runs.** A failed
    *    materialization marks it `failed` and throws, so the incident stays
    *    queryable through the status-read surface rather than vanishing — which
-   *    is the only trail a clone failure has, since it emits nothing (D-010-11).
+   *    is the only trail a clone failure has, since it emits nothing.
    * 3. **`ready` is a compare-and-swap from `creating`.** Nothing else can have
    *    moved the row except a concurrent disposal, which is treated as a failed
    *    preparation below.
    *
-   * The caller — T2.4's execution-root orchestrator — is what turns the throw
-   * into the workspace-level disposition, calling Plan-009's `failReprovision`
-   * so the workspace goes `stale` with the detail and the run parks in setup
-   * (`Spec-010 §Fallback Behavior`). This service never substitutes a different
-   * execution mode, and it never touches `workspaces` (I-010-11).
+   * The caller — the execution-root orchestrator — is what turns the throw into
+   * the workspace-level disposition, calling the `failReprovision` so the
+   * workspace goes `stale` with the detail and the run parks in setup. This
+   * service never substitutes a different execution mode, and it never touches
+   * `workspaces`.
    */
   async prepare(input: PrepareEphemeralCloneInput): Promise<PreparedEphemeralClone> {
     const workspace = this.#selectWorkspaceStmt.get({ workspace_id: input.workspaceId });
     if (workspace === undefined) {
-      // Plan-009's carrier, not a Plan-010 re-mint: one code with two classes
-      // would make `instanceof` discrimination depend on which module a throw
-      // site imported.
+      // The carrier, not a re-mint: one code with two classes would make
+      // `instanceof` discrimination depend on which module a throw site
+      // imported.
       throw new WorkspaceNotFoundError(input.workspaceId);
     }
 
@@ -1223,7 +1186,7 @@ export class EphemeralCloneService {
   /**
    * Explicit disposal: record the clone's retirement, and hand its workspace
    * back to `provisioning` when the clone was that workspace's current execution
-   * root. NOTHING on disk (I-010-9) — the root survives until a
+   * root.
    * {@link EphemeralCloneService.cleanupTick} removes it and stamps `cleaned_at`.
    *
    * IDEMPOTENT on an already-`retired` row: the same response, and no second
@@ -1232,10 +1195,10 @@ export class EphemeralCloneService {
    * reachable by leg (d), which only ever sees `retired` rows.
    *
    * Does NOT refuse while a `busy` workspace holds the clone. There is no
-   * ratified conflict code for it in `error-contracts.md §Ephemeral Clone` — the
-   * clone surface has exactly two, `clone.not_found` and `clone.prepare_failed`
-   * — and the running run is protected where it matters: leg (d) defers the disk
-   * removal until the workspace releases.
+   * ratified conflict code for it — the clone surface has exactly two,
+   * `clone.not_found` and `clone.prepare_failed` — and the running run is
+   * protected where it matters: leg (d) defers the disk removal until the
+   * workspace releases.
    */
   async dispose(cloneId: string): Promise<EphemeralCloneDisposeResponse> {
     const row = this.#selectCloneStmt.get({ clone_id: cloneId });
@@ -1292,7 +1255,7 @@ export class EphemeralCloneService {
    * On a clone-mode teardown the disposition is not an edge case — it is the
    * normal shape: the run has released, so the workspace is `ready` and still
    * names the clone root, which is exactly `requiresReturnToProvisioning`. Any
-   * refusal from Plan-009's `beginReprovision` propagates, and it propagates
+   * refusal from the `beginReprovision` propagates, and it propagates
    * deliberately (see `#retireClone`): the workspace is the state this call
    * exists to correct, so swallowing would report a clean teardown over a
    * workspace still advertising a root about to be removed. A run-teardown
@@ -1324,13 +1287,12 @@ export class EphemeralCloneService {
   // ------------------------------------------------------------------------
 
   /**
-   * One cleanup tick over the CLONE legs of D-010-13:
    *
    *   (a) clones past their TTL are retired;
    *   (b) clones whose owning workspace archived are retired; and
    *   (d) `retired` roots with no `cleaned_at` are removed from disk — after
    *       any workspace disposition still owed for them — and only then is the
-   *       row stamped (I-010-9).
+   *       row stamped.
    *
    * (a) and (b) run as one query and before (d), so a clone retired by this tick
    * is cleaned in the same tick rather than waiting for the next one.
@@ -1357,13 +1319,13 @@ export class EphemeralCloneService {
    *      strength of a stale `fs_root` comparison. The removal that follows
    *      touches the retired clone's OWN root and no other, so the cost is the
    *      spurious reprovision itself: the workspace loses the root it had just
-   *      adopted, and — because Plan-009's statement also rewrites
-   *      `execution_mode` to the target mode and clears `metadata.lastError` —
-   *      a mode selection and a recorded failure with it. The orphaned root is
-   *      reclaimed by leg (a) at its TTL WHILE IT IS A CLONE. T3.1's
-   *      mode-selection path can leave a WORKTREE root there instead, which has
-   *      no row in this table and no TTL leg; that leak is acknowledged, not
-   *      closed here, and nothing switches modes until Phase 3 ships.
+   *      adopted, and — because the statement also rewrites `execution_mode` to
+   *      the target mode and clears `metadata.lastError` — a mode selection and
+   *      a recorded failure with it. The orphaned root is reclaimed by leg (a)
+   *      at its TTL WHILE IT IS A CLONE. the mode-selection path can leave a
+   *      WORKTREE root there instead, which has no row in this table and no TTL
+   *      leg; that leak is acknowledged, not closed here, and nothing switches
+   *      modes until Phase 3 ships.
    *   2. A run claims the workspace and the disposition refuses `workspace.busy`
    *      — the adjudicated skip below, which writes nothing and defers the row.
    *   3. Another provisioner reaches `beginReprovision` first, leaving the
@@ -1411,12 +1373,12 @@ export class EphemeralCloneService {
           // instead would abort the whole pass over an ordinary transient race
           // and strand every later row in the snapshot.
           //
-          // The T2.2 cascade arm propagates, and that is not a contradiction:
-          // its throw reports a cross-plan disagreement, whereas this one is a
-          // race the next tick resolves by itself.
+          // Cascade arm propagates, and that is not a contradiction: its throw
+          // reports a cross-plan disagreement, whereas this one is a race the
+          // next tick resolves by itself.
           //
           // The propagating arm is NOT claimed to be disagreement-only, because
-          // it is not. It also catches an ordinary race: T2.4's prepare can call
+          // it is not. It also catches an ordinary race: the prepare can call
           // `beginReprovision` in the same window, leaving the workspace
           // `provisioning` — neither a legal predecessor nor `busy` — so this
           // call gets `WorkspaceServiceInvariantError` and the pass aborts. That
@@ -1448,12 +1410,6 @@ export class EphemeralCloneService {
    * Record one clone's retirement, with the workspace disposition first.
    * Returns whether the disposition was applied.
    *
-   * The order is load-bearing and is argued at the header's I-010-9 section:
-   * `beginReprovision` moves the workspace to `provisioning`, which `markBusy`
-   * cannot claim, so the retirement that follows cannot strand a live run — and
-   * a crash between the two leaves a recoverable state rather than a `ready`
-   * workspace advertising a retired root (CP-009-8).
-   *
    * The two writes are NOT one transaction, and cannot be: `beginReprovision` is
    * async because it appends an event, while `better-sqlite3`'s `transaction()`
    * is synchronous. What stands in for atomicity is that the read is a single
@@ -1480,11 +1436,10 @@ export class EphemeralCloneService {
    * Record a preparation failure on an existing `creating` row, and dispose of
    * whatever the failed attempt left behind.
    *
-   * No event, by D-010-11. The best-effort root removal keeps a half-written
-   * clone from being the reason a retried preparation fails on "path already
-   * exists"; it is scoped to a path the daemon just minted under its own
-   * execution-roots directory, keyed by a fresh clone id, so it can only reach
-   * debris this call produced.
+   * The best-effort root removal keeps a half-written clone from being the
+   * reason a retried preparation fails on "path already exists"; it is scoped
+   * to a path the daemon just minted under its own execution-roots directory,
+   * keyed by a fresh clone id, so it can only reach debris this call produced.
    */
   async #recordPrepareFailure(cloneId: string, cloneRoot: string): Promise<void> {
     // Zero rows changed is TOLERATED rather than asserted: the predicate can
@@ -1505,9 +1460,9 @@ export class EphemeralCloneService {
       // (a)/(b) want a live state, leg (d) wants `retired` — so nothing
       // automatic disposes of this directory. It is bounded to one root per
       // failure whose cleanup ALSO failed, it stays visible through the
-      // status-read surface (D-010-11), and the operator route out is the
-      // ordinary one: `dispose` on the failed row, which is a legal transition
-      // precisely so that leg (d) can then reach it.
+      // status-read surface, and the operator route out is the ordinary one:
+      // `dispose` on the failed row, which is a legal transition precisely so
+      // that leg (d) can then reach it.
     }
   }
 
@@ -1517,7 +1472,7 @@ export class EphemeralCloneService {
 
   /**
    * The single git entry point. Prepends the two hook-neutralization flags and
-   * nothing else, so I-010-10's quantifier holds structurally (see the header).
+   * nothing else, so the quantifier holds structurally (see the header).
    * `core.fsmonitor=false` is structural parity with the siblings — the header
    * records why it is uniformity rather than a closed hole here.
    */
@@ -1536,11 +1491,11 @@ export class EphemeralCloneService {
   }
 
   /**
-   * Materialize the clone: copy the mount's canonical root to the D-010-6 path,
-   * observe the base branch it landed on, then create the requested head branch
-   * in it. Returns the observed base, or `undefined` when the clone's own HEAD
-   * lands detached (a source HEAD commit no branch references — see the
-   * `baseBranch` contract).
+   * Materialize the clone: copy the mount's canonical root to path, observe the
+   * base branch it landed on, then create the requested head branch in it.
+   * Returns the observed base, or `undefined` when the clone's own HEAD lands
+   * detached (a source HEAD commit no branch references — see the `baseBranch`
+   * contract).
    *
    * Only the PARENT directory is created here. `git clone` creates its own
    * target and refuses one that already exists and is non-empty, and creating
@@ -1556,9 +1511,8 @@ export class EphemeralCloneService {
    *
    * Every failure here becomes `ClonePrepareFailedError`, each carrying its own
    * {@link ClonePrepareFailureReason}. The git `stderr` stops HERE: it is the
-   * value most likely to name a filesystem path, and `error-contracts.md
-   * §Ephemeral Clone` bans echoing one, so the discriminant is all that survives
-   * the boundary.
+   * value most likely to name a filesystem path, and bans echoing one, so the
+   * discriminant is all that survives the boundary.
    */
   async #materializeClone(materialization: CloneMaterialization): Promise<string | undefined> {
     try {
@@ -1575,11 +1529,10 @@ export class EphemeralCloneService {
       // `--no-hardlinks` because the source is always a local path, and a local
       // clone hardlinks `.git/objects/**` into the target instead of copying it.
       // Sharing object-store inodes with the user's own repository is not the
-      // "disposable isolated clone" `Spec-010 §Required Behavior` describes, and
-      // CP-009-8 hands this root to Plan-012 as an approval scope — an approval
-      // scoped to the clone would reach files that ARE the user's repository.
-      // T2.6's real-git tier is where "the object files are copies" gets
-      // asserted against git rather than modelled.
+      // "disposable isolated clone" describes, and hands this root to as an
+      // approval scope — an approval scoped to the clone would reach files that
+      // ARE the user's repository. the real-git tier is where "the object files
+      // are copies" gets asserted against git rather than modelled.
       await this.#runGit([
         "clone",
         "--no-hardlinks",
@@ -1606,9 +1559,6 @@ export class EphemeralCloneService {
       // `base_branch_unreadable` exists to prevent. `--show-current` exits 0 for
       // both shapes and reports absence as empty stdout, keeping the lawful case
       // and the failure case distinguishable at a seam that only sees stdout.
-      // It is porcelain; its empty-on-detached contract is documented, was
-      // verified on git 2.50.1 when this landed, and is re-pinned against real
-      // git at T2.6's acceptance tier.
       const headBranchRead = await this.#runGit([
         "-C",
         materialization.cloneRoot,

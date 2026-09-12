@@ -12,9 +12,9 @@ import type { BillingMode } from "@ai-sidekicks/contracts";
  * Whether a figure is fully priced. Aggregate reuse of the row-level usage vocabulary.
  *
  * A type alias rather than a value list because nothing here enumerates it: the wire
- * supplies the reading and the console renders it, and `Spec-016 §Cost Figure Display
- * Consistency` makes it observability only — a surface that branched enforcement on it
- * would be a second trust regime over a number the daemon already settled.
+ * supplies the reading and the console renders it, and cost-figure display
+ * consistency makes it observability only — a surface that branched enforcement on
+ * it would be a second trust regime over a number the daemon already settled.
  */
 export type GrowthCostStatus = "priced" | "unpriced";
 
@@ -59,14 +59,14 @@ export interface GrowthUnpricedFamilyCap {
  * The party a unit of work is attributed to — the turn-scoped effective principal,
  * carried verbatim from the metered rows the receipt folds.
  *
- * Two closed arms with the participant reference required on the participant arm and
+ * Two closed arms with the user reference required on the user arm and
  * absent on the system arm, rather than one nullable id: an unstamped value and a
  * deliberately-unattributed one would otherwise be the same shape, and spend no
- * participant caused — a sweep, an idle settlement, a recovery turn — is a real answer
+ * user caused — a sweep, an idle settlement, a recovery turn — is a real answer
  * rather than a missing one.
  */
 export type GrowthEffectivePrincipal =
-  | { readonly kind: "participant"; readonly participantId: string }
+  | { readonly kind: "user"; readonly userId: string }
   | { readonly kind: "system" };
 
 /**

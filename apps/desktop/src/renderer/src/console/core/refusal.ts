@@ -1,11 +1,10 @@
 // One refusal shape for the whole console.
 //
-// `Spec-023 §Console Design (Meridian)` rule 9 gives refusals three RENDERINGS —
-// inline on the control, a card in the surface, a banner across the workspace —
-// and `RefusalBanner` / `InlineRefusal` / `RefusalCard` all consume the same two
-// fields. What the console lacked was one refusal VALUE for them to consume: the
-// growth port, the fixture bridge, the when-clause parser, the key-binding table,
-// and the palette each minted their own vocabulary, so a surface that wanted to
+// A refusal has three RENDERINGS — inline on the control, a card in the surface, a banner
+// across the workspace — and `RefusalBanner` / `InlineRefusal` / `RefusalCard` all
+// consume the same two fields. What the console lacked was one refusal VALUE for them to
+// consume: the growth port, the fixture bridge, the when-clause parser, the key-binding
+// table, and the palette each minted their own vocabulary, so a surface that wanted to
 // render two of them had to translate between five shapes to reach three renderers.
 //
 // Three fields, and each earns its place:
@@ -15,7 +14,7 @@
 //     it is what a person pastes into a search or an issue.
 //   • `detail` — one sentence a person can act on. Says what was refused and what
 //     would change the answer. Never the refused value itself, which may be
-//     participant content.
+//     user content.
 //   • `origin` — which subsystem refused, so a refusal that surfaces three layers
 //     from where it was raised still names its author.
 //
@@ -108,7 +107,7 @@ export function refuse<Code extends string>(
 /**
  * The member paths a parse refused on, for a refusal's own sentence.
  *
- * PATHS AND NEVER THE REFUSED VALUE. A stream delivery's payload may be participant
+ * PATHS AND NEVER THE REFUSED VALUE. A stream delivery's payload may be user
  * content, and `detail` says what was refused rather than repeating it — so what a
  * reader gets is the members that failed, which is also what they search for.
  *

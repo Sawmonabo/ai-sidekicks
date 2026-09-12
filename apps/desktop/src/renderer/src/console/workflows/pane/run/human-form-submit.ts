@@ -18,7 +18,7 @@
 // So the value the form was COMPOSED against is captured beside the outcome, in the same
 // subject-scoped holder and under the same key, and a new `phaseRunId` captures afresh.
 //
-// NOTHING HERE ADJUDICATES. Whether this participant may answer, whether the phase is
+// NOTHING HERE ADJUDICATES. Whether this user may answer, whether the phase is
 // still waiting, whether the revision is stale — every one of those is the daemon's,
 // and each arrives as a typed refusal rendered verbatim beside the control. A form
 // that predicted any of them would be a second authority on a question it cannot see

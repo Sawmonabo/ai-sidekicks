@@ -1,7 +1,6 @@
 // Choosing a file, and saying what will be accepted before anyone chooses one.
 //
-// THE HINT IS ON THE PICKER, which is where `Spec-014 §Bounds (normative defaults;
-// operator-tunable)` puts it: the allow-list and all four bounds are one click from the
+// THE HINT IS ON THE PICKER: the allow-list and all four bounds are one click from the
 // control that opens a file dialog, rather than complete on a pane a person would have
 // to go and find. The disclosure is the repos family's own component taken through its
 // door — two surfaces rendering two lists would be two answers about a deployment

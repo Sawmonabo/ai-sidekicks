@@ -1,69 +1,59 @@
-// The `driver.*` client SDK surface — Plan-005 Phase 4, T4.3 (factory) + T4.4
-// (the subscription leg).
+// The `driver.*` client SDK surface
 //
 // DAEMON-ONLY, AND THAT IS THE WHOLE DESIGN. There is exactly one factory here
-// and there will not be a second: Plan-005 §Phase 4 ratified decision #1 fixes
-// this surface at `createDaemonProviderClient(JsonRpcClient): DriverClient` with
-// no control-plane variant, because `Spec-005 §Required Behavior` places driver
-// authority in the local daemon (I-005-1). The two sibling clients in this
-// package (`sessionClient.ts`, `runtimeNodeClient.ts`) each ship a daemon
-// factory AND a control-plane factory; the asymmetry here is deliberate, and its
-// absence is the enforcement. A control-plane factory would be a wire path by
-// which a client executed a provider somewhere other than the node that owns the
-// process, which is the exact thing I-005-1 forbids — so the invariant survives
-// contact with this package by there being no such function to call.
+// and there will not be a second: `createDaemonProviderClient(JsonRpcClient):
+// DriverClient` with no control-plane variant, because places driver authority
+// in the local daemon. The two sibling clients in this package
+// (`sessionClient.ts`, `runtimeNodeClient.ts`) each ship a daemon factory AND a
+// control-plane factory; the asymmetry here is deliberate, and its absence is
+// the enforcement. A control-plane factory would be a wire path by which a
+// client executed a provider somewhere other than the node that owns the
+// process, which is the exact thing forbids — so the invariant survives contact
+// with this package by there being no such function to call.
 //
 // NINE METHODS, AND THE FOUR THAT ARE MISSING ARE THE CONTRACT. `ProviderDriver`
 // carries eighteen operations. Four of them — `createSession`, `resumeSession`,
 // `startRun`, `closeSession` — establish, restore, start, or tear down a
-// session-or-run domain object, which is orchestration's job (Plan-005 §Phase 4
-// decision #2). They are daemon-internal: no client-facing schema exists for
-// them at the SDK seam, no daemon handler registers them, and this interface
-// does not declare them. A renderer or CLI holding a `DriverClient` therefore
-// cannot mint or destroy runtime state behind the orchestrator's back — it
-// cannot even name the operation. That is also what makes the recovery contract
-// (`Spec-005 §Fallback Behavior`, I-005-5) enforceable from this side: a failed
-// resume has no client-reachable route to a replacement session, because no
-// route to session creation exists here at all.
+// session-or-run domain object, which is orchestration's job. They are
+// daemon-internal: no client-facing schema exists for them at the SDK seam, no
+// daemon handler registers them, and this interface does not declare them. A
+// renderer or CLI holding a `DriverClient` therefore cannot mint or destroy
+// runtime state behind the orchestrator's back — it cannot even name the
+// operation. That is also what makes the recovery contract enforceable from this
+// side: a failed resume has no client-reachable route to a replacement session,
+// because no route to session creation exists here at all.
 //
-// T4.9's two console-parity verbs (`driver.compactContext`,
+// The two console-parity verbs (`driver.compactContext`,
 // `driver.listProviderCommands`) extend THIS interface and THIS factory — never
 // a second client module — taking the client-facing set from seven to nine.
 // Both are SESSION-addressed (a binding and an agent are only identified within
 // a session), the deliberate contrast to the globally-unique run id the three
 // run verbs carry, and neither request admits a binding member: the daemon
 // resolves the live binding itself, which is what keeps the routing invariant
-// (I-005-13) daemon-enforced rather than trusted to a renderer.
+// daemon-enforced rather than trusted to a renderer.
 //
 // ZOD AT THE SEAM, IN BOTH DIRECTIONS. Every request/response verb routes
-// through `JsonRpcClient.call`, which validates the request against its T4.2
-// schema BEFORE the wire write and the daemon's reply against its result schema
-// BEFORE resolving. That bidirectional guard is why `applyIntervention` can be
-// trusted to hand back a degraded envelope unmutated:
-// `DriverInterventionResultSchema` is `.strict()`, so a daemon answering
-// `{ status: "degraded" }` with the `fallbackAction` dropped, or with an unknown
-// key spliced in, fails the result parse and rejects rather than reaching a
-// caller that would render a fallback hint it never received (I-005-4). The
-// subscription path gets the same treatment on the values it streams: every
-// delivered frame is parsed against `DriverEventSchema` — the contracts-owned
-// narrowing to the seven driver-event categories — so a daemon that filtered
-// wrongly ends the subscription loudly instead of handing a driver-typed
-// consumer an approval or membership row.
+// through `JsonRpcClient.call`, which validates the request against its schema
+// BEFORE the wire write and the daemon's reply against its result schema BEFORE
+// resolving. That bidirectional guard is why `applyIntervention` can be trusted
+// to hand back a degraded envelope unmutated: `DriverInterventionResultSchema`
+// is `.strict()`, so a daemon answering `{ status: "degraded" }` with the
+// `fallbackAction` dropped, or with an unknown key spliced in, fails the result
+// parse and rejects rather than reaching a caller that would render a fallback
+// hint it never received. The subscription path gets the same treatment on the
+// values it streams: every delivered frame is parsed against `DriverEventSchema`
+// — the contracts-owned narrowing to the seven driver-event categories — so a
+// daemon that filtered wrongly ends the subscription loudly instead of handing a
+// driver-typed consumer an approval or audit row.
 //
 // THE THREE READS TAKE NO ARGUMENT. `listCapabilities`, `listModels`, and
 // `listModes` are written no-arg here, matching the `DriverClient` signature
-// Plan-005 §Phase 4 T4.3 ratifies and the `DriverReadParams` empty-object shape
-// T4.2 registers. Each answers with a GROUP LIST keyed by driver name rather
-// than a flat merged array, because model ids collide across providers and
-// carry no vendor marker — a flat reply would strip the provenance a caller
-// needs to keep a Claude-published value from being offered through a
-// Codex-bound agent.
+// `DriverReadParams` empty-object shape registers. Each answers with a GROUP
+// LIST keyed by driver name rather than a flat merged array, because model ids
+// collide across providers and carry no vendor marker — a flat reply would
+// strip the provenance a caller needs to keep a Claude-published value from
+// being offered through a Codex-bound agent.
 //
-// Refs: Plan-005 §Phase 4 / T4.3 + T4.4 (ratified decisions #1-#4),
-// `Spec-005 §Required Behavior` (driver authority local; drivers emit
-// normalized runtime events), `Spec-005 §Fallback Behavior`, invariants
-// I-005-1 / I-005-4, CP-007-4 (the shared streaming primitive's
-// producer/consumer split).
 
 import type {
   ApplyInterventionParams,
@@ -109,7 +99,7 @@ import type { LocalSubscriptionConsumer } from "./transport/types.js";
 
 /**
  * The nine client-facing `driver.*` JSON-RPC method names, in the canonical
- * dotted-camelCase long form ADR-009 + Plan-007 I-007-9 require.
+ * dotted-camelCase long form require.
  *
  * Authored as local string constants rather than imported symbols, matching
  * `sessionClient.ts`'s `SESSION_METHOD_*` and `runtimeNodeClient.ts`'s
@@ -150,10 +140,7 @@ const EMPTY_READ_PARAMS: DriverReadParams = Object.freeze({});
 
 /**
  * The client-facing driver surface: the eight request/response verbs plus
- * `subscribeEvents` — the nine methods ratified at Plan-005 §Phase 4
- * decision #2 (T4.9's two console-parity verbs joining T4.1's six under that
- * decision's own governing principle: both operate on an already-existing
- * session).
+ * `subscribeEvents` — the nine methods.
  *
  * `compactContext` is the second verb whose refusals are RESOLVED VALUES:
  * `DriverCompactionResult` is a discriminated union, and its `refused` /
@@ -175,13 +162,13 @@ const EMPTY_READ_PARAMS: DriverReadParams = Object.freeze({});
  * `run.not_found` code.
  *
  * `applyIntervention` is the one verb whose UNSUPPORTED case is a resolved value
- * rather than a rejection. ADR-011 makes an unsupported intervention DATA: the
- * call reaches the driver so it can answer a `degraded` status naming the
- * daemon's fallback, and the daemon deliberately does not pre-gate it on the
- * capability flag, because a gate would replace a usable fallback hint with an
- * error. Callers MUST branch on `status` — treating a resolved promise as "the
+ * rather than a rejection. makes an unsupported intervention DATA: the call
+ * reaches the driver so it can answer a `degraded` status naming the daemon's
+ * fallback, and the daemon deliberately does not pre-gate it on the capability
+ * flag, because a gate would replace a usable fallback hint with an error.
+ * Callers MUST branch on `status` — treating a resolved promise as "the
  * intervention was applied natively" is the misreading this envelope exists to
- * prevent (I-005-4).
+ * prevent.
  *
  * `subscribeEvents` returns SYNCHRONOUSLY, unlike the `AsyncIterable` wrapper
  * `sessionClient.subscribe` exposes. It hands the caller the
@@ -191,13 +178,13 @@ const EMPTY_READ_PARAMS: DriverReadParams = Object.freeze({});
 export interface DriverClient {
   /**
    * Read every loaded driver's client-facing capability report, served from the
-   * daemon's T4.5 capability cache with no provider round-trip per call.
+   * daemon's capability cache with no provider round-trip per call.
    *
    * A driver the cache cannot substantiate refuses the WHOLE read rather than
    * being silently omitted from the roster: an omitted driver is
    * indistinguishable from one that is not loaded, and reporting "no
    * capabilities" for a driver whose capabilities are merely unknown is the
-   * fail-open reading I-005-2 exists to prevent.
+   * fail-open reading exists to prevent.
    */
   listCapabilities(): Promise<ListCapabilitiesResult>;
 
@@ -210,9 +197,8 @@ export interface DriverClient {
    * `rollback` is deliberately NOT reachable here:
    * `ApplyInterventionParamsSchema` is a discriminated union over three arms, so
    * a `type: "rollback"` request fails the caller-side params parse at the
-   * discriminator before any wire write. Rollback is Spec-004 content driven
-   * through Plan-004's own intervention path against the driver-side
-   * `rollbackTo` operation.
+   * discriminator before any wire write. Rollback is content driven through its
+   * own intervention path against the driver-side `rollbackTo` operation.
    */
   applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult>;
 
@@ -226,7 +212,7 @@ export interface DriverClient {
   listModes(): Promise<ListModesResult>;
 
   /**
-   * Trigger a participant-initiated context compaction on one run's live
+   * Trigger a user-initiated context compaction on one run's live
    * binding. Resolves the discriminated `DriverCompactionResult` — NEVER a bare
    * acknowledgment, because both provider mechanisms answer before the work is
    * done and only the typed compaction evidence settles `applied`. Callers MUST
@@ -246,18 +232,17 @@ export interface DriverClient {
   /**
    * Open a subscription to one run's driver event stream.
    *
-   * Takes the run id despite T4.3's `Provides` line writing this method bare —
-   * that line is shorthand for the return type it was ratified to pin, and
-   * T4.4's own `Provides` line states the addressing verbatim
+   * Takes the run id despite the `Provides` line writing this method bare —
+   * that line is shorthand for the return type it was ratified to pin, and its
+   * own `Provides` line states the addressing verbatim
    * (`driver.subscribeEvents(runId)`). The shipped wire schema
    * (`DriverSubscribeEventsParamsSchema`, one `runId` member and `.strict()`)
    * settles it: a no-arg call would fail the daemon's own request parse.
    *
    * The value type is `DriverEvent`, not `SessionEvent` — the contracts-owned
    * union over the seven driver-event categories, which is the return type
-   * `Plan-005 §Phase 4 — Client SDK exposure + degraded-fallback` T4.3
    * ratifies. A caller therefore branches over driver arms only and never has
-   * to type-handle a membership, approval, or audit event on a driver stream.
+   * to type-handle an approval or audit event on a driver stream.
    * Note that no `run.*` arm appears in that union today: `run_lifecycle` is on
    * decision #4's category list, but no `run.*` payload variant is registered
    * with `SessionEventSchema` yet, and `DriverEvent` covers registered arms
@@ -358,24 +343,22 @@ export function createDaemonProviderClient(client: JsonRpcClient): DriverClient 
 }
 
 /**
- * Open the `driver.subscribeEvents` subscription — T4.4's SDK half of the
- * Plan-007 CP-007-4 producer/consumer split.
+ * Open the `driver.subscribeEvents` subscription — the SDK half of
+ * producer/consumer split.
  *
  * THE PER-VALUE SCHEMA IS `DriverEventSchema`, AND VALIDATING IT HERE TOO IS
- * DEFENSE IN DEPTH, NOT A SECOND DEFINITION. Plan-005 §Phase 4 decision #4
- * defines `DriverEvent` as the union of seven EXISTING Plan-006-owned event
- * categories. That derived view is authored once, in Plan-005's own
- * `packages/contracts/src/driver-event.ts`, so this side imports the schema
- * rather than deriving anything. That is what dissolves the objection that kept
- * this seam on the full `SessionEvent` union: with one home there is no second
- * derivation to drift, and the drift risk was the only argument for validating
- * wide here.
+ * DEFENSE IN DEPTH, NOT A SECOND DEFINITION. That derived view is authored
+ * once, in its own `packages/contracts/src/driver-event.ts`, so this side
+ * imports the schema rather than deriving anything. That is what dissolves the
+ * objection that kept this seam on the full `SessionEvent` union: with one home
+ * there is no second derivation to drift, and the drift risk was the only
+ * argument for validating wide here.
  *
  * The daemon already filters non-driver events out before they reach the wire,
  * so in a correct pairing this schema never refuses anything. It earns its
  * place against an INCORRECT one: a daemon whose filter regressed, or a peer
  * running a version that widened the stream, otherwise hands this client an
- * approval or membership row that parses cleanly and reaches a consumer typed
+ * approval or audit row that parses cleanly and reaches a consumer typed
  * to expect neither. With the narrow schema that value fails per-value
  * validation and the subscription ends in a typed `JsonRpcSchemaError` on the
  * `value` phase, which is the loud failure the SDK boundary exists to give.

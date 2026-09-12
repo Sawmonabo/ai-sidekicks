@@ -1,8 +1,8 @@
 // The keybinding table — the binding set, one listener, and the dispatch.
 //
-// WHAT IS ADOPTED AND WHAT IS OURS. `Spec-023 §Console Libraries`, the headless
-// UI row: "ADOPT `tinykeys` 4.0.0 as the chord parser only … OWN-BUILD the
-// keybinding service and when-clause grammar". The adopted half is walled off in
+// WHAT IS ADOPTED AND WHAT IS OURS. The headless-UI library policy ADOPTs
+// `tinykeys` 4.0.0 as the chord parser only, and OWN-BUILDs the keybinding service
+// and the when-clause grammar. The adopted half is walled off in
 // `keybinding-chord.ts`; this module is the service, and it deliberately does NOT
 // call `tinykeys()` itself, for three reasons that are requirements rather than
 // preferences:

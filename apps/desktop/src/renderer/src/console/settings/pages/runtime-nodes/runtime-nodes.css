@@ -1,7 +1,8 @@
 /* The nodes page: Meridian over the shipped roster's own structure.
  *
  * WHY THE SELECTORS REACH FOR `aria-label` AND `data-*` RATHER THAN CLASSES. The three
- * views styled here are Plan-003's, shipped before the console existed and absorbed by
+ * views styled here belong to the runtime-node surface, shipped before the console
+ * existed and absorbed by
  * import; this console never edits that subtree, so it cannot add a class hook to it.
  * What it can do is scope from its own side: every rule below is under a class this
  * page's own markup carries, and the inner selectors are the shipped views' own stable
@@ -191,7 +192,7 @@
 /* --- Who holds the shared shell ----------------------------------------- */
 
 /* The holder's identity is drawn as a MARK and never as coloured text — rule 2 puts
- * the participant hue on a mark, and rule 3 keeps the one accent for the interactive
+ * the user hue on a mark, and rule 3 keeps the one accent for the interactive
  * thing, of which this block has none. The mark is 2 px, which is rule 1's
  * attribution width carried onto an element that is not a row edge.
  *

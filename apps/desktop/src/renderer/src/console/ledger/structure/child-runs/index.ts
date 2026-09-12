@@ -2,7 +2,7 @@
 //
 // WHAT THIS DIRECTORY OWNS. A ledger that draws only the run in front of it hides
 // every child run the session spawned and every handoff between actors — which
-// `Spec-013` forbids in terms ("never hides background work"). The derivation that
+// this ledger forbids in terms: it never hides background work. The derivation that
 // finds those entries in a loaded window, the two rows that draw them, the anchor
 // rule that keeps a subagent's card from walking down the log, and the expansion that
 // asks the daemon for a child's own entries are one job, and it is the job the feed

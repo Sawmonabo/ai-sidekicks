@@ -62,10 +62,10 @@ describe("the steps as data", () => {
   });
 
   it("makes the provider step the one step that may be left unanswered", () => {
-    // Stated as the positive set rather than its complement, because that is the set
-    // `Spec-026` closes: group B is offered and never demanded, and BOTH group-A
-    // steps refuse to be left unanswered — the relay choice by being non-dismissible
-    // and telemetry by admitting no silent default.
+    // Stated as the positive set rather than its complement, because that is the closed
+    // set: group B is offered and never demanded, and BOTH group-A steps refuse to be
+    // left unanswered — the relay choice by being non-dismissible and telemetry by
+    // admitting no silent default.
     const leavable = ONBOARDING_STEPS_IN_ORDER.filter((step) => step.mayBeLeftUnanswered);
     expect(leavable.map((step) => step.id)).toStrictEqual(["providers"]);
   });

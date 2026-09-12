@@ -60,7 +60,7 @@ describe("TimelinePane — a channel address is the pane's scope", () => {
     extraEvents: readonly ConsoleSessionEvent[] = [],
   ): SessionStore {
     const sessionStore = new SessionStore({ sessionId: TIMELINE_PANE_SESSION_ID });
-    sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
+    sessionStore.initialise({ cursor: -1, entities: [], userJoinLog: [] });
     const said = (
       sequence: number,
       runId: string,
@@ -129,7 +129,7 @@ describe("TimelinePane — a channel address is the pane's scope", () => {
     expect(feed?.getAttribute("aria-label")).toBe("Channel timeline");
   });
 
-  it("offers only this channel's own participants and families to narrow on", () => {
+  it("offers only this channel's own users and families to narrow on", () => {
     // The seat-row counts above would pass over a filter applied at the VIEWPORT:
     // the facet bar is derived from the unfurled projection, so a scope that
     // reached only as far as the rows would leave the other channel's speaker and

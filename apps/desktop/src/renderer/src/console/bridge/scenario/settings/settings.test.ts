@@ -132,10 +132,10 @@ describe("the settings scenario", () => {
     expect([...finalStateByRunId.values()].toSorted()).toStrictEqual(["failed", "running"]);
   });
 
-  it("states a viewer the session actually joins", () => {
-    const { viewingParticipantId, participantIdsInJoinOrder } = SETTINGS_SCENARIO;
-    expect(viewingParticipantId).toBeDefined();
-    expect(participantIdsInJoinOrder).toContain(viewingParticipantId);
+  it("names a caller the session actually joins", () => {
+    const { callerUserId, userIdsInJoinOrder } = SETTINGS_SCENARIO;
+    expect(callerUserId).toBeDefined();
+    expect(userIdsInJoinOrder).toContain(callerUserId);
   });
 
   it("reads a transition only from a payload that carries both members", () => {

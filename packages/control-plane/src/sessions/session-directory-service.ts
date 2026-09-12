@@ -10,9 +10,8 @@
 //
 // Ownership model: a session has exactly one owner, recorded in
 // `sessions.owner_user_id` and bound at the first successful create. There is
-// no membership table and no role ladder — the owner is the user, and every
-// other actor on a session is one of that user's own devices or the system
-// itself.
+// no second role — the owner is the user, and every other actor on a session is
+// one of that user's own devices or the system itself.
 //
 // What this service does NOT do:
 //   * Session-event payload storage — the shared Postgres store holds
@@ -28,7 +27,7 @@ import type { Pool, PoolClient } from "pg";
 import type {
   ChannelSummary,
   EventCursor,
-  ParticipantId,
+  UserId,
   SessionCreateResponse,
   SessionId,
   SessionReadResponse,
@@ -40,14 +39,13 @@ import { EventCursorSchema } from "@ai-sidekicks/contracts";
 import type { Querier } from "./migration-runner.js";
 
 // --------------------------------------------------------------------------
-// Placeholder cursor returned by `readSession`. See `readSession` docstring
-// — the control plane has no event log per ADR-017, so it cannot synthesize
-// a real Plan-006 cursor. PR #5's SDK composition layer queries the
-// daemon's local event service for the authoritative cursor and overrides
-// this field. Consumers MUST NOT treat the value as a real cursor.
+// Placeholder cursor returned by `readSession`. The SDK composition
+// layer queries the daemon's local event service for the authoritative
+// cursor and overrides this field. Consumers MUST NOT treat the value as a
+// real cursor.
 //
 // We construct via `EventCursorSchema.parse(...)` rather than `as EventCursor`
-// so that any future Plan-006 tightening of the schema (e.g. requiring a
+// so that any future tightening of the schema (e.g. requiring a
 // `<sequence>_<monotonic_ns>` shape) surfaces as an import-time validation
 // failure instead of silently passing a malformed value through to consumers
 // at runtime.
@@ -81,29 +79,28 @@ interface SessionRow {
 /**
  * Input shape for `createSession`.
  *
- * `sessionId` is daemon-assigned UUID v7 per BL-069 — the daemon mints the
- * id locally and presents it on the create call. The `gen_random_uuid()`
- * DEFAULT on the schema column exists for the rare control-plane-originated
- * row (admin provisioning); Plan-001 PR #4's create path always supplies
- * the id explicitly.
+ * `sessionId` is daemon-assigned UUID v7 — the daemon mints the id locally
+ * and presents it on the create call. The `gen_random_uuid()` DEFAULT on
+ * the schema column exists for the rare control-plane-originated row (admin
+ * provisioning) the create path always supplies the id explicitly.
  *
- * `ownerParticipantId` is REQUIRED and lands verbatim in
+ * `ownerUserId` is REQUIRED and lands verbatim in
  * `sessions.owner_user_id`. This service is a faithful Postgres adapter;
  * identity resolution belongs upstream, so the caller is responsible for
- * resolving identity to a participantId before invoking it. The column carries
+ * resolving identity to a userId before invoking it. The column carries
  * no DEFAULT, so an owner this service failed to supply would be rejected by
  * the database rather than materialize an ownerless session.
  *
  * Forward-declared columns (not in this input shape):
- *   * `min_client_version` — Plan-003 owns attach-flow enforcement per
- *     ADR-018. Column declared in `0001-initial.ts` so the schema is
- *     stable across plans, but PR #4 does not write it; the column lands
- *     as NULL on every create. Plan-003 will pick up the input shape on
- *     the read+write side at the same time.
+ *   * `min_client_version` — owns attach-flow enforcement. Column
+ *     declared in `0001-initial.ts` so the schema is stable across
+ *     plans, but this path does not write it; the column lands as NULL on
+ *     every create. will pick up the input shape on the read+write side
+ *     at the same time.
  */
 export interface CreateSessionInput {
   readonly sessionId: SessionId;
-  readonly ownerParticipantId: ParticipantId;
+  readonly ownerUserId: UserId;
   readonly config?: Record<string, unknown> | undefined;
   readonly metadata?: Record<string, unknown> | undefined;
 }
@@ -118,8 +115,8 @@ export class SessionDirectoryService {
   /**
    * Create (or idempotently re-create) a session.
    *
-   * BL-069 invariant: the daemon mints UUID v7 for `sessionId` and presents
-   * it here. The upsert pattern below is `ON CONFLICT (id) DO UPDATE SET
+   * Invariant: the daemon mints UUID v7 for `sessionId` and presents it
+   * here. The upsert pattern below is `ON CONFLICT (id) DO UPDATE SET
    * updated_at = sessions.updated_at` — note that `sessions.updated_at`
    * (the existing row's value) is assigned, NOT `now()`. This is a no-op
    * write that exists solely to make `RETURNING *` yield a row on every
@@ -139,7 +136,7 @@ export class SessionDirectoryService {
    * The guard is exact rather than advisory because the conflict clause does
    * not assign `owner_user_id` — so `RETURNING owner_user_id` yields the
    * PERSISTED owner, which is the row that was there before this call. A
-   * mismatch between that value and the caller's `ownerParticipantId` is a
+   * mismatch between that value and the caller's `ownerUserId` is a
    * caller trying to take over someone else's session, and it is rejected
    * before the transaction commits.
    *
@@ -158,8 +155,8 @@ export class SessionDirectoryService {
    * pg.Pool adapter pins it to one checked-out connection.
    *
    * Why no error-handler around `transaction(...)`: PGlite's
-   * `pg.transaction(fn)` (and the `pg`-side equivalent that PR #5 will
-   * compose for `pg.Pool`) auto-rolls-back on throw and re-raises the
+   * `pg.transaction(fn)` (and the `pg`-side equivalent production wiring
+   * composes for `pg.Pool`) auto-rolls-back on throw and re-raises the
    * underlying error. Adding a manual `ROLLBACK` here would race the
    * driver's auto-rollback path; the directory service relies on the
    * driver-supplied semantics.
@@ -187,7 +184,7 @@ export class SessionDirectoryService {
          RETURNING id, owner_user_id, state, config, metadata, min_client_version, created_at, updated_at`,
         [
           input.sessionId,
-          input.ownerParticipantId,
+          input.ownerUserId,
           input.config !== undefined ? JSON.stringify(input.config) : null,
           input.metadata !== undefined ? JSON.stringify(input.metadata) : null,
         ],
@@ -201,7 +198,7 @@ export class SessionDirectoryService {
 
       // Owner-mismatch guard.
       //
-      // RFC 9562 §4 specifies UUIDs are case-insensitive, but Postgres stores
+      // RFC 9562 section 4 specifies UUIDs are case-insensitive, but Postgres stores
       // them in canonical lowercase form and returns them as lowercase
       // strings. A caller passing an id with uppercase hex digits — valid per
       // the brand's parser, which accepts both cases — would fail strict
@@ -209,9 +206,9 @@ export class SessionDirectoryService {
       // same-owner re-create. Both sides are normalized symmetrically: the row
       // side too, as defense against a future driver or substrate that does
       // not return the canonical form.
-      if (session.owner_user_id.toLowerCase() !== input.ownerParticipantId.toLowerCase()) {
+      if (session.owner_user_id.toLowerCase() !== input.ownerUserId.toLowerCase()) {
         throw new Error(
-          `SessionDirectoryService.createSession: session ${String(input.sessionId)} already exists with a different owner; createSession is idempotent only when called with the same ownerParticipantId.`,
+          `SessionDirectoryService.createSession: session ${String(input.sessionId)} already exists with a different owner; createSession is idempotent only when called with the same ownerUserId.`,
         );
       }
 
@@ -238,12 +235,12 @@ export class SessionDirectoryService {
   /**
    * Point-lookup by sessionId. Returns `null` for unknown sessions.
    *
-   * `timelineCursors.latest` is intentionally a placeholder string: per
-   * ADR-017 the control plane has no event log, so it cannot synthesize a
-   * real cursor. Plan-001 PR #5's SDK composition layer queries the
-   * daemon's local event service for the real cursor and overrides this
-   * field. Returning a placeholder rather than throwing keeps the wire
-   * shape inhabited so consumers don't need to special-case this path.
+   * `timelineCursors.latest` is intentionally a placeholder string: the
+   * control plane has no event log, so it cannot synthesize a real
+   * cursor. The SDK composition layer queries the daemon's local
+   * event service for the real cursor and overrides this field. Returning
+   * a placeholder rather than throwing keeps the wire shape inhabited so
+   * consumers don't need to special-case this path.
    *
    * The placeholder is NOT a wire-stable value — the SDK composition step
    * is the authoritative cursor source. Tests that exercise the wire
@@ -269,9 +266,8 @@ export class SessionDirectoryService {
     return {
       session,
       timelineCursors: {
-        // See method-level docstring for the placeholder rationale. The
-        // value passes EventCursorSchema (min/max length) but is NOT a
-        // wire-stable Plan-006 cursor; PR #5's SDK composition layer
+        // The value passes EventCursorSchema (min/max length) but is
+        // NOT a wire-stable cursor; the SDK composition layer
         // overrides this field with the daemon's authoritative cursor.
         latest: CONTROL_PLANE_PLACEHOLDER_CURSOR,
       },
@@ -311,7 +307,7 @@ function hydrateSessionSnapshot(row: SessionRow): SessionSnapshot {
 }
 
 // --------------------------------------------------------------------------
-// pg.Pool -> Querier adapter (Plan-001 PR #5 / T5.5)
+// pg.Pool -> Querier adapter
 // --------------------------------------------------------------------------
 //
 // Production wiring composes a `Querier` from a `pg.Pool` so the same
@@ -388,9 +384,9 @@ function hydrateSessionSnapshot(row: SessionRow): SessionSnapshot {
  *     transaction substrate (the lock would land on the wrong connection,
  *     or no specific connection at all). The nested-`transaction` call
  *     throws because Postgres has no native nested transactions without
- *     SAVEPOINTs and Plan-001 has no SAVEPOINT requirement — the throw
- *     matches the PGlite adapter's behavior so the failure mode is
- *     identical across substrates.
+ *     SAVEPOINTs and has no SAVEPOINT requirement — the throw matches the
+ *     PGlite adapter's behavior so the failure mode is identical across
+ *     substrates.
  *
  * Rollback behavior:
  *
@@ -536,9 +532,9 @@ export function createPgPoolQuerier(pool: Pool): Querier {
  * boundary and any session-scoped state (advisory locks, FOR UPDATE row
  * locks, prepared statements) survive across inner statements. Nested
  * `transaction()` calls throw — Postgres has no native nested transactions
- * without SAVEPOINTs and Plan-001 has no SAVEPOINT requirement. The throw
- * matches the PGlite test adapter's behavior so the failure mode is
- * identical across substrates.
+ * without SAVEPOINTs and has no SAVEPOINT requirement. The throw matches
+ * the PGlite test adapter's behavior so the failure mode is identical
+ * across substrates.
  *
  * This factory is internal-only: callers should reach `pg.Pool` through
  * `createPgPoolQuerier`, which constructs this inner Querier on every
@@ -563,12 +559,12 @@ function createPoolClientQuerier(client: PoolClient): Querier {
     },
     transaction: <T>(_fn: (tx: Querier) => Promise<T>): Promise<T> => {
       // Postgres has no native nested transactions without SAVEPOINTs.
-      // Plan-001 has no SAVEPOINT requirement; the throw matches the
-      // PGlite test adapter's behavior so the failure mode is identical
-      // across substrates. A future plan that needs nested-transaction
-      // semantics MUST extend the Querier contract (add a `savepoint(fn)`
-      // method) rather than overloading `transaction()` with a
-      // substrate-specific shape.
+      // has no SAVEPOINT requirement; the throw matches the PGlite test
+      // adapter's behavior so the failure mode is identical across
+      // substrates. A future plan that needs nested-transaction semantics
+      // MUST extend the Querier contract (add a `savepoint(fn)` method)
+      // rather than overloading `transaction()` with a substrate-specific
+      // shape.
       return Promise.reject(
         new Error(
           "Querier.transaction(): nested transactions are not supported on this substrate.",
@@ -581,12 +577,9 @@ function createPoolClientQuerier(client: PoolClient): Querier {
 /**
  * Compose a `SessionDirectoryService` from a `pg.Pool`.
  *
- * Convenience one-liner for production wiring: the SDK / control-plane
- * host (Plan-001 PR #5 and consumers downstream) gets a fully-constructed
- * service in one call instead of the two-step
- * `new SessionDirectoryService(createPgPoolQuerier(pool))`. The factory
- * matches the export-shape Phase 4 anticipated in the in-file note "Plan-
- * 001 PR #5 will compose a `Querier` from `pg.Pool`".
+ * Convenience one-liner for production wiring: the SDK and the
+ * control-plane host get a fully-constructed service in one call instead
+ * of the two-step `new SessionDirectoryService(createPgPoolQuerier(pool))`.
  */
 export function createSessionDirectoryServiceFromPool(pool: Pool): SessionDirectoryService {
   return new SessionDirectoryService(createPgPoolQuerier(pool));

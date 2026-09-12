@@ -1,42 +1,20 @@
 /**
  * Workspace lifecycle service — the daemon-side owner of the `workspaces`
- * table (Plan-009 Phase 2, T2.4).
+ * table.
  *
- * Spec coverage: `Spec-009 §Default Behavior` (a mount's default workspace is
- * read-only and rooted at the mount's canonical root),
- * `Spec-009 §Execution Mode Transitions` (the reprovision cycle and its
- * recorded failure detail), `Spec-009 §Required Behavior` (workspace binding is
- * explicit and resolves ONE concrete execution root before a run begins),
- * `Spec-009 §Local Trust Envelope (V1 Definition)` (traversal and out-of-
- * envelope binding are refused),
- * `Spec-009 §Repo Mount Health (V1 Definition)` (the on-read probe floor).
- *
- * Verifies invariant: I-009-3 (no execution root outside the trust envelope),
- * I-009-6 (a workspace id survives a mode switch), I-009-7 (a workspace whose
- * root vanished is observably `stale` and refuses writes), I-009-8 (no silent
- * mode substitution), I-009-9 (one lifecycle event per real transition,
- * committed with the row that caused it).
- *
- * Cross-plan obligations discharged here: CP-009-2 (the reprovision primitives
- * Plan-010 drives), CP-009-3 (`assertWritable`, the write gate), CP-009-7
- * (`markBusy` / `releaseBusy`, the run hold), CP-009-8 (`fs_root` is the root
- * Plan-012 scopes approvals against).
+ * Cross-plan obligations discharged here:.
  *
  * ## Bind evaluates its refusals in a fixed order, and the order is the contract
  *
- * Two orderings are load-bearing and are pinned by tests rather than left to
- * reading order (`docs/plans/009-repo-attachment-and-workspace-binding.md`
- * §Notes, 2026-07-25, and the header of `./trust-envelope.js`):
- *
  * 1. **Reachability before containment.** The mount's canonical root is probed
- *    through T2.5's health projection BEFORE `validateExecutionRoot` runs. The
+ *    through the health projection BEFORE `validateExecutionRoot` runs. The
  *    validator `realpath`s its candidate, and `realpath` on a vanished root
  *    fails — so with the orders swapped, an unmounted volume or a deleted
  *    checkout reports `repo.outside_trust_envelope` (403, "you tried to escape
  *    the sandbox") for what is really `workspace.stale` (409, "the root is
  *    gone"). The 403 is both wrong and alarming: it accuses the caller of an
  *    escape attempt. Probing first lets the honest answer win, and it is the
- *    same on-read floor D-009-5 mandates for every health-reporting surface.
+ *    same on-read floor mandates for every health-reporting surface.
  * 2. **Mount identity before envelope construction.** The mount lookup is
  *    scoped to `state = 'attached'` and a miss refuses immediately with
  *    `repo.not_found`. The envelope-roots query is likewise scoped to
@@ -46,9 +24,9 @@
  *
  * ## `list` propagates per-row failures; it never drops a row
  *
- * `list` folds every row through T2.5's `computeWorkspaceHealth`, and that fold
- * has four distinct throw sources. Naming them all, because the choice below
- * is only defensible against the whole set:
+ * `list` folds every row through the `computeWorkspaceHealth`, and that fold
+ * has four distinct throw sources. Naming them all, because the choice below is
+ * only defensible against the whole set:
  *
  * 1. **Out-of-vocabulary `workspaces.state`** — the projector's positive
  *    membership check refuses a state in neither roster (a corrupt row; the
@@ -73,15 +51,15 @@
  * no clue which row caused it; wrapped, the failure is still loud and still
  * whole-response, but the daemon log names the row to repair.
  *
- * Per-row containment was rejected, not overlooked. It has exactly two
- * implementations and both are worse: DROP the row, which silently shortens a
- * roster the operator is using to decide what to detach — the render-side
- * mirror of I-009-13's never-mask posture — or FABRICATE a substitute state,
- * which is unrepresentable for source 1 (no `WorkspaceState` fits) and an
- * outright lie for source 2 (reporting `ready` for a row with no root is the
- * exact claim the probe floor exists to prevent). Source 3 additionally wants
- * the loud throw: it is this module's own bug, and swallowing it converts a
- * systematic mispairing into a plausible wrong answer on every row.
+ * It has exactly two implementations and both are worse: DROP the row, which
+ * silently shortens a roster the operator is using to decide what to detach —
+ * the render-side mirror of the never-mask posture — or FABRICATE a
+ * substitute state, which is unrepresentable for source 1 (no
+ * `WorkspaceState` fits) and an outright lie for source 2 (reporting `ready`
+ * for a row with no root is the exact claim the probe floor exists to
+ * prevent). Source 3 additionally wants the loud throw: it is this module's
+ * own bug, and swallowing it converts a systematic mispairing into a
+ * plausible wrong answer on every row.
  *
  * A fifth failure — the on-read floor's `markStale` write or its
  * `workspace.stale` append failing — also propagates, but under its OWN
@@ -90,28 +68,19 @@
  * not cosmetic: labelling a `SQLITE_BUSY` on the event append
  * `workspace_row_unprojectable` sends an operator to inspect a row that is
  * perfectly healthy. It must not be swallowed either — the list would otherwise
- * report `stale` for a row the database still calls `ready`, and I-009-7's
+ * report `stale` for a row the database still calls `ready`, and the
  * observability claim rests on the persisted row, not on one response. It
  * travels attributed to the same row, since it is raised from inside that row's
  * observation.
  *
- * `list` therefore writes rows and appends events while T3.2 registers
- * `repo.workspaceList` as a non-mutating query. The two are ratified
- * SEPARATELY — the on-read stale persistence by D-009-5's probe floor, the
- * `mutating: false` registration by the plan's Phase-3 T3.2 Note — and they do
- * not conflict: `mutating` classifies the CLIENT's request, and a daemon-derived
- * on-read stale transition is a side effect of observing the filesystem, not a
- * state change the caller asked for.
+ * `list` therefore writes rows and appends events while registers
+ * `repo.workspaceList` as a non-mutating query.
  *
  * ## `busy -> stale` is legal and IS persisted
  *
- * `Spec-009 §Repo Mount Health (V1 Definition)` states the stale transition
- * unconditionally on the current state, and T2.5 deliberately left the legality
- * call here. Refusing it while a run holds the workspace would make I-009-7
- * false for exactly the rows that are doing damage — a live run writing into a
- * root that no longer exists is the case the invariant is FOR. So a `busy` row
- * whose root vanished becomes `stale` and emits `workspace.stale` like any
- * other.
+ * states the stale transition unconditionally on the current state, and
+ * deliberately left the legality call here. So a `busy` row whose root vanished
+ * becomes `stale` and emits `workspace.stale` like any other.
  *
  * The corollary is in {@link WorkspaceService.releaseBusy}: it clears the hold
  * only if the row is still `busy`. A workspace that went stale mid-run stays
@@ -123,40 +92,34 @@
  *
  * ## `fs_root` is an approval-scope boundary, not a convenience field
  *
- * CP-009-8 makes `fs_root` the root Plan-012 scopes tool approvals against, so
- * a non-canonical value written here silently widens an approval envelope.
- * There are exactly three write sites and each is guarded:
+ * Makes `fs_root` the root scopes tool approvals against, so a non-canonical
+ * value written here silently widens an approval envelope. There are exactly
+ * three write sites and each is guarded:
  * {@link WorkspaceService.createDefaultWorkspace} and
- * {@link WorkspaceService.bind} write a path T1.5's resolver or T1.6's
- * validator already canonicalised, and
- * {@link WorkspaceService.completeReprovision} — whose value comes from
- * Plan-010's provisioner and which the trust-envelope header explicitly
- * forbids re-validating — at minimum refuses a non-absolute path, since a
- * relative one would be completed against the daemon's working directory at
- * spawn time.
+ * {@link WorkspaceService.bind} write a path the repo-root resolver or the
+ * mount validator already canonicalised, and
+ * {@link WorkspaceService.completeReprovision} — whose value comes from the
+ * execution-root provisioner and which the trust-envelope header explicitly forbids
+ * re-validating — at minimum refuses a non-absolute path, since a relative
+ * one would be completed against the daemon's working directory at spawn
+ * time.
  *
  * ## Transactionality
  *
  * Every transition writes its row inside the emitter's `transactionalPrelude`,
- * so the row and its event commit together or not at all (I-009-9). The writes
- * are compare-and-swap `UPDATE`s (`WHERE id = ? AND state IN (...)`) whose
- * `changes` count is asserted inside the prelude: a row that moved between the
- * read and the write aborts the transaction rather than producing a state/event
- * pair that disagree. Deciding-inside-a-prelude is precedented by
- * `../node/node-capability-service.js`, which re-checks and throws in its own
- * prelude for the same reason; the prelude's "writes only" rule bars I/O and
- * async work, not a guard that aborts the write it wraps.
+ * so the row and its event commit together or not at all. The writes are
+ * compare-and-swap `UPDATE`s (`WHERE id = ? Deciding-inside-a-prelude is
+ * precedented by `../node/node-capability-service.js`, which re-checks and
+ * throws in its own prelude for the same reason; the prelude's "writes only"
+ * rule bars I/O and async work, not a guard that aborts the write it wraps.
  *
  * ## Error carriers live in this module
  *
- * The four `workspace.*` domain errors below are modelled on T1.4's
- * `./repo-errors.js` and belong beside it. They are here because T2.4's target
+ * The four `workspace.*` domain errors below are modelled on the
+ * `./repo-errors.js` and belong beside it. They are here because the target
  * paths do not include that file; the hoist into a shared `workspace-errors.ts`
  * is a mechanical move that rides the first Phase-3 task to consume these
- * carriers, per the record in
- * `docs/plans/009-repo-attachment-and-workspace-binding.md` §Notes. Every code
- * is quoted from `docs/architecture/contracts/error-contracts.md` §Workspace —
- * this module mints none.
+ * carriers, per the record. Every code is quoted — this module mints none.
  */
 
 import type { Database, Statement } from "better-sqlite3";
@@ -200,12 +163,11 @@ import {
 // --------------------------------------------------------------------------
 
 /**
- * The workspace-scoped codes this module may raise, quoted from
- * `docs/architecture/contracts/error-contracts.md` §Workspace.
+ * The workspace-scoped codes this module may raise, quoted.
  *
  * A SUBSET of that section, deliberately: `workspace.provisioning_failed`,
  * `workspace.branch_mismatch`, `workspace.execution_root_unresolved` and
- * `workspace.branch_name_required` are Plan-010's provisioner surfaces, and
+ * `workspace.branch_name_required` are the provisioner surfaces, and
  * listing codes this module cannot raise would make the union useless as a
  * census of what a caller of THIS service must handle.
  */
@@ -225,14 +187,14 @@ export const WORKSPACE_SERVICE_ERROR_CODES: readonly WorkspaceServiceErrorCode[]
 
 /**
  * `workspace.not_found` — the named workspace does not exist
- * (`error-contracts.md §Workspace`, notional HTTP 404).
+ * (notional HTTP 404).
  *
  * The only carrier here that sets `jsonRpcCode`, for exactly the reason
  * `./repo-errors.js` sets it on exactly one of its five: `DaemonDomainError`
  * fixes the rule that "a not-found namespace error rides `-32602`, like
- * `session.not_found`", and BL-143 landed `repo.not_found` at `-32602` as the
- * worked example on both sides of the wire. The three below stay UNSET, taking
- * the mapper's documented `-32603` default with the dotted identifier in
+ * `session.not_found`", and landed `repo.not_found` at `-32602` as the worked
+ * example on both sides of the wire. The three below stay UNSET, taking the
+ * mapper's documented `-32603` default with the dotted identifier in
  * `data.type` — no numeric is ratified for their rows, and selecting one here
  * would be this module inventing wire behaviour Phase 3 then has to honour.
  *
@@ -255,15 +217,15 @@ export class WorkspaceNotFoundError extends DaemonDomainError {
 
 /**
  * `workspace.mode_unsupported` — the requested execution mode is not available
- * on this mount (`error-contracts.md §Workspace`, notional HTTP 400).
+ * on this mount (notional HTTP 400).
  *
  * Carries the capability matrix's OWN reason string rather than a locally
- * composed sentence. I-009-8 forbids silently substituting a mode, and a
- * refusal that cannot say why invites the caller to guess and retry blind —
- * `availableModes` plus `reason` is the pairing D-009-5 already ratified for
- * the capabilities read, reused verbatim so the refusal and the read agree.
+ * composed sentence. forbids silently substituting a mode, and a refusal
+ * that cannot say why invites the caller to guess and retry blind —
+ * `availableModes` plus `reason` is the pairing already ratified for the
+ * capabilities read, reused verbatim so the refusal and the read agree.
  *
- * The reason strings originate in T2.5's static matrix, which is why nothing
+ * The reason strings originate in the static matrix, which is why nothing
  * here re-bounds them against `EXECUTION_MODE_RESTRICTION_REASON_MAX_LEN`:
  * they are the same daemon-authored constants that already satisfy it.
  *
@@ -294,7 +256,7 @@ export class WorkspaceModeUnsupportedError extends DaemonDomainError {
 
 /**
  * `workspace.stale` — the execution root is gone, so writes are refused
- * (`error-contracts.md §Workspace`, notional HTTP 409). Carrier leg of I-009-7.
+ * (notional HTTP 409).
  *
  * Also the refusal {@link WorkspaceService.bind} raises when the MOUNT's
  * canonical root fails its pre-containment probe: the workspace being bound
@@ -303,10 +265,10 @@ export class WorkspaceModeUnsupportedError extends DaemonDomainError {
  * left empty rather than carrying a placeholder, because a field naming no real
  * row is worse than an absent one.
  *
- * No path is echoed, by construction: there is no channel for one. The
- * `error-contracts.md §Repo` no-path ban names two `repo.*` codes rather than
- * this one, but a stale-root message is exactly the place a path would
- * otherwise get written, and T1.6's validator holds the same line.
+ * No path is echoed, by construction: there is no channel for one. no-path
+ * ban names two `repo.*` codes rather than this one, but a stale-root message
+ * is exactly the place a path would otherwise get written, and the validator
+ * holds the same line.
  */
 export class WorkspaceStaleError extends DaemonDomainError {
   /** The stale workspace, or `null` when the subject is a not-yet-created bind. */
@@ -328,9 +290,8 @@ export class WorkspaceStaleError extends DaemonDomainError {
 }
 
 /**
- * `workspace.busy` — the workspace is already held by a run
- * (`error-contracts.md §Workspace`, notional HTTP 409; CP-009-7's one-holding-
- * run-at-a-time rule for V1).
+ * `workspace.busy` — the workspace is already held by a run (notional HTTP
+ * 409; the one-holding- run-at-a-time rule for V1).
  *
  * Names the holding run, which is the only repair affordance the caller has:
  * `repo.detach_conflict` reports WHICH workspaces block a detach and nothing
@@ -399,7 +360,7 @@ export type WorkspaceServiceInvariantKind =
    * location — see {@link assertAbsoluteExecutionRoot} for the three shapes
    * that qualify. Refused rather than completed, because "resolve it against
    * something the daemon happens to have" is precisely the approval-scope
-   * widening CP-009-8 forbids.
+   * widening forbids.
    */
   | "non_absolute_execution_root";
 
@@ -446,9 +407,8 @@ export class WorkspaceServiceInvariantError extends Error {
  * (`../events/event-log-service.js`, the writeTxn body). So a prelude that
  * merely RECORDS "my `UPDATE` matched no row" and returns still commits a
  * `workspace.stale` event for a transition that did not happen, which is
- * precisely the I-009-9 duplicate this method exists to avoid: the losing side
- * of a two-reader race would append a second `workspace.stale` behind the
- * winner's.
+ * precisely duplicate this method exists to avoid: the losing side of a
+ * two-reader race would append a second `workspace.stale` behind the winner's.
  *
  * Throwing is therefore the only way to say "abort, but this is not an error".
  * `markStale` catches EXACTLY this class and returns `false`; anything else
@@ -608,15 +568,15 @@ export interface WorkspaceServiceDeps {
    * MUST be the same connection the event log behind {@link events} appends
    * through. Every transition writes its row as a `transactionalPrelude`, and
    * a statement prepared on a different connection does not join the event
-   * transaction — the row/event atomicity I-009-9 rests on would silently
-   * vanish, with no exception anywhere. Nothing here can verify handle
-   * identity (the event log sits behind the emitter seam), so the composition
-   * root owns the constraint; the plan's Phase-3 wiring obligation records it.
+   * transaction — the row/event atomicity rests on would silently vanish, with
+   * no exception anywhere. Nothing here can verify handle identity (the event
+   * log sits behind the emitter seam), so the composition root owns the
+   * constraint; the plan's Phase-3 wiring obligation records it.
    */
   readonly database: Database;
-  /** The single seam through which workspace lifecycle events are appended (T2.2). */
+  /** The single seam through which workspace lifecycle events are appended. */
   readonly events: WorkspaceEventEmitter;
-  /** Containment validator (T1.6). Defaults to a stock `TrustEnvelopeValidator`. */
+  /** Containment validator. Defaults to a stock `TrustEnvelopeValidator`. */
   readonly trustEnvelope?: TrustEnvelopeValidator;
   /**
    * Reachability probe. Defaults to a composition of
@@ -661,7 +621,7 @@ export interface CreateDefaultWorkspaceInput {
   readonly repoMountId: string;
   /** The session the mount belongs to — the workspace inherits it, never a caller-supplied one. */
   readonly sessionId: string;
-  /** The mount's canonical root, already absolute and `realpath`-ed by T1.5. */
+  /** The mount's canonical root, already absolute and `realpath`-ed. */
   readonly canonicalRoot: string;
   /** Envelope actor; defaults to the system actor. */
   readonly actor?: string | null;
@@ -670,7 +630,7 @@ export interface CreateDefaultWorkspaceInput {
 }
 
 /**
- * The two halves of a default-workspace creation, so T2.3's attach can commit
+ * The two halves of a default-workspace creation, so the attach can commit
  * the workspace row inside the SAME transaction as the mount row.
  *
  * Attach composes them as:
@@ -686,14 +646,14 @@ export interface CreateDefaultWorkspaceInput {
  *
  * The split is not cosmetic. Putting the workspace INSERT in the
  * `workspace.ready` append instead would leave a crash window in which a mount
- * exists with no default workspace — and D-009-7 makes `defaultWorkspaceId`
- * REQUIRED on the ATTACH response (`RepoMountReadResponse` has no such field,
- * so the read side is not what forces this). `packages/contracts/src/repo.ts`
- * gives the reason at `RepoAttachResponse.defaultWorkspaceId`: optionality
- * "would make 'attached, but no workspace' representable, and the persistence
- * model never produces it" — which is precisely what that crash window would
- * make durable. This split's window is the survivable one instead: both rows
- * are present and consistent, and only the `workspace.ready` event is missing.
+ * exists with no default workspace — and makes `defaultWorkspaceId` REQUIRED
+ * on the ATTACH response (`RepoMountReadResponse` has no such field, so the
+ * read side is not what forces this). `packages/contracts/src/repo.ts` gives
+ * the reason at `RepoAttachResponse.defaultWorkspaceId`: optionality "would
+ * make 'attached, but no workspace' representable, and the persistence model
+ * never produces it" — which is precisely what that crash window would make
+ * durable. This split's window is the survivable one instead: both rows are
+ * present and consistent, and only the `workspace.ready` event is missing.
  *
  * {@link WorkspaceService.createDefaultWorkspace} takes the mount's fields as
  * arguments rather than reading the mount row, because at call time that row is
@@ -719,11 +679,11 @@ export interface BindWorkspaceInput extends WorkspaceBindRequest {
 // --------------------------------------------------------------------------
 
 // The one workspace state a fresh binding may take without provisioning, and
-// the DDL default (`Spec-009 §Default Behavior`).
+// the DDL default.
 const READ_ONLY_EXECUTION_MODE: ExecutionMode = "read-only";
 
-// `metadata` keys. `lastError` is ratified by D-009-7; `holdingRunId` is
-// daemon-internal (see `markBusy`) and never crosses the wire.
+// `lastError` is ratified `holdingRunId` is daemon-internal (see
+// `markBusy`) and never crosses the wire.
 const LAST_ERROR_METADATA_PATH = "$.lastError";
 const HOLDING_RUN_ID_METADATA_PATH = "$.holdingRunId";
 
@@ -800,7 +760,7 @@ export class WorkspaceService {
     );
 
     // `created_at, id` rather than insertion order: `created_at` alone ties for
-    // rows written inside one transaction (T2.3's attach writes a mount and its
+    // rows written inside one transaction (the attach writes a mount and its
     // default workspace at the same instant), and a list whose order depends on
     // the query planner is not testable.
     this.#listWorkspacesStmt = database.prepare(
@@ -817,11 +777,7 @@ export class WorkspaceService {
         ORDER BY created_at ASC, id ASC`,
     );
 
-    // Unconditional INSERT, used ONLY by `createDefaultWorkspace`. It runs
-    // inside T2.3's attach transaction, where the mount row is written by the
-    // same prelude and is therefore not yet visible to a `SELECT` — a
-    // mount-attachment predicate here would match nothing and fail every
-    // attach. See {@link DefaultWorkspaceCreation}.
+    // Unconditional INSERT, used ONLY by `createDefaultWorkspace`.
     this.#insertWorkspaceStmt = database.prepare(
       `INSERT INTO workspaces (
          id, session_id, repo_mount_id, execution_mode, fs_root, state, metadata, created_at, updated_at
@@ -830,17 +786,17 @@ export class WorkspaceService {
        )`,
     );
 
-    // `INSERT ... SELECT` rather than `VALUES`, so the mount's attachment is
-    // re-tested INSIDE the write transaction. `bind` reads the mount, then
-    // awaits a filesystem probe and the containment validator — during those
-    // awaits a `repo.detach` cascade can archive this mount's workspaces and
-    // flip it to `detached`, and it has already passed over the row this insert
-    // is about to write. The foreign key would still be satisfied (the mount
-    // ROW survives a detach; only its `state` moves), so without this predicate
-    // the bind commits a `ready` workspace on a detached mount — a live
-    // execution root outside the session's trust envelope (I-009-3) that
-    // `assertWritable` then happily passes. Zero rows changed aborts the
-    // prelude, which takes the `workspace.ready` event with it.
+    // SELECT` rather than `VALUES`, so the mount's attachment is re-tested
+    // INSIDE the write transaction. `bind` reads the mount, then awaits a
+    // filesystem probe and the containment validator — during those awaits a
+    // `repo.detach` cascade can archive this mount's workspaces and flip it to
+    // `detached`, and it has already passed over the row this insert is about
+    // to write. The foreign key would still be satisfied (the mount ROW
+    // survives a detach; only its `state` moves), so without this predicate the
+    // bind commits a `ready` workspace on a detached mount — a live execution
+    // root outside the session's trust envelope that `assertWritable` then
+    // happily passes. Zero rows changed aborts the prelude, which takes the
+    // `workspace.ready` event with it.
     this.#bindWorkspaceStmt = database.prepare(
       `INSERT INTO workspaces (
          id, session_id, repo_mount_id, execution_mode, fs_root, state, metadata, created_at, updated_at
@@ -851,13 +807,13 @@ export class WorkspaceService {
     );
 
     // `ready` and `stale` are the legal predecessors. `stale` is not an
-    // oversight: `Spec-009 §Execution Mode Transitions` allows the switch to be
-    // RETRIED, and a failed switch left the row `stale` — refusing it here
-    // would make the documented retry impossible.
+    // oversight: allows the switch to be RETRIED, and a failed switch left the
+    // row `stale` — refusing it here would make the documented retry
+    // impossible.
     //
     // `fs_root = NULL` because the old execution root is released, and because
-    // CP-009-8 makes a stale `fs_root` an approval-scope hazard: Plan-012 would
-    // keep matching approvals against a root this workspace no longer owns.
+    // makes a stale `fs_root` an approval-scope hazard: would keep matching
+    // approvals against a root this workspace no longer owns.
     //
     // `execution_mode = @execution_mode` here rather than at completion is
     // forced, not chosen — `completeReprovision(workspaceId, fsRoot)` takes no
@@ -890,9 +846,9 @@ export class WorkspaceService {
     // The OTHER end of the deliberate pair described on `#beginReprovisionStmt`
     // — also redundant on the happy path, also load-bearing. A cycle can be
     // completed by a caller that never re-entered through `beginReprovision`
-    // (Plan-010 drives these primitives independently), and a `ready` workspace
-    // still advertising the error a later retry fixed reports a failure that is
-    // no longer true.
+    // (drives these primitives independently), and a `ready` workspace still
+    // advertising the error a later retry fixed reports a failure that is no
+    // longer true.
     this.#completeReprovisionStmt = database.prepare(
       `UPDATE workspaces
           SET fs_root = @fs_root,
@@ -961,13 +917,12 @@ export class WorkspaceService {
 
   /**
    * Build the default workspace for a mount being attached: read-only, rooted
-   * at the mount's canonical root, immediately `ready`
-   * (`Spec-009 §Default Behavior`).
+   * at the mount's canonical root, immediately `ready`.
    *
    * Returns the two halves described on {@link DefaultWorkspaceCreation}; this
    * method itself touches neither the database nor the event log.
    *
-   * No reachability probe: T1.5's resolver just proved the root readable to
+   * No reachability probe: the resolver just proved the root readable to
    * produce `canonicalRoot`, and re-probing inside an attach that is already
    * mid-transaction would buy a window measured in microseconds.
    */
@@ -1009,9 +964,9 @@ export class WorkspaceService {
         // Single-use for the same reason `insertRow` is, and for a stronger
         // one: this half has no compare-and-swap to make a repeat harmless, so
         // a second call appends a second `workspace.ready` for one transition —
-        // the I-009-9 duplicate. Flagged BEFORE the append, so a caller that
-        // retries a failed append does not get a silent second event on the
-        // second success either.
+        // duplicate. Flagged BEFORE the append, so a caller that retries a
+        // failed append does not get a silent second event on the second
+        // success either.
         if (readinessAnnounced) {
           throw new WorkspaceServiceInvariantError(
             `default workspace "${workspaceId}" already announced readiness; a creation is single-use`,
@@ -1036,14 +991,11 @@ export class WorkspaceService {
    * The refusal order is the contract; see the module header. Briefly:
    * mount identity → mode capability → root reachability → containment → write.
    *
-   * A read-only bind lands `ready` with its resolved root. A writable bind
-   * lands `provisioning` with `fs_root` NULL — Plan-010's provisioner supplies
-   * the real root through {@link completeReprovision}. The validated root is
-   * DISCARDED on that path rather than stored: a worktree's root is not the
-   * requested directory, and persisting the requested one would hand Plan-012 an
-   * approval scope the workspace never executes in. The validation still runs,
-   * because refusing an out-of-envelope request before spawning a provisioner is
-   * cheaper and safer than refusing after.
+   * A read-only bind lands `ready` with its resolved root. A writable bind lands
+   * `provisioning` with `fs_root` NULL — the provisioner supplies the real root
+   * through {@link completeReprovision}. The validation still runs, because
+   * refusing an out-of-envelope request before spawning a provisioner is cheaper
+   * and safer than refusing after.
    */
   async bind(input: BindWorkspaceInput): Promise<WorkspaceBindResponse> {
     // (1) Mount identity, scoped to `attached` — ordering obligation (ii).
@@ -1059,8 +1011,8 @@ export class WorkspaceService {
     // it does not own.
     const sessionId = mountRow.session_id;
 
-    // (2) Mode capability, before any filesystem work — I-009-8: a mode this
-    // mount cannot offer is refused by name, never substituted.
+    // (2) Mode capability, before any filesystem work: a mode this mount
+    // cannot offer is refused by name, never substituted.
     const capabilities = computeExecutionModeCapabilities({
       vcsType: mountRow.vcs_type as VcsType,
     });
@@ -1083,8 +1035,8 @@ export class WorkspaceService {
       throw new WorkspaceStaleError(null);
     }
 
-    // (4) Containment (I-009-3). The envelope is the session's ACTIVE mount
-    // roots; `validateExecutionRoot` raises `TrustEnvelopeViolationError` for
+    // The envelope is the session's ACTIVE mount roots;
+    // `validateExecutionRoot` raises `TrustEnvelopeViolationError` for
     // anything that escapes, and guarantees the root it returns is a readable
     // directory.
     const envelopeRootRows = this.#selectAttachedMountRootsStmt.all({
@@ -1097,7 +1049,7 @@ export class WorkspaceService {
       sessionEnvelopeRoots: envelopeRoots,
     });
 
-    // (5) Write the row inside the event's transaction (I-009-9).
+    // (5) Write the row inside the event's transaction.
     const isReadOnly = input.executionMode === READ_ONLY_EXECUTION_MODE;
     const workspaceId = this.#newWorkspaceId();
     const createdAt = this.#now();
@@ -1157,12 +1109,12 @@ export class WorkspaceService {
   // ------------------------------------------------------------------------
 
   /**
-   * List a session's workspaces, each enriched through T2.5's health
+   * List a session's workspaces, each enriched through the health
    * projection (`repo.workspaceList`).
    *
-   * Every probe-bearing row is probed at read time (D-009-5's on-read floor),
-   * and a derived stale transition is PERSISTED before the row is reported —
-   * I-009-7's observability claim is about the row, not about one response.
+   * Every probe-bearing row is probed at read time (the on-read floor), and a
+   * derived stale transition is PERSISTED before the row is reported — the
+   * observability claim is about the row, not about one response.
    *
    * Per-row failures propagate, wrapped for attribution. See the module header
    * for the four sources and why containment was rejected.
@@ -1190,8 +1142,8 @@ export class WorkspaceService {
   }
 
   /**
-   * The write gate (CP-009-3): refuse unless the workspace can accept a run's
-   * writes right now.
+   * The write gate: refuse unless the workspace can accept a run's writes
+   * right now.
    *
    * Probes first, so a root that vanished since the last read is caught here
    * and its stale transition persisted before the refusal — that persistence is
@@ -1205,13 +1157,13 @@ export class WorkspaceService {
    * `workspace.busy` refusal belongs to {@link markBusy}, which is the call that
    * actually contends for the hold, and duplicating it here would let a caller
    * that never takes a hold be refused for a reason that does not apply to it.
-   * Plan-010 owns the remaining pre-run refusals
-   * (`workspace.execution_root_unresolved`, `workspace.branch_mismatch`).
+   * owns the remaining pre-run refusals (`workspace.execution_root_unresolved`,
+   * `workspace.branch_mismatch`).
    *
-   * CP-009-3's clause that "the same gate guards Plan-009's own writable-bind
-   * path" is discharged by {@link bind}'s step (3), not by a call to this
-   * method: at bind time there is no workspace row to assert against, so the
-   * mount-root probe is the same refusal one step earlier.
+   * The clause that "the same gate guards its own writable-bind path" is
+   * discharged by {@link bind}'s step (3), not by a call to this method: at
+   * bind time there is no workspace row to assert against, so the mount-root
+   * probe is the same refusal one step earlier.
    */
   async assertWritable(workspaceId: string): Promise<void> {
     const row = this.#requireWorkspaceRow(workspaceId);
@@ -1240,12 +1192,11 @@ export class WorkspaceService {
   }
 
   // ------------------------------------------------------------------------
-  // Execution-mode transitions (CP-009-2)
   // ------------------------------------------------------------------------
 
   /**
-   * Enter the reprovision cycle: `ready | stale -> provisioning` (I-009-6 — the
-   * id is untouched and no row is created or destroyed).
+   * Enter the reprovision cycle: `ready | stale -> provisioning` (the id is
+   * untouched and no row is created or destroyed).
    *
    * Validates the TARGET mode against the mount's matrix, because a switch to a
    * mode the mount cannot offer must fail before a provisioner is spawned, and
@@ -1302,17 +1253,13 @@ export class WorkspaceService {
    * Finish the cycle: `provisioning -> ready`, adopting the provisioner's
    * execution root and clearing any recorded failure.
    *
-   * `fsRoot` is NOT re-validated for containment. That is deliberate and is
-   * spelled out in `./trust-envelope.js`: a worktree or ephemeral clone lives
-   * OUTSIDE the mount's canonical root by construction, so running the
-   * containment validator here would reject every writable mode it exists to
-   * support. The root's legitimacy comes from its provenance — Plan-010's
-   * provisioner created it under daemon control.
+   * `fsRoot` is NOT re-validated for containment. The root's legitimacy comes
+   * from its provenance — the provisioner created it under daemon control.
    *
    * Absoluteness IS checked, because provenance does not make a relative path
-   * safe: CP-009-8 hands this value to Plan-012 as an approval scope root, and a
-   * relative one would be completed against whatever working directory the tool
-   * process happens to have.
+   * safe: hands this value to as an approval scope root, and a relative one
+   * would be completed against whatever working directory the tool process
+   * happens to have.
    */
   async completeReprovision(
     workspaceId: string,
@@ -1340,7 +1287,7 @@ export class WorkspaceService {
 
   /**
    * Abandon the cycle: `provisioning -> stale`, recording the failure detail in
-   * `metadata.lastError` (`Spec-009 §Execution Mode Transitions`).
+   * `metadata.lastError`.
    *
    * `stale` rather than a dedicated failure state because the workspace's
    * observable condition IS stale — it has no usable execution root — and
@@ -1384,13 +1331,13 @@ export class WorkspaceService {
   // ------------------------------------------------------------------------
 
   /**
-   * Persist the stale transition T2.5's projection derives — the persistence
-   * half of I-009-7 — and announce it.
+   * Persist the stale transition the projection derives — the persistence
+   * half of — and announce it.
    *
    * Returns `true` when a transition was written, `false` when the row was
    * already `stale` or `archived`, vanished, or was staled by a concurrent
    * reader. Idempotent by design: it is called from every read path, and
-   * re-announcing a transition that already happened would break I-009-9's
+   * re-announcing a transition that already happened would break the
    * one-event-per-real-transition rule.
    *
    * `busy -> stale` is legal and is written; see the module header.
@@ -1419,8 +1366,8 @@ export class WorkspaceService {
           // this prelude and then INSERTs unconditionally, so recording "no row
           // matched" in a flag and returning normally would still commit a
           // `workspace.stale` for a transition that did not happen — the losing
-          // side of a two-reader race appending a duplicate behind the winner's
-          // (I-009-9). A concurrent reader staling the same row is the EXPECTED
+          // side of a two-reader race appending a duplicate behind the
+          // winner's. A concurrent reader staling the same row is the EXPECTED
           // race on a path every read drives, not an error, which is why the
           // sentinel is caught below and turned into `false` rather than
           // propagated like `assertSingleRowChanged`'s refusal.
@@ -1443,23 +1390,22 @@ export class WorkspaceService {
   }
 
   /**
-   * Take the run hold (CP-009-7): `ready -> busy`, recording the holding run.
+   * Take the run hold: `ready -> busy`, recording the holding run.
    *
-   * Emits NO event. The workspace event registry is closed at six types and
-   * `busy` has none — CP-009-7 makes the run's own `run.*` events the hold's
-   * timeline visibility, so minting a seventh here would put an unregistered
-   * type on the wire.
+   * The workspace event registry is closed at six types and `busy` has none
+   * — makes the run's own `run.*` events the hold's timeline visibility, so
+   * minting a seventh here would put an unregistered type on the wire.
    *
    * The `runId` is persisted to `metadata.holdingRunId`. It is not on the wire
-   * and not in D-009-7's ratified key list, but the alternative is to accept a
+   * and not in the ratified key list, but the alternative is to accept a
    * parameter and drop it: with no `holding_run_id` column, nothing else in the
    * daemon can answer "which run is holding this workspace?" — the question an
    * operator asks after `repo.detach_conflict` names the blocking workspaces and
    * stops there. {@link WorkspaceBusyError} reads it straight back out.
    *
    * Probes before taking the hold. A hold on a vanished root is the exact
-   * situation I-009-7 exists to prevent, and taking it and discovering the truth
-   * mid-run is strictly worse than refusing now.
+   * situation exists to prevent, and taking it and discovering the truth mid-run
+   * is strictly worse than refusing now.
    */
   async markBusy(
     workspaceId: string,
@@ -1511,7 +1457,7 @@ export class WorkspaceService {
   }
 
   /**
-   * Release the run hold (CP-009-7): `busy -> ready`.
+   * Release the run hold: `busy -> ready`.
    *
    * Emits no event, for the same reason {@link markBusy} does not.
    *
@@ -1562,7 +1508,7 @@ export class WorkspaceService {
   }
 
   /**
-   * Probe the row if its state owes one and hand the pair to T2.5's projector,
+   * Probe the row if its state owes one and hand the pair to the projector,
    * attributing any refusal to the row.
    *
    * Split from {@link #observeState} so the two failure classes cannot borrow
@@ -1696,8 +1642,8 @@ function createDefaultPathProbe(): FilesystemPathProbeFn {
   };
 }
 
-// Indirection so the default probe binds the same readability primitive T1.5
-// and T1.6 use — one implementation of "can the daemon open this directory?"
+// Indirection so the default probe binds the same readability primitive use
+// — one implementation of "can the daemon open this directory?"
 const readDirectory: DirectoryReadabilityProbe = DEFAULT_DIRECTORY_READABILITY_PROBE;
 
 /**
@@ -1744,18 +1690,13 @@ function wrapRowFailure(
 }
 
 /**
- * Refuse an execution root that does not name ONE COMPLETE LOCATION (CP-009-8).
+ * Refuse an execution root that does not name ONE COMPLETE LOCATION.
  *
  * The vocabulary is `./repo-errors.js`'s `not_absolute`, and so is the rule:
  * what disqualifies a candidate is needing a piece of the daemon's own context
  * to become concrete. A relative path wants a working directory; `~` wants a
  * home directory; a driveless Windows root such as `\repos\app` wants a drive.
  *
- * That last case is why this is NOT `node:path.isAbsolute` semantics —
- * `path.win32.isAbsolute("\\repos\\app")` reports `true`, and adopting it would
- * admit a root that Plan-012 would then scope approvals against on whichever
- * drive the tool process happened to be running from. Drive-absolute (`C:\`,
- * `C:/`) and UNC (`\\server\share`) forms ARE complete and are accepted.
  */
 function assertAbsoluteExecutionRoot(candidate: string, workspaceId: string | null): void {
   if (namesOneCompleteLocation(candidate)) {
@@ -1794,8 +1735,8 @@ function namesOneCompleteLocation(candidate: string): boolean {
  * Called from inside a `transactionalPrelude`, where a throw aborts the
  * transaction and takes the event row with it — which is the point. A row that
  * moved between the read and the write must not produce a state/event pair that
- * disagree (I-009-9). Precedent: `../node/node-capability-service.js` re-checks
- * and throws in its own prelude for the same reason.
+ * disagree. Precedent: `../node/node-capability-service.js` re-checks and
+ * throws in its own prelude for the same reason.
  *
  * `movedSubject` names WHICH row failed the predicate, because it is not always
  * the workspace: `bind`'s conditional insert is guarded on the repo mount's

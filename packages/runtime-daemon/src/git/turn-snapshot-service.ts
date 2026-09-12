@@ -1,105 +1,66 @@
 // Turn-snapshot service — the daemon-side owner of the per-run snapshot refs
-// under `refs/sidekicks/runs/<runId>/epoch-<E>/turn-<N>` (Plan-010 Phase 5).
+// under `refs/sidekicks/runs/<runId>/epoch-<E>/turn-<N>`.
 //
-// This file landed in three passes. T5.1 authored the CAPTURE leg; T5.2
-// EXTENDED it with the non-mutating `resolveRestoreTarget` plus the mutating
-// `restoreToTurn`; T5.3 (here) adds the window-based RETENTION prune plus the
-// sweeper driver at the foot of the file that the sanctioned wiring call in
-// `../bootstrap/index.ts` invokes. The class, the git invocation layer, the ref
-// builders and the diagnostic seam below are written once for all three.
+// This file landed in three passes. authored the CAPTURE leg EXTENDED it with
+// the non-mutating `resolveRestoreTarget` plus the mutating `restoreToTurn`
+// adds the window-based RETENTION prune plus the sweeper driver at the foot of
+// the file that the sanctioned wiring call in `../bootstrap/index.ts` invokes.
+// The class, the git invocation layer, the ref builders and the diagnostic seam
+// below are written once for all three.
 //
-// Spec coverage:
-//   * `Spec-010 §Turn-Boundary Snapshots` — the capture temp-index recipe
-//     (out-of-worktree `GIT_INDEX_FILE`, the check-in leg's conversion pins plus
-//     `GIT_ATTR_NOSYSTEM=1` — see the closed disposition table below for the
-//     whole knob population and each knob's one ruling, this leg's and the
-//     checkout leg's alike, the single base OID reused for tree base AND
-//     recorded parent, the untracked-embedded-repo `160000` normalization with
-//     its unborn-`HEAD` skip, the encoding-pinned `commit-tree`, the six-var
-//     host-independence env set), the epoch-namespaced create-only ref write and
-//     its per-epoch idempotence, and the writable-modes-only applicability rule.
-//   * `Spec-010 §Turn-Boundary Snapshots` — the RESTORE recipe: the fail-closed
-//     `HEAD` precondition, the lineage walk with its no-fallthrough refusal, the
-//     pinned `read-tree --reset -u` leg under the checkout-conversion pins, the
-//     untracked-delete pass repeated to a FIXPOINT, the closing index-only
-//     `read-tree --reset HEAD` (both of those spec spellings name a MUTABLE ref
-//     that an earlier check already read, so both are issued against the
-//     verified OID instead — see the sites), the collision-overwrite and
-//     divergent-gitlink enumerations, and the convergent partial-restore
-//     disposition.
-//   * `Spec-010 §Turn-Boundary Snapshots` — the RETENTION prune: a run's
-//     snapshot refs become prune-eligible once `run_execution_contexts`'s
-//     `released_at` plus the configured window has elapsed (the window is daemon
-//     configuration, and this service owns the mechanism because the V1 corpus
-//     names no general run-retention owner — `Spec-006 §Retention Windows`
-//     governs event-log compaction and `Spec-015 §Retention` governs SQLite
-//     backup files, neither these refs); the sweep enumerates and deletes
-//     through the recorded `git_common_dir`; and the ephemeral-clone disposal
-//     boundary — a disposed clone takes its refs with it, and a later rollback
-//     of that run proceeds conversation-only (campaign B2's recorded ruling).
-//   * `Spec-004 §Required Behavior` — the execution epoch `<E>`: `0` before any
-//     rollback, advanced with each accepted `run.rolled_back`. SUPPLIED by the
-//     caller and never derived here (CP-010-12) — and the two-phase split, which
-//     exists so the whole-rollback validation runs BEFORE the conversation leg,
-//     with the bound restore then running under the caller's exclusive
-//     execution-root tenancy.
-//
-// Verifies invariant: I-010-21 (snapshot refs live only under
-// `refs/sidekicks/runs/…`, never `refs/heads/`, and are invisible to branch
-// history — held on the write side by the create-only CAS plus `--no-deref`, and
-// on the delete side by the listing prefix re-check plus `--no-deref`; the flag
-// is what keeps each of those checks about the name this service validated
-// rather than about wherever that name resolves), I-010-22 (create-only
-// per-epoch refs: the write is a
-// compare-and-swap against ref ABSENCE, so a retried or duplicated capture never
-// repoints an existing ref and a post-rollback re-execution's identical ordinal
-// mints a fresh ref under its own `epoch-<E>` segment), I-010-23 (fail-closed
-// two-phase restore: the non-mutating resolve refuses unless `HEAD` equals the
-// snapshot's recorded first parent, `restoreToTurn` RE-VERIFIES that at
-// execution time before any mutation, a snapshot absent in its owning epoch's
-// territory draws a typed no-snapshot refusal rather than a parent-epoch
-// fallthrough, and a mid-sequence failure returns a convergent partial-restore
-// result carrying both enumerations, never a silent success).
-//
-// Cross-plan obligations: CP-010-7 (this Plan-010-owned `src/git/` subtree),
-// CP-010-12 (PURE CALLEE — see below).
+//   * the capture temp-index recipe (out-of-worktree `GIT_INDEX_FILE`, the
+//     check-in leg's conversion pins plus `GIT_ATTR_NOSYSTEM=1` — see the closed
+//     disposition table below for the whole knob population and each knob's one
+//     ruling, this leg's and the checkout leg's alike, the single base OID
+//     reused for tree base AND recorded parent, the untracked-embedded-repo
+//     `160000` normalization with its unborn-`HEAD` skip, the encoding-pinned
+//     `commit-tree`, the six-var host-independence env set), the
+//     epoch-namespaced create-only ref write and its per-epoch idempotence, and
+//     the writable-modes-only applicability rule.
+//   * the RESTORE recipe: the fail-closed `HEAD` precondition, the lineage walk
+//     with its no-fallthrough refusal, the pinned `read-tree --reset -u` leg
+//     under the checkout-conversion pins, the untracked-delete pass repeated to
+//     a FIXPOINT, the closing index-only `read-tree --reset HEAD` (both of those
+//     spec spellings name a MUTABLE ref that an earlier check already read, so
+//     both are issued against the verified OID instead — see the sites), the
+//     collision-overwrite and divergent-gitlink enumerations, and the convergent
+//     partial-restore disposition.
+//   * the execution epoch `<E>`: `0` before any rollback, advanced with each
+//     accepted `run.rolled_back`. SUPPLIED by the caller and never derived here
+//     — and the two-phase split, which exists so the whole-rollback validation
+//     runs BEFORE the conversation leg, with the bound restore then running
+//     under the caller's exclusive execution-root tenancy.
 //
 // ---------------------------------------------------------------------------
-// CP-010-12 — the capture and restore legs resolve NOTHING
+// The capture and restore legs resolve NOTHING
 // ---------------------------------------------------------------------------
 //
 // `executionRoot`, `runId`, `epoch`, `turnOrdinal` and `mode` all arrive as
 // parameters. Neither the capture leg nor the restore leg reads
 // `run_execution_contexts`, derives the epoch from rollback history, or infers
-// the mode from the root's shape. The production call site — the Plan-004 run
-// engine's turn boundary — is authored by the campaign's B9 bundle and owns
-// every one of those resolutions.
+// the mode from the root's shape. The production call site — run engine's turn
+// boundary — is authored by the campaign's B9 bundle and owns every one of
+// those resolutions.
 //
-// The RETENTION leg is the deliberate exception, and CP-010-12 carves it out in
-// so many words: "the T5.3 retention leg's `released_at` / `git_common_dir`
-// reads are a separate concern, outside this obligation". It is not a caller's
-// question to answer — nothing outside this module knows which refs exist, and
-// the sweep runs on a daemon cadence with no run in flight to be a callee OF.
-// The `database` dependency is therefore OPTIONAL rather than required: a
-// service wired for the turn boundary alone holds no handle at all, exactly as
-// the capture leg always did, and the two retention entry points refuse loudly
-// rather than answering emptily when it is absent (see
+// The RETENTION leg is the deliberate exception, and carves it out in so many
+// words: " retention leg's `released_at` / `git_common_dir` reads are a
+// separate concern, outside this obligation".
 // {@link TurnSnapshotService.sweepPrunableRuns}).
 //
 // The `mode` self-guard is the one place the parameter is INTERPRETED rather
 // than passed through, and it is deliberately a self-guard rather than a
-// caller-side `if`: the Applicability bullet of `Spec-010 §Turn-Boundary
-// Snapshots` makes "`read-only` runs snapshot nothing" a property of the
-// mechanism, and a guard that lives only in the caller is one refactor away from
-// a read-only run minting objects. It runs FIRST — before the base resolution,
-// before the hook-neutralization directory, before the scratch-index directory —
-// so the no-op is observable as zero git objects and zero refs rather than
-// merely as an absent ref. It is also an ALLOWLIST over the writable modes named
-// in that bullet, so a mode added to `ExecutionMode` later is inert here until
-// somebody admits it deliberately (see {@link SNAPSHOT_APPLICABLE_MODES}).
+// caller-side `if`: the Applicability bullet of makes "`read-only` runs snapshot
+// nothing" a property of the mechanism, and a guard that lives only in the
+// caller is one refactor away from a read-only run minting objects. It runs
+// FIRST — before the base resolution, before the hook-neutralization directory,
+// before the scratch-index directory — so the no-op is observable as zero git
+// objects and zero refs rather than merely as an absent ref. It is also an
+// ALLOWLIST over the writable modes named in that bullet, so a mode added to
+// `ExecutionMode` later is inert here until somebody admits it deliberately (see
+// {@link SNAPSHOT_APPLICABLE_MODES}).
 //
 // ---------------------------------------------------------------------------
-// I-010-21 — the namespace is enforced at THIS layer, not by git
+// The namespace is enforced at THIS layer, not by git
 // ---------------------------------------------------------------------------
 //
 // Every ref this service writes is assembled by {@link buildTurnSnapshotRef}
@@ -121,16 +82,15 @@
 // caller never named — empirically confirmed on git 2.50.1, where `-C <root>`
 // does NOT win against it: `rev-parse --verify HEAD` resolves the redirected
 // repository's `HEAD` and `write-tree` reports its index. `GIT_OBJECT_DIRECTORY`
-// is cruder still: set WITHOUT `GIT_DIR`, the pipeline's first leg
-// (`rev-parse --verify HEAD` through `-C <root>`) refuses with
-// `not a git repository`, exit 128 — observed by T5.1 on that leg and on
-// `hash-object -w`.
+// is cruder still: set WITHOUT `GIT_DIR`, the pipeline's first leg (`rev-parse
+// --verify HEAD` through `-C <root>`) refuses with `not a git repository`, exit
+// 128 — observed on that leg and on `hash-object -w`.
 //
 // A later probe on git 2.50.1 generalized that finding rather than leaving it
 // scoped to those two: `rev-parse --show-toplevel`, `rev-parse --git-dir`,
 // `rev-parse --git-common-dir` and `status --porcelain` all draw the same
-// refusal, so it is not a property of the legs T5.1 happened to run. The same
-// probe pinned the MECHANISM: an accessible-but-unreadable value (a mode-`111`
+// refusal, so it is not a property of the legs happened to run. The same probe
+// pinned the MECHANISM: an accessible-but-unreadable value (a mode-`111`
 // directory) is ACCEPTED while an inaccessible one (absent, dangling symlink,
 // regular file, mode-`000`, empty string) is refused, which makes it an
 // accessibility test performed during repository setup rather than an object
@@ -144,7 +104,7 @@
 // unprefixed path and reads back from a clean environment). The namespace lives
 // in the pack protocol, where `upload-pack`/`receive-pack` apply it. It is
 // stripped as defense in depth for a leg that may one day speak that protocol,
-// not as the mechanism enforcing I-010-21. See
+// not as the mechanism enforcing.
 // {@link SNAPSHOT_NEUTRALIZED_GIT_ENV_KEYS}.
 //
 // The third channel is the SYMBOLIC REF, and it threatens the invariant from a
@@ -201,7 +161,7 @@
 // {@link TurnSnapshotService.resolveRestoreTarget}.
 //
 // ---------------------------------------------------------------------------
-// I-010-22 — the CAS is the arbiter; nothing pre-checks it
+// The CAS is the arbiter; nothing pre-checks it
 // ---------------------------------------------------------------------------
 //
 // `git update-ref --no-deref <ref> <commit> ""` — the trailing EMPTY old-value —
@@ -232,27 +192,23 @@
 // `git gc` collects, and the alternative — the pre-check — costs the arbiter.
 //
 // ---------------------------------------------------------------------------
-// I-010-23 — the restore leg is fail-closed, and TWICE
+// The restore leg is fail-closed, and TWICE
 // ---------------------------------------------------------------------------
 //
-// `Spec-004 §Required Behavior` needs the file-leg verdict BEFORE the
-// conversation leg moves, because a refusal rejects the whole rollback
-// intervention with no leg applied. That is why the restore path is two methods
-// rather than one: {@link TurnSnapshotService.resolveRestoreTarget} is the
-// non-mutating question (which snapshot, and may it be applied?) and
+// needs the file-leg verdict BEFORE the conversation leg moves, because a
+// refusal rejects the whole rollback intervention with no leg applied.
 // {@link TurnSnapshotService.restoreToTurn} is the answer's application. The
 // resolver spawns nothing but read commands — `show-ref`, `rev-parse` — so a
 // refused resolve and an accepted one leave the execution root's worktree, index
 // and refs byte-identical.
 //
 // The precondition is then checked FOUR times, and none of the three extras is
-// redundant, because `HEAD` may move between any two of them: a Spec-011
-// commit/push action landing in the execution root, most plausibly, or a user
-// terminal open in the same worktree. The exclusive execution-root tenancy
-// `Spec-004 §Required Behavior` puts around the intervention is the CALLER's
-// (Plan-004, campaign B9), and it excludes other RUNS, not other processes; this
-// module builds no tenancy machinery and instead re-asks the one question that
-// matters at each point the answer could have changed:
+// redundant, because `HEAD` may move between any two of them: a commit/push
+// action landing in the execution root, most plausibly, or a user terminal open
+// in the same worktree. The exclusive execution-root tenancy puts around the
+// intervention is the CALLER's (campaign B9), and it excludes other RUNS, not
+// other processes; this module builds no tenancy machinery and instead re-asks
+// the one question that matters at each point the answer could have changed:
 //
 //   * at the resolve, so the whole rollback can be refused before its
 //     conversation leg moves;
@@ -284,7 +240,7 @@
 // prevent.
 //
 // ---------------------------------------------------------------------------
-// I-010-23 — the lineage walk NEVER falls through
+// The lineage walk NEVER falls through
 // ---------------------------------------------------------------------------
 //
 // Same-run resurrection re-uses turn ordinals, so `turn-6` exists under as many
@@ -297,10 +253,10 @@
 // would restore a tree from an execution the user rolled back, which is the
 // silent wrong answer this refusal exists to make impossible.
 //
-// The `epochLineage` is the CALLER's (CP-010-12) — derived from the Plan-004 run
-// engine's durable epoch/intervention records — and the owner is selected by
-// MAXIMUM epoch among the candidates rather than by list position, so an
-// unsorted lineage yields the same owner rather than a plausible wrong one.
+// The `epochLineage` is the CALLER's — derived run engine's durable
+// epoch/intervention records — and the owner is selected by MAXIMUM epoch among
+// the candidates rather than by list position, so an unsorted lineage yields the
+// same owner rather than a plausible wrong one.
 //
 // ---------------------------------------------------------------------------
 // The partial-restore enumerations are OBSERVED, not bookkept
@@ -318,7 +274,7 @@
 // That observation is deliberately git-free (one TYPE-AWARE path fingerprint per
 // candidate, for BOTH candidate sets): it runs on the failure path, where the
 // git seam is the thing that just failed, and an enumeration that needed a
-// working git could empty-wash exactly the report Plan-004 maps to its
+// working git could empty-wash exactly the report maps to its
 // `files-partially-restored` disposition. Type-aware because bytes alone cannot
 // see a destroyed dangling symlink or a symlink replaced by a byte-identical
 // file — see {@link fingerprintPath}. The gitlink set reached this standard by
@@ -336,7 +292,7 @@
 // Note also what these two enumerations are NOT: a census of everything the
 // sequence touched. They are two effect classes, so both can be empty on a
 // `partial_restore` that rewrote the whole worktree — see
-// {@link TurnSnapshotPartialRestore}, which states the exact reading a Plan-004
+// {@link TurnSnapshotPartialRestore}, which states the exact reading a rollback
 // consumer needs.
 //
 // ---------------------------------------------------------------------------
@@ -440,7 +396,7 @@
 //   * REPOSITORY IDENTITY — `core.bare`, `core.worktree`,
 //     `core.repositoryFormatVersion`. These decide whether there is a usable
 //     execution root at all, not what these legs do inside one. The family lost
-//     a member to the round-4 finding above: `core.useReplaceRefs` was here and
+//     a member to the finding above: `core.useReplaceRefs` was here and
 //     is now PINNED below, because it changes what an object read RETURNS inside
 //     a root that is perfectly usable.
 //   * REF STORAGE FORM — `core.preferSymlinkRefs`, stated apart from the family
@@ -504,9 +460,9 @@
 //     population as a porcelain surface.
 //   * `core.hooksPath=<empty dir>` and `core.fsmonitor=false`, PINNED ELSEWHERE —
 //     `#runGit` prepends both to every invocation this module makes, so they cover
-//     these two legs by construction (D-010-10, and see the I-010-10 section
-//     below). Listed here because a table claiming a closed population may not
-//     omit a knob merely because another mechanism already closed it.
+//     these two legs by construction (and section below). Listed here because a
+//     table claiming a closed population may not omit a knob merely because
+//     another mechanism already closed it.
 //   * `core.useReplaceRefs=false`, on every leg that INTERPRETS a recorded object
 //     id: the destructive checkout, the delete pass's snapshot-tree listing, the
 //     lineage parent read, the capture's index seed, and the snapshot message
@@ -514,19 +470,18 @@
 //     substitutes one object for another transparently, so a ref an attacker
 //     cannot write is not the same protection as an object id an attacker cannot
 //     redirect — and this service's whole restore-side safety argument is stated
-//     in frozen object ids.
-//     Reproduced on git 2.50.1: with `git replace <snapshotCommit> <attacker>`,
-//     the attacker commit carrying the SAME parent and a different tree, every
-//     HEAD guard still passes — the parents compare equal — while `ls-tree` of
-//     the frozen id enumerates the ATTACKER's paths and `read-tree --reset -u` of
-//     it writes the ATTACKER's bytes at exit 0. That is a restore reporting
-//     success having written something other than what it verified, which is the
-//     one outcome I-010-23's fail-closed posture exists to prevent. Pinned, the
-//     same fixture restores the original tree.
-//     The CAPTURE seed is in the set on its own measurement rather than by
-//     analogy, because most seed damage is self-correcting: `update-index --add
-//     --remove` re-lists and re-stats, so a phantom path from a replacement tree
-//     is dropped again. The class that SURVIVES is a path both index-tracked and
+//     in frozen object ids. Reproduced on git 2.50.1: with `git replace
+//     <snapshotCommit> <attacker>`, the attacker commit carrying the SAME parent
+//     and a different tree, every HEAD guard still passes — the parents compare
+//     equal — while `ls-tree` of the frozen id enumerates the ATTACKER's paths
+//     and `read-tree --reset -u` of it writes the ATTACKER's bytes at exit 0.
+//     That is a restore reporting success having written something other than
+//     what it verified, which is the one outcome the fail-closed posture exists
+//     to prevent. Pinned, the same fixture restores the original tree. The
+//     CAPTURE seed is in the set on its own measurement rather than by analogy,
+//     because most seed damage is self-correcting: `update-index --add --remove`
+//     re-lists and re-stats, so a phantom path from a replacement tree is dropped
+//     again. The class that SURVIVES is a path both index-tracked and
 //     ignored-by-rule, which only the seed can carry into the snapshot (`ls-files
 //     -o` will not list it, being ignored). Measured with exactly that path and a
 //     replace ref on the base commit: porcelain `add -A` keeps it, the unpinned
@@ -602,30 +557,27 @@
 //     Read the columns, not the rows. UNPINNED is byte-identical to porcelain
 //     `git add -A` under the same host config in all four cells — the measured
 //     trees were the same OID — and `add -A` tree equivalence is the capture
-//     contract `Spec-010 §Turn-Boundary Snapshots` states. PINNED reproduces
-//     porcelain under a DIFFERENT config than the host actually has, which is not
-//     a fix; it is a second opinion about the operator's repository.
-//     The mechanism is this file's own stat-family row: the scratch index a
-//     capture seeds carries NO stat data, so `update-index` re-stats every listed
-//     path, and under a `true` pin each TRACKED file's mode then comes from lstat
-//     — discarding the mode its base commit recorded. That is the `100755 →
-//     100644` cell, and it is the dangerous direction: a recorded exec bit lost
-//     for a file the turn never meant to change.
-//     REASONED, NOT MEASURED — the mechanism above is measured; this consequence
-//     of it is not, for want of the host. On a bit-incapable filesystem (a
-//     `vfat`/`exFAT` mount, or Windows, a V1 shipping tier per `ADR-019`) git's
-//     own probe writes `core.fileMode=false` precisely because lstat cannot
-//     report the bit truthfully. A `true` pin there would feed that fabrication
-//     into EVERY tracked file's recorded mode, turning a per-turn annoyance into
-//     recorded-bit loss across the snapshot.
-//     RESIDUAL, recorded rather than closed: honouring the knob means a
-//     preference-set or stale `false` on a capable filesystem loses a
-//     turn-created executable's bit, and records a boundary `chmod` of a tracked
-//     file as that file's stale recorded mode. Both are exactly what porcelain
-//     `add -A` does under that config, so equivalence holds by construction and
-//     the snapshot is never worse than the repository it came from. A stale
-//     `false` is narrow — git's probe never writes it on a capable filesystem, so
-//     it takes an explicit preference or a repository moved across filesystems.
+//     contract states. PINNED reproduces porcelain under a DIFFERENT config than
+//     the host actually has, which is not a fix; it is a second opinion about the
+//     operator's repository. The mechanism is this file's own stat-family row:
+//     the scratch index a capture seeds carries NO stat data, so `update-index`
+//     re-stats every listed path, and under a `true` pin each TRACKED file's mode
+//     then comes from lstat — discarding the mode its base commit recorded. That
+//     is the `100755 → 100644` cell, and it is the dangerous direction: a
+//     recorded exec bit lost for a file the turn never meant to change. REASONED,
+//     NOT MEASURED — the mechanism above is measured; this consequence of it is
+//     not, for want of the host. On a bit-incapable filesystem (a `vfat`/`exFAT`
+//     mount, or Windows, a V1 shipping tier) git's own probe writes
+//     `core.fileMode=false` precisely because lstat cannot report the bit
+//     truthfully. A `true` pin there would feed that fabrication into EVERY
+//     tracked file's recorded mode, turning a per-turn annoyance into
+//     recorded-bit loss across the snapshot. RESIDUAL, recorded rather than
+//     closed: honouring the knob means a preference-set or stale `false` on a
+//     capable filesystem loses a turn-created executable's bit, and records a
+//     boundary `chmod` of a tracked file as that file's stale recorded mode. A
+//     stale `false` is narrow — git's probe never writes it on a capable
+//     filesystem, so it takes an explicit preference or a repository moved across
+//     filesystems.
 //
 // MEASURED-IRRELEVANT — reachable in principle, measured not to reach these legs.
 //
@@ -672,7 +624,7 @@
 //     baseline. Being a property of a freshly seeded scratch index rather than of
 //     any one knob, this also covers the stat knobs a future git adds.
 //     `core.useReplaceRefs=false` was in this sweep and has been REMOVED from it,
-//     which is the round-4 finding's second correction: the sweep drives the
+//     which is that finding's second correction: the sweep drives the
 //     CHECK-IN leg with no replace ref present, so its identity result cleared
 //     nothing about object interpretation and citing it here read as a closure it
 //     never performed. Its single disposition is the PINNED row above.
@@ -698,36 +650,35 @@
 //     not to the host.
 //
 // READ AS INPUT — the host decides, and this service ASKS what it decided
-// rather than pinning or tolerating it. One family, added by T6.1.
+// rather than pinning or tolerating it.
 //
 //   * `core.sparseCheckout` (with `core.sparseCheckoutCone`, `index.sparse` and
 //     `$GIT_DIR/info/sparse-checkout`). This was the table's largest RECORDED
 //     RESIDUAL and is now closed, so the row records both the defect and its
 //     closure — a reader checking the closure needs the shape of what it closed.
 //
-//     THE DEFECT, as measured before T6.1: the scratch index a capture seeded
-//     with `read-tree <base>` carries no skip-worktree bits, so `ls-files -c`
-//     listed every out-of-cone path and `--remove` dropped each one for being
-//     absent from the worktree — the snapshot tree simply did not contain them.
-//     A restore of that snapshot then removed those paths' index entries, and
-//     after the closing reset `git status` reported the whole out-of-cone set as
-//     deleted. No pin fixed it, because the defect was never on the checkout leg:
-//     as-shipped, `-c core.sparseCheckout=false` and `--no-sparse-checkout` all
-//     produce BYTE-IDENTICAL loss there, the `false` pin only suppressing git's
-//     `error: Path … not uptodate` advisory. `--ignore-skip-worktree-entries` on
-//     the check-in leg was a no-op for the same reason (identical tree): a freshly
+//     THE DEFECT, as measured before: the scratch index a capture seeded with
+//     `read-tree <base>` carries no skip-worktree bits, so `ls-files -c` listed
+//     every out-of-cone path and `--remove` dropped each one for being absent from
+//     the worktree — the snapshot tree simply did not contain them. A restore of
+//     that snapshot then removed those paths' index entries, and after the closing
+//     reset `git status` reported the whole out-of-cone set as deleted. No pin
+//     fixed it, because the defect was never on the checkout leg: as-shipped, `-c
+//     core.sparseCheckout=false` and `--no-sparse-checkout` all produce
+//     BYTE-IDENTICAL loss there, the `false` pin only suppressing git's `error:
+//     Path … not uptodate` advisory. `--ignore-skip-worktree-entries` on the
+//     check-in leg was a no-op for the same reason (identical tree): a freshly
 //     seeded scratch index has no skip-worktree bits to protect.
 //
-//     THE CLOSURE (`Spec-010 §Turn-Boundary Snapshots`, the amended capture
-//     bullet; I-010-24) inverts the seed instead of pinning anything. In a
-//     detected sparse root the scratch index is seeded as a COPY OF THE LIVE
-//     INDEX, which carries the skip-worktree bits, so out-of-cone entries arrive
-//     already-staged at their recorded blobs and `--remove` never sees them; the
-//     staging listing is then partitioned by git's own sparsity matcher so
-//     `--remove` is never even offered an out-of-cone path to re-stat. The
-//     snapshot tree is FULL — sparseness is a checkout-time projection, not a
-//     property of the recorded state — which is what makes the restore able to
-//     re-project it.
+//     THE CLOSURE (the amended capture bullet) inverts the seed instead of
+//     pinning anything. In a detected sparse root the scratch index is seeded as
+//     a COPY OF THE LIVE INDEX, which carries the skip-worktree bits, so
+//     out-of-cone entries arrive already-staged at their recorded blobs and
+//     `--remove` never sees them; the staging listing is then partitioned by
+//     git's own sparsity matcher so `--remove` is never even offered an
+//     out-of-cone path to re-stat. The snapshot tree is FULL — sparseness is a
+//     checkout-time projection, not a property of the recorded state — which is
+//     what makes the restore able to re-project it.
 //
 //     Each co-tenant knob therefore has its own disposition now, because this
 //     service reads all four rather than being merely exposed to them:
@@ -799,7 +750,7 @@
 //     by the checkout itself, before any exemption is consulted. That case is
 //     refused pre-mutation rather than reported — see
 //     {@link TurnSnapshotService.#deriveBoundaryObstructions} for the three
-//     shapes and for why a diagnostic would not have satisfied I-010-24.
+//     shapes and for why a diagnostic would not have satisfied.
 //
 // RECORDED RESIDUALS — the honest failure modes, closed by neither pin nor
 // measurement. The family above used to be the other member of this section;
@@ -819,11 +770,11 @@
 // Retention is WINDOW-BASED, and the git dir is the one that SURVIVES
 // ---------------------------------------------------------------------------
 //
-// `Spec-010 §Turn-Boundary Snapshots` prunes "when the run's retention window
-// closes (terminal state + the configured window)", which is two facts, not one.
-// Terminal state alone does not prune: a rollback is a thing a user reaches for
-// AFTER a run has finished, so deleting at the terminal event would make the
-// snapshots useless exactly when they are wanted. So the mechanism is a SWEEP —
+// prunes "when the run's retention window closes (terminal state + the
+// configured window)", which is two facts, not one. Terminal state alone does
+// not prune: a rollback is a thing a user reaches for AFTER a run has finished,
+// so deleting at the terminal event would make the snapshots useless exactly
+// when they are wanted. So the mechanism is a SWEEP
 // {@link TurnSnapshotService.sweepPrunableRuns} deletes every run whose window
 // has closed — rather than a terminal-invoked callback, and that shape is also
 // what makes the daemon-startup reconcile fall out for free: a window that
@@ -833,13 +784,9 @@
 // The ref ops run through `git --git-dir=<git_common_dir>` — the value
 // `run_execution_contexts` recorded at context creation — and NEVER through
 // `execution_root`. This is the whole reason that column exists (its DDL comment
-// says so). A `worktree`-mode root is physically retired by T2.2 when the
-// workspace is done with it, which can happen long before the retention window
-// closes; the refs, meanwhile, live in the SHARED common object store and are
-// perfectly reachable from the canonical repository. Pruning through the
-// execution root would therefore skip precisely the runs whose refs are still
-// there, and would look like a working sweep while leaking every retired
-// worktree's snapshots forever.
+// says so). Pruning through the execution root would therefore skip precisely
+// the runs whose refs are still there, and would look like a working sweep while
+// leaking every retired worktree's snapshots forever.
 //
 // Skip-and-enumerate, never fatal. A recorded `git_common_dir` that is gone at
 // sweep time (the repository was removed) is not this sweep's failure — it is a
@@ -863,24 +810,24 @@
 // The clone-disposal boundary is the same fact from the other side. In
 // `ephemeral clone` mode the recorded common dir is the CLONE's own git dir, so
 // the snapshot refs share the clone's disposal lifecycle: an `on_run_complete`
-// disposal (T2.3) takes them with it, possibly before the retention window
-// closes, and a later rollback of that run proceeds CONVERSATION-ONLY — the
-// ruling campaign B2 recorded, with the file-leg disposition carried on the
-// intervention outcome by Plan-004. Neither disposal nor sweep is a retention
-// violation: a disposed clone leaves nothing to restore into, and the sweep
-// fires only after the window. Concretely, the sweep then finds the recorded
-// common dir gone and reports `clone-disposed` — the plan row's "the sweep then
-// finds nothing to delete", which is why that arm alone does not raise the pass
-// warn (see `sweepPrunableRuns`). On a clone-mode daemon it is otherwise EVERY
-// run the daemon ever executed, arriving hourly, forever.
+// disposal takes them with it, possibly before the retention window closes, and
+// a later rollback of that run proceeds CONVERSATION-ONLY — the ruling campaign
+// B2 recorded, with the file-leg disposition carried on the intervention
+// outcome. Neither disposal nor sweep is a retention violation: a disposed
+// clone leaves nothing to restore into, and the sweep fires only after the
+// window. Concretely, the sweep then finds the recorded common dir gone and
+// reports `clone-disposed` — the plan row's "the sweep then finds nothing to
+// delete", which is why that arm alone does not raise the pass warn (see
+// `sweepPrunableRuns`). On a clone-mode daemon it is otherwise EVERY run the
+// daemon ever executed, arriving hourly, forever.
 //
 // Deletion is a COMPARE-AND-SWAP, matching the capture leg's posture: the
 // enumeration reads `<oid> <refname>` and each deletion names the oid it read
 // (`update-ref --no-deref -d <ref> <oid>`), so a ref that changed between the two is
 // refused rather than deleted (git 2.50.1: exit 1, "cannot lock ref"). Nothing
-// should be able to move a snapshot ref — I-010-22 makes every write create-only
-// — which is exactly why naming the oid costs nothing and why a refusal here is
-// worth hearing about rather than steamrolling.
+// should be able to move a snapshot ref — makes every write create-only — which is
+// exactly why naming the oid costs nothing and why a refusal here is worth hearing
+// about rather than steamrolling.
 //
 // RESIDUALS, recorded rather than closed:
 //
@@ -916,7 +863,7 @@
 //     also all-or-nothing, where the per-ref form partially prunes and reports.
 //   * `released_at <= <cutoff>` is a TEXT comparison, so it is chronological only
 //     while the column holds fixed-width UTC `toISOString()` spellings. That is a
-//     forward contract on the T3.2 gate that stamps it, spelled the same way
+//     forward contract on gate that stamps it, spelled the same way
 //     `./ephemeral-clone-service.ts` spells its own `expires_at` contract.
 //   * The sweep takes no lock against a concurrent rollback re-opening a run
 //     whose window had already closed. The exposure is a rollback issued in the
@@ -941,12 +888,11 @@
 // Capture NEVER throws into the turn boundary
 // ---------------------------------------------------------------------------
 //
-// `Spec-010 §Turn-Boundary Snapshots` makes snapshots a recovery convenience,
-// not a turn gate: "capture failure emits an OTel diagnostic and never blocks or
-// fails the turn". So {@link TurnSnapshotService.captureTurnSnapshot} has no
-// throwing path at all: the caller gets a typed result on every arm. THREE
-// pieces carry that, not one, because the last two run where a `catch` cannot
-// reach them:
+// makes snapshots a recovery convenience, not a turn gate: "capture failure
+// emits an OTel diagnostic and never blocks or fails the turn". So {@link
+// TurnSnapshotService.captureTurnSnapshot} has no throwing path at all: the
+// caller gets a typed result on every arm. THREE pieces carry that, not one,
+// because the last two run where a `catch` cannot reach them:
 //
 //   * The mode allowlist and the ref-component validation run first and return
 //     typed results directly. They spawn nothing and touch nothing, so there is
@@ -969,7 +915,7 @@
 // without leaving a hole in the contract.
 //
 // ---------------------------------------------------------------------------
-// I-010-10 — hook neutralization is STRUCTURAL (D-010-10)
+// Hook neutralization is STRUCTURAL
 // ---------------------------------------------------------------------------
 //
 // Every git invocation goes through one private `#runGit` which prepends
@@ -989,11 +935,6 @@
 // same data, same order, no shell — and the listing travels as a Buffer rather
 // than a string so a path git emitted as raw bytes survives the hop.
 //
-// Refs: Plan-010 (worktree lifecycle and execution modes), Spec-010
-// (§Turn-Boundary Snapshots — the normative recipe), Spec-004 (§Required
-// Behavior — the execution epoch), Plan-006 (the daemon's event log, which
-// snapshots deliberately do NOT append to: a snapshot is a git fact, and
-// `Spec-006` registers no snapshot event).
 
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
@@ -1072,14 +1013,13 @@ export interface TurnSnapshotGitInvocationOptions {
    * `commit-tree -F -` (the snapshot message).
    *
    * stdin is closed on EVERY invocation, supplied or not, and that close is now
-   * LOAD-BEARING rather than a belt. `Spec-010 §Turn-Boundary Snapshots` calls
-   * out the failure mode — `commit-tree` reading its message from stdin and
-   * hanging wherever the daemon left stdin open — and T6.1 converted that leg
-   * from `-m` argv to `-F -` deliberately, so the message is a stream this
-   * module writes and closes rather than an argv element bounded by the
-   * platform's argument limit. The hang the spec names is therefore reachable
-   * exactly when this contract is broken, which is why it is stated here and not
-   * only at the call site.
+   * LOAD-BEARING rather than a belt. calls out the failure mode — `commit-tree`
+   * reading its message from stdin and hanging wherever the daemon left stdin
+   * open — and converted that leg from `-m` argv to `-F -` deliberately, so the
+   * message is a stream this module writes and closes rather than an argv
+   * element bounded by the platform's argument limit. The hang the spec names is
+   * therefore reachable exactly when this contract is broken, which is why it is
+   * stated here and not only at the call site.
    */
   readonly stdin?: Buffer;
 }
@@ -1089,7 +1029,7 @@ export interface TurnSnapshotGitInvocationOptions {
  *
  * Takes the COMPLETE argv — `-C <dir>` included — and no working directory, so
  * the argv is the whole invocation. Same reasoning, and the same deliberate
- * non-import of Plan-009's `GitFileExecutor`, that `./worktree-service.ts` and
+ * non-import of the `GitFileExecutor`, that `./worktree-service.ts` and
  * `./ephemeral-clone-service.ts` each record at their own seam; this one differs
  * from both by carrying stdin and an environment overlay, which the snapshot
  * recipe needs and neither of theirs does.
@@ -1127,15 +1067,12 @@ export type TurnSnapshotGitRunner = (
  * doubles included) verbs it has no opinion about. The boundary is therefore
  * "this interface is where the service writes", with ONE stated carve-out.
  *
- * THE CARVE-OUT is the sparse seed's index lock (T6.1), and the discriminator is
- * the idempotence sentence above rather than the write/read line. Copying the
- * live index under git's own lockfile protocol requires an EXCLUSIVE create of
- * `<index>.lock` — non-idempotent BY DESIGN, since a create that finds the file
- * already there is the contention signal the protocol is made of. Adding it here
+ * THE CARVE-OUT is the sparse seed's index lock, and the discriminator is the
+ * idempotence sentence above rather than the write/read line. Adding it here
  * would either break the invariant every other verb's tolerance rests on (the
  * `finally` cleanup and the restore's directory pruning are correct only because
  * their verbs tolerate a repeat) or force a fourth verb documented as the
- * exception to its own interface's opening line. So
+ * exception to its own interface's opening line.
  * {@link TurnSnapshotService.#seedScratchIndexFromLiveIndex} calls `node:fs`
  * directly, exactly as `fingerprintPath` and `isPathProvablyAbsent` already do
  * on the read side, and its failure mode is exercised against a REAL held lock
@@ -1182,10 +1119,10 @@ export interface TurnSnapshotFilesystem {
  *
  * {@link TurnSnapshotRestoreStep} is the restore sequence's own step vocabulary,
  * a SIBLING type rather than a growth of this one: `failedStep` on the restore
- * result is pinned name-identical to Plan-004's wire arms, and a shared union
- * would leak capture steps into a restore disposition.
+ * result is pinned name-identical to the wire arms, and a shared union would
+ * leak capture steps into a restore disposition.
  *
- * T6.1's sparse closure added exactly TWO members, slotted in execution order
+ * The sparse closure added exactly TWO members, slotted in execution order
  * rather than overloaded onto neighbours, because each is a distinct thing an
  * operator does about a failure:
  *
@@ -1221,35 +1158,29 @@ export type TurnSnapshotCaptureStep =
   | "write-ref";
 
 /**
- * The restore sequence's steps, in execution order — the vocabulary
- * `failedStep` speaks on the `partial_restore` arm, naming the command that
- * stopped so Plan-004's intervention outcome can say WHICH leg left the tree
- * where it is.
  *
- * The first two are pre-mutation by construction — with ONE qualification T6.1
- * added and did not want to leave implied. `derive-enumerations` now also
- * performs the sparse boundary set's INDEX PRE-DROP, which writes the index; a
- * failure there still leaves index and worktree untouched, because the drop is a
- * single `update-index --force-remove` invocation and git's index write is
- * atomic (lock, write, rename), so it either applied whole or not at all. What
- * the qualification costs is the stronger reading: a SUCCEEDED drop ahead of a
- * later failed step is reported by that later step, not by this one. The
- * property the spec's sentence protects — nothing is half-applied where a
- * failure is reported — survives; the property "no bytes moved at all under this
- * name" no longer does, and the drop is deliberately not given a step of its own
- * because Plan-004's wire mapping froze this vocabulary at five. The step's three
- * REFUSALS are all upstream of that drop — an undecodable trailer, the sparse
- * vintage gate and the boundary-obstruction guard all throw from inside the
- * read-only derivation — so each of them does still leave index and worktree
- * byte-identical, which is the stronger reading and the one the suite pins. The
- * last three
- * are the
- * pinned three-step of `Spec-010 §Turn-Boundary Snapshots`, in the order that
- * spec fixes: the delete pass must run while the index still holds the SNAPSHOT
- * tree, and `close-index` must run after it. Swapped, the close returns the
- * index to the branch tip and every captured-untracked file the restore just
- * materialized becomes a deletion candidate — a restore that silently deletes
- * the files it was asked to bring back.
+ * The first two are pre-mutation by construction — with ONE qualification added
+ * and did not want to leave implied. `derive-enumerations` now also performs the
+ * sparse boundary set's INDEX PRE-DROP, which writes the index; a failure there
+ * still leaves index and worktree untouched, because the drop is a single
+ * `update-index --force-remove` invocation and git's index write is atomic (lock,
+ * write, rename), so it either applied whole or not at all. What the
+ * qualification costs is the stronger reading: a SUCCEEDED drop ahead of a later
+ * failed step is reported by that later step, not by this one. The property the
+ * spec's sentence protects — nothing is half-applied where a failure is reported
+ * — survives; the property "no bytes moved at all under this name" no longer
+ * does, and the drop is deliberately not given a step of its own because the wire
+ * mapping froze this vocabulary at five. The step's three REFUSALS are all
+ * upstream of that drop — an undecodable trailer, the sparse vintage gate and the
+ * boundary-obstruction guard all throw from inside the read-only derivation — so
+ * each of them does still leave index and worktree byte-identical, which is the
+ * stronger reading and the one the suite pins. The last three are the pinned
+ * three-step of in the order that spec fixes: the delete pass must run while the
+ * index still holds the SNAPSHOT tree, and `close-index` must run after it.
+ * Swapped, the close returns the index to the branch tip and every
+ * captured-untracked file the restore just materialized becomes a deletion
+ * candidate — a restore that silently deletes the files it was asked to bring
+ * back.
  *
  * Two of the five need their reachability stated, because the vocabulary is
  * wider than the set `failedStep` actually reports:
@@ -1285,7 +1216,7 @@ export type TurnSnapshotRestoreStep =
  * {@link TurnSnapshotService.sweepPrunableRuns}.
  */
 export type TurnSnapshotRetentionSkipReason =
-  /** The `runId` is not safe as a ref path component (I-010-21) — refused before any git call. */
+  /** The `runId` is not safe as a ref path component — refused before any git call. */
   | "unsafe-run-id"
   /** No `run_execution_contexts` row names this run, so no git dir to prune through. */
   | "run-context-absent"
@@ -1298,7 +1229,7 @@ export type TurnSnapshotRetentionSkipReason =
    */
   | "run-context-unreadable"
   /**
-   * An `ephemeral clone`-mode run whose recorded git dir is GONE — the T2.3
+   * An `ephemeral clone`-mode run whose recorded git dir is GONE —
    * `on_run_complete` disposal took the refs with it, since they lived in the
    * clone's own object store. The expected boundary, not a fault: the plan row
    * reads "the sweep then finds nothing to delete", and a later rollback of that
@@ -1341,11 +1272,11 @@ export type TurnSnapshotRetentionSkipReason =
  * whole of "the warn can quiesce"; every skip is on the sweep RESULT either way.
  *
  * `git-dir-absent` is deliberately NOT a member even though it is equally an
- * outcome rather than a fault: the T5.3 row names that case specifically and
- * requires it "skipped and enumerated in the sweep diagnostic", and the set of
- * runs a removed repository implicates is BOUNDED — where disposed clones
- * accumulate one per clone-mode run, without limit, as the design works. Neither
- * side memoizes, so both re-report every tick; only the size differs, and the
+ * outcome rather than a fault: row names that case specifically and requires it
+ * "skipped and enumerated in the sweep diagnostic", and the set of runs a
+ * removed repository implicates is BOUNDED — where disposed clones accumulate
+ * one per clone-mode run, without limit, as the design works. Neither side
+ * memoizes, so both re-report every tick; only the size differs, and the
  * unbounded one is what would drown the channel (see the reason's own docblock
  * and residual 1 in the header).
  *
@@ -1374,11 +1305,11 @@ export interface TurnSnapshotRetentionSkip {
 /**
  * What this service reports to the daemon's observability layer.
  *
- * Two kinds are spec-named: `Spec-010 §Turn-Boundary Snapshots` requires the
- * failure diagnostic ("capture failure emits an OTel diagnostic and never blocks
- * or fails the turn") and requires the skipped commitless embedded repositories
- * to be "enumerated in the capture diagnostic" — which happens on a capture that
- * otherwise SUCCEEDED, hence its own kind rather than a field on `capture-failed`.
+ * Two kinds are spec-named: requires the failure diagnostic ("capture failure
+ * emits an OTel diagnostic and never blocks or fails the turn") and requires the
+ * skipped commitless embedded repositories to be "enumerated in the capture
+ * diagnostic" — which happens on a capture that otherwise SUCCEEDED, hence its own
+ * kind rather than a field on `capture-failed`.
  *
  * The rest are operational rather than spec-named.
  * `embedded-repositories-preserved` is the restore-side mirror of the skip
@@ -1392,10 +1323,9 @@ export interface TurnSnapshotRetentionSkip {
  * deliberately NOT a `capture-failed`: the capture it follows may have fully
  * succeeded, and the outcome is reported by the RESULT, not here.
  *
- * Paths appear here deliberately. The `error-contracts.md` no-path-echo rule
- * governs typed errors that reach the WIRE; a diagnostic is daemon-local
- * observability, and enumerating which repositories were skipped is the whole
- * content of the obligation.
+ * Paths appear here deliberately. no-path-echo rule governs typed errors that
+ * reach the WIRE; a diagnostic is daemon-local observability, and enumerating
+ * which repositories were skipped is the whole content of the obligation.
  */
 export type TurnSnapshotDiagnostic =
   | {
@@ -1435,13 +1365,13 @@ export type TurnSnapshotDiagnostic =
        *
        * A DIAGNOSTIC rather than a field on the restore result, and the choice is
        * forced rather than preferred. `TurnSnapshotRestoreResult` is the shape
-       * T3.13 froze for Plan-004's rollback consumer; adding a member to its
-       * success arm changes a contract this task has no authority over, for
-       * information that arm's consumer does not act on. The observability layer
-       * is where "the daemon deliberately did not touch these paths" belongs, and
-       * emitting it as the mirror of `embedded-repositories-skipped` means the two
-       * halves of one lifecycle read the same way in a log: capture could not
-       * record these, restore did not delete them.
+       * froze for the rollback consumer; adding a member to its success arm
+       * changes a contract this task has no authority over, for information that
+       * arm's consumer does not act on. The observability layer is where "the
+       * daemon deliberately did not touch these paths" belongs, and emitting it as
+       * the mirror of `embedded-repositories-skipped` means the two halves of one
+       * lifecycle read the same way in a log: capture could not record these,
+       * restore did not delete them.
        *
        * Emitted only when the set is non-empty and only after the delete pass has
        * run, so its presence means protection was actually exercised.
@@ -1495,8 +1425,8 @@ export type TurnSnapshotDiagnostic =
        * candidate list alone could not tell those apart.
        *
        * A DIAGNOSTIC and not a result field, for the reason
-       * `embedded-repositories-preserved` states at length: T3.13 froze
-       * `TurnSnapshotRestoreResult` for Plan-004's consumer, and this task has no
+       * `embedded-repositories-preserved` states at length: froze
+       * `TurnSnapshotRestoreResult` for the consumer, and this task has no
        * authority to grow a union that consumer switches on. Emitted at most ONCE
        * per restore — on the success tail after the last leg that can fail, or
        * from the failure reporter, never both.
@@ -1529,9 +1459,9 @@ export type TurnSnapshotDiagnostic =
   | {
       /**
        * A restore that stopped mid-sequence — the `partial_restore` result's
-       * operational half. The RESULT carries the disposition Plan-004 maps
-       * (`failedStep` plus the two enumerations); this carries the one thing the
-       * result deliberately does not, the rejection's `detail`, exactly as
+       * operational half. The RESULT carries the disposition maps (`failedStep`
+       * plus the two enumerations); this carries the one thing the result
+       * deliberately does not, the rejection's `detail`, exactly as
        * `capture-failed` does for the capture leg.
        *
        * The line this module draws is FAULT versus REFUSAL, not failure versus
@@ -1586,9 +1516,9 @@ export type TurnSnapshotDiagnostic =
   | {
       /**
        * ONE per sweep pass that skipped at least one run — the "skipped and
-       * enumerated in the sweep diagnostic" obligation of the T5.3 plan row,
-       * spelled as the plan spells it: a PASS-level enumeration, not a
-       * diagnostic per skipped run.
+       * enumerated in the sweep diagnostic" obligation of plan row, spelled
+       * as the plan spells it: a PASS-level enumeration, not a diagnostic
+       * per skipped run.
        *
        * Deliberately so. The operational fact an operator acts on is "this
        * daemon has N runs it can no longer prune", and N separate lines is the
@@ -1658,7 +1588,7 @@ export type TurnSnapshotDiagnostic =
 
 export interface TurnSnapshotServiceDeps {
   /**
-   * The daemon's execution-roots directory (D-010-6). Two of this service's own
+   * The daemon's execution-roots directory. Two of this service's own
    * directories hang off it: the shared hook-neutralization directory (empty, by
    * contract) and the scratch-index directory the temp-index recipe requires to
    * live OUTSIDE the worktree.
@@ -1671,11 +1601,7 @@ export interface TurnSnapshotServiceDeps {
    * The daemon's SQLite handle, for the RETENTION leg alone — the only leg that
    * reads `run_execution_contexts` (`released_at`, `git_common_dir`).
    *
-   * OPTIONAL, and that is the contract rather than a convenience. CP-010-12
-   * makes capture and restore pure callees that hold no database handle at all,
-   * so a service constructed for the turn boundary passes none and is unchanged
-   * by this leg's existence. Prepared statements are built here only when a
-   * handle IS supplied; {@link TurnSnapshotService.sweepPrunableRuns} and
+   * OPTIONAL, and that is the contract rather than a convenience.
    * {@link TurnSnapshotService.pruneSnapshotsForRun} throw when it was not,
    * because a retention sweep that answers "nothing to prune" on a mis-wired
    * daemon is indistinguishable from one that is working (see those methods).
@@ -1686,10 +1612,10 @@ export interface TurnSnapshotServiceDeps {
    * milliseconds. Defaults to
    * {@link DEFAULT_TURN_SNAPSHOT_RETENTION_WINDOW_MS}.
    *
-   * Daemon configuration expressed as constructor config, following T2.3's
-   * ephemeral-clone TTL exactly: `Spec-010 §Turn-Boundary Snapshots` calls the
-   * window "configured" without fixing a number, and the corpus-true home for a
-   * Plan-010 daemon-side duration is daemon config, not the wire.
+   * Daemon configuration expressed as constructor config, following the
+   * ephemeral-clone TTL exactly: calls the window "configured" without fixing a
+   * number, and the corpus-true home for a daemon-side duration is daemon
+   * config, not the wire.
    */
   readonly retentionWindowMs?: number;
   /** Git process seam; defaults to {@link runTurnSnapshotGitWithExecFile}. */
@@ -1707,7 +1633,7 @@ export interface TurnSnapshotServiceDeps {
    * the host's timezone: author and committer dates are commit-object fields and
    * therefore OID inputs, and a `-0700` host would otherwise mint a different
    * snapshot OID than a `+0000` one for identical project state at the identical
-   * instant (`Spec-010 §Turn-Boundary Snapshots`).
+   * instant.
    *
    * The RETENTION leg reads the same clock for its window arithmetic, and the
    * `toISOString()` requirement is load-bearing a second time there: the
@@ -1718,11 +1644,10 @@ export interface TurnSnapshotServiceDeps {
   /**
    * Where capture diagnostics go. Defaults to a `console.warn` rendering.
    *
-   * TRIPWIRE: `Spec-010 §Turn-Boundary Snapshots` names an OTel diagnostic, and
-   * this package has no OpenTelemetry substrate yet — this seam is the
-   * attachment point for one, and the default is the interim sink
-   * `../pty/pty-host-selector.ts` uses for the same reason. Replace the default,
-   * not the seam.
+   * TRIPWIRE: names an OTel diagnostic, and this package has no OpenTelemetry
+   * substrate yet — this seam is the attachment point for one, and the default
+   * is the interim sink `../pty/pty-host-selector.ts` uses for the same reason.
+   * Replace the default, not the seam.
    *
    * A sink that throws is contained, and so is an `async` one that rejects —
    * this return type ADMITS a promise-returning implementation, which is what an
@@ -1739,40 +1664,37 @@ export interface TurnSnapshotServiceDeps {
 
 /**
  * Inputs for {@link TurnSnapshotService.captureTurnSnapshot}. Every field is
- * caller-resolved (CP-010-12); see the header.
+ * caller-resolved; see the header.
  */
 export interface CaptureTurnSnapshotInput {
   /**
    * The run's execution root — the worktree, the main checkout (`branch` mode)
    * or the ephemeral clone. Resolved by the caller from the
-   * `run_execution_contexts` row (D-010-5); the capture leg never reads that
-   * table itself (CP-010-12 — only the retention leg does, for a different
-   * column and on a different trigger; see the header).
+   * `run_execution_contexts` row; the capture leg never reads that table
+   * itself (only the retention leg does, for a different column and on a
+   * different trigger; see the header).
    */
   readonly executionRoot: string;
   /**
-   * The run this snapshot belongs to. Interpolated into the ref path, so it is
-   * validated as a ref component before any git call (I-010-21; see the header).
+   * Interpolated into the ref path, so it is validated as a ref component before
+   * any git call (see the header).
    *
    * Typed `string` rather than the `RunId` brand: `packages/contracts` declares
-   * that brand TYPE-ONLY until Plan-005 T4.2 ships its schema, and
-   * `./worktree-service.ts` takes run provenance as a plain string for the same
-   * reason.
+   * that brand TYPE-ONLY until ships its schema, and `./worktree-service.ts`
+   * takes run provenance as a plain string for the same reason.
    */
   readonly runId: string;
   /**
-   * The run's execution epoch — `Spec-004 §Required Behavior`: `0` before any
-   * rollback, advanced with each accepted `run.rolled_back`. SUPPLIED, never
-   * derived: this service holds no rollback history and cannot reconstruct it.
+   * The run's execution epoch: `0` before any rollback, advanced with each
+   * accepted `run.rolled_back`. SUPPLIED, never derived: this service holds no
+   * rollback history and cannot reconstruct it.
    */
   readonly epoch: number;
   /** The turn position this snapshot records. Non-negative integer. */
   readonly turnOrdinal: number;
   /**
-   * The run's execution mode, read by the caller from the same
-   * `run_execution_contexts` row it read the root from. `read-only` returns the
-   * typed no-op; `branch` / `worktree` / `ephemeral clone` run the pipeline (the
-   * Applicability bullet of `Spec-010 §Turn-Boundary Snapshots`).
+   * `read-only` returns the typed no-op; `branch` / `worktree` / `ephemeral
+   * clone` run the pipeline (the Applicability bullet of).
    */
   readonly mode: ExecutionMode;
 }
@@ -1780,30 +1702,30 @@ export interface CaptureTurnSnapshotInput {
 /** A snapshot this call created. */
 export interface TurnSnapshotCaptured {
   readonly outcome: "captured";
-  /** `refs/sidekicks/runs/<runId>/epoch-<E>/turn-<N>` (I-010-21). */
+  /** `refs/sidekicks/runs/<runId>/epoch-<E>/turn-<N>`. */
   readonly ref: string;
   /** The snapshot commit the ref now names. */
   readonly snapshotCommit: string;
   /**
    * The ONE base OID resolved at entry, used for both the tree base and the
    * recorded parent. Reported because the restore leg's fail-closed precondition
-   * (T5.2 / I-010-23) is "current `HEAD` equals this", and a caller that wants to
-   * know whether a later restore is still possible should not have to re-derive
-   * it from the commit object.
+   * is "current `HEAD` equals this", and a caller that wants to know whether a
+   * later restore is still possible should not have to re-derive it from the
+   * commit object.
    */
   readonly baseCommit: string;
   /**
    * Untracked embedded repositories that could not be recorded as gitlinks —
-   * empty on the ordinary capture. The same list is enumerated in the diagnostic
-   * (`Spec-010 §Turn-Boundary Snapshots`); it is repeated here so the caller can
-   * record it on the turn without subscribing to the diagnostic sink.
+   * empty on the ordinary capture. The same list is enumerated in the
+   * diagnostic; it is repeated here so the caller can record it on the turn
+   * without subscribing to the diagnostic sink.
    */
   readonly skippedEmbeddedRepositories: readonly string[];
 }
 
 /**
  * The create-only ref was already written — a retried or duplicated capture of
- * the same `(runId, epoch, turnOrdinal)` (I-010-22). Idempotent SUCCESS.
+ * the same `(runId, epoch, turnOrdinal)`.
  */
 export interface TurnSnapshotAlreadyCaptured {
   readonly outcome: "already-captured";
@@ -1823,8 +1745,7 @@ export interface TurnSnapshotAlreadyCaptured {
 
 /**
  * The mode does not snapshot: nothing was captured, and nothing was written — no
- * git object, no ref, no directory (the Applicability bullet of `Spec-010
- * §Turn-Boundary Snapshots`).
+ * git object, no ref, no directory (the Applicability bullet of).
  */
 export interface TurnSnapshotNotApplicable {
   readonly outcome: "not-applicable";
@@ -1862,12 +1783,11 @@ export type TurnSnapshotCaptureResult =
 
 /**
  * One epoch of a run's execution lineage: the epoch number and the position it
- * rewound TO (`Spec-004 §Required Behavior`; `0` for the run's first epoch,
- * which rewound from nothing).
+ * rewound TO (`0` for the run's first epoch, which rewound from nothing).
  *
- * Both fields are the CALLER's (CP-010-12) — the Plan-004 run engine derives the
- * ordered list from its durable epoch / intervention records. This service holds
- * no rollback history and could not reconstruct one.
+ * Both fields are the CALLER's — run engine derives the ordered list from its
+ * durable epoch / intervention records. This service holds no rollback history
+ * and could not reconstruct one.
  */
 export interface TurnSnapshotEpochLineageEntry {
   readonly epoch: number;
@@ -1950,7 +1870,7 @@ let mintRestoreTarget!: (fields: RestoreTargetFields) => TurnSnapshotRestoreTarg
 
 /**
  * An accepted resolution — the snapshot exists in its owning epoch's territory
- * and the fail-closed `HEAD` precondition held at resolve time (I-010-23).
+ * and the fail-closed `HEAD` precondition held at resolve time.
  *
  * This whole object is what {@link TurnSnapshotService.restoreToTurn} BINDS, so
  * it carries every input that leg needs: a caller cannot hand the applier a root
@@ -1982,10 +1902,10 @@ let mintRestoreTarget!: (fields: RestoreTargetFields) => TurnSnapshotRestoreTarg
  *
  * The cost is that a target cannot be serialized and rehydrated across a process
  * boundary. Nothing needs to, and that is a contract fact rather than a hope:
- * `Spec-004 §Required Behavior` makes recovery from an incomplete file leg a
- * FRESH rollback intervention that re-runs both legs, and restart reconciliation
- * re-dispatches rather than resuming a held resolution (Plan-004 T3.13). A
- * target's lifetime is one intervention, in one process.
+ * makes recovery from an incomplete file leg a FRESH rollback intervention that
+ * re-runs both legs, and restart reconciliation re-dispatches rather than
+ * resuming a held resolution. A target's lifetime is one intervention, in one
+ * process.
  */
 export class TurnSnapshotRestoreTarget {
   /**
@@ -2068,8 +1988,8 @@ export class TurnSnapshotRestoreTarget {
  * snapshot, or one of the two sides could not be read at all.
  *
  * `null` on either side means "could not be read", which refuses for the same
- * reason a mismatch does — the equality must be ESTABLISHED (I-010-23), never
- * merely un-contradicted.
+ * reason a mismatch does — the equality must be ESTABLISHED, never merely
+ * un-contradicted.
  */
 export interface TurnSnapshotResolutionHeadMoved {
   readonly outcome: "head_moved";
@@ -2082,7 +2002,7 @@ export interface TurnSnapshotResolutionHeadMoved {
 /**
  * No snapshot to restore. NEVER a fallthrough: an absent ref in the owning
  * epoch's territory refuses here rather than resolving a superseded parent
- * epoch's same-ordinal ref (I-010-23).
+ * epoch's same-ordinal ref.
  */
 export interface TurnSnapshotResolutionNoSnapshot {
   readonly outcome: "no_snapshot";
@@ -2097,12 +2017,12 @@ export interface TurnSnapshotResolutionNoSnapshot {
    * at all; `probe-failed` is the honest answer when the repository could not be
    * ASKED — see {@link TurnSnapshotService.resolveRestoreTarget}.
    *
-   * All four ride this one arm deliberately: `Spec-004 §Required Behavior`
-   * rejects the whole intervention on EVERY non-resolved arm, so the behavioural
-   * set is unchanged, and Plan-004 T3.13 pins the union's OUTCOME names (an
-   * accepted resolution plus the two named refusals) while leaving this reason
-   * vocabulary service-local. A reason keeps the distinction an operator needs
-   * without widening what the caller must branch on.
+   * All four ride this one arm deliberately: rejects the whole intervention on
+   * EVERY non-resolved arm, so the behavioural set is unchanged, and pins the
+   * union's OUTCOME names (an accepted resolution plus the two named refusals)
+   * while leaving this reason vocabulary service-local. A reason keeps the
+   * distinction an operator needs without widening what the caller must branch
+   * on.
    */
   readonly reason: "ref-absent" | "no-owning-epoch" | "unusable-inputs" | "probe-failed";
 }
@@ -2114,10 +2034,10 @@ export interface TurnSnapshotResolutionNoSnapshot {
  * are SNAKE_CASE while every other discriminant in this file is kebab
  * (`already-captured`, `not-applicable`, `mode-not-snapshot-capable`). That is
  * not an oversight and must not be normalized: `head_moved`, `no_snapshot`,
- * `restored` and `partial_restore` are pinned name-identical to the arms
- * Plan-004 T3.13 maps onto its `RollbackInterventionResult` disposition, so the
- * mapping is an identity rather than a rename. A tidying pass over these four
- * strings would silently break a cross-plan contract that compiles fine.
+ * `restored` and `partial_restore` are pinned name-identical to the arms maps
+ * onto its `RollbackInterventionResult` disposition, so the mapping is an
+ * identity rather than a rename. A tidying pass over these four strings would
+ * silently break a cross-plan contract that compiles fine.
  */
 export type TurnSnapshotResolution =
   | TurnSnapshotRestoreTarget
@@ -2129,23 +2049,20 @@ export type TurnSnapshotResolution =
  * closed back to `HEAD`.
  *
  * Both enumerations are REQUIRED and empty-when-none — the field names are
- * pinned name-identical to Plan-004's wire arms so the T3.13 mapping is an
- * identity, never a rename.
+ * pinned name-identical to the wire arms so mapping is an identity, never
+ * a rename.
  *
  * What this arm ATTESTS, per the header's symref BOUNDARY paragraph: that
- * I-010-23's fail-closed preconditions all held, and that the tree this service
- * wrote is the one the resolve verified — the checkout names that OID. It is not
- * an attestation that the ref store went unmodified by a co-resident writer
- * meanwhile; nothing at this layer can observe that.
+ * fail-closed preconditions all held, and that the tree this service wrote is
+ * the one the resolve verified — the checkout names that OID.
  */
 export interface TurnSnapshotRestored {
   readonly outcome: "restored";
   /**
    * The ref this restore RESOLVED from — reported for correlation, not as a live
-   * handle. It may already be gone: the T5.3 prune can delete it inside the
+   * handle. It may already be gone: prune can delete it inside the
    * resolve→application window and the restore still succeeds, because the
-   * tree-ish actually applied is {@link TurnSnapshotRestored.snapshotCommit}. See
-   * the retention residuals in the header.
+   * tree-ish actually applied is {@link TurnSnapshotRestored.snapshotCommit}.
    */
   readonly ref: string;
   readonly snapshotCommit: string;
@@ -2168,12 +2085,12 @@ export interface TurnSnapshotRestored {
 }
 
 /**
- * An execution-time re-verify refused (I-010-23's TOCTOU guard). `restoreToTurn`
+ * An execution-time re-verify refused (the TOCTOU guard). `restoreToTurn`
  * returns this arm from EITHER of its two pre-mutation checks, and the arm does
  * not distinguish them, because the caller's answer is identical for both:
  *
  *   * at entry — `HEAD` moved between the resolve and the dispatch (the wide
- *     window Plan-004 T3.13 mandates a guard for);
+ *     window mandates a guard for);
  *   * after the derivation — `HEAD` moved DURING the dispatch, while the
  *     enumerations were being listed.
  *
@@ -2190,7 +2107,7 @@ export interface TurnSnapshotRestoreHeadMoved {
 }
 
 /**
- * The sequence stopped mid-flight. Plan-004 maps this arm to the distinct
+ * The sequence stopped mid-flight. maps this arm to the distinct
  * `files-partially-restored` disposition; it is never collapsed into
  * `files-unrestored` and never empty-washed.
  *
@@ -2204,15 +2121,14 @@ export interface TurnSnapshotRestoreHeadMoved {
  *   * TERMINAL BY PRECONDITION — `close-index` reached by a MOVED `HEAD`. The
  *     resolve refuses `head_moved` from then on, and the partial state stands
  *     until whoever moved `HEAD` deals with it.
- *   * TERMINAL BY LIFETIME — ANY `failedStep` whose ref the T5.3 retention prune
- *     has since deleted. The resolve then refuses `no_snapshot`/`ref-absent`,
+ *   * TERMINAL BY LIFETIME — ANY `failedStep` whose ref retention prune has
+ *     since deleted. The resolve then refuses `no_snapshot`/`ref-absent`,
  *     because there is no longer an OID to freeze, and the partial state stands
  *     with no snapshot left to re-apply. Not tied to one step, unlike the other:
  *     a deletion inside the resolve→application window is survivable by the
  *     APPLICATION (the checkout names the frozen OID, and the commit outlives
  *     its last name), so it costs nothing unless some unrelated step fails and
- *     sends the caller back through the resolve. See the header's retention
- *     residuals.
+ *     sends the caller back through the resolve.
  *
  * Every other `failedStep` leaves both the precondition and the ref intact and
  * re-runs cleanly — including the other non-git `close-index` failure, a `HEAD`
@@ -2250,8 +2166,8 @@ export interface TurnSnapshotPartialRestore {
 
 /**
  * Every outcome {@link TurnSnapshotService.restoreToTurn} can report — three
- * arms, exactly the three Plan-004 T3.13 maps (`restored → files-restored`,
- * `partial_restore → files-partially-restored`, `head_moved → files-unrestored`).
+ * arms, exactly the three maps (`restored → files-restored`, `partial_restore →
+ * files-partially-restored`, `head_moved → files-unrestored`).
  *
  * A fourth arm would be unmapped at that call site, which is why the one input
  * this union deliberately does NOT describe — a `target` this service never
@@ -2260,11 +2176,11 @@ export interface TurnSnapshotPartialRestore {
  * see {@link TurnSnapshotResolution}.
  *
  * `ref` means the same thing on ALL THREE arms, and it is not a live handle: it
- * is the ref the restore RESOLVED from, reported for correlation. The T5.3
- * retention prune can delete it inside the resolve→application window, on any
- * arm — see {@link TurnSnapshotRestored.ref} for why a restore nonetheless
- * succeeds across that deletion, and the header's retention residuals for what
- * it costs a RETRY.
+ * is the ref the restore RESOLVED from, reported for correlation. retention
+ * prune can delete it inside the resolve→application window, on any arm — see
+ * {@link TurnSnapshotRestored.ref} for why a restore nonetheless succeeds
+ * across that deletion, and the header's retention residuals for what it costs
+ * a RETRY.
  */
 export type TurnSnapshotRestoreResult =
   | TurnSnapshotRestored
@@ -2318,15 +2234,15 @@ export interface TurnSnapshotRetentionSweepResult {
 // --------------------------------------------------------------------------
 
 /**
- * The ref namespace root (I-010-21). `refs/heads/` is the surface this
+ * The ref namespace root. `refs/heads/` is the surface this
  * deliberately is not: snapshots stay invisible to branch history, PR
- * preparation and diff attribution, so `Spec-011` is unaffected.
+ * preparation and diff attribution, so is unaffected.
  */
 const SNAPSHOT_REF_ROOT = "refs/sidekicks/runs";
 
 /**
- * The modes that snapshot — the Applicability bullet of `Spec-010
- * §Turn-Boundary Snapshots`, spelled as an ALLOWLIST.
+ * The modes that snapshot — the Applicability bullet of spelled
+ * as an ALLOWLIST.
  *
  * A denylist (`mode === "read-only"`) reads the same today and fails open
  * tomorrow: a mode added to `ExecutionMode` for some future execution surface
@@ -2346,8 +2262,7 @@ const SNAPSHOT_APPLICABLE_MODES: ReadonlySet<ExecutionMode> = new Set<ExecutionM
 
 /**
  * The snapshot commit's message SUBJECT. FIXED — the same bytes for every
- * snapshot, per `Spec-010 §Turn-Boundary Snapshots`'s `-m <fixed snapshot
- * message>`.
+ * snapshot, per the `-m <fixed snapshot message>`.
  *
  * Deliberately carries no run id, epoch or ordinal: the message is a commit-object
  * field and therefore an OID input, and IDENTITY content in it would make two
@@ -2395,13 +2310,12 @@ const SNAPSHOT_COMMIT_MESSAGE = "sidekicks: turn-boundary snapshot";
  *     idempotence the create-only ref write depends on. `ls-files` order is
  *     stable in practice; sorting makes it stable by construction.
  *
- * RESIDUAL, recorded rather than closed: the ref is create-only (I-010-22), so a
- * second capture at the same turn does not overwrite the first, and the trailer
- * a restore reads is the FIRST capture's. If the skip list differed between
- * them, the protection follows the recorded snapshot rather than the worktree —
- * which is the same rule the rest of the restore follows, and the honest one:
- * this trailer is a fact about the snapshot, not about the worktree at restore
- * time.
+ * RESIDUAL, recorded rather than closed: the ref is create-only, so a second
+ * capture at the same turn does not overwrite the first, and the trailer a
+ * restore reads is the FIRST capture's. If the skip list differed between them,
+ * the protection follows the recorded snapshot rather than the worktree — which
+ * is the same rule the rest of the restore follows, and the honest one: this
+ * trailer is a fact about the snapshot, not about the worktree at restore time.
  */
 const SKIPPED_EMBEDDED_REPOSITORIES_TRAILER = "Skipped-Embedded-Repositories:";
 
@@ -2468,10 +2382,10 @@ const SKIPPED_EMBEDDED_REPOSITORIES_TRAILER = "Skipped-Embedded-Repositories:";
  *     it here is what keeps two captures of identical project state identical.
  *     The sibling trailer stays UTF-8 TEXT, deliberately: its contents reach the
  *     capture RESULT and a diagnostic, which are wire-facing values a human and
- *     Plan-004 both read, and its own consumer ({@link isPreservedListingEntry})
- *     compares them against decoded listing strings. The two trailers therefore
- *     carry different kinds of string, which {@link readJsonPathArrayTrailer}
- *     states at the one place both are read.
+ *     both read, and its own consumer ({@link isPreservedListingEntry}) compares
+ *     them against decoded listing strings. The two trailers therefore carry
+ *     different kinds of string, which {@link readJsonPathArrayTrailer} states at
+ *     the one place both are read.
  *
  * TYPE-PRESERVING: a path git listed with a TRAILING SLASH is recorded WITH it.
  * The slash is not decoration — it is git saying "a directory I did not descend
@@ -2491,40 +2405,38 @@ const SKIPPED_EMBEDDED_REPOSITORIES_TRAILER = "Skipped-Embedded-Repositories:";
  * candidate for a tree path — `ls-tree -r` lists blobs and gitlinks, both
  * slash-free, so a slash-suffixed candidate can never match one.
  *
- * RESIDUAL, the same one the sibling trailer records: the ref is create-only
- * (I-010-22), so a restore reads the FIRST capture's boundary set at that turn.
- * The exemption follows the recorded snapshot rather than the worktree, which is
- * the honest rule — this trailer is a fact about the snapshot.
+ * RESIDUAL, the same one the sibling trailer records: the ref is create-only, so
+ * a restore reads the FIRST capture's boundary set at that turn. The exemption
+ * follows the recorded snapshot rather than the worktree, which is the honest
+ * rule — this trailer is a fact about the snapshot.
  */
 const SPARSE_BOUNDARY_PATHS_TRAILER = "Sparse-Boundary-Paths:";
 
 /**
  * The daemon-owned author/committer identity stamped into every snapshot commit.
  *
- * Not the user's. `Spec-010 §Turn-Boundary Snapshots` records both failure modes
- * this closes: without explicit ident env, `commit-tree` hard-fails
- * (`Author identity unknown`) in a passwd-less daemon or CI container, and
- * silently stamps a passwd-derived OS ident elsewhere — machine-dependent
- * snapshot OIDs plus an identity leak into the object store.
+ * Records both failure modes this closes: without explicit ident env,
+ * `commit-tree` hard-fails (`Author identity unknown`) in a passwd-less daemon
+ * or CI container, and silently stamps a passwd-derived OS ident elsewhere —
+ * machine-dependent snapshot OIDs plus an identity leak into the object store.
  */
 const SNAPSHOT_IDENTITY_NAME = "AI Sidekicks";
 const SNAPSHOT_IDENTITY_EMAIL = "snapshots@ai-sidekicks.invalid";
 
-// The empty directory `core.hooksPath` points at (I-010-10 / D-010-10). Spelled
-// identically to `./worktree-service.ts`'s and `./ephemeral-clone-service.ts`'s:
-// all three neutralize against the SAME directory under a shared execution-roots
-// directory, and a third spelling would mean a third directory a reaper could
-// remove out from under one of them.
+// Spelled identically to `./worktree-service.ts`'s and
+// `./ephemeral-clone-service.ts`'s: all three neutralize against the SAME
+// directory under a shared execution-roots directory, and a third spelling would
+// mean a third directory a reaper could remove out from under one of them.
 const HOOK_NEUTRALIZATION_SEGMENT = ".hook-neutralization";
 
-// Where the scratch indexes live. `Spec-010 §Turn-Boundary Snapshots` requires
-// the temp index OUTSIDE the worktree — a worktree-resident scratch index would
-// surface to the capture pipeline's own `ls-files -o` listing, to the restore's
-// untracked-delete pass, and to the user's `git status` as stray untracked
-// content. A dotted sibling of the per-mount root directories, so it can never
-// collide with a mount id, exactly as the neutralization directory is; a
-// `branch`-mode root is the user's own checkout somewhere else entirely, which
-// this placement is trivially outside of too.
+// Where the scratch indexes live. requires the temp index OUTSIDE the worktree
+// — a worktree-resident scratch index would surface to the capture pipeline's
+// own `ls-files -o` listing, to the restore's untracked-delete pass, and to the
+// user's `git status` as stray untracked content. A dotted sibling of the
+// per-mount root directories, so it can never collide with a mount id, exactly
+// as the neutralization directory is; a `branch`-mode root is the user's own
+// checkout somewhere else entirely, which this placement is trivially outside
+// of too.
 const SNAPSHOT_INDEX_SEGMENT = ".snapshot-indexes";
 
 // Per-invocation git timeout. Matched to `./worktree-service.ts`'s bound rather
@@ -2535,20 +2447,16 @@ const DEFAULT_TURN_SNAPSHOT_GIT_TIMEOUT_MS = 120_000;
 /**
  * How long a run's snapshot refs outlive its terminal release: seven days.
  *
- * INVENTED rather than ratified, and said plainly for the reason
- * `./ephemeral-clone-service.ts` says it of its own invocation ceiling:
- * `Spec-010 §Turn-Boundary Snapshots` fixes that a window exists and that it is
- * CONFIGURED, not what it is. The number is chosen from the direction of the
- * risk rather than from a benchmark. Too SHORT loses a rollback the user still
- * wanted, and loses it silently — the refs are simply gone and Plan-004 reports
- * "no snapshot", which reads exactly like a run that never captured. Too LONG
- * costs object-store growth, which is visible as disk and is recoverable by
- * shortening the window. So it errs long, and seven days is the span over which
- * "go back to before that turn" is still a thing somebody says about a run.
+ * The number is chosen from the direction of the risk rather than from a
+ * benchmark. Too SHORT loses a rollback the user still wanted, and loses it
+ * silently — the refs are simply gone and reports "no snapshot", which reads
+ * exactly like a run that never captured. So it errs long, and seven days is
+ * the span over which "go back to before that turn" is still a thing somebody
+ * says about a run.
  *
  * Exported so a composition root expresses a configured override as a delta from
  * this default rather than re-spelling it — the shape and the reason
- * {@link DEFAULT_EPHEMERAL_CLONE_TTL_MS} established in T2.3.
+ * {@link DEFAULT_EPHEMERAL_CLONE_TTL_MS} established.
  */
 export const DEFAULT_TURN_SNAPSHOT_RETENTION_WINDOW_MS: number = 7 * 24 * 60 * 60 * 1000;
 
@@ -2577,12 +2485,12 @@ const MAXIMUM_RETENTION_WINDOW_MS = 8_640_000_000_000_000;
 /**
  * How often the daemon runs the retention sweep: hourly.
  *
- * Lives here rather than in `../bootstrap/index.ts` because it is Plan-010
- * configuration and that file is Plan-007's — the wiring call there passes a
- * cadence through, it does not own one. Neither direction of error is severe, which is
- * why the value is unceremonious: too frequent spends a handful of git spawns on
- * an empty candidate set, and too rare lets refs outlive their window by up to
- * one cadence, which is a rounding error against a seven-day window.
+ * Lives here rather than in `../bootstrap/index.ts` because it is configuration and
+ * that file is the — the wiring call there passes a cadence through, it does not own
+ * one. Neither direction of error is severe, which is why the value is unceremonious:
+ * too frequent spends a handful of git spawns on an empty candidate set, and too rare
+ * lets refs outlive their window by up to one cadence, which is a rounding error
+ * against a seven-day window.
  */
 export const DEFAULT_TURN_SNAPSHOT_SWEEP_CADENCE_MS: number = 60 * 60 * 1000;
 
@@ -2633,7 +2541,7 @@ const GITLINK_TREE_MODE = "160000";
 // `ls-files` consults NO other exclude source unless asked to, while porcelain
 // also honours `core.excludesFile` and `$GIT_DIR/info/exclude` with no
 // off-switch, and a developer's private ignore patterns are not project
-// declarations (the Scope bullet of `Spec-010 §Turn-Boundary Snapshots`).
+// declarations (the Scope bullet of).
 const EXCLUDE_PER_DIRECTORY_GITIGNORE = "--exclude-per-directory=.gitignore";
 
 // The pin that makes an object read return the object that was asked for,
@@ -2682,8 +2590,8 @@ const CORE_SPARSE_CHECKOUT_KEY = "core.sparseCheckout";
 const SPARSE_SEED_INDEX_LOCK_ATTEMPTS = 4;
 const SPARSE_SEED_INDEX_LOCK_RETRY_DELAY_MS = 25;
 
-// Ceiling on the untracked-delete pass (`Spec-010 §Turn-Boundary Snapshots`
-// requires repetition to a FIXPOINT, not a fixed count).
+// Ceiling on the untracked-delete pass (requires repetition to a FIXPOINT,
+// not a fixed count).
 //
 // It cannot be reached by the pinned listing: every non-final pass strictly
 // shrinks the untracked set and deleting files never adds ignore rules, so the
@@ -2700,7 +2608,7 @@ const SPARSE_SEED_INDEX_LOCK_RETRY_DELAY_MS = 25;
 const UNTRACKED_DELETE_PASS_LIMIT = 64;
 
 /**
- * The CHARACTER-CLASS half of "safe as a ref path component" (I-010-21) — an
+ * The CHARACTER-CLASS half of "safe as a ref path component" — an
  * allowlisted alphabet with an alphanumeric first character.
  *
  * It is half of the rule and not the rule: `.` is in the class, so this pattern
@@ -2741,14 +2649,13 @@ const RESERVED_REF_LOCK_SUFFIX = ".lock";
  *     — it still strips the variable, now through the spread rather than through
  *     a second literal — and the entry's original finding survives at the header
  *     above.
- *   * `GIT_NAMESPACE` — defense in depth, and deliberately NOT claimed as the
- *     enforcement of I-010-21. Local ref plumbing ignores it (empirically
- *     confirmed on git 2.50.1: a namespaced `update-ref` writes the unprefixed
- *     path, and `rev-parse` / `show-ref` / `for-each-ref` read it back from a
- *     clean environment); the namespace applies in the pack protocol, so this
- *     entry is here for a future leg that speaks it rather than for the legs
- *     that exist. The invariant's environment exposure is the redirector class
- *     above — see the header.
+ *   * Local ref plumbing ignores it (empirically confirmed on git 2.50.1: a
+ *     namespaced `update-ref` writes the unprefixed path, and `rev-parse` /
+ *     `show-ref` / `for-each-ref` read it back from a clean environment); the
+ *     namespace applies in the pack protocol, so this entry is here for a
+ *     future leg that speaks it rather than for the legs that exist. The
+ *     invariant's environment exposure is the redirector class above — see the
+ *     header.
  *   * `GIT_INDEX_FILE` — belt to the braces. Every index-touching leg sets it
  *     explicitly, so an ambient value can only reach the legs that do not use an
  *     index; stripping it keeps "the temp index is the only index this service
@@ -2795,7 +2702,7 @@ const SNAPSHOT_NEUTRALIZED_GIT_ENV_KEYS_UPPERCASED = new Set(
 
 /**
  * `refs/sidekicks/runs/<runId>/` — every snapshot ref of one run, and the prefix
- * T5.3's retention prune enumerates with `for-each-ref`.
+ * the retention prune enumerates with `for-each-ref`.
  *
  * Assumes a validated `runId` (see {@link isSafeRefComponent}); both builders
  * are private to this module and both call sites validate first.
@@ -2805,19 +2712,19 @@ function buildRunSnapshotRefPrefix(runId: string): string {
 }
 
 /**
- * `refs/sidekicks/runs/<runId>/epoch-<E>/turn-<N>` — the ref namespace
- * `Spec-010 §Turn-Boundary Snapshots` pins, with the `epoch-<E>` segment that
- * makes create-only idempotence PER-EPOCH (I-010-22): a post-rollback
- * re-execution reuses turn ordinals, and without the segment its capture would
- * hit the superseded epoch's ref and silently resolve to the wrong tree.
+ * `refs/sidekicks/runs/<runId>/epoch-<E>/turn-<N>` — the ref namespace pins,
+ * with the `epoch-<E>` segment that makes create-only idempotence PER-EPOCH: a
+ * post-rollback re-execution reuses turn ordinals, and without the segment its
+ * capture would hit the superseded epoch's ref and silently resolve to the
+ * wrong tree.
  */
 function buildTurnSnapshotRef(runId: string, epoch: number, turnOrdinal: number): string {
   return `${buildRunSnapshotRefPrefix(runId)}epoch-${String(epoch)}/turn-${String(turnOrdinal)}`;
 }
 
 /**
- * Whether `value` is safe as a ref path component (I-010-21) — the whole rule,
- * of which {@link SAFE_REF_COMPONENT_CHARACTER_PATTERN} is the alphabet.
+ * Whether `value` is safe as a ref path component — the whole rule, of which
+ * {@link SAFE_REF_COMPONENT_CHARACTER_PATTERN} is the alphabet.
  *
  * Composed as four explicit checks rather than folded into one regex on purpose:
  * this is a security predicate, and the negative lookaheads that would express
@@ -2847,14 +2754,13 @@ function buildTurnSnapshotRef(runId: string, epoch: number, turnOrdinal: number)
  * of a git rule and each needs its own reason (both measured on git 2.50.1:
  * `check-ref-format` and `update-ref` accept them, and the ref is created):
  *
- *   * A TRAILING DOT. git's "cannot end with a dot" is a rule about the whole
- *     refname, and a `runId` is a MID-PATH component, so `run.` sails through as
+ *   * Git's "cannot end with a dot" is a rule about the whole refname, and a
+ *     `runId` is a MID-PATH component, so `run.` sails through as
  *     `refs/sidekicks/runs/run./epoch-0/turn-1`. It is refused here because a
  *     loose ref is a real directory path, and Win32 strips trailing dots from
  *     path components: `run.` and `run` are the same directory there, so two
  *     distinct runs would share one epoch namespace and the create-only CAS of
- *     I-010-22 would fire across runs that never collided on the ids the daemon
- *     issued.
+ *     would fire across runs that never collided on the ids the daemon issued.
  *   * A `.LOCK` suffix in any casing. git's rule is case-SENSITIVE, so `run.LOCK`
  *     is accepted (measured — the ref is created). It is refused here for the
  *     same filesystem reason one case down: git's own lock file for a sibling ref
@@ -2863,9 +2769,9 @@ function buildTurnSnapshotRef(runId: string, epoch: number, turnOrdinal: number)
  *     `run.LOCK` is that path. `toLowerCase` compares the two spellings the
  *     filesystem would.
  *
- * None of this loosens I-010-21. Run ids are event-sourced UUIDs, which contain
- * no dots at all, so every shape refused here costs a real caller nothing; the
- * refusal is a typed `validate-inputs` result before any git call.
+ * None of this loosens. Run ids are event-sourced UUIDs, which contain no dots
+ * at all, so every shape refused here costs a real caller nothing; the refusal
+ * is a typed `validate-inputs` result before any git call.
  */
 function isSafeRefComponent(value: string): boolean {
   return (
@@ -2923,9 +2829,9 @@ function buildTurnSnapshotGitEnvironment(
  * `execFile` with an argv ARRAY — never a shell string — carrying the stdin and
  * environment overlay the snapshot recipe needs.
  *
- * EXPORTED, unlike the sibling services' private defaults, because the T5.1
- * suite's injected-`HEAD`-advance case has to WRAP the production runner rather
- * than replace it: the assertion is that a real capture, run through the real
+ * EXPORTED, unlike the sibling services' private defaults, because suite's
+ * injected-`HEAD`-advance case has to WRAP the production runner rather than
+ * replace it: the assertion is that a real capture, run through the real
  * process seam, still records the base it resolved at entry when `HEAD` moves
  * between two of its legs. A suite that reimplemented the runner would be
  * asserting that against its own reimplementation.
@@ -3259,15 +3165,11 @@ interface SnapshotRefListingEntry {
  * Parse `for-each-ref --format=%(objectname) %(refname)` output, keeping only
  * well-formed lines whose ref really is under `expectedPrefix`.
  *
- * The prefix re-check is one of two I-010-21 guards on the DELETION side —
- * `--no-deref` at the deletion itself is the other — and it is not redundant with
- * the validated `runId` that built the pattern. git's pattern matching is the
- * only thing standing between the argv this module assembled and the ref set it
- * is about to delete, and this module's whole posture on that invariant (see the
- * header) is that it enforces the namespace at THIS layer rather than trusting
- * git to. Every entry that fails the check is dropped before it can reach
- * `update-ref -d`, so a listing that somehow named `refs/heads/main` prunes
- * nothing rather than deleting a branch.
+ * The prefix re-check is one of two guards on the DELETION side — `--no-deref` at
+ * the deletion itself is the other — and it is not redundant with the validated
+ * `runId` that built the pattern. Every entry that fails the check is dropped
+ * before it can reach `update-ref -d`, so a listing that somehow named
+ * `refs/heads/main` prunes nothing rather than deleting a branch.
  *
  * The two guards answer different questions and neither covers the other's: this
  * one judges the NAME git reported, while the flag governs what that name is
@@ -3308,7 +3210,7 @@ function parseSnapshotRefListing(
 
 /**
  * The owning epoch for `targetPosition`, or `null` when no epoch's territory
- * contains it (I-010-23's lineage walk).
+ * contains it (the lineage walk).
  *
  * "The newest epoch whose `rewindBase` is STRICTLY below the target": a position
  * at or below a rewind base is the prefix that epoch inherited from its parent,
@@ -3751,9 +3653,9 @@ function classifySparseBoundaryPaths(recordedPaths: readonly string[]): SparseBo
  * repository exemption already accepts, bounded to directories git refused to
  * walk, and it is the survivable direction — the alternative deletes
  * boundary-time content. Turn-created out-of-cone files ANYWHERE ELSE are still
- * deleted exactly as their in-cone counterparts are, which is the I-010-24
- * property this closure must not trade away, and the suite pins it with a
- * turn-created file inside a boundary-time PLAIN directory.
+ * deleted exactly as their in-cone counterparts are, which is property this
+ * closure must not trade away, and the suite pins it with a turn-created file
+ * inside a boundary-time PLAIN directory.
  *
  * THE TRAILING SLASH IS HANDLED ASYMMETRICALLY, and the asymmetry is the whole
  * content of the kind distinction at match time:
@@ -4059,7 +3961,7 @@ interface ProspectiveCollision {
  * a symlink pointing at a directory scored `true` — indistinguishable from a
  * real directory — and the failure report skipped every `true`. A restore that
  * replaced that symlink with a materialized gitlink directory and then failed
- * later therefore destroyed a symlink and enumerated nothing. That is round-2's
+ * later therefore destroyed a symlink and enumerated nothing. That is the
  * `stat`-follows-symlink defect recurring at a second consumer, which is why the
  * fix is the type rather than the call site: a boolean cannot express the
  * distinction, so any consumer of one is one edit away from re-introducing it.
@@ -4140,8 +4042,8 @@ interface ProspectiveRestoreEffects {
    * `HEAD` read between the derivation and the first mutation precisely so that
    * a `HEAD` moving during the listings refuses with NOTHING applied. Performing
    * the drop inside the derivation would make that `head_moved` arm — frozen by
-   * Plan-004's wire mapping as the "refused before any mutation" answer — report
-   * a refusal it had already half-acted on.
+   * the wire mapping as the "refused before any mutation" answer — report a
+   * refusal it had already half-acted on.
    *
    * Non-empty only for a snapshot that RECORDED a boundary set, whatever the
    * restore root's own sparsity now is — the same membership scope
@@ -4308,7 +4210,7 @@ export class TurnSnapshotService {
   readonly #emitDiagnostic: (diagnostic: TurnSnapshotDiagnostic) => void;
   readonly #retentionWindowMs: number;
   // `null` when no `database` was supplied — the capture/restore-only wiring
-  // CP-010-12 describes. Prepared ONCE in the constructor, the idiom
+  // describes. Prepared ONCE in the constructor, the idiom
   // `./ephemeral-clone-service.ts` and `../workspace/execution-root-service.ts`
   // both use, so a schema drift fails at construction rather than at the first
   // sweep an hour into the daemon's life.
@@ -4364,10 +4266,10 @@ export class TurnSnapshotService {
       this.#selectRunContextStmt = null;
     } else {
       // The candidate predicate, and the whole of "the window has closed":
-      // `released_at` is NULL for a run that is still open (the T3.2 gate stamps
-      // it at run terminal), so a still-open run is never a candidate no matter
-      // how old it is, and the cutoff the caller binds is already
-      // `now - retentionWindow`.
+      // `released_at` is NULL for a run that is still open (gate stamps it at
+      // run terminal), so a still-open run is never a candidate no matter how
+      // old it is, and the cutoff the caller binds is already `now -
+      // retentionWindow`.
       //
       // The `IS NOT NULL` clause is EXPLICIT rather than load-bearing: SQL's
       // three-valued logic already drops a NULL from the `<=` comparison, so the
@@ -4409,7 +4311,6 @@ export class TurnSnapshotService {
   }
 
   // ------------------------------------------------------------------------
-  // Capture (T5.1)
   // ------------------------------------------------------------------------
 
   /**
@@ -4417,14 +4318,14 @@ export class TurnSnapshotService {
    * untracked — as a snapshot commit under
    * `refs/sidekicks/runs/<runId>/epoch-<E>/turn-<N>`.
    *
-   * NEVER THROWS. Every failure — an invalid input, a git leg, the ref write,
-   * even a diagnostic sink that throws or rejects — becomes a typed `failed`
-   * result, plus a diagnostic wherever the sink accepts one, because
-   * `Spec-010 §Turn-Boundary Snapshots` makes the turn boundary complete
-   * regardless: snapshots are a recovery convenience, not a turn gate.
+   * Every failure — an invalid input, a git leg, the ref write, even a
+   * diagnostic sink that throws or rejects — becomes a typed `failed` result,
+   * plus a diagnostic wherever the sink accepts one, because makes the turn
+   * boundary complete regardless: snapshots are a recovery convenience, not a
+   * turn gate.
    *
-   * The recipe is `Spec-010 §Turn-Boundary Snapshots`'s, leg for leg. Its two
-   * non-obvious properties, both spec-mirrored:
+   * The recipe is the turn-boundary snapshot recipe, leg for leg. Its two non-obvious properties, both
+   * spec-mirrored:
    *
    *   * ONE base OID, resolved once at entry and passed to both `read-tree` and
    *     `commit-tree -p`. Handing symbolic `HEAD` to both legs lets them
@@ -4545,32 +4446,27 @@ export class TurnSnapshotService {
           input.executionRoot,
           // `core.autocrlf=false` pins check-in conversion off — git's own
           // default, neutralized by pinning: a host `core.autocrlf=input` or
-          // `true` re-hashes CRLF worktree bytes to LF blobs, changing blob,
-          // tree and snapshot OIDs for identical worktree bytes.
-          // `core.safecrlf=false` pins that same channel's VETO off, and it is a
-          // veto rather than a conversion: measured on git 2.50.1, staging with
-          // the host setting absent and staging with it pinned false produce the
-          // IDENTICAL tree. What a host `core.safecrlf=true` adds is a fatal —
-          // check-in-time, against an in-tree `*.txt text` and CRLF worktree
-          // bytes it exits `fatal: CRLF would be replaced by LF`, so capture
-          // fails, the turn runs uncovered, and the rollback that should have
-          // had a snapshot answers `no_snapshot`. That is snapshot AVAILABILITY
-          // turning on host config — the same class the OID pins close from the
-          // other side — so the project's own declared normalization proceeds
-          // here without the host's veto over it.
-          // `core.attributesFile=/dev/null` plus `GIT_ATTR_NOSYSTEM=1` take the
-          // user and system attribute files out of the conversion decision,
-          // while in-tree `.gitattributes` — a project declaration, checked in
-          // and identical on every host — stays deliberately honoured.
-          // `core.fileMode` is deliberately NOT pinned here, and the reason is
-          // this leg specifically: the seeded scratch index carries no stat data,
-          // so `update-index` re-stats every listed path, and a `fileMode=true`
-          // pin would therefore take each TRACKED file's mode from lstat and
-          // discard the mode its base commit recorded. Measured — see the
-          // header's row for the four-cell matrix — and the unpinned column is
-          // byte-identical to `git add -A` under the same host config, which is
-          // the equivalence `Spec-010 §Turn-Boundary Snapshots` actually asks
-          // for.
+          // `true` re-hashes CRLF worktree bytes to LF blobs, changing blob, tree
+          // and snapshot OIDs for identical worktree bytes. `core.safecrlf=false`
+          // pins that same channel's VETO off, and it is a veto rather than a
+          // conversion: measured on git 2.50.1, staging with the host setting
+          // absent and staging with it pinned false produce the IDENTICAL tree.
+          // What a host `core.safecrlf=true` adds is a fatal — check-in-time,
+          // against an in-tree `*.txt text` and CRLF worktree bytes it exits
+          // `fatal: CRLF would be replaced by LF`, so capture fails, the turn
+          // runs uncovered, and the rollback that should have had a snapshot
+          // answers `no_snapshot`. That is snapshot AVAILABILITY turning on host
+          // config — the same class the OID pins close from the other side — so
+          // the project's own declared normalization proceeds here without the
+          // host's veto over it. `core.attributesFile=/dev/null` plus
+          // `GIT_ATTR_NOSYSTEM=1` take the user and system attribute files out of
+          // the conversion decision, while in-tree `.gitattributes` — a project
+          // declaration, checked in and identical on every host — stays
+          // deliberately honoured. `core.fileMode` is deliberately NOT pinned
+          // here, and the reason is this leg specifically: the seeded scratch
+          // index carries no stat data, so `update-index` re-stats every listed
+          // path, and a `fileMode=true` pin would therefore take each TRACKED
+          // file's mode from lstat and discard the mode its base commit recorded.
           //
           // This is the only leg that pins them because it is the only leg that
           // hashes worktree bytes: the gitlink insert below passes a literal OID
@@ -4712,12 +4608,9 @@ export class TurnSnapshotService {
    * `<base>` — resolved ONCE, used for both the tree base and the recorded
    * parent (see {@link TurnSnapshotService.captureTurnSnapshot}).
    *
-   * `--verify` tightens `Spec-010`'s `git rev-parse HEAD` without changing the
-   * question: it demands a single revision and prints nothing on a miss, where
-   * the bare form echoes its own argument (`HEAD`) to stdout with a non-zero
-   * exit. The exit status is what this module reads either way; the flag plus
-   * the {@link OBJECT_ID_PATTERN} check make an echoed argument unable to reach
-   * a later argv even if a future git changed that.
+   * `--verify` tightens the `git rev-parse HEAD` without changing the question:
+   * it demands a single revision and prints nothing on a miss, where the bare
+   * form echoes its own argument (`HEAD`) to stdout with a non-zero exit.
    *
    * An unborn `HEAD` — an execution root with no commits — lands here as a
    * `resolve-base` failure, which is the honest answer: there is no parent to
@@ -4730,22 +4623,16 @@ export class TurnSnapshotService {
 
   /**
    * Whether `executionRoot` is a SPARSE root — the closure's whole detection
-   * predicate (I-010-24).
+   * predicate.
    *
    * THE CONFIG BIT ALONE. `core.sparseCheckout` is what git itself consults
    * before applying skip-worktree semantics, and the rules file deliberately does
-   * not join the predicate. A "bit set AND the rules parse" test reads as the
-   * more careful one and is the dangerous one: with the bit set and the rules
-   * file deleted, git leaves every out-of-cone path materialized on disk and
-   * porcelain `add -A` still records it (measured on git 2.50.1), so classifying
-   * that root as non-sparse would run the `read-tree <base>` seed and drop
-   * exactly the content porcelain keeps — silently, and only in a repository that
-   * is already in a broken state. Under this predicate the same root reaches the
-   * sparse arm, the matcher below fails on it (`fatal: unable to load existing
+   * not join the predicate. Under this predicate the same root reaches the sparse
+   * arm, the matcher below fails on it (`fatal: unable to load existing
    * sparse-checkout patterns`, exit 128 — measured, including for an EMPTY
    * candidate set), and the capture reports a typed `check-sparse-rules` failure.
-   * Fail-closed, and a capture that did not happen is what
-   * `Spec-010 §Turn-Boundary Snapshots` makes safe by never blocking the turn.
+   * Fail-closed, and a capture that did not happen is what makes safe by never
+   * blocking the turn.
    *
    * ROOT-KEYED AND MODE-AGNOSTIC. Nothing here consults `input.mode`, because
    * sparseness is a property of the checkout and not of how the daemon came to be
@@ -5058,8 +4945,8 @@ export class TurnSnapshotService {
    *
    * The trailing-slash entries in the listing are the directories `ls-files`
    * does not descend into — a non-ignored embedded git repository is the case
-   * `Spec-010 §Turn-Boundary Snapshots` names, and `update-index --add` has
-   * already silently dropped each of them.
+   * names, and `update-index --add` has already silently dropped each of
+   * them.
    *
    * The classification is FAIL-SAFE rather than unborn-specific, and BOUNDED
    * rather than total: an entry is skipped and enumerated when GIT ITSELF
@@ -5196,7 +5083,7 @@ export class TurnSnapshotService {
    * OIDs, and a NON-SPARSE capture that skipped nothing produces the exact bytes
    * it produced before either existed.
    *
-   * THE MESSAGE TRANSPORT IS `-F -`, converted from `-m` argv by T6.1, and the
+   * THE MESSAGE TRANSPORT IS `-F -`, converted from `-m` argv and the
    * conversion is a correctness fix rather than a tidy-up. A message is an OID
    * input, and under `-m` its bytes were argv bytes — bounded by the platform's
    * argument limit (~32 KB on Windows, and it is the whole command line that is
@@ -5215,8 +5102,8 @@ export class TurnSnapshotService {
    * reproduces (an unterminated stream mints a DIFFERENT commit — measured, and
    * the precise reason this is spelled as a join-plus-terminate rather than a
    * join). `-F -` reads until EOF, and the seam closes the child's stdin on every
-   * invocation, so the hang `Spec-010 §Turn-Boundary Snapshots` warns about is
-   * closed by the seam's contract rather than by this call site's argv — see
+   * invocation, so the hang warns about is closed by the seam's contract rather
+   * than by this call site's argv
    * {@link TurnSnapshotGitInvocationOptions.stdin}.
    */
   async #commitSnapshotTree(
@@ -5289,7 +5176,7 @@ export class TurnSnapshotService {
   }
 
   /**
-   * The create-only ref write (I-010-22).
+   * The create-only ref write.
    *
    * Returns `null` when this call wrote the ref, or the RECORDED OID when the
    * CAS found one already there — the idempotent-success arm. Any other failure
@@ -5323,28 +5210,28 @@ export class TurnSnapshotService {
       // ordinary snapshot ref), `refs/heads/` is untouched, and the capture is a
       // truthful `captured` — the snapshot ref really does hold the snapshot
       // commit. That last sentence is version-scoped, and git 2.54.0 is where it
-      // splits: there the same flagged create REFUSES over a dangling
-      // in-namespace symref (refs-transaction hardening, lineage git 2.52's fix
-      // for `fetch` clobbering dangling symrefs). The refusal lands in the `catch`
-      // below, `#readRefIfPresent` finds nothing — a dangling symref does not
-      // resolve for `show-ref --verify` — and the rethrow becomes the typed
-      // `failed` at `write-ref`: fail-closed, diagnosed, and the turn proceeds,
-      // which is this leg's posture for any capture that cannot be written. The
-      // flag is load-bearing on BOTH versions and for one reason — it is what
-      // keeps 2.50.1's success inside the namespace and keeps 2.54.0's refusal a
-      // refusal rather than the branch-minting success above. I-010-21 holds
-      // either way; only the outcome tag differs. A LIVE referent still refuses on
-      // both versions, "reference already exists", and `#readRefIfPresent` below
-      // resolves through it to whatever oid that name holds on disk. When the ref
-      // genuinely predates this call — the ordinary case — that IS the
-      // pre-existing already-captured reading, unchanged. It is not a claim the
-      // oid is one this service wrote: an actor with repository write access can
-      // plant or repoint an in-namespace ref by ordinary means, and this read
-      // reports what it finds (see the header's boundary paragraph). What holds
-      // regardless is the part this leg is responsible for — the refusal stays a
-      // refusal, and nothing outside the namespace is written. For a direct ref
-      // — every ref this service writes — the flag is a measured no-op, and the
-      // per-epoch idempotence refusal (I-010-22) is preserved.
+      // splits: there the same flagged create REFUSES over a dangling in-namespace
+      // symref (refs-transaction hardening, lineage git 2.52's fix for `fetch`
+      // clobbering dangling symrefs). The refusal lands in the `catch` below,
+      // `#readRefIfPresent` finds nothing — a dangling symref does not resolve for
+      // `show-ref --verify` — and the rethrow becomes the typed `failed` at
+      // `write-ref`: fail-closed, diagnosed, and the turn proceeds, which is this
+      // leg's posture for any capture that cannot be written. The flag is
+      // load-bearing on BOTH versions and for one reason — it is what keeps
+      // 2.50.1's success inside the namespace and keeps 2.54.0's refusal a refusal
+      // rather than the branch-minting success above. holds either way; only the
+      // outcome tag differs. A LIVE referent still refuses on both versions,
+      // "reference already exists", and `#readRefIfPresent` below resolves through
+      // it to whatever oid that name holds on disk. When the ref genuinely
+      // predates this call — the ordinary case — that IS the pre-existing
+      // already-captured reading, unchanged. It is not a claim the oid is one this
+      // service wrote: an actor with repository write access can plant or repoint
+      // an in-namespace ref by ordinary means, and this read reports what it finds
+      // (see the header's boundary paragraph). What holds regardless is the part
+      // this leg is responsible for — the refusal stays a refusal, and nothing
+      // outside the namespace is written. For a direct ref — every ref this
+      // service writes — the flag is a measured no-op, and the per-epoch
+      // idempotence refusal is preserved.
       await this.#runGit(
         ["-C", executionRoot, "update-ref", "--no-deref", ref, snapshotCommit, ""],
         {},
@@ -5376,7 +5263,7 @@ export class TurnSnapshotService {
    * and {@link OBJECT_ID_PATTERN} then has to be the only thing standing between
    * an echo and a later argv.
    *
-   * `configPins` exists because the callers split on the round-4 predicate and
+   * `configPins` exists because the callers split on that predicate and
    * the split is not visible from in here: reading `HEAD` RESOLVES a ref, while
    * reading `<commit>^` INTERPRETS an object, and only the second can be
    * redirected by a replace ref (measured both ways). Defaulting to none keeps
@@ -5436,21 +5323,17 @@ export class TurnSnapshotService {
   }
 
   // ------------------------------------------------------------------------
-  // Restore (T5.2)
   // ------------------------------------------------------------------------
 
   /**
    * Resolve which snapshot a rollback to `targetPosition` would restore, and
-   * whether it MAY be restored — without touching anything (I-010-23).
+   * whether it MAY be restored — without touching anything.
    *
-   * `Spec-004 §Required Behavior` runs this before the conversation leg moves,
-   * because a refusal rejects the whole rollback intervention with no leg
-   * applied. Every command it spawns is a read (`show-ref`, `rev-parse`), so the
-   * execution root's worktree, index and refs are byte-identical afterwards on
-   * every arm — refused and accepted alike. (The daemon's own
-   * hook-neutralization directory is created, as it is for every invocation in
-   * this module; that is daemon-local, outside the execution root, and is what
-   * makes the reads hook-free.)
+   * runs this before the conversation leg moves, because a refusal rejects the
+   * whole rollback intervention with no leg applied. Every command it spawns is
+   * a read (`show-ref`, `rev-parse`), so the execution root's worktree, index
+   * and refs are byte-identical afterwards on every arm — refused and accepted
+   * alike.
    *
    * NEVER THROWS: each of the three reads has a named landing arm.
    *
@@ -5560,27 +5443,25 @@ export class TurnSnapshotService {
   }
 
   /**
-   * Apply a resolved snapshot to its execution root — the mutating half of
-   * I-010-23.
    *
    * Takes the resolution ITSELF rather than a root plus a ref, so the applier
    * cannot be handed a pair that was never resolved together. Runs under the
-   * caller's exclusive execution-root tenancy (`Spec-004 §Required Behavior`,
-   * Plan-004 campaign B9); this module builds no tenancy machinery and instead
-   * re-verifies the one thing that tenancy cannot promise about the window
-   * BEFORE it opened — that `HEAD` is still the snapshot's recorded parent.
+   * caller's exclusive execution-root tenancy (campaign B9); this module
+   * builds no tenancy machinery and instead re-verifies the one thing that
+   * tenancy cannot promise about the window BEFORE it opened — that `HEAD` is
+   * still the snapshot's recorded parent.
    *
-   * NEVER THROWS for any target this service minted — and the exception proves
-   * the rule rather than weakening it. A value that is not one is rejected by a
-   * THROW: an `as` cast, a JS caller, or any of the constructor paths that survive
-   * emit (see {@link TurnSnapshotRestoreTarget} and {@link mintedRestoreTargets}).
+   * NEVER THROWS for any target this service minted — and the exception proves the
+   * rule rather than weakening it. A value that is not one is rejected by a THROW:
+   * an `as` cast, a JS caller, or any of the constructor paths that survive emit
+   * (see {@link TurnSnapshotRestoreTarget} and {@link mintedRestoreTargets}).
    * There are exactly three result arms and all three are wire-pinned statements
    * about a worktree, so reporting `head_moved` or `partial_restore` for a forged
-   * input would tell Plan-004 something false about a tree this call never
-   * touched, while adding a fourth arm would leave T3.13's mapping incomplete. A
-   * caller that can reach the throw is one that bypassed the type system.
+   * input would tell something false about a tree this call never touched, while
+   * adding a fourth arm would leave the mapping incomplete. A caller that can
+   * reach the throw is one that bypassed the type system.
    *
-   * The sequence, in the order `Spec-010 §Turn-Boundary Snapshots` pins:
+   * The sequence, in the order pins:
    *
    *   1. `verify-head` — the TOCTOU re-verify. A moved (or unreadable) `HEAD`
    *      refuses with NO mutation.
@@ -5593,14 +5474,14 @@ export class TurnSnapshotService {
    *      enumerated with the rest here and applied after the window read below,
    *      so it is the first mutation in the sequence rather than part of the
    *      read-only block. See {@link #dropBoundaryPathsFromLiveIndex}.
-   *   3. `read-tree` — the destructive checkout, which `Spec-010 §Turn-Boundary
-   *      Snapshots` spells `read-tree --reset -u <ref>` and this issues against
-   *      the resolved OID (see the site), under the checkout-conversion
-   *      pins, which extend the capture leg's host-config-independence class to
-   *      the smudge path: a host `*.txt eol=crlf` would otherwise restore
-   *      different bytes than were captured. In-tree `.gitattributes` stays
-   *      honoured, so attribute-affected paths restore to git-canonical worktree
-   *      form — identical to any porcelain checkout of the project.
+   *   3. `read-tree` — the destructive checkout, which spells `read-tree --reset
+   *      -u <ref>` and this issues against the resolved OID (see the site),
+   *      under the checkout-conversion pins, which extend the capture leg's
+   *      host-config-independence class to the smudge path: a host `*.txt
+   *      eol=crlf` would otherwise restore different bytes than were captured.
+   *      In-tree `.gitattributes` stays honoured, so attribute-affected paths
+   *      restore to git-canonical worktree form — identical to any porcelain
+   *      checkout of the project.
    *   4. `delete-untracked` — the post-snapshot untracked sweep, repeated to a
    *      fixpoint.
    *   5. `close-index` — the index-only reset the spec spells `read-tree --reset
@@ -5760,18 +5641,17 @@ export class TurnSnapshotService {
           // to; re-naming the ref here would let git re-resolve a MUTABLE name
           // across a window that already spans two `HEAD` re-verifies and the
           // derivation's own spawns. A commit is a valid tree-ish, so outside
-          // that window the two spellings are the same command; `Spec-010
-          // §Turn-Boundary Snapshots` spells the leg with the ref, and this is
-          // that value resolved one step earlier — the very OID step 2 above
-          // enumerated against, so what is written and what was enumerated can
-          // no longer disagree.
+          // that window the two spellings are the same command spells the leg
+          // with the ref, and this is that value resolved one step earlier —
+          // the very OID step 2 above enumerated against, so what is written
+          // and what was enumerated can no longer disagree.
           //
           // It also decouples the leg from the ref's LIFETIME. A ref deleted
-          // between the resolve and here (the T5.3 retention prune is the only
-          // thing that deletes one) no longer starves the checkout: the commit
-          // object outlives its last name until `gc`, so the resolved snapshot
-          // still applies instead of reporting `partial_restore` at `read-tree`
-          // for a retention-bookkeeping event that changed no tree.
+          // between the resolve and here (retention prune is the only thing
+          // that deletes one) no longer starves the checkout: the commit object
+          // outlives its last name until `gc`, so the resolved snapshot still
+          // applies instead of reporting `partial_restore` at `read-tree` for a
+          // retention-bookkeeping event that changed no tree.
           target.snapshotCommit,
         ],
         { environmentOverrides: { GIT_ATTR_NOSYSTEM: "1" } },
@@ -5840,8 +5720,8 @@ export class TurnSnapshotService {
       // `HEAD` just read, so outside the race the two spellings are the same
       // command; `expectedHead` reached this object through
       // {@link OBJECT_ID_PATTERN}, so it is a validated object id and never
-      // caller text. `Spec-010 §Turn-Boundary Snapshots` spells the leg
-      // `read-tree --reset HEAD`; this is that value, resolved one step earlier.
+      // spells the leg `read-tree --reset HEAD`; this is that value, resolved
+      // one step earlier.
       //
       // It does NOT close the race — nothing at this layer can, since the check
       // has already passed. It changes what the unclosable window produces: the
@@ -5918,11 +5798,10 @@ export class TurnSnapshotService {
    *      snapshot-tracked path (ignored file `foo`; snapshot tracks `foo/a`).
    *      The checkout needs a directory there, so the file is unlinked.
    *
-   * Prefix obstruction is the same never-silent overwrite `Spec-010
-   * §Turn-Boundary Snapshots` names as the exact-path case, so it is enumerated
-   * the same way: in all three shapes the reported path — and the fingerprint
-   * taken against it — is the IGNORED one, the content being destroyed, never
-   * the snapshot path that displaced it. Ancestry is tested segment-wise (see
+   * Prefix obstruction is the same never-silent overwrite names as the
+   * exact-path case, so it is enumerated the same way: in all three shapes the
+   * reported path — and the fingerprint taken against it — is the IGNORED one,
+   * the content being destroyed, never the snapshot path that displaced it.
    * {@link collectProperAncestorDirectories}), so `foo` collides with `foo/a`
    * and never with `foobar/a`. What does NOT collide is a SIBLING: ignored
    * `foo/b` beside snapshot-tracked `foo/a` shares a directory the checkout
@@ -6237,15 +6116,15 @@ export class TurnSnapshotService {
    *
    * THREE DESTRUCTIVE SHAPES, each measured on git 2.50.1, each stated in terms
    * of what the CAPTURE recorded. The shape SET is not invented here: it mirrors
-   * the collision taxonomy [Spec-010 §Turn-Boundary Snapshots] measured for
-   * IGNORED paths, which enumerates the three ways `read-tree --reset -u`
-   * destroys an obstructing path rather than merging around it — a snapshot file
-   * AT the path, a snapshot file at an ANCESTOR of it, and the path standing as
-   * an ancestor DIRECTORY of a snapshot path. Boundary paths meet the same
-   * checkout through the same mechanism, so the taxonomy transfers whole and the
-   * set is complete for the same reason that one is: it covers both directions of
-   * the file/directory conflict plus the ancestor direction, which is every way a
-   * single checkout can need a path's place.
+   * the collision taxonomy measured for IGNORED paths, which enumerates the three
+   * ways `read-tree --reset -u` destroys an obstructing path rather than merging
+   * around it — a snapshot file AT the path, a snapshot file at an ANCESTOR of
+   * it, and the path standing as an ancestor DIRECTORY of a snapshot path.
+   * Boundary paths meet the same checkout through the same mechanism, so the
+   * taxonomy transfers whole and the set is complete for the same reason that one
+   * is: it covers both directions of the file/directory conflict plus the
+   * ancestor direction, which is every way a single checkout can need a path's
+   * place.
    *
    *   1. A boundary FILE entry `P` standing where the snapshot needs a DIRECTORY,
    *      because the tree holds something strictly beneath `P`. The checkout
@@ -6267,18 +6146,18 @@ export class TurnSnapshotService {
    *      skip-worktree and so absent from disk, the turn is free to `mkdir P` and
    *      write `P/child` into the space it left, and `ls-files -o` then records
    *      `P/child` in the boundary set while the tree keeps its cached blob at `P`
-   *      — the very persistence I-010-24 requires of out-of-cone cached entries.
-   *      Measured end to end on that fixture: `ls-files -o` reports `P/child`, and
-   *      after a widening the checkout writes file `P` at exit 0 with `P/child`
-   *      gone. A GITLINK at an ancestor is NOT a displacer, for the same reason it
-   *      is not one in shape 2: it wants a DIRECTORY at that path, which is what
-   *      is already there, so the checkout merges rather than removes. That carve
-   *      is belt-and-braces rather than load-bearing, and no test drives it,
-   *      because the case is unreachable from a capture: git does not descend into
-   *      an embedded repository, so `ls-files -o` reports nothing beneath a
-   *      gitlink and no boundary path can be recorded under one in the first
-   *      place. It is written anyway, because the carve costs one comparison and
-   *      the unreachability is a property of the CAPTURE leg that a future change
+   *      — the very persistence requires of out-of-cone cached entries. Measured
+   *      end to end on that fixture: `ls-files -o` reports `P/child`, and after a
+   *      widening the checkout writes file `P` at exit 0 with `P/child` gone. A
+   *      GITLINK at an ancestor is NOT a displacer, for the same reason it is not
+   *      one in shape 2: it wants a DIRECTORY at that path, which is what is
+   *      already there, so the checkout merges rather than removes. That carve is
+   *      belt-and-braces rather than load-bearing, and no test drives it, because
+   *      the case is unreachable from a capture: git does not descend into an
+   *      embedded repository, so `ls-files -o` reports nothing beneath a gitlink
+   *      and no boundary path can be recorded under one in the first place. It is
+   *      written anyway, because the carve costs one comparison and the
+   *      unreachability is a property of the CAPTURE leg that a future change
    *      there could quietly retire.
    *
    * WHAT IS NOT A SHAPE, stated because each is the plausible false positive:
@@ -6297,14 +6176,14 @@ export class TurnSnapshotService {
    *      — a recorded `P/` carries a trailing slash that no `ls-tree -r` path
    *      does, so the subtraction cannot cancel it against a blob at `P`.
    *
-   * WHY REFUSE RATHER THAN REPORT AND PROCEED. I-010-24 says boundary-time
-   * out-of-cone content SURVIVES the restore on disk; a diagnostic naming what was
-   * destroyed would satisfy the enumeration half of that sentence and violate the
-   * survival half. The `restore wins, with enumeration` precedent belongs to
-   * IGNORED paths, which the snapshot contract excludes from the outset — boundary
-   * paths are that contract's protected subject, so the precedent does not reach
-   * them. The refusal is typed, lands at `derive-enumerations` and costs nothing
-   * on disk, which is the same disposition the sparse vintage gate already has.
+   * WHY REFUSE RATHER THAN REPORT AND PROCEED. says boundary-time out-of-cone
+   * content SURVIVES the restore on disk; a diagnostic naming what was destroyed
+   * would satisfy the enumeration half of that sentence and violate the survival
+   * half. The `restore wins, with enumeration` precedent belongs to IGNORED paths,
+   * which the snapshot contract excludes from the outset — boundary paths are that
+   * contract's protected subject, so the precedent does not reach them. The
+   * refusal is typed, lands at `derive-enumerations` and costs nothing on disk,
+   * which is the same disposition the sparse vintage gate already has.
    *
    * MATERIALIZATION IS ASKED, NOT ASSUMED, and asked differently per entry kind —
    * this is where a plausible implementation fails open. A GITLINK always
@@ -6712,16 +6591,11 @@ export class TurnSnapshotService {
    * middle.
    *
    * CALLED AFTER THE SECOND `HEAD` READ, and that placement is the reason this is
-   * a method of its own rather than the derivation's last statement. This is the
-   * sequence's FIRST mutation, and the read in front of it exists so that a
-   * `HEAD` moving while the derivation's listings ran refuses with nothing
-   * applied — an arm Plan-004's wire mapping freezes as exactly that. Dropping
+   * a method of its own rather than the derivation's last statement. Dropping
    * inside the derivation would have that refusal fire against an index this call
    * had already edited: a `head_moved` result reporting no mutation, next to a
    * user's unstaged intent-to-add entry that this code removed.
    *
-   * Runs under the `derive-enumerations` step cursor with no step of its own: the
-   * restore vocabulary is frozen at five members by Plan-004's wire mapping (see
    * {@link TurnSnapshotRestoreStep}, whose docblock carries the qualification this
    * makes necessary). The multi-reachable `close-index` is the precedent — one
    * step name already covers three distinguishable conditions there, and the
@@ -6834,8 +6708,8 @@ export class TurnSnapshotService {
    *     deletes and then throws without re-listing, so a cascade that converged
    *     on exactly the last pass is reported `partial_restore` despite being
    *     fully restored. That direction is the safe one — it under-claims success
-   *     on an input the spec's own argument says cannot occur, and Spec-004's
-   *     recovery is a fresh rollback that converges on its first pass — and the
+   *     on an input the spec's own argument says cannot occur, and the recovery
+   *     is a fresh rollback that converges on its first pass — and the
    *     alternative is a git spawn on every ceiling failure to confirm a state
    *     nothing else needs.
    *
@@ -7035,8 +6909,7 @@ export class TurnSnapshotService {
    * The observation is deliberately git-free — one typed path fingerprint per
    * candidate — because it runs on the failure path, where the git seam is the
    * thing that just failed. An enumeration that needed a working git would
-   * empty-wash exactly the report `Spec-010 §Turn-Boundary Snapshots` requires
-   * never be empty-washed.
+   * empty-wash exactly the report requires never be empty-washed.
    *
    * BOTH candidate sets now apply one standard: an effect counts as applied when
    * {@link fingerprintPath} no longer matches the pre-mutation arm. For a
@@ -7048,7 +6921,7 @@ export class TurnSnapshotService {
    * directory?" boolean, and it changes three answers, each in the direction of
    * reporting a real effect the old form hid:
    *   * a SYMLINK to a directory, which `stat` could not tell from a directory,
-   *     is now reported when the restore replaced it (the round-4 finding);
+   *     is now reported when the restore replaced it;
    *   * a divergent submodule directory the failed restore DELETED is now
    *     reported, where the boolean's `continue` skipped it as "present before";
    *   * a gitlink path holding a file whose bytes changed is now reported.
@@ -7114,7 +6987,6 @@ export class TurnSnapshotService {
   }
 
   // ------------------------------------------------------------------------
-  // Retention (T5.3)
   // ------------------------------------------------------------------------
 
   /**
@@ -7245,14 +7117,12 @@ export class TurnSnapshotService {
    * an hour ago produce the identical answer.
    *
    * UNCONDITIONAL on the window, and that division is deliberate: the window is
-   * the sweep's predicate (`Spec-010 §Turn-Boundary Snapshots` attaches it to
-   * "the run's retention window closes", which is what the sweep asks), and this
-   * is the primitive underneath — the same split `./ephemeral-clone-service.ts`
-   * makes between its TTL-driven `cleanupTick` and its unconditional `dispose`.
-   * The consequence, stated rather than hidden: calling this for a LIVE run
-   * deletes that run's snapshots and its rollback then has nothing to restore
-   * into. Nothing in the daemon does that today — the sweeper is the only
-   * trigger, and CP-010-12 keeps retention out of the B9 turn-boundary caller.
+   * the sweep's predicate (attaches it to "the run's retention window closes",
+   * which is what the sweep asks), and this is the primitive underneath — the
+   * same split `./ephemeral-clone-service.ts` makes between its TTL-driven
+   * `cleanupTick` and its unconditional `dispose`. Nothing in the daemon does
+   * that today — the sweeper is the only trigger, and keeps retention out of the
+   * B9 turn-boundary caller.
    *
    * Never rejects on a runtime fault, for the sweep's reasons; the missing-
    * `database` throw is the same programmer-error path documented on
@@ -7296,11 +7166,11 @@ export class TurnSnapshotService {
    *
    * The `runId` validation lives HERE rather than in the two callers, and that
    * is structural for the same reason `#runGit` is: this is the only path from
-   * either entry point to a git invocation, so I-010-21's "no caller-supplied
-   * string reaches a ref path unvalidated" holds by there being nowhere else to
-   * go. It covers the sweep's DB-sourced ids as well as the primitive's
-   * caller-supplied one — the table is written by the T3.2 gate with
-   * event-sourced UUIDs, and the guard costs a regex either way.
+   * either entry point to a git invocation, so the "no caller-supplied string
+   * reaches a ref path unvalidated" holds by there being nowhere else to go. It
+   * covers the sweep's DB-sourced ids as well as the primitive's
+   * caller-supplied one — the table is written gate with event-sourced UUIDs,
+   * and the guard costs a regex either way.
    */
   async #pruneRunRefs(
     runId: string,
@@ -7334,11 +7204,11 @@ export class TurnSnapshotService {
       // `fatal: not a git repository`, exit 128.
       //
       // ATTRIBUTED rather than assumed, and by a probe rather than by parsing
-      // git's stderr — the T5.2 discipline in this same file, where a failed
-      // resolve gets its own second question instead of folding into the absent
-      // case. git answers this one rejection for a removed repository, a
-      // disposed clone, an `EACCES` on a live store, a missing `git` binary and
-      // a failure creating the daemon's OWN hook-neutralization directory
+      // git's stderr — discipline in this same file, where a failed resolve
+      // gets its own second question instead of folding into the absent case.
+      // git answers this one rejection for a removed repository, a disposed
+      // clone, an `EACCES` on a live store, a missing `git` binary and a
+      // failure creating the daemon's OWN hook-neutralization directory
       // (`#runGit` creates it before spawning), and the last three are faults
       // where the first two are outcomes. One `stat` on the failure path buys
       // the distinction; the happy path pays nothing.
@@ -7352,9 +7222,9 @@ export class TurnSnapshotService {
     const deletedRefs: string[] = [];
     for (const entry of parseSnapshotRefListing(listing.stdout, refPrefix)) {
       try {
-        // `--no-deref` closes I-010-21's THIRD channel here, and it is the second
-        // guard on the delete side, beside the listing prefix re-check. They are
-        // not interchangeable: the prefix check validates the name git REPORTED,
+        // `--no-deref` closes the THIRD channel here, and it is the second guard
+        // on the delete side, beside the listing prefix re-check. They are not
+        // interchangeable: the prefix check validates the name git REPORTED,
         // while `update-ref -d` acts on what that name RESOLVES to, and those
         // differ for one input — a symbolic ref planted inside the run namespace
         // (`git symbolic-ref refs/sidekicks/runs/<id>/epoch-0/turn-9
@@ -7412,9 +7282,9 @@ export class TurnSnapshotService {
    *
    * The mode is the second half of the answer and the DDL says why: for
    * `ephemeral clone` the recorded common dir is the clone's OWN git dir, whose
-   * lifecycle is the clone's, so its absence is the T2.3 disposal working. For
-   * every other mode the recorded dir belongs to a repository nobody was
-   * supposed to delete, so the same absence is news.
+   * lifecycle is the clone's, so its absence is disposal working. For every
+   * other mode the recorded dir belongs to a repository nobody was supposed to
+   * delete, so the same absence is news.
    *
    * The probe itself is contained: a `stat` that rejects for an exotic reason
    * resolves "not provably absent" (see {@link isPathProvablyAbsent}) and the
@@ -7477,8 +7347,8 @@ export class TurnSnapshotService {
 
   /**
    * The single git entry point. Prepends the two hook-neutralization flags and
-   * nothing else, so I-010-10's quantifier holds structurally (see the header
-   * and `./worktree-service.ts`'s fuller treatment).
+   * nothing else, so the quantifier holds structurally (see the header and
+   * `./worktree-service.ts`'s fuller treatment).
    */
   async #runGit(
     argv: readonly string[],
@@ -7617,23 +7487,16 @@ export class TurnSnapshotService {
 }
 
 // --------------------------------------------------------------------------
-// The retention sweeper driver (T5.3)
+// The retention sweeper driver
 // --------------------------------------------------------------------------
 //
-// OWNED HERE, called from `../bootstrap/index.ts`. That split is the shape
-// `docs/architecture/cross-plan-dependencies.md` §2 sanctions for this edit and
-// the Plan-026 precedent it names: the `register…` function lives in the owning
-// plan's own namespace (CP-010-7 grants Plan-010 this `src/git/` subtree
-// outright), and only the CALL wires into the Plan-007-owned bootstrap file.
+// OWNED HERE, called from `../bootstrap/index.ts`.
 //
 // An earlier draft of this task put the whole driver in `bootstrap/index.ts` and
-// argued that a typed collaborator there "would make this Plan-007 file import
-// Plan-010's module — ownership by the back door". That argument was WRONG and is
-// recorded here rather than quietly dropped: the same §2 row sanctions Plan-006
-// constructing an `EventLogService` inside that very file and calls it "a wiring
-// call, not ownership". Importing a plan's module into `bootstrap/index.ts` IS
-// the sanctioned shape; what would be ownership is the driver body, which is why
-// it lives here.
+// argued that a typed collaborator there "would make this file import the module
+// — ownership by the back door". Importing a plan's module into
+// `bootstrap/index.ts` IS the sanctioned shape; what would be ownership is the
+// driver body, which is why it lives here.
 
 /** What a composition root hands {@link registerTurnSnapshotRetentionSweep}. */
 export interface TurnSnapshotRetentionSweepRegistration {
@@ -7710,7 +7573,7 @@ const MAXIMUM_TIMER_DELAY_MS = 2_147_483_647;
  * `../bootstrap/index.ts` takes an already-open handle for that reason, which
  * discharges the obligation by construction rather than by comment.
  *
- * The two drivers the Plan-010 T5.3 row names are both here:
+ * The two drivers row names are both here:
  *
  *   * the DAEMON-STARTUP RECONCILE — the immediate pass, which prunes runs whose
  *     retention windows elapsed while the daemon was down. Kicked off ASYNC and
@@ -7806,14 +7669,12 @@ export function registerTurnSnapshotRetentionSweep(
           sweepInFlight = false;
         });
     } catch (reason: unknown) {
-      // A sweeper that threw SYNCHRONOUSLY, before returning a promise at all —
-      // which no `.catch` can ever see, since there is no promise to attach one
-      // to. That is a NON-`async` implementation of the seam; it is NOT the
-      // Plan-010 missing-`database` wiring defect, whose `TypeError` is raised
-      // inside an `async` method and therefore always arrives as a REJECTION on
-      // the `.catch` path above. Both guards exist because those are two
-      // different paths, and the one that carries the known production defect is
-      // the other one.
+      // That is a NON-`async` implementation of the seam; it is NOT
+      // missing-`database` wiring defect, whose `TypeError` is raised inside an
+      // `async` method and therefore always arrives as a REJECTION on the
+      // `.catch` path above. Both guards exist because those are two different
+      // paths, and the one that carries the known production defect is the other
+      // one.
       sweepInFlight = false;
       reportSweepFailure(reason);
     }

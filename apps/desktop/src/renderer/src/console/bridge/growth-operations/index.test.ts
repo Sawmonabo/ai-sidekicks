@@ -309,7 +309,7 @@ describe("the growth ledger's three rows with no method to name", () => {
     // and the daemon answers it, so the row could have named a real string — and a
     // window that sent it would be refused by the per-connection handshake latch.
     for (const slateRow of [
-      "caller-participant-identity",
+      "caller-user-identity",
       "callback-tool-registry-read",
       "daemon-version-negotiation",
     ] as const) {

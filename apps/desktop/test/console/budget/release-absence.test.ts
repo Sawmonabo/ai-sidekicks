@@ -1,7 +1,6 @@
 // Tier: bundle — what a RELEASE renderer build must not contain.
 //
-// `Spec-023 §Console Design (Meridian)` puts the fixture bridge, every scenario,
-// and the scenario switcher behind `__SIDEKICKS_CONSOLE_FIXTURES__` so that Rollup
+// The fixture bridge, every scenario, and the scenario switcher sit behind `__SIDEKICKS_CONSOLE_FIXTURES__` so that Rollup
 // collapses `if (false) { … }` and the bodies are PHYSICALLY ABSENT from a shipped
 // bundle — not merely unreachable. The distinction is the whole point: unreachable
 // code still ships a handle to the console's internals and a set of fabricated
@@ -72,7 +71,7 @@
 // code — `growth-refusals.ts` reads a row's `slateRow` to attribute every refusal a
 // release build hands back — so no `define` gates it and no `moduleSideEffects`
 // declaration can drop it. What is NOT release code is the sentence describing each
-// operation: 145 of them, written for a reader of `Plan-023 §Console growth slate`,
+// operation: 145 of them, written for a reader of the growth slate,
 // read by nothing a running console evaluates, and until this sweep landed they were
 // carried on the row and therefore on the initial import graph. They now live in
 // `growth-operations/operation-summaries.ts`, which the release build drops whole

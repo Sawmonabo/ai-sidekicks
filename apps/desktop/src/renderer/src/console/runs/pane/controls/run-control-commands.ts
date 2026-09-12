@@ -1,11 +1,10 @@
 // The six run controls, contributed to the command palette.
 //
-// `Spec-023 §Console Design (Meridian)` requires every operator action to be
-// palette-reachable, and the runs surface is where six of them live. What the
-// palette lists dispatches the SAME call the row's button does — one dispatcher,
-// one idempotency key, one in-flight latch — so a control pressed from the palette
-// goes busy on the row and settles into the same record. A second dispatcher here
-// would mint a second key against one run version, which the wire reads as two
+// Every operator action is palette-reachable, and the runs surface is where six of them
+// live. What the palette lists dispatches the SAME call the row's button does — one
+// dispatcher, one idempotency key, one in-flight latch — so a control pressed from the
+// palette goes busy on the row and settles into the same record. A second dispatcher
+// here would mint a second key against one run version, which the wire reads as two
 // distinct mutations rather than replays of one.
 //
 // WHICH CONTROLS, AND ON WHICH RUN. `offeredRunControls` answers the first, and it
@@ -28,7 +27,7 @@
 // rewrites nothing.
 //
 // STEER AND REWIND OPEN THE COMPOSER, THEY DO NOT SEND. Both need a body the
-// participant has not written yet, and the row's own buttons open the same form.
+// user has not written yet, and the row's own buttons open the same form.
 // A palette entry that sent an empty steer would be inventing a message.
 //
 // AND A SEVENTH ACT THAT BELONGS TO NO RUN. The pane's empty state offers to put the

@@ -17,7 +17,7 @@
 // AN ANSWER IS A SETTLED ACT AND NOT A KEYSTROKE THAT VANISHED. Both arms dispatch
 // through one method and one reply, so the card draws what became of that reply once,
 // under both of them: the call is out, the driver acknowledged it, or it was refused
-// and the participant's words never left this machine. The refused arm is why this
+// and the user's words never left this machine. The refused arm is why this
 // exists — the reply used to be discarded, so a run blocked on an unanswered question
 // looked exactly like one waiting for somebody to type. Neither arm settles the ask.
 //

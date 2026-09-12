@@ -33,7 +33,7 @@
 // ONE HOME FOR THAT READING, WHICH IS WHY IT IS HERE AND NOT AT THE TIER ROOT. Two lanes
 // reached the same question from opposite ends — a mount that had to wait for the
 // verdict, and a family mount that had to wait for the compiler — and for a moment
-// answered it in two modules. `apps/desktop/AGENTS.md` §Shared code settles which one
+// answered it in two modules. The shared-code rule in `apps/desktop/AGENTS.md` settles which one
 // survives: one implementation per job, hoisted on the second use. It is this file
 // rather than the tier root because the subject is the `seats/schema-form` seat that two
 // tiers and three mounts read, and because the tier root is typechecked WITHOUT the DOM

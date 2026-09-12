@@ -1,14 +1,12 @@
-//! Pure POSIX→Win32 kill-semantics translator (Plan-024 §Invariants I-024-1).
+//! Pure POSIX→Win32 kill-semantics translator.
 //!
 //! `PtyHost.kill(sessionId, signal)` on Windows MUST translate POSIX signal
-//! semantics to the Win32 `GenerateConsoleCtrlEvent` API per ADR-019
-//! §Decision item 1 + Plan-024 §Windows Implementation Gotchas Gotcha 1
-//! (`microsoft/node-pty#167`):
+//! semantics to the Win32 `GenerateConsoleCtrlEvent` API
+//! `microsoft/node-pty#167`):
 //!
 //! - `SIGINT`  → `CTRL_C_EVENT`     (graceful Ctrl+C delivery)
-//! - `SIGTERM` → `CTRL_BREAK_EVENT` (graceful break, escalate per I-024-2)
+//! - `SIGTERM` → `CTRL_BREAK_EVENT` (graceful break, escalate)
 //! - `SIGKILL` → tree-kill direct   (no console-control event; route to
-//!                                    `tree_kill::taskkill_argv` per I-024-2)
 //! - `SIGHUP`  → tree-kill direct   (treat as hard-stop; matches the
 //!                                    `node-pty-host.ts` Phase 2 cascade)
 //!
@@ -20,24 +18,16 @@
 //!   1. A single point of truth for the POSIX→Win32 mapping that both the
 //!      sidecar's `pty_session::kill` (Phase 3 follow-up) and any future
 //!      higher-layer Windows-control surface can call into.
-//!   2. A pure function exhaustively unit-testable per [`PtySignal`]
-//!      variant — Plan-024 explicitly requires "Cover with a unit test in
-//!      `kill_translation.rs`" for I-024-1.
 //!   3. Stable scope-isolation: modifying the mapping (e.g., changing
 //!      SIGHUP's escalation) touches one file and surfaces the change in
 //!      the test diff rather than buried in a 900-line PTY holder.
 //!
 //! ## Phase boundary note
 //!
-//! T-024-3-1 lands the **substrate**. End-to-end wiring of this module
-//! into `pty_session::kill()` is a follow-up task (the Phase 1 holder
-//! returns `WindowsKillNotImplemented` on the Windows arm and is NOT in
-//! T-024-3-1's `target_paths`). The module ships with its tests so the
-//! mapping is locked-in before the wire-through PR; the reviewer can
-//! diff this single file when the wire-through lands.
+//! The module ships with its tests so the mapping is locked-in before
+//! the wire-through PR; the reviewer can diff this single file when the
+//! wire-through lands.
 //!
-//! Refs: Plan-024 I-024-1, ADR-019 §Decision item 1, ADR-019 §Failure
-//! Mode Analysis row "kill propagation".
 
 #![cfg(target_os = "windows")]
 
@@ -56,10 +46,9 @@ use crate::protocol::PtySignal;
 pub enum WindowsKillAction {
     /// Issue `GenerateConsoleCtrlEvent(event, pid)` — graceful console
     /// control event delivery. The dispatcher MUST follow up with an
-    /// escalation timer for `CTRL_BREAK_EVENT` per I-024-2 (a child
-    /// that ignores the break gets `taskkill`-ed after the bounded
-    /// wait); `CTRL_C_EVENT` does not auto-escalate (the consumer
-    /// caller already chose the gentlest signal).
+    /// escalation timer for `CTRL_BREAK_EVENT` `CTRL_C_EVENT` does not
+    /// auto-escalate (the consumer caller already chose the gentlest
+    /// signal).
     ConsoleCtrlEvent(ConsoleCtrlEvent),
 
     /// Skip console-control entirely; invoke `taskkill /T /F /PID <pid>`
@@ -114,15 +103,14 @@ pub fn translate(signal: PtySignal) -> WindowsKillAction {
         PtySignal::Sigint => WindowsKillAction::ConsoleCtrlEvent(ConsoleCtrlEvent::CtrlC),
         PtySignal::Sigterm => WindowsKillAction::ConsoleCtrlEvent(ConsoleCtrlEvent::CtrlBreak),
         // SIGKILL is the immediate-hard-stop contract; skip the
-        // console-control-event hop and invoke taskkill directly per
-        // Plan-024 §Implementation Step 8 ("`SIGKILL`
-        // (immediate hard-stop) → `taskkill /T /F /PID <pid>` directly,
-        // skipping `CTRL_BREAK_EVENT`").
+        // console-control-event hop and invoke taskkill directly
+        // "`SIGKILL` (immediate hard-stop) → `taskkill /T /F /PID
+        // <pid>` directly, skipping `CTRL_BREAK_EVENT`").
         PtySignal::Sigkill => WindowsKillAction::TreeKill,
-        // SIGHUP is not pinned by ADR-019 / Plan-024 to a specific
-        // Windows mapping. Matching the most conservative graceful-then-
-        // force shape would be CTRL_BREAK_EVENT-then-escalate; matching
-        // the hard-stop semantics POSIX users typically associate with
+        // SIGHUP is not pinned to a specific Windows mapping. Matching
+        // the most conservative graceful-then- force shape would be
+        // CTRL_BREAK_EVENT-then-escalate; matching the hard-stop
+        // semantics POSIX users typically associate with
         // SIGHUP-on-controlling-terminal is taskkill direct. The
         // `node-pty-host.ts` Phase 2 implementation chose
         // CTRL_BREAK_EVENT-then-escalate (mirroring SIGTERM); the
@@ -146,16 +134,14 @@ pub fn translate(signal: PtySignal) -> WindowsKillAction {
 mod tests {
     use super::*;
 
-    // I-024-1 verification — exhaustive unit coverage of the
-    // POSIX→Win32 mapping. One test per [`PtySignal`] variant so a
-    // partial enum match (or a future variant added without
-    // updating this module) is caught at compile time AND at test
-    // time.
+    // Verification — exhaustive unit coverage of the POSIX→Win32
+    // mapping. One test per [`PtySignal`] variant so a partial
+    // enum match (or a future variant added without updating this
+    // module) is caught at compile time AND at test time.
 
     #[test]
     fn translates_sigint_to_ctrl_c_event() {
-        // I-024-1: `SIGINT` MUST map to `CTRL_C_EVENT` per ADR-019
-        // §Decision item 1.
+        // `SIGINT` MUST map to `CTRL_C_EVENT`.
         assert_eq!(
             translate(PtySignal::Sigint),
             WindowsKillAction::ConsoleCtrlEvent(ConsoleCtrlEvent::CtrlC),
@@ -164,9 +150,8 @@ mod tests {
 
     #[test]
     fn translates_sigterm_to_ctrl_break_event() {
-        // I-024-1: `SIGTERM` (graceful hard-stop) MUST map to
-        // `CTRL_BREAK_EVENT` first per ADR-019 §Decision item 1 +
-        // Plan-024 §Implementation Step 8.
+        // `SIGTERM` (graceful hard-stop) MUST map to
+        // `CTRL_BREAK_EVENT` first.
         assert_eq!(
             translate(PtySignal::Sigterm),
             WindowsKillAction::ConsoleCtrlEvent(ConsoleCtrlEvent::CtrlBreak),
@@ -175,9 +160,8 @@ mod tests {
 
     #[test]
     fn translates_sigkill_to_tree_kill_direct() {
-        // I-024-1 + I-024-2: `SIGKILL` (immediate hard-stop) skips
-        // `CTRL_BREAK_EVENT` and invokes `taskkill /T /F /PID <pid>`
-        // directly per Plan-024 §Implementation Step 8.
+        // `SIGKILL` (immediate hard-stop) skips `CTRL_BREAK_EVENT`
+        // and invokes `taskkill /T /F /PID <pid>` directly.
         assert_eq!(translate(PtySignal::Sigkill), WindowsKillAction::TreeKill);
     }
 

@@ -1,47 +1,47 @@
 // What a sign-in ceremony ANSWERS, and the one codec both sides of that seam read.
 //
-// `Spec-023 §WebAuthn Credential Flow` step 6 fixes the answer: main "resolves the
-// bridge call with a `WebAuthnCeremonyOutcome` — a closed union of an authenticated
-// arm carrying the participant identity claims, a fallback-required arm naming the
-// probe result that produced it, and a refused arm carrying a typed reason. No arm
-// carries an assertion, a PRF output, a derived key, or a handle to one."
+// The credential flow fixes the answer: main resolves the bridge call with a
+// `WebAuthnCeremonyOutcome` — a closed union of an authenticated arm carrying the
+// user identity claims, a fallback-required arm naming the probe result that
+// produced it, and a refused arm carrying a typed reason. No arm carries an
+// assertion, a PRF output, a derived key, or a handle to one.
 //
 // THIS MODULE IS THAT UNION, DECLARED IN `bridge/` AND NOT IN THE SIGN-IN FAMILY,
 // because two things read it and they sit on opposite sides of the bridge: the
 // fixture WRITES an outcome (a scenario states what this host's authenticator does)
-// and the sign-in family READS one. `apps/desktop/AGENTS.md` §Shared code — "two
-// sides of one seam share a module" — is the rule, and the alternative here is two
-// spellings of one closed set with nothing holding them together.
+// and the sign-in family READS one. Two sides of one seam share a module, and the
+// alternative here is two spellings of one closed set with nothing holding them
+// together.
 //
 // WHY THE OUTCOME RIDES THE RESOLUTION OF A METHOD TYPED `PublicKeyCredential`.
-// The shipped bridge carries the Tier-1 three-method stub, whose
+// The shipped bridge carries the three-method stub, whose
 // `PublicKeyCredential` is an EMPTY interface — it asserts nothing about the value,
-// by its own declaration in `packages/contracts/src/desktop-bridge.ts`. The corpus
-// has already decided WHO produces the verdict and WHAT it may carry; what the
-// NS-99 narrowing to `signIn()` / `register()` changes is the method name and the
-// declared return type, not the producer. So reading the resolution through the
-// reader below is reading the shape the corpus fixes, one method name early, and
-// the narrowing is a change to `sign-in/ceremony-adapter.ts` alone.
+// by its own declaration in `packages/contracts/src/desktop-bridge.ts`. WHO produces
+// the verdict and WHAT it may carry are already settled; what the later narrowing to
+// `signIn()` / `register()` changes is the method name and the declared return type,
+// not the producer. So reading the resolution through the reader below is reading
+// the settled shape, one method name early, and the narrowing is a change to
+// `sign-in/ceremony-adapter.ts` alone.
 //
 // A RESOLUTION THE READER DOES NOT RECOGNISE IS `unavailable`, NEVER `authenticated`.
-// The Tier-1 preload throws from every method and the fixture refuses a scenario
+// The stub preload throws from every method and the fixture refuses a scenario
 // that scripts no ceremony, so "this build has no ceremony" is the ordinary state
 // and it renders as the _not checked_ kind of nothing. Treating an unreadable
 // resolution as success would be this console asserting an identity nothing
 // established — the one failure that must not be reachable from here.
 
-import { ParticipantIdSchema, type ParticipantId } from "@ai-sidekicks/contracts";
+import { UserIdSchema, type UserId } from "@ai-sidekicks/contracts";
 
 import { isWireRecord, readWireString, type ConsoleRefusal } from "../../core/index.js";
 
 /**
  * Why this host fell back to the Device Authorization Grant.
  *
- * `Spec-023 §Fallback Behavior` states the condition as a per-host PROBE result and
- * not a platform name: "the capability probe reports no usable authenticator, or the
- * authenticator that answered does not support the PRF extension". The third arm is
- * `Spec-023 §WebAuthn Platform-Authenticator Native Module`'s third detection rule —
- * a binding that will not load is a negative capability result rather than a crash.
+ * The condition is a per-host PROBE result and not a platform name: the capability
+ * probe reports no usable authenticator, or the authenticator that answered does not
+ * support the PRF extension. The third arm is the native module's third detection
+ * rule — a binding that will not load is a negative capability result rather than a
+ * crash.
  *
  * A closed tuple with the union derived from it, so a fourth probe result is a
  * compile error at the copy table in the sign-in family rather than a verdict that
@@ -58,15 +58,15 @@ export type WebAuthnProbeResult = (typeof WEB_AUTHN_PROBE_RESULTS)[number];
 /**
  * Why the ceremony ended without authenticating, when the host was capable.
  *
- * `cancelled` is the arm `Spec-023 §WebAuthn Credential Flow` insists is NOT a
- * capability result: "A participant who dismisses the OS dialog has answered the
- * question, and the answer is no." It is terminal — it opens no loopback and tries
- * no second provider — and the sign-in model honours that by construction.
+ * `cancelled` is the arm that is NOT a capability result: a user who
+ * dismisses the OS dialog has answered the question, and the answer is no. It is
+ * terminal — it opens no loopback and tries no second provider — and the sign-in
+ * model honours that by construction.
  *
  * The other two are the relying party's verdict, which step 4 of that flow makes the
  * only thing that can turn provisional PRF bytes into a usable key: a credential the
  * server would not verify, and an options set whose origin did not match the paired
- * control-plane origin (I-023-16's refusal, raised before any binding is invoked).
+ * control-plane origin, refused before any binding is invoked.
  */
 export const WEB_AUTHN_REFUSAL_REASONS = [
   "cancelled",
@@ -79,9 +79,9 @@ export type WebAuthnRefusalReason = (typeof WEB_AUTHN_REFUSAL_REASONS)[number];
 /**
  * Where the long-lived credential this session mints will be kept.
  *
- * `Spec-023 §Fallback Behavior`: "If the OS keystore is unavailable: refuse to
- * persist long-lived auth material; session is memory-only; surface the
- * degradation." It rides the authenticated arm because that is the moment a person
+ * If the OS keystore is unavailable the console refuses to persist long-lived auth
+ * material, the session is memory-only, and the degradation is surfaced. It rides
+ * the authenticated arm because that is the moment a person
  * can still decide differently — signing in again on a repaired host, or not at all.
  * It is a statement about CUSTODY and never about the credential itself, so no arm
  * of this union carries key material of any kind.
@@ -93,28 +93,27 @@ export type WebAuthnCustody = (typeof WEB_AUTHN_CUSTODY_STATES)[number];
 /**
  * WHO signed in, as the relying party's verdict named them.
  *
- * `Spec-023 §WebAuthn Credential Flow` step 6 puts these on the authenticated arm and
- * step 7 makes them the whole of what crosses the bridge: "Main process returns only
- * the ceremony success signal + participant identity claims to the renderer." Without
+ * The credential flow puts these on the authenticated arm and makes them the whole
+ * of what crosses the bridge: main returns only the ceremony success signal and the
+ * user identity claims to the renderer. Without
  * them the arm carries custody alone, and a console that has just authenticated
  * somebody can say only that a sign-in happened — which is a receipt with no subject.
  *
- * THE TYPE IS THE CORPUS'S OWN. `ParticipantId` is
+ * THE TYPE IS THE CORPUS'S OWN. `UserId` is
  * `packages/contracts/src/session.ts`' branded id, imported rather than restated, and
- * the reader below narrows against `ParticipantIdSchema` — the same discipline
+ * the reader below narrows against `UserIdSchema` — the same discipline
  * `bridge/daemon/entity-body-reads.ts` states for every registered wire shape: a
  * hand-written narrowing checks what its author remembered to check, and this one
  * would admit an empty string as an identity.
  *
  * ONE MEMBER TODAY, AND THAT IS THE HONEST CLAIM SET RATHER THAN A STUB. The corpus
- * declares no participant display name anywhere: `identityHandle` is supplied at
- * `session.join` and belongs to a MEMBERSHIP, so a ceremony that runs before any
+ * declares no user display name anywhere, so a ceremony that runs before any
  * session has none to carry. It is a named group rather than a bare member on the arm
  * because the spec names it as one and four surfaces thread it — so a claim the
  * relying party later adds lands here and at no call site.
  */
-export interface ParticipantIdentityClaims {
-  readonly participantId: ParticipantId;
+export interface UserIdentityClaims {
+  readonly userId: UserId;
 }
 
 /**
@@ -136,7 +135,7 @@ export interface DeviceGrantHandoff {
  * What a ceremony answered. Closed; every arm renders something.
  *
  * `unavailable` is this console's arm rather than the corpus's, and it is the one a
- * build without a ceremony reaches: the Tier-1 preload throws, and a fixture whose
+ * build without a ceremony reaches: the stub preload throws, and a fixture whose
  * scenario scripts nothing refuses. It carries the refusal verbatim so the surface
  * renders the daemon's — or the fixture's — own sentence rather than a paraphrase.
  */
@@ -145,7 +144,7 @@ export type WebAuthnCeremonyOutcome =
       readonly kind: "authenticated";
       readonly custody: WebAuthnCustody;
       /** Who was signed in. Required: an authentication with no subject is not one. */
-      readonly claims: ParticipantIdentityClaims;
+      readonly claims: UserIdentityClaims;
     }
   | {
       readonly kind: "fallback-required";
@@ -158,7 +157,7 @@ export type WebAuthnCeremonyOutcome =
 /**
  * The arms a PRODUCER can send — everything but this console's own `unavailable`.
  *
- * `unavailable` is a reading of a build that has no ceremony (the Tier-1 preload
+ * `unavailable` is a reading of a build that has no ceremony (the stub preload
  * throws; a fixture whose scenario scripts none refuses), so nothing across the
  * bridge ever composes one. Excluding it here is what makes that structural: a
  * scenario cannot script it, the encoder cannot build it, and the only module that
@@ -179,14 +178,14 @@ export type ProducedCeremonyOutcome = Exclude<
  * one that crosses the bridge: a scripted ceremony is "a fact about the HOST rather
  * than about the session — which authenticator this machine has, whether it does PRF,
  * and whether the OS keystore will hold what the ceremony mints." WHO signs in is none
- * of those. It is the scenario's `viewingParticipantId`, stated once, and a second
+ * of those. It is the scenario's `callerUserId`, stated once, and a second
  * statement on the ceremony script could disagree with it — which is exactly the
  * fabrication `fixture/growth/growth-port.refusals.test.ts` pins the identity read against.
  *
- * So the fixture composes the claims from the viewer the scenario already names, and a
+ * So the fixture composes the claims from the caller the scenario already names, and a
  * scenario that names none cannot script an authenticated host at all: it takes the
  * same `capability-absent` refusal an unstated ceremony takes, which is the honest
- * answer rather than an invented participant.
+ * answer rather than an invented user.
  *
  * DERIVED IN BOTH DIRECTIONS rather than written out: `Omit` over the produced arm
  * keeps custody in step with it, and `Exclude` carries every other arm unchanged, so
@@ -265,7 +264,7 @@ function readAuthenticated(
   candidate: Record<string, unknown>,
 ): WebAuthnCeremonyOutcome | undefined {
   const custody = WEB_AUTHN_CUSTODY_STATES.find((state) => state === candidate["custody"]);
-  const claims = readParticipantIdentityClaims(candidate["claims"]);
+  const claims = readUserIdentityClaims(candidate["claims"]);
   if (custody === undefined || claims === undefined) {
     return undefined;
   }
@@ -276,19 +275,19 @@ function readAuthenticated(
  * The identity claims on an authenticated resolution, or `undefined`.
  *
  * FAIL-CLOSED, AND THIS IS THE ARM WHERE THAT COSTS SOMETHING. A resolution that names
- * a participant the contract's own schema will not accept — an empty string, a label,
+ * a user the contract's own schema will not accept — an empty string, a label,
  * a value some other build's ceremony carried — is not read as an authentication at
  * all, so the adapter renders it as _not checked_ rather than signing somebody in
- * under an identity nothing established. Narrowed through `ParticipantIdSchema` and
+ * under an identity nothing established. Narrowed through `UserIdSchema` and
  * never through a local predicate: the brand is the contract's, and a cast here would
  * be this console asserting a shape it did not check.
  */
-function readParticipantIdentityClaims(value: unknown): ParticipantIdentityClaims | undefined {
+function readUserIdentityClaims(value: unknown): UserIdentityClaims | undefined {
   if (!isWireRecord(value)) {
     return undefined;
   }
-  const participantId = ParticipantIdSchema.safeParse(value["participantId"]);
-  return participantId.success ? { participantId: participantId.data } : undefined;
+  const userId = UserIdSchema.safeParse(value["userId"]);
+  return userId.success ? { userId: userId.data } : undefined;
 }
 
 function readFallbackRequired(

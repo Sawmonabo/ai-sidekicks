@@ -6,8 +6,8 @@
 // a re-login estimate is. Each of them is drivable with no bridge and no React.
 //
 // WHICH READING IS CURRENT IS NOT ONE OF THEM, AND THAT IS THE POINT OF THE SIGNATURE.
-// `Spec-029 §Per-limit provider quota` states supersession as two rules in one order —
-// newest wins by observation time, EXCEPT that a same-window reading never moves
+// Quota supersession is two rules in one order — newest wins by observation time,
+// EXCEPT that a same-window reading never moves
 // backward, the exception evaluated first — and `bridge/quotas/provider-quota-fold.ts`
 // is the console's one implementation of it. This module used to fold the rows a second
 // time on the way to the table, with the exception missing: a later reading below the

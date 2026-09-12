@@ -1,9 +1,9 @@
 // The first sixty seconds — the session a fresh console opens into.
 //
-// `Spec-023 §The four bars`, Richness, names this composition: "The first sixty
-// seconds and the flagship frame are designed compositions, regression-tested by
-// screenshot." WHAT THE MINUTE IS FOR is this scenario's own decision, because no
-// committed document states it: the product demonstrates itself before it asks for
+// Richness names this composition: the first sixty seconds and the flagship frame
+// are designed compositions, regression-tested by screenshot. WHAT THE MINUTE IS FOR
+// is this scenario's own decision, because nothing above states it: the product
+// demonstrates itself before it asks for
 // anything. First launch opens into a live session already in flight — several
 // sidekicks and several people working, parallel streams revealing, an approval
 // arriving, a receipt landing past tense — and the empty state IS the demo. So this
@@ -31,7 +31,7 @@
 // EVERY BEAT IS A REGISTERED EVENT. The census and the strict layer both live in
 // `packages/contracts/src/event.ts` and `scenario/wire-truth/wire-truth.ts` holds this file
 // to them. Two things the composition above wants that no beat here can state:
-// participant status VERBS (presence is not an event type, and the cast bar reads it
+// user status VERBS (presence is not an event type, and the session header reads it
 // from a projection no wire serves) and the handoff being DRAWN between two runs
 // (`handoff.*` is not
 // in the census; `subagent.started` / `subagent.completed` are, and a child thread
@@ -64,8 +64,8 @@ const SESSION_ID = "019b78ff-f900-75e5-8510-ada11a5a46a5";
  * answering.
  */
 const EVENT_ID_STEM = "019b78ff-f900-7ea1-8110-e5e0d115";
-const PARTICIPANT_YOU = "019b78ff-f900-79a4-8110-cca0117a0460";
-const PARTICIPANT_PRIYA = "019b78ff-f900-79a4-8120-cca0117a0470";
+const USER_YOU = "019b78ff-f900-79a4-8110-cca0117a0460";
+const USER_PRIYA = "019b78ff-f900-79a4-8120-cca0117a0470";
 const AGENT_ARCHITECT = "019b78ff-f900-7a6e-8110-d1a4c1150105";
 const AGENT_IMPLEMENTER = "019b78ff-f900-7a6e-8120-d1a4c1150106";
 const AGENT_REVIEWER = "019b78ff-f900-7a6e-8130-d1a4c1150107";
@@ -157,7 +157,7 @@ const lane = createLedgerLaneEntries(SESSION_ID);
 const FIRST_SIXTY_SCRIPT: readonly LedgerScriptEntry[] = [
   ...ledgerOpeningEntries({
     sessionId: SESSION_ID,
-    openedBy: PARTICIPANT_YOU,
+    openedBy: USER_YOU,
     cast: FIRST_SIXTY_AGENTS.map((agent) => ({
       agentId: agent.agentId,
       name: agent.name,
@@ -173,7 +173,7 @@ const FIRST_SIXTY_SCRIPT: readonly LedgerScriptEntry[] = [
     runVersion: 1,
     newState: "queued",
     agentId: AGENT_IMPLEMENTER,
-    actorId: PARTICIPANT_YOU,
+    actorId: USER_YOU,
   }),
   lane.transition(RUN_IMPLEMENTER, {
     atMs: atSecond(11),
@@ -198,7 +198,7 @@ const FIRST_SIXTY_SCRIPT: readonly LedgerScriptEntry[] = [
     runVersion: 1,
     newState: "queued",
     agentId: AGENT_REVIEWER,
-    actorId: PARTICIPANT_PRIYA,
+    actorId: USER_PRIYA,
   }),
   lane.transition(RUN_REVIEWER, {
     atMs: atSecond(15),
@@ -290,7 +290,7 @@ const FIRST_SIXTY_SCRIPT: readonly LedgerScriptEntry[] = [
     runVersion: 5,
     previousState: "waiting_for_approval",
     newState: "running",
-    actorId: PARTICIPANT_YOU,
+    actorId: USER_YOU,
   }),
   lane.output(RUN_IMPLEMENTER, {
     atMs: atSecond(48),
@@ -327,14 +327,8 @@ export const LEDGER_FIRST_SIXTY_SCENARIO: ConsoleScenario = {
   purpose:
     "A live session already in flight, paced over sixty seconds — two lanes streaming, a child thread, an approval, and a run landing past tense. What a fresh console opens into instead of an empty state.",
   sessionId: SESSION_ID,
-  participantIdsInJoinOrder: [
-    PARTICIPANT_YOU,
-    PARTICIPANT_PRIYA,
-    AGENT_ARCHITECT,
-    AGENT_IMPLEMENTER,
-    AGENT_REVIEWER,
-  ],
-  viewingParticipantId: PARTICIPANT_YOU,
+  userIdsInJoinOrder: [USER_YOU, USER_PRIYA, AGENT_ARCHITECT, AGENT_IMPLEMENTER, AGENT_REVIEWER],
+  callerUserId: USER_YOU,
   startedAtIso: STARTED_AT_ISO,
   beats: scriptLedgerBeats({
     sessionId: SESSION_ID,

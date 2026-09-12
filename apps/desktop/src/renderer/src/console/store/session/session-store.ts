@@ -1,12 +1,11 @@
 // The per-session store and its single apply chokepoint.
 //
-// One store per OPEN session (`Spec-023 §Console Libraries`, the state row), and
-// exactly one way into it: `applyBatch`. Every wire event and every read response
-// enters through that function, which validates, reconciles the sequence, runs the
-// registered projectors, and commits one immutable state transition. No component
-// subscribes to the bridge and no component calls `setState`; the zustand store's
-// setter is private to this class, so "the chokepoint" is a structural property
-// rather than a convention a reviewer has to police.
+// One store per OPEN session, and exactly one way into it: `applyBatch`. Every wire
+// event and every read response enters through that function, which validates,
+// reconciles the sequence, runs the registered projectors, and commits one immutable
+// state transition. No component subscribes to the bridge and no component calls
+// `setState`; the zustand store's setter is private to this class, so "the chokepoint"
+// is a structural property rather than a convention a reviewer has to police.
 //
 // Why coalescing lives at the SOURCE rather than in the notifier: a store that
 // updated its state synchronously but notified on a frame boundary would let
@@ -39,7 +38,7 @@
 //     writes during notification is a defect; losing its event would be a second
 //     one, so the event is kept and the tripwire fires.
 //   • **The log grows at the head through one door, and only backwards.** A session's
-//     stream replays from the position this participant was last acknowledged at, so
+//     stream replays from the position this user was last acknowledged at, so
 //     the rows below `windowHeadCursor` exist and were never delivered here.
 //     `prependEarlierEvents` is where a read of them lands, and it is not a second
 //     apply chokepoint: it admits no row at or above the log's head, moves no cursor,
@@ -63,7 +62,7 @@ import {
   recordStoreSize,
   reportTripwire,
 } from "../../core/index.js";
-import { ParticipantHueAllocator } from "../../tokens/index.js";
+import { ActorHueAllocator } from "../../tokens/index.js";
 import { foldAppliedBatch } from "./applied-batch-fold.js";
 import { worstDegradedCause, type SessionDegradedCause } from "../degradation.js";
 import { foldEarlierWindowPage, type EarlierWindowMerge } from "./earlier-window.js";
@@ -114,7 +113,7 @@ export class SessionStore {
   readonly #sessionId: string;
   readonly #timelineCap: number | undefined;
   readonly #store: StoreApi<SessionStoreState>;
-  readonly #hueAllocator = new ParticipantHueAllocator();
+  readonly #hueAllocator = new ActorHueAllocator();
   readonly #reconciler = new SequenceReconciler();
   readonly #preInitialisationBuffer = new PreInitialisationBuffer();
   readonly #projectionRunner: EntityProjectionRunner;
@@ -178,7 +177,7 @@ export class SessionStore {
   }
 
   /** The session's hue wheel. Allocation happens only through `initialise`/`applyBatch`. */
-  public get hueAllocator(): ParticipantHueAllocator {
+  public get hueAllocator(): ActorHueAllocator {
     return this.#hueAllocator;
   }
 
@@ -240,8 +239,8 @@ export class SessionStore {
       return;
     }
 
-    for (const participantId of snapshot.participantJoinLog) {
-      this.#hueAllocator.admit(participantId);
+    for (const userId of snapshot.userJoinLog) {
+      this.#hueAllocator.admit(userId);
     }
 
     // A completed read re-establishes where the window STARTS, so whatever a backward

@@ -1,4 +1,4 @@
-// The queue shelf: what this participant has waiting, and where it is bound.
+// The queue shelf: what this user has waiting, and where it is bound.
 //
 // Hidden until an item exists. That is not a styling choice — an empty shelf and a
 // shelf nobody has read yet are both "no rows", and a strip that said so would sit

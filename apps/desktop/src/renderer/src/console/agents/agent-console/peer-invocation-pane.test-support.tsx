@@ -131,7 +131,7 @@ export function storeProjecting(sessionId: string, peerInvocationEnabled: boolea
   sessionStore.initialise({
     cursor: 4,
     entities: [{ kind: "session", id: sessionId, body: { peerInvocationEnabled } }],
-    participantJoinLog: [],
+    userJoinLog: [],
   });
   return sessionStore;
 }
@@ -175,7 +175,7 @@ export async function projectGrant(sessionStore: SessionStore, enabled: boolean)
       entities: [
         { kind: "session", id: sessionStore.sessionId, body: { peerInvocationEnabled: enabled } },
       ],
-      participantJoinLog: [],
+      userJoinLog: [],
     });
     await crossMacrotaskBoundary();
   });

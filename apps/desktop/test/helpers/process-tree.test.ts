@@ -1,7 +1,7 @@
 // The one place a spawned Electron tree is killed, and the one place that is
 // checked.
 //
-// Two harnesses spawn Electron — the Tier-1 smoke probe and the console launcher
+// Two harnesses spawn Electron — the smoke probe and the console launcher
 // — and each had grown its own terminator over the same platform facts.
 // They had already disagreed: one read `taskkill`'s exit status and the other did
 // not, so the second reported kills it had not performed. The implementation is

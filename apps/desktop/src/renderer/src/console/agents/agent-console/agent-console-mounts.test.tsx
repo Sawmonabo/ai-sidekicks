@@ -68,7 +68,7 @@ function fixtureBridge(): ConsoleBridge {
  */
 function playedSessionStore(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: PLAYED_SESSION_ID });
-  sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+  sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
   return sessionStore;
 }
 

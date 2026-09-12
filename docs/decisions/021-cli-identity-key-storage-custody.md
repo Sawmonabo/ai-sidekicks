@@ -11,7 +11,7 @@
 
 ## Context
 
-[ADR-010](./010-paseto-webauthn-mls-auth.md) chose a long-term Ed25519 identity key per participant as the cryptographic anchor for the V1 relay encryption layer. That key signs each session's ephemeral X25519 public key inside `SessionKeyBundle`, binding the session key exchange to the participant's control-plane-registered identity (Spec-008 §Relay Encryption).
+[ADR-010](./010-paseto-webauthn-mls-auth.md) chose a long-term Ed25519 identity key per user as the cryptographic anchor for the V1 relay encryption layer. That key signs each session's ephemeral X25519 public key inside `SessionKeyBundle`, binding the session key exchange to the user's control-plane-registered identity ([Spec-031 §The encryption envelope](../specs/031-remote-control.md#the-encryption-envelope)).
 
 The desktop client derives (or wraps) its Ed25519 identity key from a WebAuthn/passkey PRF ceremony — the passkey's resident key material never leaves the authenticator, and the derived key is reconstructed per session without hitting disk in plaintext.
 
@@ -79,7 +79,7 @@ The CLI stores its long-term Ed25519 identity key using a **three-tier custody l
 - When tier 1 is unavailable _and_ tier 2 cannot be established (e.g., no writable data directory, operator declined to set a password in a non-interactive context), the CLI refuses shared-session participation with an actionable diagnostic.
 - Local-only sessions remain fully usable — tier 3 only blocks shared-session join and relay-backed flows where ADR-010's Ed25519 identity key is required.
 - Refusal message names the failed tiers, the detected platform constraints, and the smallest set of actions the operator can take to reach tier 1 or tier 2.
-- No key is generated when tier 3 is active. A key generated at tier 3 would have no durable custody and would rotate on every CLI invocation, breaking every `SessionKeyBundle` signature the participant had previously published.
+- No key is generated when tier 3 is active. A key generated at tier 3 would have no durable custody and would rotate on every CLI invocation, breaking every `SessionKeyBundle` signature the user had previously published.
 
 ### Cross-Platform Invariants
 
@@ -107,7 +107,7 @@ The Ed25519 identity key MUST NOT be silently regenerated. Specifically:
 
 - Key generation happens exactly once per workstation, on first CLI identity setup.
 - Any subsequent call path that would return "no identity key found" MUST refuse rather than generate a replacement, unless the operator explicitly passed `cli identity rotate` (V1.x: stolen-key reuse detection; see [§Success Criteria](#success-criteria)).
-- This is load-bearing because a silently rotated Ed25519 key invalidates every `SessionKeyBundle` signature the participant previously published, and the control plane's rejection path (Spec-008 §Relay Negotiation) would drop the participant from all active shared sessions without a recoverable path.
+- This is load-bearing because a silently rotated Ed25519 key invalidates every `SessionKeyBundle` signature this host previously published, and the control plane's rejection path (Spec-031) would drop the host out of the user's linked-device set without a recoverable path — it could reach no session again until it re-links as a device.
 
 #### Plaintext-In-Daemon-Memory Only
 
@@ -150,7 +150,7 @@ The Ed25519 identity key MUST NOT be silently regenerated. Specifically:
 
 ### Option B: OS keystore only, refuse when unavailable (Rejected)
 
-- **What:** Tier 1 is the only custody; operators without Secret Service / Keychain / Wincred cannot participate in shared sessions.
+- **What:** Tier 1 is the only custody; a host without Secret Service / Keychain / Wincred cannot link as a device.
 - **Why rejected:** Tier-1 availability is realistically patchy on Linux (headless, Docker, WSL, CI all commonly fail tier-1 preconditions) and on macOS (unsigned / Homebrew-from-source builds fail Developer-ID-signing preconditions). A rejection rate at first-run that approached the fraction of Linux operators on SSH / WSL / Docker would render the CLI effectively unusable in V1. Tier 2 is the bridge that keeps those operators in the product at an explicitly-disclosed weaker-tier custody.
 
 ### Option C: Plaintext on disk (Rejected)
@@ -292,5 +292,5 @@ The following are explicitly deferred past V1 and are recorded here so downstrea
 | --- | --- | --- |
 | 2026-04-18 | Proposed | Initial draft resolving [BL-057](../archive/backlog-archive.md). Three-tier custody ladder with write-probe-read-delete invariant. Research-informed via 4 Opus 4.7 passes (Linux silent-keyutils, Windows `CRED_PERSIST_ENTERPRISE` hardcoding, macOS no-backend-inspection / no-Secure-Enclave, encrypted-file primitive selection + CLI industry precedent). |
 | 2026-04-18 | Amended | Opus 4.7 BL-057 review pass resolved blocking citation errors: `keyring-rs` hardcoding line corrected to `src/windows.rs:413` (v3.6.3); age scrypt path corrected to root `scrypt.go` (quoted phrase verbatim preserved); Credential Guard URL updated to `considerations-known-issues` (the page that actually states Generic-credentials are unprotected); Secure Enclave citation expanded to cite CryptoKit `SecureEnclave.P256` API surface as primary source with sec59b0b31ff retained as secondary. `@napi-rs/keyring` release-date removed (npm signal inconsistent with research claim); `hwchen/keyring-rs` URL updated to canonical `open-source-cooperative/keyring-rs`. Antithesis-review checkbox flipped. |
-| 2026-04-18 | Accepted | ADR accepted at Session D1 close-out. BL-057 Exit Criteria satisfied: ADR-010 amended with §CLI Identity Key Storage cross-reference; security-architecture.md cites fallback order; Spec-008 references storage contract. |
-| 2026-05-31 | Amended | Tier-5 plan-readiness-audit Codex review (PR #129): reconciled the tier-2 primitive-stack naming from `libsodium` to the actual `@noble` stack selected by [ADR-010](./010-paseto-webauthn-mls-auth.md) — `@noble/ciphers` (XChaCha20-Poly1305 AEAD) + `@noble/hashes` (`argon2id` KDF), both Cure53-audited, with `@noble/curves` additionally audited by Kudelski Security and Trail of Bits (`Spec-008`; `Plan-022 §Implementation Steps` — post-2026-07-09 PII-data-map +1 shift, atop the 2026-07-08 preconditions +1). The prior `libsodium` naming conflated the audited algorithms with the C library; `sodium-native` (a libsodium binding) stays a dependency **only** for `sodium_mlock` / `sodium_memzero` memory hygiene (Plan-022), never the file-tier cipher or KDF. No decision content changed — the OS-keystore → Argon2id-file → refuse ladder and every invariant are unchanged; this is a naming reconciliation, so the ADR stays `accepted`. |
+| 2026-04-18 | Accepted | ADR accepted at Session D1 close-out. BL-057 Exit Criteria satisfied: ADR-010 amended with §CLI Identity Key Storage cross-reference; security-architecture.md cites fallback order; the relay spec references the storage contract. |
+| 2026-05-31 | Amended | Tier-5 plan-readiness-audit Codex review (PR #129): reconciled the tier-2 primitive-stack naming from `libsodium` to the actual `@noble` stack selected by [ADR-010](./010-paseto-webauthn-mls-auth.md) — `@noble/ciphers` (XChaCha20-Poly1305 AEAD) + `@noble/hashes` (`argon2id` KDF), both Cure53-audited, with `@noble/curves` additionally audited by Kudelski Security and Trail of Bits (`Plan-022 §Implementation Steps` — post-2026-07-09 PII-data-map +1 shift, atop the 2026-07-08 preconditions +1). The prior `libsodium` naming conflated the audited algorithms with the C library; `sodium-native` (a libsodium binding) stays a dependency **only** for `sodium_mlock` / `sodium_memzero` memory hygiene (Plan-022), never the file-tier cipher or KDF. No decision content changed — the OS-keystore → Argon2id-file → refuse ladder and every invariant are unchanged; this is a naming reconciliation, so the ADR stays `accepted`. |

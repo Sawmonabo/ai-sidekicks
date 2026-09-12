@@ -1,6 +1,5 @@
-// Plan-008 §Phase 1 §T-008b-1-T7 + §T-008b-1-T8: SSE wire contracts for the
 // `session.subscribe` procedure, verified end-to-end via `fetchRequestHandler`
-// (the same call path Cloudflare Workers invoke at runtime per BL-104 / ADR-014).
+// (the same call path Cloudflare Workers invoke at runtime).
 //
 // Why fetchRequestHandler and NOT `t.createCallerFactory`:
 //   * The in-process caller bypasses tRPC's HTTP substrate, including the
@@ -25,9 +24,6 @@
 // the connected frame + the marker frame guarantees the provider's first
 // lines (recording the call params) have already executed.
 //
-// Refs: docs/plans/008-control-plane-relay-and-session-join.md §T-008b-1-T7,
-//       docs/plans/008-control-plane-relay-and-session-join.md §T-008b-1-T8,
-//       docs/plans/008-control-plane-relay-and-session-join.md §I-008-1.
 
 import {
   type EventCursor,
@@ -199,10 +195,9 @@ function makeRecordingProvider(): {
 }
 
 // ---------------------------------------------------------------------------
-// T-008b-1-T7: SSE connection lifecycle
 // ---------------------------------------------------------------------------
 
-describe("T7 / I-008-3 #1 + §T-008b-1-T7: SSE connection lifecycle", () => {
+describe("T7 / #1 +", () => {
   it("returns text/event-stream with connected + tracked frames carrying id+data", async () => {
     const { provider, recorded } = makeRecordingProvider();
     const handler = buildControlPlaneFetchHandler({
@@ -266,7 +261,7 @@ describe("T7 / I-008-3 #1 + §T-008b-1-T7: SSE connection lifecycle", () => {
 });
 
 // ---------------------------------------------------------------------------
-// T-008b-1-T8: Last-Event-ID resumption + body-cursor precedence
+// Last-Event-ID resumption + body-cursor precedence
 // ---------------------------------------------------------------------------
 
 interface CursorRow {
@@ -315,7 +310,7 @@ const CURSOR_ROWS: readonly CursorRow[] = [
   },
 ];
 
-describe("T8 / §T-008b-1-T8: Last-Event-ID cursor resumption resolves to provider.afterCursor", () => {
+describe("T8 /", () => {
   for (const row of CURSOR_ROWS) {
     it(row.label, async () => {
       const { provider, recorded } = makeRecordingProvider();

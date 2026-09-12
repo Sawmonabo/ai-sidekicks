@@ -6,11 +6,11 @@
 // launch. `compileSchemaValidator`'s only production readers are inside
 // `seats/schema-form/`, which is a loader-backed chunk of its own, and behind the compiler
 // stands the schema library's JSON-Schema entry point and everything it pulls in. A door
-// line for the compiler therefore did exactly what `apps/desktop/AGENTS.md` §Module shape
-// warns a door line for a lazily-read body does: a symbol reachable both statically and
+// line for the compiler therefore did exactly what this package's module rules warn
+// a door line for a lazily-read body does: a symbol reachable both statically and
 // dynamically is assigned to the STATIC chunk, so the validator rode the document of every
 // session that never draws a form, against the `renderer-initial-bundle` budget
-// `Spec-023 §Console Design (Meridian)` sets.
+// the console's design language sets.
 //
 // SO THE DOOR NAMES THIS, AND THIS NAMES THE WORK THROUGH `import()`. What stays on the
 // graph is one function body and a type reference that erases; the compiler and its
@@ -42,8 +42,8 @@
 // supports raced their file's first `import()` on its first mount. One held promise is what
 // makes a second call synchronous-to-settle rather than merely cheap.
 //
-// A CLASS WITH A PRIVATE FIELD, never a module-level `let` — `apps/desktop/AGENTS.md`
-// §State and views, and `SchemaFormChunk` is the same shape one family up for the same
+// A CLASS WITH A PRIVATE FIELD, never a module-level `let`, on this package's state
+// rules, and `SchemaFormChunk` is the same shape one family up for the same
 // job. The instance below is this renderer's; a test builds its own, which is what keeps
 // the memo out of the shared state a module-level promise would be.
 //

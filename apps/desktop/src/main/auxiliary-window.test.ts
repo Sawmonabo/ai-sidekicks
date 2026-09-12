@@ -1,17 +1,16 @@
-// Plan-023 Phase 1B (T-023p-1B-2) — the auxiliary window factory.
+// The auxiliary window factory.
 //
 // Three properties are asserted here that nothing else in the suite reaches:
 //
 //   1. Every auxiliary window is constructed with the SAME locked
 //      `webPreferences` block as the main one. `assert-webprefs.ts` proves the
 //      literal is correct and appears exactly once in the source; this proves
-//      the second factory actually routes through it at runtime
-//      (Plan-023 I-023-12).
+//      the second factory actually routes through it at runtime.
 //   2. Two auxiliary windows share no object identity: distinct `webContents`,
 //      distinct ids, and neither holding the main window's. That is the runtime
 //      half of "its own bridge instance and no shared store" — the preload path
 //      is per-window by construction, and this proves the factory does not hand
-//      back a cached window (Plan-023 I-023-12).
+//      back a cached window.
 //   3. A malformed launch descriptor is refused BEFORE any `BrowserWindow` is
 //      constructed. The pane context reaches the fragment of a URL the window
 //      then loads, so an unvalidated id is caller-controlled input inside a
@@ -28,9 +27,9 @@ import {
   POLICY_OPERATIONS,
 } from "../../test/helpers/window-test-harness.js";
 
-// `IMPLEMENTED_AUXILIARY_ROUTES` is empty in the shipped build at Phase 1B (see
+// `IMPLEMENTED_AUXILIARY_ROUTES` is empty in the shipped build (see
 // `../shared/auxiliary-routes.ts`), so the auxiliary factory is exercised
-// against a stubbed list carrying both spec-named routes. The refusal arm below
+// against a stubbed list carrying both named routes. The refusal arm below
 // asserts the other direction: a route the list does NOT carry is refused before
 // a window is constructed, which is the behaviour the shipped empty list
 // produces for every route today.

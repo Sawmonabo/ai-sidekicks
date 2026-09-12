@@ -1,12 +1,11 @@
 // The frame's honest lines about the runtime: the version mismatch, the outage, and
 // the catch-up.
 //
-// THREE BANNERS AND NOT ONE, because they are three different facts and a person
-// acts differently on each. `Spec-023 §Daemon Supervision Lifecycle` step 3 makes an
-// incompatible handshake its own state — mutating operations blocked, reads
-// permitted — and it is emphatically not a disconnect: the runtime is right there
-// and answering. Wearing disconnect chrome for it would send a person to restart a
-// process that is running fine.
+// THREE BANNERS AND NOT ONE, because they are three different facts and a person acts
+// differently on each. The daemon supervision lifecycle makes an incompatible handshake
+// its own state — mutating operations blocked, reads permitted — and it is emphatically
+// not a disconnect: the runtime is right there and answering. Wearing disconnect chrome
+// for it would send a person to restart a process that is running fine.
 //
 // THE READ-ONLY LINE RIDES WHICHEVER BANNER IS UP rather than being a fourth one.
 // It is not an independent condition — it is what the state above it costs — and a

@@ -144,7 +144,7 @@ describe("one event, folded", () => {
           approvalRequestId: "approval-2",
           category: "file_write",
           scope: "session",
-          approver: "participant-you",
+          approver: "user-you",
         },
       }),
     );
@@ -189,7 +189,7 @@ describe("one event, folded", () => {
           approvalRequestId: "approval-4",
           category: "tool_execution",
           scope: "run",
-          approver: "participant-you",
+          approver: "user-you",
           nodeId: "workstation-local",
           rememberedScope: { kind: "run" },
           ruleId: "rule-1",

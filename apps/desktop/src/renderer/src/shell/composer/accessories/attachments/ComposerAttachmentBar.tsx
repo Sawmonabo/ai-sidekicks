@@ -5,11 +5,10 @@
 // attachment surface, and an empty row reserving space would be a permanent reminder
 // of a thing nobody has done.
 //
-// THE COUNT IS RENDERED AND THE DAEMON DECIDES. `Spec-014 §Bounds (normative defaults;
-// operator-tunable)` refuses the whole carrier at acceptance and the bound is
-// operator-tunable, so the running count is a figure a person reads and never a gate
-// this strip closes: nothing here withdraws the picker, and the eleventh file is
-// offered exactly as the first was.
+// THE COUNT IS RENDERED AND THE DAEMON DECIDES. The daemon refuses the whole carrier
+// at acceptance and the bound is operator-tunable, so the running count is a figure a
+// person reads and never a gate this strip closes: nothing here withdraws the picker,
+// and the eleventh file is offered exactly as the first was.
 //
 // TWO SOURCES OF ATTACHMENT AND ONE LINE FOR BOTH. Files a person chose ride this
 // session's carrier; a page a view family captured came back from that family already

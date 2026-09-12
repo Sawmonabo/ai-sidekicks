@@ -228,7 +228,7 @@ export type RegistrationFieldReading =
  * surface that goes quiet when it is surprised, and the whole point of the refusal
  * shape is that a press is answered.
  *
- * NO REFUSED VALUE IS ECHOED. A label is participant content, and `detail` says what
+ * NO REFUSED VALUE IS ECHOED. A label is user content, and `detail` says what
  * would change the answer rather than repeating what was typed.
  */
 export function readRegistrationFields(typed: {

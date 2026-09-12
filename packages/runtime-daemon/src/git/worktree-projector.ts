@@ -1,4 +1,4 @@
-// Worktree and ephemeral-clone status-read projection — Plan-010 T2.5.
+// Worktree and ephemeral-clone status-read projection
 //
 // PURE FOLD, per the shipped `workspace/workspace-projector.ts` precedent and
 // the `session/session-projector.ts` one behind it: no filesystem call, no
@@ -9,59 +9,50 @@
 // be driven deterministically from a test with no database and no temp
 // directory.
 //
-// Spec coverage:
-//   • `Spec-010 §Interfaces And Contracts` — "`WorktreeStatusRead` must expose
-//     the session's worktree and ephemeral-clone records — lifecycle state,
-//     branch, cleanup bookkeeping, and provenance — as a daemon-owned read
-//     surface." All four axes are carried below for BOTH record kinds:
-//     lifecycle (`state`), branch (`branchName`), cleanup bookkeeping
-//     (`cleanedAt`, plus the clone's `cleanupPolicy` + `expiresAt`), and
-//     provenance (`createdBySessionId` / `createdByRunId` on the worktree
-//     record; the clone's owning `workspaceId`).
-//   • `Spec-010 §State And Data Implications` — "Dirty and merged state belong
-//     to daemon-owned workspace projections." `dirty` and `merged` are DAEMON
-//     verdicts that arrive on the `worktrees` row; their `-> dirty` / `-> merged`
-//     transitions belong to the run-integration layer above T2.2, not to any
-//     Phase-2 writer (the plan's Phase 3 record carries the ownership). This
-//     projection carries whatever state the row holds verbatim and infers
-//     cleanliness from nothing — there is no working-tree read here, and there
-//     could not be: the module performs no I/O.
+//   • "`WorktreeStatusRead` must expose the session's worktree and
+//     ephemeral-clone records — lifecycle state, branch, cleanup bookkeeping,
+//     and provenance — as a daemon-owned read surface." All four axes are
+//     carried below for BOTH record kinds: lifecycle (`state`), branch
+//     (`branchName`), cleanup bookkeeping (`cleanedAt`, plus the clone's
+//     `cleanupPolicy` + `expiresAt`), and provenance (`createdBySessionId` /
+//     `createdByRunId` on the worktree record; the clone's owning
+//     `workspaceId`).
+//   • "Dirty and merged state belong to daemon-owned workspace projections."
+//     `dirty` and `merged` are DAEMON verdicts that arrive on the `worktrees`
+//     row; their `-> dirty` / `-> merged` transitions belong to the
+//     run-integration layer above not to any Phase-2 writer (the plan's Phase 3
+//     record carries the ownership). This projection carries whatever state the
+//     row holds verbatim and infers cleanliness from nothing — there is no
+//     working-tree read here, and there could not be: the module performs no I/O.
 //
-// Verifies invariant: I-010-20 (daemon half), I-010-19 (daemon half) — both
-// statements, and the reasoning for what each half owes, are spelled out below.
+// Both statements, and the reasoning for what each half owes, are spelled out
+// below.
 //
 // Invariants carried here:
-//   • I-010-20 (daemon half) — views render daemon verdicts verbatim and
-//     derive nothing (no client-side expiry math, no cleanliness inference, no
-//     root computation). The VIEW half is Phase 4's (T4.1–T4.4); the half that
-//     lands here is its precondition — every value a view renders arrives
-//     already resolved daemon-side, byte-identical to the column it came from.
-//     Structural rather than merely disciplined: this module owns no clock, so
+//   • Views render daemon verdicts verbatim and derive nothing (no client-side
+//     expiry math, no cleanliness inference, no root computation). Structural
+//     rather than merely disciplined: this module owns no clock, so
 //     `expiresAt` CANNOT become a remaining-TTL or an `expired` flag, and it
 //     owns no filesystem, so `fsRoot` / `cloneRoot` cannot be re-resolved or
 //     normalized. The response carries exactly the ratified field set, so
 //     there is nowhere to put a derived value even if one existed.
-//   • I-010-19 (daemon half) — never-hide: the projection returns EVERY row it
-//     is handed, `failed` and `retired` included. The invariant is worded
-//     view-side ("status views render every row the status read returns"), and
-//     this is its precondition: a view cannot render a row the read filtered
-//     away. The only narrowing below is the caller's explicit `repoMountId`
-//     filter — a REQUEST parameter, never a state judgement. No branch in this
-//     module reads a row's `state` at all; the field is copied across and
-//     validated, never tested.
+//   • Never-hide: the projection returns EVERY row it is handed, `failed` and
+//     `retired` included. The invariant is worded view-side ("status views
+//     render every row the status read returns"), and this is its
+//     precondition: a view cannot render a row the read filtered away. The
+//     only narrowing below is the caller's explicit `repoMountId` filter — a
+//     REQUEST parameter, never a state judgement. No branch in this module
+//     reads a row's `state` at all; the field is copied across and validated,
+//     never tested.
 //
 // ---------------------------------------------------------------------------
-// The row-read seam this projection obliges (T3.4's status-read binder)
+// The row-read seam this projection obliges (the status-read binder)
 // ---------------------------------------------------------------------------
 //
-// SESSION SCOPING RIDES `repo_mounts`, not the rows themselves. Neither table
-// carries the reading session: `worktrees.created_by_session_id` is
-// PROVENANCE (which session created this checkout — I-010-3, preserved through
-// retirement) and is a different question from which session may read it,
-// since a worktree outlives its creating run while the MOUNT is what a session
-// holds. So both row shapes below carry a join-supplied `session_id` beside
-// the table's own columns, and the projection refuses any row whose value
-// disagrees with the request's:
+// SESSION SCOPING RIDES `repo_mounts`, not the rows themselves. So both row
+// shapes below carry a join-supplied `session_id` beside the table's own
+// columns, and the projection refuses any row whose value disagrees with the
+// request's:
 //
 //   worktrees         SELECT w.*, m.session_id
 //                     FROM worktrees w
@@ -78,19 +69,16 @@
 // the ratified response shape carries, faithful to the DDL) — and that single
 // join answers both questions at once: `workspaces.session_id` equals
 // `repo_mounts.session_id` by construction, because a workspace inherits its
-// mount's session at creation and never re-parents (Plan-009's
+// mount's session at creation and never re-parents (the
 // `CreateDefaultWorkspaceInput.sessionId`: "the session the mount belongs to —
 // the workspace inherits it, never a caller-supplied one").
 //
 // ORDER IS THE CALLER'S. This fold preserves the order it receives and never
 // sorts: sorting would be a derivation, and the ratified response arrays
-// declare no ordering. The stable rendering T4.2 needs is therefore the
-// query's `ORDER BY` to own, not this module's — pick one there and the view
+// declare no ordering. The stable rendering needs is therefore the query's
+// `ORDER BY` to own, not this module's — pick one there and the view
 // inherits it unchanged.
 //
-// Refs: Plan-010 (worktree lifecycle and execution modes) T2.5, Plan-009 (the
-// pure-projector precedent), D-010-17 (the daemon-owned status read),
-// CP-010-7 (this Plan-010-owned `src/git/` subtree).
 
 import {
   WorktreeStatusReadResponseSchema,
@@ -125,12 +113,12 @@ export interface WorktreeStatusRow {
    * `created_by_session_id` below — see the file header.
    */
   readonly session_id: string;
-  /** Creating-session provenance (`NOT NULL`; I-010-3 makes it unconditional). */
+  /** Creating-session provenance (`NOT NULL` makes it unconditional). */
   readonly created_by_session_id: string;
   /**
-   * Creating-run provenance, `NULL` for a pre-run explicit prepare (D-010-5).
-   * The asymmetry with `created_by_session_id` IS the provenance contract, not
-   * an inconsistency.
+   * Creating-run provenance, `NULL` for a pre-run explicit prepare. The
+   * asymmetry with `created_by_session_id` IS the provenance contract, not an
+   * inconsistency.
    */
   readonly created_by_run_id: string | null;
   readonly branch_name: string;
@@ -145,7 +133,7 @@ export interface WorktreeStatusRow {
   readonly state: string;
   readonly created_at: string;
   readonly updated_at: string;
-  /** The async disk-cleanup stamp; `NULL` until the sweep runs (I-010-9). */
+  /** The async disk-cleanup stamp; `NULL` until the sweep runs. */
   readonly cleaned_at: string | null;
 }
 
@@ -256,7 +244,6 @@ type _AssertDraftCoversRatifiedCloneRecord = _AssertExtends<
 >;
 
 // --------------------------------------------------------------------------
-// The projection (D-010-17)
 // --------------------------------------------------------------------------
 
 /**
@@ -307,10 +294,10 @@ export function projectWorktreeStatusRead(
       // value in some serializers. Absence is what "no run to attribute" means.
       //
       // The test is POSITIVE MEMBERSHIP, not `=== null`. The row interfaces
-      // above describe what the T3.4 query is asked to hand over, and driver
-      // rows reach this fold through an unchecked cast: a column the query
-      // forgot to select arrives as `undefined`, which a `=== null` test would
-      // wave through and ship as a present key with an `undefined` value (Zod
+      // above describe what query is asked to hand over, and driver rows reach
+      // this fold through an unchecked cast: a column the query forgot to
+      // select arrives as `undefined`, which a `=== null` test would wave
+      // through and ship as a present key with an `undefined` value (Zod
       // preserves explicit-undefined key presence). Requiring a string is the
       // spelling that fails closed on the shape this file cannot type-check.
       ...(typeof row.created_by_run_id === "string"
@@ -319,7 +306,7 @@ export function projectWorktreeStatusRead(
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       // Same discipline, and here the absence is load-bearing information: a
-      // `retired` row with no `cleanedAt` is the observable half of I-010-9's
+      // `retired` row with no `cleanedAt` is the observable half of the
       // recorded-then-cleaned ordering — missing information about the world,
       // not a missing field.
       ...(typeof row.cleaned_at === "string" ? { cleanedAt: row.cleaned_at } : {}),
@@ -339,9 +326,9 @@ export function projectWorktreeStatusRead(
       branchName: row.branch_name,
       state: row.state,
       cleanupPolicy: row.cleanup_policy,
-      // VERBATIM, and this is the field I-010-20 names first: the stored TTL
-      // deadline travels as the instant the daemon computed at prepare time.
-      // No comparison against a clock happens here or downstream — an expired
+      // VERBATIM, and this is the field names first: the stored TTL deadline
+      // travels as the instant the daemon computed at prepare time. No
+      // comparison against a clock happens here or downstream — an expired
       // clone is reported by its `state` once the sweep retires it, never by
       // arithmetic on this value.
       expiresAt: row.expires_at,
@@ -367,9 +354,9 @@ export function projectWorktreeStatusRead(
  * session's execution roots and branch names on a session-scoped read.
  *
  * THROWS rather than filters, deliberately. A foreign row is not a hidden
- * state — the never-hide posture (I-010-19) is about lifecycle positions of
- * the session's OWN rows — it is a caller defect, and a silent drop would let
- * a mispaired query keep running.
+ * state — the never-hide posture is about lifecycle positions of the
+ * session's OWN rows — it is a caller defect, and a silent drop would let a
+ * mispaired query keep running.
  *
  * The other session's id is not named in the message: a daemon error can reach
  * a remote caller through the JSON-RPC error mapping, and the row id alone

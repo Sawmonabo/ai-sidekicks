@@ -8,9 +8,9 @@
 //
 // WHY THE PROJECTION IS DERIVED HERE AND NOT IN A SURFACE
 //
-// `Spec-019 §State And Data Implications` makes attention "a derived projection from
-// canonical events", and Plan-019 I-019-4 requires clients to READ that projection
-// rather than recompute it from a partial local view — the failure it names is a
+// Attention is a derived projection from canonical events, and clients READ that
+// projection rather than recompute it from a partial local view — the failure that
+// rule names is a
 // session badge and its run badges drifting apart. The fixture bridge is the daemon's
 // stand-in, so the derivation belongs on this side of the seam, exactly where the
 // daemon's projector will be. A notification centre that folded the event stream
@@ -19,37 +19,32 @@
 //
 // WHAT THE DERIVATION CLAIMS, AND WHAT IT DELIBERATELY DOES NOT
 //
-// Four of the six registered triggers are derived. Three of the four are the ones
-// `Spec-019 §Default Behavior` classifies by name: "Pending approval or required
-// input is actionable attention by default" covers `run.waiting_for_approval` and
-// `run.waiting_for_input`; "Run completion and invite receipt are informational
-// attention by default" covers `run.completed`.
+// Four of the five registered triggers are derived. Three of the four are classified
+// by name: pending approval or required input is actionable attention by default,
+// which covers `run.waiting_for_approval` and `run.waiting_for_input`; run completion
+// is informational attention by default, which covers `run.completed`.
 //
-// The fourth is `run_failed`, and it is classified by APPLYING the spec's definition
-// of the two classes rather than by picking a default. `Spec-019 §Required Behavior`
-// makes run failure a required trigger and states the distinction the product turns
-// on — "passive informational notifications" against "actionable blocking attention"
-// — and §Default Behavior's actionable class is exactly the suspended-run class: a
-// run waiting for an approval decision, or waiting for participant input. A failed
-// run is terminal and blocks on no participant; its remedy is a new run, which the
-// ledger already offers. So it is informational by the spec's own definition of the
-// classes. Reading the spec as classifying nothing here was the narrower reading, and
-// its consequence was the defect: a scenario that played a failure CLEARED the run's
+// The fourth is `run_failed`, and it is classified by APPLYING the definition of the
+// two classes rather than by picking a default. Run failure is a required trigger,
+// and the distinction the product turns on is passive informational notifications
+// against actionable blocking attention — where the actionable class is exactly the
+// suspended-run class: a run waiting for an approval decision, or waiting for
+// user input. A failed run is terminal and blocks on no user; its
+// remedy is a new run, which the ledger already offers. So it is informational by
+// that definition of the classes. Reading the rule as classifying nothing here was
+// the narrower reading, and its consequence was the defect: a scenario that played a
+// failure CLEARED the run's
 // attention through the fold's delete branch, and the served projection then reported
 // nothing for the one state a failure-oriented surface exists to show.
 //
-// The daemon projector owns the mapping — Plan-019 T2.3 derives it from canonical
+// The daemon projector owns the mapping — it derives the classes from canonical
 // events — and wire truth beats fixture. The day that projector lands and classifies
 // this differently, the table below moves to match it; nothing above this module is
 // entitled to disagree with the wire.
 //
-// The other two registered triggers are not derived, each for a reason rather than
-// for lack of time:
-//
-//   • `invite_received` — `invite.created` is registered, but no scenario plays one,
-//     so the fold would have no input; it lands with the scenario that needs it.
-//   • `mention` — the event census registers no mention type at all, so there is
-//     nothing canonical to fold.
+// The remaining trigger is not derived, for a reason rather than for lack of time:
+// `mention` — the event census registers no mention type at all, so there is nothing
+// canonical to fold.
 
 import { compareInstants, parseInstant } from "../../../core/index.js";
 import type {
@@ -60,7 +55,7 @@ import type {
 } from "../../wire-shapes/index.js";
 import type { ConsoleScenario } from "../../scenario/runtime/index.js";
 
-/** How one run state reaches a participant, where `Spec-019` classifies it. */
+/** How one run state reaches a user, and which class it falls in. */
 interface AttentionClassification {
   readonly trigger: AttentionTrigger;
   readonly severity: AttentionSeverity;
@@ -72,15 +67,15 @@ interface AttentionClassification {
  * The run states that are attention, and what kind of attention each one is.
  *
  * Keyed by the run state itself rather than by the event kind that announced it,
- * because a run's ATTENTION follows its current state: `Spec-019 §Required Behavior`
- * derives emission "from canonical session or run state", and the state is what the
+ * because a run's ATTENTION follows its current state: emission derives from
+ * canonical session or run state, and the state is what the
  * transition's `newState` carries. Keying on the kind would have made resolution a
  * second mechanism — some rule about which later kinds cancel which earlier ones —
  * where here it is the same one fact, read again.
  *
- * Four entries. The header says which three `Spec-019 §Default Behavior` classifies
- * by name, how the fourth follows from that spec's own definition of the two classes,
- * and why the remaining two registered triggers are absent.
+ * Four entries. The header says which three are classified by name, how the fourth
+ * follows from the definition of the two classes, and why the remaining two
+ * registered triggers are absent.
  */
 const ATTENTION_BY_RUN_STATE: Readonly<Record<string, AttentionClassification>> = {
   waiting_for_approval: {
@@ -91,7 +86,7 @@ const ATTENTION_BY_RUN_STATE: Readonly<Record<string, AttentionClassification>> 
   waiting_for_input: {
     trigger: "pending_input",
     severity: "actionable",
-    summary: "A run is waiting for participant input.",
+    summary: "A run is waiting for user input.",
   },
   completed: {
     trigger: "run_completed",
@@ -177,7 +172,7 @@ function readRunStateTransition(
  * The session-scoped aggregate over the run-scoped contributors, or `undefined`
  * when there are none.
  *
- * Plan-019 D-019-2's rule, transcribed rather than reinvented: the aggregate is an
+ * The aggregation rule, transcribed rather than reinvented: the aggregate is an
  * `AttentionItem` with no `runId`; `severity` is `actionable` while ANY contributor
  * is, `informational` only when every one is; and `trigger` and `sourceEventId` come
  * from one representative contributor chosen by highest severity, then earliest
@@ -212,7 +207,7 @@ function deriveSessionAggregate(
 }
 
 /**
- * D-019-2's tiebreak chain: severity, then `createdAt`, then `id`.
+ * The tiebreak chain: severity, then `createdAt`, then `id`.
  *
  * The stamps are ordered through `compareInstants` and not with `<`. Two RFC 3339
  * stamps are not lexically ordered — an offset form sorts after the `Z` form of the

@@ -1,6 +1,6 @@
-// Plan-003 §T3.8 + §T3.4: runtime-node procedures resolve through the MERGED
-// host, AND the shared errorFormatter projects their typed refusals onto the
-// wire `error.data.aisError` envelope.
+// Runtime-node procedures resolve through the MERGED host, and the shared
+// errorFormatter projects their typed refusals onto the wire `error.data.aisError`
+// envelope.
 //
 // The standalone caller tests (runtime-node-router.test.ts) drive
 // `createRuntimeNodeRouter` directly via `t.createCallerFactory`, which bypasses
@@ -17,12 +17,12 @@
 // 404 — every standalone caller test would still pass.
 //
 // The errorFormatter-projection dispatches are the ONLY tests in the suite that
-// observe the wire `error.data.aisError` envelope: `errorFormatter` runs in
-// tRPC's HTTP/adapter path (`getErrorShape`), NOT in the in-process
-// `createCallerFactory` the caller tests use, so the envelope is unobservable
-// there. They close the T3.8 deferral — proving the formatter, collapsed onto a
-// single `AisWireException` base `instanceof` (T3.4), projects EVERY subclass
-// uniformly (each previously only set `cause` with no per-class formatter branch).
+// observe the wire `error.data.aisError` envelope: `errorFormatter` runs in tRPC's
+// HTTP/adapter path (`getErrorShape`), NOT in the in-process `createCallerFactory`
+// the caller tests use, so the envelope is unobservable there. They close deferral
+// — proving the formatter, collapsed onto a single `AisWireException` base
+// `instanceof`, projects EVERY subclass uniformly (each previously only set
+// `cause` with no per-class formatter branch).
 //
 // Coverage is deliberately whole-family: the `AisWireException` base
 // (../../ais-wire-exception.ts) has exactly FOUR concrete subclasses, and the
@@ -39,7 +39,7 @@
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { beforeEach, afterEach, describe, expect, it } from "vitest";
 
-import type { NodeId, ParticipantId, SessionId } from "@ai-sidekicks/contracts";
+import type { NodeId, UserId, SessionId } from "@ai-sidekicks/contracts";
 import {
   RUNTIME_NODE_ATTACH_CONFLICT_CODE,
   RUNTIME_NODE_ATTACH_REVOKED_CODE,
@@ -59,28 +59,26 @@ const PASSING_ENV: ControlPlaneEnv = {
 };
 
 // Session-side ids required by PassThroughDepsConfig. The heartbeat path never
-// reads them (no session/participant FK on `runtime_node_presence`), but the
+// reads them (no session/user FK on `runtime_node_presence`), but the
 // config type requires them; UUID v7-shaped values satisfy the brand validators.
-const CURRENT_PARTICIPANT_ID: ParticipantId =
-  "01970000-0000-7000-8000-0000000f0001" as ParticipantId;
+const CURRENT_USER_ID: UserId = "01970000-0000-7000-8000-0000000f0001" as UserId;
 const NEXT_SESSION_ID: SessionId = "01970000-0000-7000-8000-0000000e0001" as SessionId;
 
 // Ids for the errorFormatter-projection dispatches (the attach / capabilityupdate
-// / join refusals seed real attachment + membership rows). `SESSION_ID` reuses
+// refusals seed real attachment rows). `SESSION_ID` reuses
 // `NEXT_SESSION_ID`; `NODE_ID` is a daemon-minted opaque TEXT scalar (not a UUID).
 const SESSION_ID: SessionId = NEXT_SESSION_ID;
-const PARTICIPANT_ID: ParticipantId = CURRENT_PARTICIPANT_ID;
+const USER_ID: UserId = CURRENT_USER_ID;
 
-// The user who owns the seeded sessions. Distinct from `CURRENT_PARTICIPANT_ID`
+// The user who owns the seeded sessions. Distinct from `CURRENT_USER_ID`
 // so the seed does not accidentally pre-register the caller the dispatches act
 // as; `sessions.owner_user_id` is NOT NULL, so every session seed needs one.
-const SESSION_OWNER_PARTICIPANT_ID: ParticipantId =
-  "01970000-0000-7000-8000-0000000f00ff" as ParticipantId;
+const SESSION_OWNER_USER_ID: UserId = "01970000-0000-7000-8000-0000000f00ff" as UserId;
 const NODE_ID: NodeId = "node-alpha-01" as NodeId;
 
 // A second session id for the attach cross-session-conflict projection: the node
 // holds an ACTIVE attachment HERE, so a `runtimenode.attach` to `SESSION_ID`
-// trips the single-active-attachment refusal (I-003-5).
+// trips the single-active-attachment refusal.
 const OTHER_SESSION_ID: SessionId = "01970000-0000-7000-8000-0000000e0002" as SessionId;
 
 // ----------------------------------------------------------------------------
@@ -155,7 +153,7 @@ function buildAttachRequest(): Request {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       sessionId: String(SESSION_ID),
-      participantId: String(PARTICIPANT_ID),
+      userId: String(USER_ID),
       nodeId: String(NODE_ID),
       clientVersion: "1.4",
       capabilities: { "provider-driver": "claude" },
@@ -166,20 +164,18 @@ function buildAttachRequest(): Request {
 
 // Seed helpers for the projection dispatches — bypass the services to set up the
 // rows the capabilityupdate refusals exercise (mirrors runtime-node-router.test.ts).
-async function seedParticipant(querier: Querier, participantId: ParticipantId): Promise<void> {
-  await querier.query("INSERT INTO participants (id) VALUES ($1) ON CONFLICT DO NOTHING", [
-    participantId,
-  ]);
+async function seedUser(querier: Querier, userId: UserId): Promise<void> {
+  await querier.query("INSERT INTO users (id) VALUES ($1) ON CONFLICT DO NOTHING", [userId]);
 }
 
 // Seed a session with NO floor (NULL `min_client_version`) — the attach
 // conflict/revoked refusals do not exercise the floor, so the
 // default-no-floor session is the minimal precondition.
 async function seedSession(querier: Querier, sessionId: SessionId): Promise<void> {
-  await seedParticipant(querier, SESSION_OWNER_PARTICIPANT_ID);
+  await seedUser(querier, SESSION_OWNER_USER_ID);
   await querier.query("INSERT INTO sessions (id, owner_user_id, state) VALUES ($1, $2, 'active')", [
     sessionId,
-    SESSION_OWNER_PARTICIPANT_ID,
+    SESSION_OWNER_USER_ID,
   ]);
 }
 
@@ -190,10 +186,10 @@ async function seedFlooredSession(
   sessionId: SessionId,
   minClientVersion: string,
 ): Promise<void> {
-  await seedParticipant(querier, SESSION_OWNER_PARTICIPANT_ID);
+  await seedUser(querier, SESSION_OWNER_USER_ID);
   await querier.query(
     "INSERT INTO sessions (id, owner_user_id, state, min_client_version) VALUES ($1, $2, 'active', $3)",
-    [sessionId, SESSION_OWNER_PARTICIPANT_ID, minClientVersion],
+    [sessionId, SESSION_OWNER_USER_ID, minClientVersion],
   );
 }
 
@@ -201,7 +197,7 @@ async function seedAttachment(
   querier: Querier,
   args: {
     sessionId: SessionId;
-    participantId: ParticipantId;
+    userId: UserId;
     nodeId: NodeId;
     state: string;
     clientVersion: string;
@@ -209,9 +205,9 @@ async function seedAttachment(
 ): Promise<void> {
   await querier.query(
     `INSERT INTO runtime_node_attachments
-       (session_id, participant_id, node_id, capabilities, client_version, state)
+       (session_id, user_id, node_id, capabilities, client_version, state)
      VALUES ($1, $2, $3, $4, $5, $6)`,
-    [args.sessionId, args.participantId, args.nodeId, {}, args.clientVersion, args.state],
+    [args.sessionId, args.userId, args.nodeId, {}, args.clientVersion, args.state],
   );
 }
 
@@ -241,7 +237,7 @@ beforeEach(async () => {
   handler = buildControlPlaneFetchHandler(
     makePassThroughDeps({
       querier,
-      currentParticipantId: CURRENT_PARTICIPANT_ID,
+      currentUserId: CURRENT_USER_ID,
       nextSessionId: NEXT_SESSION_ID,
     }),
   );
@@ -251,7 +247,7 @@ afterEach(async () => {
   await pg.close();
 });
 
-describe("merged host — runtimenode.* resolves through t.mergeRouters (T3.8)", () => {
+describe("merged host — runtimenode.* resolves through t.mergeRouters", () => {
   it("dispatches runtimenode.heartbeat through buildControlPlaneFetchHandler and returns 200 + null", async () => {
     // First-beat upsert needs no seeding — `runtime_node_presence.node_id` is a
     // bare TEXT PK (no FK), so ingest succeeds standalone (the first-heartbeat
@@ -277,7 +273,7 @@ describe("merged host — runtimenode.* resolves through t.mergeRouters (T3.8)",
 
 // ----------------------------------------------------------------------------
 // errorFormatter projection — the AisWireException base covers all FIVE
-// subclasses via the HTTP path (T3.4; closes the T3.8 deferral).
+// subclasses via the HTTP path (closes deferral).
 // ----------------------------------------------------------------------------
 //
 // These are the only suite tests that observe the wire `error.data.aisError`
@@ -295,18 +291,16 @@ describe("merged host — runtimenode.* resolves through t.mergeRouters (T3.8)",
 
 describe("errorFormatter projection — AisWireException base covers all subtypes via the HTTP path", () => {
   it("projects version.floor_exceeded as {code, message} (no details) for a below-floor write", async () => {
-    // A floored session (floor 2.0) holds the node's active attachment at a
-    // below-floor client_version (1.0): the read-only verdict the write-gate
-    // re-derives. The capability WRITE is refused with the typed
-    // VersionFloorExceededException, which the catch-arm maps to CONFLICT and the
-    // shared formatter projects onto error.data.aisError (`Spec-003 §Acceptance Criteria` AC4 /
-    // ADR-018 §Decision #4 / I-003-1).
+    // A floored session (floor 2.0) holds the node's active attachment at a below-floor
+    // client_version (1.0): the read-only verdict the write-gate re-derives. The capability
+    // WRITE is refused with the typed VersionFloorExceededException, which the catch-arm maps
+    // to CONFLICT and the shared formatter projects onto error.data.aisError.
     const querier = adaptPGlite(pg);
-    await seedParticipant(querier, PARTICIPANT_ID);
+    await seedUser(querier, USER_ID);
     await seedFlooredSession(querier, SESSION_ID, "2.0");
     await seedAttachment(querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "online",
       clientVersion: "1.0",
@@ -314,7 +308,6 @@ describe("errorFormatter projection — AisWireException base covers all subtype
 
     const response = await handler(buildCapabilityUpdateRequest(), PASSING_ENV);
 
-    // HTTP 409 (error-contracts.md §Version row).
     expect(response.status).toBe(409);
     const body = (await response.json()) as WireErrorEnvelope;
     expect(body.error?.data?.httpStatus).toBe(409);
@@ -330,14 +323,8 @@ describe("errorFormatter projection — AisWireException base covers all subtype
     expect(aisError).not.toHaveProperty("details");
   });
 
-  it("projects runtimenode.capabilityupdate_conflict as {code, message} (no details) — the T3.8-deferred sibling now projects via the base", async () => {
-    // A sibling runtime-node refusal proves the T3.8-deferred projection is now
-    // LIVE for the whole family (not just version-floor): a capability update
-    // against a node with NO active attachment throws
-    // RuntimeNodeCapabilityUpdateConflictException, which now projects onto
-    // error.data.aisError via the shared AisWireException base `instanceof` (it
-    // previously only set `cause` with no formatter branch). No seeding -> no
-    // active attachment.
+  it("projects runtimenode.capabilityupdate_conflict as {code, message} (no details) — -deferred sibling now projects via the base", async () => {
+    // No seeding -> no active attachment.
     const response = await handler(buildCapabilityUpdateRequest(), PASSING_ENV);
 
     expect(response.status).toBe(409);
@@ -353,21 +340,20 @@ describe("errorFormatter projection — AisWireException base covers all subtype
   });
 
   it("projects runtime_node.attach_conflict as {code, message} (no details) for a cross-session active attach", async () => {
-    // The node already holds an ACTIVE attachment in ANOTHER session: the
-    // partial-unique idx_node_attachments_active raises 23505, which the service
-    // translates to the typed RuntimeNodeAttachConflictException (I-003-5). The
-    // attach catch-arm maps it to CONFLICT and the shared formatter projects it.
-    // This is the in-process router test's attach-conflict assertion —
-    // `packages/control-plane/src/runtime-nodes/__tests__/runtime-node-router.test.ts#runtimenode.attach maps the cross-session conflict (RuntimeNodeAttachConflictException) to CONFLICT`
-    // — re-run on the HTTP path, the only surface where `aisError` is
-    // observable.
+    // The node already holds an ACTIVE attachment in ANOTHER session: the partial-unique
+    // idx_node_attachments_active raises 23505, which the service translates to the typed
+    // RuntimeNodeAttachConflictException. The attach catch-arm maps it to CONFLICT and the shared
+    // formatter projects it. This is the in-process router test's attach-conflict assertion —
+    // `packages/control-plane/src/runtime-nodes/__tests__/runtime-node-router.test.ts#runtimenode.attach
+    // maps the cross-session conflict (RuntimeNodeAttachConflictException) to CONFLICT` — re-run on
+    // the HTTP path, the only surface where `aisError` is observable.
     const querier = adaptPGlite(pg);
-    await seedParticipant(querier, PARTICIPANT_ID);
+    await seedUser(querier, USER_ID);
     await seedSession(querier, SESSION_ID);
     await seedSession(querier, OTHER_SESSION_ID);
     await seedAttachment(querier, {
       sessionId: OTHER_SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "online",
       clientVersion: "1.4",
@@ -375,7 +361,6 @@ describe("errorFormatter projection — AisWireException base covers all subtype
 
     const response = await handler(buildAttachRequest(), PASSING_ENV);
 
-    // HTTP 409 (error-contracts.md §Runtime Node row).
     expect(response.status).toBe(409);
     const body = (await response.json()) as WireErrorEnvelope;
     expect(body.error?.data?.httpStatus).toBe(409);
@@ -400,11 +385,11 @@ describe("errorFormatter projection — AisWireException base covers all subtype
     // twin of
     // `packages/control-plane/src/runtime-nodes/__tests__/runtime-node-router.test.ts#runtimenode.attach maps the revoked-row refusal (RuntimeNodeAttachRevokedException) to CONFLICT`.
     const querier = adaptPGlite(pg);
-    await seedParticipant(querier, PARTICIPANT_ID);
+    await seedUser(querier, USER_ID);
     await seedSession(querier, SESSION_ID);
     await seedAttachment(querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "revoked",
       clientVersion: "1.4",

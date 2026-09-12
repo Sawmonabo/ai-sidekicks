@@ -1,9 +1,8 @@
 // The sessions destination: what am I in the middle of, what is waiting on me, and
 // the three ways work arrives — started here, joined, or imported.
 //
-// `Spec-023 §Console Design (Meridian)` §All-sessions list: "Answer 'what am I in
-// the middle of' in one screen, ordered so the thing you touched last is where you
-// left it."
+// The all-sessions list answers "what am I in the middle of" in one screen, ordered
+// so the thing you touched last is where you left it.
 //
 // WHAT THIS SURFACE MAY AND MAY NOT CLAIM
 //
@@ -54,8 +53,8 @@
 //
 // STARTING A SESSION IS AN ACT, NEVER A SIDE EFFECT OF LOOKING AT THE LIST
 //
-// `session.create` and `session.join` are live now, and one shipped Tier-1
-// component already calls them — from its MOUNT EFFECT. Mounting that component
+// `session.create` is live now, and one pre-console
+// component already calls it — from its MOUNT EFFECT. Mounting that component
 // with the surface would mean every navigation to Settings and back created a
 // session, because the route lifecycle remounts the slot. A session is a durable
 // object with a cost; creating one is something a person does.
@@ -64,7 +63,7 @@
 // count keys the mount: a second press remounts and therefore starts a second
 // session, where a boolean would leave the first mount in place and make the
 // control silently inert after its first use. The probe still performs the create —
-// the console absorbs the three shipped Tier-1 components and re-authors none of
+// the console absorbs the three pre-console components and re-authors none of
 // them, and `renderAbsorbedSessionProbe` carries the fixture guard, so this file
 // never has to know that the probe reads the installed bridge directly.
 //

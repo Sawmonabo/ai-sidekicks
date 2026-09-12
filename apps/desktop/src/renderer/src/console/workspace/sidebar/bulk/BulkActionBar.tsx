@@ -2,11 +2,11 @@
 // to it.
 //
 // IT OFFERS ONE BUTTON PER ACT IN THE SELECTION, and never one button per act that
-// exists. A selection of three queued items and two invites offers two buttons, each
+// exists. A selection of three queued items and two worktrees offers two buttons, each
 // naming its own count; an act nothing is selected for is not drawn, because a control
 // that would run over no rows is a control that answers nothing.
 //
-// IT DERIVES NO ELIGIBILITY. Whether the daemon will admit a cancel, a revoke, or a
+// IT DERIVES NO ELIGIBILITY. Whether the daemon will admit a cancel or a
 // retire is the daemon's to say — the control is offered, the call goes out, and the
 // refusal renders per row. This is the same fail-closed posture the sections are held
 // to, read from the other side: the renderer's job is to ask, not to pre-judge.

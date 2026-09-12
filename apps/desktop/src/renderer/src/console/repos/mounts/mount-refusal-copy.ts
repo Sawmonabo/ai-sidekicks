@@ -1,8 +1,8 @@
 // The next move, per daemon refusal code, for every call this family makes.
 //
 // ONE TABLE FOR THE WHOLE FAMILY, and that is the point rather than a convenience.
-// `Spec-023 §Console Design (Meridian)` rule 9 fixes what reaches the screen from the
-// daemon — the code in mono, the message verbatim, never paraphrased — and leaves the
+// What reaches the screen from the daemon is fixed — the code in mono, the message
+// verbatim, never paraphrased — and that leaves the
 // NEXT MOVE to the caller as a slot. Written per call site, that slot is where a code's
 // recovery gets invented twice and the two copies drift; written once, a code has one
 // answer wherever it surfaces, and the codes with no console-side move have visibly
@@ -26,10 +26,9 @@
 //     alone, and a single generic sentence would be wrong two times in three.
 //
 // WHAT IS DELIBERATELY ABSENT. `repo.detach_conflict` is registered beside these and is
-// not here, because no renderer surface in this family sends `repo.detach`
-// (`Spec-009 §Detach Semantics (V1 Definition)`) — an entry would be a next move for a
-// refusal this console cannot receive. There is no force option in any entry either:
-// `Spec-010 §Turn-Boundary Snapshots` leaves force-override unscheduled, and V1 has no
+// not here, because no renderer surface in this family sends `repo.detach` — an entry
+// would be a next move for a refusal this console cannot receive. There is no force
+// option in any entry either: force-override is unscheduled and V1 has no
 // force-detach, so a recovery offering one would name a control that does not exist.
 //
 // THE LOOKUP TAKES A `string`, not the union. A refusal arrives off the wire and the
@@ -44,10 +43,10 @@ import type { RefusalRecoveryCopy } from "../../primitives/index.js";
 /**
  * Every daemon refusal code the repos mount surfaces can receive.
  *
- * Transcribed from `docs/architecture/contracts/error-contracts.md` §Repo, §Workspace,
- * §Worktree, and §Ephemeral Clone — the four namespaces the twelve `repo.*` methods
- * this console binds refuse in. A tuple rather than a count in prose, on the family's
- * own rule: a number in a sentence is not something a missing code can fail against.
+ * The repo, workspace, worktree, and ephemeral-clone namespaces — the four the twelve
+ * `repo.*` methods this console binds refuse in. A tuple rather than a count in prose,
+ * on the family's own rule: a number in a sentence is not something a missing code can
+ * fail against.
  */
 export const MOUNT_REFUSAL_CODES = [
   "repo.not_found",
@@ -117,9 +116,8 @@ const MOUNT_REFUSAL_RECOVERIES: Readonly<Record<MountRefusalCode, MountRefusalRe
     distinctions: NO_DISTINCTIONS,
   },
   "repo.root_resolution_failed": {
-    // NEVER "attached as a plain directory". `Spec-009 §Repo Identity And
-    // Common-Directory Keying (V1 Definition)` states outright that a failed
-    // resolution and a non-git attach must not be conflated: one is an attach that
+    // NEVER "attached as a plain directory". A failed resolution and a non-git attach
+    // must never be conflated: one is an attach that
     // did not happen, the other is a mount that exists with git features off.
     nextMove:
       "Nothing was attached. The daemon's message above says what it could not resolve; one named case is a linked worktree, which attaches from the main checkout instead.",
@@ -136,9 +134,9 @@ const MOUNT_REFUSAL_RECOVERIES: Readonly<Record<MountRefusalCode, MountRefusalRe
   "repo.already_attached": {
     // ROUTING, NOT CORRECTION. The reply carries no mount id and this console will not
     // guess one: matching the entered path against a rendered `canonicalRoot` would be
-    // the renderer comparing paths, which is the daemon's rule under
-    // `Spec-009 §Local Trust Envelope (V1 Definition)`. So the move is stated as the
-    // place to go rather than as a link the console fabricates a target for.
+    // the renderer comparing paths, which the trust envelope reserves to the daemon.
+    // So the move is stated as the place to go rather than as a link the console
+    // fabricates a target for.
     nextMove:
       "This repository is already attached to the session on this node — a second working tree of one repository is a re-attach by design. Close this and use the mount that already holds it; nothing needs attaching twice.",
     distinctions: NO_DISTINCTIONS,
@@ -168,9 +166,9 @@ const MOUNT_REFUSAL_RECOVERIES: Readonly<Record<MountRefusalCode, MountRefusalRe
   },
   "workspace.branch_mismatch": {
     // The expected branch is the daemon's own string and is copyable text with no
-    // action attached: `Spec-010 §Resolved Questions and V1 Scope Decisions` states
-    // the daemon never checks out, creates, or switches a branch in the bound
-    // checkout, so a control that offered to do it would offer what nothing performs.
+    // action attached: the daemon never checks out, creates, or switches a branch in
+    // the bound checkout, so a control that offered to do it would offer what nothing
+    // performs.
     nextMove:
       "The bound checkout is on a different branch than the run needs, and nothing here switches it — that checkout's branch is yours. The daemon's message names the branch it expected.",
     distinctions: NO_DISTINCTIONS,
@@ -202,15 +200,15 @@ const MOUNT_REFUSAL_RECOVERIES: Readonly<Record<MountRefusalCode, MountRefusalRe
   },
   "worktree.branch_collision": {
     // Never auto-suffixed here. A daemon-DERIVED name may take an ordinal suffix and
-    // is displayed with it; a name a participant typed is never silently adapted.
+    // is displayed with it; a name a user typed is never silently adapted.
     nextMove:
       "That branch already has a live checkout on this mount. Choosing a different branch name, or reusing the existing checkout, are the two moves — the name you typed is never adapted for you.",
     distinctions: NO_DISTINCTIONS,
   },
   "worktree.reuse_conflict": {
     // THREE SITUATIONS, THREE MOVES, and the console cannot tell them apart from the
-    // code: `Spec-010 §Fallback Behavior` puts all three behind this one code and the
-    // daemon's message says which. Enumerated rather than collapsed, because a single
+    // code: all three sit behind this one code and the daemon's message says which.
+    // Enumerated rather than collapsed, because a single
     // sentence would be wrong in two cases out of three — and because the middle case
     // has no override at all, which a generic "acknowledge and retry" would deny.
     nextMove:
@@ -243,8 +241,8 @@ const MOUNT_REFUSAL_RECOVERIES: Readonly<Record<MountRefusalCode, MountRefusalRe
  *
  * ONE CODE IS ANSWERED FROM THE CONTEXT AND NOT FROM THE TABLE. A
  * `workspace.mode_unsupported` refusal is paired with the mount's own reason for the
- * mode that was refused (`Spec-009 §Fallback Behavior` requires the capability gap to
- * be explicit rather than silently substituted), and that reason is a wire string this
+ * mode that was refused (the capability gap is explicit rather than silently
+ * substituted), and that reason is a wire string this
  * module must not compose. When the caller has it, it IS the recovery, quoted; when the
  * capabilities read gave none for that mode, the table's own arm says so.
  */

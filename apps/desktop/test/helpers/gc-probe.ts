@@ -26,10 +26,10 @@
 //   (`SIDEKICKS_GC_PROBE=1`) that does NOT exit immediately. Instead it
 //   schedules `runGcProbe` on a fresh event-loop tick (so the `.then(...)`
 //   arrow's locals can unwind first) and the probe iterates K=20 cycles of:
-//     1. Two bare `globalThis.gc()` calls (precise major collection — see
-//        ADR-024 §Antithesis for why `gc(true)` is rejected: that signature
-//        is a MINOR scavenge per V8's `gc-extension.cc`, leaving old-
-//        generation objects intact).
+//     1. Two bare `globalThis.gc()` calls (precise major collection —
+//        `gc(true)` is rejected because that signature is a MINOR scavenge
+//        per V8's `gc-extension.cc`, leaving old-generation objects
+//        intact).
 //     2. An 8 MB Uint8Array allocation to pressure old-generation promotion
 //        of the throwaway buffer + reclaim of the prior iteration's buffer.
 //     3. Two more `globalThis.gc()` calls.

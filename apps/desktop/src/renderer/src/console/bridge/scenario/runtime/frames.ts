@@ -14,7 +14,7 @@
 // own declaration, which is read by the one fixture namespace that resolves it and by
 // nothing else.
 
-import type { ParticipantId, RuntimeNodeRosterEntry } from "@ai-sidekicks/contracts";
+import type { UserId, RuntimeNodeRosterEntry } from "@ai-sidekicks/contracts";
 
 import type { GrowthActivitySnapshot } from "../../growth-values/index.js";
 import type { ShellReport } from "../../../store/index.js";
@@ -56,7 +56,7 @@ export interface ScenarioRuntimeNodeRosterFrame {
    * apart and neither can a scenario, which is the fail-closed shape the wire
    * has.
    */
-  readonly controlHolder: ParticipantId | null;
+  readonly controlHolder: UserId | null;
 }
 
 /**

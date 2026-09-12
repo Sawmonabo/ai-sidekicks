@@ -1,6 +1,6 @@
 // The highlight scheduler — where a block is tokenised, and where the answer is kept.
 //
-// Three decisions, each of them a `Spec-023 §Console Libraries` constraint:
+// Three decisions, each of them a constraint on the adopted highlighter:
 //
 //   • **Above about 4 kB of source, the work leaves the main thread.** Below it, a
 //     block costs a few milliseconds and a worker round trip would cost more than it

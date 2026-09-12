@@ -61,7 +61,7 @@ function sidekicksPageContext(): SettingsPageContext {
         purpose:
           "Drives the sidekicks settings registration against a bridge that scripts nothing.",
         sessionId: "session-settings",
-        participantIdsInJoinOrder: [],
+        userIdsInJoinOrder: [],
         beats: [],
         replies: [],
         startedAtIso: "2026-01-01T10:05:00.000Z",

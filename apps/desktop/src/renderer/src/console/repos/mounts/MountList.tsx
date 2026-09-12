@@ -21,7 +21,7 @@ export interface MountListProps {
    */
   readonly frameStore: FrameStore;
   readonly onCopy: (canonicalRoot: string) => void;
-  /** Read the section again after a participant's own act. Passed through to each card. */
+  /** Read the section again after a user's own act. Passed through to each card. */
   readonly onRequestRead: () => void;
   readonly onSelect: (workspaceId: WorkspaceId, executionMode: ExecutionMode) => void;
   /** Open a change set over one row's subject. Passed through to each card. */

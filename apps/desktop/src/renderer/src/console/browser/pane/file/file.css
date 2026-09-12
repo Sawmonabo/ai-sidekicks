@@ -4,9 +4,9 @@
  *
  * One of the browser family's seven sheets. The family's own discipline holds in
  * every one of them: no literal colour, every value read back out of a Meridian
- * custom property, and the two hues spent only on their one meaning each
- * (`Spec-023 §Console Design (Meridian)` rule 3 — amber where a person is needed,
- * red where something failed). Grep any of these files for `amber` and `red` and
+ * custom property, and the two hues spent only on their one meaning each — amber
+ * where a person is needed, red where something failed. Grep any of these files for
+ * `amber` and `red` and
  * every hit is one of those — the boundary sentence below is the amber one, and it is
  * amber because a person is what unblocks it.
  *

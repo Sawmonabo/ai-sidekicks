@@ -10,7 +10,7 @@
 // two surfaces cannot disagree about what "the same ask" is.
 //
 // AT THE FLOOR because its readers are two VIEW families — the ledger's ask card and
-// the workspace's cast bar — and view families are siblings, so neither may reach the
+// the workspace's session header — and view families are siblings, so neither may reach the
 // other and no family between them owns the question. That is `core/structural-key.ts`'
 // own stated reason applied to a second subject, and this module needs nothing to be
 // here: no store type, no contracts schema, no React.
@@ -21,7 +21,7 @@
 // sentences is about which two members name one ask.
 //
 // SEGMENTS AND NOT A FINISHED KEY, because the two readers file the ask in different
-// maps: the ledger's holds driver asks alone, and the cast bar's holds three request
+// maps: the ledger's holds driver asks alone, and the session header's holds three request
 // lifecycles at once and namespaces each by the event that opens it. Handing back the
 // segments lets each compose its own key through the one encoder rather than encoding
 // an already-encoded key, and it leaves the ORDER — the run first, the provider's own
@@ -31,7 +31,7 @@
 // run cannot be answered at all — the registered answer request addresses a run — so
 // filing one under a partial key would make an unanswerable ask able to settle an
 // answerable one. What each caller does with the refusal is its own fail-closed arm:
-// the ledger settles nothing, and the cast bar holds the ask open under a key of its
+// the ledger settles nothing, and the session header holds the ask open under a key of its
 // own. Neither may fall back to the bare `askId`, which is the defect itself.
 
 /**

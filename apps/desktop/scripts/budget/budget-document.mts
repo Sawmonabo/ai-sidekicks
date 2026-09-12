@@ -1,4 +1,4 @@
-// `budgets.json` as bytes, validated into a document — Plan-023 Phase 1C.
+// `budgets.json` as bytes, validated into a document.
 //
 // One half of what `budget-registry.mts` used to be. This module answers "is this
 // file a budget document, and what does it say?" and nothing else: it reads the
@@ -38,15 +38,15 @@ const BUDGET_STATUS_VALUES: readonly ConsoleBudgetStatus[] = Object.freeze(["enf
 /**
  * Where a budget's figure comes from, and what it is therefore a claim about.
  *
- * `product` rows are `Spec-023 §Console Design (Meridian)` §Budgets' own, and
- * their set is closed: the spec table names them all and nothing else may join.
- * `harness` rows are the complement — a bound with NO spec figure behind it,
+ * `product` rows are the console's own product budgets, and their set is
+ * closed: the eight of them are the whole list and nothing else may join.
+ * `harness` rows are the complement — a bound with NO product figure behind it,
  * whether the scaffolding applies it to itself (the five launch slices) or a
- * harness applies it to a shipped artifact the spec's table does not bound in
+ * harness applies it to a shipped artifact the product list does not bound in
  * that unit (`renderer-initial-fonts`, raw bytes beside a gzip row). They share
  * this file rather than getting one of their own because a budget with a second
  * home is a budget that will disagree with itself — and they are discriminated
- * rather than merged so the completeness claim over the spec table stays
+ * rather than merged so the completeness claim over the product list stays
  * checkable by counting, which is the property a ninth `product` id would cost.
  */
 type ConsoleBudgetScope = "product" | "harness";
@@ -67,13 +67,11 @@ export interface ConsoleBudget {
   readonly id: string;
   readonly label: string;
   readonly subject: string;
-  /** The figure as its own source writes it: the spec's text for a `product` row, the derivation for a `harness` one. */
+  /** The figure as its own source writes it: the product figure for a `product` row, the derivation for a `harness` one. */
   readonly specTarget: string;
   readonly limit: ConsoleBudgetLimit;
   readonly scope: ConsoleBudgetScope;
   readonly status: ConsoleBudgetStatus;
-  /** The Plan-023 task that produces (or produced) the measurement. */
-  readonly producedBy: string;
   /** Repo-relative harness path; `null` exactly when `status` is `"n/a"`. */
   readonly measuredBy: string | null;
   /**
@@ -99,7 +97,7 @@ export interface ConsoleBudget {
    * anything larger and the control proves only that some larger number is over.
    * It lives on the row because the row's `notes` already state it in prose, and a
    * threshold restated in a test beside a file the test already loads is the second
-   * home `apps/desktop/AGENTS.md` §Config single-sourcing rejects.
+   * home the config-single-sourcing rule in `apps/desktop/AGENTS.md` rejects.
    */
   readonly refusalControlBytes: number | null;
   readonly notes: string;
@@ -110,7 +108,6 @@ export interface ConsoleBudget {
 /** A validated `budgets.json`, before anything is asked of it. */
 export interface ConsoleBudgetDocument {
   readonly schemaVersion: number;
-  readonly source: string;
   /**
    * Why the `harness` rows carry the figures they do, stated once for the set.
    *
@@ -238,7 +235,6 @@ function parseBudget(rawEntry: unknown, entryIndex: number): ConsoleBudget {
     }),
     scope: scope as ConsoleBudgetScope,
     status: status as ConsoleBudgetStatus,
-    producedBy: requireString(entry, "producedBy", where),
     measuredBy,
     subjectSymbol,
     notMeasurableReason,
@@ -302,7 +298,7 @@ export function readBudgetDocument(budgetsFilePath: string): ConsoleBudgetDocume
     seenIds.add(budget.id);
   }
 
-  // A `product` row's figure is the spec's and needs no derivation here; a
+  // A `product` row's figure is the product list's and needs no derivation here; a
   // `harness` row's figure is ours, so a document that declares one and says
   // nowhere why is a bound with no reviewable source — the shape this file
   // exists to refuse. Required for the SET rather than per row, which is what
@@ -317,7 +313,6 @@ export function readBudgetDocument(budgetsFilePath: string): ConsoleBudgetDocume
 
   return Object.freeze({
     schemaVersion,
-    source: requireString(document, "source", budgetsFilePath),
     harnessBudgetDerivation,
     budgets: Object.freeze(budgets),
   });

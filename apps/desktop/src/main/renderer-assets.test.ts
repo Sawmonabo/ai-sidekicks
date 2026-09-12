@@ -1,5 +1,4 @@
-// Plan-023 Phase 1B (T-023p-1B-1) — containment and resolution over the built
-// renderer tree.
+// Containment and resolution over the built renderer tree.
 //
 // The first `describe` below IS the containment failure matrix: one row per
 // escape class, each asserting the EXACT serialized result, so a refusal that

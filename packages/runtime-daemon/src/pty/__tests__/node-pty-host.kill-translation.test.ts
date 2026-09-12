@@ -1,8 +1,6 @@
-// Test K1 — Windows kill-translation at `PtyHost.kill` (per I-024-1).
+// Test K1 — Windows kill-translation at `PtyHost.kill`.
 //
-// Asserts the Windows-only kill-translation matrix from
-// `Plan-024 §I-024-1 — Windows kill semantics translate at PtyHost.kill, not portable-pty default`
-// at the unit-of-behavior layer:
+// Asserts the Windows-only kill-translation matrix at the unit-of-behavior layer:
 //
 //   * `SIGINT` ⇒ `GenerateConsoleCtrlEvent(CTRL_C_EVENT=0, child.pid)`
 //      — NEVER routes to `taskkill`; NEVER calls `process.kill`.
@@ -10,7 +8,7 @@
 //      — does NOT escalate before the 2 s budget elapses.
 //   * `SIGKILL` ⇒ `taskkill /T /F /PID <pid>` directly
 //      — NEVER calls `GenerateConsoleCtrlEvent`.
-//   * `SIGHUP`  ⇒ same cascade as `SIGTERM` (Plan-024 §Step 8 does not pin a
+//   * `SIGHUP` ⇒ same cascade as `SIGTERM` (
 //      mapping; we documented the SIGTERM-equivalent choice in `node-pty-host.ts`).
 //   * Idempotency clause: a `kill()` invoked after the child has
 //      cached its exit-code re-emits `onExit` from cache and does NOT
@@ -23,8 +21,6 @@
 // No real `kernel32.dll` or `taskkill.exe` is loaded; no real `node-pty`
 // is loaded either (the test injects `Deps.ptySpawn` with a stub).
 //
-// Refs: Plan-024 §Invariants I-024-1; ADR-019 §Decision item 1;
-// ADR-019 §Failure Mode Analysis row "kill propagation".
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
@@ -46,8 +42,7 @@ import type { SpawnRequest } from "@ai-sidekicks/contracts";
 //
 // Default pid for this suite is 12345 (a number small enough to fit in
 // 32 bits but distinctive in test assertions). See `_fakes.ts` for the
-// helper definition shared with `node-pty-host.tree-kill.test.ts`
-// (R3 review POLISH-2 / POLISH-3).
+// helper definition shared with `node-pty-host.tree-kill.test.ts`.
 
 const SAMPLE_SPAWN: SpawnRequest = {
   kind: "spawn_request",
@@ -103,13 +98,13 @@ beforeEach(() => {
 // Per-signal assertions
 // ----------------------------------------------------------------------------
 
-describe("NodePtyHost — Windows kill-translation (I-024-1)", () => {
+describe("NodePtyHost — Windows kill-translation", () => {
   it("SIGINT invokes GenerateConsoleCtrlEvent(CTRL_C_EVENT=0, child.pid) and does NOT call taskkill", async () => {
     const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
 
     await ctx.host.kill(session_id, "SIGINT");
 
-    // Load-bearing assertion: I-024-1 — SIGINT MUST translate to
+    // Load-bearing assertion: — SIGINT MUST translate to
     // `CTRL_C_EVENT=0` (NOT `CTRL_BREAK_EVENT=1`, NOT `process.kill`).
     expect(ctx.mockGCCE).toHaveBeenCalledTimes(1);
     expect(ctx.mockGCCE).toHaveBeenCalledWith(0, 12345);
@@ -119,7 +114,7 @@ describe("NodePtyHost — Windows kill-translation (I-024-1)", () => {
 
     // Negative: the daemon path MUST NOT delegate to node-pty's own
     // `kill()` on Windows — that's the `microsoft/node-pty#167` bug
-    // that I-024-1 explicitly routes around.
+    // that explicitly routes around.
     expect(ctx.child.kill).not.toHaveBeenCalled();
   });
 
@@ -134,7 +129,7 @@ describe("NodePtyHost — Windows kill-translation (I-024-1)", () => {
 
     // Pre-budget: taskkill MUST NOT fire (the 2 s timer is still
     // pending; this is the load-bearing graceful-first semantic for
-    // I-024-1's "SIGTERM hard-stop → CTRL_BREAK_EVENT first").
+    // the "SIGTERM hard-stop → CTRL_BREAK_EVENT first").
     expect(ctx.mockTaskkill).not.toHaveBeenCalled();
     expect(ctx.child.kill).not.toHaveBeenCalled();
   });
@@ -145,7 +140,7 @@ describe("NodePtyHost — Windows kill-translation (I-024-1)", () => {
     await ctx.host.kill(session_id, "SIGKILL");
 
     // SIGKILL is immediate hard-stop — no graceful CTRL_BREAK_EVENT
-    // first per the `Plan-024 §Implementation Steps` step-8 kill bullet.
+    // first step-8 kill bullet.
     expect(ctx.mockTaskkill).toHaveBeenCalledTimes(1);
     expect(ctx.mockTaskkill).toHaveBeenCalledWith(12345);
 
@@ -161,7 +156,6 @@ describe("NodePtyHost — Windows kill-translation (I-024-1)", () => {
 
     await ctx.host.kill(session_id, "SIGHUP");
 
-    // Plan-024 §Step 8 does not pin a SIGHUP-on-Windows mapping.
     // `node-pty-host.ts` documents the SIGTERM-equivalent choice
     // (graceful-then-force) — verify the documented behavior so a
     // future change to the mapping breaks this test deliberately.
@@ -175,7 +169,7 @@ describe("NodePtyHost — Windows kill-translation (I-024-1)", () => {
 // Idempotency — kill after the child has already exited
 // ----------------------------------------------------------------------------
 
-describe("NodePtyHost — idempotency of kill after child exit (step-8 kill bullet, `Plan-024 §Implementation Steps`)", () => {
+describe("NodePtyHost — idempotency of kill after child exit (step-8 kill bullet)", () => {
   it("kill() on an already-exited session re-emits onExit from cache and does NOT call any FFI", async () => {
     const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
 
@@ -277,7 +271,7 @@ describe("NodePtyHost — spawn/resize/write round-trip on the host platform", (
       PATH: "/usr/bin",
       FOO: "bar",
     });
-    // ADR-019 Tripwire 3 — useConptyDll MUST be `false`.
+    // Tripwire 3 — useConptyDll MUST be `false`.
     expect(options.useConptyDll).toBe(false);
   });
 

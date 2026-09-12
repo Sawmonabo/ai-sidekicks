@@ -1,4 +1,4 @@
-// The daemon's single UUIDv7 generator — RFC 9562 §5.7 layout with the §6.2
+// The daemon's single UUIDv7 generator — RFC 9562 section 5.7 layout with the section 6.2
 // Method 1 fixed-bit-length dedicated counter.
 //
 // Why this module exists
@@ -6,20 +6,20 @@
 //
 // `packages/contracts/src/session.ts` (header, "ID format") and
 // `packages/contracts/src/event.ts` (`EventId` / branded-id notes) both state
-// that daemon-assigned ids are RFC 9562 UUID **v7** — a sortable
-// millisecond timestamp in the leading 48 bits — and Spec-006 says the same
-// for event ids. Every daemon id source used to call `crypto.randomUUID()`,
-// which emits **v4**: 122 bits of pure randomness with no time ordering at
-// all. The wire schemas accept any UUID version on purpose (control-plane
-// rows are Postgres `gen_random_uuid()` v4), so nothing rejected a v4 — the
-// corpus claim was simply false at the source.
+// that daemon-assigned ids are RFC 9562 UUID **v7** — a sortable millisecond
+// timestamp in the leading 48 bits — and says the same for event ids. Every
+// daemon id source used to call `crypto.randomUUID()`, which emits **v4**:
+// 122 bits of pure randomness with no time ordering at all. The wire schemas
+// accept any UUID version on purpose (control-plane rows are Postgres
+// `gen_random_uuid()` v4), so nothing rejected a v4 — the corpus claim was
+// simply false at the source.
 //
-// This module makes it true, and makes it true ONCE. Spec-014 has since made
-// v7 minting normative for artifact ids (Plan-014 T14.2's `mintArtifactId()`),
-// so a second hand-rolled minter would have been the beginning of a family.
-// Every daemon-side persisted-row id and event id mints here; the ephemeral
-// correlation / subscription / scratch-path tokens that no row and no event
-// stores stay on `crypto.randomUUID()` and say so at their call site.
+// This module makes it true, and makes it true ONCE. has since made v7 minting
+// normative for artifact ids (the `mintArtifactId()`), so a second hand-rolled
+// minter would have been the beginning of a family. Every daemon-side
+// persisted-row id and event id mints here; the ephemeral correlation /
+// subscription / scratch-path tokens that no row and no event stores stay on
+// `crypto.randomUUID()` and say so at their call site.
 //
 // That split is enforced mechanically by eslint.config.mjs, which denies
 // `.randomUUID` on any object (`no-restricted-properties`) and the
@@ -37,15 +37,14 @@
 // Why no dependency
 // -----------------
 //
-// RFC 9562 §5.7 is a bit-setting function over a timestamp and a random
+// RFC 9562 section 5.7 is a bit-setting function over a timestamp and a random
 // buffer, not an algorithm: 48 big-endian timestamp bits, a 4-bit version
-// nibble, 12 bits of `rand_a`, a 2-bit variant field, and 62 bits of
-// `rand_b`. §6.2's Method 1 adds a counter in `rand_a`. The whole thing is
-// the ~60 lines below over `crypto.getRandomValues`, and owning it keeps the
-// daemon's id format auditable against the RFC text rather than against a
-// transitive package's release notes.
+// nibble, 12 bits of `rand_a`, a 2-bit variant field, and 62 bits of `rand_b`.
+// The whole thing is the ~60 lines below over `crypto.getRandomValues`, and
+// owning it keeps the daemon's id format auditable against the RFC text rather
+// than against a transitive package's release notes.
 //
-// Layout (RFC 9562 §5.7, big-endian, bit indices from the most significant):
+// Layout (RFC 9562 section 5.7, big-endian, bit indices from the most significant):
 //
 //   0                   1                   2                   3
 //   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
@@ -60,13 +59,13 @@
 //  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 //
 //   * `unix_ts_ms` — 48-bit big-endian unsigned Unix Epoch milliseconds.
-//   * `ver` — 0b0111, the most significant 4 bits of octet 6 (RFC 9562 §4.2).
-//   * `rand_a` — 12 bits; here the §6.2 Method 1 counter, which the RFC
-//     requires be "positioned immediately after the embedded timestamp".
-//   * `var` — 0b10, bits 0 and 1 of octet 8 (RFC 9562 §4.1).
+//   * `ver` — 0b0111, the most significant 4 bits of octet 6 (RFC 9562 section 4.2).
+//   * `rand_a` — 12 bits; here which the RFC requires be "positioned
+//     immediately after the embedded timestamp".
+//   * `var` — 0b10, bits 0 and 1 of octet 8 (RFC 9562 section 4.1).
 //   * `rand_b` — 62 bits of fresh randomness on every mint.
 //
-// Monotonicity (RFC 9562 §6.2, Method 1)
+// Monotonicity (RFC 9562 section 6.2, Method 1)
 // --------------------------------------
 //
 // Two ids minted in the same millisecond must still sort. `rand_a` carries a
@@ -77,8 +76,6 @@
 // the most significant counter bit: every tick therefore has at least 2048
 // increments of headroom before overflow, while the seed still carries 11
 // bits of unguessability rather than starting every tick at zero.
-//
-// Both §6.2 corrective actions are implemented:
 //
 //   * A clock that goes backwards (NTP step, suspend/resume) reuses the prior
 //     timestamp and increments the counter, so the sequence never regresses.
@@ -95,25 +92,25 @@
 
 const UUID_BYTE_LENGTH = 16;
 
-/** RFC 9562 §5.7 — `unix_ts_ms` is 48 bits, so this is the first unrepresentable millisecond. */
+/** RFC 9562 section 5.7 — `unix_ts_ms` is 48 bits, so this is the first unrepresentable millisecond. */
 const TIMESTAMP_MILLISECONDS_EXCLUSIVE_MAXIMUM = 2 ** 48;
 
 /** Divisor splitting the 48-bit timestamp into a 16-bit high half and a 32-bit low half. */
 const TIMESTAMP_LOW_HALF_MODULUS = 2 ** 32;
 
-/** RFC 9562 §6.2 Method 1 — `rand_a` is 12 bits wide, so the counter saturates here. */
+/** RFC 9562 section 6.2 Method 1 — `rand_a` is 12 bits wide, so the counter saturates here. */
 const SUB_MILLISECOND_COUNTER_MAXIMUM = 0xfff;
 
 /**
- * RFC 9562 §6.2 rollover guard — the counter seeds into the low 11 bits, reserving
+ * RFC 9562 section 6.2 rollover guard — the counter seeds into the low 11 bits, reserving
  * the most significant bit so every tick keeps at least 2048 increments of headroom.
  */
 const SUB_MILLISECOND_COUNTER_SEED_MASK = 0x7ff;
 
-/** RFC 9562 §4.2 — version 7 in the most significant 4 bits of octet 6. */
+/** RFC 9562 section 4.2 — version 7 in the most significant 4 bits of octet 6. */
 const VERSION_7_HIGH_NIBBLE = 0x70;
 
-/** RFC 9562 §4.1 — variant `0b10` in the two most significant bits of octet 8. */
+/** RFC 9562 section 4.1 — variant `0b10` in the two most significant bits of octet 8. */
 const VARIANT_RFC_9562_HIGH_BITS = 0x80;
 
 /** Bytes of random seed drawn for each new millisecond tick's counter. */
@@ -143,8 +140,7 @@ export interface UuidV7MinterDependencies {
  * Mints RFC 9562 UUIDv7 values that are strictly increasing within this
  * instance's lifetime.
  *
- * Stateful by construction — the §6.2 Method 1 counter and the tick it belongs
- * to are the whole mechanism, and a free function would have to be handed both
+ * Stateful by construction — and a free function would have to be handed both
  * on every call, which is precisely how two call sites end up sharing neither.
  * The daemon uses the module-level `mintUuidV7` binding; a fresh instance is
  * for tests and for any future caller that genuinely wants an independent
@@ -165,7 +161,7 @@ export class UuidV7Minter {
    */
   #lastEmittedTimestampMilliseconds = -1;
 
-  /** RFC 9562 §6.2 Method 1 counter occupying `rand_a` for the current tick. */
+  /** RFC 9562 section 6.2 Method 1 counter occupying `rand_a` for the current tick. */
   #subMillisecondCounter = 0;
 
   constructor(dependencies: UuidV7MinterDependencies = {}) {
@@ -218,7 +214,7 @@ export class UuidV7Minter {
   }
 
   /**
-   * Advances the tick / counter state per RFC 9562 §6.2 and returns the millisecond
+   * Advances the tick / counter state per RFC 9562 section 6.2 and returns the millisecond
    * this id is stamped with.
    */
   #resolveMonotonicTimestampMilliseconds(): number {
@@ -236,24 +232,22 @@ export class UuidV7Minter {
 
     const wholeMilliseconds: number = Math.floor(wallClockMilliseconds);
     if (wholeMilliseconds > this.#lastEmittedTimestampMilliseconds) {
-      // A new tick: reseed the counter (§6.2 "randomly initialize the counter
-      // with each new timestamp tick").
+      // A new tick: reseed the counter ("randomly initialize the counter with
+      // each new timestamp tick").
       this.#lastEmittedTimestampMilliseconds = wholeMilliseconds;
       this.#subMillisecondCounter = this.#drawCounterSeed();
       return wholeMilliseconds;
     }
 
-    // Same tick, or a clock that went backwards. §6.2's first corrective action:
-    // reuse the prior timestamp and increment the counter.
+    // Same tick, or a clock that went backwards..
     const incrementedCounter: number = this.#subMillisecondCounter + 1;
     if (incrementedCounter <= SUB_MILLISECOND_COUNTER_MAXIMUM) {
       this.#subMillisecondCounter = incrementedCounter;
       return this.#lastEmittedTimestampMilliseconds;
     }
 
-    // Counter overflow. §6.2's second corrective action: advance the timestamp
-    // and reinitialize the counter. The emitted timestamp now leads the wall
-    // clock until the wall clock catches up.
+    // The emitted timestamp now leads the wall clock until the wall clock
+    // catches up.
     const advancedTimestampMilliseconds: number = this.#lastEmittedTimestampMilliseconds + 1;
     if (advancedTimestampMilliseconds >= TIMESTAMP_MILLISECONDS_EXCLUSIVE_MAXIMUM) {
       throw new RangeError(
@@ -266,7 +260,7 @@ export class UuidV7Minter {
     return advancedTimestampMilliseconds;
   }
 
-  /** Draws an 11-bit counter seed, leaving the 12th bit clear as the §6.2 rollover guard. */
+  /** Draws an 11-bit counter seed, leaving the 12th bit clear as. */
   #drawCounterSeed(): number {
     const seedBytes: Uint8Array<ArrayBuffer> = this.#counterSeedBytes;
     this.#fillWithRandomBytes(seedBytes);

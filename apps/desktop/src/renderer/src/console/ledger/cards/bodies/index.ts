@@ -2,7 +2,7 @@
 //
 // THE SEAM THIS DIRECTORY OWNS. A card is a frame — an author, a time, a receipt, a
 // boundary. What sits inside it is a different job with different failure modes: machine
-// output that may be markdown or ANSI or neither, a participant's own words streamed a
+// output that may be markdown or ANSI or neither, a user's own words streamed a
 // token at a time, a body the build cannot render, and a body too long to show whole.
 // Each of those has to say honestly what it is showing and what it is not, which is why
 // the truncation notice and the unavailable body live here beside the renderers rather
@@ -19,7 +19,7 @@
 import "./bodies.css";
 
 export { MachineBody } from "./MachineBody.js";
-export { ParticipantBody } from "./ParticipantBody.js";
+export { UserBody } from "./UserBody.js";
 
 // The two plan-owned row bodies, and exactly what the sibling that mounts them
 // takes. Each is a slot with a shell behind it and each dies with the change that

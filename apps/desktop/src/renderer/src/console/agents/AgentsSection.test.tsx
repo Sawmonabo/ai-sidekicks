@@ -62,7 +62,7 @@ async function renderSection(options: {
   readonly filterQuery?: string;
 }): Promise<RenderedSection> {
   const store = new SessionStore({ sessionId: SESSION_ID });
-  store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+  store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
   const bridge: ConsoleBridge = fixtureBridgeWithGrowth(unscriptedScenario("agents-section"), {
     agentList:
       options.refuse === true

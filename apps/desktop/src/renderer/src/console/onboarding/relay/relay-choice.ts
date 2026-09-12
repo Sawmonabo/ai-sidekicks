@@ -1,36 +1,33 @@
 // The three-way relay choice, with its normative identifiers and its consequences.
 //
-// `Spec-026 §Three-Way Choice Semantics` fixes the identifiers — `free-public-relay`
-// (the default), `self-host`, `hosted-saas` — so they are transcribed here once and
-// nothing in this console spells them a second time. They are the values that travel
-// back on `onboarding.presentChoice`, so a typo would be a choice the daemon cannot
-// record.
+// The identifiers are fixed — `free-public-relay` (the default), `self-host`,
+// `hosted-saas` — so they are transcribed here once and nothing in this console spells
+// them a second time. They are the values that travel back on
+// `onboarding.presentChoice`, so a typo would be a choice the daemon cannot record.
 //
-// THREE OPTIONS, ALL VISIBLE, NONE COLLAPSED. `Spec-026 §Pitfalls To Avoid` names
-// collapsing the third option behind an advanced control as a defect, and the reason
-// is legibility rather than symmetry: a person choosing where their session traffic
-// goes is making a trust decision, and an option they have to go looking for is one
-// they will not weigh. The `isDefault` flag below marks which arrives selected; it
-// does not mean the others are secondary.
+// THREE OPTIONS, ALL VISIBLE, NONE COLLAPSED. Collapsing the third option behind an
+// advanced control is a defect, and the reason is legibility rather than symmetry: a
+// person choosing where their session traffic goes is making a trust decision, and an
+// option they have to go looking for is one they will not weigh. The `isDefault` flag
+// below marks which arrives selected; it does not mean the others are secondary.
 //
 // AND NO SILENT DEFAULT. A default is what a control STARTS on, and this walkthrough
-// still requires an explicit answer — `Spec-026 §Desktop Surface` makes the step
-// non-dismissible until a choice is made — so nothing here is recorded until a person
-// presses the step's primary action.
+// still requires an explicit answer — the step stays non-dismissible until a choice is
+// made — so nothing here is recorded until a person presses the step's primary action.
 //
 // WHAT EACH OPTION NEEDS IS NOT COLLECTED HERE, AND CANNOT BE. Self-host needs a
 // relay URL, an admin-issued join token, and a first-connection fingerprint
 // confirmation; hosted SaaS opens the system browser with a one-shot PKCE state.
-// Every one of those is a secret or a browser hand-off, and `Spec-026 §Pitfalls To
-// Avoid` records that "rendering the admin-token field in the renderer has already
-// leaked it". So the inputs are main's, reached through `onboarding.presentChoice`,
-// and this module carries only what a person reads before pressing.
+// Every one of those is a secret or a browser hand-off, and rendering the admin-token
+// field in the renderer has already leaked it once. So the inputs are main's, reached
+// through `onboarding.presentChoice`, and this module carries only what a person reads
+// before pressing.
 
 /**
  * The three identifiers, in the order the step renders them. Closed; normative.
  *
- * `Spec-026 §Three-Way Choice Semantics` owns the values. The union is derived from
- * the tuple so the set the step walks and the set the type admits are one set.
+ * The union is derived from the tuple so the set the step walks and the set the type
+ * admits are one set.
  */
 export const RELAY_METHOD_IDS = ["free-public-relay", "self-host", "hosted-saas"] as const;
 

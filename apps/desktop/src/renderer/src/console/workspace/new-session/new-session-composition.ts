@@ -314,9 +314,9 @@ export function useNewSessionComposition(props: NewSessionControlProps): NewSess
   // A stale settlement keeps the draft AND stays here. Settling navigates, and the
   // sentence below is the whole report of what happened — spoken to a destination
   // already coming down, and drawn on a screen already leaving, it is a report nobody
-  // receives. This is `Spec-023 §Console Design (Meridian)` rule 9 at the same site the
-  // partial arm already takes it: the act is over, what it did is on screen, and the
-  // person decides what happens to the words in front of them.
+  // receives. This is the same rule the partial arm already takes at this site: the
+  // act is over, what it did is on screen, and the person decides what happens to the
+  // words in front of them.
   const hasUnsentLaterEdits =
     result?.outcome === "sent" &&
     result.sentRevision !== undefined &&

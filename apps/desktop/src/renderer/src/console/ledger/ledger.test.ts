@@ -142,8 +142,8 @@ describe("the ledger — which slots it holds", () => {
 
 describe("the ledger — what it mounts", () => {
   it("mounts the registered timeline pane in the full-screen window, at full width", () => {
-    // `Spec-023 §The surface set`: an auxiliary window loads "the same renderer
-    // bundle at a window route" for one moved pane, so this slot mounts the pane
+    // An auxiliary window loads the same renderer bundle at a window route for one
+    // moved pane, so this slot mounts the pane
     // ALONE — no deck around it and no composer.
     composedPaneRegistry.register({
       kind: "timeline",
@@ -157,7 +157,7 @@ describe("the ledger — what it mounts", () => {
     expect(paneContext.kind).toBe("timeline");
   });
 
-  it("mounts the session workspace — the cast bar, the deck, and the composer's seat", () => {
+  it("mounts the session workspace — the session header, the deck, and the composer's seat", () => {
     // The two slots stopped mounting the same thing when the deck landed: the
     // session surface is the workspace, and the pane alone is the window.
     const registry = registeredLedger();

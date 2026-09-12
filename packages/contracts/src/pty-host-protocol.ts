@@ -3,14 +3,13 @@
 //
 // This module declares the wire-level discriminated union that crosses
 // the Content-Length framing layer between the daemon and the Rust PTY
-// sidecar (Plan-024). Every variant of `Envelope` corresponds to one
-// `#[serde(tag = "kind")]` variant in the Rust enum; the `kind` literal
-// is the on-wire discriminant per F-024-1-02.
+// sidecar. Every variant of `Envelope` corresponds to one `#[serde(tag
+// = "kind")]` variant in the Rust enum; the `kind` literal is the
+// on-wire discriminant.
 //
-// Hand-authored parity. No code-gen in V1 — see Plan-024 §Implementation
-// Step 3: "two-sided hand edit vs adding a schema compiler; single
-// schema compiler deferred to post-V1." When you edit one side, edit the
-// other in the same commit.
+// No code-gen in V1 — "two-sided hand edit vs adding a schema compiler;
+// single schema compiler deferred to post-V1." When you edit one side,
+// edit the other in the same commit.
 //
 // ## Field-shape decisions (mirror of Rust module docs)
 //
@@ -20,9 +19,9 @@
 //     record/map representation would silently dedupe and reorder.
 //
 //   • `WriteRequest.bytes` and `DataFrame.bytes` are `string` carrying
-//     base64-encoded payloads per F-024-1-01. Decoding (e.g., via
-//     `Buffer.from(b, "base64")`) is the consumer's responsibility —
-//     this module is a pure wire-shape contract.
+//     base64-encoded payloads. Decoding (e.g., via `Buffer.from(b,
+//     "base64")`) is the consumer's responsibility — this module is a
+//     pure wire-shape contract.
 //
 //   • `PingRequest` / `PingResponse` carry only the `kind` discriminant.
 //     The plan does not pin a correlation field at this layer.
@@ -57,12 +56,8 @@
 //
 // No Zod schemas live in this module: wire validation happens at the
 // daemon's framer layer (`packages/runtime-daemon/src/ipc/...`); the
-// contracts package declares the shape only. This matches the Plan-024
-// §Test And Verification Plan unit-test split (Rust side carries the
-// round-trip burden via `protocol_roundtrip.rs`).
+// contracts package declares the shape only.
 //
-// Refs: Plan-024 §Target Areas / §Implementation Step 3, ADR-019
-// §Decision item 1 (sidecar binary primary on Windows; protocol shape).
 
 // --------------------------------------------------------------------------
 // Shared discriminants
@@ -71,8 +66,7 @@
 /**
  * POSIX signal names accepted by `KillRequest.signal`. On Windows the
  * sidecar translates these to console-control events and `taskkill`
- * invocations per Plan-024 §Windows Implementation Gotchas; this
- * type is the on-wire shape only.
+ * invocations this type is the on-wire shape only.
  */
 export type PtySignal = "SIGINT" | "SIGTERM" | "SIGKILL" | "SIGHUP";
 
@@ -86,10 +80,9 @@ export type DataStream = "stdout" | "stderr";
 /**
  * Spawn a new PTY session.
  *
- * The daemon-layer `spawn-cwd-translator` (Plan-001 P5 CP-001-2)
- * rewrites `cwd` to a stable parent directory before this payload
- * reaches the sidecar (per I-024-5 / Plan-024 §Gotcha 5); the sidecar
- * forwards `cwd` verbatim to `portable-pty`.
+ * The daemon-layer `spawn-cwd-translator` (P5) rewrites `cwd` to a
+ * stable parent directory before this payload reaches the sidecar;
+ * the sidecar forwards `cwd` verbatim to `portable-pty`.
  */
 export interface SpawnRequest {
   kind: "spawn_request";
@@ -139,9 +132,8 @@ export interface ResizeRequest {
 }
 
 /**
- * Acknowledgment of `ResizeRequest`. Explicit response per F-024-1-03
- * so request-correlation is symmetric across every control-message
- * kind.
+ * Explicit response so request-correlation is symmetric across every
+ * control-message kind.
  *
  * `error` is set when the sidecar's resize handler failed — most
  * commonly `UnknownSession` when the target session has already exited
@@ -160,7 +152,7 @@ export interface ResizeResponse {
 /**
  * Write payload to a session's stdin.
  *
- * `bytes` is base64-encoded on the wire per F-024-1-01. Decode with
+ * `bytes` is base64-encoded on the wire. Decode with
  * `Buffer.from(bytes, "base64")` or equivalent.
  */
 export interface WriteRequest {
@@ -171,7 +163,6 @@ export interface WriteRequest {
 }
 
 /**
- * Acknowledgment of `WriteRequest`. Explicit response per F-024-1-03.
  *
  * `error` is set when the sidecar's write handler failed — typically
  * `UnknownSession` (target session has exited) or `WriterUnavailable`
@@ -189,10 +180,10 @@ export interface WriteResponse {
 /**
  * Signal a session's child process.
  *
- * On Windows the sidecar translates per Plan-024 §Gotcha 1 + 2:
- * `SIGINT` → `CTRL_C_EVENT`, `SIGTERM` → `CTRL_BREAK_EVENT` then
- * `taskkill /T /F` on bounded timeout, `SIGKILL` → `taskkill /T /F`
- * directly, `SIGHUP` → ditto-treat-as-hard-stop.
+ * On Windows the sidecar translates `SIGINT` → `CTRL_C_EVENT`,
+ * `SIGTERM` → `CTRL_BREAK_EVENT` then `taskkill /T /F` on bounded
+ * timeout, `SIGKILL` → `taskkill /T /F` directly, `SIGHUP` →
+ * ditto-treat-as-hard-stop.
  */
 export interface KillRequest {
   kind: "kill_request";
@@ -201,10 +192,9 @@ export interface KillRequest {
 }
 
 /**
- * Acknowledgment of `KillRequest`. Explicit response per F-024-1-03;
- * the sidecar acks once it has begun the kill cascade, NOT when the
- * child has actually exited — `ExitCodeNotification` carries the
- * terminal status.
+ * Explicit response the sidecar acks once it has begun the kill
+ * cascade, NOT when the child has actually exited —
+ * `ExitCodeNotification` carries the terminal status.
  *
  * `error` is set when the sidecar's kill handler failed — most often
  * `UnknownSession` for a request against a session that exited (and
@@ -257,10 +247,9 @@ export interface PingResponse {
 /**
  * Asynchronous stdout/stderr chunk emitted by the sidecar.
  *
- * `seq` is monotonically increasing per `(session_id, stream)` pair
- * (per Plan-024 §Implementation Step 4); consumers reassemble a
- * stream in `seq` order. `bytes` is base64-encoded on the wire per
- * F-024-1-01.
+ * `seq` is monotonically increasing per `(session_id, stream)`
+ * pair; consumers reassemble a stream in `seq` order. `bytes` is
+ * base64-encoded on the wire.
  */
 export interface DataFrame {
   kind: "data_frame";

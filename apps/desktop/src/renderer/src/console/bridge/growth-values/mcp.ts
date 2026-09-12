@@ -6,7 +6,7 @@
 //
 // EVERY VOCABULARY HERE IS TRANSCRIBED, NEVER INVENTED. The five statuses, the four
 // application grades, the four approval modes, and the two providers are enumerated
-// in `api-payload-contracts.md §Plan-028`, and the operator surface's tables are
+// in the payload contracts, and the operator surface's tables are
 // total over them — which is what makes a sixth arm a compile error at the page
 // rather than a blank cell on screen. The three CONFIG SCOPES are deliberately not
 // among them: they are the discriminant of the binding union below, so an array
@@ -156,7 +156,7 @@ export interface GrowthMcpServerLegStatus {
  * refinement. An absent facet means "inherit", and the console renders that as an
  * absence rather than as a default it picked — `idempotencyClass` in particular
  * falls back to the manual-reconcile floor at the daemon, and a renderer naming that
- * floor here would be re-deriving a class Spec-015 recovery depends on.
+ * floor here would be re-deriving a class the recovery path depends on.
  */
 export interface GrowthMcpToolOverride {
   readonly toolName: string;

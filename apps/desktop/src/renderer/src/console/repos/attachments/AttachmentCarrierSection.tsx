@@ -1,11 +1,11 @@
 // The seat a file is chosen on: the picker, what this deployment will accept, and
-// where the carrier stands against the two bounds a participant can walk into.
+// where the carrier stands against the two bounds a user can walk into.
 //
 // THE PICKER SAYS WHAT IT ACCEPTS. It used to be a bare file input beside a list, with
 // the allow-list and all four bounds complete on the artifact pane's own disclosure —
 // a different surface, one click away, that a person choosing a file has no reason to
-// have opened. `Spec-014 §Bounds (normative defaults; operator-tunable)` puts the hint
-// on the picker, so `AttachmentBoundsDisclosure` renders here and on the pane, from one
+// have opened. The hint belongs on the picker, so `AttachmentBoundsDisclosure` renders
+// here and on the pane, from one
 // component.
 //
 // NO `accept` ATTRIBUTE, AND THAT IS DELIBERATE. The hint is a convenience and never
@@ -46,7 +46,7 @@ export function AttachmentCarrierSection(props: AttachmentCarrierSectionProps): 
       }
       // The control is cleared so choosing the SAME file twice fires a change both
       // times. A picker that kept its value would leave the second choice silent,
-      // which is the no-op rule 8 forbids — and a participant whose first attempt was
+      // which is the no-op rule 8 forbids — and a user whose first attempt was
       // refused is exactly the person who chooses the same file again.
       event.target.value = "";
     },
@@ -65,7 +65,7 @@ export function AttachmentCarrierSection(props: AttachmentCarrierSectionProps): 
   // `artifactAllowlistRead` by name, so no build the console runs on today can answer
   // with a deployment's effective list; `attachment-bounds.ts` says why the affordance
   // does not mint a second scheduled reading to be told that again. The disclosure
-  // reports which of the two lists a participant is looking at either way.
+  // reports which of the two lists a user is looking at either way.
   return (
     <div className="meridian-attachment-section">
       <label className="meridian-attachment-section__picker">

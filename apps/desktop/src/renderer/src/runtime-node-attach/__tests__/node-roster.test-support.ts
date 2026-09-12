@@ -19,7 +19,7 @@ import type { Mock } from "vitest";
 import type {
   EventEnvelopeVersion,
   NodeId,
-  ParticipantId,
+  UserId,
   RuntimeNodeRosterEntry,
   RuntimeNodeRosterRequest,
   RuntimeNodeRosterResponse,
@@ -31,7 +31,7 @@ import type { NodeRosterReads } from "../node-roster-reads.js";
 
 export const FIRST_SESSION_ID = "01970000-0000-7000-8000-0000000000a1" as SessionId;
 export const SECOND_SESSION_ID = "01970000-0000-7000-8000-0000000000a2" as SessionId;
-export const OWNING_PARTICIPANT_ID = "01970000-0000-7000-8000-0000000000b1" as ParticipantId;
+export const OWNING_USER_ID = "01970000-0000-7000-8000-0000000000b1" as UserId;
 export const AT_FLOOR_NODE_ID = "01970000-0000-7000-8000-0000000000c1" as NodeId;
 export const BELOW_FLOOR_NODE_ID = "01970000-0000-7000-8000-0000000000c2" as NodeId;
 export const REGISTERING_NODE_ID = "01970000-0000-7000-8000-0000000000c3" as NodeId;
@@ -43,7 +43,7 @@ export function buildRosterEntry(
   overrides: Partial<RuntimeNodeRosterEntry> & Pick<RuntimeNodeRosterEntry, "nodeId">,
 ): RuntimeNodeRosterEntry {
   return {
-    participantId: OWNING_PARTICIPANT_ID,
+    userId: OWNING_USER_ID,
     state: "online",
     healthState: "online",
     lastHeartbeatAt: "2026-06-10T10:00:00.000Z",
@@ -56,8 +56,8 @@ export function buildRosterEntry(
 }
 
 // The first snapshot deliberately spans all three axes the roster projects: an
-// at-floor read-write node, a BELOW-FLOOR read-only node (AC4 — admitted, not
-// ejected), and a `registering` node with NO heartbeat yet (`healthState` and
+// at-floor read-write node, a BELOW-FLOOR read-only node (admitted, not ejected),
+// and a `registering` node with NO heartbeat yet (`healthState` and
 // `lastHeartbeatAt` both null).
 export const FIRST_SNAPSHOT: RuntimeNodeRosterResponse = {
   nodes: [
@@ -79,7 +79,7 @@ export const FIRST_SNAPSHOT: RuntimeNodeRosterResponse = {
   // Held, so the render cases below see an advertised holder. The member is
   // required on the wire and nullable in value, and both readings appear across
   // these three snapshots rather than only one of them.
-  controlHolder: OWNING_PARTICIPANT_ID,
+  controlHolder: OWNING_USER_ID,
 };
 
 // What a presence-triggered re-read returns: a node joined, and the original node

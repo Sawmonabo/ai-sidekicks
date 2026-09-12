@@ -14,8 +14,8 @@
 // orchestration entrypoint below the wire authorization boundary — and it names nobody,
 // because there is one user on a session and an admission path is not a person.
 //
-// THE DIRECTIVE BODY IS A UNION. A participant-authored directive
-// rests encrypted under the authoring participant's key, so a row whose key has been
+// THE DIRECTIVE BODY IS A UNION. A user-authored directive
+// rests encrypted under the authoring user's key, so a row whose key has been
 // shredded carries the audit record and no text. `{text?: string}` would make "the
 // key is gone" and "the directive said nothing" the same value; two arms make them
 // two facts, and the body-unavailable arm is what the surface renders its own sentence
@@ -28,13 +28,13 @@
  * unstamped row never exists. The console renders the label the daemon sent and
  * derives nothing.
  */
-export type GrowthInterventionOrigin = "participant" | "system";
+export type GrowthInterventionOrigin = "user" | "system";
 
 /**
- * What a participant-authored intervention said, where the console may still read it.
+ * What a user-authored intervention said, where the console may still read it.
  *
  * `unavailable` is not an error: the audit record survives its body, and a row whose
- * participant key has been shredded is a complete record of an intervention with an
+ * user key has been shredded is a complete record of an intervention with an
  * unreadable directive. The console says so rather than rendering an empty string.
  */
 export type GrowthInterventionDirective =

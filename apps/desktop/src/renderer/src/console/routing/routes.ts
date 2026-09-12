@@ -1,12 +1,11 @@
 // The console's routes, as data.
 //
-// Hash routing, not history routing, and for a concrete reason: the renderer is
-// served from a custom `sidekicks-renderer://` scheme through a bundle handler that
-// resolves exactly one document (`Plan-023` Phase 1B, `src/main/protocol.ts`). A
-// history-API route would ask that handler for a path that is not a file; a hash
-// route asks for the same document every time and carries its state after the `#`.
-// The auxiliary-window factory already relies on this — `createAuxiliaryWindow`
-// loads `…/index.html#/window/<route>`.
+// Hash routing, not history routing, and for a concrete reason: the renderer is served
+// from a custom `sidekicks-renderer://` scheme through a bundle handler that resolves
+// exactly one document (`src/main/protocol.ts`). A history-API route would ask that
+// handler for a path that is not a file; a hash route asks for the same document every
+// time and carries its state after the `#`. The auxiliary-window factory already relies
+// on this — `createAuxiliaryWindow` loads `…/index.html#/window/<route>`.
 //
 // Two families of route:
 //
@@ -19,11 +18,11 @@
 //     grammar has optional trailing segments at all.
 //
 // An auxiliary route arriving BARE — no session id — is not an error. A person can
-// open the timeline window from the Window menu before choosing anything, and
-// `Spec-023 §Console Design (Meridian)` §The surface set gives that case a context
-// picker rather than an empty window. A route arriving MALFORMED (an unknown route
-// name, too many segments, an empty segment) is different: it resolves to the
-// not-found route, which says what it could not open rather than rendering blank.
+// open the timeline window from the Window menu before choosing anything, and that
+// case gets a context picker rather than an empty window. A route arriving MALFORMED
+// (an unknown route name, too many segments, an empty segment) is different: it
+// resolves to the not-found route, which says what it could not open rather than
+// rendering blank.
 //
 // THE AUXILIARY GRAMMAR IS NOT DECLARED HERE. `src/shared/auxiliary-routes.ts`
 // owns the route names, their labels, and the `#/window/…` producer/consumer pair,
@@ -82,10 +81,10 @@ export type ConsoleRoute =
         readonly phaseId: string;
       };
     }
-  // Bare, and deliberately so. `Spec-023 §Console Design (Meridian)` §The surface
-  // set opens the `workflow-builder` pane from this destination, and a pane
-  // carries its own context — a definition id written into the address here would
-  // be a second, unowned locator for something the builder has not defined yet.
+  // Bare, and deliberately so. This destination opens the `workflow-builder` pane,
+  // and a pane carries its own context — a definition id written into the address
+  // here would be a second, unowned locator for something the builder has not
+  // defined yet.
   | { readonly kind: "workflows" }
   // TWO ARMS AND NOT ONE OPTIONAL MEMBER. `#/settings` carries no page and therefore
   // has nowhere to put a page-scoped selection: such a pair is a value
@@ -201,12 +200,12 @@ export function parseRoute(hash: string): ConsoleRoute {
   }
 
   // Behind the build-time constant so Rollup collapses `if (false && …)` and this
-  // arm is physically absent from a release renderer, which is the same treatment
-  // `Spec-023 §Pitfalls To Avoid` requires of the fixture bridge and its scenarios.
-  // The address is `#/pane-harness/<paneKind>/<sessionId>`, and BOTH segments are
-  // required: the pane bodies this mounts are session-scoped, so an address with no
-  // session would open a harness that could only ever render the pane's own
-  // not-bound absence — a surface measuring nothing.
+  // arm is physically absent from a release renderer, which is the same treatment the
+  // fixture bridge and its scenarios get. The address is
+  // `#/pane-harness/<paneKind>/<sessionId>`, and BOTH segments are required: the pane
+  // bodies this mounts are session-scoped, so an address with no session would open a
+  // harness that could only ever render the pane's own not-bound absence — a surface
+  // measuring nothing.
   if (__SIDEKICKS_CONSOLE_FIXTURES__ && head === "pane-harness") {
     const [paneKindSegment, sessionIdSegment] = rest;
     if (paneKindSegment === undefined || sessionIdSegment === undefined || rest.length > 2) {

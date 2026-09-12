@@ -1,10 +1,10 @@
 // A reference to an artifact that already exists.
 //
-// NOTHING IS UPLOADED FROM INSIDE A FORM. `Spec-017 §Default Behavior` puts ingestion out
-// of band: a file reaches the session through the artifact pipeline and reaches this
-// control as an identifier. So there is no file input here, and the absence is the rule
-// rather than an unbuilt control — a picker drawn against an ingestion this form does not
-// perform would offer a move that cannot be made.
+// NOTHING IS UPLOADED FROM INSIDE A FORM. Ingestion happens out of band: a file reaches
+// the session through the artifact pipeline and reaches this control as an identifier.
+// So there is no file input here, and the absence is the rule rather than an unbuilt
+// control — a picker drawn against an ingestion this form does not perform would offer a
+// move that cannot be made.
 //
 // THE IDENTIFIER IS A WIRE VALUE, so it is typed and shown in mono like every other one,
 // and the hint beside it says where a reference comes from rather than paraphrasing what

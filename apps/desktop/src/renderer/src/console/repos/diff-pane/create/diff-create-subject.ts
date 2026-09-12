@@ -1,11 +1,11 @@
 // What a diff can be taken OVER in this console, read off the pane's own address.
 //
-// THE WIRE HAS TWO ARMS AND THE PANE HAS FIVE SUBJECT KINDS, AND THAT MISMATCH IS THE
+// THE WIRE HAS TWO ARMS AND THE PANE HAS FOUR SUBJECT KINDS, AND THAT MISMATCH IS THE
 // WHOLE SUBJECT OF THIS MODULE. `DiffArtifactCreateRequest` is a union discriminated on
 // `attributionMode`: the `run_attributed` arm is keyed by a run and the
 // `workspace_fallback` arm by a workspace, and there is no third arm and no arm carrying
 // both. `seats/pane/pane-address.ts` opens a diff pane over a repo, a workspace, a worktree,
-// an invite, or a member. So three of those five name nothing the create can be keyed
+// or the user. So two of those four name nothing the create can be keyed
 // by, and the honest answer for them is that no diff can be asked for from here — not a
 // control that is offered and then refuses.
 //
@@ -18,8 +18,8 @@
 // prepare mints one with no run to attribute — and it settles as a refusal that says so
 // rather than as a diff attributed to a run this console picked.
 //
-// NOTHING HERE GUESSES AN ATTRIBUTION. `Spec-011 §Pitfalls To Avoid` names pretending a
-// workspace diff is run-attributed; the mapping below is total, one address kind to one
+// NOTHING HERE GUESSES AN ATTRIBUTION. Pretending a workspace diff is run-attributed is
+// the pitfall; the mapping below is total, one address kind to one
 // arm or to nothing, and there is no fallback branch in which an unresolved subject
 // becomes the other arm.
 
@@ -60,10 +60,10 @@ export type ResolvedDiffCreateSubject =
 /**
  * Which subject a diff pane's address names, or `undefined` where it names none.
  *
- * `undefined` IS THE ANSWER FOR THREE OF THE FIVE KINDS and is not a gap. A repository
- * holds several checkouts and resolves to no one of them; an invitation and a member
- * have no working tree at all. `DiffPane`'s own absence copy already says what each of
- * those three would mean, so this returns nothing and that copy stands.
+ * `undefined` IS THE ANSWER FOR TWO OF THE FOUR KINDS and is not a gap. A repository
+ * holds several checkouts and resolves to no one of them; the user row has no working
+ * tree at all. `DiffPane`'s own absence copy already says what each of those two would
+ * mean, so this returns nothing and that copy stands.
  *
  * A WORKTREE WITH NO SESSION ALSO ANSWERS `undefined`, fail-closed: resolving its run
  * takes a session-scoped read, so a pane opened on a bare route has no way to ask and

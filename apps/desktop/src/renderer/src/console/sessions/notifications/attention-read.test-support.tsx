@@ -106,7 +106,7 @@ export function bridgeOnFrozenTime(beats: readonly ScenarioBeatShape[] = []): {
       label: "Nothing scripted",
       purpose: "Drives the attention read against a bridge that plays no beat.",
       sessionId: FIRST_SESSION_ID,
-      participantIdsInJoinOrder: [],
+      userIdsInJoinOrder: [],
       beats,
       replies: [],
       startedAtIso: "2026-01-01T10:05:00.000Z",
@@ -129,7 +129,7 @@ export function registryHolding(clock: ManualClock): SessionStoreRegistry {
   const store = registry.open(FIRST_SESSION_ID);
   // Given a base state the way a read would, so a later batch PROJECTS rather than
   // buffering behind a read this window cannot perform.
-  store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+  store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
   return registry;
 }
 

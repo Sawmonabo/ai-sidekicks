@@ -1,9 +1,9 @@
 // The target chip: where this message is going, in one line a person can read.
 //
-// `Spec-023 §Console Design (Meridian)` §Target chip: it names the agent or channel
-// this text goes to, states the binding in one clause, names the paying account, and
-// marks a pending switch. Everything on it is a PROJECTION of what the daemon said —
-// there is no field here the console computed and none it defaulted.
+// It names the agent or channel this text goes to, states the binding in one clause,
+// names the paying account, and marks a pending switch. Everything on it is a
+// PROJECTION of what the daemon said — there is no field here the console computed and
+// none it defaulted.
 //
 // THE FIVE FACTS COME FROM THREE PLACES, AND THE CHIP DOES NOT PRETEND OTHERWISE.
 // The address and the binding clause are the session store's, folded from the event
@@ -18,13 +18,14 @@
 // the fixture answers and a live bridge refuses in type. What the chip still refuses
 // to do is draw a control against nothing: `target-axis-reach.ts` settles that in the
 // order it states, and a build whose port carries no such operation gets the sentence
-// rather than the button (`Spec-023 §Console Design (Meridian)` rule 8).
+// rather than the button, because a control that could silently do nothing is
+// forbidden.
 //
 // AND ONE HALF OF THE FAILED SWITCH IS STILL UNREACHABLE. The DEFERRED arm rides
 // `agent.provider_switch_failed`, an event type `packages/contracts`' union does not
 // register, so no fold can carry it and the growth slate holds that debt. What is
 // rendered below is the IMMEDIATE arm only — the reply to a mutation this window
-// issued — which is why a participant on another machine watching the same agent sees
+// issued — which is why a user on another machine watching the same agent sees
 // no failure clause here.
 //
 // The absences are the `not-checked` kind rather than `empty` on purpose: nobody asked
@@ -121,7 +122,7 @@ export function TargetChip(props: TargetChipProps): React.JSX.Element {
           a call that did not land and a daemon that answered "failed" are two facts,
           and each is unreachable from the other. It lives HERE rather than only on the
           form because the form is portalled and unmounts on a dismissal, and a
-          participant who pressed Apply and clicked away would otherwise be told
+          user who pressed Apply and clicked away would otherwise be told
           nothing at all. */}
       {switchRefusal === undefined ? null : <AxisSwitchRefusal refusal={switchRefusal} />}
       {renderAxisAffordance(props.axes)}

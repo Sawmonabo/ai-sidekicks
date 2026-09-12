@@ -1,21 +1,18 @@
 // Tests for `RustSidecarPtyHost` — daemon-side supervisor for the Rust
 // PTY sidecar binary.
 //
-// What we assert (Plan-024 Phase 3 acceptance criteria):
+// What we assert (acceptance criteria):
 //
-//   * AC1: every `PtyHost` method is implemented (spawn, resize, write,
+//   * Every `PtyHost` method is implemented (spawn, resize, write,
 //     kill, close, onData, onExit). Round-trip framing is exercised
 //     end-to-end via a fake child process whose stdin/stdout streams
 //     are wired to the supervisor's framer.
-//   * AC2: AC2 ("PtyHostSelector returns a working host on Windows") is
-//     covered by the selector test suite — this file focuses on the
-//     supervisor surface itself.
-//   * AC3: sidecar process crash within the respawn budget triggers
+//   * Sidecar process crash within the respawn budget triggers
 //     automatic respawn; outside budget surfaces
 //     `PtyBackendUnavailableError`. Both branches exercised with a
 //     mock-clock so the 60s sliding window is deterministic.
-//   * Pin 1: factory accepts `binaryPath` so T-024-3-3 can swap the
-//     resolver without touching the signature.
+//   * Pin 1: factory accepts `binaryPath` so can swap the resolver
+//     without touching the signature.
 //   * Pin 4: Content-Length frames written to stdin match the wire
 //     format `Content-Length: <bytes>\r\n\r\n<json-payload>`.
 //   * Pin 5: crash budget is a sliding window — 5 crashes at t=10s
@@ -32,7 +29,6 @@
 // test scenario builds a fresh fake and wires the supervisor against
 // it.
 //
-// Refs: Plan-024 §F-024-3-02 + §F-024-3-05; ADR-019 §Decision item 1.
 
 import { Buffer } from "node:buffer";
 import { EventEmitter } from "node:events";
@@ -234,10 +230,10 @@ async function flushMicrotasks(): Promise<void> {
 }
 
 // ----------------------------------------------------------------------------
-// AC1 — every PtyHost method is implemented.
+// Every PtyHost method is implemented.
 // ----------------------------------------------------------------------------
 
-describe("RustSidecarPtyHost — PtyHost contract surface (AC1)", () => {
+describe("RustSidecarPtyHost — PtyHost contract surface", () => {
   it("spawn round-trips through the framer and resolves with the SpawnResponse", async () => {
     const fake = makeFakeChild();
     const host = new RustSidecarPtyHost({
@@ -318,7 +314,7 @@ describe("RustSidecarPtyHost — PtyHost contract surface (AC1)", () => {
     await expect(resizePromise).resolves.toBeUndefined();
   });
 
-  it("write base64-encodes the bytes per F-024-1-01 and resolves on WriteResponse", async () => {
+  it("write base64-encodes the bytes and resolves on WriteResponse", async () => {
     const fake = makeFakeChild();
     const host = new RustSidecarPtyHost({
       resolveBinaryPath: () => "/fake/sidecar",
@@ -517,16 +513,16 @@ describe("RustSidecarPtyHost — Content-Length wire format (Pin 4)", () => {
     // Strict wire-format match — the header line MUST be exactly
     // "Content-Length: <n>\r\n\r\n" before the JSON body. A future
     // refactor that adds optional headers (Content-Type, etc.) MUST
-    // keep Content-Length as the first header line for ADR-009 parity.
+    // keep Content-Length as the first header line for parity.
     expect(stdin).toMatch(/^Content-Length: \d+\r\n\r\n\{/);
   });
 });
 
 // ----------------------------------------------------------------------------
-// AC3 + Pin 5 — sliding-window crash budget.
+// Pin 5 — sliding-window crash budget.
 // ----------------------------------------------------------------------------
 
-describe("RustSidecarPtyHost — sliding-window crash budget (AC3 + Pin 5)", () => {
+describe("RustSidecarPtyHost — sliding-window crash budget (Pin 5)", () => {
   it("respawns the sidecar within budget (4 crashes in 60s does NOT exhaust)", async () => {
     const seq = spawnReturningSequence();
     const clock = vi.fn<() => number>().mockReturnValue(0);
@@ -804,9 +800,9 @@ describe("createRustSidecarPtyHost — factory accepts binaryPath", () => {
     expect(host).toBeInstanceOf(RustSidecarPtyHost);
   });
 
-  it("constructs a host with no opts (production default — wires the four-tier resolver)", () => {
+  it("constructs a host with no opts (production default — wires the four-step resolver)", () => {
     // No-opt construction wires `resolveSidecarBinaryPath` as the
-    // default `resolveBinaryPath` deps entry. The four-tier resolver's
+    // default `resolveBinaryPath` deps entry. The four-step resolver's
     // own behavior is exercised in the dedicated `resolveSidecarBinaryPath`
     // describe block below; here we just assert construction succeeds.
     const host = createRustSidecarPtyHost();
@@ -821,8 +817,7 @@ describe("createRustSidecarPtyHost — factory accepts binaryPath", () => {
 describe("RustSidecarPtyHost — framing limits (defense in depth)", () => {
   it(`MAX_FRAME_BODY_BYTES is set to ${MAX_FRAME_BODY_BYTES} bytes (mirrors Rust framing::MAX_FRAME_BODY_BYTES)`, () => {
     // Pin the constant value so a future divergence from the Rust
-    // side trips this test. 8 MiB is the contract per Plan-024
-    // F-024-1-06.
+    // side trips this test. 8 MiB is the contract.
     expect(MAX_FRAME_BODY_BYTES).toBe(8 * 1024 * 1024);
   });
 });
@@ -947,9 +942,7 @@ describe("ContentLengthParser — chunk-boundary reassembly + rejection paths", 
   });
 
   // Strict digit-only Content-Length grammar — pins the daemon-side
-  // rejection surface. Phase 1 framing layer; below the I-024-N
-  // invariants per Plan-024 §T-024-1-2 ("Verifies invariant: none —
-  // framing layer below invariants").
+  // rejection surface. Phase 1 framing layer; below invariants.
   //
   // The daemon's `/^\d+$/` is DELIBERATELY STRICTER than the Rust
   // framer at packages/sidecar-rust-pty/src/framing.rs, which calls
@@ -960,7 +953,7 @@ describe("ContentLengthParser — chunk-boundary reassembly + rejection paths", 
   // https://doc.rust-lang.org/std/primitive.usize.html#method.from_str_radix.
   //
   // The daemon side rejects `+N` to align with HTTP/1.1 RFC 7230
-  // §3.3.2 (`Content-Length = 1*DIGIT` — no sign permitted;
+  // `Content-Length = 1*DIGIT` — no sign permitted;
   // https://datatracker.ietf.org/doc/html/rfc7230#section-3.3.2)
   // and as defense-in-depth at the daemon ↔ sidecar boundary. The
   // asymmetry is safe under the current trust architecture: a `+N`
@@ -1035,7 +1028,7 @@ describe("ContentLengthParser — chunk-boundary reassembly + rejection paths", 
   });
 
   it("preserves the duplicate-Content-Length defense ahead of the strict-grammar check", () => {
-    // Regression guard: AC5 — the new validator MUST run AFTER the
+    // Regression guard: — the new validator MUST run AFTER the
     // duplicate-header check so the duplicate-shape error message is
     // surfaced even when the second value would also fail the
     // grammar. Without this ordering a peer could mask a smuggling
@@ -1067,13 +1060,12 @@ describe("ContentLengthParser — chunk-boundary reassembly + rejection paths", 
   // unbounded header buffering when a peer (or a desync condition) never
   // delivers `\r\n\r\n`. Without this cap, `feed()` would concatenate
   // forever. Mirrors the per-section cap in the IPC sibling framer at
-  // `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts` lines 274-288
-  // (`if (buffer.byteLength > 1024) throw FramingError("header_too_long"…)`).
-  // The Rust framer at `packages/sidecar-rust-pty/src/framing.rs:34`
-  // enforces a 1 KiB PER-LINE cap by contrast — deliberately different
-  // per the load-bearing comment at framing.rs:25-33. Phase 3 framer
-  // hardening; below the I-024-N invariants per Plan-024 §T-024-3-1
-  // ("framing layer below invariants").
+  // `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts` lines 274-288 (`if
+  // (buffer.byteLength > 1024) throw FramingError("header_too_long"…)`). The
+  // Rust framer at `packages/sidecar-rust-pty/src/framing.rs:34` enforces a 1
+  // KiB PER-LINE cap by contrast — deliberately different per the
+  // load-bearing comment at framing.rs:25-33. Phase 3 framer hardening; below
+  // invariants.
   // ----------------------------------------------------------------------------
 
   it(`MAX_HEADER_BYTES is set to 1024 bytes (mirrors the TS IPC sibling per-section cap)`, () => {
@@ -2058,10 +2050,10 @@ describe("RustSidecarPtyHost — data_frame fan-out gating", () => {
 // `head.resolve(envelope)` queues the awaiter's microtask. Without
 // this, the drain loop would dispatch trailing frames for a freshly-
 // minted session_id with sessions.has(id) === false and silently drop
-// them. (Plan-024 §T-024-3-1; ADR-019 §Failure Mode Analysis.)
+// them.
 // ----------------------------------------------------------------------------
 
-describe("RustSidecarPtyHost — same-stdout-chunk frame coalescing (Plan-024 §T-024-3-1)", () => {
+describe("RustSidecarPtyHost — same-stdout-chunk frame coalescing", () => {
   it("delivers DataFrame arriving same-chunk after SpawnResponse to onData", async () => {
     // Setup: fake child, host attached, register onData listener BEFORE
     // spawn. The race targets: the sidecar writer queues SpawnResponse
@@ -2253,10 +2245,9 @@ describe("RustSidecarPtyHost — same-stdout-chunk frame coalescing (Plan-024 §
 //      cannot have this race — `pty.spawn()` is synchronous and the
 //      `child.onExit` subscription is wired atomically inside spawn()).
 //
-// (Plan-024 §T-024-3-1 + §I-024-6; ADR-019 §Failure Mode Analysis.)
 // ----------------------------------------------------------------------------
 
-describe("RustSidecarPtyHost — pre-spawn event buffering (Plan-024 §I-024-6)", () => {
+describe("RustSidecarPtyHost — pre-spawn event buffering", () => {
   /**
    * Yield to the I/O loop's Check phase so any `setImmediate` callbacks
    * scheduled during prior microtask + I/O work get a chance to run.
@@ -2537,7 +2528,7 @@ describe("RustSidecarPtyHost — pre-spawn event buffering (Plan-024 §I-024-6)"
     );
     await flushMicrotasks();
     // Crash the first child — handleChildExit clears the pre-spawn
-    // buffer per I-024-6.
+    // buffer.
     seq.latest().triggerExit(1, null);
     await preCrashSpawnP.catch(() => undefined);
 
@@ -2582,7 +2573,7 @@ describe("RustSidecarPtyHost — pre-spawn event buffering (Plan-024 §I-024-6)"
     // would have its DataFrame / ExitCodeNotification suppressed
     // (instead of delivered via the alive-session branch). Verify
     // closedSessionIds is cleared by `clearPreSpawnState` on
-    // `handleChildExit` per I-024-6.
+    // `handleChildExit`.
     const seq = spawnReturningSequence();
     const host = new RustSidecarPtyHost({
       resolveBinaryPath: () => "/fake/sidecar",
@@ -2616,8 +2607,8 @@ describe("RustSidecarPtyHost — pre-spawn event buffering (Plan-024 §I-024-6)"
     await closeP;
 
     // Crash the first child — handleChildExit clears
-    // closedSessionIds per I-024-6 so the post-respawn fresh `s-0`
-    // is not suppressed.
+    // closedSessionIds so the post-respawn fresh `s-0` is not
+    // suppressed.
     seq.latest().triggerExit(1, null);
 
     // Post-respawn: fresh spawn for s-0 (same wire id, new logical
@@ -2798,8 +2789,7 @@ describe("RustSidecarPtyHost — dual error+exit events do not double-charge the
 //
 // Refs: Local class invariant — see RustSidecarPtyHost class rustdoc
 // and handleChildExit rustdoc for the active-child-only teardown
-// contract. Plan-024 §T-024-3-1 governs the broader crash-respawn
-// supervision.
+// contract..
 // ----------------------------------------------------------------------------
 
 describe("RustSidecarPtyHost — stale child lifecycle events do not clobber the replacement child", () => {
@@ -3014,7 +3004,6 @@ describe("RustSidecarPtyHost — stale child lifecycle events do not clobber the
 });
 
 // ----------------------------------------------------------------------------
-// Crash-time per-session `onExit` (ADR-019 §Decision item 9).
 //
 // What we assert (the contract surface a consumer relies on for cleanup
 // when the sidecar host dies abnormally):
@@ -3032,13 +3021,13 @@ describe("RustSidecarPtyHost — stale child lifecycle events do not clobber the
 //     on a respawned sidecar's drain loop does NOT route to the
 //     exit listener (the record is gone; the buffer-fallback path
 //     never reaches `exitListener`).
-//   * BL-111 fire sits BELOW the stale-event guard — a late stale
-//     event for an old crashed child whose sessions were already
+//   * Fire sits BELOW the stale-event guard — a late stale event
+//     for an old crashed child whose sessions were already
 //     crash-fired does NOT fire `onExit` against a freshly-spawned
 //     replacement's sessions.
 // ----------------------------------------------------------------------------
 
-describe("RustSidecarPtyHost — crash-time per-session onExit (`ADR-019 §Decision` item 9)", () => {
+describe("RustSidecarPtyHost — crash-time per-session onExit", () => {
   it("handleChildExit fires onExit(-1) for every active session and empties the session map", async () => {
     const fake = makeFakeChild();
     const host = new RustSidecarPtyHost({
@@ -3071,8 +3060,8 @@ describe("RustSidecarPtyHost — crash-time per-session onExit (`ADR-019 §Decis
     };
     expect(internals.sessions.size).toBe(3);
 
-    // Crash the sidecar. BL-111 must fire onExit for all three sessions
-    // BEFORE `rejectAllOutstanding`, and leave the session map empty.
+    // Must fire onExit for all three sessions BEFORE
+    // `rejectAllOutstanding`, and leave the session map empty.
     fake.triggerExit(1, null);
     await flushMicrotasks();
 
@@ -3085,7 +3074,7 @@ describe("RustSidecarPtyHost — crash-time per-session onExit (`ADR-019 §Decis
       ]),
     );
     // Each fire used the 2-arg call convention (signalCode omitted),
-    // matching the §Decision item 9 contract.
+    // matching.
     for (const call of exitFn.mock.calls) {
       expect(call).toHaveLength(2);
     }
@@ -3175,10 +3164,10 @@ describe("RustSidecarPtyHost — crash-time per-session onExit (`ADR-019 §Decis
     expect(exitFn).toHaveBeenCalledTimes(1);
     expect(exitFn).toHaveBeenCalledWith("s-0", 0);
 
-    // Crash the sidecar. BL-111 must skip the FIRE for s-0 (already
-    // cached) and fire only for s-1 — assert: total fires = 2 (the
-    // prior s-0,0 + the new s-1,-1), NOT 3. The DELETE runs
-    // unconditionally so `sessions.size === 0` holds for BOTH paths.
+    // Must skip the FIRE for s-0 (already cached) and fire only for
+    // s-1 — assert: total fires = 2 (the prior s-0,0 + the new
+    // s-1,-1), NOT 3. The DELETE runs unconditionally so
+    // `sessions.size === 0` holds for BOTH paths.
     fake.triggerExit(1, null);
     await flushMicrotasks();
 
@@ -3275,7 +3264,7 @@ describe("RustSidecarPtyHost — crash-time per-session onExit (`ADR-019 §Decis
     childA.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
     await spawnP1;
 
-    // Crash child A — BL-111 fires onExit("s-0", -1) once.
+    // Crash child A — fires onExit("s-0", -1) once.
     childA.triggerExit(1, null);
     await flushMicrotasks();
     expect(exitFn).toHaveBeenCalledTimes(1);
@@ -3391,7 +3380,7 @@ describe("RustSidecarPtyHost — crash-time per-session onExit (`ADR-019 §Decis
     childA.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
     await spawnP1;
 
-    // Crash child A — BL-111 fires for s-0 once.
+    // Crash child A — fires for s-0 once.
     childA.triggerExit(1, null);
     await flushMicrotasks();
     expect(exitFn).toHaveBeenCalledTimes(1);
@@ -3433,29 +3422,28 @@ describe("RustSidecarPtyHost — crash-time per-session onExit (`ADR-019 §Decis
 });
 
 // ----------------------------------------------------------------------------
-// `resolveSidecarBinaryPath` — four-tier binary resolution per F-024-3-03.
+// `resolveSidecarBinaryPath` — four-step binary resolution.
 //
-// What we assert (T-024-3-3 acceptance criteria, dispatch §pin 5 ordering,
-// dispatch §pin 4 four-exhausted enumeration):
+// What we assert (acceptance criteria, dispatch order):
 //
-//   * Tier 1 (env-var) hits → returns env value verbatim; tiers 2/3/4 NOT
+//   * Step 1 (env-var) hits → returns env value verbatim; steps 2/3/4 NOT
 //     consulted.
-//   * Tier 1 relative-path → rejected (NOT coerced); tier 2 then consulted.
-//   * Tier 2 (require.resolve) hits → returns resolved path; tiers 3/4 NOT
+//   * Step 1 relative-path → rejected (NOT coerced); step 2 then consulted.
+//   * Step 2 (require.resolve) hits → returns resolved path; steps 3/4 NOT
 //     consulted.
-//   * Tier 3 (release build) hits → returns release path; tier 4 NOT
+//   * Step 3 (release build) hits → returns release path; step 4 NOT
 //     consulted.
-//   * Tier 4 (debug build) hits → returns debug path.
+//   * Step 4 (debug build) hits → returns debug path.
 //   * All four exhausted → throws PtyBackendUnavailableError with
-//     attemptedBackend='rust-sidecar' AND a message enumerating every tier
-//     failure AND a `cause` carrying the tier-2 require.resolve error.
+//     attemptedBackend='rust-sidecar' AND a message enumerating every step
+//     failure AND a `cause` carrying the step-2 require.resolve error.
 //   * Platform binary name: 'sidecar' on POSIX, 'sidecar.exe' on Windows.
 // ----------------------------------------------------------------------------
 
-describe("resolveSidecarBinaryPath — four-tier binary resolution (F-024-3-03)", () => {
+describe("resolveSidecarBinaryPath — four-step binary resolution", () => {
   // Helper — build an injectable-deps record with the strict defaults each
   // test overrides. The defaults (empty env, throwing nodeRequire, false-
-  // returning existsSync) ensure every test must opt-in to the tier it
+  // returning existsSync) ensure every test must opt-in to the step it
   // wants to exercise.
   function makeOpts(over?: Partial<ResolveSidecarBinaryPathOptions>): {
     opts: ResolveSidecarBinaryPathOptions;
@@ -3478,11 +3466,11 @@ describe("resolveSidecarBinaryPath — four-tier binary resolution (F-024-3-03)"
     return { opts, requireMock, existsMock };
   }
 
-  it("tier 1 hits when AIS_PTY_SIDECAR_BIN is set to an absolute path that exists (tiers 2/3/4 NOT consulted)", () => {
-    // The tier-1 happy path also probes existsSync to guard against a
+  it("step 1 hits when AIS_PTY_SIDECAR_BIN is set to an absolute path that exists (steps 2/3/4 NOT consulted)", () => {
+    // The step-1 happy path also probes existsSync to guard against a
     // stale/typo'd env path silently passing resolution and bombing
-    // ensureChild()'s spawn budget. The probe counts as tier-1
-    // bookkeeping — tiers 2/3/4 still MUST NOT be consulted (proven by
+    // ensureChild()'s spawn budget. The probe counts as step-1
+    // bookkeeping — steps 2/3/4 still MUST NOT be consulted (proven by
     // requireMock having zero invocations).
     const existsMock = vi.fn<(p: string) => boolean>((p) => p === "/abs/path/to/sidecar");
     const { opts, requireMock } = makeOpts({
@@ -3493,43 +3481,43 @@ describe("resolveSidecarBinaryPath — four-tier binary resolution (F-024-3-03)"
     const result: string = resolveSidecarBinaryPath(opts);
 
     expect(result).toBe("/abs/path/to/sidecar");
-    // Tier 1's existsSync probe ran once, against the env value;
-    // tier 3/4 release/debug probes were NOT issued (pin 5 ordering).
+    // Step 1's existsSync probe ran once, against the env value;
+    // step 3/4 release/debug probes were NOT issued (pin 5 ordering).
     expect(existsMock).toHaveBeenCalledTimes(1);
     expect(existsMock).toHaveBeenCalledWith("/abs/path/to/sidecar");
     expect(requireMock).not.toHaveBeenCalled();
   });
 
-  it("tier 1 rejects an absolute path that does not exist on disk and falls through to tier 2", () => {
+  it("step 1 rejects an absolute path that does not exist on disk and falls through to step 2", () => {
     // Stale/typo'd absolute env path — without the existsSync guard,
     // the resolver would return the bad path and ensureChild()'s
     // doomed spawn(...) would count each failure against the 5/60s
     // crash budget, flipping the host to permanently unavailable
     // after five attempts. The resolver instead rejects-and-falls-
     // through so the next call resolves cleanly via the published
-    // package (tier 2). Mirrors the relative-path branch idiom.
-    const tier2Mock = vi.fn<(id: string) => string>(() => "/installed/pkg/bin/sidecar");
+    // package (step 2). Mirrors the relative-path branch idiom.
+    const step2Mock = vi.fn<(id: string) => string>(() => "/installed/pkg/bin/sidecar");
     const existsMock = vi.fn<(p: string) => boolean>(() => false);
     const { opts } = makeOpts({
       env: { AIS_PTY_SIDECAR_BIN: "/tmp/path/that/does/not/exist" },
-      nodeRequire: { resolve: tier2Mock },
+      nodeRequire: { resolve: step2Mock },
       existsSync: existsMock,
     });
 
     const result: string = resolveSidecarBinaryPath(opts);
 
     expect(result).toBe("/installed/pkg/bin/sidecar");
-    // Tier 1's existsSync probe ran against the env value, returned
-    // false, and the resolver continued to tier 2 — proves the env
+    // Step 1's existsSync probe ran against the env value, returned
+    // false, and the resolver continued to step 2 — proves the env
     // path was NOT returned verbatim.
     expect(existsMock).toHaveBeenCalledWith("/tmp/path/that/does/not/exist");
-    expect(tier2Mock).toHaveBeenCalledTimes(1);
+    expect(step2Mock).toHaveBeenCalledTimes(1);
   });
 
-  it("rejects-and-enumerates a non-existent absolute tier-1 attempt when all four tiers miss", () => {
+  it("rejects-and-enumerates a non-existent absolute step-1 attempt when all four steps miss", () => {
     // Same diagnostic-naming-the-rejected-value contract as the
-    // relative-path tier-1 attempt: when the operator's env path
-    // misses AND every other tier misses, the four-exhausted error
+    // relative-path step-1 attempt: when the operator's env path
+    // misses AND every other step misses, the four-exhausted error
     // names the exact typo'd value so they can see what to fix.
     const requireMock = vi.fn<(id: string) => string>(() => {
       throw new Error("not found");
@@ -3551,30 +3539,30 @@ describe("resolveSidecarBinaryPath — four-tier binary resolution (F-024-3-03)"
     expect(thrown).toBeInstanceOf(PtyBackendUnavailableError);
     if (thrown instanceof PtyBackendUnavailableError) {
       expect(thrown.message).toMatch(
-        /tier 1 \(env-var AIS_PTY_SIDECAR_BIN\): rejected \(path does not exist\): "\/tmp\/missing\/sidecar"/,
+        /step 1 \(env-var AIS_PTY_SIDECAR_BIN\): rejected \(path does not exist\): "\/tmp\/missing\/sidecar"/,
       );
     }
   });
 
-  it("tier 1 rejects a relative path (NOT coerced to absolute) and falls through to tier 2", () => {
+  it("step 1 rejects a relative path (NOT coerced to absolute) and falls through to step 2", () => {
     // Per resolver rustdoc: relative paths couple to process.cwd() which
     // is caller-dependent. The resolver rejects-and-falls-through rather
-    // than silently coerce. Tier 2 is then consulted.
-    const tier2Mock = vi.fn<(id: string) => string>(() => "/from/tier-2/sidecar");
+    // than silently coerce. Step 2 is then consulted.
+    const step2Mock = vi.fn<(id: string) => string>(() => "/from/step-2/sidecar");
     const { opts } = makeOpts({
       env: { AIS_PTY_SIDECAR_BIN: "./relative/sidecar" },
-      nodeRequire: { resolve: tier2Mock },
+      nodeRequire: { resolve: step2Mock },
     });
 
     const result: string = resolveSidecarBinaryPath(opts);
 
-    expect(result).toBe("/from/tier-2/sidecar");
-    // Tier 2 was indeed consulted — proves tier 1 did NOT short-circuit
+    expect(result).toBe("/from/step-2/sidecar");
+    // Step 2 was indeed consulted — proves step 1 did NOT short-circuit
     // by returning the relative path verbatim.
-    expect(tier2Mock).toHaveBeenCalledTimes(1);
+    expect(step2Mock).toHaveBeenCalledTimes(1);
   });
 
-  it("tier 2 hits when require.resolve returns a path (tiers 3/4 NOT consulted)", () => {
+  it("step 2 hits when require.resolve returns a path (steps 3/4 NOT consulted)", () => {
     const requireMock = vi.fn<(id: string) => string>(() => "/installed/pkg/bin/sidecar");
     const { opts, existsMock } = makeOpts({
       nodeRequire: { resolve: requireMock },
@@ -3583,20 +3571,20 @@ describe("resolveSidecarBinaryPath — four-tier binary resolution (F-024-3-03)"
     const result: string = resolveSidecarBinaryPath(opts);
 
     expect(result).toBe("/installed/pkg/bin/sidecar");
-    // The id passed to require.resolve must match F-024-3-03's format.
+    // The id passed to require.resolve must match the format.
     expect(requireMock).toHaveBeenCalledTimes(1);
     expect(requireMock).toHaveBeenCalledWith(
       "@ai-sidekicks/pty-sidecar-linux-" + process.arch + "/bin/sidecar",
     );
-    // Filesystem probes for tiers 3/4 MUST NOT have run.
+    // Filesystem probes for steps 3/4 MUST NOT have run.
     expect(existsMock).not.toHaveBeenCalled();
   });
 
-  it("tier 3 hits when require.resolve throws but the release binary exists on disk (tier 4 NOT consulted)", () => {
+  it("step 3 hits when require.resolve throws but the release binary exists on disk (step 4 NOT consulted)", () => {
     const requireMock = vi.fn<(id: string) => string>(() => {
       throw new Error("Cannot find module '@ai-sidekicks/pty-sidecar-linux-x64'");
     });
-    // Tier 3 returns true; tier 4 must NOT be probed.
+    // Step 3 returns true; step 4 must NOT be probed.
     const existsMock = vi.fn<(p: string) => boolean>((p) => p === "/fake/release/sidecar");
     const { opts } = makeOpts({
       nodeRequire: { resolve: requireMock },
@@ -3607,12 +3595,12 @@ describe("resolveSidecarBinaryPath — four-tier binary resolution (F-024-3-03)"
 
     expect(result).toBe("/fake/release/sidecar");
     // existsSync was called exactly once for the release path; the debug
-    // path was NOT consulted (tier 4 short-circuited away).
+    // path was NOT consulted (step 4 short-circuited away).
     expect(existsMock).toHaveBeenCalledTimes(1);
     expect(existsMock).toHaveBeenCalledWith("/fake/release/sidecar");
   });
 
-  it("tier 4 hits when only the debug binary exists on disk", () => {
+  it("step 4 hits when only the debug binary exists on disk", () => {
     const requireMock = vi.fn<(id: string) => string>(() => {
       throw new Error("Cannot find module");
     });
@@ -3625,13 +3613,13 @@ describe("resolveSidecarBinaryPath — four-tier binary resolution (F-024-3-03)"
     const result: string = resolveSidecarBinaryPath(opts);
 
     expect(result).toBe("/fake/debug/sidecar");
-    // Both tiers 3 and 4 were probed before tier 4 hit; debug was last.
+    // Both steps 3 and 4 were probed before step 4 hit; debug was last.
     expect(existsMock).toHaveBeenCalledTimes(2);
     expect(existsMock).toHaveBeenNthCalledWith(1, "/fake/release/sidecar");
     expect(existsMock).toHaveBeenNthCalledWith(2, "/fake/debug/sidecar");
   });
 
-  it("all four tiers exhausted → throws PtyBackendUnavailableError enumerating every tier failure", () => {
+  it("all four steps exhausted → throws PtyBackendUnavailableError enumerating every step failure", () => {
     // No env-var; require.resolve throws; existsSync returns false for
     // both release and debug. This is the canonical "fresh checkout, no
     // cargo build, no install" failure mode the resolver mitigates.
@@ -3659,25 +3647,25 @@ describe("resolveSidecarBinaryPath — four-tier binary resolution (F-024-3-03)"
     expect(thrown.code).toBe(PTY_BACKEND_UNAVAILABLE_CODE);
     expect(thrown.details.attemptedBackend).toBe("rust-sidecar");
 
-    // Dispatch pin 4 — details.message enumerates every tier failure
+    // Dispatch pin 4 — details.message enumerates every step failure
     // (operator-grade diagnostic, not just "binary not found").
-    expect(thrown.message).toMatch(/tier 1 \(env-var AIS_PTY_SIDECAR_BIN\): unset/);
-    expect(thrown.message).toMatch(/tier 2 \(require\.resolve.*\): threw:/);
+    expect(thrown.message).toMatch(/step 1 \(env-var AIS_PTY_SIDECAR_BIN\): unset/);
+    expect(thrown.message).toMatch(/step 2 \(require\.resolve.*\): threw:/);
     expect(thrown.message).toMatch(
-      /tier 3 \(packages\/sidecar-rust-pty\/target\/release\/sidecar\): not found at \/fake\/release\/sidecar/,
+      /step 3 \(packages\/sidecar-rust-pty\/target\/release\/sidecar\): not found at \/fake\/release\/sidecar/,
     );
     expect(thrown.message).toMatch(
-      /tier 4 \(packages\/sidecar-rust-pty\/target\/debug\/sidecar\): not found at \/fake\/debug\/sidecar/,
+      /step 4 \(packages\/sidecar-rust-pty\/target\/debug\/sidecar\): not found at \/fake\/debug\/sidecar/,
     );
 
-    // details.cause carries the tier-2 require.resolve error (closest
-    // production-path miss; tier 1 is a developer-explicit override,
-    // tiers 3/4 are workspace dev paths).
+    // details.cause carries the step-2 require.resolve error (closest
+    // production-path miss; step 1 is a developer-explicit override,
+    // steps 3/4 are workspace dev paths).
     expect(thrown.details.cause).toBe(requireError);
   });
 
-  it("rejects-and-enumerates a relative-path tier-1 attempt when all four tiers miss", () => {
-    // Strengthens the prior all-exhausted assertion — when tier 1 was
+  it("rejects-and-enumerates a relative-path step-1 attempt when all four steps miss", () => {
+    // Strengthens the prior all-exhausted assertion — when step 1 was
     // explicitly tried-and-rejected (relative path), the diagnostic
     // names the rejected value so the operator can see what they got
     // wrong.
@@ -3699,16 +3687,15 @@ describe("resolveSidecarBinaryPath — four-tier binary resolution (F-024-3-03)"
     expect(thrown).toBeInstanceOf(PtyBackendUnavailableError);
     if (thrown instanceof PtyBackendUnavailableError) {
       expect(thrown.message).toMatch(
-        /tier 1 \(env-var AIS_PTY_SIDECAR_BIN\): rejected \(relative path; absolute required\): "\.\/relative\/path"/,
+        /step 1 \(env-var AIS_PTY_SIDECAR_BIN\): rejected \(relative path; absolute required\): "\.\/relative\/path"/,
       );
     }
   });
 
-  it("on Windows, probes 'sidecar.exe' (not 'sidecar') for tier 2 and embeds .exe in tier 3/4 diagnostics", () => {
-    // ADR-019 §Decision item 1 names Windows as the primary sidecar
-    // target; the resolver MUST handle the .exe suffix or the
-    // entire failure-mode mitigation regresses on the platform that
-    // needs it most.
+  it("on Windows, probes 'sidecar.exe' (not 'sidecar') for step 2 and embeds .exe in step 3/4 diagnostics", () => {
+    // The resolver MUST handle the.exe suffix or the entire
+    // failure-mode mitigation regresses on the platform that needs
+    // it most.
     const requireMock = vi.fn<(id: string) => string>(() => {
       throw new Error("not found");
     });
@@ -3726,28 +3713,28 @@ describe("resolveSidecarBinaryPath — four-tier binary resolution (F-024-3-03)"
       thrown = err;
     }
 
-    // Tier 2 was called with the .exe-suffixed binary name.
+    // Step 2 was called with the .exe-suffixed binary name.
     expect(requireMock).toHaveBeenCalledWith(
       "@ai-sidekicks/pty-sidecar-win32-" + process.arch + "/bin/sidecar.exe",
     );
-    // The tier-3 / tier-4 diagnostics also show the .exe suffix.
+    // The step-3 / step-4 diagnostics also show the .exe suffix.
     expect(thrown).toBeInstanceOf(PtyBackendUnavailableError);
     if (thrown instanceof PtyBackendUnavailableError) {
       expect(thrown.message).toMatch(
-        /tier 3 \(packages\/sidecar-rust-pty\/target\/release\/sidecar\.exe\)/,
+        /step 3 \(packages\/sidecar-rust-pty\/target\/release\/sidecar\.exe\)/,
       );
       expect(thrown.message).toMatch(
-        /tier 4 \(packages\/sidecar-rust-pty\/target\/debug\/sidecar\.exe\)/,
+        /step 4 \(packages\/sidecar-rust-pty\/target\/debug\/sidecar\.exe\)/,
       );
     }
   });
 
-  it("treats an empty-string AIS_PTY_SIDECAR_BIN identically to unset (falls through to tier 2)", () => {
+  it("treats an empty-string AIS_PTY_SIDECAR_BIN identically to unset (falls through to step 2)", () => {
     // Process-env values can be empty strings (e.g., `AIS_PTY_SIDECAR_BIN=`
     // in a shell). The resolver's `length === 0` guard handles this; an
     // empty-string env-var must NOT be returned as a valid binary path
     // (would cause an ENOENT downstream that surfaces as a less-actionable
-    // error than "tier 1 unset").
+    // error than "step 1 unset").
     const requireMock = vi.fn<(id: string) => string>(() => "/installed/pkg/bin/sidecar");
     const { opts } = makeOpts({
       env: { AIS_PTY_SIDECAR_BIN: "" },
@@ -3760,7 +3747,7 @@ describe("resolveSidecarBinaryPath — four-tier binary resolution (F-024-3-03)"
     expect(requireMock).toHaveBeenCalledTimes(1);
   });
 
-  it("tier 3/4 default paths land inside packages/sidecar-rust-pty/target/{release,debug}/ (pins workspaceTargetPath ascent depth)", () => {
+  it("step 3/4 default paths land inside packages/sidecar-rust-pty/target/{release,debug}/ (pins workspaceTargetPath ascent depth)", () => {
     // The other resolver tests hardcode `releasePath` / `debugPath` via
     // `makeOpts`, which short-circuits the production-side
     // `workspaceTargetPath` ascent (the four-up
@@ -3777,7 +3764,7 @@ describe("resolveSidecarBinaryPath — four-tier binary resolution (F-024-3-03)"
     // Windows (`\packages\sidecar-rust-pty\...`) — `fileURLToPath`
     // returns a platform-native path separator.
     const requireMock = vi.fn<(id: string) => string>(() => {
-      throw new Error("Cannot find module (tier-2 forced miss)");
+      throw new Error("Cannot find module (step-2 forced miss)");
     });
     const existsMock = vi.fn<(p: string) => boolean>(() => false);
 
@@ -3797,7 +3784,7 @@ describe("resolveSidecarBinaryPath — four-tier binary resolution (F-024-3-03)"
       thrown = err;
     }
 
-    // Both tier 3 and tier 4 probe paths must land inside
+    // Both step 3 and step 4 probe paths must land inside
     // `packages/sidecar-rust-pty/target/{release,debug}/sidecar` —
     // assert via the existsSync call arguments (the paths the resolver
     // tried to probe).
@@ -3814,7 +3801,7 @@ describe("resolveSidecarBinaryPath — four-tier binary resolution (F-024-3-03)"
     // Belt-and-suspenders — also pin the diagnostic message contents
     // so a future divergence between the probe path and the rendered
     // diagnostic is caught (the resolver embeds the resolved path in
-    // the per-tier outcome string).
+    // the per-step outcome string).
     expect(thrown).toBeInstanceOf(PtyBackendUnavailableError);
     if (thrown instanceof PtyBackendUnavailableError) {
       expect(thrown.message).toContain(releaseSuffix);
@@ -3827,7 +3814,7 @@ describe("resolveSidecarBinaryPath — four-tier binary resolution (F-024-3-03)"
 // `RustSidecarPtyHost.ensureChild` — preserves resolver-thrown
 // PtyBackendUnavailableError instead of wrapping it.
 //
-// The resolver emits a tier-enumerated `details.message` and a tier-2
+// The resolver emits a step-enumerated `details.message` and a step-2
 // `details.cause` on the four-exhausted path. `ensureChild`'s catch must
 // re-throw an instance of `PtyBackendUnavailableError` unchanged so the
 // operator-grade diagnostic surfaces directly — without the guard, the
@@ -3843,19 +3830,19 @@ describe("resolveSidecarBinaryPath — four-tier binary resolution (F-024-3-03)"
 
 describe("RustSidecarPtyHost — ensureChild preserves resolver-thrown PtyBackendUnavailableError", () => {
   it("re-throws the resolver's PtyBackendUnavailableError unchanged (same instance, original message intact)", async () => {
-    // Build a resolver-thrown error with a recognizable tier-enumerated
+    // Build a resolver-thrown error with a recognizable step-enumerated
     // shape. The supervisor's `ensureChild` MUST surface this instance
     // verbatim — not wrap it in a new error with the generic
     // "failed to resolve sidecar binary path" message.
     const innerCause: Error = new Error("Cannot find module '@ai-sidekicks/pty-sidecar-linux-x64'");
     const resolverError: PtyBackendUnavailableError = new PtyBackendUnavailableError(
       { attemptedBackend: "rust-sidecar", cause: innerCause },
-      "RustSidecarPtyHost: sidecar binary not found on any of the four resolution tiers " +
-        "(per Plan-024 §F-024-3-03). Attempts:\n" +
-        "  tier 1 (env-var AIS_PTY_SIDECAR_BIN): unset\n" +
-        "  tier 2 (require.resolve(...)): threw: Cannot find module\n" +
-        "  tier 3 (...): not found at /workspace/.../release/sidecar\n" +
-        "  tier 4 (...): not found at /workspace/.../debug/sidecar\n" +
+      "RustSidecarPtyHost: sidecar binary not found on any of the four resolution steps " +
+        ". Attempts:\n" +
+        "  step 1 (env-var AIS_PTY_SIDECAR_BIN): unset\n" +
+        "  step 2 (require.resolve(...)): threw: Cannot find module\n" +
+        "  step 3 (...): not found at /workspace/.../release/sidecar\n" +
+        "  step 4 (...): not found at /workspace/.../debug/sidecar\n" +
         "Set AIS_PTY_SIDECAR_BIN=...",
     );
 
@@ -3893,8 +3880,8 @@ describe("RustSidecarPtyHost — ensureChild preserves resolver-thrown PtyBacken
     // "x instanceof PtyBackendUnavailableError" — this assertion catches
     // that intermediate regression too.
     if (thrown instanceof PtyBackendUnavailableError) {
-      expect(thrown.message).toContain("not found on any of the four resolution tiers");
-      expect(thrown.message).toContain("tier 1 (env-var AIS_PTY_SIDECAR_BIN): unset");
+      expect(thrown.message).toContain("not found on any of the four resolution steps");
+      expect(thrown.message).toContain("step 1 (env-var AIS_PTY_SIDECAR_BIN): unset");
       expect(thrown.details.cause).toBe(innerCause);
     }
   });
@@ -3940,8 +3927,8 @@ describe("RustSidecarPtyHost — ensureChild preserves resolver-thrown PtyBacken
 });
 
 // ----------------------------------------------------------------------------
-// ensureChild — concurrent cold-start callers serialize on a single spawn
-// (Plan-024, T-024-3-1).
+// ensureChild — concurrent cold-start callers serialize on a single
+// spawn.
 // ----------------------------------------------------------------------------
 
 describe("RustSidecarPtyHost — ensureChild concurrent-spawn serialization", () => {
@@ -4163,7 +4150,7 @@ describe("RustSidecarPtyHost — ensureChild concurrent-spawn serialization", ()
 });
 
 // ----------------------------------------------------------------------------
-// Pipe-error listeners on stdin / stdout / stderr (Plan-024, T-024-3-1).
+// Pipe-error listeners on stdin / stdout / stderr.
 //
 // Async pipe errors (ERR_STREAM_DESTROYED, EPIPE, EIO) on the sidecar
 // child's three stream objects fire as `'error'` events — they bypass
@@ -4178,7 +4165,7 @@ describe("RustSidecarPtyHost — ensureChild concurrent-spawn serialization", ()
 // pipe-level errors on the stream objects.
 // ----------------------------------------------------------------------------
 
-describe("RustSidecarPtyHost — pipe error handlers (Plan-024, T-024-3-1)", () => {
+describe("RustSidecarPtyHost — pipe error handlers", () => {
   // Symmetry-cover stdin/stdout/stderr through a single test definition:
   // the production handler is a shared factory across all three streams,
   // so the assertion shape is identical and a regression that fixes
@@ -4254,9 +4241,7 @@ describe("RustSidecarPtyHost — pipe error handlers (Plan-024, T-024-3-1)", () 
 
 // ----------------------------------------------------------------------------
 // Payload-layer corruption is a fatal supervisor event identical in shape to
-// the framing-error path (Plan-024 §T-024-3-1 crash-respawn supervision;
-// ADR-019 §Failure Mode Analysis sidecar-originated failure → fallback
-// chain; local PtyHost contract substitutability lives in
+// the framing-error path (local PtyHost contract substitutability lives in
 // packages/contracts/src/pty-host.ts).
 //
 // Three distinct decode-failure shapes converge on the same teardown chain:
@@ -4737,7 +4722,7 @@ describe("RustSidecarPtyHost — fatal teardown on JSON-decode failure", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Fatal teardown on `data_frame.bytes` that is not strict RFC 4648 §4 base64.
+// Fatal teardown on `data_frame.bytes` that is not strict RFC 4648 section 4 base64.
 //
 // `Buffer.from(s, "base64")` is permissive — it silently drops characters
 // outside the canonical alphabet and tolerates misaligned padding. Without

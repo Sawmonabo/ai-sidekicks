@@ -89,7 +89,7 @@ describe("artifact pane actions — a rejected call is an answer, not a stuck pa
       },
     });
     // The reason travels. The pane used to publish a constant naming the leg, which
-    // left a participant with a refusal and nothing to act on; the sentence now comes
+    // left a user with a refusal and nothing to act on; the sentence now comes
     // through `core/wire-rejection.ts`, which composes prose the producing side wrote
     // and refuses to serialize the rejected value into it.
     expect(

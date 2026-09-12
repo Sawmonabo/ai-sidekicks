@@ -1,9 +1,9 @@
 // The accounts page: which provider accounts this node keeps, and what has to be
 // true before a run is admitted against one.
 //
-// `Spec-023 §Console Design (Meridian)` §Provider accounts puts a registry list and
-// a detail pane here, and §Sign-in, token registration, and the readiness handoff
-// puts the flow that gets an account from unusable to usable beside it. Both of
+// A registry list and a detail pane belong on this page, and beside them the flow that
+// gets an account from unusable to usable — sign-in, token registration, and the
+// readiness handoff. Both of
 // those are the account plane's BODY, and this repository authors none of it — the
 // page frame, the vocabulary, and the discipline are here, and the body arrives
 // through `provider-accounts-slot.ts`.
@@ -58,7 +58,7 @@ import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-p
 import { WireVocabulary } from "./WireVocabulary.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
-const OWNER = "collaboration-settings-accounts";
+const OWNER = "settings-accounts";
 
 /**
  * What each billing mode means beside a money figure.
@@ -128,8 +128,8 @@ function openedForProvider(selection: string | undefined): string | undefined {
  * on a provider whose remedy was "register an account", and the region below the
  * vocabulary is a reservation — so without this the page they land on says the registry
  * has not been built and never says which provider they came for or what happens if
- * they leave it. The second sentence is this page's own wording of what `Spec-026`
- * makes true of a node that finishes setup with nothing registered; the walkthrough
+ * they leave it. The second sentence is this page's own wording of what is true of a
+ * node that finishes setup with nothing registered; the walkthrough
  * says the same thing in the second person, and the two are kept apart on voice
  * exactly as the readiness-state tables are.
  */

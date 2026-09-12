@@ -10,9 +10,9 @@
 // WHAT THE CLASSIFIER IS ALLOWED TO READ. The row's `type`, which is a registered
 // `SessionEventType`, and nothing else. Not the actor, not the summary, and above all
 // not the tool NAME — never inventing a tool family is a rule about exactly
-// that temptation, and it is `Spec-023 §Rules every console surface obeys`' fail-closed
-// projection ("An unknown enum member renders as the explicit unrecognized row or badge,
-// never as a guess") reached from the other side. The design's tool families (command output, file edits, read folds,
+// that temptation, and it is the fail-closed projection rule — an unknown enum member
+// renders as the explicit unrecognized row or badge, never as a guess — reached from the
+// other side. The tool families (command output, file edits, read folds,
 // MCP tool cards, web-search results, image results) are real distinctions and the
 // wire declares none of them: `ToolActivityPayload` carries `toolName`, `toolCallId`,
 // and `durationMs`, and no member says what KIND of tool ran. Reading the family out
@@ -40,7 +40,7 @@ import type { GlyphName } from "../../tokens/index.js";
  * a descriptor that does not exist.
  */
 export const CARD_FAMILIES = [
-  "participant-message",
+  "user-message",
   "assistant-message",
   "assistant-reasoning",
   "tool-activity",
@@ -53,8 +53,8 @@ export type CardFamily = (typeof CARD_FAMILIES)[number];
 /**
  * How much of a family's card is open before anybody touches it.
  *
- * `Spec-023 §Meridian, the design language` rule 7: "Tool rows render as one line until
- * opened." The other two are this console's own reading of the same density budget —
+ * Tool rows render as one line until opened. The other two are this console's own
+ * reading of the same density budget —
  * message bodies open, receipts one line — stated here as a value.
  */
 export const CARD_LAYOUTS = ["body-open", "one-line"] as const;
@@ -79,8 +79,8 @@ export interface CardFamilyDescriptor {
  * before it can reach a card that renders it without an icon.
  */
 const CARD_FAMILY_DESCRIPTORS: Readonly<Record<CardFamily, CardFamilyDescriptor>> = {
-  "participant-message": {
-    family: "participant-message",
+  "user-message": {
+    family: "user-message",
     glyph: "member",
     label: "Message",
     layout: "body-open",
@@ -119,7 +119,7 @@ const CARD_FAMILY_DESCRIPTORS: Readonly<Record<CardFamily, CardFamilyDescriptor>
  * fall-through below is the honest answer for a type this table has not been taught.
  */
 const FAMILY_BY_EVENT_TYPE: ReadonlyMap<string, CardFamily> = new Map([
-  ["user.message", "participant-message"],
+  ["user.message", "user-message"],
   ["assistant.message", "assistant-message"],
   ["assistant.thinking_update", "assistant-reasoning"],
   ["tool.invoked", "tool-activity"],
@@ -167,12 +167,11 @@ export type ToolResultState = (typeof TOOL_RESULT_STATES)[number];
  *
  * TWO SOURCES, RANKED, AND THE RANKING IS THE POLICY. `tool.error` outranks every
  * body condition: a collapsed row may not hide a tool error from the header, because
- * `Spec-023 §Meridian, the design language` rule 3 makes red the console's one word for
- * "something failed" and a failure a reader has to open a row to find was never said.
- * A truncated error is still an error. Below that the body's own condition decides,
- * because a result whose body could not be read is not the same fact as a result that
- * succeeded — rule 8's five kinds of nothing, where "a renderer that collapses two of
- * these into one is wrong".
+ * red is the console's one word for "something failed" and a failure a reader has to
+ * open a row to find was never said. A truncated error is still an error. Below that the
+ * body's own condition decides, because a result whose body could not be read is not the
+ * same fact as a result that succeeded — there are five kinds of nothing, and a renderer
+ * that collapses two of them into one is wrong.
  */
 export function toolResultState(
   eventType: string,

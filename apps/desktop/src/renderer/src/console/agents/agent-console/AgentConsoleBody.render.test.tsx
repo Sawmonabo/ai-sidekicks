@@ -111,7 +111,7 @@ describe("agent console — the definition editor's seat", () => {
   it("names no governance work anywhere a person can read", async () => {
     // The slot's contract is developer-facing and reaches no screen. The rule is
     // repository-wide: governance identifiers live in comments, never in a string
-    // a participant reads.
+    // a user reads.
     const container = await renderBody("agent-scout");
     expect(container.textContent ?? "").not.toMatch(/\b(?:Spec|Plan|ADR|BL|CP)-\d/u);
   });

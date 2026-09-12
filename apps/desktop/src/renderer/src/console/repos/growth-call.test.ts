@@ -31,9 +31,9 @@ import { describe, expect, it } from "vitest";
 import { GROWTH_PORT_REFUSAL_ORIGIN, growthUnavailable } from "../bridge/index.js";
 // The code union is read from the module that DECLARES it rather than through the
 // bridge door: this family mints no port refusal of its own any more — the builder
-// does — so the door specifier had no production reader, which is what
-// `apps/desktop/AGENTS.md` §Module shape rejects. A suite reaching the declaring
-// module is the disposition that rule names, and the layering DAG excludes test files.
+// does — so the door specifier had no production reader, which the module-shape rule
+// rejects. A suite reaching the declaring module is the disposition that rule names,
+// and the layering DAG excludes test files.
 import type { GrowthPortRefusalCode } from "../bridge/growth-port/growth-outcome.js";
 import { ConsoleRefusalError, refuse } from "../core/index.js";
 import { growthAnswerReading, readGrowthAnswer } from "./growth-call.js";
@@ -99,11 +99,11 @@ describe("the growth-call door — the two ways one operation fails", () => {
       status: "unavailable",
       operationId: "artifactRead",
       slateRow: "artifact-ingest-and-crud",
-      owningDocument: "Plan-014",
+      owningDocument: "the artifacts, files, and attachments design",
     });
 
     // And the sentence carries what the rejection said. Suppressing it was this door's
-    // own rule and it left a participant with a refusal and no reason; the port's
+    // own rule and it left a user with a refusal and no reason; the port's
     // builder reads the rejection through `core/wire-rejection.ts`, which already
     // refuses to serialize a structure into a sentence, so what survives is prose the
     // producing side wrote rather than a rendering of the value.

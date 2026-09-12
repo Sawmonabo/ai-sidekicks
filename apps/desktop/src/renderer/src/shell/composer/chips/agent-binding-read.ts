@@ -8,15 +8,13 @@
 // projection of what the daemon said while three of them were projections of
 // nothing. So the reads move to the carriers the corpus actually registers.
 //
-// THE ROSTER READ IS THE GROWTH PORT'S. `agent.list` is registered in
-// `docs/architecture/contracts/api-payload-contracts.md` §`agent.attach /
-// agent.detach / agent.configUpdate / agent.list` and in no code package, so it
-// fails the reply registry's second admission conjunct and goes through the port.
-// Its reply carries the two facts this module needs: the EFFECTIVE
-// `providerAccountId` (absent = the provider's registered default is paying) and
-// `pendingSwitch`, present exactly while a switch is accepted and unapplied —
-// re-armed after a daemon restart from the durable agent row, which is why a list
-// read is how a client that did not issue the mutation learns one is queued.
+// THE ROSTER READ IS THE GROWTH PORT'S. `agent.list` is a designed wire that no code
+// package registers, so it fails the reply registry's second admission conjunct and
+// goes through the port. Its reply carries the two facts this module needs: the
+// EFFECTIVE `providerAccountId` (absent = the provider's registered default is paying)
+// and `pendingSwitch`, present exactly while a switch is accepted and unapplied —
+// re-armed after a daemon restart from the durable agent row, which is why a list read
+// is how a client that did not issue the mutation learns one is queued.
 //
 // AND IT IS A READING, NOT A ONE-SHOT. `agent-roster-reading.ts` holds the read and
 // the four moments it is re-taken at; this module is only the join and the React
@@ -40,14 +38,14 @@
 // AND THE FAILED SWITCH IS STILL NOT HERE, THOUGH ONE OF ITS TWO CARRIERS IS NOW
 // REACHABLE. The IMMEDIATE arm is `agent.configUpdate`'s response disposition
 // (`switch.status === "failed"`), and the composer DOES issue that mutation now — the
-// axis popover is built — but the reply is the latch's and reaches the chip on its
-// own prop rather than through this reading. A roster read cannot carry it: only the
-// client that issued the mutation ever sees that response, so folding it in here
-// would make a per-window fact look like a property of the roster. The DEFERRED arm
-// rides `agent.provider_switch_failed`, an event type `packages/contracts`'
-// `event.ts` does not register (Plan-016 T1.13), and a console cannot fold an event
-// the union does not carry — the wire is named on `Plan-023 §Console growth slate`
-// under `agent-provider-switch-failure`, and nothing here invents a carrier for it.
+// axis popover is built — but the reply is the latch's and reaches the chip on its own
+// prop rather than through this reading. A roster read cannot carry it: only the client
+// that issued the mutation ever sees that response, so folding it in here would make a
+// per-window fact look like a property of the roster. The DEFERRED arm rides
+// `agent.provider_switch_failed`, an event type `packages/contracts`' `event.ts` does
+// not register, and a console cannot fold an event the union does not carry — the wire
+// is named on the growth slate under `agent-provider-switch-failure`, and nothing here
+// invents a carrier for it.
 //
 // WHAT THIS READING DOES OWE THE MUTATION IS A RE-READ. `pendingSwitch` is the
 // roster's word about a switch accepted and unapplied, and the daemon only starts
@@ -199,8 +197,8 @@ export function useAgentBindingReading(
   // this composer mounted never reached the chip.
   useReadTriggers(reading, sessionStore, bridge.transportReconnect);
   // The fifth reason, and the one the store cannot supply. A ROUND SETTLING is a
-  // participant's own act reaching its answer, so it is scheduled as
-  // `participant-request` — the same reason the catalog's reopen control uses, and
+  // user's own act reaching its answer, so it is scheduled as
+  // `user-request` — the same reason the catalog's reopen control uses, and
   // the one the scheduler treats as asked-for rather than as a background repair. It
   // fires on the round and never on the reply's optional `switch` member: a reply that
   // carries none has still been answered, and the binding it answered about has still
@@ -209,7 +207,7 @@ export function useAgentBindingReading(
     if (settledSwitch === undefined) {
       return;
     }
-    reading.requestRead("participant-request");
+    reading.requestRead("user-request");
   }, [reading, settledSwitch]);
   const readout = useSyncExternalStore(
     (onReadoutChanged) => reading.subscribe(onReadoutChanged),

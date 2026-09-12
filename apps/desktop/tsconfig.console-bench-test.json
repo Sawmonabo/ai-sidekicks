@@ -14,8 +14,8 @@
   // browser global, which is a property of the module graph BELOW them rather than
   // of anything this tier wrote. The day the markdown cache took its byte
   // measurement from the console's one chokepoint — a downward edge the DAG has
-  // always allowed, restoring a rule `apps/desktop/AGENTS.md` §Chokepoints already
-  // stated — the persistence door came with it, and with the door came the
+  // always allowed, restoring a rule the chokepoint rules in
+  // `apps/desktop/AGENTS.md` already stated — the persistence door came with it, and with the door came the
   // IndexedDB adapter and fourteen TS2304s about globals no benchmark mentions.
   // The tier was one edge from red the whole time; every sibling tier in this
   // position was moved out of the Node-context config already, and this is that

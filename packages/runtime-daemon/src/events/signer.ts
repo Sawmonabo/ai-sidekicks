@@ -1,47 +1,38 @@
 // BLAKE3 hash-chain + Ed25519 row signer — the two tamper-evidence
-// commitments every `session_events` row carries (Plan-006 T2.2).
+// commitments every `session_events` row carries.
 //
-// `Spec-006 §Integrity Protocol` makes each row chained to its predecessor AND
-// signed by the emitting daemon over the SAME canonical byte string, and
-// `Spec-006 §Canonical Serialization Rules` fixes the verification recipe:
-// recompute `canonical_bytes(row)`, recompute
-// `BLAKE3(prev_hash || canonical_bytes(row))`, compare to the stored
-// `row_hash`, then verify `daemon_signature` against those same canonical
-// bytes using the public key resolved from the session's registered signing
-// keys by `NodeId`. This module owns both halves of that recipe — write side
-// and read side — and deliberately nothing else.
+// makes each row chained to its predecessor AND signed by the emitting daemon
+// over the SAME canonical byte string, and fixes the verification recipe:
+// recompute `canonical_bytes(row)`, recompute `BLAKE3(prev_hash ||
+// canonical_bytes(row))`, compare to the stored `row_hash`, then verify
+// `daemon_signature` against those same canonical bytes using the public key
+// resolved from the session's registered signing keys by `NodeId`. This module
+// owns both halves of that recipe — write side and read side — and
+// deliberately nothing else.
 //
-// I-006-2-06 — ONE CANONICALIZATION PER ROW — is enforced structurally rather
-// than by discipline: `signRow` ACCEPTS `CanonicalBytes` and never produces
-// them. It calls no canonicalizer, re-serializes nothing between hashing and
-// signing, and hands the identical `Uint8Array` to BLAKE3 and to
-// `ed25519.sign`. The parameter type is the type-level half — T2.1's brand is
-// constructible only inside `canonicalizer.ts`, so bytes that skipped
-// canonicalization are a TypeScript error here rather than a runtime integrity
-// bug. Widening that parameter to a bare `Uint8Array` would void the guarantee
-// for every caller at once, which is why it is not widened for anyone.
+// ONE CANONICALIZATION PER ROW — is enforced structurally rather than by
+// discipline: `signRow` ACCEPTS `CanonicalBytes` and never produces them. It
+// calls no canonicalizer, re-serializes nothing between hashing and signing,
+// and hands the identical `Uint8Array` to BLAKE3 and to `ed25519.sign`. The
+// parameter type is the type-level half — the brand is constructible only
+// inside `canonicalizer.ts`, so bytes that skipped canonicalization are a
+// TypeScript error here rather than a runtime integrity bug. Widening that
+// parameter to a bare `Uint8Array` would void the guarantee for every caller
+// at once, which is why it is not widened for anyone.
 //
 // KEY CUSTODY IS NOT HERE. Every entry point takes its key as a PARAMETER, so
 // this module needs the key TYPE and never the key SOURCE: it constructs,
-// loads, unseals, and persists nothing. T2.7's `signing-key-source.ts` owns
+// loads, unseals, and persists nothing. the `signing-key-source.ts` owns
 // custody and imports `Ed25519PrivateKey` / `Ed25519PublicKey` from here, so
-// the BUILD-time edge runs T2.2 → T2.7 even though T2.7 is also a runtime
-// consumer — that second direction is a composition-root dependency,
-// discharged by injecting the key at the call site.
+// the BUILD-time edge runs even though is also a runtime consumer — that
+// second direction is a composition-root dependency, discharged by injecting
+// the key at the call site.
 //
-// THIS MODULE SIGNS ROWS. Two sibling Phase-3 signatures are Ed25519 over a
-// DIFFERENT message class and are not served by widening anything here: T3.3's
-// `root_signature` covers a Merkle root (not canonical bytes at all), and
-// T3.2's `stub_signature` covers an audit-stub projection with no hash-chain
-// link — neither is a `SignedRow`, and both are scoped to their own Plan-006
-// T3.2 / T3.3 rows rather than to this one.
+// THIS MODULE SIGNS ROWS.
 //
 // In-package surface for now: `src/index.ts` does not re-export this module,
-// matching T2.1.
+// matching.
 //
-// Refs: `Spec-006 §Integrity Protocol`, `Spec-006 §Canonical Serialization Rules`,
-// `Plan-006 §Hash Chain`, `Plan-006 §Ed25519 Signatures`,
-// `Security Architecture §Audit Log Integrity`.
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { equalBytes } from "@noble/curves/utils.js";
 import { blake3 } from "@noble/hashes/blake3.js";
@@ -50,12 +41,12 @@ import type { CanonicalBytes } from "./canonicalizer.js";
 /**
  * BLAKE3's default digest width, and the width of both chain columns —
  * `0001-initial.ts` declares `prev_hash` / `row_hash` as `BLOB` under
- * `CHECK(length(…) = 32)`, normative per `Security Architecture §Audit Log Integrity`.
+ * `CHECK(length(…) = 32)`, normative per `Security Architecture `.
  */
 const CHAIN_HASH_LENGTH = 32;
 
 /**
- * The RFC 8032 §5.1.5 Ed25519 public-key width — also the width noble enforces
+ * The RFC 8032 section 5.1.5 Ed25519 public-key width — also the width noble enforces
  * itself, as `lengths.publicKey` in `abstract/edwards.js`. Spelled here so
  * {@link verifyEd25519} can refuse a mis-plumbed key BEFORE noble does; that
  * function's guard explains why the two refusals are not interchangeable.
@@ -63,7 +54,7 @@ const CHAIN_HASH_LENGTH = 32;
 const ED25519_PUBLIC_KEY_LENGTH = 32;
 
 /**
- * The RFC 8032 §5.1.6 Ed25519 signature width — `R || S`, 32 bytes each — and
+ * The RFC 8032 section 5.1.6 Ed25519 signature width — `R || S`, 32 bytes each — and
  * the width `0001-initial.ts` enforces on the column, which declares
  * `daemon_signature` as `BLOB` under `CHECK(length(daemon_signature) = 64)`.
  *
@@ -91,10 +82,10 @@ const ED25519_SIGNATURE_LENGTH = 64;
  * token's secret to `signRow` a well-typed call.
  *
  * Brand shape mirrors the contracts-package convention (`SessionId`,
- * `EventEnvelopeVersion`) and T2.1's `CanonicalBytes`. There is deliberately NO
+ * `EventEnvelopeVersion`) and the `CanonicalBytes`. There is deliberately NO
  * exported constructor, mint helper, or brand symbol: key material must enter
  * the type system at exactly one greppable site — the single narrowing inside
- * T2.7's `signing-key-source.ts`, the only module with key custody. An exported
+ * the `signing-key-source.ts`, the only module with key custody. An exported
  * `toEd25519PrivateKey(bytes)` would let any module mint a signing key from
  * arbitrary bytes, which is precisely the property the brand exists to deny.
  * The 32-byte width needs no constructor either: `ed25519.sign` refuses a
@@ -121,12 +112,11 @@ export type Ed25519PublicKey = Uint8Array & { readonly __brand: "Ed25519PublicKe
 /**
  * The `prev_hash` seed for a chain's genesis row — 32 zero bytes.
  *
- * `Spec-006 §Integrity Protocol` delegates the genesis value to
- * `Security Architecture §Audit Log Integrity`, which fixes it: "For
- * `sequence = 0` the value is 32 zero bytes." Exported so the write side
- * (T3.1's append path, seeding a chain) and the read side (T4.1's linkage walk,
- * checking that seed) take the value from one place rather than each
- * re-deriving `new Uint8Array(32)` (I-006-2-04).
+ * delegates the genesis value to `Security Architecture `, which fixes it: "For
+ * `sequence = 0` the value is 32 zero bytes." Exported so the write side (the
+ * append path, seeding a chain) and the read side (the linkage walk, checking
+ * that seed) take the value from one place rather than each re-deriving `new
+ * Uint8Array(32)`.
  *
  * CALLER OBLIGATION — TREAT AS READ-ONLY, AT THE IMPORT SITE. This is a shared
  * `Uint8Array` and JavaScript cannot make it immutable: `Object.freeze` throws
@@ -172,9 +162,7 @@ export const GENESIS_PREV_HASH: Uint8Array = new Uint8Array(CHAIN_HASH_LENGTH);
  * THE RETURNED `SignedRow` AS A UNIT. Storing some other still-32-byte,
  * still-`CHECK`-passing `prev_hash` mints an untampered row that can never
  * verify, because the verifier recomputes the digest from the STORED value. The
- * obligation lands on T3.1's append path, which owns the INSERT. This is a
- * register the module distinguishes deliberately: the `CanonicalBytes` brand
- * makes its own misuse a compile error, and this is not that.
+ * obligation lands on the append path, which owns the INSERT.
  */
 export interface SignedRow {
   /** 32 bytes — a defensive copy of the chain link that fed the digest. */
@@ -193,7 +181,7 @@ export interface SignedRow {
  * returned rather than raised, and NO shape of adversarial STORED data changes
  * that: a tampered `prev_hash` / `row_hash` / `daemon_signature` — wrong bytes,
  * wrong width, or not bytes at all once it has crossed the SQLite boundary —
- * lands as a `failureMode`, so T4.1 always has something to report.
+ * lands as a `failureMode`, so always has something to report.
  *
  * This module's TWO throws both guard a CALLER-RESOLVED input instead, never a
  * stored one: a wrong-shaped `prevHash` handed to {@link signRow} on the write
@@ -203,83 +191,74 @@ export interface SignedRow {
  * into a `failureMode` would page an operator for a plumbing bug and discard
  * the real cause.
  *
- * `failureMode` carries the two literals
- * `Security Architecture §Verification Rules` names for the per-row checks a
- * SIGNED row can fail — rule 1's `hash_mismatch` and rule 2's
- * `signature_mismatch` — so T4.1's
- * verifier maps them straight through to
+ * `failureMode` carries the two literals `Security Architecture ` names for
+ * the per-row checks a SIGNED row can fail — rule 1's `hash_mismatch` and rule
+ * 2's `signature_mismatch` — so the verifier maps them straight through to
  * `audit_integrity_failed { failureMode, failurePath }` instead of re-deriving
  * WHICH check failed by running the two halves separately, which would
- * reintroduce exactly the two-call shape I-006-2-06 exists to prevent.
+ * reintroduce exactly the two-call shape exists to prevent.
  *
  * `signature_placeholder` is the THIRD literal, and its provenance runs in the
- * opposite direction to the other two. Spec-006 ORIGINATED it — a twelfth value
- * on that spec's `failureMode` enum, landing as an additive-MINOR enum
- * extension under `ADR-018 §Decision` — and
- * `Security Architecture §Verification Rules` MIRRORS it rather than
- * introducing it: rule 2 now opens with the placeholder precondition, emitting
- * `signature_placeholder` with `failurePath: 'signature'` and stopping before
- * any Ed25519 verification, and rule 1 carries the matching carve-out that
- * keeps an all-placeholder row out of `hash_mismatch`. Which way round that
- * runs is worth keeping straight: the spec is the authority, the architecture
- * doc agrees with it, and neither is inferring the value from the other. The
- * verdict reports a row whose THREE integrity columns are all still Plan-001's
- * zero-fill placeholder. {@link verifyRow}'s stage-2 note argues why the
- * predicate needs all three columns and why the verdict must not collapse into
- * `signature_mismatch`.
+ * opposite direction to the other two. ORIGINATED it — a twelfth value on that
+ * spec's `failureMode` enum, landing as an additive-MINOR enum extension — and
+ * `Security Architecture ` MIRRORS it rather than introducing it: rule 2 now
+ * opens with the placeholder precondition, emitting `signature_placeholder`
+ * with `failurePath: 'signature'` and stopping before any Ed25519 verification,
+ * and rule 1 carries the matching carve-out that keeps an all-placeholder row
+ * out of `hash_mismatch`. Which way round that runs is worth keeping straight:
+ * the spec is the authority, the architecture doc agrees with it, and neither
+ * is inferring the value from the other. The verdict reports a row whose THREE
+ * integrity columns are all still the zero-fill placeholder. {@link
+ * verifyRow}'s stage-2 note argues why the predicate needs all three columns
+ * and why the verdict must not collapse into `signature_mismatch`.
  *
- * This union is a SUBSET of the sixteen-value `failureMode` enum in
- * `Spec-006 §Audit Integrity (audit_integrity)`, and the other thirteen (sixteen,
- * less this union's three — RE-DERIVE both numbers on any enum change rather
- * than incrementing one of them) sit outside
- * it for FIVE different reasons rather than one. `anchor_*`, the proof modes,
- * and the log-file modes are RANGE-level: they are computed over a span of rows
- * against an uploaded Merkle anchor, and this function is handed neither.
- * `stub_signature_invalid` and `stub_scalar_mismatch` are PER-ROW —
- * `Security Architecture §Verification Rules` rule 4 scopes them "for each
- * `retention_class = 'audit_stub'` row" and calls the commitment "the per-row
- * `stub_signature`", as does I-006-3-03 — so what puts them out of scope is the
+ * This union is a SUBSET of the sixteen-value `failureMode` enum and the other
+ * thirteen (sixteen, less this union's three — RE-DERIVE both numbers on any enum
+ * change rather than incrementing one of them) sit outside it for FIVE different
+ * reasons rather than one. `anchor_*`, the proof modes, and the log-file modes
+ * are RANGE-level: they are computed over a span of rows against an uploaded
+ * Merkle anchor, and this function is handed neither. `stub_signature_invalid`
+ * and `stub_scalar_mismatch` are PER-ROW — `Security Architecture ` rule 4 scopes
+ * them "for each `retention_class = 'audit_stub'` row" and calls the commitment
+ * "the per-row `stub_signature`", as does — so what puts them out of scope is the
  * row CLASS, not the granularity: this function is handed one UNCOMPACTED row
  * (`retention_class IS NULL`) plus its canonical bytes, and a compacted row has
  * neither (compaction discarded the original bytes; rule 4 verifies the stub
- * projection stored in `payload`). Rule 4 therefore lives with T4.1's
- * compacted-row branch, not in a widened version of this function.
- * `occurred_at_not_canonical` is the third reason, and the only one that is NOT
- * about what this function is handed — it is handed everything that check
- * needs. What excludes it is that it is not a verification outcome at all. A
- * row whose `occurred_at` was respelled at rest into another spelling of the
- * same instant still hashes and verifies correctly, genuinely rather than by
- * oversight, so reporting it here would make this discriminant carry two
- * incompatible meanings at once: "this row does not verify" and "this row DOES
- * verify, but its stored spelling is not the one the signature committed to".
- * T2.1 exports `isCanonicalOccurredAt` for the second question and T4.1
- * composes the two; that predicate's contract explains why the composition —
- * not either half alone — is what byte-binds the column.
- * The PII PAIR — `pii_ciphertext_digest_unbound` and `pii_owner_stamp_unbound`
- * — is the fourth reason, and it is the two previous ones at once, which is why
- * it gets its own: like `occurred_at_not_canonical` both are findings ON a row
- * that genuinely verifies, and like the range modes both need an input this
- * function is never handed — `verifyRow` receives canonical bytes and the three
- * integrity columns, never the `pii_payload` column and never the PII owner
- * stamp, so it could not make either comparison even if the discriminant had
- * room for them. That is not an accident of the signature: the canonical form
- * EXCLUDES `pii_payload` on purpose and binds it indirectly through a digest
- * member, and it binds the owner by the same indirection through a stamp member,
- * so both columns are structurally outside everything this function sees. They
- * are ONE reason and TWO modes because they bind different things — the digest
- * binds the ciphertext BYTES, the stamp binds WHOSE data they are, and after a
- * `Spec-022 §Shred Fan-Out` Path 1 shred the second question has no other
- * evidence left to answer it. T2.4 exports `isCiphertextDigestBound` and
- * `isPiiOwnerStampBound` for them and T4.1 runs both as postconditions of a
- * green verdict here.
- * `signing_key_slot_conflict` is the fifth reason: it is not a read-side
- * verification outcome at ALL. No row and no range is being verified when it
- * fires — T4.10's daemon-side registrar appends it when the control plane
- * refuses its re-registration 409 for a `(session_id, node_id)` slot already
- * holding a DIFFERENT key, so its emitter is the registrar's conflict handler
- * rather than any verifier, and this function could never report it.
- * That enum is Phase-4 contracts work and has not landed, so
- * the literals are spelled here and T4.1 owns the widening.
+ * projection stored in `payload`). Rule 4 therefore lives with the compacted-row
+ * branch, not in a widened version of this function. `occurred_at_not_canonical`
+ * is the third reason, and the only one that is NOT about what this function is
+ * handed — it is handed everything that check needs. What excludes it is that it
+ * is not a verification outcome at all. A row whose `occurred_at` was respelled
+ * at rest into another spelling of the same instant still hashes and verifies
+ * correctly, genuinely rather than by oversight, so reporting it here would make
+ * this discriminant carry two incompatible meanings at once: "this row does not
+ * verify" and "this row DOES verify, but its stored spelling is not the one the
+ * signature committed to". exports `isCanonicalOccurredAt` for the second
+ * question and composes the two; that predicate's contract explains why the
+ * composition — not either half alone — is what byte-binds the column. The PII
+ * PAIR — `pii_ciphertext_digest_unbound` and `pii_owner_stamp_unbound` — is the
+ * fourth reason, and it is the two previous ones at once, which is why it gets
+ * its own: like `occurred_at_not_canonical` both are findings ON a row that
+ * genuinely verifies, and like the range modes both need an input this function
+ * is never handed — `verifyRow` receives canonical bytes and the three integrity
+ * columns, never the `pii_payload` column and never the PII owner stamp, so it
+ * could not make either comparison even if the discriminant had room for them.
+ * That is not an accident of the signature: the canonical form EXCLUDES
+ * `pii_payload` on purpose and binds it indirectly through a digest member, and
+ * it binds the owner by the same indirection through a stamp member, so both
+ * columns are structurally outside everything this function sees. They are ONE
+ * reason and TWO modes because they bind different things — the digest binds the
+ * ciphertext BYTES, the stamp binds WHOSE data they are, and after a Path 1 shred
+ * the second question has no other evidence left to answer it. exports
+ * `isCiphertextDigestBound` and `isPiiOwnerStampBound` for them and runs both as
+ * postconditions of a green verdict here. `signing_key_slot_conflict` is the
+ * fifth reason: it is not a read-side verification outcome at ALL. No row and no
+ * range is being verified when it fires — the daemon-side registrar appends it
+ * when the control plane refuses its re-registration 409 for a `(session_id,
+ * node_id)` slot already holding a DIFFERENT key, so its emitter is the
+ * registrar's conflict handler rather than any verifier, and this function could
+ * never report it. That enum is Phase-4 contracts work and has not landed, so the
+ * literals are spelled here and owns the widening.
  */
 export type RowVerification =
   | { readonly valid: true }
@@ -289,14 +268,11 @@ export type RowVerification =
     };
 
 /**
- * Mints the hash-chain digest and the daemon signature for one row, both over
- * the SAME `canonical` bytes — the structural half of I-006-2-06.
  *
- * `prevHash` is `Plan-006 §Hash Chain`'s link: the `row_hash` of the
- * immediately-prior row for the same `session_id`, or {@link GENESIS_PREV_HASH}
- * at `sequence = 0`.
+ * `prevHash` is the link: the `row_hash` of the immediately-prior row for the
+ * same `session_id`, or {@link GENESIS_PREV_HASH} at `sequence = 0`.
  *
- * Deterministic per RFC 8032 §5.1.6 — Ed25519 derives its per-signature nonce
+ * Deterministic per RFC 8032 section 5.1.6 — Ed25519 derives its per-signature nonce
  * from the secret key and the message, never from an RNG, so re-signing
  * identical inputs yields byte-identical output. That is what makes this task
  * `idempotent`: re-running it over the same row reproduces the same three
@@ -312,15 +288,12 @@ export function signRow(
   daemonSigningKey: Ed25519PrivateKey,
 ): SignedRow {
   // `canonical` is brand-protected and `daemonSigningKey` is brand-protected;
-  // `prevHash` is a bare `Uint8Array` — the shape Plan-006's T2.2 row fixes for
-  // it, since a chain link is just the previous row's digest — and so it is the
-  // one input nothing upstream constrains. A wrong-width value hashes perfectly
-  // happily and mints a signature over a chain input no verifier can ever
-  // reproduce: an untampered row that fails forever. `0001-initial.ts` would
-  // also reject the row at INSERT via `CHECK(length(prev_hash) = 32)`, but only
-  // AFTER the signature was minted, and it would surface as a SQLite constraint
-  // error rather than as the chain bug it is. Refuse at the boundary instead,
-  // in I-006-2-04's own vocabulary.
+  // `prevHash` is a bare `Uint8Array` — the shape the row fixes for it, since a
+  // chain link is just the previous row's digest — and so it is the one input
+  // nothing upstream constrains. A wrong-width value hashes perfectly happily
+  // and mints a signature over a chain input no verifier can ever reproduce: an
+  // untampered row that fails forever. Refuse at the boundary instead, in its
+  // own vocabulary.
   //
   // The guard tests BYTE-NESS as well as width, and the declared `Uint8Array`
   // does not make that redundant: the caller appending row n reads row n-1's
@@ -333,11 +306,10 @@ export function signRow(
   // Plain `Error` matches the deliberate deferral `canonicalizer.ts` documents
   // for this package: the migration target, when a caller first needs to
   // discriminate a refusal from any other throw, is `ipc/domain-error.ts`'s
-  // `DaemonDomainError` under an `event.*` code registered in
-  // `docs/architecture/contracts/error-contracts.md §Error Codes`.
+  // `DaemonDomainError` under an `event.*` code registered.
   if (!isBytesOfLength(prevHash, CHAIN_HASH_LENGTH)) {
     throw new Error(
-      `signRow requires a ${CHAIN_HASH_LENGTH}-byte Uint8Array prev_hash — the previous row_hash for this session, or GENESIS_PREV_HASH at sequence 0 — per Spec-006 §Integrity Protocol; received ${describeByteShape(prevHash)}.`,
+      `signRow requires a ${CHAIN_HASH_LENGTH}-byte Uint8Array prev_hash — the previous row_hash for this session, or GENESIS_PREV_HASH at sequence 0 — received ${describeByteShape(prevHash)}.`,
     );
   }
 
@@ -365,9 +337,8 @@ export function signRow(
 }
 
 /**
- * The read-side inverse of {@link signRow} — rules 1 and 2 of
- * `Security Architecture §Verification Rules`, run against one uncompacted row
- * (`retention_class IS NULL`).
+ * The read-side inverse of {@link signRow} — rules 1 and 2 of `Security
+ * Architecture `, run against one uncompacted row (`retention_class IS NULL`).
  *
  * The caller supplies `canonical` by re-canonicalizing the stored row, and
  * `daemonPublicKey` by resolving the row's `NodeId` against the session's
@@ -388,8 +359,8 @@ export function signRow(
  *   4. SIGNATURE — verify `daemon_signature` over `canonical`; otherwise
  *      `signature_mismatch`.
  *
- * Stages 3 and 4 are SPEC order (`Security Architecture §Verification Rules`
- * rule 1, then rule 2): a row failing both reports `hash_mismatch` and never
+ * Stages 3 and 4 are SPEC order (`Security Architecture ` rule 1, then rule
+ * 2): a row failing both reports `hash_mismatch` and never
  * `signature_mismatch`. Either failure halts replay at the same sequence, so
  * evaluating rule 2 after rule 1 has already failed would tell the caller
  * nothing it can act on and cost a scalar multiplication.
@@ -398,28 +369,23 @@ export function signRow(
  * the one thing to preserve if this function is ever restructured. A
  * placeholder row zero-fills ALL THREE integrity columns, so it fails stage 3
  * as well; placing the placeholder check after the hash compare means it never
- * runs and `signature_placeholder` can never be returned.
- * `Security Architecture §Verification Rules` now MANDATES this ordering rather
- * than merely permitting it — rule 1 excepts the all-placeholder row from
- * `hash_mismatch` precisely so rule 2's precondition stays reachable — so
- * reordering these two stages would put this function out of conformance, not
- * just make it worse. It sits AFTER stage 1
- * rather than before it for two reasons: a non-byte or wrong-width chain column
- * is a corruption / plumbing problem that must keep surfacing as
+ * runs and `signature_placeholder` can never be returned. `Security
+ * Architecture ` now MANDATES this ordering rather than merely permitting it —
+ * rule 1 excepts the all-placeholder row from `hash_mismatch` precisely so rule
+ * 2's precondition stays reachable — so reordering these two stages would put
+ * this function out of conformance, not just make it worse. It sits AFTER stage
+ * 1 rather than before it for two reasons: a non-byte or wrong-width chain
+ * column is a corruption / plumbing problem that must keep surfacing as
  * `hash_mismatch`, and stage 1's guard is what makes both stage 2's
  * chain-column reads and stage 3's recompute safe in the first place.
  *
  * SCOPE — THIS IS AN INTRA-ROW CHECK, AND `valid: true` CLAIMS LESS THAN IT
  * READS. It proves one row's three integrity columns agree with its own
  * canonical bytes; it can prove nothing about the row's neighbours, because it
- * is handed none. I-006-2-04's second clause — `prev_hash[n] = row_hash[n-1]`,
- * and {@link GENESIS_PREV_HASH} at `sequence = 0` — is LINKAGE and is the
- * range-walking caller's obligation (T4.1's verifier; the persistence-layer
- * assertion). The gap is not theoretical: DELETE a middle row
- * and every surviving row still has mutually consistent columns and a
- * signature that verifies, because nothing was forged, so a per-row pass over
- * the remainder returns `valid: true` throughout. Only the linkage walk sees
- * the hole.
+ * is handed none. The gap is not theoretical: DELETE a middle row and every
+ * surviving row still has mutually consistent columns and a signature that
+ * verifies, because nothing was forged, so a per-row pass over the remainder
+ * returns `valid: true` throughout. Only the linkage walk sees the hole.
  *
  * A TAMPERED CHAIN COLUMN IS A VERDICT EVEN WHEN IT IS NOT BYTES. `row.prevHash`
  * and `row.rowHash` are declared `Uint8Array`, but they reach here across the
@@ -428,15 +394,15 @@ export function signRow(
  * `length()` counts CHARACTERS for a TEXT value — so the at-rest adversary this
  * protocol is written against (write access to the DB, no signing key) can
  * `UPDATE session_events SET row_hash = '00000000000000000000000000000000'`,
- * satisfy `0001-initial.ts`'s `CHECK(length(row_hash) = 32)` with 32
- * CHARACTERS, and have better-sqlite3 hand back a JS `string`. Unguarded, that
- * string reaches `equalBytes`, whose `abytes` raises `TypeError`, and the throw
- * escapes this function — so T4.1 emits NO `audit_integrity_failed` and the
- * tamper goes UNREPORTED, which is precisely the outcome the return-a-verdict
- * design exists to prevent, reached by a different route. Both members are
- * therefore shape-guarded to `hash_mismatch` below. The honest path costs
- * nothing: better-sqlite3 returns a `Buffer` for a real BLOB, and
- * `Buffer extends Uint8Array`.
+ * satisfy `0001-initial.ts`'s `CHECK(length(row_hash) = 32)` with 32 CHARACTERS,
+ * and have better-sqlite3 hand back a JS `string`. Unguarded, that string
+ * reaches `equalBytes`, whose `abytes` raises `TypeError`, and the throw escapes
+ * this function — so emits NO `audit_integrity_failed` and the tamper goes
+ * UNREPORTED, which is precisely the outcome the return-a-verdict design exists
+ * to prevent, reached by a different route. Both members are therefore
+ * shape-guarded to `hash_mismatch` below. The honest path costs nothing:
+ * better-sqlite3 returns a `Buffer` for a real BLOB, and `Buffer extends
+ * Uint8Array`.
  *
  * The asymmetry with `signRow` survives that and is still the correct one: on
  * the WRITE side a bad `prev_hash` is a caller bug to refuse before minting a
@@ -451,10 +417,7 @@ export function verifyRow(
   row: SignedRow,
   daemonPublicKey: Ed25519PublicKey,
 ): RowVerification {
-  // The shape guard the note above describes. `hash_mismatch` rather than a
-  // third failure mode, because `Spec-006 §Audit Integrity (audit_integrity)`'s
-  // enum has no malformed-stored-row arm and rule 1 is the check these two
-  // columns belong to.
+  // The shape guard the note above describes.
   //
   // BYTE-NESS is the clause that closes a hole, and it closes a different one
   // per member: a non-byte `rowHash` makes `equalBytes` THROW, while a non-byte
@@ -472,19 +435,16 @@ export function verifyRow(
     return { valid: false, failureMode: "hash_mismatch" };
   }
 
-  // STAGE 2 — PLAN-001'S ZERO-FILL PLACEHOLDER, NAMED RATHER THAN INFERRED.
+  // STAGE 2 — THE APPEND PATH'S ZERO-FILL PLACEHOLDER, NAMED RATHER THAN
+  // INFERRED.
   //
-  // `session/session-service.ts` — Plan-001's append path — writes all three
+  // `session/session-service.ts` — the append path — writes all three
   // integrity columns as zero-fill (32-byte `ZERO_HASH` for `prev_hash` AND
-  // `row_hash`, 64-byte `ZERO_SIGNATURE` for `daemon_signature`) so the
-  // NOT NULL and `CHECK(length(…))` constraints are satisfied without claiming
+  // `row_hash`, 64-byte `ZERO_SIGNATURE` for `daemon_signature`) so the NOT
+  // NULL and `CHECK(length(…))` constraints are satisfied without claiming
   // hash-chain semantics that path does not implement. A row it wrote is
   // neither tampered nor corrupt: it is a row a PRE-SIGNING code path put into
-  // a real database, which is an engineering SEQUENCING bug. No such row is
-  // known to exist — the first code that will ever durably write one is T3.1,
-  // and T3.1 signs — so this is a fail-closed safety net for the one way the
-  // case can still arise: wiring the daemon to a real database before T3.1
-  // lands.
+  // a real database, which is an engineering SEQUENCING bug.
   //
   // THE PREDICATE IS ALL THREE COLUMNS, NOT THE SIGNATURE ALONE, AND THAT IS A
   // SEVERITY ARGUMENT RATHER THAN A TIDINESS ONE. Keying on `daemon_signature`
@@ -502,8 +462,8 @@ export function verifyRow(
   // BYTE-IDENTICAL to the placeholder write, so no per-row check can tell the
   // two apart and this branch reports the placeholder verdict for both. What
   // CAN catch that row is LINKAGE rather than this function: a zero `prev_hash`
-  // at `sequence > 0` breaks I-006-2-04's `prev_hash[n] = row_hash[n-1]`, which
-  // the range-walking caller checks — see the SCOPE note above for why that
+  // at `sequence > 0` breaks the `prev_hash[n] = row_hash[n-1]`, which the
+  // range-walking caller checks — see the SCOPE note above for why that
   // obligation lives there and not here.
   //
   // RE-LINKING IS FREE TO THAT ADVERSARY, SO THE LINKAGE WALK CONSTRAINS ONLY
@@ -521,32 +481,32 @@ export function verifyRow(
   // beside them, so nothing on such a row commits its `sequence`: placeholder
   // rows can be fabricated, deleted, and renumbered. Nor is there a schema rule
   // to fall back on. `0001-initial.ts` documents the column "monotonic per
-  // session" under `UNIQUE(session_id, sequence)`, as does
-  // `local-sqlite-schema.md`, and neither adds a contiguity constraint.
+  // session" under `UNIQUE(session_id, sequence)`, as does and neither adds a
+  // contiguity constraint.
   //
   // AN UPLOADED ANCHOR PUTS A COMMITMENT OFF THIS MACHINE, AND SOME SPANS NEVER
   // GET ONE. That is what the `anchor_*` range modes verify against: an
-  // UPLOADED Merkle anchor (T3.3) commits to real `row_hash` values in the
-  // control plane's `event_log_anchors`, a Postgres table rather than this
-  // database. An anchor still QUEUED is not that — `pending_anchor_uploads` is
-  // a local SQLite table sitting beside `session_events`. V1 node-scope
-  // (sentinel `session_id`) rows are not upload candidates at all and keep
-  // `uploaded_at` NULL by design, and rows appended since the last anchor sit
-  // in no anchor's tree.
+  // UPLOADED Merkle anchor commits to real `row_hash` values in the control
+  // plane's `event_log_anchors`, a Postgres table rather than this database. An
+  // anchor still QUEUED is not that — `pending_anchor_uploads` is a local
+  // SQLite table sitting beside `session_events`. V1 node-scope (sentinel
+  // `session_id`) rows are not upload candidates at all and keep `uploaded_at`
+  // NULL by design, and rows appended since the last anchor sit in no anchor's
+  // tree.
   //
-  // THIS NOTE DOES NOT BOUND WHICH TAMPERING SHAPES SURVIVE, AND T4.1 MUST NOT
-  // READ IT AS IF IT DID. The facts above are mechanical properties of this
-  // module, not a threat model: they COMPOSE, and a list of the compositions is
-  // not something a comment can keep correct. None is attempted for that
-  // reason, and one added later would be a defect rather than an improvement —
-  // T4.1 owes the range walk a threat model derived on its own terms.
+  // THIS NOTE DOES NOT BOUND WHICH TAMPERING SHAPES SURVIVE, AND MUST NOT READ
+  // IT AS IF IT DID. The facts above are mechanical properties of this module,
+  // not a threat model: they COMPOSE, and a list of the compositions is not
+  // something a comment can keep correct. None is attempted for that reason,
+  // and one added later would be a defect rather than an improvement — owes the
+  // range walk a threat model derived on its own terms.
   //
   // A LEGITIMATE GENESIS ROW MUST NOT TRIP THIS, AND THAT IS NOT OBVIOUS.
   // `0001-initial.ts` documents `prev_hash` as "32 bytes; zero-filled at
   // sequence=0" and {@link GENESIS_PREV_HASH} is that value, so a REAL genesis
-  // row signed by T3.1 carries a zero `prev_hash` beside a real `row_hash` and
-  // a real signature. The `row_hash` conjunct is what keeps it out: drop that
-  // one clause while keeping the `prev_hash` one and every genesis row in the
+  // row signed carries a zero `prev_hash` beside a real `row_hash` and a real
+  // signature. The `row_hash` conjunct is what keeps it out: drop that one
+  // clause while keeping the `prev_hash` one and every genesis row in the
   // database reports `signature_placeholder`.
   //
   // WHY THE VERDICT MUST BE DISTINCT — DO NOT COLLAPSE THIS BRANCH INTO
@@ -591,12 +551,11 @@ export function verifyRow(
   // precondition.
   //
   // Deliberately NOT a constant-time comparison. Both operands are public — the
-  // placeholder value is fixed and spelled openly in Plan-001's source — and
-  // there is no secret to leak, so `.every` is the honest primitive rather than
-  // a masked compare. Deliberately not `equalBytes` against shared zero constants
-  // either: those would be two more mutable module-level `Uint8Array`s
-  // carrying {@link GENESIS_PREV_HASH}'s caller-obligation hazard, bought for
-  // nothing.
+  // placeholder value is fixed and spelled openly in the source — and there is no
+  // secret to leak, so `.every` is the honest primitive rather than a masked
+  // compare. Deliberately not `equalBytes` against shared zero constants either:
+  // those would be two more mutable module-level `Uint8Array`s carrying {@link
+  // GENESIS_PREV_HASH}'s caller-obligation hazard, bought for nothing.
   if (
     isAllZeroBytes(row.prevHash) &&
     isAllZeroBytes(row.rowHash) &&
@@ -639,7 +598,7 @@ export function verifyRow(
 
 /**
  * Materializes `prev_hash || canonical_bytes(row)` — the BLAKE3 preimage
- * `Plan-006 §Hash Chain` specifies.
+ * specifies.
  *
  * Explicit concatenation rather than a streaming
  * `blake3.create().update(prevHash).update(canonical).digest()`. The two are
@@ -677,12 +636,11 @@ function buildChainInput(prevHash: Uint8Array, canonical: CanonicalBytes): Uint8
  *   and the `[8][k]A` term vanishes from the cofactored equation, so a single
  *   fixed `(R, S)` verifies against ANY canonical bytes: universal forgery for
  *   that node, every forged row reported `valid: true`.
- * - NON-CANONICAL ENCODINGS. ZIP-215 widens the accepted `y` range from
- *   `0 <= y < P` to `0 <= y < 2^256`, so it accepts encodings an RFC 8032
- *   verifier refuses. `Security Architecture §Per-Event Daemon Signature` makes
- *   RFC 8032 §5.1 normative and `Spec-006 §Canonical Serialization Rules` exists
- *   so independent implementations agree byte-for-byte; a verdict reproducible
- *   only by OUR verifier is not a verdict this protocol can make.
+ * - ZIP-215 widens the accepted `y` range from `0 <= y < P` to `0 <= y < 2^256`, so
+ *   it accepts encodings an RFC 8032 verifier refuses. `Security Architecture ` makes
+ *   RFC 8032 section 5.1 normative and exists so independent implementations agree
+ *   byte-for-byte; a verdict reproducible only by OUR verifier is not a verdict this
+ *   protocol can make.
  *
  * Pure tightening with no false-negative risk: noble's `sign` always emits a
  * canonical `R` and a reduced `S`, and a public key derived from a clamped
@@ -697,14 +655,13 @@ function buildChainInput(prevHash: Uint8Array, canonical: CanonicalBytes): Uint8
  * on all three arguments. For the SIGNATURE, converting that throw to `false` is
  * the right verdict and the catch below keeps it: a signature comes off the
  * STORED row, so a wrong-width or non-byte one IS adversarial data and
- * `signature_mismatch` is what T4.1 should report. For the PUBLIC KEY it is not:
- * the caller RESOLVES it from the session's registered signing keys, so a
+ * `signature_mismatch` is what should report. For the PUBLIC KEY it is not: the
+ * caller RESOLVES it from the session's registered signing keys, so a
  * wrong-shaped one is a plumbing bug — an unvalidated `as Ed25519PublicKey`
- * cast, a truncated keystore read, a mis-sliced registry record — and folding
- * it into
- * `signature_mismatch` would make T4.1 emit `audit_integrity_failed` on EVERY
+ * cast, a truncated keystore read, a mis-sliced registry record — and folding it
+ * into `signature_mismatch` would make emit `audit_integrity_failed` on EVERY
  * row of EVERY session, halting replay and paging an operator for a tamper that
- * never happened, with the real cause discarded. The guard lives HERE and not in
+ * never happened, with the real cause discarded.
  * {@link verifyRow} so that every caller of this helper inherits it, and it runs
  * BEFORE the call so a request carrying both a bad key and a bad signature
  * reports the caller bug, which dominates.
@@ -717,8 +674,7 @@ function buildChainInput(prevHash: Uint8Array, canonical: CanonicalBytes): Uint8
  * `InvalidTokenError("signature decode failed")`, because that module's
  * vocabulary for a bad token is a typed error, whereas this module's vocabulary
  * for a bad row is a verification outcome. A signature that cannot be DECODED is
- * a signature that does not VERIFY, and
- * `Spec-006 §Audit Integrity (audit_integrity)`'s `failureMode` enum has no
+ * a signature that does not VERIFY, and the `failureMode` enum has no
  * malformed-input arm, so there is no third outcome to report.
  */
 function verifyEd25519(

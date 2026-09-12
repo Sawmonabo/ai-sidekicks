@@ -36,7 +36,7 @@ import type { ConsoleSessionEvent } from "../../../store/index.js";
 /**
  * The envelope version every composed beat carries.
  *
- * `"MAJOR.MINOR"` per ADR-018, producer-set and never rewritten on read. It is the
+ * `"MAJOR.MINOR"`, producer-set and never rewritten on read. It is the
  * one canonical member no beat states and no console surface reads, so the composer
  * supplies it rather than the scenario — the same position it held when only the
  * wire-truth probe composed envelopes, moved here so the probe and the delivery

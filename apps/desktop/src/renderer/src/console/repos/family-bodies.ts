@@ -65,7 +65,7 @@ export const REPOS_FAMILY_OWNER = "repos";
  * TWO SECTIONS AND NOT ONE, because `seats/slots/sidebar-sections.ts` names both as this
  * family's: "repos and artifacts are the repos family's". The second is the
  * attachment carrier — the ingest trio's one production entry point, and the only
- * surface in this console through which a participant hands the session a file.
+ * surface in this console through which a user hands the session a file.
  *
  * A CALL PER CARD RATHER THAN A DESCRIPTOR LIST, because that seat registry is filled
  * by a call each card module makes for itself: the body stays private to the module

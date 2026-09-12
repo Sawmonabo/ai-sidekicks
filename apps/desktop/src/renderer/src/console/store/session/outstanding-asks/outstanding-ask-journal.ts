@@ -1,12 +1,12 @@
 // What is still waiting on a person, held OUTSIDE the window it was learned from.
 //
 // WHY THIS IS NOT A FOLD OVER THE TIMELINE, which is what it used to be. A session's
-// stream replays from the position this participant was last acknowledged at, so a
+// stream replays from the position this user was last acknowledged at, so a
 // resumed read establishes a window whose head is somewhere in the middle of the log —
 // and the store's `timeline` is that window and nothing else. It is also CAPPED, so a
 // long session drops its oldest rows as it runs. A fold over it therefore loses an
 // approval the moment its opening row falls out of the window, the count goes to zero,
-// and the cast bar prints "Nothing needs you." over a run that is still blocked. That
+// and the session header prints "Nothing needs you." over a run that is still blocked. That
 // is the defect, and no amount of care inside the fold can fix it: the opener is not in
 // the input.
 //

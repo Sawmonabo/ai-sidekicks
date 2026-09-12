@@ -1,7 +1,7 @@
 // The native view this pane holds: attached when the pane mounts, torn down when it goes.
 //
-// `Spec-023 §Console Design (Meridian)` 12.1 gives the pane host two operations and
-// says they are one pair — a view is created or adopted for a pane, and it is torn
+// The pane host has two operations and they are one pair — a view is created or
+// adopted for a pane, and it is torn
 // down again, idempotently, because window teardown fires the same call. Neither had a
 // production caller. A pane opened through the deck's registry started five
 // subscriptions and every one of its acts against a `paneId` no view had ever been

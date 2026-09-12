@@ -1,12 +1,11 @@
 // What one agent may reach, as the console reads it — and nothing about whether a
 // given call would be allowed.
 //
-// `Spec-023 §Console Design (Meridian)`'s tool-governance section makes the agent's
-// tool allowlist the per-agent control over every tool source at once, the browser's
-// page tool set included, and puts that control on the agent card. The list is
-// applied AT SPAWN from the attach snapshot, which is why this projection reads the
-// resolved configuration the attach echoed back and never the definition registry: a
-// definition edited afterwards reaches no agent that is already attached.
+// The agent's tool allowlist is the per-agent control over every tool source at once,
+// the browser's page tool set included, and that control lives on the agent card. The
+// list is applied AT SPAWN from the attach snapshot, which is why this projection
+// reads the resolved configuration the attach echoed back and never the definition
+// registry: a definition edited afterwards reaches no agent that is already attached.
 //
 // FOUR POSITIONS, NOT THREE. The registry's own vocabulary keeps three apart — an
 // absent list means the driver's default set, an empty one means no tools, and a

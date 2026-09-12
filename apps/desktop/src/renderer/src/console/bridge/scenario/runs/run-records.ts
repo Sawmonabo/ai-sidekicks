@@ -30,8 +30,8 @@ const INTERVENTION_REJECTED_ROLLBACK = "019b7a22-2200-7d31-8140-d1a4c1150434";
 /**
  * The run's durable intervention record, newest last.
  *
- * Four rows and four different things to render: a participant-raised steer whose body
- * is gone, a participant-raised steer that admitted a queue item, a system-raised
+ * Four rows and four different things to render: a user-raised steer whose body
+ * is gone, a user-raised steer that admitted a queue item, a system-raised
  * cancel, and a rejected rollback carrying its reason verbatim. Between them both
  * origin labels, both directive arms, and both optional members appear, so a surface
  * that dropped one has a row that renders wrongly rather than a case nothing
@@ -43,10 +43,10 @@ export const RUNS_INTERVENTION_RECORDS: readonly GrowthInterventionRecord[] = [
     runId: RUN_ID,
     interventionKind: "steer",
     state: "applied",
-    origin: "participant",
+    origin: "user",
     // The key is gone, so the audit record survives its body. The console renders the
     // record and says the text cannot be read — never an empty directive, which would
-    // claim the participant said nothing.
+    // claim the user said nothing.
     directive: { availability: "unavailable" },
     requestedAt: "2026-01-01T15:58:12.000Z",
   },
@@ -55,7 +55,7 @@ export const RUNS_INTERVENTION_RECORDS: readonly GrowthInterventionRecord[] = [
     runId: RUN_ID,
     interventionKind: "steer",
     state: "applied",
-    origin: "participant",
+    origin: "user",
     directive: {
       availability: "available",
       text: "Prefer the smaller diff and leave the migration for a second pass.",
@@ -81,7 +81,7 @@ export const RUNS_INTERVENTION_RECORDS: readonly GrowthInterventionRecord[] = [
     runId: RUN_ID,
     interventionKind: "rollback",
     state: "rejected",
-    origin: "participant",
+    origin: "user",
     directive: { availability: "unavailable" },
     rejectionReason: "run.invalid_transition",
     requestedAt: "2026-01-01T16:00:02.000Z",

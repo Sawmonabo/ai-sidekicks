@@ -26,7 +26,7 @@
 // family into a registry it owns, and an auxiliary window composes a subset without
 // a second code path.
 
-import { registerCollaborationSections } from "./collaboration/index.js";
+import { registerChannelsSections } from "./channels/index.js";
 import type {
   ConsoleSurfaceRegistry,
   FrameBindingRegistry,
@@ -77,9 +77,9 @@ export function registerSessionSurfacesFamily(
   registerSessionAttentionBinding(frameBindings);
   registerSettingsSurface(surfaces);
   registerAgentConsoleSurface(surfaces);
-  registerCollaborationSections(sidebarSections);
+  registerChannelsSections(sidebarSections);
   // The second of this family's sidebar sections, and the one whose body lives in the
-  // agents subtree rather than in `collaboration/`: it renders the agent roster, so it
+  // agents subtree rather than in `channels/`: it renders the agent roster, so it
   // belongs to the family that owns that vocabulary. Seated here for the same reason
   // everything else in this file is — naming two view families is what a composition
   // site is for.

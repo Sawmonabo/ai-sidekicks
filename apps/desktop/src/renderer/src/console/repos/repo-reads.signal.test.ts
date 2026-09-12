@@ -83,7 +83,7 @@ describe("checkWorktreeReuse — the reuse check reads inside a round", () => {
   });
 
   it("negative control: an abandoned round stops it at the door", async () => {
-    // The check a participant supersedes most often — it is re-asked as they type a
+    // The check a user supersedes most often — it is re-asked as they type a
     // branch name — so this is the read that most wanted a signal and had none.
     const reply = await checkWorktreeReuse(
       fixtureBridge(),

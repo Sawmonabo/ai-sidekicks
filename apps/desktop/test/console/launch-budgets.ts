@@ -15,9 +15,9 @@
 // the witness the owner of the deadline's numbers. Here, each figure is read
 // exactly once and named exactly once.
 //
-// These are `harness`-scoped rows: no `Spec-023 §Budgets` figure stands behind
-// them, which is why the registry discriminates the two kinds rather than
-// merging them — the spec table's completeness claim has to stay countable.
+// These are `harness`-scoped rows: no product figure stands behind them, which
+// is why the registry discriminates the two kinds rather than merging them — the
+// product list's completeness claim has to stay countable.
 
 import { ConsoleBudgetRegistry } from "../../scripts/budget/budget-registry.mjs";
 

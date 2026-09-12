@@ -1,7 +1,7 @@
 // Wiring the keyboard handback to the pane it protects.
 //
-// `Spec-023 §Console Design (Meridian)` 12.4 has two halves and `keyboard-handback.ts`
-// owns the decisions in both: which chords MAY be claimed (the projection a host's
+// The keyboard handback has two halves and `keyboard-handback.ts` owns the decisions
+// in both: which chords MAY be claimed (the projection a host's
 // mirror is built from) and what happens to one that was (the replay). What it
 // deliberately does not own is the wire, because it has to be drivable from a test
 // with no bridge in it. This module is that wire, and nothing else.

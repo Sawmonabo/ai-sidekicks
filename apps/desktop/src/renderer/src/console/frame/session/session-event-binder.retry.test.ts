@@ -32,7 +32,7 @@ import { PAST_EVERY_BEAT_MS, SESSION_ID } from "./session-event-binder.test-supp
 /**
  * A transport that refuses to open a stream a stated number of times.
  *
- * The shipped Tier-1 preload is exactly this shape — `daemon.subscribe` throws
+ * The shipped stub preload is exactly this shape — `daemon.subscribe` throws
  * synchronously until a build with a real one is installed — so what the cases below
  * drive is the failure the console actually meets rather than a stand-in for it. A
  * class with a private field rather than a closed-over counter, per

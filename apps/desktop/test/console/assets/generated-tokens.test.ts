@@ -1,7 +1,7 @@
 // The assets tier: generated artifacts against their sources.
 //
-// `Spec-023 §Console Test Tiers` names this tier "generated tokens and schema
-// artifacts byte-identical to their sources". The console has no COMMITTED
+// This tier holds generated tokens and schema artifacts byte-identical to their
+// sources. The console has no COMMITTED
 // stylesheet to byte-diff — `generate-css.ts` builds the sheet at runtime and
 // `frame/bindings/token-installation.ts` writes it into the document head before
 // first paint, deliberately,
@@ -14,7 +14,7 @@
 // assertions below are measuring nothing.
 //
 // A SECOND CLAIM USED TO LIVE HERE AND IS NOW A REVIEW RULE, stated in
-// `apps/desktop/AGENTS.md` §Module shape — that every `var(--meridian-*)` a console
+// the module-shape rules in `apps/desktop/AGENTS.md` — that every `var(--meridian-*)` a console
 // stylesheet references is defined somewhere the console controls. It is a real
 // drift (a stylesheet naming a property nobody sets does not fail, it paints
 // nothing) and it was checked by READING every console `.css` source, which is the
@@ -27,11 +27,11 @@ import { BOUNDED_ENUMERATION_MAX_ROWS } from "../../../src/renderer/src/console/
 import { ENUMERATION_ROW_HEIGHT_REM } from "../../../src/renderer/src/console/tokens/palette.js";
 import {
   BOUNDED_ENUMERATION_HEIGHT_REM,
-  PARTICIPANT_HUES,
+  ACTOR_HUES,
   SCHEME_COLOR_TOKENS,
   formatOklch,
   generateMeridianCss,
-  participantHueTokenName,
+  actorHueTokenName,
   tokenVariableName,
 } from "../../../src/renderer/src/console/tokens/index.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
@@ -127,8 +127,8 @@ describe("assets — the generated token sheet", () => {
         ).toBe(true);
       }
     }
-    PARTICIPANT_HUES.forEach((hue, step) => {
-      const variableName = tokenVariableName(participantHueTokenName(step));
+    ACTOR_HUES.forEach((hue, step) => {
+      const variableName = tokenVariableName(actorHueTokenName(step));
       expect(css).toContain(`${variableName}: ${formatOklch(hue)};`);
     });
   });
@@ -202,11 +202,11 @@ describe("assets — the generated token sheet", () => {
   });
 
   it("emits ONE settle easing, and it is the sampled spring", () => {
-    // `Spec-023 §Console Design (Meridian)` rule 5 asks for chrome that settles and
-    // never bounces, implemented by an own spring sampler emitting `linear()`. Two
-    // easings — a hand-written cubic beside the sampled spring — meant every one of
-    // the stylesheets reading `--meridian-ease-settle` got the cubic while the spring
-    // the rule asks for was emitted under a name no sheet read.
+    // Chrome settles and never bounces, implemented by an own spring sampler
+    // emitting `linear()`. Two easings — a hand-written cubic beside the sampled
+    // spring — meant every one of the stylesheets reading
+    // `--meridian-ease-settle` got the cubic while the spring the rule asks for
+    // was emitted under a name no sheet read.
     //
     // The sampler runs at BUILD time now — `tokens/motion.ts` carries what it
     // answered and `tokens/motion.test.ts` re-derives that constant against it — so
@@ -220,7 +220,7 @@ describe("assets — the generated token sheet", () => {
   it("declares no font feature anywhere in the sheet", () => {
     // `font-feature-settings` INHERITS, so a declaration on `body` reaches every
     // descendant — which put the slashed zero rule 4 reserves as the mark of a wire
-    // figure onto every participant name, repo path, and branch name in the console.
+    // figure onto every user name, repo path, and branch name in the console.
     // The features ride the mono `@font-face` descriptors in
     // `frame/bindings/typeface.ts` instead, where they are scoped to the face by
     // construction rather than by a selector this sheet could never narrow again:

@@ -2,37 +2,37 @@
 
 ## Purpose
 
-Define the hosted or self-hosted Collaboration Control Plane and its internal responsibilities.
+Define the hosted or self-hosted Control Plane and its internal responsibilities.
 
 ## Scope
 
-This document covers the remote services inside the Collaboration Control Plane that coordinate sessions across participants and runtime nodes.
+This document covers the remote services inside the Control Plane that connect one user's devices to the runtime nodes executing that user's sessions.
 
 ## Context
 
-The Collaboration Control Plane exists to share session coordination state across participants without becoming the code-execution environment.
+The Control Plane exists so a user's devices can reach the machine a session runs on without the control plane becoming the code-execution environment.
 
 ## Responsibilities
 
-- authenticate users and authorize session membership
-- manage invites and membership changes
-- track participant and runtime-node presence
-- broker relay connectivity and session join
-- deliver notifications and shared session metadata
-- provide a durable directory for sessions and shared coordination state
+- authenticate the user and the device acting for them
+- keep the device registry: link, rename, revoke
+- track device and runtime-node liveness
+- broker relay connectivity between a user's devices and that user's runtime nodes
+- deliver notifications and session metadata
+- provide a durable directory for sessions and coordination state
 
 ## Component Boundaries
 
 | Component | Responsibility |
 | --- | --- |
-| `Identity Service` | Authenticates users and issues identity claims used by session membership. |
-| `Session Directory` | Stores session metadata needed for discovery, join, and coordination. |
-| `Invite And Membership Service` | Creates invites, accepts joins, changes roles, and revokes membership. |
-| `Presence Service` | Tracks participant and node presence heartbeats and disconnect grace windows. |
-| `Relay Broker` | Helps clients and nodes establish shared-session connectivity without taking over execution. |
-| `Artifact Relay Blob Store` | Holds eagerly pinned, digest-addressed E2EE artifact ciphertext chunks and per-`(participant, node)` wrapped CEKs (durable artifact keys) with refcount/TTL GC and quota accounting; never holds decryption-capable key material ([Spec-014 §Cross-Node Artifact Relay (V1)](../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1); lands with Plan-014 Tasks 7–10). |
-| `Notification Service` | Delivers attention, invite, and session-level notifications. |
-| `Shared Metadata Store` | Persists collaboration state used across participants and nodes. |
+| `Identity Service` | Authenticates the user and the device acting for them, and issues the identity claims every other service reads. |
+| `Session Directory` | Stores session metadata needed for discovery, device reconnect, and coordination. |
+| `Device Registry` | Holds one durable row per linked device — name, kind, public identity key, link time, revocation — and answers "which devices can act as this user". |
+| `Device Liveness Service` | Tracks device and runtime-node heartbeats and disconnect grace windows. Liveness is about the user's own endpoints; it is never a roster of other people. |
+| `Relay Broker` | Helps a user's devices and runtime nodes establish connectivity without taking over execution. |
+| `Artifact Relay Blob Store` | Holds eagerly pinned, digest-addressed E2EE artifact ciphertext chunks and per-`(user, node)` wrapped CEKs (durable artifact keys) with refcount/TTL GC and quota accounting; never holds decryption-capable key material ([Spec-014 §Cross-Node Artifact Relay (V1)](../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1); lands with Plan-014 Tasks 7–10). |
+| `Notification Service` | Delivers attention and session-level notifications to the user's connected devices, and queues them when no device is connected. |
+| `Shared Metadata Store` | Persists the session directory, device registry, and liveness state that a user's devices and nodes read. |
 
 ## Implementation Home
 
@@ -42,25 +42,25 @@ The Collaboration Control Plane exists to share session coordination state acros
 
 ## Data Flow
 
-1. A client authenticates with the identity service.
-2. The client requests to create, join, or invite into a session.
-3. The invite and membership service updates session directory and shared metadata state.
-4. The presence service receives heartbeats from clients and runtime nodes.
-5. Relay setup and notification delivery occur as side services around the same session metadata.
-6. Local Runtime Daemons continue to execute work and push the coordination data the control plane needs — plus, at `artifact.publish` of a shared artifact, participant-encrypted ciphertext for relay pinning ([Spec-014 §Cross-Node Artifact Relay (V1)](../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1)); the control plane never receives plaintext payloads or decryption-capable keys.
+1. A device authenticates with the identity service using its own registered identity key.
+2. A new device is linked: it registers its public identity key and takes a row in the device registry.
+3. The device reads the session directory to find the user's sessions and the runtime node each is bound to.
+4. The liveness service receives heartbeats from that user's devices and runtime nodes.
+5. The relay broker negotiates a session-scoped, short-lived connection so the device and the runtime node can exchange end-to-end-encrypted frames; notification delivery rides the same session metadata.
+6. Local Runtime Daemons continue to execute work and push the coordination data the control plane needs — plus, at `artifact.publish` of a shared artifact, encrypted ciphertext for relay pinning ([Spec-014 §Cross-Node Artifact Relay (V1)](../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1)); the control plane never receives plaintext payloads or decryption-capable keys.
 
 ## Trust Boundaries
 
-- The control plane is trusted for identity, membership, invite, presence, and relay coordination.
-- The control plane is not trusted as the local filesystem or tool-execution authority for participant nodes.
-- Relay pathways must minimize trust and exposure because they cross remote infrastructure.
+- The control plane is trusted for identity, device registration, liveness, and relay coordination.
+- The control plane is not trusted as the local filesystem or tool-execution authority for the user's runtime nodes.
+- The control plane carries relay ciphertext and cannot read it: relay pathways must minimize trust and exposure because they cross remote infrastructure.
 
 ## Failure Modes
 
-- Invite delivery or acceptance fails while local session execution continues.
-- Presence becomes stale because clients disconnect without clean shutdown.
-- Relay setup succeeds for membership but fails to establish live runtime-node connectivity.
-- Shared metadata writes conflict or lag across rapid membership changes.
+- Device linking or revocation fails while local session execution continues.
+- Device or node liveness becomes stale because a client disconnects without clean shutdown.
+- Relay negotiation succeeds for the device but fails to establish live runtime-node connectivity, so the device must report the machine as unreachable rather than appear to work.
+- A revoked device's connection is not closed promptly, leaving a window in which a retired device still reaches the relay.
 
 ## Related Domain Docs
 
@@ -71,10 +71,10 @@ The Collaboration Control Plane exists to share session coordination state acros
 ## Related Specs
 
 - [Shared Session Core](../specs/001-shared-session-core.md)
-- [Identity And Participant State](../specs/018-identity-and-participant-state.md)
+- [Remote Control](../specs/031-remote-control.md)
+- [Identity And User State](../specs/018-identity-and-user-state.md)
 
 ## Related ADRs
 
 - [Local Execution Shared Control Plane](../decisions/002-local-execution-shared-control-plane.md)
-- [Collaboration Trust And Permission Model](../decisions/007-collaboration-trust-and-permission-model.md)
 - [Default Transports And Relay Boundaries](../decisions/008-default-transports-and-relay-boundaries.md)

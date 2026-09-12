@@ -17,14 +17,14 @@ import type { ConsoleBridge } from "../../bridge/index.js";
 import type { GrowthPortAnswer } from "../../bridge/growth-port/growth-port.js";
 import { fixtureBridgeWithGrowth } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { REPOS_SCENARIO } from "../../bridge/scenario/repos/repos.js";
-import { PARTICIPANT_YOU } from "../../bridge/scenario/repos/repos-fixture-data.js";
+import { USER_YOU } from "../../bridge/scenario/repos/repos-fixture-data.js";
 import { ManualClock } from "../../core/index.js";
 import { manualGate } from "../held-calls.test-support.js";
 import type { ProposalGateReader } from "./proposal-gate-reader.js";
 import {
   ACCEPTED_ACTION,
   OpenReaders,
-  SERVED_CALLER_PARTICIPANT,
+  SERVED_CALLER_USER,
   SERVED_CONTEXT,
   SERVED_PREPARATION,
   WIRE_UNREGISTERED,
@@ -160,9 +160,9 @@ describe("ProposalGateActions — the context an act was admitted against", () =
           gitActionCalls += 1;
           return ACCEPTED_ACTION;
         },
-        callerParticipantRead: async () => {
+        callerUserRead: async () => {
           await gate.promise;
-          return SERVED_CALLER_PARTICIPANT;
+          return SERVED_CALLER_USER;
         },
       }),
       serveContext: (answer: GrowthPortAnswer<"gitflowBranchContextRead">) => {
@@ -250,14 +250,14 @@ describe("ProposalGateActions — the identity an act attributes to", () => {
   interface IdentityPort {
     readonly bridge: ConsoleBridge;
     readonly answerIdentityWith: (
-      answer: () => Promise<GrowthPortAnswer<"callerParticipantRead">>,
+      answer: () => Promise<GrowthPortAnswer<"callerUserRead">>,
     ) => void;
     readonly identityReadCount: () => number;
     readonly gitActionRequests: () => readonly unknown[];
   }
 
   function bridgeWithMovingIdentity(): IdentityPort {
-    let answerIdentity: () => Promise<GrowthPortAnswer<"callerParticipantRead">> = async () =>
+    let answerIdentity: () => Promise<GrowthPortAnswer<"callerUserRead">> = async () =>
       WIRE_UNREGISTERED;
     let identityReads = 0;
     const gitActionRequests: unknown[] = [];
@@ -269,12 +269,12 @@ describe("ProposalGateActions — the identity an act attributes to", () => {
           gitActionRequests.push(request);
           return ACCEPTED_ACTION;
         },
-        callerParticipantRead: async () => {
+        callerUserRead: async () => {
           identityReads += 1;
           return await answerIdentity();
         },
       }),
-      answerIdentityWith: (answer: () => Promise<GrowthPortAnswer<"callerParticipantRead">>) => {
+      answerIdentityWith: (answer: () => Promise<GrowthPortAnswer<"callerUserRead">>) => {
         answerIdentity = answer;
       },
       identityReadCount: () => identityReads,
@@ -284,7 +284,7 @@ describe("ProposalGateActions — the identity an act attributes to", () => {
 
   /** The causation one recorded request carried, or `undefined` where it carried none. */
   function causationOf(request: unknown): unknown {
-    return (request as { readonly causationParticipantId?: unknown }).causationParticipantId;
+    return (request as { readonly causationUserId?: unknown }).causationUserId;
   }
 
   /** A gate on the served context, over a port whose identity answer moves. */
@@ -309,13 +309,13 @@ describe("ProposalGateActions — the identity an act attributes to", () => {
     await reader.requestAction("commit");
     await settleAct(clock, reader);
 
-    port.answerIdentityWith(async () => SERVED_CALLER_PARTICIPANT);
+    port.answerIdentityWith(async () => SERVED_CALLER_USER);
     await reader.requestAction("push");
     await settleAct(clock, reader);
 
     const [firstRequest, secondRequest] = port.gitActionRequests();
     expect(causationOf(firstRequest)).toBeUndefined();
-    expect(causationOf(secondRequest)).toBe(PARTICIPANT_YOU);
+    expect(causationOf(secondRequest)).toBe(USER_YOU);
     expect(port.identityReadCount()).toBe(2);
   });
 
@@ -329,12 +329,12 @@ describe("ProposalGateActions — the identity an act attributes to", () => {
     await reader.requestAction("commit");
     await settleAct(clock, reader);
 
-    port.answerIdentityWith(async () => SERVED_CALLER_PARTICIPANT);
+    port.answerIdentityWith(async () => SERVED_CALLER_USER);
     await reader.requestAction("push");
     await settleAct(clock, reader);
 
     const [, secondRequest] = port.gitActionRequests();
-    expect(causationOf(secondRequest)).toBe(PARTICIPANT_YOU);
+    expect(causationOf(secondRequest)).toBe(USER_YOU);
   });
 
   it("negative control: a served identity is read once however many acts follow", async () => {
@@ -342,7 +342,7 @@ describe("ProposalGateActions — the identity an act attributes to", () => {
     // press, which is the same question on the wire once per act for an answer that
     // cannot change while the gate is mounted.
     const { reader, clock, port } = await openOnMovingIdentity();
-    port.answerIdentityWith(async () => SERVED_CALLER_PARTICIPANT);
+    port.answerIdentityWith(async () => SERVED_CALLER_USER);
 
     await reader.requestAction("commit");
     await settleAct(clock, reader);
@@ -351,7 +351,7 @@ describe("ProposalGateActions — the identity an act attributes to", () => {
 
     expect(port.identityReadCount()).toBe(1);
     for (const request of port.gitActionRequests()) {
-      expect(causationOf(request)).toBe(PARTICIPANT_YOU);
+      expect(causationOf(request)).toBe(USER_YOU);
     }
   });
 });

@@ -89,7 +89,7 @@ Worktree lifecycle:
 
 ## Example Flows
 
-- Example: A participant attaches a repository to a session, provisions a coding workspace backed by a feature worktree, and binds the next run to that workspace.
+- Example: A user attaches a repository to a session, provisions a coding workspace backed by a feature worktree, and binds the next run to that workspace.
 - Example: A reviewer run opens the same repo mount in a read-only workspace while the implementer continues on a dedicated worktree.
 - Example: A repository cannot safely create worktrees on the current platform, so the next writable run explicitly selects `ephemeral clone` mode and executes in a disposable isolated checkout.
 - Example: A merged feature branch marks its worktree `merged`, after which the worktree can be retired without deleting the historical artifacts tied to that workspace.

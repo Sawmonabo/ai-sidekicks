@@ -1,9 +1,9 @@
 // The apply queue, driven on frozen time.
 //
-// Every assertion here is about a claim `Spec-023 §Console Design (Meridian)`
-// §The eight rules makes and that a happy-path test cannot see: a burst costs one
-// drain, a disposed pane arms nothing, and a drain that throws loses no event and
-// takes no other session's callback down with it.
+// Every assertion here is about a claim the console's own rules make and that a
+// happy-path test cannot see: a burst costs one drain, a disposed pane arms nothing,
+// and a drain that throws loses no event and takes no other session's callback down
+// with it.
 //
 // It runs on `ManualClock` and arms no real timer at all. That is not a convenience:
 // `clock.pendingCount === 0` after settle is the only way the idle-CPU budget's

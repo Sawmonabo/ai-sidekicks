@@ -11,16 +11,16 @@
 // supply.
 //
 // WHAT THE LOG ACTUALLY SUPPORTS, WHICH IS WHY THIS IS A DERIVATION RATHER THAN AN
-// INVENTION. `Spec-006 §Run Lifecycle (run_lifecycle)` puts the orchestration linkage
-// on the BIRTH beat — `run.queued` carries `{agentId?, parentRunId?, linkType?,
+// INVENTION. The run lifecycle puts the orchestration linkage on the BIRTH beat —
+// `run.queued` carries `{agentId?, parentRunId?, linkType?,
 // internalHelper?, producingNodeId?}` — so a run whose creation row names a parent IS
 // a child run, said by the daemon rather than guessed here. Every member of the
 // summary then comes off that same log:
 //
 //   • `runId` / `parentRunId` — the creation row's own two identities, verbatim.
 //   • `producingNodeId` — the creation row's, where it names one. Absent stays absent:
-//     `Spec-013` requires provenance to the producing node and a fabricated one would
-//     be worse than the named absence the row renders.
+//     a row's provenance names the producing node, and a fabricated one would be worse
+//     than the named absence the row renders.
 //   • `state` — the state the child's newest lifecycle beat announces, read from the
 //     KIND through `runStateForTransitionKind` rather than from an unvalidated payload
 //     member, which is the same rule the run-entity fold is written under. The

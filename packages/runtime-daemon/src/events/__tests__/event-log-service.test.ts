@@ -1,5 +1,5 @@
-// Contract coverage for `EventLogService` — the sole durable append path
-// (Plan-006 T3.1).
+// Contract coverage for `EventLogService` — the sole durable append
+// path.
 //
 // The arms here are SEQUENTIAL and SERVICE-LEVEL. The two registry mechanisms
 // that are invisible to any serial call order live in `ingest-halt-source.test.ts`
@@ -39,12 +39,6 @@
 // which travels this same path in `compactor.test.ts`) fail mid-flight rather
 // than fail loudly.
 //
-// Spec coverage: `Spec-006 §Integrity Protocol` (each row chained to its
-// predecessor), `Spec-006 §Canonical Serialization Rules`
-// (`pii_ciphertext_digest`), `Spec-006 §Security Events (security_events)`
-// (`daemon.pii_split_bypass`), `Spec-006 §Audit Integrity (audit_integrity)`
-// (the halt state the gate reads). Refs: Plan-006 T3.1, T3.5, I-006-4-03,
-// I-006-2-04, I-006-2-12.
 
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { blake3 } from "@noble/hashes/blake3.js";
@@ -80,7 +74,7 @@ import { IngestHaltRegistry, NeverHaltedIngestHaltSource } from "../ingest-halt-
 import {
   CodecOwnedContentKeyError,
   PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
-  PII_PARTICIPANT_ID_PAYLOAD_KEY,
+  PII_USER_ID_PAYLOAD_KEY,
   type PiiEncryptionRequest,
   type PiiEncryptor,
 } from "../pii-indirection.js";
@@ -101,12 +95,12 @@ const OTHER_SESSION: SessionId = SessionIdSchema.parse("0190f8a0-7e2d-7c4a-9b1c-
 const ENVELOPE_VERSION = EventEnvelopeVersionSchema.parse("1.0");
 
 // A UUID rather than a readable slug, and the constraint is a real one worth
-// knowing before writing a fixture: `pii_participant_id` is plain TEXT and
+// knowing before writing a fixture: `pii_user_id` is plain TEXT and
 // `EventLogAppendPii` types the id as a bare `string`, but
-// `EventShreddedPayloadSchema` requires a UUID. A participant that will ever be
+// `EventShreddedPayloadSchema` requires a UUID. A user that will ever be
 // named in a shred record has to be one from the start, or the two halves of
-// Plan-022 Path 1 disagree about who was shredded.
-const PARTICIPANT = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f20";
+// Path 1 disagree about who was shredded.
+const USER = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f20";
 
 const DAEMON_PRIVATE_KEY = new Uint8Array(32).fill(11) as Ed25519PrivateKey;
 const DAEMON_PUBLIC_KEY = ed25519.getPublicKey(DAEMON_PRIVATE_KEY) as Ed25519PublicKey;
@@ -186,26 +180,24 @@ class ParkableSigningKeySource implements DaemonSigningKeySource {
 }
 
 /**
- * The CP-006-1 stub: an XOR over a BLAKE3 keystream seeded by
- * `participantId || eventId`.
+ * Stub: an XOR over a BLAKE3 keystream seeded by
+ * `userId || eventId`.
  *
  * Not an AEAD and not trying to be. It is DETERMINISTIC, which is what lets an
  * arm name expected bytes instead of re-deriving them, and it binds the two
  * identifiers in the one observable way a stub can — a ciphertext minted for one
- * (participant, event) pair differs bytewise from every other pair's.
+ * (user, event) pair differs bytewise from every other pair's.
  * `writeEventWithPii` digests whatever bytes it is handed and asserts nothing
- * about their width, exactly as CP-006-1 requires of an interface that fixes no
- * AEAD.
+ * about their width, exactly as requires of an interface that fixes no AEAD.
  */
 class DeterministicPiiEncryptor implements PiiEncryptor {
   encryptCallCount = 0;
 
   encrypt(request: PiiEncryptionRequest): Promise<Uint8Array> {
     this.encryptCallCount += 1;
-    const keystream = blake3(
-      new TextEncoder().encode(`${request.participantId} ${request.eventId}`),
-      { dkLen: Math.max(1, request.plaintext.length) },
-    );
+    const keystream = blake3(new TextEncoder().encode(`${request.userId} ${request.eventId}`), {
+      dkLen: Math.max(1, request.plaintext.length),
+    });
     const sealed = new Uint8Array(request.plaintext.length);
     for (let index = 0; index < request.plaintext.length; index += 1) {
       sealed[index] = (request.plaintext[index] ?? 0) ^ (keystream[index] ?? 0);
@@ -277,7 +269,7 @@ interface HydratedRow {
   readonly canonical: CanonicalBytes;
   readonly signedRow: SignedRow;
   readonly piiPayload: Uint8Array | null;
-  readonly piiParticipantId: string | null;
+  readonly piiUserId: string | null;
 }
 
 interface RawEventRow {
@@ -296,7 +288,7 @@ interface RawEventRow {
   readonly prev_hash: Uint8Array;
   readonly row_hash: Uint8Array;
   readonly daemon_signature: Uint8Array;
-  readonly pii_participant_id: string | null;
+  readonly pii_user_id: string | null;
 }
 
 function readRawRows(sessionId: SessionId): ReadonlyArray<RawEventRow> {
@@ -339,14 +331,13 @@ function hydrate(row: RawEventRow): HydratedRow {
       daemonSignature: row.daemon_signature,
     },
     piiPayload: row.pii_payload,
-    piiParticipantId: row.pii_participant_id,
+    piiUserId: row.pii_user_id,
   };
 }
 
 /**
- * The LINKAGE walk — I-006-2-04's second clause, which `verifyRow` explicitly
- * does not check. Returns the first defect found, or `undefined` for an intact
- * chain.
+ * The LINKAGE walk — the second clause, which `verifyRow` explicitly does not
+ * check. Returns the first defect found, or `undefined` for an intact chain.
  */
 function walkChainLinkage(sessionId: SessionId): string | undefined {
   const rows = readRawRows(sessionId);
@@ -392,10 +383,10 @@ async function mappedRefusalOf(work: Promise<unknown>): Promise<JsonRpcErrorResp
 }
 
 // ----------------------------------------------------------------------------
-// Hash-chain integrity — `Plan-006 §Test And Verification Plan`'s hash-chain row
+// Hash-chain integrity — the hash-chain row
 // ----------------------------------------------------------------------------
 
-describe("EventLogService — hash chain (I-006-2-04)", () => {
+describe("EventLogService — hash chain", () => {
   it("opens a session's chain at sequence 0 with the genesis prev_hash", async () => {
     const { service } = buildService();
 
@@ -540,7 +531,7 @@ describe("EventLogService — chain-head read boundary", () => {
 // PII indirection at the persistence boundary
 // ----------------------------------------------------------------------------
 
-describe("EventLogService — PII indirection (Spec-006 §Canonical Serialization Rules)", () => {
+describe("EventLogService — PII indirection", () => {
   it("persists the owner stamp in its durable column and the ciphertext in pii_payload", async () => {
     const { service, encryptor } = buildService();
 
@@ -554,7 +545,7 @@ describe("EventLogService — PII indirection (Spec-006 §Canonical Serializatio
         type: "assistant.message",
         payload: { sessionId: SESSION, runId: "run-1" },
       }),
-      { pii: { participantId: PARTICIPANT, piiPayload: { text: "secret prose" } } },
+      { pii: { userId: USER, piiPayload: { text: "secret prose" } } },
     );
 
     expect(encryptor.encryptCallCount).toBe(1);
@@ -565,8 +556,8 @@ describe("EventLogService — PII indirection (Spec-006 §Canonical Serializatio
 
     // The durable column carries the SAME id the codec stamped into the payload
     // — the two are what a post-shred verifier joins on, so they must agree.
-    expect(hydrated.piiParticipantId).toBe(PARTICIPANT);
-    expect(hydrated.envelope.payload[PII_PARTICIPANT_ID_PAYLOAD_KEY]).toBe(PARTICIPANT);
+    expect(hydrated.piiUserId).toBe(USER);
+    expect(hydrated.envelope.payload[PII_USER_ID_PAYLOAD_KEY]).toBe(USER);
     expect(typeof hydrated.envelope.payload[PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]).toBe("string");
     expect(hydrated.piiPayload).toBeInstanceOf(Uint8Array);
 
@@ -588,7 +579,7 @@ describe("EventLogService — PII indirection (Spec-006 §Canonical Serializatio
 
     const [row] = readRawRows(SESSION);
     expect(row?.pii_payload).toBeNull();
-    expect(row?.pii_participant_id).toBeNull();
+    expect(row?.pii_user_id).toBeNull();
     expect(encryptor.encryptCallCount).toBe(0);
   });
 
@@ -597,7 +588,7 @@ describe("EventLogService — PII indirection (Spec-006 §Canonical Serializatio
 
     await expect(
       service.append(makeEnvelope({ category: "assistant_output" }), {
-        pii: { participantId: PARTICIPANT, piiPayload: { text: "secret prose" } },
+        pii: { userId: USER, piiPayload: { text: "secret prose" } },
       }),
     ).rejects.toThrow(/PiiEncryptor/);
 
@@ -609,14 +600,14 @@ describe("EventLogService — PII indirection (Spec-006 §Canonical Serializatio
 // `daemon.pii_split_bypass` — asserted as the MAPPED envelope
 // ----------------------------------------------------------------------------
 
-describe("EventLogService — daemon.pii_split_bypass (Spec-006 §Security Events (security_events))", () => {
+describe("EventLogService — daemon.pii_split_bypass", () => {
   it("refuses a payload carrying the reserved owner stamp, reporting the KEY path", async () => {
     const { service } = buildService();
 
     const mapped = await mappedRefusalOf(
       service.append(
         makeEnvelope({
-          payload: { [PII_PARTICIPANT_ID_PAYLOAD_KEY]: PARTICIPANT, note: "x" },
+          payload: { [PII_USER_ID_PAYLOAD_KEY]: USER, note: "x" },
         }),
       ),
     );
@@ -626,7 +617,7 @@ describe("EventLogService — daemon.pii_split_bypass (Spec-006 §Security Event
     // A KEY path and never a value: the write is refused BECAUSE it carries PII
     // outside the split, so echoing the value would complete the leak.
     expect(mapped.error.data?.fields).toEqual({
-      fieldPath: `payload.${PII_PARTICIPANT_ID_PAYLOAD_KEY}`,
+      fieldPath: `payload.${PII_USER_ID_PAYLOAD_KEY}`,
     });
     expect(readRawRows(SESSION)).toHaveLength(0);
   });
@@ -655,14 +646,14 @@ describe("EventLogService — daemon.pii_split_bypass (Spec-006 §Security Event
         makeEnvelope({
           payload: {
             [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: "d",
-            [PII_PARTICIPANT_ID_PAYLOAD_KEY]: PARTICIPANT,
+            [PII_USER_ID_PAYLOAD_KEY]: USER,
           },
         }),
       ),
     );
 
     expect(mapped.error.data?.fields).toEqual({
-      fieldPath: `payload.${PII_PARTICIPANT_ID_PAYLOAD_KEY}`,
+      fieldPath: `payload.${PII_USER_ID_PAYLOAD_KEY}`,
     });
   });
 
@@ -672,12 +663,12 @@ describe("EventLogService — daemon.pii_split_bypass (Spec-006 §Security Event
     const mapped = await mappedRefusalOf(
       service.append(
         makeEnvelope({
-          payload: { [PII_PARTICIPANT_ID_PAYLOAD_KEY]: "participant-with-real-pii-in-the-id" },
+          payload: { [PII_USER_ID_PAYLOAD_KEY]: "user-with-real-pii-in-the-id" },
         }),
       ),
     );
 
-    expect(JSON.stringify(mapped)).not.toContain("participant-with-real-pii-in-the-id");
+    expect(JSON.stringify(mapped)).not.toContain("user-with-real-pii-in-the-id");
   });
 });
 
@@ -686,11 +677,11 @@ describe("EventLogService — daemon.pii_split_bypass (Spec-006 §Security Event
 // ----------------------------------------------------------------------------
 
 // ----------------------------------------------------------------------------
-// `daemon.event_canonical_bytes_exceeded` — the `Spec-006 §Canonical
-// Serialization Rules` append ceiling, on BOTH branches of the sign step
+// `daemon.event_canonical_bytes_exceeded` — append ceiling, on BOTH
+// branches of the sign step
 // ----------------------------------------------------------------------------
 
-describe("EventLogService — daemon.event_canonical_bytes_exceeded (Spec-006 §Canonical Serialization Rules)", () => {
+describe("EventLogService — daemon.event_canonical_bytes_exceeded", () => {
   /**
    * An envelope whose STORED canonical form is exactly `targetBytes` long.
    *
@@ -782,7 +773,7 @@ describe("EventLogService — daemon.event_canonical_bytes_exceeded (Spec-006 §
 
     const mapped = await mappedRefusalOf(
       service.append(atCeiling, {
-        pii: { participantId: PARTICIPANT, piiPayload: { text: "secret prose" } },
+        pii: { userId: USER, piiPayload: { text: "secret prose" } },
       }),
     );
 
@@ -884,11 +875,10 @@ describe("EventLogService — the plain branch parses what it signs", () => {
 
   it("still signs an UNREGISTERED census type carrying an ad-hoc payload", async () => {
     // THE TOLERANT-CARRIER CONTROL ON THIS PATH. `session.updated` is a census
-    // member with no registered payload variant, and `ADR-018 §Decision` #5/#9
-    // requires a reader to "persist an envelope whose `type` it cannot
-    // interpret as a version stub — never drop or reject it". A guard that
-    // refused here would reject exactly the envelopes the stub path exists to
-    // preserve.
+    // member with no registered payload variant, and #5/#9 requires a reader
+    // to "persist an envelope whose `type` it cannot interpret as a version
+    // stub — never drop or reject it". A guard that refused here would reject
+    // exactly the envelopes the stub path exists to preserve.
     const { service } = buildService();
 
     const receipt = await service.append(
@@ -913,7 +903,7 @@ describe("EventLogService — the plain branch parses what it signs", () => {
       service.append(
         makeEnvelope({
           type: "session.created",
-          payload: { ...validSessionCreatedPayload, [PII_PARTICIPANT_ID_PAYLOAD_KEY]: PARTICIPANT },
+          payload: { ...validSessionCreatedPayload, [PII_USER_ID_PAYLOAD_KEY]: USER },
         }),
       ),
     );
@@ -1043,13 +1033,12 @@ describe("EventLogService — codec-owned content keys are refused before the br
   });
 
   it("refuses a TOLERANT CARRIER pre-seeding the digest, and says so", async () => {
-    // THE DECIDED ARM. `session.updated` is a census member with no registered
-    // strict variant, so `ADR-018 §Decision` #5/#9's accept-and-stub tolerance
-    // applies to its TYPE — and this guard does not touch types. The binding
-    // verifier performs no type check whatsoever, so a forged digest here mints
-    // exactly the same permanent `digest_unbound` row as one on a registered
-    // type. Refusing a reserved MEMBER is not rejecting an uninterpretable
-    // envelope.
+    // `session.updated` is a census member with no registered strict variant,
+    // so #5/#9's accept-and-stub tolerance applies to its TYPE — and this guard
+    // does not touch types. The binding verifier performs no type check
+    // whatsoever, so a forged digest here mints exactly the same permanent
+    // `digest_unbound` row as one on a registered type. Refusing a reserved
+    // MEMBER is not rejecting an uninterpretable envelope.
     const { service } = buildService();
 
     await expect(
@@ -1066,7 +1055,7 @@ describe("EventLogService — codec-owned content keys are refused before the br
 
   it("still admits a tolerant carrier that seeds none of them (positive control)", async () => {
     // Without this the arm above could be refusing the TYPE rather than the
-    // member — which is exactly the ADR-018 violation the decision avoided.
+    // member — which is exactly violation the decision avoided.
     const { service } = buildService();
 
     const receipt = await service.append(
@@ -1127,7 +1116,7 @@ describe("EventLogService — codec-owned content keys are refused before the br
           type: "session.updated",
           payload: {
             note: "x",
-            [PII_PARTICIPANT_ID_PAYLOAD_KEY]: PARTICIPANT,
+            [PII_USER_ID_PAYLOAD_KEY]: USER,
             [CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: "d".repeat(64),
           },
         }),
@@ -1138,7 +1127,7 @@ describe("EventLogService — codec-owned content keys are refused before the br
   });
 });
 
-describe("EventLogService — ingest-halt gate (I-006-4-03)", () => {
+describe("EventLogService — ingest-halt gate", () => {
   it("refuses a halted session with the mapped 409-equivalent envelope", async () => {
     const { service, haltRegistry } = buildService();
     await haltRegistry.halt(SESSION);
@@ -1175,7 +1164,7 @@ describe("EventLogService — ingest-halt gate (I-006-4-03)", () => {
     await haltRegistry.halt(SESSION);
 
     const mapped = await mappedRefusalOf(
-      service.append(makeEnvelope({ payload: { [PII_PARTICIPANT_ID_PAYLOAD_KEY]: PARTICIPANT } })),
+      service.append(makeEnvelope({ payload: { [PII_USER_ID_PAYLOAD_KEY]: USER } })),
     );
 
     expect(mapped.error.data?.type).toBe(DAEMON_INGEST_HALTED_CODE);
@@ -1239,7 +1228,7 @@ describe("EventLogService — ingest-halt gate (I-006-4-03)", () => {
     await expect(haltRegistry.clear(DAEMON_SCOPE_SENTINEL_SESSION_ID)).rejects.toThrow(/sentinel/i);
     expect(haltRegistry.isHalted(DAEMON_SCOPE_SENTINEL_SESSION_ID)).toBe(false);
 
-    // The branded schema admits the Max UUID in any case (RFC 9562 §4), and the
+    // The branded schema admits the Max UUID in any case (RFC 9562 section 4), and the
     // guard compares the canonical form — so an uppercase spelling is refused
     // exactly as the lowercase literal is, rather than slipping into the set.
     const sentinelUppercase: SessionId = SessionIdSchema.parse(
@@ -1251,10 +1240,10 @@ describe("EventLogService — ingest-halt gate (I-006-4-03)", () => {
   });
 
   it("admits every session under the vacuous default, wired or omitted", async () => {
-    // THE DORMANCY CONTROL. `NeverHaltedIngestHaltSource` stands until T4.2's
-    // observer wiring replaces it, and the gate ships live NOW — so a default
-    // that halted anything would take the whole daemon down before the thing
-    // that decides what to halt exists.
+    // `NeverHaltedIngestHaltSource` stands until the observer wiring replaces
+    // it, and the gate ships live NOW — so a default that halted anything
+    // would take the whole daemon down before the thing that decides what to
+    // halt exists.
     const vacuous = new NeverHaltedIngestHaltSource();
     expect(vacuous.isHalted(SESSION)).toBe(false);
     expect(vacuous.isHalted(DAEMON_SCOPE_SENTINEL_SESSION_ID)).toBe(false);
@@ -1287,8 +1276,7 @@ describe("EventLogService — ingest-halt gate (I-006-4-03)", () => {
 
   it("keeps the node-scope alarm path admissible while an ordinary session is halted", async () => {
     // The carve-out, from the APPEND side. `key_reuse_detected` binds to the
-    // sentinel per `Spec-006 §Daemon-Scope Event Binding And Node-Scope
-    // Anchoring`, and the halted set can never contain the sentinel — so the
+    // sentinel and the halted set can never contain the sentinel — so the
     // alarm that CAUSES halts can never be silenced by one.
     const { service, haltRegistry } = buildService();
     await haltRegistry.halt(SESSION);
@@ -1329,7 +1317,7 @@ describe("EventLogService — ingest-halt gate (I-006-4-03)", () => {
     await tick();
 
     // Publication takes the PER-SESSION lock, so a different session's halt is
-    // uncontended. A single global lock here would make T4.2's sweep block on
+    // uncontended. A single global lock here would make the sweep block on
     // whichever session happens to be mid-unseal.
     const haltingOther = haltRegistry.halt(OTHER_SESSION);
     expect(await settlesWithin(haltingOther, 4)).toBe(true);
@@ -1341,13 +1329,12 @@ describe("EventLogService — ingest-halt gate (I-006-4-03)", () => {
   });
 
   it("short-circuits a REPEAT halt before the lock, while clear() waits for it", async () => {
-    // F-006-HALT-07's asymmetry, and it is only visible with the lock held by
-    // something else. `halt()` decides its no-op on a membership check BEFORE
-    // acquisition — T4.2 re-issues it on every sweep while a collision persists,
-    // and a no-op that still paid acquisition would serialize the sweep behind
-    // an append parked in a human-gated unseal for no state change. `clear()`
-    // decides AFTER acquisition, because an un-halt must order against in-flight
-    // appends.
+    // The asymmetry, and it is only visible with the lock held by something
+    // else. `halt()` decides its no-op on a membership check BEFORE acquisition
+    // — re-issues it on every sweep while a collision persists, and a no-op that
+    // still paid acquisition would serialize the sweep behind an append parked
+    // in a human-gated unseal for no state change. `clear()` decides AFTER
+    // acquisition, because an un-halt must order against in-flight appends.
     //
     // The hold is taken through `withSessionAppendLock` directly rather than
     // through `append()`: a halted session refuses at the gate, so no append can
@@ -1379,7 +1366,7 @@ describe("EventLogService — ingest-halt gate (I-006-4-03)", () => {
 // Serialization — the per-session append lock
 // ----------------------------------------------------------------------------
 
-describe("EventLogService — the append lock (Plan-006 §Concurrency Model)", () => {
+describe("EventLogService — the append lock", () => {
   it("serializes concurrent appends on one session into one gapless chain", async () => {
     const { service } = buildService();
 
@@ -1435,8 +1422,8 @@ describe("EventLogService — the append lock (Plan-006 §Concurrency Model)", (
 
   it("makes two parallel holds on one session take turns", async () => {
     // The blocking property at the LOCK's own surface rather than through
-    // `append()`. Plan-004's terminal emitter wraps its guard-swap-append in
-    // this helper, so "the second one waits" has to hold for an arbitrary
+    // `append()`. the terminal emitter wraps its guard-swap-append in this
+    // helper, so "the second one waits" has to hold for an arbitrary
     // critical section, not only for the one `append()` happens to run.
     const order: string[] = [];
     let releaseFirst!: () => void;
@@ -1463,10 +1450,10 @@ describe("EventLogService — the append lock (Plan-006 §Concurrency Model)", (
   });
 
   it("releases the hold to a WAITER when the acquiring critical section rejects", async () => {
-    // F-006-HALT-01. The lock state is a module singleton, so a hold leaked on
-    // rejection wedges the session for the life of the PROCESS — and the gate
-    // refusal throws from INSIDE the critical section while `clear()` acquires
-    // the same hold, which means the un-halt path deadlocks against the very
+    // The lock state is a module singleton, so a hold leaked on rejection
+    // wedges the session for the life of the PROCESS — and the gate refusal
+    // throws from INSIDE the critical section while `clear()` acquires the
+    // same hold, which means the un-halt path deadlocks against the very
     // failure that leaked it. Nothing recovers without a restart.
     //
     // The waiter queues BEFORE the failure, and that is the whole design of this
@@ -1494,12 +1481,10 @@ describe("EventLogService — the append lock (Plan-006 §Concurrency Model)", (
   });
 
   it("releases nothing when a REENTRANT frame rejects and its owner catches it", async () => {
-    // The other half of F-006-HALT-01, and the one a naive `finally` gets wrong:
-    // only the ACQUIRING frame settles the physical hold. An owner that catches
-    // an inner rejection and carries on is still the owner — if the inner
-    // rejection had released, the outer frame would be holding a lock it no
-    // longer owns, its next nested call would queue behind itself, and the
-    // release would fire twice.
+    // An owner that catches an inner rejection and carries on is still the owner
+    // — if the inner rejection had released, the outer frame would be holding a
+    // lock it no longer owns, its next nested call would queue behind itself,
+    // and the release would fire twice.
     const { service } = buildService();
     let innerRejectionCaught = false;
     let nestedCallProgressed = false;
@@ -1584,7 +1569,7 @@ function terminalEnvelope(payload: Record<string, unknown>): UnsequencedEventEnv
   return makeEnvelope({ category: "run_lifecycle", type: "run.completed", payload });
 }
 
-describe("EventLogService — terminal-key backstop (Spec-006 §Run Lifecycle (run_lifecycle))", () => {
+describe("EventLogService — terminal-key backstop", () => {
   it("admits the first terminal event for a run and refuses the second", async () => {
     const { service } = buildService();
 
@@ -1720,8 +1705,8 @@ describe("EventLogService — terminal-key backstop (Spec-006 §Run Lifecycle (r
     // welcomes. This is the shape a compactor bug actually takes — a projection
     // that rebuilds `payload` from a key list and forgets to carry the run key
     // forward re-opens the duplicate-terminal bypass for the row's whole
-    // retention life, silently. T3.2's projection is what keeps it closed; this
-    // arm is what fails if it stops.
+    // retention life, silently. the projection is what keeps it closed; this arm
+    // is what fails if it stops.
     const { service } = buildService();
     const receipt = await service.append(terminalEnvelope({ runId: "run-1", runVersion: 1 }));
 
@@ -1758,7 +1743,7 @@ function shreddedEnvelope(overrides?: Record<string, unknown>): UnsequencedEvent
       nodeId: "node-shred-0001",
       operationId: "op-shred-1",
       occurredAt: "2026-08-04T12:00:00.000Z",
-      participantId: PARTICIPANT,
+      userId: USER,
       affectedSessionIds: [SESSION],
       piiPayloadsCleared: 3,
       shredReason: "gdpr_article_17",
@@ -1767,7 +1752,7 @@ function shreddedEnvelope(overrides?: Record<string, unknown>): UnsequencedEvent
   });
 }
 
-describe("EventLogService — event.shredded emission seam (Plan-022 Path 1)", () => {
+describe("EventLogService — event.shredded emission seam (Path 1)", () => {
   it("hands the callback the PARSED payload and the receipt, after the row is durable", async () => {
     const { service } = buildService();
     const observed: Array<{ readonly rowsVisible: number; readonly receiptSequence: number }> = [];

@@ -28,9 +28,9 @@ export interface RepoMountsBinding {
   readonly reading: RepoMountsReading;
   readonly requestModeSelection: (workspaceId: WorkspaceId, executionMode: ExecutionMode) => void;
   /**
-   * Read the section again, because a participant's own act changed what it holds.
+   * Read the section again, because a user's own act changed what it holds.
    *
-   * `participant-request` AND NOT A NEW REASON. The scheduler's vocabulary already has
+   * `user-request` AND NOT A NEW REASON. The scheduler's vocabulary already has
    * the member for an act a person performed, and the attach and re-attach controls are
    * exactly that: the mount they mint is not announced by any lifecycle frame this
    * reader subscribes to, so without this the section would keep reporting the roster it
@@ -94,7 +94,7 @@ export function useRepoMounts(
     [reader],
   );
   const requestRead = useCallback(() => {
-    reader.requestRead("participant-request");
+    reader.requestRead("user-request");
   }, [reader]);
   return { reading, requestModeSelection, requestRead };
 }

@@ -1,11 +1,10 @@
 // The run row's hole for the input-ask card.
 //
-// `Spec-023 §Console Design (Meridian)` names the input-ask card as a surface the
-// timeline family owns: the `driver_ask.*` family is fully specified daemon-side
-// and a provider blocking on a structured question must have somewhere on screen to
-// be answered. This pane is where a run that is blocked on input is LISTED, so this
-// is where the card is mounted — and the card itself is authored by the plan that
-// owns it.
+// The input-ask card is a surface the timeline family owns: the `driver_ask.*` family
+// is fully specified daemon-side and a provider blocking on a structured question must
+// have somewhere on screen to be answered. This pane is where a run that is blocked on
+// input is LISTED, so this is where the card is mounted — and the card itself is
+// authored by the plan that owns it.
 //
 // `console/seats/slots/owner-slot.ts` says why this is a type and not a
 // component: a slot is rendered by the family that mounts it, in that family's own

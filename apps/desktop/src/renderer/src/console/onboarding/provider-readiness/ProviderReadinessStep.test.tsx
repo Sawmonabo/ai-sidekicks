@@ -128,12 +128,11 @@ describe("the remedy", () => {
   });
 
   it("displays a sign-in remedy and offers only the probe that decides it", () => {
-    // `Spec-026 §Provider Authentication (Group B)` hands the operator the provider's
-    // own flow "with the remedy named — which provider, which account, the invocation,
-    // and the home" and has this step display it rather than run it, and it makes the
-    // probe the definition of success. So the invocation and the home are on screen,
-    // the only control is **Check again**, and there is no control that performs the
-    // sign-in — which this step used to offer.
+    // The step hands the operator the provider's own flow with the remedy named — which
+    // provider, which account, the invocation, and the home — displaying it rather than
+    // running it, and the probe is the definition of success. So the invocation and the
+    // home are on screen, the only control is **Check again**, and there is no control
+    // that performs the sign-in — which this step used to offer.
     const container = renderStep(
       readingWith([
         {

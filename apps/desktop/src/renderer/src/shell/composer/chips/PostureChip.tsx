@@ -1,17 +1,16 @@
 // The posture chip: the posture the run actually GOT.
 //
-// `Spec-023 §Console Design (Meridian)` §Posture chip states the constraint that
-// shapes this whole component: "No wire member carries a posture request, so the
-// chip says so". A requested posture would therefore be a value the console
-// invented, and rendering one beside a stamped posture would make the two look like
-// the same kind of fact. So this chip renders exactly one thing — the
+// One constraint shapes this whole component: no wire member carries a posture
+// request, so the chip says so. A requested posture would therefore be a value the
+// console invented, and rendering one beside a stamped posture would make the two
+// look like the same kind of fact. So this chip renders exactly one thing — the
 // `executionPosture` stamped on `run.running` — and, when there is none, says what
 // an absent posture means in the console's one sentence for it, which is that absence
 // is not the same as an unrestricted run.
 //
-// `Spec-012 §Required Behavior` puts the posture decision at the daemon, and the
-// shape is `ExecutionPosture` in `packages/contracts`. The renderer projects it and
-// offers no mutation, which is why this component takes a model and no callbacks.
+// The posture decision is the daemon's, and the shape is `ExecutionPosture` in
+// `packages/contracts`. The renderer projects it and offers no mutation, which is why
+// this component takes a model and no callbacks.
 
 import {
   Chip,

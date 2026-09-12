@@ -27,11 +27,7 @@ import {
 } from "../../../store/subject-read-commits.test-support.js";
 import { useWorkflowRunSnapshot, type WorkflowRunSnapshotState } from "./run-snapshot.js";
 import { FIRST_ROUND, SnapshotProbe, runReadingGrowthPort } from "./run-snapshot.test-support.js";
-import {
-  PROBE_PARTICIPANT_ID,
-  PROBE_SESSION_ID,
-  settle,
-} from "../../workflows-probe.test-support.js";
+import { PROBE_USER_ID, PROBE_SESSION_ID, settle } from "../../workflows-probe.test-support.js";
 
 /** The refusal the scenarios below script, in the envelope a daemon sends. */
 const SCRIPTED_DAEMON_REFUSAL: WireErrorEnvelope = {
@@ -51,7 +47,7 @@ function scenarioAnsweringTheRunRead(replies: readonly ScenarioReply[]): Console
     label: "Run snapshot probe",
     purpose: "Answers the run read one way, so one settlement at a time is observable.",
     sessionId: PROBE_SESSION_ID,
-    participantIdsInJoinOrder: [PROBE_PARTICIPANT_ID],
+    userIdsInJoinOrder: [PROBE_USER_ID],
     startedAtIso: "2026-01-01T12:00:00.000Z",
     beats: [],
     replies,

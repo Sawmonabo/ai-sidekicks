@@ -1,14 +1,13 @@
 // The acts the change-proposal gate offers: which exist, how far each one reaches, what
 // each says before it is confirmed, and which of them a given gate arm may offer at all.
 //
-// `ProposalGate.tsx` is the surface that offers these; `Spec-011
-// §Required Behavior` names them. `ProposalGate.tsx` renders what `offeredProposalActions`
-// returns and decides nothing about it, and `proposal-gate-reader.ts` sends them without
-// re-deciding either.
+// `ProposalGate.tsx` is the surface that offers these. It renders what
+// `offeredProposalActions` returns and decides nothing about it, and
+// `proposal-gate-reader.ts` sends them without re-deciding either.
 //
-// THE PREPARATION GATE IS A RULE HERE AND A LAYOUT THERE. `Spec-011 §Interfaces And
-// Contracts` requires that `PRPrepare` "generate a reviewable proposal before any remote
-// mutation", which is a claim about WHICH ACTS EXIST WHEN and not only about which order
+// THE PREPARATION GATE IS A RULE HERE AND A LAYOUT THERE. `PRPrepare` generates a
+// reviewable proposal before any remote mutation, which is a claim about WHICH ACTS
+// EXIST WHEN and not only about which order
 // they are drawn in. So the offered set is a pure function of the arm below, the tuple's
 // order is the pipeline's own — record locally, prepare locally, then send — and a
 // component cannot offer a remote act the rule withholds, because it is handed a list
@@ -21,8 +20,8 @@
 // established, namely whether it has a reviewed proposal to send.
 //
 // NEVER, and each is a property of THIS file:
-//   • No fourth action. `PROPOSAL_ACTIONS` is closed at the three `Spec-011 §Required
-//     Behavior` names, so an action the console could send is an edit to that tuple.
+//   • No fourth action. `PROPOSAL_ACTIONS` is closed at three, so an action the
+//     console could send is an edit to that tuple.
 //   • No parse of a git action's `output`. There is no function here that reads it, and
 //     no surface draws it: it is the act's own diagnostic text and this console never
 //     scrapes it. What a REFUSED act says for itself is the reply's `error`, rendered
@@ -32,17 +31,17 @@ import type { GrowthOperationId } from "../../bridge/index.js";
 import type { ProposalGateState } from "./proposal-gate-state.js";
 
 /**
- * The three `Spec-011 §Required Behavior` names, and no more — in the gate's own order.
+ * The three acts the gate performs, and no more — in the gate's own order.
  *
  * These are what the gate offers. The wire behind them is the growth port's
  * `gitActionExecute`, whose `action` member is an untyped string because the action
  * vocabulary is unregistered — `bridge/growth-port/growth-slate.ts` carries it as the
- * `gitflow-actions` row, owned by `Spec-011`. So this tuple is the console's half of
+ * `gitflow-actions` row. So this tuple is the console's half of
  * that seam: three offers, each of which the port refuses by name today.
  *
  * THE ORDER IS THE PIPELINE'S, NOT THE VOCABULARY'S. `commit` records on the head
  * branch, `prepare-proposal` builds the payload where it can be read, and only then does
- * `push` send anything — so a participant who works down the list has reviewed what
+ * `push` send anything — so a user who works down the list has reviewed what
  * leaves the machine before it leaves. A tuple that put the remote act first would draw
  * a confirmable send above the thing it would send.
  */
@@ -152,7 +151,7 @@ export function reachesGitAction(action: ProposalAction): action is GitActionPro
  * Total over `ProposalAction` by construction.
  *
  * `prepare-proposal` states the gate's whole reason for existing: preparation happens
- * BEFORE any remote mutation, so its sentence is what a participant reads to know that
+ * BEFORE any remote mutation, so its sentence is what a user reads to know that
  * pressing it sends nothing.
  */
 export const PROPOSAL_ACTION_PRESENTATION: Readonly<
@@ -207,9 +206,9 @@ const GATE_ARM_ACTION_AVAILABILITY: Readonly<
 /**
  * Which acts this arm offers, in the gate's order.
  *
- * THE REMOTE ACT IS WITHHELD UNTIL THERE IS SOMETHING REVIEWED TO SEND, which is
- * `Spec-011 §Interfaces And Contracts`' rule that `PRPrepare` must generate a reviewable
- * proposal before any remote mutation, applied to the offer rather than to the layout: a
+ * THE REMOTE ACT IS WITHHELD UNTIL THERE IS SOMETHING REVIEWED TO SEND, which is the
+ * rule that `PRPrepare` must generate a reviewable proposal before any remote
+ * mutation, applied to the offer rather than to the layout: a
  * `prepared` arm carrying no proposal offers the local acts and no more, so the send
  * cannot be confirmed against a payload that has never been on screen. Preparing again
  * on an arm that already holds one is offered, because a proposal is cumulative over a
@@ -254,7 +253,7 @@ export function withheldRemoteActionCopy(state: ProposalGateState): string | und
 }
 
 /**
- * The one sentence the withheld send owes a participant.
+ * The one sentence the withheld send owes a user.
  *
  * Stated on the condition the rule turns on — being `ready` — rather than on the state
  * the proposal happens to be in, so a third preparation state added to the wire reads
@@ -269,7 +268,7 @@ export const PROPOSAL_NOT_SENDABLE_COPY =
  * Read off the SAME predicate the dispatch routes on rather than from a table of its
  * own, so the wire a refusal names and the wire the act was sent on are one decision: a
  * second routing could disagree with the first for a fourth act, and the sentence a
- * participant reads would then name a call the console never made. Beside that
+ * user reads would then name a call the console never made. Beside that
  * predicate rather than beside the dispatch, so the two cannot be separated.
  *
  * TYPED AS THE PORT'S OWN KEY AND NOT AS A STRING, which is what makes that one

@@ -1,15 +1,14 @@
 // The chord — one keystroke, parsed, matched, and compared.
 //
-// WHAT IS ADOPTED AND WHAT IS OURS. `Spec-023 §Console Libraries`, the headless
-// UI row: "ADOPT `tinykeys` 4.0.0 as the chord parser only … OWN-BUILD the
-// keybinding service and when-clause grammar". This module is the whole of the
-// adopted half: it imports exactly two things from tinykeys — `parseKeybinding`,
-// which turns `"$mod+KeyK"` into modifier sets and a key, and
-// `matchKeybindingPress`, which decides whether one `KeyboardEvent` satisfies one
-// parsed press — and wraps them in the two refusals and the one comparison key the
-// service above needs. It deliberately does NOT call `tinykeys()` itself; the
-// three reasons are stated in `keybindings.ts`, which is the module that would
-// otherwise have used it.
+// WHAT IS ADOPTED AND WHAT IS OURS. The headless-UI library policy ADOPTs
+// `tinykeys` 4.0.0 as the chord parser only, and OWN-BUILDs the keybinding service
+// and the when-clause grammar. This module is the whole of the adopted half: it
+// imports exactly two things from tinykeys — `parseKeybinding`, which turns
+// `"$mod+KeyK"` into modifier sets and a key, and `matchKeybindingPress`, which
+// decides whether one `KeyboardEvent` satisfies one parsed press — and wraps them
+// in the two refusals and the one comparison key the service above needs. It
+// deliberately does NOT call `tinykeys()` itself; the three reasons are stated in
+// `keybindings.ts`, which is the module that would otherwise have used it.
 //
 // WHAT IS NOT HERE. How a chord is PRINTED and SPOKEN lives in
 // `primitives/chord/chord-format.ts`. A keycap is a renderer's concern and primitives
@@ -34,11 +33,11 @@ export type ChordParseResult =
  * Parse a chord into the single press the table matches against.
  *
  * MULTI-PRESS SEQUENCES ARE REFUSED. tinykeys can express `"g d"`, and honouring
- * it would require a pending-press map behind a timeout — a timer on the
- * console's input path, which `Spec-023 §Console Design (Meridian)` §The four
- * bars rules out ("no timer fires except the refresh scheduler's deadline and the
- * presence heartbeat"). The grammar that spec names is a CHORD grammar, so a
- * sequence is refused loudly at install rather than half-supported at runtime.
+ * it would require a pending-press map behind a timeout — a timer on the console's
+ * input path, which the console rules out: no timer fires except the refresh
+ * scheduler's deadline and the presence heartbeat. The grammar the console names is
+ * a CHORD grammar, so a sequence is refused loudly at install rather than
+ * half-supported at runtime.
  */
 export function parseChord(chord: string): ChordParseResult {
   const trimmed = chord.trim();

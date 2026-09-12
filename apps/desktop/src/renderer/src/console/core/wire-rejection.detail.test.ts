@@ -1,7 +1,7 @@
 // What may stand in the detail sentence, and what may never.
 //
 // `core/refusal.ts` states the rule: a refusal's `detail` is "never the refused value
-// itself, which may be participant content". A rejection off the bridge is `unknown`
+// itself, which may be user content". A rejection off the bridge is `unknown`
 // and its members are request values, repository paths, headers, or a token as easily
 // as they are prose — and the arm that had a code but no readable sentence used to
 // answer by serializing the whole rejection into that field.
@@ -24,10 +24,10 @@ describe("normalizeWireRejection — the detail is a sentence, never the rejecti
   /**
    * What a malformed producer put on the wire beside a perfectly good code.
    *
-   * `error-contracts.md §Rate Limiting` puts request values in `data.fields` by
-   * design, so this is the ordinary content of the envelope rather than a contrived
-   * one; the `toString` is what a serializing arm reaches, and it is the reason a
-   * plain-object claim about `[object Object]` does not bound the disclosure.
+   * `error-contracts.md` puts request values in `data.fields` by design, so this is the
+   * ordinary content of the envelope rather than a contrived one; the `toString` is
+   * what a serializing arm reaches, and it is the reason a plain-object claim about
+   * `[object Object]` does not bound the disclosure.
    */
   const PLANTED_REQUEST_VALUE = "/Users/someone/private-notes";
 

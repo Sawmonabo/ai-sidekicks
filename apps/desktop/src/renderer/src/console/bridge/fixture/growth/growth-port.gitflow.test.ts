@@ -1,7 +1,7 @@
 // The gitflow reads — one answers nothing, the other refuses.
 //
-// `Spec-011 §Interfaces And Contracts` puts two operations in front of the repos
-// surfaces — a branch-context read and a PR preparation — and the console had a
+// The git flow puts two operations in front of the repos surfaces — a branch-context
+// read and a PR preparation — and the console had a
 // port entry for neither, so a branch-context summary built against the fixture
 // had to invent the shape inside a view family, which is the thing the growth port
 // exists to prevent.
@@ -28,7 +28,7 @@ import {
   IMPLEMENTER_WORKTREE_ID,
 } from "../../scenario/repos/repos-fixture-data.js";
 import { createLiveBridge } from "../../live-bridge.js";
-import { createTier1Bridge } from "@ai-sidekicks/contracts";
+import { createStubBridge } from "@ai-sidekicks/contracts";
 
 /**
  * Names a member that would only appear if a scenario stated a branch.
@@ -149,7 +149,7 @@ describe("the fixture's gitflow reads — one answers from the script, the other
       expect(scripted.value.baseBranch).toBe("develop");
     }
 
-    const live = await createLiveBridge(createTier1Bridge()).growth.gitflowBranchContextRead({
+    const live = await createLiveBridge(createStubBridge()).growth.gitflowBranchContextRead({
       workspaceId: "workspace-1",
       worktreeId: "worktree-1",
     });
@@ -157,7 +157,7 @@ describe("the fixture's gitflow reads — one answers from the script, the other
     expect(live.status).toBe("unavailable");
     if (live.status === "unavailable") {
       expect(live.slateRow).toBe("gitflow-actions");
-      expect(live.owningDocument).toContain("Spec-011");
+      expect(live.owningDocument).toContain("the git flow and change-proposal design");
     }
     expect(live).not.toHaveProperty("value");
   });
@@ -259,7 +259,7 @@ describe("the fixture's gitflow reads — one answers from the script, the other
   });
 
   it("refuses the PR preparation under both bridges, no daemon standing behind it", async () => {
-    const liveBridge = createLiveBridge(createTier1Bridge());
+    const liveBridge = createLiveBridge(createStubBridge());
     const request = { branchContextId: "branch-context-1", targetBranch: "develop" };
 
     for (const outcome of [
@@ -269,8 +269,8 @@ describe("the fixture's gitflow reads — one answers from the script, the other
       expect(outcome.status).toBe("unavailable");
       if (outcome.status === "unavailable") {
         expect(outcome.slateRow).toBe("gitflow-actions");
-        // A reviewable proposal is a daemon act — `Spec-011 §Required Behavior`
-        // puts it before any remote mutation — so a fixture that answered would be
+        // A reviewable proposal is a daemon act — it comes before any remote
+        // mutation — so a fixture that answered would be
         // standing in for the review, not for the wire.
         expect(outcome.detail).toContain("not registered on this build yet");
       }

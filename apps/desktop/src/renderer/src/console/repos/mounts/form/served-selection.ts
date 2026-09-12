@@ -1,4 +1,4 @@
-// One participant choice, reconciled against the set a read is currently serving.
+// One user choice, reconciled against the set a read is currently serving.
 //
 // THE CLASS THIS MODULE CLOSES. Both dialogs in this family computed sendability from
 // FORM state alone while their pickers drew from SERVED state, and the two disagreed on
@@ -19,10 +19,10 @@
 // memory of whether it has been written yet, and that memory is what a reopened dialog
 // got wrong — it survived the form it was taken about. Derived per read, the default is
 // re-applied whenever the form is empty and the served answer names one, and a
-// participant's own pick still wins because a pick is what `chosen` holds.
+// user's own pick still wins because a pick is what `chosen` holds.
 //
-// FOUR ARMS BECAUSE THERE ARE FOUR SENTENCES. `Spec-023 §Console Design (Meridian)`
-// rule 8 forbids a silent refusal, and "pick one", "the one you picked is gone", and
+// FOUR ARMS BECAUSE THERE ARE FOUR SENTENCES. A silent refusal is forbidden, and
+// "pick one", "the one you picked is gone", and
 // "nothing has answered yet" are three different facts about a shut control. Collapsing
 // them would put a false sentence under the button in two cases out of the three.
 
@@ -33,7 +33,7 @@
  * a value rather than leaving each caller to re-derive it.
  */
 export type ServedSelection<TChoice> =
-  /** Live: either the participant's own pick, or the default the served answer names. */
+  /** Live: either the user's own pick, or the default the served answer names. */
   | { readonly status: "resolved"; readonly choice: TChoice }
   /** Picked, and the newest served answer does not offer it. Fail closed, and say so. */
   | { readonly status: "withdrawn"; readonly choice: TChoice }
@@ -44,7 +44,7 @@ export type ServedSelection<TChoice> =
 
 /** What one reconciliation reads: the pick, what is offered, and what stands in. */
 export interface ServedSelectionInputs<TChoice> {
-  /** What the participant explicitly picked, if anything. Never a default. */
+  /** What the user explicitly picked, if anything. Never a default. */
   readonly chosen: TChoice | undefined;
   /**
    * Every choice the newest served answer offers, or `undefined` where no answer is

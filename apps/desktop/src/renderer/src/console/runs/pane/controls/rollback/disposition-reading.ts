@@ -12,8 +12,8 @@
 // walks a `result` union that only `applied` and `degraded` carry, and that one
 // reads a closed discriminator only `rejected` carries.
 //
-// FIVE PROPERTIES OF THE READING, EACH ONE FIXED BY THAT REGISTERED UNION
-// (`api-payload-contracts.md §Plan-004`) RATHER THAN CHOSEN HERE.
+// FIVE PROPERTIES OF THE READING, EACH ONE FIXED BY THAT REGISTERED UNION RATHER THAN
+// CHOSEN HERE.
 //
 //   • **The class is read from the type, never asserted in prose.** `applied`
 //     admits exactly `files-restored` and `conversation-only`; every other
@@ -29,8 +29,7 @@
 //     and confirmed positions, `boundary-diverged` the confirmed and the newest
 //     boundary — the latter typed NULLABLE, because a position-less compaction row
 //     classifies as crossing for every target of that run. Nothing here computes a
-//     cut, on `Spec-023 §Rules every console surface obeys`' rule that "eligibility
-//     is never projected by the renderer".
+//     cut: eligibility is never projected by the renderer.
 //   • **`resendDisposition` is read, never inferred.** It is schema-optional
 //     everywhere except `resend-unapplied`, where it is required, and its value is
 //     state-determined. The reading passes it through and does not derive the
@@ -72,7 +71,7 @@ export interface RollbackDispositionReading {
   readonly summary: string;
   /** Present on exactly the three arms whose enumerations are never silent. */
   readonly files: RollbackFileEnumerations | undefined;
-  /** Daemon-supplied positions, in the order the participant reads them. */
+  /** Daemon-supplied positions, in the order the user reads them. */
   readonly positions: readonly RollbackPositionReading[];
   /** Read off the result, never inferred from the disposition. */
   readonly resendDisposition: "admitted" | "unapplied" | undefined;

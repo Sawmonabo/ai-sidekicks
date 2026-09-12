@@ -50,7 +50,7 @@ export type ManifestParseSuccess = {
   /**
    * Merged PRs whose title carries this plan's `Plan-NNN` token but which
    * shipped none of its tasks — operator-ratified exemptions from preflight
-   * Gate 6 freshness. Always present; `[]` when the optional key is absent.
+   * manifest reconciliation. Always present; `[]` when the optional key is absent.
    * Guaranteed disjoint from `shipped[].pr`: a manifest asserting both about
    * one PR fails the parse with `invalid_non_shipment_prs`.
    */
@@ -84,6 +84,6 @@ export function serializeEntry(entry: ManifestEntry): string[];
 /**
  * Serialize the optional `non_shipment_prs` key to its single YAML line, so a
  * tool that rewrites a whole manifest block round-trips the key instead of
- * dropping it (which would silently re-arm the Gate 6 halt it suppresses).
+ * dropping it (which would silently re-arm the manifest reconciliation halt it suppresses).
  */
 export function serializeNonShipmentPrs(nonShipmentPrs: readonly number[]): string;

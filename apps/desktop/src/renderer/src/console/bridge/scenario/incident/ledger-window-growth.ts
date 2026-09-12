@@ -1,7 +1,7 @@
 // The seeded incident: the session whose log outgrew the ledger's window.
 //
-// The first member of the `incident` class `Spec-023 §Console Design (Meridian)`
-// §The fixture bridge names — a scenario whose script is a RECORDING rather than an
+// The first member of the `incident` class the fixture bridge names — a scenario
+// whose script is a RECORDING rather than an
 // authored beat list. What the recording is and why it is bytes lives beside the frames
 // in `ledger-window-growth-frames.ts` and in `scenario/runtime/incident/incident-recording.ts`;
 // what is here is the session those frames belong to, which a recording of a wire
@@ -25,7 +25,7 @@ import { LEDGER_WINDOW_GROWTH_DELTAS } from "./ledger-window-growth-frames.js";
 export const LEDGER_WINDOW_GROWTH_INCIDENT_SCENARIO_ID = "incident-ledger-window-growth";
 
 const SESSION_ID = "019b7a10-4c00-7d31-9f02-6b1a5e900001";
-const PARTICIPANT_YOU = "019b7a10-4c00-79a4-8110-2c40117a0001";
+const USER_YOU = "019b7a10-4c00-79a4-8110-2c40117a0001";
 const LANE_AGENT_IDS = [
   "019b7a10-4c00-79a4-8110-2c40117a0011",
   "019b7a10-4c00-79a4-8110-2c40117a0012",
@@ -61,8 +61,8 @@ export const LEDGER_WINDOW_GROWTH_INCIDENT_SCENARIO: ConsoleScenario = composeIn
     sessionId: SESSION_ID,
     // The person, then the four lanes in the order they first spoke — which is the hue
     // allocator's input, and the order the recording itself establishes.
-    participantIdsInJoinOrder: [PARTICIPANT_YOU, ...LANE_AGENT_IDS],
-    viewingParticipantId: PARTICIPANT_YOU,
+    userIdsInJoinOrder: [USER_YOU, ...LANE_AGENT_IDS],
+    callerUserId: USER_YOU,
     startedAtIso: "2026-01-14T11:20:00.000Z",
     replies: [
       {

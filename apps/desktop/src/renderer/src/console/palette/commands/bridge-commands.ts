@@ -118,7 +118,7 @@ const UPDATE_REFUSAL_DETAIL =
  * Perform one act, and route either kind of failure to the sink.
  *
  * `act` is CALLED INSIDE the `try` rather than awaited from outside it, and that
- * placement is the contract: the shipped Tier-1 bridge implements every method as a
+ * placement is the contract: the shipped stub bridge implements every method as a
  * synchronous `throw`, while the fixture bridge refuses by returning a rejected
  * promise. A boundary attached to the returned promise would catch the fixture and
  * let the release build's throw escape into the palette's fire-and-forget dispatch,

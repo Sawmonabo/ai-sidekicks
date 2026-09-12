@@ -11,57 +11,57 @@
 
 ## Context
 
-The product brings multiple humans and multiple local runtime nodes into one shared session. That creates a security challenge: collaboration authority, node trust, and sensitive execution permissions are related but not identical. A flat trust model would either over-authorize participants or make collaboration unusably rigid.
+One user drives a session from any of their linked devices, and the work executes on a runtime node that user owns. That creates a security challenge no single flat check answers: which device may act as the user, which machine may execute for the user, and what a sidekick may do once a run is under way are related but not identical. A flat trust model would either let anything holding the account credential execute anywhere, or turn every sidekick action into a prompt.
 
 ## Problem Statement
 
-How should the system separate membership, runtime-node trust, and approval scopes?
+How should the system separate device trust, runtime-node trust, and approval scopes?
 
 ### Trigger
 
-The security architecture and approvals spec need a durable model for shared-session trust and permission decisions.
+The security architecture and approvals spec need a durable model for trust and permission decisions across the user's devices, the user's machines, and the sidekicks running on them.
 
 ## Decision
 
-We will use a layered trust model that separates canonical membership roles, runtime-node trust, run-level approval policy, and tool- or resource-level permission grants.
+We will use a layered trust model that separates device trust (which device, acting for the account, may call at all), runtime-node trust, run-level approval policy, and tool- or resource-level permission grants.
 
 ### Thesis — Why This Option
 
-Layering matches the real boundary structure of the system. A participant can belong to a session as `viewer` or `collaborator` without being trusted to execute on another node. A `runtime contributor` can attach owned nodes without bypassing action-level approvals. An `owner` can manage membership without becoming a proxy for local machine trust. This model is strict enough to preserve local-machine trust and flexible enough for shared sessions.
+Layering matches the real boundary structure of the system. A device can be linked to the account and drive a session without being trusted to execute anything — it executes nothing at all. A runtime node can be trusted to execute for its owner without thereby bypassing action-level approvals. Holding the account credential lets the user manage their own devices without that being a standing grant over every tool a sidekick might reach for. This model is strict enough to preserve local-machine trust and flexible enough to drive a session from a phone.
 
 ### Antithesis — The Strongest Case Against
 
-Multiple permission layers risk confusing users and implementers. A simpler model where membership implies broad session execution rights would be easier to explain and implement. A fully explicit every-action approval model would be more secure in theory, but could be too disruptive in practice.
+Multiple permission layers risk confusing users and implementers. A simpler model where the account credential implies broad session execution rights would be easier to explain and implement. A fully explicit every-action approval model would be more secure in theory, but could be too disruptive in practice.
 
 ### Synthesis — Why It Still Holds
 
-The simpler flat model is unacceptable because it collapses human collaboration into machine trust. The fully explicit model is safer but too friction-heavy for real coding workflows. Layered trust gives a principled middle path: durable membership plus explicit node and action scopes with auditable remembered grants where appropriate.
+The simpler flat model is unacceptable because it collapses account authentication into machine trust: a stolen phone would be an execution grant on every machine the account owns. The fully explicit model is safer but too friction-heavy for real coding workflows. Layered trust gives a principled middle path: durable device and node identity plus explicit action scopes with auditable remembered grants where appropriate.
 
 ## Alternatives Considered
 
-### Option A: Layered Membership + Node + Action Trust (Chosen)
+### Option A: Layered Device + Node + Action Trust (Chosen)
 
-- **What:** Separate canonical membership roles, node trust, and action-level approvals.
-- **Steel man:** Preserves the true trust boundaries of collaborative local execution.
+- **What:** Separate device trust, node trust, and action-level approvals.
+- **Steel man:** Preserves the true trust boundaries of remotely driven local execution.
 - **Weaknesses:** More concepts to teach and implement.
 
-### Option B: Flat Session-Wide Trust (Rejected)
+### Option B: Flat Account-Wide Trust (Rejected)
 
-- **What:** Membership implies broad authority over session execution surfaces.
+- **What:** Authenticating as the account implies broad authority over every session execution surface.
 - **Steel man:** Simple to understand and easy to implement.
-- **Why rejected:** Over-authorizes collaborators and violates the local-execution trust boundary.
+- **Why rejected:** Over-authorizes any device holding a credential and violates the local-execution trust boundary.
 
 ### Option C: Per-Action Approval Only, No Durable Trust Layers (Rejected)
 
 - **What:** Avoid durable trust and require repeated action approvals for nearly everything.
 - **Steel man:** Maximum explicitness and reduced long-lived privilege.
-- **Why rejected:** Too much friction for normal development workflows and poor fit for contributed runtime nodes.
+- **Why rejected:** Too much friction for normal development workflows and a poor fit for long sessions on a machine the user already trusts.
 
 ## Assumptions Audit
 
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
-| 1 | Membership and machine trust are not the same thing. | Vision and security docs explicitly separate collaboration from local execution. | A flatter model could be enough. |
+| 1 | Device trust and machine trust are not the same thing. | Vision and security docs explicitly separate driving a session from executing it locally. | A flatter model could be enough. |
 | 2 | Users need bounded remembered grants for practical workflows. | Approval and queue semantics assume repeated interactions over long sessions. | Per-action-only approval might be acceptable. |
 | 3 | The Local Runtime Daemon can reliably enforce local permission checks. | Local Runtime Daemon is the execution authority in the architecture. | Enforcement would need to move elsewhere. |
 
@@ -71,21 +71,21 @@ The simpler flat model is unacceptable because it collapses human collaboration 
 | --- | --- | --- | --- | --- |
 | Users misunderstand which scope granted an action | Med | Med | Approval audit and UI mismatch reports | Keep approval surfaces explicit and auditable |
 | Remembered grants drift beyond intended scope | Med | High | Actions succeed unexpectedly under old grants | Require revocation paths and trust-change invalidation |
-| Membership and node trust accidentally collapse in implementation | Low | High | Cross-node execution becomes possible without explicit grant | Enforce daemon-side policy checks and security review |
+| Device trust and node trust accidentally collapse in implementation | Low | High | Execution becomes possible on a node that never accepted the session | Enforce daemon-side policy checks and security review |
 
 ## Reversibility Assessment
 
 - **Reversal cost:** High. It would affect security, approvals, runtime attach, audit, and user expectations.
-- **Blast radius:** Membership model, runtime-node attach, local daemon policy, UI approval flows, and operations.
+- **Blast radius:** Device model, runtime-node attach, local daemon policy, UI approval flows, and operations.
 - **Migration path:** Introduce a new authorization model, migrate stored grants, and potentially invalidate historic assumptions.
-- **Point of no return:** After approval records, node trust, and membership roles are stored and enforced through one shared model.
+- **Point of no return:** After approval records, node trust, and device identity are stored and enforced through one shared model.
 
 ## Consequences
 
 ### Positive
 
-- Preserves local-machine trust in shared sessions
-- Allows practical collaboration without flat over-authorization
+- Preserves local-machine trust when a session is driven from another device
+- Allows a session to be driven from anywhere without flat over-authorization
 
 ### Negative (accepted trade-offs)
 
@@ -110,7 +110,7 @@ The simpler flat model is unacceptable because it collapses human collaboration 
 
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
-| Membership alone never authorizes cross-node local execution | 100% of execution checks | Security and integration tests | `2026-04-14` |
+| Device trust alone never authorizes local execution on a node that has not accepted the session | 100% of execution checks | Security and integration tests | `2026-04-14` |
 | Approval records clearly identify granted scope | 100% of approval records | Audit review | `2026-04-14` |
 
 ## References
@@ -120,7 +120,7 @@ The simpler flat model is unacceptable because it collapses human collaboration 
 | Source | Type | Key Finding | URL/Location |
 | --- | --- | --- | --- |
 | `specs/012-approvals-permissions-and-trust-boundaries.md` | Canonical spec | Approval and permission scopes are part of the core product contract | [specs/012-approvals-permissions-and-trust-boundaries.md](../specs/012-approvals-permissions-and-trust-boundaries.md) |
-| `architecture/security-architecture.md` | Canonical architecture doc | Security boundary follows membership, node trust, and transport separation | [architecture/security-architecture.md](../architecture/security-architecture.md) |
+| `architecture/security-architecture.md` | Canonical architecture doc | Security boundary follows device identity, node trust, and transport separation | [architecture/security-architecture.md](../architecture/security-architecture.md) |
 
 ### Related Domain Docs
 
@@ -151,4 +151,4 @@ The simpler flat model is unacceptable because it collapses human collaboration 
 | 2026-04-14 | Proposed | Initial draft |
 | 2026-04-14 | Re-baselined | Reviewer assignment and acceptance validation remain incomplete |
 | 2026-04-15 | Accepted | ADR accepted |
-| 2026-08-03 | Reaffirmed | Cross-user run-control authorization amendment ([Spec-012](../specs/012-approvals-permissions-and-trust-boundaries.md) + [Spec-004](../specs/004-queue-steer-pause-resume.md), both flipped to `review` for their amendment window) evaluated against Spec-012 §ADR Triggers' "materially changes how collaboration trust and approval scopes work" trigger: **no decision change; Status stays `accepted`.** The amendment assigns run-control interventions (`steer` / `interrupt` / `cancel` / `rollback`) to this ADR's **membership-role layer**, unscoped by run authorship, and leaves the node-trust, run-level-approval, and tool/resource-grant layers untouched — it operates inside the chosen layering rather than flattening it, so Option B (Flat Session-Wide Trust) stays rejected: a `collaborator` gains no authority over another participant's machine. §Success Criteria's "Membership alone never authorizes cross-node local execution" holds unchanged — an intervention against a run hosted on another participant's node is still admitted only under that node owner's per-dispatch approval ([Spec-024](../specs/024-cross-node-dispatch-and-approval.md); `Security Architecture §Inter-Node Trust Boundaries`). No layer is added, removed, or re-scoped. |
+| 2026-08-03 | Reaffirmed | Run-control authorization amendment ([Spec-012](../specs/012-approvals-permissions-and-trust-boundaries.md) + [Spec-004](../specs/004-queue-steer-pause-resume.md), both flipped to `review` for their amendment window) evaluated against Spec-012 §ADR Triggers' "materially changes how trust and approval scopes work" trigger: **no decision change; Status stays `accepted`.** The amendment assigns run-control interventions (`steer` / `interrupt` / `cancel` / `rollback`) to this ADR's **device-trust layer**, unscoped by run authorship — any non-revoked device of the owning account may intervene in any run of that session — and leaves the node-trust, run-level-approval, and tool/resource-grant layers untouched: it operates inside the chosen layering rather than flattening it, so Option B (Flat Account-Wide Trust) stays rejected. §Success Criteria's device-trust criterion holds unchanged — an intervention against a run hosted on another of the user's machines is still admitted only under that node's per-dispatch approval ([Spec-024](../specs/024-cross-node-dispatch-and-approval.md); `Security Architecture §Inter-Node Trust Boundaries`). No layer is added, removed, or re-scoped. |

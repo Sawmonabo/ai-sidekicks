@@ -11,15 +11,15 @@
 // ledger's own treatments". Two indexes would be two passes over one window for two
 // lookups that are always both performed.
 //
-// A HANDOFF IS A PROJECTION ENTRY AND NEVER AN EVENT TYPE. `Spec-013 §Timeline Entry
-// Types` names `handoff` as an entry the projection produces; no `handoff` event type
+// A HANDOFF IS A PROJECTION ENTRY AND NEVER AN EVENT TYPE. `handoff` is an entry the
+// projection produces; no `handoff` event type
 // is registered anywhere and nothing here looks for one. What the console has is the
 // set of wire types that mean work changed hands, and this directory is that set's
 // one home: it is the only surface that draws a handoff, so the vocabulary sits
 // beside the renderer that spends it rather than in a second table somewhere else.
 //
 // EVERY MEMBER IS READ AS ITSELF. `fromActor`, `toActor`, `reason` and `channelId` are
-// the four members `Spec-013` names on the entry; each is read off the projected
+// the four members the entry carries; each is read off the projected
 // payload through the console's one wire-string reader and rendered verbatim or
 // rendered as an absence. Nothing here composes a sentence, maps an unrecognized value
 // onto a phrase, or infers a `toActor` from a row's own actor — an inferred handoff
@@ -159,7 +159,7 @@ export class ChildRunIndex {
  * The member is on `TimelineRowBase`, so it reaches all four arms and this reads it
  * without narrowing on `kind`: a child run summarized onto a `general` row is still a
  * child run, and dropping it because the row carries no run attribution would hide
- * background work — which `Spec-013` forbids in terms.
+ * background work — which this ledger forbids in terms.
  */
 export function deriveChildRunEntries(rows: readonly TimelineRow[]): readonly ChildRunEntry[] {
   const entriesByChildRunId = new Map<string, ChildRunEntryUnderConstruction>();

@@ -11,7 +11,7 @@
 // scaffolding above — four `settle`s (two of them with hand-tuned turn counts and two
 // different explanations of the same rule), two `drain`s, two `openReader`s, and five
 // copies of the reader registry with its `afterEach`. Nothing failed when one copy was
-// changed, which is the whole reason `AGENTS.md` §Shared code hoists on the second use.
+// changed, which is the whole reason shared code is hoisted on the second use.
 //
 // THE REGISTRY IS A FUNCTION PAIR RATHER THAN A HOOK. Registering `afterEach` here
 // would bind this module's import to a suite lifecycle its importer cannot see, so each
@@ -101,7 +101,7 @@ export async function settle(clock: ManualClock, reader: RepoMountsReader): Prom
 type Unbranded<TValue> = TValue extends { readonly __brand: string } ? string : TValue;
 type WireOverrides<TRecord> = { readonly [Member in keyof TRecord]?: Unbranded<TRecord[Member]> };
 
-/** The root a mount resolves to, and the deeper path a participant entered. */
+/** The root a mount resolves to, and the deeper path a user entered. */
 export const CANONICAL_ROOT = "/Users/dev/code/ai-sidekicks";
 export const ENTERED_PATH = "/Users/dev/code/ai-sidekicks/packages/contracts";
 

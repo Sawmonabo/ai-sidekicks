@@ -103,7 +103,7 @@ export {
 //
 // Through this door because the file that SEATS it is `session-surfaces-family.ts`, the
 // composition site that already names this family: `seats/slots/sidebar-sections.ts` files
-// `agents` with the collaboration family's sections, and that composition may name more
+// `agents` with the channels family's sections, and that composition may name more
 // than one view family where a family door may not. The body itself is this family's,
 // because a body belongs to the family whose vocabulary it renders.
 export { registerAgentsSidebarSection } from "./agents-sidebar-section.js";
@@ -112,7 +112,7 @@ export { registerAgentsSidebarSection } from "./agents-sidebar-section.js";
 //
 // The composer mounts this form in its target chip's axis popover, and what it imports
 // is the whole set: the loader, its context type, the two factories, and the two holder
-// shapes. Their `T-023p-1C-3` claims are retired here, which is the one event
+// shapes. Their dead-code exemption claims are retired here, which is the one event
 // `apps/desktop/AGENTS.md` retires a marker on.
 //
 // TWO NAMES THAT WERE CLAIMED FOR THAT HOST ARE GONE INSTEAD OF TAGGED, and the reason

@@ -12,16 +12,16 @@
  * `console/tokens/palette.ts` and carries only VALUES; this carries only COMPOSITION
  * and reads every value back out as a custom property.
  *
- * THE FOCUS RING USED TO BE HERE, in one selector list naming eight classes seven
- * other sheets declare. It moved to the sheet that OWNS each class: one class has one
- * owning sheet, and a ring written next to a box the same file declares is the only
+ * THE FOCUS RING USED TO BE HERE, in one selector list naming eight classes seven other
+ * sheets declare. It moved to the sheet that OWNS each class: one class has one owning
+ * sheet, and a ring written next to a box the same file declares is the only
  * arrangement in which adding a state to that box cannot silently lose to load order.
  * Nothing was copied by the move — the ring is two declarations reading one token,
  * which is the console's idiom rather than an implementation, and sixty-odd sheets
- * already write it. `Spec-023 §Console Design (Meridian)` rule 3 still governs its
- * shape wherever it is written: an outline rather than a box-shadow so it survives an
- * `overflow: hidden` ancestor, and `outline-offset` so it is never drawn over the
- * control's own boundary and always has an adjacent colour to be measured against.
+ * already write it. Design-language rule 3 still governs its shape wherever it is
+ * written: an outline rather than a box-shadow so it survives an `overflow: hidden`
+ * ancestor, and `outline-offset` so it is never drawn over the control's own boundary
+ * and always has an adjacent colour to be measured against.
  */
 
 .meridian-visually-hidden {

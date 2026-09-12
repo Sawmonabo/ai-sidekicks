@@ -1,5 +1,5 @@
-// Tier: end-to-end — `Spec-023 §Console Test Tiers`, whose spec files are named for
-// the incident they reproduce rather than for the module they touch.
+// Tier: end-to-end. Its spec files are named for the incident they reproduce
+// rather than for the module they touch.
 //
 // Every other console tier renders the console into something that is not the
 // application: happy-dom for the unit tier, a Chromium page for the three browser-mode
@@ -67,7 +67,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
 
       // The sessions destination has an owner — the frame's own all-sessions
       // surface, which creates nothing on mount and builds the absorbed
-      // session-bootstrap probe only when a participant presses "Start a
+      // session-bootstrap probe only when a user presses "Start a
       // session". The claim is that the OWNER rendered and the frame's
       // reserved-slot arm did not fire: the owner's section is present and the
       // frame's composed absence wrapper is not.
@@ -97,10 +97,9 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
       // is asynchronous and a bare count would race it into the `not-loaded` arm.
       //
       // Scoped to the list region rather than to the whole surface: the aside
-      // beside it puts two OTHER reads on screen — the invitations shelf and the
-      // attention panel — and each renders its own honest absence, so an unscoped
-      // exclusion would be asserting that those reads had answered rather than
-      // that this one had.
+      // beside it puts ANOTHER read on screen — the attention panel — which renders
+      // its own honest absence, so an unscoped exclusion would be asserting that
+      // that read had answered rather than that this one had.
       await consoleWindow.locator(".meridian-sessions__list .meridian-nothing--empty").waitFor({
         state: "visible",
         timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
@@ -124,7 +123,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
       //
       // IT IS THE HARNESS'S ADMISSION REFUSAL, AND NO LONGER ITS RESERVED ARM. Every
       // previous revision of this probe pointed at a destination nobody owned — off
-      // `#/settings` when the collaboration family took it, off `#/workflows` when the
+      // `#/settings` when the channels family took it, off `#/workflows` when the
       // workflows family took that, off `#/window/timeline/…` once the ledger claimed
       // the last unowned SURFACE slot, and then one layer down at a pane kind the deck
       // declared and no family rendered. That last address is gone too: `registeredPaneKinds()`

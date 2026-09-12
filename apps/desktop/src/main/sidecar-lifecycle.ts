@@ -1,22 +1,20 @@
 // Electron main-process wiring for the sidecar-lifecycle drain.
 //
-// Plan-001 §Cross-Plan Obligations CP-001-1 (sidecar-cleanup handler
-// registers BEFORE Electron `will-quit`) lives here. Under Electron's
-// EventEmitter semantics, listener invocation order equals registration
-// order — see I-024-4 in Plan-024 for the load-bearing FIFO invariant
-// and the `microsoft/node-pty#904` SIGABRT-on-exit failure mode that
-// motivates it. `registerSidecarLifecycle(app, getPtyHost)` MUST run
-// before any other `app.on('will-quit', ...)` registration in
+// The sidecar-cleanup handler registers BEFORE Electron `will-quit`. Under
+// Electron's EventEmitter semantics, listener invocation order equals
+// registration order, and the drain has to run first or PTY children are
+// orphaned (the `microsoft/node-pty#904` SIGABRT-on-exit failure mode).
+// `registerSidecarLifecycle(app, getPtyHost)` MUST run before any
+// other `app.on('will-quit', ...)` registration in
 // `apps/desktop/src/main/index.ts`.
 //
-// The polymorphic drain protocol lives on `PtyHost.shutdown()` per
+// The polymorphic drain protocol lives on `PtyHost.shutdown()` in
 // `packages/contracts/src/pty-host.ts`. Both backends — the in-process
 // `NodePtyHost` (macOS/Linux primary; Windows fallback) and the
-// out-of-process `RustSidecarPtyHost` (Windows Phase 5 default) —
-// implement the same interface, so this module never touches a
-// backend-specific surface. `ADR-019 §Decision` item 4 declares
-// "Consumers never see the backend choice" — that polymorphism contract
-// is what lets this module stay backend-agnostic.
+// out-of-process `RustSidecarPtyHost` (the Windows default once it
+// ships) — implement the same interface, so this module never touches
+// a backend-specific surface. Consumers never see the backend choice,
+// and that is what lets this module stay backend-agnostic.
 //
 // Why the lazy getter (`() => PtyHost | null`) instead of an eager
 // `PtyHost` argument: at module-load time the daemon's PtyHost has not
@@ -24,11 +22,11 @@
 // will-quit handler synchronously during startup, but the PtyHost is
 // constructed later when the daemon's lifecycle finishes booting (the
 // `runtime-daemon` package's bootstrap is not yet wired into the
-// desktop entrypoint as of Plan-001 Phase 5). The lazy getter lets the
-// will-quit handler defer the lookup until the quit signal fires, by
+// desktop entrypoint at all). The lazy getter lets the will-quit
+// handler defer the lookup until the quit signal fires, by
 // which point the PtyHost either exists (drain) or has never been
 // constructed (no-op cleanly). Shape A (lazy getter) over Shape B
-// (eager construct-first) keeps the FIFO-ordering invariant
+// (eager construct-first) keeps the FIFO-ordering guarantee
 // unconditional — the handler ALWAYS registers at position 0,
 // independent of whether the daemon has finished bootstrapping by the
 // time the user triggers a quit.
@@ -50,9 +48,9 @@
 // avoid the loop by skipping the entire quit chain (per the same
 // Electron docs: "the `before-quit` and `will-quit` events will not be
 // emitted"), but that would BYPASS every downstream `will-quit` handler
-// — destroying the FIFO chain contract this module exists to honor
-// (Plan-024 §I-024-4 sits at the head of the chain precisely so peers
-// can do their own cleanup AFTER the drain).
+// — destroying the FIFO chain contract this module exists to honor. The
+// drain sits at the head of the chain precisely so peers can do their
+// own cleanup AFTER it.
 //
 // Hard wall-clock cap rationale: the per-session + host budgets total
 // 4 s by default, but a runaway `PtyHost.shutdown()` promise (host
@@ -66,17 +64,9 @@
 // and exposed as a `SidecarLifecycleDeps.hardCapMs` injection seam so
 // the test can exercise the cap branch without a wall-clock wait.
 //
-// Refs:
-//   • Plan-001 §Cross-Plan Obligations CP-001-1 — registration ordering
-//     + drain orchestration contract; resolution at Phase 5 Lane D.
-//   • Plan-024 §Invariants I-024-4 — primary FIFO + drain invariant.
-//   • Plan-024 §Windows Implementation Gotchas Gotcha 4 — primary-
-//     source citation (`microsoft/node-pty#904`).
-//   • ADR-019 §Decision item 8 — backend polymorphism (no downcasting
-//     to RustSidecarPtyHost from this layer).
-//   • Electron app.quit() docs —
-//     https://www.electronjs.org/docs/latest/api/app#appquit (re-entry
-//     semantics that motivate the `drainCompleted` guard).
+// Electron's `app.quit()` re-entry semantics — the reason the
+// `drainCompleted` guard exists — are documented at
+// https://www.electronjs.org/docs/latest/api/app#appquit.
 
 import type { App } from "electron";
 
@@ -92,11 +82,10 @@ import { DAEMON_SHUTDOWN_FLUSH_BUDGET_MS } from "../shared/shutdown-budget.js";
  * Timeout budgets (milliseconds) passed to `PtyHost.shutdown()` from
  * the will-quit handler.
  *
- * Plan-001 §CP-001-1 resolution declares "2 s per-session bounded
- * timeout" + "second bounded timeout: 2 s" for the sidecar host wind-
- * down; both budgets surface here so the wiring layer (this module)
- * owns the constant rather than scattering it across the contract /
- * implementation boundary.
+ * The sidecar wind-down is bounded twice — 2 s per session and a
+ * second 2 s for the host. Both budgets surface here so the wiring
+ * layer (this module) owns the constant rather than scattering it
+ * across the contract / implementation boundary.
  *
  * `perSessionTimeoutMs` dominates per-session child cleanup latency
  * (SIGTERM → ExitCodeNotification on the wire). `hostTimeoutMs`
@@ -114,11 +103,10 @@ export interface SidecarLifecycleTimeouts {
 }
 
 /**
- * Default timeout budgets per Plan-001 §CP-001-1 resolution ("2 s
- * per-session bounded timeout; second bounded timeout: 2 s"). Exposed
- * as a named constant so call sites that override (e.g., a slow CI
- * profile) can compose against the canonical baseline rather than
- * re-deriving from the plan body.
+ * Default timeout budgets: 2 s per session, and a second 2 s for the
+ * host wind-down. Exposed as a named constant so call sites that
+ * override (e.g., a slow CI profile) can compose against the canonical
+ * baseline rather than re-deriving it.
  */
 export const DEFAULT_SIDECAR_LIFECYCLE_TIMEOUTS: SidecarLifecycleTimeouts = {
   perSessionTimeoutMs: 2_000,
@@ -173,8 +161,8 @@ export interface SidecarLifecycleDeps {
  *
  * MUST be called BEFORE any other `app.on('will-quit', ...)`
  * registration in `apps/desktop/src/main/index.ts` so the FIFO
- * registration-order invariant (Plan-024 §I-024-4) holds — under
- * Electron's EventEmitter semantics, the first-registered listener
+ * registration-order guarantee holds — under Electron's EventEmitter
+ * semantics, the first-registered listener
  * runs first, and the drain MUST complete (or escalate) before any
  * downstream handler closes resources the drain depends on.
  *
@@ -221,16 +209,15 @@ export interface SidecarLifecycleDeps {
  *      rationale.
  *
  * Backend polymorphism: the handler calls `shutdown()` on the
- * `PtyHost` interface — never on a backend-specific class.
- * `ADR-019 §Decision` item 4 declares "Consumers never see the backend
- * choice"; this module is the consumer-side enforcement of that
- * invariant on the lifecycle axis.
+ * `PtyHost` interface — never on a backend-specific class. Consumers
+ * never see the backend choice; this module is the consumer-side
+ * enforcement of that rule on the lifecycle axis.
  *
  * @param app - The Electron `App` instance whose `will-quit` slot
  *   receives the registration.
  * @param getPtyHost - Lazy getter that returns the active PtyHost (or
  *   `null` if no host has been provisioned yet). See `PtyHostGetter`
- *   rustdoc for the bootstrap-ordering rationale.
+ *   for the bootstrap-ordering rationale.
  * @param deps - Optional dependency-injection seam for tests. Default
  *   timeouts + `console` logger + `DAEMON_SHUTDOWN_FLUSH_BUDGET_MS`
  *   hard cap when omitted.
@@ -291,8 +278,8 @@ export function registerSidecarLifecycle(
 
     const ptyHost: PtyHost | null = getPtyHost();
     if (ptyHost === null) {
-      // Bootstrap-window case (Plan-001 §CP-001-1): Electron's
-      // `will-quit` fires before the daemon has provisioned a
+      // Bootstrap-window case: Electron's `will-quit` fires before
+      // the daemon has provisioned a
       // PtyHost. Nothing to drain, nothing to wind down — no-op
       // cleanly and return WITHOUT `event.preventDefault()` so the
       // downstream `will-quit` chain proceeds normally (Electron docs

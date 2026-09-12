@@ -12,8 +12,8 @@
 // hypothesis was
 // exactly this: the pane's lazily imported body had not loaded and the tier had
 // photographed the reserved region. It had not — the shortfall was a stylesheet that
-// had moved out of the initial graph, which `apps/desktop/AGENTS.md` §Module shape now
-// rules on — but the hypothesis was only cheap to rule out because the marker exists,
+// had moved out of the initial graph, which the module-shape rules in
+// `apps/desktop/AGENTS.md` now rule on — but the hypothesis was only cheap to rule out because the marker exists,
 // and nothing was proving the marker reached the capture through a real mount.
 //
 // BOTH DIRECTIONS, BECAUSE ONE OF THEM IS VACUOUS ALONE. A refusal that fired on

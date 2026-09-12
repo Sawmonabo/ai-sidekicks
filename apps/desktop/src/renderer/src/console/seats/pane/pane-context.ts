@@ -62,10 +62,10 @@ interface ConsolePaneBinding {
   readonly linkedSourcePaneId: string | undefined;
   /**
    * The focus ring's colour, as a `var()` reference produced by
-   * `tokens/tokenReference` — `Spec-023 §Console Design (Meridian)` rule 2: "the
-   * hue answers 'who' everywhere — … pane focus rings". `undefined` where the deck
-   * has no actor to attribute the pane to, which is the fail-closed answer: an
-   * unattributed pane takes the neutral boundary rather than someone else's hue.
+   * `tokens/tokenReference`. The hue answers "who" everywhere, pane focus rings
+   * included. `undefined` where the deck has no actor to attribute the pane to, which
+   * is the fail-closed answer: an unattributed pane takes the neutral boundary rather
+   * than someone else's hue.
    */
   readonly focusHue: string | undefined;
 }

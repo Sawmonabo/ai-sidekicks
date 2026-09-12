@@ -221,12 +221,12 @@ export function workflowInstant(iso: string): InstantReading {
  *
  * It exists as a function because two surfaces spend attention on the answer and
  * neither may spend it differently: the park badge chooses its tone from this, and
- * the run pane's phase graph chooses a node's border treatment from it. `Spec-023
- * §Console Design (Meridian)` rule 3 spends amber on "a person is needed" and on
- * nothing else, so a badge and a node disagreeing about one phase is one of them
- * telling an operator to look at something the other says needs nobody. Each
- * deriving `schedule.kind !== "armed"` for itself is exactly how that disagreement
- * arrives — silently, since both readings are plausible in isolation.
+ * the run pane's phase graph chooses a node's border treatment from it. Rule 3 spends
+ * amber on "a person is needed" and on nothing else, so a badge and a node
+ * disagreeing about one phase is one of them telling an operator to look at something
+ * the other says needs nobody. Each deriving `schedule.kind !== "armed"` for itself
+ * is exactly how that disagreement arrives — silently, since both readings are
+ * plausible in isolation.
  */
 export function parkAwaitsPerson(schedule: WorkflowParkSchedule): boolean {
   return schedule.kind !== "armed";

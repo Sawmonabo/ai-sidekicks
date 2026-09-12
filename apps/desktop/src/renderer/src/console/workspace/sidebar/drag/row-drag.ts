@@ -1,8 +1,7 @@
 // Dragging a sidebar row onto the deck, and what opens when it lands.
 //
-// `Spec-023 §Console Design (Meridian)` §The surface set offers "drag a row to the
-// deck → open as a pane at the drop slot", and `Spec-023 §Console Libraries`, row
-// "Layout, panes, drag", ADOPTs `@atlaskit/pragmatic-drag-and-drop` for the gesture
+// Dragging a row to the deck opens it as a pane at the drop slot, and for layout,
+// panes and drag the console adopts `@atlaskit/pragmatic-drag-and-drop` for the gesture
 // with the indicators, the keyboard paths, and the live-region strings own-built. This
 // module is the sidebar's half of that seam, and it is deliberately the same shape as
 // `workspace/deck/pane-drag.ts`: the library owns the gesture, this file owns what the

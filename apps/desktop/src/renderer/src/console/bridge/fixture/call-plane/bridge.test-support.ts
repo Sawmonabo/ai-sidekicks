@@ -117,8 +117,8 @@ export function createFixture(scenario: ConsoleScenario = FLAGSHIP_SCENARIO): Fi
  *
  * The event name is cast to the `DaemonEvent` brand and the payload left
  * `unknown` — the same single brand bypass the two shipped renderer families
- * make, because `DaemonEvent` is a `never`-shaped Plan-007 stub and a tighter
- * payload type here would be a fiction.
+ * make, because `DaemonEvent` is a `never`-shaped stub and a tighter payload type
+ * here would be a fiction.
  *
  * The delivered type is a PARAMETER because the answer depends on the name: the
  * whole-session stream and a bare event type deliver the canonical `EventEnvelope`,
@@ -271,7 +271,7 @@ export function withCapturedStream(bridge: ConsoleBridge, streamName: string): S
  * case proving a surface came back after a refused open really did drive a bridge.
  *
  * `open` receives the pass-through so a case can refuse the first attempt and hold
- * the next, which is the shape the shipped Tier-1 preload puts a console in: every
+ * the next, which is the shape the shipped stub preload puts a console in: every
  * daemon method throws until a build with a real one is installed.
  */
 export function withDaemonSubscribe(
@@ -441,7 +441,7 @@ export function unscriptedScenario(id: string): ConsoleScenario {
     label: "Nothing scripted",
     purpose: "Drives a surface against a bridge that scripts no reply and plays no beat.",
     sessionId: `session-${id}`,
-    participantIdsInJoinOrder: [],
+    userIdsInJoinOrder: [],
     beats: [],
     replies: [],
     startedAtIso: "2026-01-01T10:05:00.000Z",

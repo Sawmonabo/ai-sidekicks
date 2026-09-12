@@ -9,9 +9,8 @@
 //
 // NO SPINNER, NO SKELETON, NO FLASH. The chunk comes off local disk in an Electron
 // window, so the pending window is a frame or two; a spinner appearing and vanishing
-// inside it is motion that settles nothing, which is the one thing
-// `Spec-023 §Console Design (Meridian)` rule 5 does not admit. A skeleton would be
-// worse — it would draw rows the body may not have.
+// inside it is motion that settles nothing, which the console's motion rule does not
+// admit. A skeleton would be worse — it would draw rows the body may not have.
 //
 // AND IT IS DELIBERATELY NOT ONE OF THE FIVE KINDS OF NOTHING. Rule 8 enumerates five
 // absences — not loaded, empty, error, not checked, unknown — and says a renderer that

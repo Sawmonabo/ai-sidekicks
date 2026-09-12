@@ -2,7 +2,7 @@
  * Error taxonomy for `@ai-sidekicks/crypto-paseto`.
  *
  * Messages are structural only — they carry no key, signature, plaintext,
- * or ciphertext bytes (invariant I4 in the design spec §5).
+ * or ciphertext bytes (invariant I4 in the design spec).
  */
 
 export class InvalidTokenError extends Error {

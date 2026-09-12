@@ -46,11 +46,11 @@ const RESULT: GrowthMcpMutationResult = { server: SETTLED_ROW, applied: "live_re
 
 /** A scenario that scripts nothing: each case overrides the operation it drives. */
 const EMPTY_SCENARIO: Parameters<typeof createFixtureBridge>[0]["scenario"] = {
-  id: "collaboration-mcp-test",
+  id: "mcp-test",
   label: "MCP governance, with nothing scripted",
   purpose: "Drives the two governance mutations against overridden growth operations.",
   sessionId: "session-mcp",
-  participantIdsInJoinOrder: [],
+  userIdsInJoinOrder: [],
   beats: [],
   replies: [],
   startedAtIso: "2026-01-01T08:00:00.000Z",

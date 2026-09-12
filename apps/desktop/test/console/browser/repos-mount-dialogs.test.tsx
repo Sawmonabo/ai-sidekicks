@@ -11,8 +11,8 @@
 //      card's own overflow, painted under the surface beside it — would still be found.
 //      Here the two roots are asserted apart.
 //   2. A DISABLED CONTROL CANNOT BE FOCUSED. `BindModePicker` renders an excluded mode
-//      as a disabled radio carrying the mount's own reason, because `Spec-009 §Fallback
-//      Behavior` requires the gap explicit rather than the row dropped. happy-dom's
+//      as a disabled radio carrying the mount's own reason, because the gap must be
+//      explicit rather than the row dropped. happy-dom's
 //      `focus()` sets `document.activeElement` on any element it is called on, so a
 //      picker that had shipped those rows ENABLED would pass a unit case that asserted
 //      the ring stayed put. Chromium refuses, and that refusal is the guarantee: a
