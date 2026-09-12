@@ -20,8 +20,8 @@ The Local Runtime Daemon is the local execution kernel. It must own the parts of
 - execute tools and terminals within local trust policy
 - persist local events, receipts, projections, and runtime bindings
 - expose the local control surface used by the desktop app and CLI
-- push coordination data (presence, relay connectivity, shared-session metadata) to the Collaboration Control Plane: request-response and relay negotiation over tRPC/SSE, presence/collaboration events over WebSocket (JSON-RPC 2.0), and the relay WSS connection over `Spec-008` binary wire frames (not JSON-RPC) — per ADR-014 and Spec-008
-- authenticate to the Collaboration Control Plane using PASETO v4 tokens per Spec-008 when pushing presence, relay coordination, and shared session metadata
+- push coordination data (node liveness, relay connectivity, session metadata) to the Control Plane: request-response and relay negotiation over tRPC/SSE, liveness events over WebSocket (JSON-RPC 2.0), and the relay WSS connection over binary wire frames (not JSON-RPC) — per ADR-014 and [Spec-031](../specs/031-remote-control.md)
+- authenticate to the Control Plane using PASETO v4 tokens when pushing liveness, relay coordination, and session metadata
 
 ## Component Boundaries
 
@@ -34,7 +34,7 @@ The Local Runtime Daemon is the local execution kernel. It must own the parts of
 | `Tool And Terminal Service` | Runs shell commands, terminal sessions, and local tools under policy control. All PTY access flows through the `PtyHost` interface in `packages/contracts/` (see §PTY Backend Strategy). |
 | `Local Persistence Layer` | Stores canonical local event log, command receipts, runtime bindings, projections, and recovery metadata. All SQLite writes are isolated to a single writer worker thread per [Spec-015 §Writer Concurrency](../specs/015-persistence-recovery-and-replay.md#writer-concurrency); V1 driver pin is `better-sqlite3` **13.0.3** exact (Node-API; moved from `^12.9.0` on 2026-09-01 with the Electron-44 pin move per [ADR-022 §Decision Log](../decisions/022-v1-toolchain-selection.md#decision-log) and [Spec-015 §Driver Pin](../specs/015-persistence-recovery-and-replay.md#driver-pin)). |
 | `Local IPC Gateway` | Exposes stable local control APIs to renderer and CLI clients. |
-| `Control-Plane Adapter` | Produces SessionJoin, RelayNegotiation, PresenceRegister, and SessionResumeAfterReconnect payloads per Spec-008 and forwards canonical events over the control-plane transport. |
+| `Control-Plane Adapter` | Produces SessionJoin, RelayNegotiation, PresenceRegister (this node's own liveness heartbeat), and SessionResumeAfterReconnect payloads, and forwards canonical events over the control-plane transport to the user's connected devices. |
 
 ## Implementation Home
 
@@ -54,7 +54,7 @@ The platform selector enforces the defaults above; consumers of `PtyHost` never 
 ## Data Flow
 
 1. A local client submits a command through IPC.
-2. The local session engine validates the command against membership, node capability, and policy state.
+2. The local session engine validates the command against session ownership, the calling device's registration, node capability, and policy state.
 3. The session engine invokes provider, git, workspace, or tool services as needed.
 4. Resulting state changes become canonical local events and projection updates.
 5. Live subscribers receive normalized updates, and recovery metadata is persisted for restart safety.
@@ -71,7 +71,7 @@ The platform selector enforces the defaults above; consumers of `PtyHost` never 
 - The local event store is unavailable or inconsistent.
 - Worktree creation or repo binding fails before a run can start.
 - Terminal or tool subprocesses outlive the client connection and require daemon-owned cleanup.
-- The daemon loses connectivity to the Collaboration Control Plane; local-only sessions continue but shared-session coordination (presence push, relay negotiation, invite/membership sync) degrades per Spec-008 fallback behavior.
+- The daemon loses connectivity to the Control Plane; work on this machine continues, but remote devices cannot reach it — liveness push, relay negotiation, and device-registry reads degrade per [Spec-031 §Fallback Behavior](../specs/031-remote-control.md#fallback-behavior).
 
 ## Related Domain Docs
 

@@ -2,20 +2,20 @@
 
 ## Purpose
 
-Describe the supported deployment shapes for clients, runtime nodes, and the collaboration control plane.
+Describe the supported deployment shapes for clients, runtime nodes, and the control plane.
 
 ## Scope
 
-This document covers `local-only`, collaborative, hosted, and self-hosted topology variants.
+This document covers `local-only`, remote-control, hosted, and self-hosted topology variants.
 
 ## Context
 
-The product must support local execution by default while also supporting shared sessions across participants and organizations.
+The product must support local execution by default while also letting a user's other devices reach the machine a session runs on.
 
 ## Responsibilities
 
 - define which components can run locally versus remotely
-- describe the minimum supported topology for collaboration
+- describe the minimum supported topology for remote control
 - constrain unsupported or discouraged deployment shapes
 
 ## Component Boundaries
@@ -24,15 +24,15 @@ Supported topologies:
 
 | Topology | Boundary Summary |
 | --- | --- |
-| `Single-Participant Local` | Desktop or CLI plus one local daemon operating in `local-only` continuity. No shared control-plane dependency for basic single-user execution. |
-| `Collaborative Hosted Control Plane` | Multiple local daemons connect to one hosted control plane for invites, presence, relay, and shared metadata. Project-operated hosted offering per [ADR-020](../decisions/020-v1-deployment-model-and-oss-license.md). |
-| `Collaborative Self-Hosted Control Plane` | Same architecture as hosted, but the control plane is self-managed by the deploying organization. The free OSS deployment path per [ADR-020](../decisions/020-v1-deployment-model-and-oss-license.md); ships the same 23-feature V1 surface as hosted. Secure-defaults posture for this topology is normative per [Spec-027: Self-Host Secure Defaults](../specs/027-self-host-secure-defaults.md) with operator-facing companion at [Operations › Self-Host Secure Defaults](../operations/self-host-secure-defaults.md) (Spec-027 Acceptance Criterion). |
-| `Relay-Assisted Remote Access` | A client or node reaches the shared session through relay coordination without moving execution into the control plane. |
+| `Single-Device Local` | Desktop or CLI plus one local daemon on the same machine, operating in `local-only` continuity. No control-plane dependency. |
+| `Hosted Control Plane` | A user's devices and machines connect to one hosted control plane for the device registry, liveness, relay, and session metadata. Project-operated hosted offering per [ADR-020](../decisions/020-v1-deployment-model-and-oss-license.md). |
+| `Self-Hosted Control Plane` | Same architecture as hosted, but the control plane is self-managed by the deploying user or organization. The free OSS deployment path per [ADR-020](../decisions/020-v1-deployment-model-and-oss-license.md); ships the same 21-feature V1 surface as hosted. Secure-defaults posture for this topology is normative per [Spec-027: Self-Host Secure Defaults](../specs/027-self-host-secure-defaults.md) with operator-facing companion at [Operations › Self-Host Secure Defaults](../operations/self-host-secure-defaults.md) (Spec-027 Acceptance Criterion). |
+| `Relay-Assisted Remote Access` | A device or node reaches the session through relay coordination without moving execution into the control plane. |
 
 ## Data Flow
 
-1. `local-only` mode keeps execution and immediately usable session continuity on one participant-owned machine except for external provider calls.
-2. Collaborative mode adds control-plane metadata exchange and relay coordination.
+1. `local-only` mode keeps execution and immediately usable session continuity on one user-owned machine except for external provider calls.
+2. Remote-control mode adds control-plane metadata exchange and relay coordination so the user's other devices can drive the session.
 3. Self-hosted mode preserves the same logical split but changes operational ownership.
 4. Relay-assisted mode changes transport path only; execution remains local to the node.
 
@@ -48,15 +48,15 @@ Rate limiting uses a deployment-aware abstraction with identical limits across a
 
 | Deployment | Edge Layer | Application Layer |
 | --- | --- | --- |
-| `Collaborative Hosted Control Plane` (Cloudflare) | CF Workers native `rate_limit` binding (sliding-window counters, zero added latency) | Per-identity `RateLimitEscalationDO` Durable Object — escalation-block authority + authoritative window state, consulted on every check (eager-DO, [Plan-021 D-021-3](../plans/021-rate-limiting-policy.md#ratified-design-decisions-tier-6-audit)) |
-| `Collaborative Self-Hosted Control Plane` | `rate-limiter-flexible` with Postgres backend | `rate-limiter-flexible` with Postgres backend + `rate_limit_escalations` table |
-| `Single-Participant Local` | No rate limiting (trusted by socket reachability) | No rate limiting |
+| `Hosted Control Plane` (Cloudflare) | CF Workers native `rate_limit` binding (sliding-window counters, zero added latency) | Per-identity `RateLimitEscalationDO` Durable Object — escalation-block authority + authoritative window state, consulted on every check (eager-DO, [Plan-021 D-021-3](../plans/021-rate-limiting-policy.md#ratified-design-decisions-tier-6-audit)) |
+| `Self-Hosted Control Plane` | `rate-limiter-flexible` with Postgres backend | `rate-limiter-flexible` with Postgres backend + `rate_limit_escalations` table |
+| `Single-Device Local` | No rate limiting (trusted by socket reachability) | No rate limiting |
 
 The rate limiting interface is identical regardless of deployment. Implementation swaps via configuration (`AIS_RATELIMIT_BACKEND`). Self-hosted deployments use `rate-limiter-flexible` (Postgres backend in V1) to achieve the same semantics as the Cloudflare native binding; both compose the same admission pipeline (admin ban → escalation block → sliding-window counter, Plan-021 I-021-1).
 
 ## Relay Scaling Strategy
 
-The relay uses Cloudflare Durable Objects with a sharding strategy to handle high-participant sessions.
+The relay uses Cloudflare Durable Objects, one object per session.
 
 **Cloudflare Durable Object platform limits (verified 2026-04-19):**
 
@@ -65,7 +65,7 @@ The relay uses Cloudflare Durable Objects with a sharding strategy to handle hig
 - Each DO is single-threaded; horizontal scale is achieved by spawning more objects ([DO limits][do-limits]).
 - CF's own guidance pegs practical throughput at ~500–1,000 rps for simple operations and ~200–500 rps for complex operations that involve transformation plus storage writes ([Rules of Durable Objects][do-rules]).
 
-**Design choice: 25 WebSocket connections per data DO.** This is _our_ target, not a platform cap. It derives from the per-DO throughput envelope we need to stay inside, not from any Cloudflare connection ceiling:
+**Design choice: one DO per session, no sharding.** A session's connections are one user's own endpoints — the runtime node the session is bound to, plus whichever of that user's linked devices currently have it open. That population is single-digit by construction, so the connection count per session is an order of magnitude below anything a shard factor would need to relieve, and the control-DO / data-DO split a larger-N model would require is not built at all. The budget to respect is throughput, not connection count:
 
 | Input | Value | Source |
 | --- | --- | --- |
@@ -73,24 +73,19 @@ The relay uses Cloudflare Durable Objects with a sharding strategy to handle hig
 | MLS encrypt + storage write cost per event | ~1 DO request | Spec-006 relay data-path |
 | Safety headroom vs. 1,000 rps soft cap | 2.5× | Intentional — CF guidance places complex ops in the 200–500 rps band ([Rules of DO][do-rules]) |
 
-Envelope (batching is a design baseline, not a future enhancement): **25 conns × 100 events/sec of raw client traffic ÷ ~6 events per batched DO request ≈ 400 rps/DO** of DO-request throughput per data DO. The 400 rps operating point sits inside CF's 200–500 rps "complex op" band and leaves ~2.5× headroom vs the 1,000 rps overloaded-error threshold. Without batching the same raw envelope would yield ~2,500 rps/DO, which would breach the 1,000 rps soft cap — so **batched WebSocket messages are assumed at design time**, enabled by the 2025-10-31 raise of WebSocket message size from 1 MiB to 32 MiB ([DO changelog][do-changelog]). The 100 events/sec/connection figure and the ~6:1 batching ratio are internal load-model assumptions — CF does not publish a per-connection event-rate model or a batching-ratio model.
+Envelope (batching is a design baseline, not a future enhancement), budgeted against a deliberately generous **10 concurrent connections per session** — well above the runtime node plus two or three devices a real session carries: **10 conns × 100 events/sec of raw traffic ÷ ~6 events per batched DO request ≈ 170 rps/DO**. That operating point sits below CF's 200–500 rps "complex op" band and leaves ~6× headroom vs the 1,000 rps overloaded-error threshold. Without batching the same raw envelope would yield ~1,000 rps/DO, which sits exactly at the soft cap — so **batched WebSocket messages are assumed at design time**, enabled by the 2025-10-31 raise of WebSocket message size from 1 MiB to 32 MiB ([DO changelog][do-changelog]). The 100 events/sec/connection figure and the ~6:1 batching ratio are internal load-model assumptions — CF does not publish a per-connection event-rate model or a batching-ratio model.
 
-**Routing:**
+**Routing:** one DO per session terminates every connection for that session — the runtime node's and each connected device's — and fans encrypted frames out across them. There is no routing tier, because there is nothing to route between.
 
-- **Control DO** manages session membership, connection assignments, and routes new connections to data DOs.
-- **Data DOs** handle encrypted message fan-out. The 25-connection target is a tunable shard factor, not a ceiling imposed by Cloudflare.
-- When participant count exceeds the per-DO target, the control DO spawns additional data DOs and distributes connections across them.
-- Follows the v2 protocol pattern (control socket + per-connection data sockets) from the relay protocol design.
+**Decision triggers for reintroducing a sharding tier.** Re-evaluate when any of the following is true:
 
-**Decision triggers for re-tuning the 25-connection shard factor.** Re-evaluate when any of the following is true:
-
-1. Measured p95 events/sec/connection drops below ~40 (we have 2.5× slack — raise the shard factor toward ~60 connections/DO).
-2. Measured p95 events/sec/connection exceeds ~200 (we are burning our headroom — drop the shard factor toward ~10 connections/DO).
-3. Cloudflare raises the per-DO rps soft cap above 1,000 ([monitor DO changelog][do-changelog]).
-4. Batching is lost or the ~6:1 batching ratio drops materially. Because the un-batched envelope (2,500 rps/DO) exceeds the 1,000 rps soft cap, a batching regression forces an emergency reduction of the shard factor toward ~10 connections/DO pending root-cause fix.
+1. Measured p95 events/sec/connection exceeds ~200 (the headroom above is being burned by per-connection volume rather than by connection count).
+2. Sessions routinely carry more than ~10 concurrent connections — many linked devices open at once, or a later feature that attaches more than one runtime node to a live session.
+3. Cloudflare raises or lowers the per-DO rps soft cap ([monitor DO changelog][do-changelog]).
+4. Batching is lost or the ~6:1 batching ratio drops materially. The un-batched envelope lands at the 1,000 rps soft cap with no margin, so a batching regression is a launch blocker pending root-cause fix.
 5. MLS encrypt cost per event materially changes (e.g., Spec-006 revision, new ciphersuite).
 
-**Pre-launch requirement:** Load test spike with 50 participants × 10 concurrent runs × streaming events must pass, and must measure actual events/sec/connection to validate the 100 events/sec assumption, before V1 production launch.
+**Pre-launch requirement:** a load-test spike of 1,000 concurrent sessions — each one runtime node plus three connected devices, running 10 concurrent runs of streaming events — must pass, and must measure actual events/sec/connection to validate the 100 events/sec assumption, before V1 production launch.
 
 [do-limits]: https://developers.cloudflare.com/durable-objects/platform/limits/
 [do-ws]: https://developers.cloudflare.com/durable-objects/best-practices/websockets/
@@ -99,8 +94,8 @@ Envelope (batching is a design baseline, not a future enhancement): **25 conns �
 
 ## Failure Modes
 
-- `local-only` mode lacks collaborative features when no control plane is available.
-- Collaborative mode degrades to partial `local-only` continuity when the control plane is unavailable.
+- `local-only` mode cannot be reached from the user's other devices when no control plane is available.
+- Remote-control mode degrades to partial `local-only` continuity when the control plane is unavailable: work at the machine continues, remote devices report it unreachable.
 - Relay-assisted connectivity fails even though local daemons remain healthy.
 
 ## Horizontal Scaling Strategy
@@ -109,7 +104,7 @@ Envelope (batching is a design baseline, not a future enhancement): **25 conns �
 
 **Relay:** stateless WebSocket proxies for the message path — E2EE frames (pairwise X25519 + XChaCha20-Poly1305 in V1 per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md)) mean the relay processes hold no session state. The artifact relay's pinned ciphertext is durable state, but it lives in the shared blob store (object storage), not in proxy processes — blob reachability follows the shared store, not instance affinity. Scale by adding relay instances with DNS-based routing.
 
-**Local daemon:** runs on each participant's machine. No scaling needed — it is per-machine by design.
+**Local daemon:** runs on each of the user's machines. No scaling needed — it is per-machine by design.
 
 ## Postgres Strategy
 
@@ -126,8 +121,8 @@ Envelope (batching is a design baseline, not a future enhancement): **25 conns �
 | Metric | V1 Target |
 | --- | --- |
 | Concurrent sessions | 1,000 |
-| Participants per session | 10 (configurable) |
-| Total participants | 5,000 |
+| Connected devices per session | 5 (configurable) |
+| Total users | 5,000 |
 | Events per second (write) | 500 |
 | Events per second (read) | 2,000 |
 | Relay connections | 2,000 concurrent |
@@ -145,7 +140,7 @@ Envelope (batching is a design baseline, not a future enhancement): **25 conns �
 
 ### Local Daemon Memory Instrumentation And Budget Triggers
 
-The 256 MB local daemon budget above is an operating target derived from small-team collaboration sizing, not a hard ceiling. Budget violations MUST be observable so that operators and product owners can decide between a budget raise and a deeper change.
+The 256 MB local daemon budget above is an operating target derived from one user's session sizing on a developer workstation — a handful of concurrent runs, one working tree, and the relay connection that serves that user's other devices — not a hard ceiling. Budget violations MUST be observable so that operators and product owners can decide between a budget raise and a deeper change.
 
 **Instrumentation requirement.** The daemon MUST expose `process_resident_memory_bytes` via the default Prometheus `prom-client` collector ([default metrics](https://github.com/siimon/prom-client#default-metrics)). RSS (resident set size) is the authoritative metric for process footprint — distinct from V8 heap-used, which excludes native allocations from SQLite page cache, `node-pty` file descriptors, and `@noble/*` cryptographic buffers. Alert fires when RSS exceeds **80% of the budget (≥ 205 MB)** sustained for ≥ 5 minutes. Sustained (not instantaneous) reduces false positives from transient build-step allocations. The 80% threshold and 5-minute window are design choices, not external standards.
 
@@ -184,6 +179,7 @@ The 256 MB local daemon budget above is an operating target derived from small-t
 ## Related Specs
 
 - [Runtime Node Attach](../specs/003-runtime-node-attach.md)
+- [Remote Control](../specs/031-remote-control.md)
 
 ## Related ADRs
 
