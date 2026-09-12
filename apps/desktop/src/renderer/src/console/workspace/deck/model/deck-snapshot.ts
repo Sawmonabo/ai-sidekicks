@@ -2,10 +2,10 @@
 // refuses to believe.
 //
 // This module holds three of the deck's five rules, and each one is a decision rather
-// than a mechanism. `Spec-023 §The surface set` states the first two in one sentence —
-// "A layout snapshot of an unknown version is discarded whole, an unknown pane kind is
-// dropped and reported, and an entity id that fails validation is rejected" — and the
-// third is this module's own, because no committed document states it:
+// than a mechanism. The first two are the console's stated grammar — a layout snapshot
+// of an unknown version is discarded whole, an unknown pane kind is dropped and
+// reported, and an entity id that fails validation is rejected — and the third is this
+// module's own:
 //
 //   • **A snapshot of an unknown version is discarded WHOLE.** Not repaired, not
 //     partially adopted: a grammar this build does not know is a grammar whose

@@ -7,13 +7,12 @@
 // nothing will drain, the claim held across the whole drain, and the two endings that
 // are the same fact — is `aux-window-signal-watch.ts`, shared with the return signal.
 //
-// `Spec-023 §The surface set`: "a crashed auxiliary window returns the pane to the
-// deck with the crash noted in the pane's error slot" needs something to notice the
-// crash, and the shell reports exactly one: a window pane-error subscription whose
-// value is a pane id and a reason. It is watched only while
-// something is detached, because a subscription held over an empty detached set can
-// report nothing and its refusal would be a permanent notice about a hazard the
-// window does not currently have. A refused subscription is rendered in the
+// Returning a crashed auxiliary window's pane to the deck with the crash noted in the
+// pane's error slot needs something to notice the crash, and the shell reports exactly
+// one: a window pane-error subscription whose value is a pane id and a reason. It is
+// watched only while something is detached, because a subscription held over an empty
+// detached set can report nothing and its refusal would be a permanent notice about a
+// hazard the window does not currently have. A refused subscription is rendered in the
 // placeholder it belongs to: it does not mean "no crashes".
 
 import {

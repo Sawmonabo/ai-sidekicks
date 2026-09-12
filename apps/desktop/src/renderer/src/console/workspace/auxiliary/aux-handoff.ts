@@ -7,11 +7,10 @@
 // value shapes, and the route grammar the third gate runs — lives in
 // `aux-handoff-contract.ts`, which holds no state at all.
 //
-// `Spec-023 §The surface set`: "`timeline` and `agent-console` panes can be moved into
-// their own hardened `BrowserWindow` … An auxiliary window loads the same renderer
-// bundle at a window route, carries its own preload and bridge instance, subscribes to
-// the daemon itself, and shares no in-memory store and no auth material with the main
-// window."
+// `timeline` and `agent-console` panes can be moved into their own hardened
+// `BrowserWindow`. An auxiliary window loads the same renderer bundle at a window
+// route, carries its own preload and bridge instance, subscribes to the daemon itself,
+// and shares no in-memory store and no auth material with the main window.
 //
 // FOUR GATES, IN THIS ORDER, AND EACH ONE REFUSES BEFORE THE NEXT IS ASKED. The first
 // three are local and are `aux-handoff-contract.ts`' `admitDetachTarget`, which states

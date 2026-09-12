@@ -1,8 +1,7 @@
 // The runs section — the one of this family's three sidebar sections with a body.
 //
-// `Spec-023 §The surface set` makes each sidebar section "a composition of its own
-// read, opening panes". THE REST IS THIS SECTION'S OWN, because no committed
-// document states it: rows group pinned, needs-attention, running, then the rest;
+// Each sidebar section is a composition of its own read that opens panes. THE REST IS
+// THIS SECTION'S OWN: rows group pinned, needs-attention, running, then the rest;
 // counts show only once the section's read has answered; and an unavailable read
 // renders as unavailable rather than as zero. This file is that composition for
 // runs.
@@ -19,10 +18,9 @@
 // THE THREE ABSENCES ARE THREE DIFFERENT SENTENCES. A store that has not been
 // initialised is `not-loaded`; a store the daemon told us is incomplete is
 // `error` carrying its own cause verbatim; an initialised, whole store holding no
-// runs is `empty` with the escape hatch. Collapsing any two of those is exactly
-// what `Spec-023 §Meridian, the design language` rule 8 forbids — "A renderer that
-// collapses two of these into one is wrong" — and the middle one is this section's
-// own never-zero rule above.
+// runs is `empty` with the escape hatch. Collapsing any two of those is exactly what
+// is forbidden — a renderer that collapses two of these into one is wrong — and the
+// middle one is this section's own never-zero rule above.
 //
 // THE STATE VOCABULARY IS THE WIRE'S. `RunState` is the registered nine-member
 // union, and grouping reads a run's wire-verbatim `state` against it through a

@@ -3,15 +3,14 @@
 // This module holds two of the deck's five rules; the other three are the persisted
 // grammar's and live in `deck-snapshot.ts`.
 //
-//   • **One entity, one pane.** `Spec-023 §The surface set` states it: "one entity
-//     opens one pane, structurally (a single mount door and a tripwire that fails on
-//     a second)". A second open of the same entity FOCUSES the pane that already shows
-//     it. The rule is structural here and structural again at the mount door
-//     (`seats/pane/pane-registry.ts`), which is why neither side needs to trust
-//     the other.
-//   • **Ephemeral panes cascade.** This deck's own rule, because no committed document
-//     states one: a `browser` pane opens right of its source and closes with it — so a
-//     page nobody asked for cannot outlive the pane that opened it.
+//   • **One entity, one pane.** One entity opens one pane, structurally — a single
+//     mount door and a tripwire that fails on a second. A second open of the same
+//     entity FOCUSES the pane that already shows it. The rule is structural here and
+//     structural again at the mount door (`seats/pane/pane-registry.ts`), which is
+//     why neither side needs to trust the other.
+//   • **Ephemeral panes cascade.** This deck's own rule: a `browser` pane opens right
+//     of its source and closes with it — so a page nobody asked for cannot outlive
+//     the pane that opened it.
 //
 // STATE LIVES IN THE CLASS, NOT IN REACT. Every mutation goes through a method,
 // every method publishes one new immutable `DeckLayoutState`, and React subscribes
@@ -94,11 +93,11 @@ export class DeckLayout {
    * TWO SEATINGS, AND THE ADDRESS DECIDES WHICH. An address naming no source pane is
    * an open FROM A LIST — the sidebar, the palette, a rail destination — and lands at
    * the end of the deck at an equal share, which is where a person's eye expects a
-   * pane they just opened. An address naming one is the SPLIT act
-   * (`Spec-023 §The surface set` offers open, close, focus, resize, reorder and split
-   * on the deck): the pane arrives immediately right of its source and takes half of
-   * THAT pane's width, so every other pane in the deck keeps the width the person gave
-   * it. `carveSplitFrom` holds the arithmetic and says why the two rules differ.
+   * pane they just opened. An address naming one is the SPLIT act — the deck offers
+   * open, close, focus, resize, reorder and split — so the pane arrives immediately
+   * right of its source and takes half of THAT pane's width, and every other pane in
+   * the deck keeps the width the person gave it. `carveSplitFrom` holds the arithmetic
+   * and says why the two rules differ.
    *
    * A split of a pane too narrow to halve falls back to the list seating rather than
    * refusing the open: the person asked for a pane and gets one, and the deck
@@ -220,11 +219,10 @@ export class DeckLayout {
    * Adopt the widths the panel group settled on.
    *
    * THE STORE STAYS THE SOURCE OF TRUTH, WHICH IS WHY THIS IS A WRITE-BACK AND NOT
-   * A SUBSCRIPTION. `Spec-023 §Console Libraries` admits `react-resizable-panels`
-   * under one constraint — "store-owned layout" — so the group reports what a drag
-   * or an arrow key settled on and this method decides what the deck keeps: clamped
-   * to the deck's own floor, renormalised to the total, and dropped entirely when
-   * nothing moved.
+   * A SUBSCRIPTION. `react-resizable-panels` is adopted under one constraint — the
+   * layout is store-owned — so the group reports what a drag or an arrow key settled
+   * on and this method decides what the deck keeps: clamped to the deck's own floor,
+   * renormalised to the total, and dropped entirely when nothing moved.
    *
    * The no-op guard is load-bearing rather than an optimisation. The group reports
    * its layout after every commit, including the ones this method caused; without
@@ -360,10 +358,9 @@ export class DeckLayout {
 /**
  * Hold one layout for the lifetime of the component that owns the deck.
  *
- * A hook rather than a construction in a render body: `Spec-023 §Console Design
- * (Meridian)` keeps store construction out of render, and a `new DeckLayout()`
- * evaluated during a render React discards would leave the deck subscribed to a
- * layout nothing will ever mutate again.
+ * A hook rather than a construction in a render body: store construction stays out of
+ * render, and a `new DeckLayout()` evaluated during a render React discards would
+ * leave the deck subscribed to a layout nothing will ever mutate again.
  */
 export function useDeckLayout(options: DeckLayoutOptions): DeckLayout {
   const [layout] = useState(() => new DeckLayout(options));

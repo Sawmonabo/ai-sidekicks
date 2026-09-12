@@ -1,12 +1,10 @@
 // The one defect the deck's panel library is admitted with, and the wrap over it.
 //
-// `Spec-023 §Console Libraries`, row "Layout, panes, drag", adopts
-// `react-resizable-panels` 4.12.3 under the constraint "pin or patch the open ARIA
-// min/max swap on three-plus pane groups", and its §References entry names the
-// defect: upstream issue #740 — at 4.12.3 every separator after the first reports
-// `aria-valuemin` and `aria-valuemax` the wrong way round, open since 2026-08-28
-// with a pending fix. There is no later release to pin to, so the swap is corrected
-// here.
+// `react-resizable-panels` 4.12.3 is adopted under the constraint that the open ARIA
+// min/max swap on three-plus pane groups is pinned or patched. The defect is upstream
+// issue #740 — at 4.12.3 every separator after the first reports `aria-valuemin` and
+// `aria-valuemax` the wrong way round, open since 2026-08-28 with a pending fix. There
+// is no later release to pin to, so the swap is corrected here.
 //
 // WHY THE CORRECTION IS OVER THE DOM AND NOT OVER A PROP. The library's separator
 // spreads the caller's props FIRST and then writes its own computed

@@ -1,19 +1,18 @@
 // The workspace's named figures that are not ceilings.
 //
-// THE CEILINGS ARE NOT HERE. `apps/desktop/AGENTS.md` §Config single-sourcing
-// names `core/constants/` the one DIRECTORY a bound may be DECLARED in, so the
-// restored-pane cap and the sidebar's width ceiling are declared there and read
-// through the core door — the ceiling by this module too, since the deck's own floor
-// is its complement and one band still has one home.
+// THE CEILINGS ARE NOT HERE. The config single-sourcing rule in
+// `apps/desktop/AGENTS.md` names `core/constants/` the one DIRECTORY a bound may be
+// DECLARED in, so the restored-pane cap and the sidebar's width ceiling are declared
+// there and read through the core door — the ceiling by this module too, since the
+// deck's own floor is its complement and one band still has one home.
 //
 // This family had four homes and no module — a figure in the deck's density table,
 // one in its rect discipline, and two in the sidebar's grammar — and this is the one
 // they collected into.
 //
-// `Spec-023 §Console Design (Meridian)` §The four bars, "Light on the machine": "Every
-// cap, window, and timeout is a named constant with a one-line rationale". The
-// rationale is the point, so each one carries the derivation a later reader would
-// otherwise have to guess at.
+// Being light on the machine means every cap, window, and timeout is a named constant
+// with a one-line rationale. The rationale is the point, so each one carries the
+// derivation a later reader would otherwise have to guess at.
 //
 // THE DENSITY AXIS TRAVELS WITH ITS WIDTHS, and that is a decision rather than a
 // convenience. The width table is a total `Record` keyed by the preset union, so the

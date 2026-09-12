@@ -1,11 +1,10 @@
 // The goal section's one act, contributed to the command palette.
 //
-// `Spec-023 §Console Design (Meridian)` requires every operator action to be
-// palette-reachable, and this section offers exactly one: open the surface the goal
-// lives on. The sidebar's own `Enter` command is a different act — it expands the
-// section under the DOM-free cursor, on a registry scoped to the sidebar element —
-// so a person who never puts focus in the sidebar can reach neither it nor this
-// section's control without a pointer.
+// Every operator action is palette-reachable, and this section offers exactly one:
+// open the surface the goal lives on. The sidebar's own `Enter` command is a different
+// act — it expands the section under the DOM-free cursor, on a registry scoped to the
+// sidebar element — so a person who never puts focus in the sidebar can reach neither
+// it nor this section's control without a pointer.
 //
 // IT IS NAVIGATION AND SAYS SO. The section states the goal and never edits it: the
 // editor, the draft, the validation, and both mutations live on the approvals

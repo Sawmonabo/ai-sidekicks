@@ -90,9 +90,8 @@ export interface AuxiliaryPaneWiring extends DetachedPaneProjection {
  * Hold the hand-off for one surface, follow it, and offer its four acts.
  *
  * The refusals a detach or a focus produces change what the whole surface can do, so
- * they are raised to the caller rather than rendered here — `Spec-023 §Meridian, the
- * design language` puts a refusal of that reach in a banner across the workspace, and
- * this module renders nothing.
+ * they are raised to the caller rather than rendered here — a refusal of that reach
+ * belongs in a banner across the workspace, and this module renders nothing.
  */
 export function useAuxiliaryPanes(options: {
   readonly sessionId: string | undefined;
@@ -141,10 +140,10 @@ export function useAuxiliaryPanes(options: {
           if (outcome.outcome === "refused") {
             onRefused(outcome.refusal);
           }
-          // The pane STAYS, with its body suppressed. `Spec-023 §The surface set`
-          // keeps the slot as a placeholder rather than closing it: a closed pane
-          // loses its width and its position, and the window closing would then have
-          // nowhere to put the pane back.
+          // The pane STAYS, with its body suppressed. The slot is kept as a
+          // placeholder rather than closed: a closed pane loses its width and its
+          // position, and the window closing would then have nowhere to put the pane
+          // back.
         }, stateRejection);
     },
     [handoff, onRefused, sessionId, stateRejection],

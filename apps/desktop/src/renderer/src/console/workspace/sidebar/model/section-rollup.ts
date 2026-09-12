@@ -1,11 +1,10 @@
 // The rollup fold: what a section's own tree adds up to.
 //
-// `Spec-023 §Console Design (Meridian)` §The surface set asks the sidebar for
-// "rollup status per section: child-to-parent over the session › channel › run tree;
-// grouping pinned, needs-attention, running, then the rest; a section carrying an
-// amber or red item is open and every other section is collapsed". The TREE is the
-// owning family's — `SidebarSectionDescriptor.rollup` — and this module is the fold
-// the column runs over it.
+// The sidebar carries a rollup status per section: child-to-parent over the session ›
+// channel › run tree; grouping pinned, needs-attention, running, then the rest; a
+// section carrying an amber or red item is open and every other section is collapsed.
+// The TREE is the owning family's — `SidebarSectionDescriptor.rollup` — and this
+// module is the fold the column runs over it.
 //
 // CHILD-TO-PARENT, AND ONLY IN THAT DIRECTION. A node reports its OWN level and the
 // fold carries it upward, so a channel is amber because a run under it is and never

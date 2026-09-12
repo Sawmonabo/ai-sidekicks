@@ -1,9 +1,8 @@
 // The destructive preview: what is about to happen, to exactly which rows.
 //
-// `Spec-023 §Console Design (Meridian)` §The surface set: "Destructive bulk operations
-// preview the whole set and require confirm on the preview." All three acts are
-// destructive, so every run passes through here — there is no non-previewed arm to get
-// wrong.
+// Destructive bulk operations preview the whole set and require confirm on the
+// preview. All three acts are destructive, so every run passes through here — there is
+// no non-previewed arm to get wrong.
 //
 // IT NAMES EVERY ITEM, NOT A COUNT. "Retire 4 worktrees" is a number a person has to
 // trust; the list is the thing they can check. The count is stated too, because a list
@@ -14,10 +13,10 @@
 // make that declaration false — not a z-index this renderer can win. So it registers
 // its own live rectangle through `primitives/`' one registration hook, into the
 // registry this window's document holds. What this replaced was a hand `claim` on a
-// SECOND registry the deck declared, which is the shape `Spec-023 §Console Design
-// (Meridian)` 12.3's Never bullet names: "No consumer registers an overlay by hand at
-// a call site." A registry passed down four prop hops was also a registry no caller
-// ever passed, so the airspace it claimed held nothing and answered nobody.
+// SECOND registry the deck declared, which is exactly the shape the rules forbid: no
+// consumer registers an overlay by hand at a call site. A registry passed down four
+// prop hops was also a registry no caller ever passed, so the airspace it claimed held
+// nothing and answered nobody.
 //
 // THE ESCAPE HATCH IS THE PLATFORM'S. Escape cancels and the initial focus lands on
 // the cancelling control, so the destructive button is never what a stray Enter hits.

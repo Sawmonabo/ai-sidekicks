@@ -16,8 +16,8 @@
 //
 // AND NO POLLING. The read is put once per subject, from the effect the chokepoint
 // arms, and again only when the port or the subject moves. A header that refreshed its
-// own spend on a timer would be a second cadence beside the event stream, which
-// `apps/desktop/AGENTS.md` §Chokepoints forbids by name.
+// own spend on a timer would be a second cadence beside the event stream, which the
+// chokepoint rules in `apps/desktop/AGENTS.md` forbid by name.
 
 import {
   useSettledGrowthRead,

@@ -1,5 +1,5 @@
 // Rect discipline — THIS MODULE'S OWN RULE, stated here because it is the one place
-// that implements it and no committed document states it.
+// that implements it.
 //
 // Every pane, and every native overlay the browser pane hosts, tracks its rect from four
 // invalidation sources: a `ResizeObserver` on the host, window resize, capture-phase
@@ -7,9 +7,9 @@
 // A `flushRect` step dedupes on a composed key so one frame produces one write. Native
 // views hide when either dimension of the visible clip is below one pixel. Overlay
 // elements register in the WINDOW'S airspace on mount so a native view yields to them or
-// hides while one is up — which is the airspace half `Spec-023 §Console Libraries` owns
-// by name on its native-browser-view row: "OWN-BUILD the bounds bridge, the airspace
-// policy (hide the view and swap in a `capturePage` image while an overlay is open)".
+// hides while one is up — the airspace half of the own-built native-browser-view stack,
+// which covers the bounds bridge and the airspace policy of hiding the view and
+// swapping in a `capturePage` image while an overlay is open.
 // That set is `core/airspace-registry.ts`'s and never this module's: it was declared
 // here too, for one window, and a second declaration of one rule is a second answer
 // that no overlay registering through `primitives/` was ever put into.
@@ -168,10 +168,10 @@ export class PaneRectTracker {
       (this.#invalidationCountBySource.get(source) ?? 0) + 1,
     );
     // COUNT and not intersection, which is this module's rule rather than an
-    // approximation of the browser family's: §Console Libraries' native-view row is
-    // "hide the view … while an overlay is open". The per-pane intersection reading
-    // belongs to `browser/geometry/`'s publisher, which owns a pane's own box; a
-    // tracker that re-derived it here would be a second answer to one question.
+    // approximation of the browser family's: the native-view policy is to hide the
+    // view while an overlay is open. The per-pane intersection reading belongs to
+    // `browser/geometry/`'s publisher, which owns a pane's own box; a tracker that
+    // re-derived it here would be a second answer to one question.
     const isAirspaceOccupied = this.#airspace.registeredCount > 0;
     this.#wasAirspaceOccupied = isAirspaceOccupied;
     for (const [paneId, element] of this.#elementsByPaneId) {

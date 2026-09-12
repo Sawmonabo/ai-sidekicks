@@ -65,9 +65,9 @@ export function testRegistry(): ConsolePaneRegistry {
  * One opened session store — the family's one home for this role.
  *
  * The sidebar's own support module held this verbatim under the same name, and the
- * restore-order suite held the `UiStateStore` half under a third. AGENTS.md §Tests
- * puts one home per ROLE: two spellings of "an opened session" is two fixtures that
- * agree until one of them is corrected.
+ * restore-order suite held the `UiStateStore` half under a third. The test rules in
+ * `apps/desktop/AGENTS.md` put one home per ROLE: two spellings of "an opened
+ * session" is two fixtures that agree until one of them is corrected.
  */
 export function sessionStore(sessionId: string = SESSION_ID): SessionStore {
   const store = new SessionStore({ sessionId });

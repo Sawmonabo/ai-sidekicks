@@ -16,9 +16,8 @@
 // draft cannot compose `run.queueCreate` without the turn's own body, and a session
 // opened with nothing said is a session waiting on a person who thinks they already
 // sent something. Agents and repo mounts are not offered because both need reads this
-// surface would have to invent, and `Spec-023 §Console Design (Meridian)` rule 8 puts
-// an unasked question in the _not checked_ absence rather than in a picker with
-// nothing behind it.
+// surface would have to invent, and an unasked question belongs in the _not checked_
+// absence rather than in a picker with nothing behind it.
 //
 // AND THE POSTURE PICKER IS GONE FOR THE SHARPER VERSION OF THAT RULE: a control whose
 // choice cannot be honoured is worse than an absent one, because it reports success for
@@ -179,9 +178,8 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
         {/* The act that replaces Send once the create's reply could not be read. It is
             offered INSTEAD OF a retry and never beside one: the directory read is
             what would name a session that was made, and a second send would make
-            another. `Spec-023 §Console Design (Meridian)` rule 9 — the control is
-            disabled with its sentence beside it, and the act that IS available is
-            drawn rather than left to be guessed at. */}
+            another. So the control is disabled with its sentence beside it, and the
+            act that IS available is drawn rather than left to be guessed at. */}
         {composition.isAmbiguousCreate ? (
           <button
             type="button"

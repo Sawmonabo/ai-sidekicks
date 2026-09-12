@@ -58,9 +58,9 @@ export const NEW_SESSION_DRAFT_REFUSAL_CODES = [
  *     NEITHER of the two dispositions beside it is honest: reporting `refused` invites
  *     a second press, which mints a second session where the first one landed, and
  *     reporting `partial` claims a session and an id nothing here holds. The wire
- *     carries no idempotency member for `session.create` — Spec-001 and Spec-002 mint
- *     none — so a renderer cannot make the retry safe, and the only safe act left is
- *     to go and look. This arm is terminal for the draft that reached it.
+ *     carries no idempotency member for `session.create` anywhere, so a renderer
+ *     cannot make the retry safe, and the only safe act left is to go and look. This
+ *     arm is terminal for the draft that reached it.
  */
 export const NEW_SESSION_SEND_OUTCOMES = [
   "sent",

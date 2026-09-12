@@ -1,8 +1,7 @@
 // What each row that was run settled as — one line per row, never one line for the run.
 //
-// `Spec-023 §Console Design (Meridian)` §The surface set: "a failed item renders its
-// own refusal and never hides the others' success", under a Never that forbids running
-// a bulk operation "sequentially and silently". So this list names every row it was
+// A failed item renders its own refusal and never hides the others' success, and no
+// bulk operation may run sequentially and silently. So this list names every row it was
 // given, in the order they were selected, and a refusal renders through the console's
 // own inline shape with its code verbatim rather than as a sentence this file wrote.
 //

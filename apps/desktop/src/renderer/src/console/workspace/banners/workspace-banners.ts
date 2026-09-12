@@ -1,8 +1,8 @@
 // The workspace's banner stack: what it coalesces, and what it deliberately keeps.
 //
-// `Spec-023 §Meridian, the design language` gives a refusal that "changes what the
-// whole room can do" the banner shape, and the workspace is where those land. Two
-// properties are this stack's own, because neither is a property of one refusal:
+// A refusal that changes what the whole room can do takes the banner shape, and the
+// workspace is where those land. Two properties are this stack's own, because neither
+// is a property of one refusal:
 //
 //   • **A REPEATED REFUSAL IS ONE BANNER WITH A COUNT.** A failing store raises
 //     `layout-save-failed` on every pane the person moves, so a drag produced a

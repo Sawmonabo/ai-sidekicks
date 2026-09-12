@@ -1,12 +1,12 @@
 // The session's one goal, at the sidebar's density: one line, clamped to one measure.
 //
-// `Spec-023 §The surface set` makes each sidebar section "a composition of its own
-// read, opening panes", and the goal's own density rule is one line here with the
-// editor opening in place on the surface that owns it. So this section STATES the
-// goal and never edits it: the set and clear controls, the draft, the bounded-text
-// validation, and the two mutations all live on the approvals surface's goal card,
-// and a second editor in the sidebar would be a second in-flight mutation over a
-// contract that admits exactly one per session.
+// Each sidebar section is a composition of its own read that opens panes, and the
+// goal's own density rule is one line here with the editor opening in place on the
+// surface that owns it. So this section STATES the goal and never edits it: the set
+// and clear controls, the draft, the bounded-text validation, and the two mutations
+// all live on the approvals surface's goal card, and a second editor in the sidebar
+// would be a second in-flight mutation over a contract that admits exactly one per
+// session.
 //
 // THE READ IS THE LOG, NOT A GOAL STORE. There is no separate goal store anywhere in
 // the corpus: the current goal is whatever the latest goal event says, folded by

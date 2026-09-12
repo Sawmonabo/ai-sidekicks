@@ -18,8 +18,8 @@
 // WHAT THIS PANE NEVER DOES. It offers no control that acts on the entity it shows.
 // Pausing a run, deciding an approval, and deleting an artifact are the surfaces
 // that own those verbs, gated on what the daemon declares; a control offered here
-// would be a second place eligibility is decided, which is exactly the renderer-held
-// truth `Spec-023 §Pitfalls To Avoid` names.
+// would be a second place eligibility is decided, which is exactly the kind of
+// renderer-held truth this console must never keep.
 
 import { ConsolePaneChrome, type PaneContextOf } from "../../seats/index.js";
 import { InspectorPaneBody } from "./InspectorPaneBody.js";

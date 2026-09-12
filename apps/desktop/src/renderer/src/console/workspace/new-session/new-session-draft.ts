@@ -1,11 +1,11 @@
 // The new-session draft — a session that does not exist yet.
 //
-// THIS CONSOLE'S OWN RULE, because no committed document states it — `Spec-023 §Scope`
-// leaves each surface's composition to "the console's own code and fixture scenarios":
-// "+ New" creates a draft session placeholder with no daemon row, and the person picks
-// agents (by definition), a repo mount and mode, a posture, and a paying account per
-// agent. The first send coalesces `session.create`, one `agent.attach` per agent, and
-// `run.queueCreate`; a draft that is closed empty reverts to nothing and leaves no row.
+// THIS CONSOLE'S OWN RULE, because each surface's composition is left to the console's
+// own code and fixture scenarios: "+ New" creates a draft session placeholder with no
+// daemon row, and the person picks agents (by definition), a repo mount and mode, a
+// posture, and a paying account per agent. The first send coalesces `session.create`,
+// one `agent.attach` per agent, and `run.queueCreate`; a draft that is closed empty
+// reverts to nothing and leaves no row.
 //
 // WHAT IS HERE AND WHAT IS NEXT DOOR. This file owns what a person has CHOSEN and the
 // coalescing that keeps one draft to one session. What those choices become on the
@@ -18,11 +18,11 @@
 //     object's memory and nowhere else. `discard()` on an empty draft leaves
 //     nothing behind — there is nothing to delete, which is the strongest form of
 //     "leaves no row".
-//   • **Nothing durable.** A draft is participant-authored content, and
-//     `Spec-023 §Persistence on the renderer scheme` gives such content no durable home
-//     in the renderer: "a draft lives in its window's in-memory store for that window's
-//     lifetime, is gone when the window closes". `console/persistence/value-classes.ts`
-//     is the enforcement; this module never reaches the persistence door.
+//   • **Nothing durable.** A draft is participant-authored content, and such content
+//     has no durable home in the renderer: a draft lives in its window's in-memory
+//     store for that window's lifetime and is gone when the window closes.
+//     `console/persistence/value-classes.ts` is the enforcement; this module never
+//     reaches the persistence door.
 //   • **A partial send is reported, never rolled back.** The rule above asks for the
 //     calls that succeeded to be named and for the draft to stay editable. A renderer
 //     cannot undo a `session.create` the daemon accepted, and pretending otherwise
@@ -46,7 +46,7 @@
 // AND ONE SETTLEMENT ENDS THE DRAFT RATHER THAN RESUMING IT. A create the daemon
 // answered with a reply this build cannot read may have made a session, and named
 // none — so there is nothing to resume against and nothing safe to repeat, because
-// `session.create` carries no idempotency member and Spec-001 and Spec-002 mint none.
+// `session.create` carries no idempotency member anywhere on the wire.
 // The draft remembers that reading and answers every later send from memory, putting
 // nothing on the wire; the sentence a person is left with says to go and look at the
 // sessions list rather than to press again.

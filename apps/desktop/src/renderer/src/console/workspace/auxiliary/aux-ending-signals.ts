@@ -8,12 +8,12 @@
 //
 // AND A WINDOW THAT STOPS BEING OPEN COMES BACK THROUGH A SIGNAL, NOT A GUESS —
 // EITHER WAY IT STOPS. Two things end a window's life and the deck can derive neither:
-// a crash, which `Spec-023 §The surface set` requires be "noted in the pane's error
-// slot", and a close performed from the window's OWN header, which this process never
-// performed and so does not know about. Hence two subscriptions, one per fact —
-// `aux-pane-error-watch.ts` and `aux-pane-return-watch.ts`, both over the lifecycle in
-// `aux-window-signal-watch.ts`. They open and close TOGETHER, because both are about
-// panes that are in windows right now and neither has anything to report when none is.
+// a crash, which has to be noted in the pane's error slot, and a close performed from
+// the window's OWN header, which this process never performed and so does not know
+// about. Hence two subscriptions, one per fact — `aux-pane-error-watch.ts` and
+// `aux-pane-return-watch.ts`, both over the lifecycle in `aux-window-signal-watch.ts`.
+// They open and close TOGETHER, because both are about panes that are in windows right
+// now and neither has anything to report when none is.
 //
 // AND THEY OPEN BEFORE THE FIRST WINDOW IS ASKED FOR. The shell's report is ONE-SHOT —
 // `src/main/auxiliary-window-ipc.ts`'s `closed` listener sends it to the renderer that

@@ -1,10 +1,10 @@
 // Dragging a pane to a new position, and the indicator that says where it will land.
 //
-// `Spec-023 §Console Libraries`, row "Layout, panes, drag": ADOPT
-// `@atlaskit/pragmatic-drag-and-drop` 3.1.0 for drag, OWN-BUILD the drop indicators,
-// the keyboard and menu reorder paths, and the live-region strings. So this module
-// is the seam between the two — the library owns the gesture and this file owns
-// where it may land and what the person sees while it is in the air.
+// For layout, panes and drag the console adopts `@atlaskit/pragmatic-drag-and-drop`
+// 3.1.0 for the drag itself and own-builds the drop indicators, the keyboard and menu
+// reorder paths, and the live-region strings. So this module is the seam between the
+// two — the library owns the gesture and this file owns where it may land and what
+// the person sees while it is in the air.
 //
 // THREE THINGS THIS DELIBERATELY DOES NOT DO:
 //
@@ -166,10 +166,10 @@ export function dropPosition(
 /**
  * What a settled drop is announced as.
  *
- * `Spec-023 §Console Libraries`, row "Layout, panes, drag", keeps the live-region
- * strings own-built, and this is where they are built. The outcome of a drop is
- * invisible to a person who is not watching the deck move, and the LIBRARY says
- * nothing: it reports that a drag ended, not whether the deck changed.
+ * The live-region strings for layout, panes and drag are own-built, and this is where
+ * they are built. The outcome of a drop is invisible to a person who is not watching
+ * the deck move, and the LIBRARY says nothing: it reports that a drag ended, not
+ * whether the deck changed.
  *
  * A move is POLITE and a drop that changed nothing is ASSERTIVE. That looks
  * backwards until the lanes are read as `live-announcer.ts` defines them — the

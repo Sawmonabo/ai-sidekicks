@@ -56,8 +56,7 @@ export interface DeckPaneSlotProps {
   readonly onFocus: (paneId: string) => void;
   readonly onClose: (paneId: string) => void;
   readonly onOpenInWindow?: (pane: DeckPane) => void;
-  /** True while this pane's body is showing in a window of its own
-   * (`Spec-023 §The surface set`). */
+  /** True while this pane's body is showing in a window of its own. */
   readonly isDetached: boolean;
   readonly onFocusDetachedWindow?: (paneId: string) => void;
   readonly onReturnToDeck?: (paneId: string) => void;
@@ -66,9 +65,9 @@ export interface DeckPaneSlotProps {
   /**
    * The crash this pane came back from, where it came back from one.
    *
-   * `Spec-023 §The surface set`: "a crashed auxiliary window returns the pane to the
-   * deck with the crash noted in the pane's error slot". The body is drawn as usual
-   * — the pane works again — and the note sits above it until it is dismissed.
+   * A crashed auxiliary window returns its pane to the deck with the crash noted in
+   * the pane's error slot. The body is drawn as usual — the pane works again — and
+   * the note sits above it until it is dismissed.
    */
   readonly lostWindowNotice?: ConsoleRefusal;
   readonly onDismissLostWindow?: (paneId: string) => void;
@@ -79,9 +78,9 @@ export interface DeckPaneSlotProps {
 /**
  * One pane's frame, and the body resolved through the deck's single mount door.
  *
- * Memoised on purpose: `Spec-023 §Console Design (Meridian)`'s budgets are written
- * against a four-lane streaming session, and an unmemoised map re-renders four pane
- * bodies for every event that touches one of them.
+ * Memoised on purpose: the console's frame budgets are written against a four-lane
+ * streaming session, and an unmemoised map re-renders four pane bodies for every
+ * event that touches one of them.
  */
 export const DeckPaneSlot: React.NamedExoticComponent<DeckPaneSlotProps> = memo(
   function DeckPaneSlot(props: DeckPaneSlotProps): React.JSX.Element {
