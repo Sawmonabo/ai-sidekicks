@@ -103,7 +103,7 @@
 //     P11  each of the four availability states round-trips
 //     P12  ONE row schema parses a read-window row and a live-stream row
 //     P13  the `complete` arm round-trips
-//     P14  each of the three causes round-trips on the incomplete arm
+//     P14  each of the two causes round-trips on the incomplete arm
 //     P15  an incomplete row still parses — the marker never removes the row
 //     P16  a page built by `countEntriesFittingOneFrame` is accepted by the schema
 //
@@ -776,7 +776,7 @@ describe("ChildRunSummary completeness marker", () => {
     for (const cause of CHILD_RUN_INCOMPLETE_CAUSES) {
       expect(accepts(cause)).toBe(true);
     }
-    expect(CHILD_RUN_INCOMPLETE_CAUSES).toHaveLength(3);
+    expect(CHILD_RUN_INCOMPLETE_CAUSES).toHaveLength(2);
     // Negative control, so the loop above cannot pass vacuously.
     expect(accepts("producer_unreachable")).toBe(false);
   });

@@ -3860,23 +3860,18 @@ type TimelineRow =
 type ChildRunIncompleteCause =
   | "detail_fetch_failed" // this daemon's own expansion read failed — Spec-013 §Fallback Behavior's own
   //   naming of the condition ("if a child-run detail fetch fails"). Transient: a retry may succeed.
-  | "pending_backfill" // the producing node's rows have not reached this node yet — the child run was
-  //   dispatched to another node (Plan-027 cross-node dispatch, the ChildRunSummary.producingNodeId
-  //   axis) and its rows are still in flight. Transient: it clears when the producing node's rows
-  //   arrive.
   | "compacted"; // the child's rows were compacted away. Already the shipped vocabulary on this plan's
 //   own sibling surface (ReasoningSurfaceReadResponse's availability arm) and on
 //   HydratedContentUnavailableReason. Terminal: no retry recovers a compacted row.
-// Deliberately NOT reused: NodeState "offline" (a node lifecycle state, which is the INPUT to
-// pending_backfill rather than a synonym), and RepoMountHealth "unreachable" (scoped to filesystem
-// mounts, whose own contract warns against overloading it across axes).
+// Deliberately NOT reused: RepoMountHealth "unreachable" (scoped to filesystem mounts, whose own
+// contract warns against overloading it across axes).
 type ChildRunCompleteness =
   | { state: "complete" }
   | {
       state: "incomplete";
       cause: ChildRunIncompleteCause; // required on this arm only
-      observedAt: string; // ISO-8601, daemon clock — when the cause was observed. Required because two
-      //   of the three causes are transient: a consumer deciding whether to retry, and a renderer
+      observedAt: string; // ISO-8601, daemon clock — when the cause was observed. Required because one
+      //   of the two causes is transient: a consumer deciding whether to retry, and a renderer
       //   deciding whether to age the notice, both need to know how old the reading is. A cause with no
       //   time is unactionable.
     };

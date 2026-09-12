@@ -254,13 +254,12 @@ export function retryabilityOf(summary: ChildRunSummary): "n/a" | "retryable" | 
   }
   switch (summary.completeness.cause) {
     case "detail_fetch_failed":
-    case "pending_backfill":
       return "retryable";
     case "compacted":
       // Terminal: no retry recovers a compacted row.
       return "terminal";
     default: {
-      // Exhaustiveness: a fourth cause added without a case here fails to compile.
+      // Exhaustiveness: a third cause added without a case here fails to compile.
       const unreachable: never = summary.completeness.cause;
       return unreachable;
     }
