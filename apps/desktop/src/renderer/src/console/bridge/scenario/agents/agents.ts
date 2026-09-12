@@ -90,7 +90,7 @@ export const AGENTS_SCENARIO: ConsoleScenario = {
   // than inferred: the head of the join order is whoever opened the session on
   // whichever machine, and reading it as "me" is a fabrication a role gate would
   // then be rendered from.
-  viewingUserId: USER_YOU,
+  callerUserId: USER_YOU,
   startedAtIso: "2026-01-01T11:30:00.000Z",
   beats: [
     {

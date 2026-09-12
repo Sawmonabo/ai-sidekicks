@@ -77,7 +77,7 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
   // join order — that entry is whoever opened the session, on whichever machine, and
   // a surface handed a fabricated identity renders a role gate as though it had been
   // checked. The fixture answers `callerUserRead` from this field alone.
-  viewingUserId: USER_YOU,
+  callerUserId: USER_YOU,
   startedAtIso: "2026-01-01T11:05:00.000Z",
   beats: [
     {

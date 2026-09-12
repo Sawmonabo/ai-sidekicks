@@ -53,7 +53,7 @@ export const SHELL_SCENARIO: ConsoleScenario = {
     "A window whose local runtime is reconnecting, whose transport fell back to loopback, and whose host has no usable keystore — the state the frame's honest chrome is designed against, standing at tick zero so it is what the switcher shows. Advancing reaches a refused handshake and then the quiet connected state.",
   sessionId: SESSION_ID,
   userIdsInJoinOrder: [USER_YOU],
-  viewingUserId: USER_YOU,
+  callerUserId: USER_YOU,
   startedAtIso: STARTED_AT,
   // Three frames on three beat ticks. `store/shell/shell-state.ts` owns every word in them.
   shellStatus: [

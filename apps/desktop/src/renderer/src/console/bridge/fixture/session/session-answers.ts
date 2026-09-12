@@ -1,4 +1,4 @@
-// The fixture's session answers: the base state, the node's directory, and the viewer.
+// The fixture's session answers: the base state, the node's directory, and the caller.
 //
 // A MODULE OF ITS OWN RATHER THAN A BLOCK IN THE PORT, on `shell/shell-answers.ts`'
 // rule. All three read the SAME two facts a scenario states about the session it is
@@ -47,19 +47,19 @@
 //
 // WHY THE CALLER-IDENTITY READ IS ANSWERED FROM A FIELD AND NOT FROM JOIN ORDER
 //
-// `ConsoleScenario` carries `viewingUserId` — which of the roster this window
+// `ConsoleScenario` carries `callerUserId` — which of the roster this window
 // IS — and the read is served from that field and from nothing else. The field exists
 // because the fact had no other honest source: join order is who opened the session
 // and who followed, on any machine, so reading its head as "me" is a fabrication, and
 // a surface handed a fabricated identity renders a role gate as though it had been
 // checked.
 //
-// A scenario that states no viewer is therefore not a gap to fill in with a guess.
+// A scenario that names no caller is therefore not a gap to fill in with a guess.
 // The operation refuses for it and the refusal says "not checked" — which is true of
 // a script that has not said. That is why the served set names this operation and the
 // answer is still conditional: the operation IS scripted here, and whether a given
 // scenario scripts the fact is the scenario's business. `wire-truth.ts` holds a stated
-// viewer to the roster, so the served arm can never answer with an identity the store
+// caller to the roster, so the served arm can never answer with an identity the store
 // has never held: the roster arrives with the base state (`session-snapshot.ts`), so a
 // surface that renders this identity beside the store's own rows finds it there.
 
@@ -133,23 +133,23 @@ export function fixtureSessionAnswers(
       value: directorySessionsOf(engine.scenario),
     }),
     callerUserRead: async (request) => {
-      const { viewingUserId } = engine.scenario;
+      const { callerUserId } = engine.scenario;
       // Refused rather than answered with an absence, on the branch-context read's
       // reading: a scenario that has not said has left the question unasked rather
-      // than answered it emptily, and a session always HAS a viewer, so there is no
+      // than answered it emptily, and a session always HAS a caller, so there is no
       // "we asked and there is none" state to serve. Both take the "not checked"
       // refusal the live bridge takes.
-      if (viewingUserId === undefined) {
+      if (callerUserId === undefined) {
         return growthUnavailable("callerUserRead");
       }
       // Scoped to the session the scenario is playing, on the `sessionRead` rule
       // above: an identity is a fact about one session's roster, and lending this
-      // session's viewer to another would tell a surface it holds a role in a session
-      // it may not even be a member of.
+      // session's caller to another would tell a surface it holds a role in a session
+      // it does not belong to.
       if (request.sessionId !== engine.scenario.sessionId) {
         return growthUnavailable("callerUserRead");
       }
-      return { status: "served", value: { userId: viewingUserId } };
+      return { status: "served", value: { userId: callerUserId } };
     },
   };
 }

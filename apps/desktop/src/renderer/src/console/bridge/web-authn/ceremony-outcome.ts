@@ -178,7 +178,7 @@ export type ProducedCeremonyOutcome = Exclude<
  * one that crosses the bridge: a scripted ceremony is "a fact about the HOST rather
  * than about the session — which authenticator this machine has, whether it does PRF,
  * and whether the OS keystore will hold what the ceremony mints." WHO signs in is none
- * of those. It is the scenario's `viewingUserId`, stated once, and a second
+ * of those. It is the scenario's `callerUserId`, stated once, and a second
  * statement on the ceremony script could disagree with it — which is exactly the
  * fabrication `fixture/growth/growth-port.refusals.test.ts` pins the identity read against.
  *

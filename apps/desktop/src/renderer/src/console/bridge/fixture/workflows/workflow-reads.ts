@@ -39,7 +39,7 @@
 //     invent a run, a finished phase and a version nobody published, and a run pane
 //     offers operator controls on whatever it is handed. They take the same "not
 //     checked" refusal `callerUserRead` takes for a scenario that names no
-//     viewer: the question reached nothing that could answer it.
+//     caller: the question reached nothing that could answer it.
 //
 // EVERY WORKFLOW READ CHECKS WHAT IT WAS ADDRESSED BY BEFORE IT ANSWERS. A scripted
 // reply is matched by CALL NAME, so a handler that only forwarded the request answered

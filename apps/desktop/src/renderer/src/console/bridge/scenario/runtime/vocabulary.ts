@@ -74,11 +74,11 @@ export interface ConsoleScenario {
    * caller-identity read, which is the honest "not checked" answer.
    *
    * When present it must be one of `userIdsInJoinOrder`: an identity outside
-   * that list is a viewer of some other session, and every surface that resolves it
+   * that list is the caller of some other session, and every surface that resolves it
    * would look it up and find nothing. `scenario/wire-truth/wire-truth.ts` holds every
    * scenario to that, the substrate's own two included.
    */
-  readonly viewingUserId?: string;
+  readonly callerUserId?: string;
   readonly beats: readonly ScenarioBeat[];
   readonly replies: readonly ScenarioReply[];
   /**

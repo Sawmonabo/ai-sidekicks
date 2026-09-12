@@ -9,10 +9,10 @@
 // it.
 //
 // The identity row is the one whose premise MOVED. `ConsoleScenario` grew
-// `viewingUserId`, so the fact now has a home and the read is answered from
+// `callerUserId`, so the fact now has a home and the read is answered from
 // it — and the premise worth pinning inverted with it: what no scenario may do is
-// state a viewer under some OTHER name, because the port reads exactly one field and
-// a second spelling would be a fact on the script that never reaches a surface. The
+// name the caller under some OTHER member, because the port reads exactly one field
+// and a second spelling would be a fact on the script that never reaches a surface. The
 // sidekick row has no finder because its premise cannot go stale: a definition is
 // node-local configuration and `ConsoleScenario` models no node at all, so there is
 // no field a scenario could grow that would make one derivable.
@@ -37,10 +37,10 @@ import { LEDGER_SCENARIO } from "../../scenario/ledger/ledger.js";
 import { createStubBridge, EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts";
 
 /**
- * Names a scenario must NOT state a viewer under — the spellings that are not the
+ * Names a scenario must NOT state the caller under — the spellings that are not the
  * field the port reads.
  *
- * `viewingUserId` is deliberately absent from this list: it is the one name
+ * `callerUserId` is deliberately absent from this list: it is the one name
  * the fixture answers from, and every substrate scenario now carries it. What the
  * finder catches is the near-miss — a family scenario that writes `viewerUserId`
  * into a scripted reply and quietly gets a refusal, because the port never looks
@@ -48,7 +48,7 @@ import { createStubBridge, EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/
  * which is deliberately not this fact: join order is who opened the session and who
  * followed, on any machine.
  */
-const VIEWER_NAMING_MEMBERS = ["viewerUserId", "callerUserId", "selfUserId"] as const;
+const CALLER_NAMING_MEMBERS = ["viewerUserId", "viewingUserId", "selfUserId"] as const;
 
 describe("the fixture's identity read — answered from the field, refused without it", () => {
   it("answers which user this window is, from the scenario's own statement", async () => {
@@ -58,7 +58,7 @@ describe("the fixture's identity read — answered from the field, refused witho
 
     expect(outcome.status).toBe("served");
     if (outcome.status === "served") {
-      expect(outcome.value.userId).toBe(FLAGSHIP_SCENARIO.viewingUserId);
+      expect(outcome.value.userId).toBe(FLAGSHIP_SCENARIO.callerUserId);
       // In the roster, which is what makes the answer resolvable to a role. The
       // wire-truth predicate holds every scenario to this; the assertion here is
       // that the PORT answers with the member rather than with something adjacent.
@@ -66,21 +66,21 @@ describe("the fixture's identity read — answered from the field, refused witho
     }
   });
 
-  it("refuses for a scenario that states no viewer, rather than reading join order", () => {
+  it("refuses for a scenario that names no caller, rather than reading join order", () => {
     // The fabrication the field exists to prevent, asserted as a refusal rather
     // than argued in a comment: the head of the join order is right there and is
     // not the answer.
-    const { viewingUserId: _statedViewer, ...withoutViewerFields } = FLAGSHIP_SCENARIO;
-    const withoutViewer: ConsoleScenario = { ...withoutViewerFields, id: "states-no-viewer" };
+    const { callerUserId: _statedCaller, ...withoutCallerFields } = FLAGSHIP_SCENARIO;
+    const withoutCaller: ConsoleScenario = { ...withoutCallerFields, id: "names-no-caller" };
 
     return expect(
-      createFixtureBridge({ scenario: withoutViewer }).growth.callerUserRead({
-        sessionId: withoutViewer.sessionId,
+      createFixtureBridge({ scenario: withoutCaller }).growth.callerUserRead({
+        sessionId: withoutCaller.sessionId,
       }),
     ).resolves.toMatchObject({ status: "unavailable", code: "wire-unregistered" });
   });
 
-  it("lends no session's viewer to another, a role being a fact about one roster", async () => {
+  it("lends no session's caller to another, a role being a fact about one roster", async () => {
     const port = fixturePort();
 
     const outcome = await port.callerUserRead({ sessionId: "session-somebody-else" });
@@ -103,14 +103,14 @@ describe("the fixture's identity read — answered from the field, refused witho
     }
   });
 
-  it("plays no scenario that states a viewer under a name the port does not read", () => {
-    expect(findScenariosNaming(CONSOLE_SCENARIOS, VIEWER_NAMING_MEMBERS)).toStrictEqual([]);
+  it("plays no scenario that names the caller under a member the port does not read", () => {
+    expect(findScenariosNaming(CONSOLE_SCENARIOS, CALLER_NAMING_MEMBERS)).toStrictEqual([]);
   });
 
   it("negative control: reports a scenario that states one under the wrong name", () => {
-    const withMisnamedViewer: ConsoleScenario = {
+    const withMisnamedCaller: ConsoleScenario = {
       ...FLAGSHIP_SCENARIO,
-      id: "names-a-viewer",
+      id: "names-a-caller",
       replies: [
         {
           call: "user.projectionRead",
@@ -119,8 +119,8 @@ describe("the fixture's identity read — answered from the field, refused witho
       ],
     };
 
-    expect(findScenariosNaming([withMisnamedViewer], VIEWER_NAMING_MEMBERS)).toStrictEqual([
-      "names-a-viewer",
+    expect(findScenariosNaming([withMisnamedCaller], CALLER_NAMING_MEMBERS)).toStrictEqual([
+      "names-a-caller",
     ]);
   });
 });

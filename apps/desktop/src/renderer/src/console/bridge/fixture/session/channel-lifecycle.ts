@@ -182,21 +182,21 @@ export class FixtureChannelLifecycle {
    * The identifier line is here rather than in each caller, so the four acts number
    * their frames from one counter and none of them can reuse a position — which
    * `store/session/sequence-reconciler.ts` would drop as a duplicate. The actor is the
-   * scenario's own viewer where it declares one and absent otherwise, which the
+   * scenario's own caller where it declares one and absent otherwise, which the
    * envelope composer renders as the system arm rather than as a user this
    * fixture chose. The PAYLOAD is the caller's, because the four kinds do not share
    * one: a transition names the session and the channel, a creation names the channel
    * and what it was called.
    */
   #appendFrame(eventKind: string, payload: Readonly<Record<string, unknown>>): void {
-    const { sessionId, viewingUserId } = this.#engine.scenario;
+    const { sessionId, callerUserId } = this.#engine.scenario;
     this.#appendedFrameCount += 1;
     this.#engine.appendEvent({
       id: `${APPENDED_CHANNEL_EVENT_ID_PREFIX}${String(this.#appendedFrameCount).padStart(12, "0")}`,
       sessionId,
       kind: eventKind,
       occurredAt: new Date(this.#engine.clock.now()).toISOString(),
-      ...(viewingUserId === undefined ? {} : { actorId: viewingUserId }),
+      ...(callerUserId === undefined ? {} : { actorId: callerUserId }),
       payload,
     });
   }

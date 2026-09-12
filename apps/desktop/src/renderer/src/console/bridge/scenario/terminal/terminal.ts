@@ -98,10 +98,10 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
   // The owner is the person at this window. The lease line's `held-by-me` arm —
   // and the handback it offers — is reachable only when the caller read names
   // the holder, and this scenario ends with the owner holding the degraded
-  // lease; without a viewer the pane can only show that the identity is being
+  // lease; without a caller the pane can only show that the identity is being
   // read, which is a true state of the console and not the state this
   // scenario exists to show.
-  viewingUserId: OWNER,
+  callerUserId: OWNER,
   startedAtIso: TERMINAL_SCENARIO_STARTED_AT_ISO,
   beats: [
     terminalScenarioBeat({

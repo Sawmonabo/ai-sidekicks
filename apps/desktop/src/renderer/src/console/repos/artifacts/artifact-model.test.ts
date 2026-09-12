@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { REPOS_VIEWING_USER_ID } from "../../bridge/scenario/repos/repos.js";
+import { REPOS_CALLER_USER_ID } from "../../bridge/scenario/repos/repos.js";
 import { GROWTH_ARTIFACT_TYPES } from "../../bridge/index.js";
 import { artifactRow, artifactSummary } from "./artifacts.test-support.js";
 import * as artifactModel from "./artifact-model.js";
@@ -138,8 +138,8 @@ describe("artifact-copy — absences that are facts", () => {
   });
 
   it("negative control: a present producer is rendered and not replaced", () => {
-    expect(artifactProducerLabel(artifactRow({ createdBy: REPOS_VIEWING_USER_ID }))).toBe(
-      REPOS_VIEWING_USER_ID,
+    expect(artifactProducerLabel(artifactRow({ createdBy: REPOS_CALLER_USER_ID }))).toBe(
+      REPOS_CALLER_USER_ID,
     );
   });
 

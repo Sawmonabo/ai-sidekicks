@@ -84,7 +84,7 @@ export const LEDGER_SCENARIO: ConsoleScenario = {
   userIdsInJoinOrder: [USER_YOU, USER_PRIYA, AGENT_ARCHITECT, AGENT_IMPLEMENTER, AGENT_REVIEWER],
   // Which of the roster this window is. Stated rather than read off the head of the
   // join order, which is whoever opened the session on whichever machine.
-  viewingUserId: USER_YOU,
+  callerUserId: USER_YOU,
   startedAtIso: STARTED_AT_ISO,
   beats: scriptLedgerBeats({
     sessionId: SESSION_ID,

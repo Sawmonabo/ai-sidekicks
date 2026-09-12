@@ -132,7 +132,7 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
   // Which of the six this window is. Stated rather than inferred from the head of
   // the join order — that entry is whoever opened the session, on whichever machine,
   // and the two facts coincide here only because this scenario chose to make them.
-  viewingUserId: USER_YOU,
+  callerUserId: USER_YOU,
   startedAtIso: STARTED_AT_ISO,
   beats: scriptLedgerBeats({
     sessionId: SESSION_ID,

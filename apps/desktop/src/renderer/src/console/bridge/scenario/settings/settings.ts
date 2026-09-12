@@ -102,7 +102,7 @@ export const SETTINGS_SCENARIO: ConsoleScenario = {
   // The only user, and stated rather than inferred all the same: a one-entry join
   // order makes its head coincide with the caller, and a surface that read the
   // coincidence as the rule would be wrong everywhere else.
-  viewingUserId: USER_YOU,
+  callerUserId: USER_YOU,
   startedAtIso: "2026-01-01T08:00:00.000Z",
   runtimeNodeRoster: RUNTIME_NODE_ROSTER_FRAMES,
   // The declaration the attach control reviews, supplied by the deck because

@@ -88,7 +88,7 @@
 // `findScenariosNaming` in `growth/growth-port.test-support.ts` pins the callback-tool
 // premise the way the
 // branch finder pins its own, and pins the identity premise from the other side: no
-// scenario states a viewer under any name but the one field the port reads.
+// scenario names the caller under any member but the one field the port reads.
 //
 // WHY THE NEGOTIATION READ IS SERVED FROM A SCRIPT AND FROM NOTHING ELSE
 //
@@ -313,7 +313,7 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   ...typeof FIXTURE_SERVED_ATTACHMENT_INGEST_OPERATION_IDS,
   ...typeof FIXTURE_SERVED_RUN_RECORD_OPERATION_IDS,
 ] = [
-  // sessions — the two the console cannot function without and the viewer that resolves
+  // sessions — the two the console cannot function without and the caller that resolves
   // a role against them, taken from the module that implements them so the ids and the
   // handlers cannot disagree. `session/session-answers.ts` carries the reasoning.
   ...FIXTURE_SERVED_SESSION_OPERATION_IDS,

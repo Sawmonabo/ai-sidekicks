@@ -222,13 +222,11 @@ describe("scenario wire truth — the caller a scenario answers its identity rea
       {
         ...FLAGSHIP_SCENARIO,
         id: "names-a-caller-it-never-joins",
-        viewingUserId: STRANGER_USER_ID,
+        callerUserId: STRANGER_USER_ID,
       },
     ]);
 
-    expect(defects.map((defect) => defect.subject)).toContain(
-      `viewingUserId "${STRANGER_USER_ID}"`,
-    );
+    expect(defects.map((defect) => defect.subject)).toContain(`callerUserId "${STRANGER_USER_ID}"`);
     expect(defects.some((defect) => defect.reason.includes("userIdsInJoinOrder"))).toBe(true);
   });
 
@@ -241,7 +239,7 @@ describe("scenario wire truth — the caller a scenario answers its identity rea
         {
           ...FLAGSHIP_SCENARIO,
           id: "names-a-caller-it-joins",
-          viewingUserId: FLAGSHIP_USER_ID,
+          callerUserId: FLAGSHIP_USER_ID,
         },
       ]),
     ).toStrictEqual([]);

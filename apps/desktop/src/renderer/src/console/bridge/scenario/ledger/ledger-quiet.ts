@@ -52,7 +52,7 @@ export const LEDGER_QUIET_SCENARIO: ConsoleScenario = {
   // One person opened this session and nothing has happened in it, so which of the
   // roster this window is is not in doubt — which is why it is stated rather than
   // left for the caller-identity read to refuse.
-  viewingUserId: USER_YOU,
+  callerUserId: USER_YOU,
   startedAtIso: STARTED_AT_ISO,
   beats: [],
   replies: [

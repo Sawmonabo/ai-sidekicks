@@ -328,7 +328,7 @@ export const LEDGER_FIRST_SIXTY_SCENARIO: ConsoleScenario = {
     "A live session already in flight, paced over sixty seconds — two lanes streaming, a child thread, an approval, and a run landing past tense. What a fresh console opens into instead of an empty state.",
   sessionId: SESSION_ID,
   userIdsInJoinOrder: [USER_YOU, USER_PRIYA, AGENT_ARCHITECT, AGENT_IMPLEMENTER, AGENT_REVIEWER],
-  viewingUserId: USER_YOU,
+  callerUserId: USER_YOU,
   startedAtIso: STARTED_AT_ISO,
   beats: scriptLedgerBeats({
     sessionId: SESSION_ID,

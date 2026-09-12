@@ -64,9 +64,9 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
   sessionId: SESSION_ID,
   userIdsInJoinOrder: [USER_YOU, USER_AWAY, AGENT_IMPLEMENTER, AGENT_REVIEWER],
   // The person the two pending cards are addressed to. Stated rather than inferred:
-  // an approvals surface that guessed its viewer would render an approve control for
+  // an approvals surface that guessed its caller would render an approve control for
   // whoever happens to be first in the join log.
-  viewingUserId: USER_YOU,
+  callerUserId: USER_YOU,
   startedAtIso: "2026-01-01T13:30:00.000Z",
   beats: [
     {

@@ -40,7 +40,7 @@ export const ONBOARDING_SCENARIO: ConsoleScenario = {
     "The two surfaces a person meets before any work: the passkey ceremony falling back to a browser hand-off that finishes memory-only, and the first-run walkthrough part-done with one provider ready and one signed out.",
   sessionId: SESSION_ID,
   userIdsInJoinOrder: [USER_YOU],
-  viewingUserId: USER_YOU,
+  callerUserId: USER_YOU,
   signInCeremony: {
     assertions: [
       {

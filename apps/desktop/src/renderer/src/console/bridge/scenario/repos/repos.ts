@@ -78,14 +78,14 @@ export { REPOS_WORKTREE_STATUS_REPLY } from "./repos-replies.js";
 export const REPOS_SCENARIO_ID = "repos";
 
 /**
- * The scenario's viewing user, and the session it views.
+ * The scenario's signed-in user, and the session they are in.
  *
  * Exported because the family's own component fixtures name a producer and a
  * session, and two spellings of one identity is how a fixture and the scenario it
  * is meant to represent come apart — the failure the seats merge fixed in this file
  * and left standing in those. A test reads the constant; nothing at runtime does.
  */
-export const REPOS_VIEWING_USER_ID: string = USER_YOU;
+export const REPOS_CALLER_USER_ID: string = USER_YOU;
 
 /** The session every row in this scenario belongs to. Same reason as above. */
 export const REPOS_SESSION_ID: string = SESSION_ID;
@@ -114,7 +114,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
   // Which of the three this window is. Stated rather than inferred from the head of
   // the join order — that entry is whoever opened the session, on whichever machine.
   // The fixture's caller-identity read answers from this field and from nothing else.
-  viewingUserId: USER_YOU,
+  callerUserId: USER_YOU,
   startedAtIso: REPOS_SCENARIO_STARTED_AT_ISO,
   beats: [
     reposBeat({

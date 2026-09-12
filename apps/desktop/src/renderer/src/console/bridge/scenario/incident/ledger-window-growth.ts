@@ -62,7 +62,7 @@ export const LEDGER_WINDOW_GROWTH_INCIDENT_SCENARIO: ConsoleScenario = composeIn
     // The person, then the four lanes in the order they first spoke — which is the hue
     // allocator's input, and the order the recording itself establishes.
     userIdsInJoinOrder: [USER_YOU, ...LANE_AGENT_IDS],
-    viewingUserId: USER_YOU,
+    callerUserId: USER_YOU,
     startedAtIso: "2026-01-14T11:20:00.000Z",
     replies: [
       {

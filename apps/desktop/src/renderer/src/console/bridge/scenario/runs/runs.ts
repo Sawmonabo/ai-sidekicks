@@ -47,7 +47,7 @@ export const RUNS_SCENARIO: ConsoleScenario = {
   // The person watching the run, stated rather than inferred. Absent, the fixture
   // refuses the caller-identity read and every control resolving a role from it renders
   // as though the role had been checked and found absent.
-  viewingUserId: USER_YOU,
+  callerUserId: USER_YOU,
   startedAtIso: "2026-01-01T16:00:00.000Z",
   beats: [
     {

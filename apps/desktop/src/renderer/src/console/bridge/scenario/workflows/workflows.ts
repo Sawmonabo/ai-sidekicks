@@ -125,7 +125,7 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
   // the join order — that entry is whoever opened the session, on whichever machine.
   // Absent, the caller-identity read refuses and every operator control on a parked
   // run reads as unchecked rather than as adjudicated.
-  viewingUserId: WORKFLOWS_USER_YOU,
+  callerUserId: WORKFLOWS_USER_YOU,
   startedAtIso: "2026-01-01T07:00:00.000Z",
   beats: [
     {

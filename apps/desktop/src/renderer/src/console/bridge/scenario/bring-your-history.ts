@@ -132,7 +132,7 @@ export const BRING_YOUR_HISTORY_SCENARIO: ConsoleScenario = {
     "A user arriving with work that already exists — a session identifier to join and a provider transcript to import — with the refusing arm of each and a machine that will not show OS notifications.",
   sessionId: SESSION_ID,
   userIdsInJoinOrder: [USER_YOU],
-  viewingUserId: USER_YOU,
+  callerUserId: USER_YOU,
   startedAtIso: "2026-01-01T09:00:00.000Z",
   beats: [
     {

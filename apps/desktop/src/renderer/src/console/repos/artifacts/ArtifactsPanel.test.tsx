@@ -4,7 +4,7 @@
 import { fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { REPOS_VIEWING_USER_ID } from "../../bridge/scenario/repos/repos.js";
+import { REPOS_CALLER_USER_ID } from "../../bridge/scenario/repos/repos.js";
 import { refuse } from "../../core/index.js";
 import { formatByteQuantity, formatCount } from "../../primitives/index.js";
 import { artifactRow } from "./artifacts.test-support.js";
@@ -143,7 +143,7 @@ describe("ArtifactsPanel — the row's face", () => {
     expect(container.textContent).toContain("published");
     expect(container.textContent).toContain("shared");
     expect(container.textContent).toContain(formatByteQuantity(row.size).text);
-    expect(container.textContent).toContain(REPOS_VIEWING_USER_ID);
+    expect(container.textContent).toContain(REPOS_CALLER_USER_ID);
     expect(container.textContent).toContain(ARTIFACT_REPLICATION_PRESENTATION.over_cap.meaning);
   });
 

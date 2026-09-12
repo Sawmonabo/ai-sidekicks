@@ -81,9 +81,9 @@ describe("the ledger scenarios", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("states a viewer who is actually in the roster", () => {
+  it("names a caller who is actually in the roster", () => {
     for (const scenario of LEDGER_SCENARIOS) {
-      expect(scenario.userIdsInJoinOrder).toContain(scenario.viewingUserId);
+      expect(scenario.userIdsInJoinOrder).toContain(scenario.callerUserId);
     }
   });
 

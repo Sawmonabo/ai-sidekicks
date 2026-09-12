@@ -43,7 +43,7 @@ const SHAPE_UNDER_TEST = {
   purpose: "A composition standing in for a seeded incident.",
   sessionId: SESSION_ID,
   userIdsInJoinOrder: [USER_YOU],
-  viewingUserId: USER_YOU,
+  callerUserId: USER_YOU,
   startedAtIso: "2026-01-14T11:20:00.000Z",
   replies: [],
 } as const;

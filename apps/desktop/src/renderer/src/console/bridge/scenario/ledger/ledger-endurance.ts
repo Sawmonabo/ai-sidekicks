@@ -221,7 +221,7 @@ export function createLedgerEnduranceScenario(
     purpose: `A generated session of ${String(options.rowCount)} rows across ${String(runCount)} run chapters, for the tiers that measure the ledger at scale.`,
     sessionId: SESSION_ID,
     userIdsInJoinOrder: [USER_YOU, USER_PRIYA, ...ENDURANCE_AGENTS.map((agent) => agent.agentId)],
-    viewingUserId: USER_YOU,
+    callerUserId: USER_YOU,
     startedAtIso: STARTED_AT_ISO,
     beats: scriptLedgerBeats({
       sessionId: SESSION_ID,

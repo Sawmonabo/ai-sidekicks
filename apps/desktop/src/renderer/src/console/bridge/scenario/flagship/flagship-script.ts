@@ -37,7 +37,7 @@ const lane = createLedgerLaneEntries(SESSION_ID);
 
 export const FLAGSHIP_SCRIPT: readonly LedgerScriptEntry[] = [
   // The opening, unchanged in shape: the room, the cast in join order, and the
-  // implementer's run opened by the viewer. Every surface built against this
+  // implementer's run opened by the signed-in user. Every surface built against this
   // scenario reads these eight beats, so they stay first and stay as they were.
   ...ledgerOpeningEntries({
     sessionId: SESSION_ID,

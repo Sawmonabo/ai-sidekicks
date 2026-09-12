@@ -9,7 +9,7 @@ import type { ConsoleScenario } from "../runtime/index.js";
 /**
  * A stated caller who is not in the session, or `undefined` when the scenario is sound.
  *
- * `viewingUserId` is what the caller-identity read answers with, and every
+ * `callerUserId` is what the caller-identity read answers with, and every
  * surface that attributes what it renders to this window resolves it by looking that
  * id up in the session's own user projection. An id outside
  * `userIdsInJoinOrder` resolves to nothing there, so the window's own rows are
@@ -22,16 +22,16 @@ import type { ConsoleScenario } from "../runtime/index.js";
 export function describeCallerDefect(
   scenario: ConsoleScenario,
 ): ScenarioWireTruthDefect | undefined {
-  const { viewingUserId } = scenario;
-  if (viewingUserId === undefined) {
+  const { callerUserId } = scenario;
+  if (callerUserId === undefined) {
     return undefined;
   }
-  if (scenario.userIdsInJoinOrder.includes(viewingUserId)) {
+  if (scenario.userIdsInJoinOrder.includes(callerUserId)) {
     return undefined;
   }
   return {
     scenarioId: scenario.id,
-    subject: `viewingUserId "${viewingUserId}"`,
+    subject: `callerUserId "${callerUserId}"`,
     reason:
       "the stated caller is not in `userIdsInJoinOrder`, so no surface can " +
       "resolve them in this session's own users. Name a user the " +

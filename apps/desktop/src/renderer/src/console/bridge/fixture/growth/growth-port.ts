@@ -9,7 +9,7 @@
 // This one owns the outcome each served operation answers with. The answers with a job
 // of their own live beside it, because each fails in a way this one cannot —
 // `session/session-answers.ts` holds the base-state read, the node's directory and
-// the viewer, over `session/session-snapshot.ts`, which derives the base state one
+// the caller, over `session/session-snapshot.ts`, which derives the base state one
 // session opens with, and `session/session-directory.ts`, which derives what the
 // node HAS, `approval-answers.ts` the two approvals reads and the two acts,
 // `shell/presence-answers.ts` the activity read and the node's control-plane host,

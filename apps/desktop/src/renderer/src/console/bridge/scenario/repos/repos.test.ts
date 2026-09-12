@@ -24,7 +24,7 @@ import {
   REPOS_IMPLEMENTER_RUN_ID,
   REPOS_SCENARIO,
   REPOS_SESSION_ID,
-  REPOS_VIEWING_USER_ID,
+  REPOS_CALLER_USER_ID,
 } from "./repos.js";
 import { REPOS_SCENARIO_STARTED_AT_ISO, scenarioInstant } from "./repos-beats.js";
 import {
@@ -201,8 +201,8 @@ describe("the repos scenario — the facts the repos family is drawn against", (
     expect(statuses).toContain("pinned");
   });
 
-  it("names a viewer the session actually joined", () => {
-    expect(REPOS_SCENARIO.userIdsInJoinOrder).toContain(REPOS_VIEWING_USER_ID);
+  it("names a caller the session actually joined", () => {
+    expect(REPOS_SCENARIO.userIdsInJoinOrder).toContain(REPOS_CALLER_USER_ID);
   });
 });
 
@@ -263,20 +263,20 @@ describe("the repos scenario — the growth reads it answers", () => {
     expect(unheld).not.toHaveProperty("value");
   });
 
-  it("answers the caller-identity read with the viewer it states", async () => {
+  it("answers the caller-identity read with the caller it states", async () => {
     const bridge = createFixtureBridge({ scenario: REPOS_SCENARIO });
 
     const outcome = await bridge.growth.callerUserRead({ sessionId: REPOS_SESSION_ID });
 
     expect(outcome.status).toBe("served");
     if (outcome.status === "served") {
-      expect(outcome.value.userId).toBe(REPOS_VIEWING_USER_ID);
+      expect(outcome.value.userId).toBe(REPOS_CALLER_USER_ID);
     }
   });
 
-  it("negative control: a scenario stating no viewer refuses that read", async () => {
-    const { viewingUserId: _stated, ...withoutViewer } = REPOS_SCENARIO;
-    const bridge = createFixtureBridge({ scenario: { ...withoutViewer, id: "repos-no-viewer" } });
+  it("negative control: a scenario naming no caller refuses that read", async () => {
+    const { callerUserId: _stated, ...withoutCaller } = REPOS_SCENARIO;
+    const bridge = createFixtureBridge({ scenario: { ...withoutCaller, id: "repos-no-caller" } });
 
     const outcome = await bridge.growth.callerUserRead({ sessionId: REPOS_SESSION_ID });
 

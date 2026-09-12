@@ -43,11 +43,11 @@ describe("the workflows scenario — wire truth", () => {
     expect(defects[0]?.reason).toContain("not a registered event type");
   });
 
-  it("states a viewer the session's own roster carries", () => {
+  it("names a caller the session's own roster carries", () => {
     // The identity the fixture answers the caller-identity read from. Asserted here as
     // well as by the predicate because its absence is silent: every role gate would
     // read unchecked, which looks exactly like a member with no elevated role.
-    expect(WORKFLOWS_SCENARIO.viewingUserId).toBeDefined();
-    expect(WORKFLOWS_SCENARIO.userIdsInJoinOrder).toContain(WORKFLOWS_SCENARIO.viewingUserId);
+    expect(WORKFLOWS_SCENARIO.callerUserId).toBeDefined();
+    expect(WORKFLOWS_SCENARIO.userIdsInJoinOrder).toContain(WORKFLOWS_SCENARIO.callerUserId);
   });
 });
