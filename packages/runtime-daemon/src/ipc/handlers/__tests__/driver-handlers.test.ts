@@ -94,7 +94,7 @@ import {
 // ----------------------------------------------------------------------------
 
 const TEST_SESSION_ID = "550e8400-e29b-41d4-a716-446655440000" as SessionId;
-const TEST_PARTICIPANT_ID = "660e8400-e29b-41d4-a716-446655440001" as ParticipantId;
+const TEST_ACTOR_ID = "660e8400-e29b-41d4-a716-446655440001" as ParticipantId;
 const TEST_RUN_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301" as RunId;
 const TEST_IDEMPOTENCY_KEY = "00000000-0000-4000-8000-00000000000a";
 const NO_TRANSPORT: HandlerContext = {};
@@ -133,7 +133,7 @@ function buildDriverEvent(sequence: number): SessionEvent {
     occurredAt: "2026-01-22T19:14:35.000Z",
     category: "assistant_output",
     type: "assistant.message",
-    actor: TEST_PARTICIPANT_ID,
+    actor: TEST_ACTOR_ID,
     version: "1.0" as SessionEvent["version"],
     payload: { sessionId: TEST_SESSION_ID, runId: TEST_RUN_ID },
   };
@@ -148,7 +148,7 @@ function buildNonDriverEvent(): SessionEvent {
     occurredAt: "2026-01-22T19:14:35.000Z",
     category: "session_lifecycle",
     type: "session.created",
-    actor: TEST_PARTICIPANT_ID,
+    actor: TEST_ACTOR_ID,
     version: "1.0" as SessionEvent["version"],
     payload: {
       sessionId: TEST_SESSION_ID,
@@ -285,9 +285,9 @@ async function realProviderRegistry(
 }
 
 /**
- * Deps for `driver.compactContext` with a fully-admitting default path — member
- * session, permitted caller, one live `claude` binding, the capability declared
- * — so each test overrides exactly the seam it is about.
+ * Deps for `driver.compactContext` with a fully-admitting default path — a
+ * session bound to this node, permitted caller, one live `claude` binding, the
+ * capability declared — so each test overrides exactly the seam it is about.
  */
 function compactContextDeps(
   drivers: Record<string, ProviderDriver>,
@@ -990,7 +990,7 @@ describe("driver.subscribeEvents", () => {
 
   it("DROPS events outside the seven driver categories, on both paths", async () => {
     // A `session.created` event parses cleanly against `SessionEventSchema`, so
-    // a source wired to a session-wide feed would push memberships, approvals,
+    // a source wired to a session-wide feed would push lifecycle, approval,
     // and audit rows onto a subscription opened for one run's driver activity
     // and nothing on this side would notice. (A leak past this filter reaches
     // the SDK's `DriverEventSchema`, which ends the subscription rather than
@@ -1100,9 +1100,43 @@ describe("driver.compactContext", () => {
     });
   });
 
-  it("refuses a non-member BYTE-IDENTICALLY to an unknown session (no existence oracle)", async () => {
+  it("admits the sole user's own session bound to this node and proceeds to run resolution", async () => {
+    // The solo path: one user, one session, hosted by the node executing the
+    // verb — the mask answers `true` for the addressed session id and the
+    // handler carries on to the run-binding resolution. Asserting the mask's
+    // ARGUMENT and the resolver's call proves the gate was passed rather than
+    // skipped: a handler that never called the mask would also reach dispatch.
+    const registry = new MethodRegistryImpl();
+    const compactContext = vi.fn(
+      async () => ({ status: "applied", boundaryPosition: 12 }) as const,
+    );
+    const resolveSessionAccess = vi.fn(() => true);
+    const resolveRunBinding = vi.fn<DriverCompactContextDeps["resolveRunBinding"]>(() => ({
+      kind: "bound",
+      driverName: "claude",
+      bindingId: TEST_BINDING_ID,
+    }));
+    registerDriverCompactContext(
+      registry,
+      compactContextDeps(
+        { claude: driverDouble({ compactContext }) },
+        { resolveSessionAccess, resolveRunBinding },
+      ),
+    );
+
+    await expect(
+      registry.dispatch("driver.compactContext", request, NO_TRANSPORT),
+    ).resolves.toStrictEqual({ status: "applied", boundaryPosition: 12 });
+
+    expect(resolveSessionAccess).toHaveBeenCalledTimes(1);
+    expect(resolveSessionAccess).toHaveBeenCalledWith(TEST_SESSION_ID);
+    expect(resolveRunBinding).toHaveBeenCalledWith(TEST_SESSION_ID, TEST_RUN_ID);
+    expect(compactContext).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a session not bound here BYTE-IDENTICALLY to an unknown session (no existence oracle)", async () => {
     // One resolver answer covers both readings — a session that does not exist
-    // and one the caller is not a member of — because the mask deliberately
+    // and one that is not bound to this node — because the mask deliberately
     // collapses them. The assertion compares the WHOLE mapped envelopes rather
     // than matching a code: byte-identity is the property, and two refusals
     // that differed in message, fields, or numeric would leak which reading
@@ -1128,25 +1162,25 @@ describe("driver.compactContext", () => {
         .then(() => undefined)
         .catch((error: unknown) => error);
 
-    const nonMemberRefusal = await refusalOf(TEST_SESSION_ID);
+    const notBoundHereRefusal = await refusalOf(TEST_SESSION_ID);
     const unknownSessionRefusal = await refusalOf(SECOND_SESSION_ID);
 
-    const nonMemberEnvelope = mapJsonRpcError(nonMemberRefusal, 7);
-    expect(nonMemberEnvelope).toStrictEqual(mapJsonRpcError(unknownSessionRefusal, 7));
-    expect(nonMemberEnvelope.error.message).toBe("Session does not exist or is not accessible");
+    const notBoundHereEnvelope = mapJsonRpcError(notBoundHereRefusal, 7);
+    expect(notBoundHereEnvelope).toStrictEqual(mapJsonRpcError(unknownSessionRefusal, 7));
+    expect(notBoundHereEnvelope.error.message).toBe("Session does not exist or is not accessible");
     // No `fields` key at all — a masked refusal that carried per-cause fields
     // would stop being byte-identical the day either side added one.
-    expect(Object.hasOwn(wireErrorData(nonMemberRefusal), "fields")).toBe(false);
+    expect(Object.hasOwn(wireErrorData(notBoundHereRefusal), "fields")).toBe(false);
 
     // The mask ran FIRST: nothing downstream was consulted for either caller.
     expect(resolveRunBinding).not.toHaveBeenCalled();
     expect(compactContext).not.toHaveBeenCalled();
   });
 
-  it("settles a viewer-role deny as not_permitted DATA, with zero gate and zero driver calls", async () => {
+  it("settles an adjudicated deny as not_permitted DATA, with zero gate and zero driver calls", async () => {
     // The adjudication precedes the capability gate AND the dispatch, and its
-    // deny is a RESOLVED value on the operation's own refused arm — a viewer is
-    // answered, not mis-addressed. Zero calls on the registry double prove the
+    // deny is a RESOLVED value on the operation's own refused arm — a denied
+    // caller is answered, not mis-addressed. Zero calls on the double prove the
     // ordering rather than assert it in prose.
     const registry = new MethodRegistryImpl();
     const compactContext = vi.fn();
@@ -1317,9 +1351,9 @@ describe("driver.listProviderCommands", () => {
   const request = { sessionId: TEST_SESSION_ID, agentId: TEST_AGENT_ID };
 
   it("fans out across the agent's live bindings and merges by concatenation, in resolver order", async () => {
-    // ANY active role reads — these deps carry no adjudication seam at all,
-    // which is the structural form of "the enumeration needs nothing beyond
-    // membership". Each group arrives exactly as its driver composed it: the
+    // ANY admitted caller reads — these deps carry no adjudication seam at
+    // all, which is the structural form of "the enumeration needs nothing
+    // beyond session access". Each group arrives as its driver composed it: the
     // runId attribution, the routing pair on every entry, and the order are
     // the drivers' own, concatenated and never re-shaped.
     const registry = new MethodRegistryImpl();
@@ -1390,27 +1424,26 @@ describe("driver.listProviderCommands", () => {
     expect(result.bindings[0]?.complete).toBe(false);
   });
 
-  it("reads for a viewer-role member — no adjudication seam is even expressible here", async () => {
-    // The compile-time half of "any active role reads": unlike
+  it("reads with no adjudication seam — none is even expressible on this verb", async () => {
+    // The compile-time half of "any admitted caller reads": unlike
     // `DriverCompactContextDeps`, this deps type declares NO
-    // `evaluateInterveneAction` member, so a role gate on the enumeration is
-    // not merely unwired but unrepresentable. Membership is the only
-    // admission, and it answers the same for every active role — a viewer's
-    // read is byte-for-byte a collaborator's.
+    // `evaluateInterveneAction` member, so a policy gate on the enumeration is
+    // not merely unwired but unrepresentable. Session access is the only
+    // admission this verb has.
     const registry = new MethodRegistryImpl();
-    const viewerVisibleGroup = commandGroup("claude");
+    const enumeratedGroup = commandGroup("claude");
     registerDriverListProviderCommands(
       registry,
       listProviderCommandsDeps({
         claude: driverDouble({
-          listProviderCommands: async () => ({ bindings: [viewerVisibleGroup] }),
+          listProviderCommands: async () => ({ bindings: [enumeratedGroup] }),
         }),
       }),
     );
 
     await expect(
       registry.dispatch("driver.listProviderCommands", request, NO_TRANSPORT),
-    ).resolves.toStrictEqual({ bindings: [viewerVisibleGroup] });
+    ).resolves.toStrictEqual({ bindings: [enumeratedGroup] });
   });
 
   it("refuses the WHOLE read when ONE binding's driver declares provider_commands false, with zero dispatches", async () => {
@@ -1506,7 +1539,41 @@ describe("driver.listProviderCommands", () => {
     expect(listProviderCommands).not.toHaveBeenCalled();
   });
 
-  it("refuses a non-member BYTE-IDENTICALLY to an unknown session on this verb too", async () => {
+  it("admits the sole user's own session bound to this node and proceeds to agent resolution", async () => {
+    // The solo path on the enumeration verb: the mask answers `true` for the
+    // addressed session id and the handler carries on to the agent-binding
+    // fan-out. The mask's argument and the resolver's call are both asserted,
+    // so passing the gate is proven rather than inferred from a successful
+    // reply a mask-skipping handler would also produce.
+    const registry = new MethodRegistryImpl();
+    const enumeratedGroup = commandGroup("claude");
+    const listProviderCommands = vi.fn(async () => ({ bindings: [enumeratedGroup] }));
+    const resolveSessionAccess = vi.fn(() => true);
+    const resolveAgentBindings = vi.fn<DriverListProviderCommandsDeps["resolveAgentBindings"]>(
+      () => ({
+        kind: "bound",
+        bindings: [{ driverName: "claude", bindingId: TEST_BINDING_ID, providerAccountId: null }],
+      }),
+    );
+    registerDriverListProviderCommands(
+      registry,
+      listProviderCommandsDeps(
+        { claude: driverDouble({ listProviderCommands }) },
+        { resolveSessionAccess, resolveAgentBindings },
+      ),
+    );
+
+    await expect(
+      registry.dispatch("driver.listProviderCommands", request, NO_TRANSPORT),
+    ).resolves.toStrictEqual({ bindings: [enumeratedGroup] });
+
+    expect(resolveSessionAccess).toHaveBeenCalledTimes(1);
+    expect(resolveSessionAccess).toHaveBeenCalledWith(TEST_SESSION_ID);
+    expect(resolveAgentBindings).toHaveBeenCalledWith(TEST_SESSION_ID, TEST_AGENT_ID);
+    expect(listProviderCommands).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a session not bound here BYTE-IDENTICALLY to an unknown session on this verb too", async () => {
     const registry = new MethodRegistryImpl();
     const resolveAgentBindings = vi.fn();
     registerDriverListProviderCommands(
@@ -1531,9 +1598,11 @@ describe("driver.listProviderCommands", () => {
         .then(() => undefined)
         .catch((error: unknown) => error);
 
-    const nonMemberEnvelope = mapJsonRpcError(await refusalOf(TEST_SESSION_ID), 7);
-    expect(nonMemberEnvelope).toStrictEqual(mapJsonRpcError(await refusalOf(SECOND_SESSION_ID), 7));
-    expect(nonMemberEnvelope.error.message).toBe("Session does not exist or is not accessible");
+    const notBoundHereEnvelope = mapJsonRpcError(await refusalOf(TEST_SESSION_ID), 7);
+    expect(notBoundHereEnvelope).toStrictEqual(
+      mapJsonRpcError(await refusalOf(SECOND_SESSION_ID), 7),
+    );
+    expect(notBoundHereEnvelope.error.message).toBe("Session does not exist or is not accessible");
     expect(resolveAgentBindings).not.toHaveBeenCalled();
   });
 
