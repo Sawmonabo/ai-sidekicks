@@ -205,8 +205,8 @@ describe("MerkleAnchorService — the anchor carries no event content", () => {
     // The TYPE half, checked by the compiler rather than at runtime: a `payload`
     // member added to `AnchorPayload` would make this directive unused and fail
     // the build. The two halves close opposite directions — a schema that stopped
-    // stripping, and an interface that started declaring. @ts-expect-error
-    // `AnchorPayload` declares no `payload` member.
+    // stripping, and an interface that started declaring.
+    // @ts-expect-error `AnchorPayload` declares no `payload` member.
     expect(uploaded.payload).toBeUndefined();
   });
 });

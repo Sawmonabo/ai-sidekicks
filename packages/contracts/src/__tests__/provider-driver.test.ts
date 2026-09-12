@@ -613,9 +613,8 @@ describe("ProviderDriver contract: off-union capability flag is a type error", (
       // — interrupt run, persist state, queue resume — not a driver capability and not an
       // `InterventionType` value (`InterventionType = "steer" | "interrupt" | "cancel" |
       // "rollback"`)). An excess key on a `Record<Union, …>` literal is a type error — the
-      // directive below MUST consume it. @ts-expect-error pause is not a DriverCapabilityFlag
-      // (pause is an orchestration-layer construct — interrupt + persist + queue-resume — not a
-      // driver capability)
+      // directive below MUST consume it.
+      // @ts-expect-error pause is not a DriverCapabilityFlag (pause is an orchestration-layer construct — interrupt + persist + queue-resume — not a driver capability)
       pause: true,
     };
     // Runtime read keeps the binding "used" for lint and anchors the type
@@ -628,8 +627,8 @@ describe("ProviderDriver contract: off-union capability flag is a type error", (
     // a driver cannot silently leave a capability unanswered (capabilities are explicit, never
     // inferred from absence). Omitting one of ADDITIONS (rather than an original seven flag) is
     // the load-bearing choice here: it proves the totality requirement actually extended to the
-    // widened union rather than lagging behind it. @ts-expect-error missing `cost_cap` — the
-    // flag record is total and must answer every flag
+    // widened union rather than lagging behind it.
+    // @ts-expect-error the flag record is total and must answer every flag
     const incompleteFlags: DriverCapabilities["flags"] = {
       resume: true,
       steer: true,
@@ -684,8 +683,8 @@ describe("ProviderDriver contract: failed resume cannot carry a binding", () => 
 
       // …and CANNOT carry a binding. Accessing `.bindingId` on the narrowed `failed` variant is a
       // type error — the structural proof that silent replacement (a binding alongside a failure)
-      // is inexpressible. @ts-expect-error `bindingId` does not exist on the `failed` variant (no
-      // binding alongside a failure)
+      // is inexpressible.
+      // @ts-expect-error `bindingId` does not exist on the `failed` variant (no binding alongside a failure)
       const leakedBinding = resume.bindingId;
       // Nor a position. A failed resume confirms NO position, so there is
       // nothing for the daemon to compare against its recorded one — the same
@@ -712,9 +711,8 @@ describe("ProviderDriver contract: failed resume cannot carry a binding", () => 
     if (success.status === "resumed") {
       expect(success.bindingId).toBe("binding-xyz");
       expect(success.sessionPosition).toBe(4);
-      // Symmetric proof: the `resumed` variant has NEITHER failure axis. @ts-expect-error
-      // `recoveryCondition` does not exist on the `resumed` variant (success carries no failure
-      // signal)
+      // Symmetric proof: the `resumed` variant has NEITHER failure axis.
+      // @ts-expect-error `recoveryCondition` does not exist on the `resumed` variant (success carries no failure signal)
       const leakedRecovery = success.recoveryCondition;
       // @ts-expect-error `recoverySpanClassification` does not exist on the `resumed` variant (the span classification is a FAILURE axis)
       const leakedClassification = success.recoverySpanClassification;
