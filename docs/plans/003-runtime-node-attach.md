@@ -414,9 +414,9 @@ preconditions:
 
 ##### T3.1 — Control-plane migration: CREATE `runtime_node_attachments` + `runtime_node_presence`
 
-- **Files:** `packages/control-plane/src/migrations/0003-runtime-nodes.ts` (new), `packages/control-plane/src/sessions/migration-runner.ts` (extended — append `{ version: 3, sql }` to `MIGRATIONS`), migration-shape test.
-- **Step:** Add the Plan-003-owned control-plane Postgres migration. Copy the `runtime_node_attachments` and `runtime_node_presence` blocks verbatim from `shared-postgres-schema.md` (including the `-- Owner: Plan-003` stamps, the `state` CHECK, the `idx_node_attachments_node` composite `(node_id, session_id)` unique index, and the `runtime_node_presence` PK). Register it as control-plane migration **version 3** (`0003-runtime-nodes.ts`) — append `{ version: 3, sql: ... }` to the runner's `MIGRATIONS` array in ascending version order (ordinal `0002` is retired and never reused, so the runner's monotonic sequence runs 1 → 3 → 4). Plan-001 does **not** create these tables (header §Dependencies); this Task is where they come into existence.
-- **Test:** assert applying `0003` against a Postgres DB already migrated through `0001-initial` creates both tables with the exact column set, the `state` CHECK enum, the composite uniqueness, and the presence PK; idempotent under the runner.
+- **Files:** `packages/control-plane/src/migrations/0002-runtime-nodes.ts` (new), `packages/control-plane/src/sessions/migration-runner.ts` (extended — append `{ version: 2, sql }` to `MIGRATIONS`), migration-shape test.
+- **Step:** Add the Plan-003-owned control-plane Postgres migration. Copy the `runtime_node_attachments` and `runtime_node_presence` blocks verbatim from `shared-postgres-schema.md` (including the `-- Owner: Plan-003` stamps, the `state` CHECK, the `idx_node_attachments_node` composite `(node_id, session_id)` unique index, and the `runtime_node_presence` PK). Register it as control-plane migration **version 2** (`0002-runtime-nodes.ts`) — append `{ version: 2, sql: ... }` to the runner's `MIGRATIONS` array in ascending version order. Plan-001 does **not** create these tables (header §Dependencies); this Task is where they come into existence.
+- **Test:** assert applying `0002` against a Postgres DB already migrated through `0001-initial` creates both tables with the exact column set, the `state` CHECK enum, the composite uniqueness, and the presence PK; idempotent under the runner.
 - **Spec coverage:** Spec-003 §State And Data Implications (durable runtime-node records for reconnect/audit).
 - **Verifies invariant:** none (substrate for I-003-1 persistence)
 
@@ -751,8 +751,8 @@ shipped:
       - packages/contracts/src/runtime-node.ts
       - packages/control-plane/src/ais-wire-exception.ts
       - packages/control-plane/src/index.ts
-      - packages/control-plane/src/migrations/0003-runtime-nodes.ts
-      - packages/control-plane/src/migrations/__tests__/0003-runtime-nodes.test.ts
+      - packages/control-plane/src/migrations/0002-runtime-nodes.ts
+      - packages/control-plane/src/migrations/__tests__/0002-runtime-nodes.test.ts
       - packages/control-plane/src/migrations/__tests__/migration-shape.test.ts
       - packages/control-plane/src/migrations/__tests__/runtime-node-upstream-anchors.test.ts
       - packages/control-plane/src/presence/__tests__/presence-register-service.test.ts
@@ -840,8 +840,8 @@ shipped:
       - packages/client-sdk/test/runtimeNodeClient.integration.test.ts
       - packages/contracts/src/__tests__/runtime-node.test.ts
       - packages/contracts/src/runtime-node.ts
-      - packages/control-plane/src/migrations/0003-runtime-nodes.ts
-      - packages/control-plane/src/migrations/__tests__/0003-runtime-nodes.test.ts
+      - packages/control-plane/src/migrations/0002-runtime-nodes.ts
+      - packages/control-plane/src/migrations/__tests__/0002-runtime-nodes.test.ts
       - packages/control-plane/src/runtime-nodes/__tests__/attach-service.test.ts
       - packages/control-plane/src/runtime-nodes/__tests__/runtime-node-router.test.ts
       - packages/control-plane/src/runtime-nodes/attach-service.ts
