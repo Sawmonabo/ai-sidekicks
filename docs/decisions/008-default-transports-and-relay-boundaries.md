@@ -91,7 +91,7 @@ We will default to OS-local IPC for client-to-daemon communication, use authenti
 ### Related Specs
 
 - [Local IPC And Daemon Control](../specs/007-local-ipc-and-daemon-control.md)
-- [Identity And Participant State](../specs/018-identity-and-participant-state.md)
+- [Identity And User State](../specs/018-identity-and-user-state.md)
 
 ### Related ADRs
 

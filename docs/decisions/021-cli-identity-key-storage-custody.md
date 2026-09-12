@@ -11,7 +11,7 @@
 
 ## Context
 
-[ADR-010](./010-paseto-webauthn-mls-auth.md) chose a long-term Ed25519 identity key per participant as the cryptographic anchor for the V1 relay encryption layer. That key signs each session's ephemeral X25519 public key inside `SessionKeyBundle`, binding the session key exchange to the participant's control-plane-registered identity (Spec-008 §Relay Encryption).
+[ADR-010](./010-paseto-webauthn-mls-auth.md) chose a long-term Ed25519 identity key per user as the cryptographic anchor for the V1 relay encryption layer. That key signs each session's ephemeral X25519 public key inside `SessionKeyBundle`, binding the session key exchange to the user's control-plane-registered identity (Spec-008 §Relay Encryption).
 
 The desktop client derives (or wraps) its Ed25519 identity key from a WebAuthn/passkey PRF ceremony — the passkey's resident key material never leaves the authenticator, and the derived key is reconstructed per session without hitting disk in plaintext.
 
@@ -79,7 +79,7 @@ The CLI stores its long-term Ed25519 identity key using a **three-tier custody l
 - When tier 1 is unavailable _and_ tier 2 cannot be established (e.g., no writable data directory, operator declined to set a password in a non-interactive context), the CLI refuses shared-session participation with an actionable diagnostic.
 - Local-only sessions remain fully usable — tier 3 only blocks shared-session join and relay-backed flows where ADR-010's Ed25519 identity key is required.
 - Refusal message names the failed tiers, the detected platform constraints, and the smallest set of actions the operator can take to reach tier 1 or tier 2.
-- No key is generated when tier 3 is active. A key generated at tier 3 would have no durable custody and would rotate on every CLI invocation, breaking every `SessionKeyBundle` signature the participant had previously published.
+- No key is generated when tier 3 is active. A key generated at tier 3 would have no durable custody and would rotate on every CLI invocation, breaking every `SessionKeyBundle` signature the user had previously published.
 
 ### Cross-Platform Invariants
 
@@ -107,7 +107,7 @@ The Ed25519 identity key MUST NOT be silently regenerated. Specifically:
 
 - Key generation happens exactly once per workstation, on first CLI identity setup.
 - Any subsequent call path that would return "no identity key found" MUST refuse rather than generate a replacement, unless the operator explicitly passed `cli identity rotate` (V1.x: stolen-key reuse detection; see [§Success Criteria](#success-criteria)).
-- This is load-bearing because a silently rotated Ed25519 key invalidates every `SessionKeyBundle` signature the participant previously published, and the control plane's rejection path (Spec-031) would drop the participant from all active shared sessions without a recoverable path.
+- This is load-bearing because a silently rotated Ed25519 key invalidates every `SessionKeyBundle` signature the user previously published, and the control plane's rejection path (Spec-031) would drop the user from all active shared sessions without a recoverable path.
 
 #### Plaintext-In-Daemon-Memory Only
 

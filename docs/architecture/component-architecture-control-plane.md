@@ -30,7 +30,7 @@ The Control Plane exists so a user's devices can reach the machine a session run
 | `Device Registry` | Holds one durable row per linked device — name, kind, public identity key, link time, revocation — and answers "which devices can act as this user". |
 | `Device Liveness Service` | Tracks device and runtime-node heartbeats and disconnect grace windows. Liveness is about the user's own endpoints; it is never a roster of other people. |
 | `Relay Broker` | Helps a user's devices and runtime nodes establish connectivity without taking over execution. |
-| `Artifact Relay Blob Store` | Holds eagerly pinned, digest-addressed E2EE artifact ciphertext chunks and per-`(participant, node)` wrapped CEKs (durable artifact keys) with refcount/TTL GC and quota accounting; never holds decryption-capable key material ([Spec-014 §Cross-Node Artifact Relay (V1)](../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1); lands with Plan-014 Tasks 7–10). |
+| `Artifact Relay Blob Store` | Holds eagerly pinned, digest-addressed E2EE artifact ciphertext chunks and per-`(user, node)` wrapped CEKs (durable artifact keys) with refcount/TTL GC and quota accounting; never holds decryption-capable key material ([Spec-014 §Cross-Node Artifact Relay (V1)](../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1); lands with Plan-014 Tasks 7–10). |
 | `Notification Service` | Delivers attention and session-level notifications to the user's connected devices, and queues them when no device is connected. |
 | `Shared Metadata Store` | Persists the session directory, device registry, and liveness state that a user's devices and nodes read. |
 
@@ -72,7 +72,7 @@ The Control Plane exists so a user's devices can reach the machine a session run
 
 - [Shared Session Core](../specs/001-shared-session-core.md)
 - [Remote Control](../specs/031-remote-control.md)
-- [Identity And Participant State](../specs/018-identity-and-participant-state.md)
+- [Identity And User State](../specs/018-identity-and-user-state.md)
 
 ## Related ADRs
 

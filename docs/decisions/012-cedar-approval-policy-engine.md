@@ -97,11 +97,11 @@ A single operator signing keypair (the _operator release key_) signs daemon imag
 - **Hosted Sidekicks daemons:** pinned to the Sidekicks operator public key baked into the official daemon image at build.
 - **Self-hosted daemons:** the operator public key is injected at image build time via an `OPERATOR_PUBLIC_KEY` build argument. Self-hosters rebuild the daemon image with their organization's operator public key substituted in. Self-hosters who run unmodified hosted images implicitly trust the Sidekicks operator key; this is the same trust boundary any signed-container-image ecosystem imposes.
 
-The operator signing key is distinct from participant identity keys ([ADR-010](./010-paseto-webauthn-mls-auth.md), [ADR-021](./021-cli-identity-key-storage-custody.md)). It never signs participant-scoped artifacts. It signs only operator-produced, operator-released artifacts (daemon images; the V1 compiled policy set's detached signature; V1.1+ policy bundles).
+The operator signing key is distinct from user identity keys ([ADR-010](./010-paseto-webauthn-mls-auth.md), [ADR-021](./021-cli-identity-key-storage-custody.md)). It never signs user-scoped artifacts. It signs only operator-produced, operator-released artifacts (daemon images; the V1 compiled policy set's detached signature; V1.1+ policy bundles).
 
 ### Signing Algorithm
 
-- **Primary:** Ed25519 (FIPS 186-5 approved; consistent with ADR-010 PASETO v4 and ADR-021 participant identity keys; small signatures; constant-time implementations widely available).
+- **Primary:** Ed25519 (FIPS 186-5 approved; consistent with ADR-010 PASETO v4 and ADR-021 user identity keys; small signatures; constant-time implementations widely available).
 - **Configurable fallback:** ECDSA P-256 for deployments requiring FIPS 140-3 module validation where an Ed25519 module is not yet available in the operator's compliance envelope.
 
 Signature algorithm is selected at build time per daemon image. Daemons reject bundles signed with an algorithm other than the one their pinned key uses.

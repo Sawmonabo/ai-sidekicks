@@ -57,7 +57,7 @@ Out of scope (see Non-Goals):
 ## Domain Dependencies
 
 - [Session Model](../domain/session-model.md) — session creation is never gated on onboarding.
-- [User And Device Model](../domain/user-and-device-model.md) — `onboarding.choice_made` is attributed to a `ParticipantId`.
+- [User And Device Model](../domain/user-and-device-model.md) — `onboarding.choice_made` is attributed to a `UserId`.
 
 ## Architectural Dependencies
 
@@ -136,7 +136,7 @@ Secrets (`self-host` admin token; `hosted-saas` scoped token) are never written 
 
 ### Telemetry Opt-In
 
-Telemetry opt-in must be presented as a _separate step_ after the three-way choice resolves, in the same session. Default must be **off**. Copy must state: what is collected (error-class counts, version strings, choice-ID without relay URL), what is _not_ collected (session payloads, file contents, participant identifiers, relay traffic), the retention window, and how to change the setting later (`sidekicks telemetry set {on,off}`). The flow must not proceed past telemetry opt-in without an explicit choice; no silent default.
+Telemetry opt-in must be presented as a _separate step_ after the three-way choice resolves, in the same session. Default must be **off**. Copy must state: what is collected (error-class counts, version strings, choice-ID without relay URL), what is _not_ collected (session payloads, file contents, user identifiers, relay traffic), the retention window, and how to change the setting later (`sidekicks telemetry set {on,off}`). The flow must not proceed past telemetry opt-in without an explicit choice; no silent default.
 
 [EU ePrivacy Directive Article 5(3)](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:02002L0058-20091219) requires explicit consent for non-essential client-side storage; legitimate-interest is not an accepted basis. This flow's default-off posture is global (not EU-only) for uniform behavior.
 
@@ -234,8 +234,8 @@ This spec's two onboarding events are registered in [Spec-006](./006-session-eve
 
 | Event (dotted form) | Payload |
 | --- | --- |
-| `onboarding.choice_made` | `{participantId, choiceId, relayUrl, migrated: boolean, deferredValidation: boolean, keystoreAvailable: boolean, timestamp}` |
-| `onboarding.choice_reset` | `{participantId, previousChoiceId, reason: 'cli-reset' \| 'operator-reset', timestamp}` |
+| `onboarding.choice_made` | `{userId, choiceId, relayUrl, migrated: boolean, deferredValidation: boolean, keystoreAvailable: boolean, timestamp}` |
+| `onboarding.choice_reset` | `{userId, previousChoiceId, reason: 'cli-reset' \| 'operator-reset', timestamp}` |
 
 Payloads must not contain secret material (no tokens, no SPKI pin raw bytes — the pin is stored in config, not events).
 

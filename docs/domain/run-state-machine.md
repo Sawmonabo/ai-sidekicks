@@ -14,7 +14,7 @@ This document covers run states, transition rules, and the meaning of control ac
 - `BlockingState`: a non-terminal run state that requires external input before normal progress can continue.
 - `TerminalState`: a run state from which the run does not continue under normal forward execution. The only exit is the `rollback` intervention (§Rollback Transitions, campaign B2), which re-opens the same run at an earlier position.
 - `RunFailureCategory`: a machine-readable classification that explains why a run failed or degraded without creating a new run state.
-- `RecoveryCondition`: a derived signal that explains whether recovery still requires operator or participant action.
+- `RecoveryCondition`: a derived signal that explains whether recovery still requires operator or user action.
 - `RunHealthSignal`: a derived signal such as `stuck-suspected` that helps operators reason about a live run without changing the canonical `RunState`.
 
 ## What This Is
@@ -41,7 +41,7 @@ The run state machine is the source of truth for execution lifecycle semantics.
 
 - `QueueItem` may create a run in `queued` state.
 - `Intervention` can alter a run's state when permitted.
-- `Approval` and participant input can unblock waiting states.
+- `Approval` and user input can unblock waiting states.
 - `Artifact` publication can occur while a run is active or when it becomes terminal.
 
 ## State Model
@@ -52,7 +52,7 @@ The run state machine is the source of truth for execution lifecycle semantics.
 | `starting` | The runtime is preparing provider, workspace, or execution state. |
 | `running` | The run is actively executing. |
 | `waiting_for_approval` | The run is blocked on an approval request. |
-| `waiting_for_input` | The run is blocked on participant input or structured answers. |
+| `waiting_for_input` | The run is blocked on user input or structured answers. |
 | `paused` | The run has been intentionally suspended and can later continue with the same run id. |
 | `completed` | The run finished successfully. |
 | `interrupted` | The run ended because of an interrupt or cancel path. |
@@ -121,7 +121,7 @@ The following table is the single authoritative reference for every allowed run 
 | `starting` | `failed` | Initialization error | Provider or workspace setup cannot complete |
 | `starting` | `interrupted` | Interrupt or cancel intervention | User-initiated stop while run setup is in progress or parked (e.g. blocked-in-setup per `Spec-010 §Fallback Behavior` — Tier-6 audit) |
 | `running` | `waiting_for_approval` | Approval requested | Run requires explicit approval before continuing |
-| `running` | `waiting_for_input` | Input requested | Run requires participant input or structured answers |
+| `running` | `waiting_for_input` | Input requested | Run requires user input or structured answers |
 | `running` | `paused` | Pause intervention | User or orchestration initiates pause |
 | `running` | `interrupted` | Interrupt or cancel intervention | User-initiated stop |
 | `running` | `completed` | Execution finished | Run reaches successful terminal condition |
@@ -130,7 +130,7 @@ The following table is the single authoritative reference for every allowed run 
 | `waiting_for_approval` | `running` | Provider ask retraction | The provider withdrew its still-pending permission ask on the live leg — `driver_ask.canceled` settles at once, the associated approval request settles `approval.canceled` (no resolution row) in the same atomic pass, and the run resumes with no outcome delivered (Plan-012 T2.8's cancel ingress, campaign B13) |
 | `waiting_for_approval` | `interrupted` | Interrupt or cancel intervention | User-initiated stop while waiting, or the system-cancel of a denied or expired pre-turn moderation gate (`trigger: 'moderation_denied'` — Spec-016 D-016-10; the expired-gate arm, campaign B15) |
 | `waiting_for_approval` | `failed` | Provider or transport failure | Failure occurs while run is blocked on approval |
-| `waiting_for_input` | `running` | Input received | Valid participant input received, or a blocking `user_input` / `mcp_elicitation` approval-category request resolves — rejected/expired outcomes continue-with-refusal (Spec-012, CP-012-5 seam); a driver input-ask expiry never takes this row — it takes the park row below (Spec-012 Part-B fail-closed follow-up, 2026-07-17) |
+| `waiting_for_input` | `running` | Input received | Valid user input received, or a blocking `user_input` / `mcp_elicitation` approval-category request resolves — rejected/expired outcomes continue-with-refusal (Spec-012, CP-012-5 seam); a driver input-ask expiry never takes this row — it takes the park row below (Spec-012 Part-B fail-closed follow-up, 2026-07-17) |
 | `waiting_for_input` | `running` | Provider ask retraction | The provider withdrew its still-pending input ask on the live leg — `driver_ask.canceled` settles at once and the run resumes with no input delivered (Plan-012 T2.8's cancel ingress, campaign B13) |
 | `waiting_for_input` | `interrupted` | Interrupt or cancel intervention | User-initiated stop while waiting |
 | `waiting_for_input` | `failed` | Provider or transport failure | Failure occurs while run is blocked on input |
@@ -168,7 +168,7 @@ The canonical run lifecycle has one failure terminal state: `failed`. Additional
 | Signal Or Category | Meaning | Classification |
 | --- | --- | --- |
 | `stuck-suspected` | The run appears active but has exceeded progress thresholds without reaching a valid blocking or terminal state. | Derived run-health signal, not `RunState` |
-| `recovery-needed` | Automatic recovery did not return the run to safe progress — or a driver-side integrity trip ended the run outright with the provider's client-side state possibly mutated ([Spec-005 §Required Behavior](../specs/005-provider-driver-contract-and-capabilities.md#required-behavior), the outbound-frame neutralization tripwire, 2026-08-25) — and operator or participant action is required. | Recovery condition, not `RunState` |
+| `recovery-needed` | Automatic recovery did not return the run to safe progress — or a driver-side integrity trip ended the run outright with the provider's client-side state possibly mutated ([Spec-005 §Required Behavior](../specs/005-provider-driver-contract-and-capabilities.md#required-behavior), the outbound-frame neutralization tripwire, 2026-08-25) — and operator or user action is required. | Recovery condition, not `RunState` |
 | `reauth-required` | Provider credentials or the provider session expired mid-run or during resume; re-authentication on the runtime node is required before recovery proceeds ([Spec-005 §Fallback Behavior](../specs/005-provider-driver-contract-and-capabilities.md#fallback-behavior) `RecoveryCondition`, campaign B3). | Recovery condition, not `RunState` |
 | `provider failure` | The provider or driver could not safely start, continue, or resume the run. | Failure category, not `RunState` |
 | `transport failure` | A required transport path failed independently of provider semantics. | Failure category, not `RunState` |
@@ -188,11 +188,11 @@ The canonical run lifecycle has one failure terminal state: `failed`. Additional
 
 ## Child-Run Behavior
 
-Child runs are **independent intervention targets**: a parent state change never automatically propagates to children. This table was rewritten at the Tier-6 audit (Plan-016 A-016-17) to align with [Spec-016 §Intervention Propagation](../specs/016-multi-agent-channels-and-orchestration.md#intervention-propagation) — "A pause, interrupt, or steer applied to a parent run does not auto-cascade to its child runs. Each child run is an independent intervention target." — which postdates this document's original auto-cascade table (the Spec-016 V1-readiness review is the later ruling, and per `Spec-016 §ADR Triggers` an auto-cascade default would require a new ADR against ADR-011). Participants act on children explicitly via the same intervention surfaces as any run (Plan-004), using the `run_links` projection (`orchestration.childRunLinkRead`) to enumerate them.
+Child runs are **independent intervention targets**: a parent state change never automatically propagates to children. This table was rewritten at the Tier-6 audit (Plan-016 A-016-17) to align with [Spec-016 §Intervention Propagation](../specs/016-multi-agent-channels-and-orchestration.md#intervention-propagation) — "A pause, interrupt, or steer applied to a parent run does not auto-cascade to its child runs. Each child run is an independent intervention target." — which postdates this document's original auto-cascade table (the Spec-016 V1-readiness review is the later ruling, and per `Spec-016 §ADR Triggers` an auto-cascade default would require a new ADR against ADR-011). Users act on children explicitly via the same intervention surfaces as any run (Plan-004), using the `run_links` projection (`orchestration.childRunLinkRead`) to enumerate them.
 
 | Parent State | Child-Run Effect |
 | --- | --- |
-| `interrupted` | No automatic effect. Children keep their current state; each child is interrupted explicitly if the participant wants the subtree stopped. |
+| `interrupted` | No automatic effect. Children keep their current state; each child is interrupted explicitly if the user wants the subtree stopped. |
 | `failed` | No automatic effect. Children keep running; the parent's death does not invalidate work the children were spawned to do. |
 | `paused` | No automatic effect. Pausing a parent pauses only the parent; children are paused individually if needed. |
 | `completed` | Child runs continue to completion. They were spawned for a reason and are allowed to finish. |

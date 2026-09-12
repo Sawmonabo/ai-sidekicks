@@ -60,7 +60,7 @@ A session is the durable container that holds:
 | `active` | The session is usable for communication and execution. |
 | `archived` | The session is retained for history and replay but no longer accepts normal active work. |
 | `closed` | The session has been intentionally terminated and is not resumable without explicit restoration. |
-| `purge_requested` | A participant or admin has requested data purge. The session is locked against further modification while purge processing is pending. |
+| `purge_requested` | A user or admin has requested data purge. The session is locked against further modification while purge processing is pending. |
 | `purged` | Event payloads containing PII have been destroyed via crypto-shredding. Audit stubs (timestamps, event types, non-PII metadata) are retained. Purge is irreversible. |
 
 Allowed transitions:
@@ -101,7 +101,7 @@ State-machine precedent for the `provisioning -> active` split: Kubernetes Pod (
 
 ## Related Domain Docs
 
-- [Trust And Identity](./trust-and-identity.md) — session-end is the trigger for ephemeral X25519 zeroization (per [security-architecture.md §V1 Relay Encryption](../architecture/security-architecture.md#v1-relay-encryption-pairwise-x25519--xchacha20-poly1305)) and for the rotate-on-shred path of the daemon master key when participant crypto-shred fires. Session lifecycle and trust-state lifecycle interact at this boundary.
+- [Trust And Identity](./trust-and-identity.md) — session-end is the trigger for ephemeral X25519 zeroization (per [security-architecture.md §V1 Relay Encryption](../architecture/security-architecture.md#v1-relay-encryption-pairwise-x25519--xchacha20-poly1305)) and for the rotate-on-shred path of the daemon master key when user crypto-shred fires. Session lifecycle and trust-state lifecycle interact at this boundary.
 
 ## Related Specs
 

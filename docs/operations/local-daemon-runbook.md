@@ -2,14 +2,14 @@
 
 ## Purpose
 
-Recover the participant-local execution daemon, the Local Runtime Daemon, when local execution, IPC, or replay health is degraded.
+Recover the user-local execution daemon, the Local Runtime Daemon, when local execution, IPC, or replay health is degraded.
 
 ## Symptoms
 
 - Desktop or CLI cannot connect to the Local Runtime Daemon
 - Session reads work intermittently or not at all
 - New mutable work is blocked because the daemon reports degraded or blocked health
-- Scope and blast radius: one participant node, its local sessions, and any runs scheduled on that node
+- Scope and blast radius: one user node, its local sessions, and any runs scheduled on that node
 
 ## Detection
 
@@ -23,7 +23,7 @@ Recover the participant-local execution daemon, the Local Runtime Daemon, when l
 
 ## Preconditions
 
-- Access to the affected participant machine
+- Access to the affected user machine
 - Permission to stop and restart the Local Runtime Daemon
 - Access to Local Runtime Daemon logs and local SQLite files
 

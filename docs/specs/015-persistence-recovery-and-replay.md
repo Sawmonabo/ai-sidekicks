@@ -203,7 +203,7 @@ Session events carry two timestamps: `occurred_at` (RFC 3339 wall-clock UTC) for
 
 **Semantics.** `monotonic_ns` is not a UNIX timestamp. Its zero point is unspecified and changes on every daemon restart. It serves exactly two purposes: (a) stable within-daemon event ordering when the wall clock jumps (NTP step, VM resume, manual operator edit); (b) precise duration measurements between events produced by the same daemon process.
 
-**Out-of-scope explicitly.** `monotonic_ns` is **not** a cross-daemon ordering primitive. See [data-architecture.md §Event-Sourcing Scope](../architecture/data-architecture.md#event-sourcing-scope) on why per-daemon `sequence` and `monotonic_ns` do not induce a total order across daemons. Hybrid Logical Clocks (HLC) are tracked under [BL-076](../archive/backlog-archive.md) and are out-of-scope for V1 per [ADR-017](../decisions/017-shared-event-sourcing-scope.md) (V1 chose Option B — daemon-authoritative per-participant ordering, no shared event log to order against).
+**Out-of-scope explicitly.** `monotonic_ns` is **not** a cross-daemon ordering primitive. See [data-architecture.md §Event-Sourcing Scope](../architecture/data-architecture.md#event-sourcing-scope) on why per-daemon `sequence` and `monotonic_ns` do not induce a total order across daemons. Hybrid Logical Clocks (HLC) are tracked under [BL-076](../archive/backlog-archive.md) and are out-of-scope for V1 per [ADR-017](../decisions/017-shared-event-sourcing-scope.md) (V1 chose Option B — daemon-authoritative per-user ordering, no shared event log to order against).
 
 ### Wall-Clock Format
 
@@ -299,7 +299,7 @@ Mainstream ORM/migration tools surveyed — Django 5.1 migrations, Rails 8.1 Act
 
 ### Master-Key Separation
 
-The daemon master key wrapping participant AES-GCM keys is deliberately excluded from all backups per [Spec-022 §Daemon Master Key](022-data-retention-and-gdpr.md#daemon-master-key) and the [Local Persistence Repair And Restore §Backup Constraints](../operations/local-persistence-repair-and-restore.md#backup-constraints) runbook. The SQLite Online Backup API copies only database pages; it cannot pick up sibling files. `daemon-master.enc` is therefore trivially excluded from `.backup()` output. Operators running tar/rsync-style backups over the daemon's filesystem root MUST follow the runbook's OS-specific exclusion rules to preserve crypto-shred correctness.
+The daemon master key wrapping user AES-GCM keys is deliberately excluded from all backups per [Spec-022 §Daemon Master Key](022-data-retention-and-gdpr.md#daemon-master-key) and the [Local Persistence Repair And Restore §Backup Constraints](../operations/local-persistence-repair-and-restore.md#backup-constraints) runbook. The SQLite Online Backup API copies only database pages; it cannot pick up sibling files. `daemon-master.enc` is therefore trivially excluded from `.backup()` output. Operators running tar/rsync-style backups over the daemon's filesystem root MUST follow the runbook's OS-specific exclusion rules to preserve crypto-shred correctness.
 
 ### Restore SLO
 

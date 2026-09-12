@@ -73,7 +73,7 @@ Approval lifecycle:
 
 ## Related Domain Docs
 
-- [Trust And Identity](./trust-and-identity.md) — approvals are signed by participant identities. A `bound` identity can sign approvals; a `revoked` or `compromised` identity cannot. The dual-signed `ApprovalRecord` envelope per [Spec-024](../specs/024-cross-node-dispatch-and-approval.md) is the cross-node cousin of the same property.
+- [Trust And Identity](./trust-and-identity.md) — approvals are signed by user identities. A `bound` identity can sign approvals; a `revoked` or `compromised` identity cannot. The dual-signed `ApprovalRecord` envelope per [Spec-024](../specs/024-cross-node-dispatch-and-approval.md) is the cross-node cousin of the same property.
 
 ## Related Specs
 

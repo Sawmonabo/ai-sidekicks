@@ -84,6 +84,6 @@ Described here, not schematized; the shapes belong to Plan-031.
 ## References
 
 - [Spec-003: Runtime Node Attach](003-runtime-node-attach.md) — how a machine binds to a session.
-- [Spec-018: Identity Keys](018-identity-and-participant-state.md) — identity-key custody and registration.
+- [Spec-018: Identity Keys](018-identity-and-user-state.md) — identity-key custody and registration.
 - [Plan-027: Cross-Node Dispatch And Approval](../plans/027-cross-node-dispatch-and-approval.md) — the consumer of the relay this spec defines.
 - [Plan-031: Remote Control](../plans/031-remote-control.md) — the implementation plan for this spec.

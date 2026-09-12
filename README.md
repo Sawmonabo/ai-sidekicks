@@ -228,7 +228,7 @@ Tier 4  ► Plan-005  Provider Driver Contract
          Plan-006  Event Taxonomy and Audit Log
          Plan-007  Local IPC and Daemon Control
 Tier 5  ► Plan-004  Queue, Steer, Pause, Resume
-         Plan-018  Identity and Participant State
+         Plan-018  Identity and User State
          Plan-022  Data Retention and GDPR
 Tier 6  ► Plan-009  Repo Attachment and Workspace Binding
          Plan-010  Worktree Lifecycle

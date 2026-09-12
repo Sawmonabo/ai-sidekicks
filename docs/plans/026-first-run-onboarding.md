@@ -281,7 +281,7 @@ export const onboarding = {
 ```ts
 // onboarding.choice_made
 interface OnboardingChoiceMadePayload {
-  participantId: string;
+  userId: string;
   choiceId: OnboardingChoiceId;
   relayUrl: string;
   migrated: boolean;
@@ -292,7 +292,7 @@ interface OnboardingChoiceMadePayload {
 
 // onboarding.choice_reset
 interface OnboardingChoiceResetPayload {
-  participantId: string;
+  userId: string;
   previousChoiceId: OnboardingChoiceId;
   reason: "cli-reset" | "operator-reset";
   timestamp: string;

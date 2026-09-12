@@ -107,7 +107,7 @@ The first-class object is not `agent`. It is `session`.
 
 A session contains:
 
-- participants
+- users
 - runtime nodes
 - devices
 - channels
@@ -161,7 +161,7 @@ Expo is not the right default for a desktop-first product.
 
 ### 3. Local Runtime Daemon
 
-Runs on each participant machine and owns:
+Runs on each user machine and owns:
 
 - local provider processes
 - git and worktrees
@@ -244,7 +244,7 @@ That keeps the daemon honest and prevents the desktop app from becoming the only
 The core entities must be:
 
 - `Session`
-- `Participant`
+- `User`
 - `RuntimeNode`
 - `Channel`
 - `Agent`
@@ -318,7 +318,7 @@ Column rules: the `V1/V1.1/V2` column annotates each technology against the rele
 | WebAuthn | `@simplewebauthn/server` (relying-party verification, control-plane side) | V1 (desktop) | Primary authentication at desktop launch. _Corrected 2026-09-01: `@simplewebauthn/browser` was listed here and has no path — it wraps `navigator.credentials.*`, which Chromium refuses on the desktop renderer's custom-scheme origin, so the ceremony runs in the Electron main process through per-platform native bindings per [Spec-023 §WebAuthn Platform-Authenticator Native Module](./specs/023-desktop-shell-and-renderer.md#webauthn-platform-authenticator-native-module)._ CLI ships without WebAuthn via Device Authorization Grant (RFC 8628) per [ADR-010 §Positive](./decisions/010-paseto-webauthn-mls-auth.md#positive); desktop client adds passkey/WebAuthn PRF ceremony for Ed25519 identity key derivation per [ADR-010 §CLI Identity Key Storage](./decisions/010-paseto-webauthn-mls-auth.md#cli-identity-key-storage). Desktop is V1 Feature 15 per ADR-015. |
 | Relay E2EE (V1 primary) | `@noble/curves`, `@noble/ciphers`, `@noble/hashes` | V1 | Pairwise X25519 ECDH + XChaCha20-Poly1305 AEAD + HKDF-SHA256 for relay-mediated session encryption per [ADR-010](./decisions/010-paseto-webauthn-mls-auth.md). `@noble/curves` audited by Cure53, Kudelski Security, and Trail of Bits; `@noble/ciphers` audited by Cure53. |
 | Relay E2EE (V1.1+ upgrade) | MLS (RFC 9420) via an audited implementation (OpenMLS, mls-rs, or post-audit TypeScript implementation) | V1.1 | Post-compromise security and O(log N) group rekeying, gated on audit / interop / soak criteria in [ADR-010](./decisions/010-paseto-webauthn-mls-auth.md). ADR-015 V1.1 Feature #1. |
-| Crypto-shredding cipher | Node.js `crypto` (built-in) | V1 | AES-256-GCM for per-participant PII column encryption |
+| Crypto-shredding cipher | Node.js `crypto` (built-in) | V1 | AES-256-GCM for per-user PII column encryption |
 | XState v5 | `xstate` | V1 | Internal state machine logic — supports ADR-015 V1 Feature 6 (queue, steer, pause, resume) |
 | tRPC v11 | `@trpc/server`, `@trpc/client` | V1 | Control plane API framework |
 | Cedar | `@cedar-policy/cedar-wasm` | V1 | Approval policy engine. V1 compiles YAML policy definitions to Cedar at build time and evaluates in-process with the resident signature-verified WASM authorizer; V1.1 adds runtime policy-bundle loading per [ADR-012](./decisions/012-cedar-approval-policy-engine.md) (2026-07-02 amendment — loading only, not WASM arrival). |
@@ -425,7 +425,7 @@ Diff attribution must be per run, with an explicit fallback path only when provi
 5. Add repo mounts, worktrees, and diff attribution.
 6. Build the Electron shell and desktop UI as the second client over the same typed client SDK and daemon contract.
 7. Add the control plane for auth, the device directory, device presence, and relay.
-8. Add workflows and multi-participant discussion orchestration on top of the same session model.
+8. Add workflows and multi-user discussion orchestration on top of the same session model.
 9. Add a first-party native runtime later for deeper control than provider wrappers allow.
 
 ## CLI Delivery Path
@@ -441,7 +441,7 @@ For details beyond this vision document, see:
 - **Authentication and tokens:** [Security Architecture](./architecture/security-architecture.md) (three-tier auth: local socket, PASETO v4 control plane, MLS relay), [ADR-010](./decisions/010-paseto-webauthn-mls-auth.md)
 - **Deployment topologies:** [Deployment Topology](./architecture/deployment-topology.md) (4 topologies: single-machine, hosted, self-hosted, relay-assisted)
 - **Rate limiting:** [Spec-021](./specs/021-rate-limiting-policy.md), [Deployment Topology](./architecture/deployment-topology.md) (CF native hosted, rate-limiter-flexible self-hosted)
-- **Relay scaling:** [Deployment Topology](./architecture/deployment-topology.md) (relay DO sharding; Cloudflare publishes a 1,000 rps per-DO soft cap and no per-DO WebSocket connection cap — our 25-connections-per-data-DO target plus batched WebSocket messages as design baseline keep realistic rps/DO near 400 rps, inside CF's 200–500 rps 'complex op' guidance with ~2.5× headroom vs the soft cap; 50-participant pre-launch load test validates both the events/sec/connection assumption and the ~6:1 batching ratio)
+- **Relay scaling:** [Deployment Topology](./architecture/deployment-topology.md) (relay DO sharding; Cloudflare publishes a 1,000 rps per-DO soft cap and no per-DO WebSocket connection cap — our 25-connections-per-data-DO target plus batched WebSocket messages as design baseline keep realistic rps/DO near 400 rps, inside CF's 200–500 rps 'complex op' guidance with ~2.5× headroom vs the soft cap; 50-user pre-launch load test validates both the events/sec/connection assumption and the ~6:1 batching ratio)
 - **GDPR compliance:** [Spec-022](./specs/022-data-retention-and-gdpr.md) (crypto-shredding, data export, purge lifecycle)
 
 ## Strategic Conclusion

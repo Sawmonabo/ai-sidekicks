@@ -11,7 +11,7 @@ This document covers `Agent`, `Channel`, and `Run`, and the relationships among 
 ## Definitions
 
 - `Agent`: a configured execution persona bound to a runtime node.
-- `Channel`: a session-local communication stream for participants and agents.
+- `Channel`: a session-local communication stream for users and agents.
 - `Run`: a single execution episode performed by one agent.
 
 ## What This Is
@@ -37,7 +37,7 @@ This model explains how agents exist between runs, how communication surfaces ar
 
 - `Agent` executes on a `RuntimeNode`.
 - `Run` uses `RepoMount`, `Workspace`, and `Worktree` context when the task is code-bearing.
-- `Participant` and `Agent` both contribute messages or events into `Channel` history.
+- `User` and `Agent` both contribute messages or events into `Channel` history.
 - `QueueItem` can produce a future `Run`.
 - `Artifact` and `Approval` are outputs or gate records associated with a `Run`.
 
@@ -74,7 +74,7 @@ Run lifecycle is defined in `run-state-machine.md`. Parent-child run links carry
 ## Edge Cases
 
 - An agent can exist in `ready` state with no current active run.
-- A channel can remain `active` even when it has no current runs if participants continue discussing next steps.
+- A channel can remain `active` even when it has no current runs if users continue discussing next steps.
 - A run can publish status to one channel while depositing artifacts that are visible from the wider session.
 
 ## Related Specs

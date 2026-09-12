@@ -79,7 +79,7 @@ sidekicks cp presence --session <id>
 
 ## Related Specs
 
-- [Identity And Participant State](../specs/018-identity-and-participant-state.md)
+- [Identity And User State](../specs/018-identity-and-user-state.md)
 
 ## Related Plans
 

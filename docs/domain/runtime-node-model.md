@@ -22,7 +22,7 @@ It is the "one machine executing" half of the product model. A session is bound 
 
 ## What This Is Not
 
-- A runtime node is not a participant.
+- A runtime node is not a user.
 - A runtime node is not a device. A device executes nothing.
 - A runtime node is not a session.
 - A runtime node is not a provider driver.
@@ -38,7 +38,7 @@ It is the "one machine executing" half of the product model. A session is bound 
 
 ## Relationships To Adjacent Concepts
 
-- `Participant` owns the runtime node.
+- `User` owns the runtime node.
 - `Agent` instances are bound to a runtime node for execution.
 - `Run` instances execute on a runtime node.
 - `RepoMount`, `Workspace`, and `Worktree` are local resources made usable by a runtime node.
@@ -62,12 +62,12 @@ It is the "one machine executing" half of the product model. A session is bound 
 
 - A session stays valid when all of the user's runtime nodes are offline; their devices simply report the machine as unreachable and nothing queues on their behalf.
 - A runtime node can be `online` even when it is currently hosting no agents.
-- A node can be revoked for one session without implying revocation of the participant's entire account identity.
+- A node can be revoked for one session without implying revocation of the user's entire account identity.
 
 ## Related Domain Docs
 
 - [User And Device Model](./user-and-device-model.md) — the user who owns the node, and the devices that drive it without executing anything themselves.
-- [Trust And Identity](./trust-and-identity.md) — node attachment is authenticated by the participant's identity (which must be at least `bound`), but the node's trust envelope is governed by approval policy, not by identity state. Identity is the cryptographic precondition; node trust is a separate layer.
+- [Trust And Identity](./trust-and-identity.md) — node attachment is authenticated by the user's identity (which must be at least `bound`), but the node's trust envelope is governed by approval policy, not by identity state. Identity is the cryptographic precondition; node trust is a separate layer.
 
 ## Related Specs
 

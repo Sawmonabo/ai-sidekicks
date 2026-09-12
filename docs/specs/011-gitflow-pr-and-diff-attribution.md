@@ -64,7 +64,7 @@ This spec covers branch strategy, PR preparation, diff artifacts, and attributio
 - `BranchContextRead` must expose base, head, upstream, and worktree association.
 - `DiffArtifactCreate` must identify attribution mode and compared states.
 - `PRPrepare` must generate a reviewable proposal before any remote mutation.
-- `GitActionExecute` must preserve causation to the requesting run or participant.
+- `GitActionExecute` must preserve causation to the requesting run or user.
 - Git hosting uses a `GitHostingAdapter` interface with `gh` CLI as the V1 implementation. Normalized terminology: `createChangeRequest` (not `createPullRequest`). Auto-detect provider from git remote URL. See [Git Hosting Adapter](#git-hosting-adapter) below for full details.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 - See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.

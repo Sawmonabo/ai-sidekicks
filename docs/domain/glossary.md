@@ -13,7 +13,7 @@ This glossary covers the primary domain terms from `vision.md` and the canonical
 | Term | Definition |
 | --- | --- |
 | `Session` | The primary container for runtime nodes, channels, agents, runs, queue items, repo mounts, artifacts, and approvals, owned by one user. |
-| `Participant` | The account holder — the single human actor a session belongs to, with one stable identity across every device they connect from. |
+| `User` | The account holder — the single human actor a session belongs to, with one stable identity across every device they connect from. |
 | `Device` | A connected client of that account — a phone, a laptop app, a second desktop. Shown on screen as **Linked Devices**. Defined in [User And Device Model](./user-and-device-model.md). |
 | `Presence` | The ephemeral liveness of one of the user's own devices or runtime nodes — which of them are currently reachable. It is never a roster of other people. |
 | `RuntimeNode` | The machine that executes a session's work, owned by the user. |
@@ -27,7 +27,7 @@ This glossary covers the primary domain terms from `vision.md` and the canonical
 | `Workspace` | An execution context rooted at a directory or repository checkout and bound to a session. |
 | `Worktree` | An isolated checkout derived from a repository and typically used as the default write target for coding runs. |
 | `ExecutionMode` | The repo-bound run setup choice that determines whether execution is `read-only`, `branch`, `worktree`, or `ephemeral clone`. |
-| `Artifact` | An immutable output or record produced by a run, a participant, or the system. |
+| `Artifact` | An immutable output or record produced by a run, a user, or the system. |
 | `DiffArtifact` | An artifact that captures the change between two repository or workspace states. |
 | `Approval` | A durable decision record that resolves a gated request. |
 | `Workflow` | A reusable, versioned execution template that structures multi-phase work inside a session. |
@@ -56,7 +56,7 @@ This glossary is not a substitute for the detailed domain docs. Each term is def
 ## Relationships To Adjacent Concepts
 
 - `Session` is the top-level container.
-- `RuntimeNode`, `Channel`, `Agent`, `Run`, `QueueItem`, `RepoMount`, `Artifact`, and `Approval` are all session-scoped concepts. `Participant`, `Device`, and `Presence` are account-scoped and appear inside a session by reference.
+- `RuntimeNode`, `Channel`, `Agent`, `Run`, `QueueItem`, `RepoMount`, `Artifact`, and `Approval` are all session-scoped concepts. `User`, `Device`, and `Presence` are account-scoped and appear inside a session by reference.
 - `Worktree` is a specialized repository execution surface inside a `Workspace`; it is not a synonym for `Workspace`.
 - `ExecutionMode` determines how a `Run` uses a repo-bound `Workspace`.
 - `Run` is an execution episode, while `Agent` is the reusable configured actor that performs runs.

@@ -59,7 +59,7 @@ This spec covers:
 
 ### Scheduler Dispatch Rules
 
-- The scheduler must route every dispatchable task own-node-first. A task is routed to a remote node only when (a) the owning participant's runtime-node capability set does not cover the task's declared requirements, or (b) the task is explicitly pinned to a specific remote node by an operator-initiated action.
+- The scheduler must route every dispatchable task own-node-first. A task is routed to a remote node only when (a) the owning user's runtime-node capability set does not cover the task's declared requirements, or (b) the task is explicitly pinned to a specific remote node by an operator-initiated action.
 - A cross-node hop must always be treated as a `tool_execution`-category action in [Spec-012](./012-approvals-permissions-and-trust-boundaries.md)'s approval taxonomy, even when the underlying work (e.g., reading a file) would be lower-category on the caller's own node. The rationale is that any cross-machine execution is a distinct trust boundary crossing.
 - The scheduler must never silently fall back from a specific cross-node dispatch to a different node on failure. If the chosen remote target declines or becomes unreachable, the scheduler must surface the failure to the caller and let the caller (human or agent) choose the next action.
 
@@ -75,26 +75,26 @@ A cross-node dispatch request originates on the caller's daemon and is delivered
 
 - `dispatch_id` — UUIDv7 chosen by the caller; serves as idempotency key.
 - `session_id` — the session this dispatch belongs to.
-- `caller_participant_id` — the caller's session participant ID.
-- `target_participant_id` — the target's session participant ID.
+- `caller_user_id` — the caller's session user ID.
+- `target_user_id` — the target's session user ID.
 - `target_node_id` — the specific runtime node on the target side.
 - `capability` — the declared capability this dispatch exercises (e.g., `repo.write`).
 - `action_payload` — capability-specific work description (opaque to Spec-024; interpreted by the capability handler on the target node).
 - `created_at` — ISO-8601 UTC timestamp.
 - `expires_at` — absolute expiry (default: `created_at + 60s`; max: `created_at + 300s`).
-- `caller_token` — a PASETO v4.public token (per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md)) signed by the caller's participant identity key, carrying claims: `sub = caller_participant_id`, `aud = target_node_id`, `sid = session_id`, `jti = dispatch_id`, `iat = created_at`, `exp = expires_at`, `cnf.jkt = <DPoP thumbprint per RFC 9449>`, and the canonical BLAKE3 hash of the request body in a claim `req_hash = b3:<64-hex>`.
+- `caller_token` — a PASETO v4.public token (per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md)) signed by the caller's user identity key, carrying claims: `sub = caller_user_id`, `aud = target_node_id`, `sid = session_id`, `jti = dispatch_id`, `iat = created_at`, `exp = expires_at`, `cnf.jkt = <DPoP thumbprint per RFC 9449>`, and the canonical BLAKE3 hash of the request body in a claim `req_hash = b3:<64-hex>`.
 - `request_body_hash` — BLAKE3 hash of the dispatch body (all fields above except `caller_token` itself) after canonicalization per [RFC 8785 JSON Canonical Serialization (JCS)](https://datatracker.ietf.org/doc/rfc8785/); duplicated here for envelope-level verification without token parsing. Implementations must produce byte-identical canonical JSON before hashing so independent daemons compute the same digest.
 
 ### Target-Side Authentication And Cedar Evaluation
 
 Target-side processing must perform these steps strictly in order; failure at any step rejects the dispatch and emits a `dispatch.rejected` event with the reason:
 
-1. **Token verification.** Verify `caller_token` against the caller participant's known long-term public key (retrieved from the session's registered identity keys on the target daemon). Reject on invalid signature, expired token, audience mismatch, or session-id mismatch.
+1. **Token verification.** Verify `caller_token` against the caller user's known long-term public key (retrieved from the session's registered identity keys on the target daemon). Reject on invalid signature, expired token, audience mismatch, or session-id mismatch.
 2. **Body binding.** Canonicalize the received dispatch body via [RFC 8785 JSON Canonical Serialization (JCS)](https://datatracker.ietf.org/doc/rfc8785/), compute BLAKE3 over the canonical bytes, and compare against both `request_body_hash` (envelope) and `caller_token.req_hash` (token claim). All three must match. Any deviation from RFC 8785 canonical form (field ordering, Unicode normalization, numeric representation) breaks hash agreement and rejects the dispatch.
 3. **Replay guard.** Check `dispatch_id` against the local per-session dispatch-id cache (retained for at least `2 × max(expires_at - created_at)` = 10 minutes). Reject on replay.
 4. **Capability check.** Verify the target node has declared the `capability` named in the dispatch and has any required session-owner approval for dangerous capability classes.
 5. **Cedar evaluation.** Build the Cedar authorization request with:
-   - `principal = Participant::"<verified caller_participant_id>"` — **the principal ID is the token's `sub` claim only after the token has been cryptographically verified in step 1.** Policies must never bind `principal` to an unverified field.
+   - `principal = User::"<verified caller_user_id>"` — **the principal ID is the token's `sub` claim only after the token has been cryptographically verified in step 1.** Policies must never bind `principal` to an unverified field.
    - `action = Action::"dispatch::<capability>"` — e.g., `Action::"dispatch::repo.write"`.
    - `resource = RuntimeNode::"<target_node_id>"`.
    - `context = { token_issuer: <caller identity key id>, token_audience: <target_node_id>, verified_at: <wall clock UTC of step 1 completion>, dpop_jkt: <caller_token.cnf.jkt>, action_payload_summary: <capability-handler-provided canonical summary> }` — verification metadata goes on `context`, following the pattern from [AWS Verified Permissions identity-source mapping](https://docs.aws.amazon.com/verifiedpermissions/latest/userguide/identity-sources.html).
@@ -112,7 +112,7 @@ The envelope shape is:
   "dispatch_id": "<UUIDv7>",
   "session_id": "<session uuid>",
   "request_body_hash": "b3:<64-hex>",
-  "caller_token": "<PASETO v4.public signed by caller participant>",
+  "caller_token": "<PASETO v4.public signed by caller user>",
   "approver_token": "<PASETO v4.public signed by target-node owner>",
   "created_at": "<ISO-8601 UTC>"
 }
@@ -120,8 +120,8 @@ The envelope shape is:
 
 The `approver_token` carries cryptographic binding to the caller's request:
 
-- `sub = approver_participant_id` (the target-node owner).
-- `aud = caller_participant_id`.
+- `sub = approver_user_id` (the target-node owner).
+- `aud = caller_user_id`.
 - `sid = session_id`.
 - `jti = <fresh UUIDv7 distinct from dispatch_id>`.
 - `bound_jti = <caller_token.jti>` — binds this approver token to the specific caller token it approves.
@@ -129,7 +129,7 @@ The `approver_token` carries cryptographic binding to the caller's request:
 - `decision = "allow" | "deny"` — allow is required for execution to proceed; a deny-signed record documents explicit refusal for audit and cannot be silently reinterpreted later.
 - `iat`, `exp` — approver token exp must be ≥ caller token exp.
 
-The envelope is tamper-evident: any verifier who holds both participants' long-term public keys can independently verify (a) the caller's token signature, (b) the approver's token signature, (c) that both tokens commit to the same `request_body_hash`, and (d) that the approver's `bound_jti` matches the caller's `jti`.
+The envelope is tamper-evident: any verifier who holds both users' long-term public keys can independently verify (a) the caller's token signature, (b) the approver's token signature, (c) that both tokens commit to the same `request_body_hash`, and (d) that the approver's `bound_jti` matches the caller's `jti`.
 
 ### Execution And Result Emission
 
@@ -157,14 +157,14 @@ The envelope is tamper-evident: any verifier who holds both participants' long-t
 ## Fallback Behavior
 
 - If target-side Cedar evaluation encounters a policy engine error (e.g., malformed policy, evaluation timeout), the target daemon must fail closed — reject the dispatch with reason `policy_engine_error` and emit an ops alert per [Spec-020](./020-observability-and-failure-recovery.md). The dispatch must never proceed on policy-engine failure.
-- If the target daemon cannot reach the shared identity-key record to look up the caller's long-term public key (e.g., shared Postgres unreachable), the target must fall back to its locally cached copy if available and within freshness (default: 5 minutes). Past freshness, reject with `participant_roster_stale`.
+- If the target daemon cannot reach the shared identity-key record to look up the caller's long-term public key (e.g., shared Postgres unreachable), the target must fall back to its locally cached copy if available and within freshness (default: 5 minutes). Past freshness, reject with `user_roster_stale`.
 - If the approver-side UI cannot reach the target daemon (local IPC failure), the approval flow must retry the local IPC channel for the `caller_token.exp` window before auto-denying.
 
 ## Interfaces And Contracts
 
 - `DispatchRequest(session_id, caller_token, target_node_id, capability, action_payload) -> { dispatch_id, created_at, expires_at }` — issued by caller-side scheduler.
 - `DispatchReceive(envelope) -> { dispatch_id, status: "received" | "rejected", reason? }` — target-side receipt, emitted after intake validation: envelope form plus steps 1–4 of §Target-Side Authentication And Cedar Evaluation (token verification, body binding, replay guard, capability check — the checks [Spec-006](./006-session-event-taxonomy-and-audit-log.md)'s `dispatch.received` row requires before that event exists). An intake failure rejects **synchronously in this ack** (`status: "rejected"`, the target-side `dispatch.rejected` terminal) and never emits `dispatch.received`; `status: "received"` fires the event and hands off to step 5.
-- `DispatchApprovalRequest(dispatch_id, caller_participant_id, capability, action_summary) -> (surfaced in target-owner UI)` — target-side approval request surfaced to the node owner's desktop / CLI surface per [Spec-012](./012-approvals-permissions-and-trust-boundaries.md).
+- `DispatchApprovalRequest(dispatch_id, caller_user_id, capability, action_summary) -> (surfaced in target-owner UI)` — target-side approval request surfaced to the node owner's desktop / CLI surface per [Spec-012](./012-approvals-permissions-and-trust-boundaries.md).
 - `DispatchApprovalResolve(dispatch_id, decision: "allow" | "deny", approver_token) -> ApprovalRecord` — target-side approval resolution that produces the signed record.
 - `DispatchResult(dispatch_id, result_payload, result_signature) -> (delivered to caller via relay)` — final result emission after execution. `result_payload` is capability-shaped: a non-provider capability handler returns its capability's own result contract unchanged (e.g. §Example Flows' `repo.write` returns the commit SHA — this clause never flattens capability-specific results to text). A **provider-run** dispatch only — one whose capability handler executes a provider driver (the remote-provider-parity leg, §Implementation Notes) — adopts the [Spec-005](./005-provider-driver-contract-and-capabilities.md) `structured_output` typing for `result_payload` (campaign B3, C-13), with the output schema carried in the canonical **`output_schema` field of the dispatch's `action_payload`** (a JSON Schema document; `action_payload` is capability-owned and already bound end-to-end by the request-body-hash signature, so the carrier adds no envelope field and no second signing surface — Plan-027 implementations interoperate on this single location): when the executing driver declares the flag and `action_payload.output_schema` is present, the payload is the schema-constrained final output; when no schema was named, it is the provider's unconstrained final text; and a schema-present dispatch whose executing driver does **not** declare the flag is rejected at receipt — `DispatchReceive` ack `status: "rejected"`, `reason: 'output_schema_unsupported'`, the target-side `dispatch.rejected` terminal — before the approval gate ever surfaces, so a caller's requested result contract never silently degrades to unconstrained text (fail-closed; the executing target's declared-flag check is authoritative — a caller's cached capability view may be stale) (Spec-005's matrix row names Spec-024 dispatch results as a consumer of this flag — campaign B7 closes that loop from this side).
 - `DispatchTerminalNotice(dispatch_id, terminal: "rejected" | "failed" | "expired", reason) -> (delivered to caller via relay)` — target-side non-result terminal notification covering every terminal the caller cannot otherwise observe: a **post-receipt** `dispatch.rejected` (a step-5 Cedar-evaluation failure — a class-rule deny that does not route to the approval flow, or `policy_engine_error` — arising after intake validation passed and the `DispatchReceive` ack returned `"received"`; intake failures, steps 1–4, reject synchronously in the ack itself and never ride this notice), a post-approval `dispatch.failed`, or a mid-flight `dispatch.expired`. On receipt the caller appends `dispatch.result_observed` with the matching `outcome` and closes the dispatch's pending window (§State And Data Implications). Delivery rides the same relay leg as `DispatchResult` and is best-effort — an unreachable caller or relay partition is exactly what the pending window's caller-local clock bound backstops. `dispatch.denied` is deliberately not carried here: the caller observes denials via `dispatch.approval_observed`, and `dispatch.completed` arrives as `DispatchResult`.
@@ -178,7 +178,7 @@ See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) 
 - Per [ADR-017](../decisions/017-shared-event-sourcing-scope.md), all dispatch events are appended to per-daemon local `session_events` logs. There is no shared dispatch event log in V1.
 - The ApprovalRecord envelope is stored durably on both the caller's and the target's Local SQLite in a `cross_node_dispatch_approvals` table owned by [Plan-027](../plans/027-cross-node-dispatch-and-approval.md) (not Plan-001, which does not know about cross-node dispatch).
 - The caller-side pending-dispatch record backing the idle-exemption predicate (campaign B7) — written before relay send, closed at conclusion, carrying `expires_at` and the originating `runId` — is likewise Plan-027-owned; its table and schema row land via the campaign's B17 bundle.
-- Shared Postgres stores a `cross_node_dispatch_coordination` row per dispatch-id for routing and presence-aware retry, containing only: `dispatch_id`, `session_id`, `caller_participant_id`, `target_participant_id`, `status` (requested | approved | denied | executed | expired), `created_at`, `resolved_at`. No dispatch payload, no approval-record content, no action payload. The coordination row is a routing aid, not a truth source.
+- Shared Postgres stores a `cross_node_dispatch_coordination` row per dispatch-id for routing and presence-aware retry, containing only: `dispatch_id`, `session_id`, `caller_user_id`, `target_user_id`, `status` (requested | approved | denied | executed | expired), `created_at`, `resolved_at`. No dispatch payload, no approval-record content, no action payload. The coordination row is a routing aid, not a truth source.
 - Replay-guard cache is local-to-target and ephemeral (≤ 10 minutes retention).
 
 ## Example Flows
@@ -186,7 +186,7 @@ See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) 
 The user is signed in on two machines: a laptop, which holds no checkout of this session's repo, and a desktop, which owns the worktree the session is bound to (per [Spec-009](./009-repo-attachment-and-workspace-binding.md)).
 
 1. **Caller-side.** A Codex agent on the laptop node produces a diff. The laptop's scheduler finds that the `repo.write` task cannot run on its own node and selects the desktop node as target per the session's worktree binding. The laptop daemon constructs a DispatchRequest with `capability = "repo.write"`, `action_payload = { patch: "<unified diff>", target_branch: "feature/foo" }`, `caller_token = <PASETO v4.public signed by the caller's identity key, exp = now + 60s>`, and ships it via the relay as a pairwise-encrypted payload addressed to the desktop node.
-2. **Target-side intake.** The desktop daemon receives the envelope, verifies the caller_token signature against the caller's long-term public key from the target-local identity-key record, confirms the request_body_hash binding, checks replay-guard, verifies its own node has declared `repo.write`, then builds the Cedar authorization request with `principal = Participant::"<verified caller participant id>"`, `action = Action::"dispatch::repo.write"`, `resource = RuntimeNode::"<desktop node id>"`, `context = { token_issuer, token_audience, verified_at, dpop_jkt, action_payload_summary: "apply 47-line diff to feature/foo" }`.
+2. **Target-side intake.** The desktop daemon receives the envelope, verifies the caller_token signature against the caller's long-term public key from the target-local identity-key record, confirms the request_body_hash binding, checks replay-guard, verifies its own node has declared `repo.write`, then builds the Cedar authorization request with `principal = User::"<verified caller user id>"`, `action = Action::"dispatch::repo.write"`, `resource = RuntimeNode::"<desktop node id>"`, `context = { token_issuer, token_audience, verified_at, dpop_jkt, action_payload_summary: "apply 47-line diff to feature/foo" }`.
 3. **Approval gate.** Cedar evaluates and returns `Deny` with reason "requires owner approval" because `tool_execution` is the default category. The desktop daemon emits `dispatch.approval_requested`, which surfaces on whichever device the user is at: "Apply a 47-line diff to feature/foo on the desktop worktree. Expires in 58s."
 4. **Approval resolution.** The user approves. The desktop daemon signs an approver_token with `bound_jti = <caller_token.jti>`, `req_hash = <same BLAKE3>`, `decision = "allow"`. The ApprovalRecord envelope is appended to the desktop's local `cross_node_dispatch_approvals` and mirrored back to the laptop via the relay.
 5. **Execution.** The desktop's `repo.write` capability handler applies the diff to the worktree and emits `dispatch.executed`, then `dispatch.completed` with the resulting commit SHA.
@@ -209,7 +209,7 @@ Caller detach mid-execution: same opening through step 5. Mid-execution, the lap
 
 ## Pitfalls To Avoid
 
-- Binding the Cedar `principal` to an unverified caller-id field. The principal must be set to the verified `sub` claim of a cryptographically validated PASETO token. A raw, unverified participant-id header must never reach Cedar.
+- Binding the Cedar `principal` to an unverified caller-id field. The principal must be set to the verified `sub` claim of a cryptographically validated PASETO token. A raw, unverified user-id header must never reach Cedar.
 - Sharing the same `jti` between caller_token and approver_token. Each token carries a distinct `jti`; the binding goes through approver_token.`bound_jti` → caller_token.`jti`, not through token identity.
 - Omitting `req_hash` from the approver_token. Without `req_hash`, an approver signature could be re-used to approve a substituted request body. The approver must sign over the request body, not just the approval decision.
 - Treating the shared-Postgres coordination row as a source of truth. It is a routing aid and must never be consulted for approval semantics or dispatch content.

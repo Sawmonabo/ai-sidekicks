@@ -57,7 +57,7 @@ The workflow model is the source of truth for how reusable, multi-phase executio
 | `suspended` | A phase of the run is parked — awaiting a human, or waiting out a provider usage limit — and the run is neither progressing nor finished. The park's cause, and the resume instant where one was armed, are per-phase state (`Spec-017 §Park integrity and cancellability (SA-42)`). |
 | `completed` | All phases have reached terminal states and the workflow finished successfully. |
 | `failed` | The workflow ended because a phase failed and the configured failure behavior resulted in a stop. |
-| `cancelled` | The workflow was explicitly cancelled by a participant or system action, through `workflow.runCancel` (`Spec-017 §Operator run control (SA-45)`). |
+| `cancelled` | The workflow was explicitly cancelled by a user or system action, through `workflow.runCancel` (`Spec-017 §Operator run control (SA-45)`). |
 
 Allowed transitions:
 

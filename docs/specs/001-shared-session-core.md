@@ -40,7 +40,7 @@ This spec covers session identity, default session structure, session creation, 
 ## Required Behavior
 
 - The system must treat `Session` as the primary session container.
-- Every participant, runtime node, channel, agent, run, queue item, artifact, and approval must reference exactly one session id.
+- Every user, runtime node, channel, agent, run, queue item, artifact, and approval must reference exactly one session id.
 - Creating a session must produce a durable session record before any run starts.
 - Joining an existing session must attach to the same session id and existing timeline; it must not silently fork the session.
 - A session must support concurrent devices, channels, and runs.
