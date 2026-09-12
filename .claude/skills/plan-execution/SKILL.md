@@ -558,7 +558,7 @@ The orchestrator owns the TaskCreate list; subagents do not. Five rules:
 
 Read these when the workflow step calls for them:
 
-- [`scripts/preflight.mjs`](scripts/preflight.mjs) — preflight tool invoked at Phase 0.2; runs all six mechanical gates (project-locality, audit checkbox, phase un-shipped, tasks-block G4 cites, phase preconditions, manifest freshness). Exit 0 = pass + phase number on stdout; exit 1 = halt with verbatim message; exit 2 = internal error.
+- [`scripts/preflight.mjs`](scripts/preflight.mjs) — preflight tool invoked at Phase 0.2; runs all five mechanical gates (project-locality, audit checkbox, phase un-shipped, tasks-block G4 cites, phase preconditions). Exit 0 = pass + phase number on stdout; exit 1 = halt with verbatim message; exit 2 = internal error.
 - [`references/preflight-contract.md`](references/preflight-contract.md) — authoritative contract for the preflight tool: invocation, exit codes, gate-by-gate definitions, design rationale (phase-walk vs title-count). Edit gates here and in `preflight.mjs`; do NOT add gate logic to SKILL.md prose.
 - [`scripts/validate-review-response.mjs`](scripts/validate-review-response.mjs) — reviewer-response validator invoked at Phase C (`--conflicts` mode, inter-reviewer conflict detection by `file:line`) and Phase D (`--phase=D` mode, Round-trip target stamp validation).
 - [`references/state-recovery.md`](references/state-recovery.md) — resumption protocol when a session compacts or crashes mid-PR. Updated for the three-artifact state model.

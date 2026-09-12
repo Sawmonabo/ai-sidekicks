@@ -19,7 +19,7 @@ import {
 // it here executes nothing.
 // @ts-expect-error TS7016 — the skill script ships no declarations; this test
 // only reads one exported const, and the parity assertion types it locally.
-import { MATERIAL_PATH_PREFIXES as G6_MATERIAL_PATH_PREFIXES } from "../../../.claude/skills/plan-execution/scripts/preflight.mjs";
+import { MATERIAL_PATH_PREFIXES as PREFLIGHT_MATERIAL_PATH_PREFIXES } from "../../../.claude/skills/plan-execution/scripts/preflight.mjs";
 
 const BIN_PATH = fileURLToPath(new URL("../bin/lane-boundary-check.ts", import.meta.url));
 
@@ -374,6 +374,6 @@ describe("CLI (spawned — the direct-invocation path tests cannot reach via imp
 
 describe("manifest reconciliation sync contract", () => {
   it("MATERIAL_PATH_PREFIXES is identical to preflight.mjs's (the guard must classify material exactly as the gate does)", () => {
-    expect([...MATERIAL_PATH_PREFIXES]).toEqual([...G6_MATERIAL_PATH_PREFIXES]);
+    expect([...MATERIAL_PATH_PREFIXES]).toEqual([...PREFLIGHT_MATERIAL_PATH_PREFIXES]);
   });
 });
