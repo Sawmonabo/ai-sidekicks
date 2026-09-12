@@ -43,7 +43,7 @@ This phase is admitted under the readiness-audit runbook's `substrate_exempt` pr
 ```yaml
 audit_status: substrate_exempt
 substrate_carveout: 1
-cross_plan_carve_out: ../architecture/cross-plan-dependencies.md#plan-025-substrate-vs-namespace-carve-out-tier-1--tier-7
+cross_plan_carve_out: ../architecture/cross-plan-dependencies.md
 spec_coverage: []
 ```
 
