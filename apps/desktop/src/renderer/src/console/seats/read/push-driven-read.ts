@@ -43,7 +43,7 @@
 // — which runs from a mount effect, so the throw lands in React's commit phase and
 // takes the surface down instead of producing the model's own `failed` state. Not
 // hypothetical: the installed stub preload bridge implements every daemon method
-// by throwing, so the presence roster's subscribe is exactly this call under a live
+// by throwing, so the device-presence read's subscribe is exactly this call under a live
 // window. So the open catches it and settles `failed` carrying the thrower's own
 // words — and requests no read, because a value fetched behind a subscription that
 // never opened could never be refreshed and would render as a live surface that has

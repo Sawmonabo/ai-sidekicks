@@ -38,9 +38,9 @@
 //     cannot stand in for the reconciliation the failure message asks for;
 //   - the INVERSE mislabel fails too (Codex P2, rounds 3 + 5): a material
 //     diff on a `<type>/plan-NNN-*` branch whose title does not cite that
-//     SAME plan is a shipment manifest reconciliation can never recover (it searches titles,
-//     not branches) — whether the title has no token at all or only other
-//     plans' tokens. A docs-only diff on a plan-shaped branch keeps a
+//     SAME plan is a shipment manifest reconciliation can never recover, since
+//     it searches titles and not branches — whether the title has no token at
+//     all or only other plans' tokens. A docs-only diff on a plan-shaped branch keeps a
 //     log-only advisory.
 //
 // argv: none. Reads PR_TITLE and PR_BRANCH from env and the changed-file

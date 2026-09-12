@@ -15,7 +15,7 @@
 //
 // WHY THE ROW IS NOT GATED ON THE GOAL AUTHORIZATION. Gating navigation on a role
 // would mean reading the caller's identity here as well, which is a second read of a
-// fact that already has one reader, and it would hide the goal itself from a viewer
+// fact that already has one reader, and it would hide the goal itself from a caller
 // who is entitled to see it. The honest fix for "the control advertised an edit the
 // destination may refuse" is the copy, not a gate: nothing here claims a mutation, so
 // there is nothing for a read-only role to be denied.
@@ -37,7 +37,7 @@ export const GOAL_SECTION_COMMAND_ID = "sidebar.openSessionGoal";
  *
  * Neutral about what happens next on purpose: the destination offers the editor to
  * the roles the goal contract admits and states the goal to everyone else, and a
- * label that promised "Set a goal" to a viewer would be advertising an act the
+ * label that promised "Set a goal" to a caller it does not admit would advertise an act the
  * surface it opens will not offer them.
  */
 export const GOAL_SECTION_ACTION_LABEL = "Open the goal in approvals";

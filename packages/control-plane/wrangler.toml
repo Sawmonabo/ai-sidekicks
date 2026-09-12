@@ -1,4 +1,4 @@
-# Cloudflare Workers config for the control-plane bootstrap (Tier 1).
+# Cloudflare Workers config for the control-plane bootstrap.
 #
 # Dual-gate enforcement: this file deliberately OMITS top-level [vars] so neither
 # `CONTROL_PLANE_BOOTSTRAP_ENABLED` nor `ENVIRONMENT="development"` reaches any

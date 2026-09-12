@@ -19,7 +19,7 @@ import { DerivedFigure, formatDateTime } from "../../../../primitives/index.js";
  * rendering whatever `Date` makes of it.
  *
  * A DERIVED FIGURE AND NOT A WIRE ONE. The ISO string is the updater's, and what
- * renders is this console's rendering of it in the viewer's locale — which is the
+ * renders is this console's rendering of it in the user's locale — which is the
  * distinction `primitives/figures/wire-figures.ts` draws between the two figure kinds.
  */
 export function LastCheckedLine(props: {

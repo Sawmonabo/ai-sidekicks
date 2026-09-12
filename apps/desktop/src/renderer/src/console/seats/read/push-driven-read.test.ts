@@ -275,7 +275,7 @@ describe("push-driven read — a subscription that cannot be opened", () => {
     const clock = new ManualClock();
     const read = vi.fn(async () => "value");
     // The installed stub preload bridge throws exactly this way from every daemon
-    // method, and the presence roster's subscribe is that call.
+    // method, and the device-presence read's subscribe is that call.
     const model = new PushDrivenRead<string>({
       clock,
       origin: "presence-roster",

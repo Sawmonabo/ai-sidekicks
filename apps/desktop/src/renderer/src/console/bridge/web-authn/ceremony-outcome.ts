@@ -182,7 +182,7 @@ export type ProducedCeremonyOutcome = Exclude<
  * statement on the ceremony script could disagree with it — which is exactly the
  * fabrication `fixture/growth/growth-port.refusals.test.ts` pins the identity read against.
  *
- * So the fixture composes the claims from the viewer the scenario already names, and a
+ * So the fixture composes the claims from the caller the scenario already names, and a
  * scenario that names none cannot script an authenticated host at all: it takes the
  * same `capability-absent` refusal an unstated ceremony takes, which is the honest
  * answer rather than an invented user.

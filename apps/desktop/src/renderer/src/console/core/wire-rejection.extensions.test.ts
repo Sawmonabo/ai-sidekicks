@@ -142,7 +142,7 @@ describe("normalizeWireRejection — the manifests a blocked delete names", () =
     const refusal = normalizeWireRejection("repos", {
       code: "artifact.delete_forbidden",
       message: "The caller may not delete this artifact.",
-      details: { role: "viewer" },
+      details: { role: "read-only" },
     });
     expect(Object.hasOwn(refusal, "referencingArtifacts")).toBe(false);
   });

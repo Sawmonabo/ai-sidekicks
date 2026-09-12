@@ -17,10 +17,10 @@
 //
 // The member set is the seven non-generated columns of the canonical
 // `event_log_anchors` DDL — `id` is excluded because Postgres mints it
-// (`DEFAULT gen_random_uuid()`), and it names no row the daemon knows. states
-// the same seven as the anchor payload: "(session_id, node_id,
-// start_sequence, end_sequence, merkle_root, root_signature, anchored_at) —
-// metadata only".
+// (`DEFAULT gen_random_uuid()`), and it names no row the daemon knows. The
+// canonical DDL states the same seven as the anchor payload: "(session_id,
+// node_id, start_sequence, end_sequence, merkle_root, root_signature,
+// anchored_at) — metadata only".
 //
 // ----------------------------------------------------------------------------
 // Metadata-only, enforced at the type level

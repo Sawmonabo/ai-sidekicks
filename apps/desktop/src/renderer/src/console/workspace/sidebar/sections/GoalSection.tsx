@@ -22,8 +22,8 @@
 //
 // AND THE CONTROL SAYS NAVIGATION, BECAUSE THAT IS WHAT IT DOES. It read "Set a goal"
 // / "Change the goal" — an advertised mutation whose destination renders its editor
-// only for a role the goal contract admits, so a viewer or a runtime contributor was
-// promised an act and handed a surface that offers them none. The remedy is the copy
+// only for a role the goal contract admits, so a caller the contract does not admit
+// was promised an act and handed a surface that offers them none. The remedy is the copy
 // rather than a role gate here: gating would need a second reading of the caller's
 // identity beside the card's own, and it would hide the goal from a user
 // entitled to read it. The words are `goal-section-commands.ts`'s and the act is that

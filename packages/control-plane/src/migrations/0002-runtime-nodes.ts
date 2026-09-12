@@ -13,8 +13,8 @@
 //   3. Bundlers handle `import.meta.url` inconsistently; inline strings
 //      survive every transform stage.
 //
-// The canonical schema source-of-truth is) block is reproduced VERBATIM below
-// including both `-- Owner: ` stamps, every per-column comment, and the
+// The canonical schema source-of-truth's runtime-node block is reproduced
+// VERBATIM below, including both `-- Owner: ` stamps, every per-column comment, and the
 // multi-line comment on `idx_node_attachments_active`, so the inline constant
 // stays in lockstep with the canonical doc. Any column-shape edit
 // (add/remove/rename/CHECK change) MUST land first in the canonical doc per
