@@ -12,7 +12,7 @@
 // member of this session.
 //
 // IT LIVES IN `core/` BECAUSE ITS READERS ARE AT THREE DIFFERENT HEIGHTS. The run fold
-// is in `frame/`, the approval fold in `bridge/`, and the membership fold in a VIEW
+// is in `frame/`, the approval fold in `bridge/`, and the presence fold in a VIEW
 // family — and a view family may import neither of the other two. The floor is the
 // only home all three share, and this module needs nothing to be there: no store type,
 // no contracts schema, no React. It is `core/wire-strings.ts`'s neighbour rather than
@@ -20,15 +20,14 @@
 // noun it owns and its header is the string rule end to end, and none of those
 // sentences is about two members that have to agree.
 //
-// TWO RULES AND NOT ONE, BECAUSE THE CONTRACTS DIFFER. `Spec-006`'s payload shapes
-// make `sessionId` REQUIRED for `run_lifecycle`, `approval_flow`, and the four
-// `membership_change` transitions, so a frame that omits it there is malformed rather
-// than terse and {@link payloadNamesSession} refuses it. `membership.created` is the
-// one of those kinds `packages/contracts` registers a `SessionEventSchema` variant
-// for, and that variant is `.strict()` with no `sessionId` in it at all — so the
-// required rule would refuse every real admission, and {@link payloadContradictsSession}
-// is the arm that fits: an absent member contradicts nothing, and a present one that
-// names another session is a payload no daemon emits and is refused.
+// TWO RULES AND NOT ONE, BECAUSE THE CONTRACTS DIFFER. The payload shapes make
+// `sessionId` REQUIRED for `run_lifecycle` and `approval_flow`, so a frame that omits
+// it there is malformed rather than terse and {@link payloadNamesSession} refuses it.
+// A kind whose registered variant is `.strict()` with no `sessionId` in it at all
+// would be refused by that rule on every real frame, and
+// {@link payloadContradictsSession} is the arm that fits those: an absent member
+// contradicts nothing, and a present one that names another session is a payload no
+// daemon emits and is refused.
 //
 // THE COMPARISON IS AGAINST THE RAW MEMBER, never a read one, so a payload naming a
 // non-string `sessionId` fails here instead of being read as absence and waved

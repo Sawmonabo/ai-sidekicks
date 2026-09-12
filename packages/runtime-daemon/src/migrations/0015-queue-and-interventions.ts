@@ -61,18 +61,13 @@
 // created here: its predicate reads only `run_id`, a shell column.
 //
 // ----------------------------------------------------------------------------
-// The two constraints worth reading twice
+// The constraint worth reading twice
 // ----------------------------------------------------------------------------
 //
 //   * `interventions.origin` carries NO DEFAULT by design. A default would fail
 //     OPEN for the system path, so every insert site must declare which
 //     admission path it represents, and an unstamped insert fails at the
 //     database rather than silently becoming a system-origin row.
-//   * The table-level CHECK makes the admitting principal required IFF the
-//     origin is `participant` (D-004-4): the participant arm can never persist
-//     without its verified identity, and the system arm can never smuggle one
-//     in. It is a biconditional rather than a one-way implication precisely
-//     because both failure directions matter.
 //
 // Neither `queue_items.pii_participant_id` nor `interventions.pii_participant_id`
 // is indexed. That is deliberate and matched between the two tables: the

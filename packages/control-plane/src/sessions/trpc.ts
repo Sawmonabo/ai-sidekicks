@@ -33,7 +33,7 @@
 
 import { initTRPC, type TRPCRootObject, type TRPCRuntimeConfigOptions } from "@trpc/server";
 
-import { AisWireException, type AisWireErrorDetails } from "../ais-wire-exception.js";
+import { AisWireException } from "../ais-wire-exception.js";
 import { SSE_HEARTBEAT_INTERVAL_MS } from "./session-subscribe-sse.js";
 
 export interface SessionRouterContext {
@@ -42,17 +42,14 @@ export interface SessionRouterContext {
 }
 
 // Wire-projected envelope appended to `shape.data` when a procedure throws
-// a typed control-plane exception (any `AisWireException` subclass). `details`
-// is OPTIONAL: a detail-carrying exception projects its concrete
-// `AisWireErrorDetails`, while a code+message-only exception (the runtime-node
-// refusals + the version-floor write-refusal) omits the key entirely. Keep
-// this shape mirrored against the canonical
-// `ErrorResponse` envelope (`details` optional) so a `tsc` diff catches
-// upstream contract drift at PR review.
+// a typed control-plane exception (any `AisWireException` subclass). Every
+// control-plane exception is code+message-only — the runtime-node refusals and
+// the version-floor write-refusal — so the envelope carries those two members
+// and nothing else. An exception that later needs structured details adds the
+// member here and on the base class together.
 export interface SessionRouterAisError {
   readonly code: string;
   readonly message: string;
-  readonly details?: AisWireErrorDetails;
 }
 
 // `errorFormatter` mutates the inferred `Options` type slot. The explicit
@@ -76,15 +73,7 @@ export const t: TRPCRootObject<
   errorFormatter({ shape, error }) {
     const cause: unknown = error.cause;
     if (cause instanceof AisWireException) {
-      // Construct WITHOUT an explicit `details: undefined` key — under
-      // `exactOptionalPropertyTypes`, omitting the key is distinct from
-      // assigning `undefined`, and the wire envelope must carry NO `details`
-      // field for a code+message-only exception (a code+message-only refusal's
-      // `cause.details` is `undefined`).
-      const aisError: SessionRouterAisError =
-        cause.details !== undefined
-          ? { code: cause.code, message: cause.message, details: cause.details }
-          : { code: cause.code, message: cause.message };
+      const aisError: SessionRouterAisError = { code: cause.code, message: cause.message };
       return {
         ...shape,
         data: { ...shape.data, aisError },

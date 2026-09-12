@@ -293,7 +293,6 @@ export { SessionRefreshTriggers } from "./read/refresh-triggers.js";
 // `useOpenSessionIds` ships with them because the sessions surface and the
 // context picker each have to name which sessions are open before either can
 // read one, and the registry is the only thing that knows.
-export { useCallerIdentity } from "./session/caller-identity.js";
 export { useFrameStore } from "./shell/frame-hooks.js";
 export { useLocationHash } from "./shell/location-hash.js";
 export {
@@ -419,14 +418,6 @@ export type { SessionStoreScoped } from "./session/session-store-rebind.js";
 
 export { GenerationLatch, useGenerationLatch } from "./read/generation-latch.js";
 export type { CurrentGenerationClaim, GenerationClaim } from "./read/generation-latch.js";
-// Which participant this window is, forwarded with the two types a caller has to name
-// to use it. The reader is a PARAMETER because this family sits below `bridge/` and may
-// not reach a port, so the view family that can passes one in — which is also why the
-// two types travel: a caller adapting that outcome has to be able to NAME the shape,
-// and one mapping three arms onto what a surface renders writes that mapping over the
-// union rather than over a value it inferred.
-export type { CallerIdentityResult, CallerParticipantReader } from "./session/caller-identity.js";
-
 // The resume reading. Its consumer is the ledger surface that mounts a session's
 // workspace: the refused arm says the position this session was last read up to could
 // not be resolved and the log was re-read from the beginning of its window, which is a

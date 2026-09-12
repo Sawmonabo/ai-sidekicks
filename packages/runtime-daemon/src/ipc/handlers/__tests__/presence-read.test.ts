@@ -24,7 +24,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import type {
   HandlerContext,
-  ParticipantId,
   PresenceReadRequest,
   PresenceReadResponse,
   SessionId,
@@ -46,7 +45,7 @@ import { registerPresenceRead, type PresenceReadDeps } from "../presence-read.js
 // values are otherwise meaningless beyond passing the branded-UUID parse.
 
 const TEST_SESSION_ID = "550e8400-e29b-41d4-a716-446655440000" as SessionId;
-const TEST_PARTICIPANT_ID = "660e8400-e29b-41d4-a716-446655440001" as ParticipantId;
+const TEST_DEVICE_ID = "660e8400-e29b-41d4-a716-446655440001";
 
 /**
  * Build a canonical-shape `PresenceReadResponse` matching every required field
@@ -59,9 +58,11 @@ const TEST_PARTICIPANT_ID = "660e8400-e29b-41d4-a716-446655440001" as Participan
  */
 function buildPresenceReadResponse(): PresenceReadResponse {
   return {
-    participants: [
+    devices: [
       {
-        participantId: TEST_PARTICIPANT_ID,
+        deviceId: TEST_DEVICE_ID,
+        deviceType: "desktop",
+        appVisible: true,
         state: "online",
         lastSeen: "2026-01-22T19:14:35.000Z",
       },
@@ -98,7 +99,7 @@ describe("presence.read — round-trip through MethodRegistry dispatch", () => {
 
   it("returns an empty projection unchanged — no reachable device is a valid answer, not an error", async () => {
     const registry = new MethodRegistryImpl();
-    const noLiveDevices: PresenceReadResponse = { participants: [] };
+    const noLiveDevices: PresenceReadResponse = { devices: [] };
     const mockReadPresence = vi.fn<(request: PresenceReadRequest) => Promise<PresenceReadResponse>>(
       async () => noLiveDevices,
     );

@@ -14,8 +14,7 @@
 // So the read sits where the canonical shapes may be imported. That is not a
 // relocation of convenience: `store/` is BELOW `bridge/` on the console DAG, so a
 // store module cannot reach this narrowing by import at all, and the seam that
-// carries one downward is a parameter — which is how `store/session/caller-identity.ts`
-// already takes its caller-identity read.
+// carries one downward is a parameter.
 //
 // IT RETURNS A STORED REFERENCE, never a value built per call, so it stays usable as
 // a `useStore` selector: the read returns the stored object it narrowed rather than a

@@ -56,18 +56,11 @@ export function DurableInterventionRow(props: {
         ) : (
           <Chip tone={stateTone} label={record.state} mono />
         )}
-        <Chip tone="neutral" label={record.origin.kind} mono />
+        <Chip tone="neutral" label={record.origin} mono />
       </div>
       <p className="meridian-interventions__detail">
         <WireFigure value={record.interventionId} /> — raised{" "}
-        <WireFigure value={record.requestedAt} />
-        {record.origin.kind === "participant" ? (
-          <>
-            {" by "}
-            <WireFigure value={record.origin.admittingPrincipalId} />
-          </>
-        ) : null}
-        .
+        <WireFigure value={record.requestedAt} />.
       </p>
       {record.admittedQueueItemId === undefined ? null : (
         // The row-anchored linkage, so a drained replacement resolves one admitting

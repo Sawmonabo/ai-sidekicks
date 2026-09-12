@@ -1,25 +1,20 @@
 // The two durable run records the corpus registers as COLUMNS and no read returns:
-// the intervention row's origin and admitting principal, and the queue row's binding
-// to a run.
+// the intervention row's admission path, and the queue row's binding to a run.
 //
 // WHY THEY ARE WIRE SHAPES AND NOT CONSOLE VALUES. `growth-values/index.ts` draws the
 // line at whether the corpus has already decided the shape. Both of these are decided:
-// `interventions.origin`, `interventions.admitting_principal_id` and
-// `interventions.pii_payload` are durable columns with a stated requiredness rule, and
+// `interventions.origin` and `interventions.pii_payload` are durable columns, and
 // `queue_items.target_run_id` is a durable column too. What is missing is a READ — no
 // method, no event payload, no schema in any code package carries either one — so the
 // shape is transcribed here at the wire's edge rather than invented inside a view
 // family, which is exactly the defect the growth slate exists to prevent.
 //
-// THE ORIGIN IS A DISCRIMINATED UNION AND NOT A STRING BESIDE AN OPTIONAL FIELD. The
-// rule is that the admitting principal is required exactly on the participant arm and
-// forbidden on the system arm, and a flat `{origin, admittingPrincipalId?}` cannot
-// state that — it admits a participant row with no principal, which is the shape a
-// renderer would then have to guess about. Encoded as a union, the guess is
-// unrepresentable and the surface reads the arm rather than inferring one from an
-// absent field.
+// THE ORIGIN IS A CLOSED PAIR OF LABELS AND CARRIES NOTHING ELSE. It says which
+// admission path a row came in on — the identity-carrying transport, or the in-process
+// orchestration entrypoint below the wire authorization boundary — and it names nobody,
+// because there is one user on a session and an admission path is not a person.
 //
-// THE DIRECTIVE BODY IS A UNION FOR THE SAME REASON. A participant-authored directive
+// THE DIRECTIVE BODY IS A UNION. A participant-authored directive
 // rests encrypted under the authoring participant's key, so a row whose key has been
 // shredded carries the audit record and no text. `{text?: string}` would make "the
 // key is gone" and "the directive said nothing" the same value; two arms make them
@@ -27,15 +22,13 @@
 // from.
 
 /**
- * Who raised an intervention, with the admitting principal on the arm that has one.
+ * Which admission path an intervention came in on.
  *
- * The daemon RESOLVES this at acceptance from the transport-authenticated identity —
- * it is never a client-supplied actor, and it is never inferred from an absent
- * `initiatorId`. The console renders the arm the daemon sent and derives nothing.
+ * The daemon RESOLVES this at acceptance and the column carries no default, so an
+ * unstamped row never exists. The console renders the label the daemon sent and
+ * derives nothing.
  */
-export type GrowthInterventionOrigin =
-  | { readonly kind: "participant"; readonly admittingPrincipalId: string }
-  | { readonly kind: "system" };
+export type GrowthInterventionOrigin = "participant" | "system";
 
 /**
  * What a participant-authored intervention said, where the console may still read it.

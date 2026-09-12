@@ -10,19 +10,16 @@
 // forbidden to make.
 //
 // WHY THE ROWS ARE NOT THE ONES THE WINDOW DISPATCHED. The point of the durable read
-// is that it carries interventions this window never sent — one raised by another
-// participant and one raised by the system — so the history stops being a dispatch log
-// and becomes the run's record. A table that mirrored the scenario's own control
-// presses would leave that difference untestable.
+// is that it carries interventions this window never sent — one raised on another
+// device and one raised by the system — so the history stops being a dispatch log and
+// becomes the run's record. A table that mirrored the scenario's own control presses
+// would leave that difference untestable.
 
-import { PARTICIPANT_YOU, QUEUE_ITEM_ADMITTED, QUEUE_ITEM_WAITING, RUN_ID } from "./identifiers.js";
+import { QUEUE_ITEM_ADMITTED, QUEUE_ITEM_WAITING, RUN_ID } from "./identifiers.js";
 import type {
   GrowthInterventionRecord,
   GrowthQueueItemRunBinding,
 } from "../../wire-shapes/index.js";
-
-/** The other participant on this session's record, who raised the steer below. */
-const PARTICIPANT_COLLABORATOR = "019b7a22-2200-79a4-8110-cca0117a0411";
 
 /** The intervention whose directive rests under a key this node no longer holds. */
 const INTERVENTION_SHREDDED = "019b7a22-2200-7d31-8110-d1a4c1150431";
@@ -35,10 +32,10 @@ const INTERVENTION_REJECTED_ROLLBACK = "019b7a22-2200-7d31-8140-d1a4c1150434";
  *
  * Four rows and four different things to render: a participant-raised steer whose body
  * is gone, a participant-raised steer that admitted a queue item, a system-raised
- * cancel with no principal at all, and a rejected rollback carrying its reason
- * verbatim. Between them every arm of both unions and both optional members appears
- * exactly once, so a surface that dropped one has a row that renders wrongly rather
- * than a case nothing exercises.
+ * cancel, and a rejected rollback carrying its reason verbatim. Between them both
+ * origin labels, both directive arms, and both optional members appear, so a surface
+ * that dropped one has a row that renders wrongly rather than a case nothing
+ * exercises.
  */
 export const RUNS_INTERVENTION_RECORDS: readonly GrowthInterventionRecord[] = [
   {
@@ -46,7 +43,7 @@ export const RUNS_INTERVENTION_RECORDS: readonly GrowthInterventionRecord[] = [
     runId: RUN_ID,
     interventionKind: "steer",
     state: "applied",
-    origin: { kind: "participant", admittingPrincipalId: PARTICIPANT_COLLABORATOR },
+    origin: "participant",
     // The key is gone, so the audit record survives its body. The console renders the
     // record and says the text cannot be read — never an empty directive, which would
     // claim the participant said nothing.
@@ -58,7 +55,7 @@ export const RUNS_INTERVENTION_RECORDS: readonly GrowthInterventionRecord[] = [
     runId: RUN_ID,
     interventionKind: "steer",
     state: "applied",
-    origin: { kind: "participant", admittingPrincipalId: PARTICIPANT_YOU },
+    origin: "participant",
     directive: {
       availability: "available",
       text: "Prefer the smaller diff and leave the migration for a second pass.",
@@ -73,9 +70,9 @@ export const RUNS_INTERVENTION_RECORDS: readonly GrowthInterventionRecord[] = [
     runId: RUN_ID,
     interventionKind: "cancel",
     state: "applied",
-    // No principal, and none is inferable: the discriminator is resolved by the daemon
-    // and the system arm carries no admitting participant at all.
-    origin: { kind: "system" },
+    // The in-process orchestration entrypoint, resolved by the daemon and never
+    // client-supplied.
+    origin: "system",
     directive: { availability: "unavailable" },
     requestedAt: "2026-01-01T15:59:41.000Z",
   },
@@ -84,7 +81,7 @@ export const RUNS_INTERVENTION_RECORDS: readonly GrowthInterventionRecord[] = [
     runId: RUN_ID,
     interventionKind: "rollback",
     state: "rejected",
-    origin: { kind: "participant", admittingPrincipalId: PARTICIPANT_YOU },
+    origin: "participant",
     directive: { availability: "unavailable" },
     rejectionReason: "run.invalid_transition",
     requestedAt: "2026-01-01T16:00:02.000Z",

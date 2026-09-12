@@ -1,17 +1,8 @@
 // P1/P2/P3: SessionDirectoryService — Plan-001 PR #4 acceptance gates.
 //
-// P1: SessionCreate returns stable session id and persists to directory
-//     (Spec-001 AC1, AC2).
-// P2: Second SessionCreate by same client does not silently fork
-//     (Spec-001 AC5; BL-069 idempotent-upsert invariant).
-// P3: SessionJoin verifies membership and returns existing membership id
-//     (Spec-001 AC4, AC5). NOTE: the plan body's "returns existing
-//     timeline cursor" phrasing is satisfied by membership-reuse alone in
-//     PR #4 — `SessionJoinResponse` has no cursor field on the wire
-//     (`{ sessionId, participantId, membershipId, sharedMetadata }`).
-//     Cursor reuse is exercised by Plan-001 PR #5 SDK composition via
-//     SessionRead, where the daemon-supplied authoritative cursor is
-//     overlaid on the control plane's placeholder.
+// P1: SessionCreate returns stable session id and persists to directory.
+// P2: Second SessionCreate by same client does not silently fork — the
+//     idempotent-upsert invariant.
 //
 // Migration-runner coverage: matches the runtime-daemon test shape for
 // `applyMigrations` idempotency (re-call on a migrated handle is a no-op,

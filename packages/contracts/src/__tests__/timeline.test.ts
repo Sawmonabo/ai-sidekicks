@@ -1347,7 +1347,6 @@ describe("run attribution is refused where it cannot be read, and pinned where i
       "usage.token_count",
       // Not run-attributed in any form.
       "session.created",
-      "membership.created",
     ]) {
       expect(TIMELINE_RUN_SCOPED_EVENT_TYPES.has(notAlwaysRunScoped)).toBe(false);
     }

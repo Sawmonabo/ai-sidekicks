@@ -655,8 +655,7 @@ export interface RuntimeNodeRosterResponse {
 }
 // Single-T `z.ZodType<T>` — non-input projection (see the entry schema above);
 // `z.array(...)` over a single-T element matches
-// `SessionCreateResponseSchema`'s `z.array(MembershipSummarySchema)`
-// (session.ts:312).
+// `SessionCreateResponseSchema`'s `z.array(ChannelSummarySchema)`.
 export const RuntimeNodeRosterResponseSchema: z.ZodType<RuntimeNodeRosterResponse> = z
   .object({
     // One entry per `runtime_node_attachments` row for the session — bounded
@@ -792,9 +791,9 @@ export const RUNTIME_NODE_EVENT_NAMES: readonly RuntimeNodeEventName[] = [
 // input surfaces") and `event.ts`'s single-T event schemas — NOT the double-T
 // `RuntimeNodeAttachRequestSchema` input idiom. NO `as unknown as` cast is
 // needed even though each composes the branded `NodeIdSchema` / `SessionIdSchema`
-// double-T scalars: the direct precedent is `MembershipSummarySchema`
-// (session.ts:239) — single-T `z.ZodType<T>` over a `.strict()` object composing
-// branded `MembershipIdSchema` / `ParticipantIdSchema`, exported interface, and
+// double-T scalars: the direct precedent is `ChannelSummarySchema` in
+// session.ts — single-T `z.ZodType<T>` over a `.strict()` object composing the
+// branded `ChannelIdSchema`, exported interface, and
 // compiles clean with no cast (so do `SessionSnapshotSchema` / `ChannelSummary-
 // Schema` / `SessionCreateResponseSchema`). The cast on this file's REQUEST
 // schemas is driven by the double-T input-inference slot (it "only poisons input

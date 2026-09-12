@@ -59,7 +59,7 @@ describe("session-event streams — what a subscription name delivers", () => {
       sorted(registeredKindsIn("membership_change").filter((kind) => kind.startsWith("presence."))),
     );
     expect(subscriptionDeliversEventKind(PRESENCE_EVENT_STREAM, "presence.idle")).toBe(true);
-    expect(subscriptionDeliversEventKind(PRESENCE_EVENT_STREAM, "membership.created")).toBe(false);
+    expect(subscriptionDeliversEventKind(PRESENCE_EVENT_STREAM, "run.starting")).toBe(false);
   });
 
   it("treats a name that is not a stream as a subscription to that one event type", () => {

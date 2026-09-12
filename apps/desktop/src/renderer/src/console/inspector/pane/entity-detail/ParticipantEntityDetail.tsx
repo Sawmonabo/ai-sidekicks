@@ -2,9 +2,9 @@
 //
 // `ConsoleEntity.attributedTo` is TYPED by the store, so counting the runs and the
 // approvals a session attributes to this participant is a read of the projection
-// rather than a guess at a body member no projector has written. Everything else
-// comes off the record itself: `role` and `identityHandle` are the members
-// `membership.created` registers, quoted by name.
+// rather than a guess at a body member no projector has written. There is one
+// participant on a session and no event carries a role or a handle for them, so the
+// record is the two composed counts and the touch instant and nothing else.
 
 import { useMemo } from "react";
 
@@ -14,8 +14,6 @@ import {
   composedCountFacet,
   countAttributedTo,
   instantFacet,
-  readBodyMember,
-  wireFacet,
   type EntityDetailProps,
 } from "./entity-facets.js";
 
@@ -39,14 +37,8 @@ export function ParticipantEntityDetail(props: EntityDetailProps): React.JSX.Ele
       degradedCause={props.degradedCause}
       degradedConsequence="the two counts below would understate what this participant has done."
       absentTitle="No participant with this identifier is in the session."
-      absentDetail="A participant joins the record when the session admits their membership. Until then there is nothing attributed to them to show."
+      absentDetail="A participant enters the record when the session first attributes work to them. Until then there is nothing to show."
       facets={[
-        wireFacet("Role", readBodyMember(props.entity, "role"), "role"),
-        wireFacet(
-          "Identity handle",
-          readBodyMember(props.entity, "identityHandle"),
-          "identity handle",
-        ),
         composedCountFacet("Runs attributed", attributedRunCount),
         composedCountFacet("Approvals attributed", attributedApprovalCount),
         instantFacet("Last touched", props.entity?.touchedAt, "touch time"),

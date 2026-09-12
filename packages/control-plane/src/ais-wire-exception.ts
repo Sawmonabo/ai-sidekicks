@@ -37,16 +37,6 @@
 // See `sessions/trpc.ts` (the single-`instanceof` formatter this base
 // enables) and `runtime-nodes/errors.ts` (the subclasses).
 
-import type { ResourceLimitExceededDetails } from "@ai-sidekicks/contracts";
-
-// Union of every structured detail shape the wire envelope can carry. No
-// control-plane exception carries details today; the union grows as
-// detail-carrying exceptions are added. Typed as a union (not
-// `Record<string, unknown>`) so a concrete-interface override assigns without
-// a cast.
-export type AisWireErrorDetails = ResourceLimitExceededDetails;
-
 export abstract class AisWireException extends Error {
   abstract readonly code: string;
-  readonly details?: AisWireErrorDetails;
 }

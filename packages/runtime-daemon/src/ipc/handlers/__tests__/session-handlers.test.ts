@@ -154,7 +154,6 @@ function buildSessionCreateResponse(): SessionCreateResponse {
   return {
     sessionId: TEST_SESSION_ID,
     state: "provisioning",
-    memberships: [],
     channels: [],
   };
 }

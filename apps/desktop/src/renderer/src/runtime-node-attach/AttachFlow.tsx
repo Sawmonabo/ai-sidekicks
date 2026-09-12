@@ -26,47 +26,27 @@
 //     capabilities), `healthState` (the daemon's 2-value self-reported health
 //     axis — `packages/contracts/src/runtime-node.ts#RuntimeNodeHealthState`),
 //     and `participantId` + `clientVersion`
-//     (trust context: the membership identity the attach rides and the
-//     version the control plane compares against the session floor,
-//     `Spec-003 §Required Behavior`) — and the request carries exactly those fields plus the
-//     target `sessionId`
+//     (trust context: the identity the attach rides and the version the
+//     control plane compares against the session floor) — and the request
+//     carries exactly those fields plus the target `sessionId`
 //     (`packages/contracts/src/runtime-node.ts#RuntimeNodeAttachRequest`).
-//   • `Spec-003 §Required Behavior` ("runtime-node attach must be a separate step from membership
-//     acceptance"): the I-003-3 block below — the separation is this view's
-//     invariant.
 //
-// I-003-3 (attach is separate from membership) — the invariant this task
-// verifies (`Plan-003 §I-003-3 — Attach is separate from membership`:
-// "`RuntimeNodeAttach` MUST NOT modify session_memberships"; the T5.2 row
-// pins the renderer reading — attach and membership surface as DISTINCT
-// actions, never coupled to a `session_memberships` mutation). Concretely:
-//   • The ONLY wire call in this file is the `runtimenode.attach` mutation —
-//     no `membership.*`, no `invite.*`, no `session.*` call, named or
-//     implied. Membership acceptance is a SEPARATE, PRIOR step owned by a
-//     DIFFERENT view: a participant first holds active membership
-//     (`Spec-003 §Required Behavior`), THEN — as its own deliberate action — attaches a node under
-//     it.
-//   • A future editor will be tempted to fold the two into a "one-click
-//     accept-invite-and-attach" convenience inside this flow's handler. That
-//     is the exact inversion I-003-3 exists to forbid: accepting an invite
-//     would auto-attach a runtime node (the Spec-002 §Pitfalls security
-//     violation the invariant's why-load-bearing clause names), and
-//     membership would become automatic node trust
-//     (`Spec-003 §Pitfalls To Avoid`). Keep this view's wire surface at exactly one procedure.
+// ONE PROCEDURE, AND ONLY ONE. The only wire call in this file is the
+// `runtimenode.attach` mutation. Attaching a node is a deliberate,
+// trust-bearing act of its own; folding any other session mutation into this
+// handler as a convenience would couple node trust to something the user did
+// not choose. Keep this view's wire surface at exactly one procedure.
 //
 // CLICK-TRIGGERED, NOT MOUNT-TRIGGERED — why this view has an `idle` state:
 //
 //   The attach fires from an explicit button, never as a mount side effect,
-//   so the state machine starts at `idle` (the pre-click prompt) — the same
-//   deliberate divergence from mount-triggered `SessionBootstrap` the shipped
-//   click-flow precedent documents (invite-accept-view.tsx:35-36, "a
+//   so the state machine starts at `idle` (the pre-click prompt) — a
+//   deliberate divergence from mount-triggered `SessionBootstrap`: a
 //   mount-triggered component starts `pending`, a button-triggered one starts
-//   `idle`"). Auto-attach-on-mount would be wrong twice over:
+//   `idle`. Auto-attach-on-mount would be wrong twice over:
 //     • Attach must read as a deliberate, user-initiated action of its OWN —
 //       an attach that fires because something rendered couples the
-//       trust-bearing step to navigation (the same wrong-UX shape T6.1
-//       rejected for invite acceptance, where mount-fire would consume the
-//       invite on route-load).
+//       trust-bearing step to navigation.
 //     • The user must see what the node declares BEFORE it attaches
 //       (`Spec-003 §Required Behavior` + the `Spec-003 §Default Behavior` least-privilege default): the idle
 //       branch renders the full declaration — identity, capabilities, health,

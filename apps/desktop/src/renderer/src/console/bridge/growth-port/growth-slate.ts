@@ -437,7 +437,7 @@ const GROWTH_SLATE_ROWS_BY_ID: {
   },
   "intervention-history-read": {
     id: "intervention-history-read",
-    wire: "a run-scoped read of the durable intervention rows — the `origin` discriminator, the `admitting_principal_id` required exactly on the participant arm, the admitted queue item's row-anchored linkage, and the decrypted directive body, with a body-unavailable answer where the authoring participant's key has been shredded",
+    wire: "a run-scoped read of the durable intervention rows — the `origin` admission-path discriminator, the admitted queue item's row-anchored linkage, and the decrypted directive body, with a body-unavailable answer where the authoring key has been shredded",
     owningDocument:
       "Spec-004 §Required Behavior + §State And Data Implications (the durable columns and the resolution rule); Plan-004 (the read seam, which no method string, event payload, or code package carries)",
     wireRegistered: false,

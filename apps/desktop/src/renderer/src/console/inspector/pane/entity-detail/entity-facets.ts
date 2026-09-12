@@ -14,7 +14,7 @@
 // no family has registered one yet. So a detail reads a body member by NAME, and
 // the name is this console's read-side expectation rather than a claim about a
 // wire: where a registered contract member exists the detail quotes it verbatim
-// (`membership.created`'s `role` and `identityHandle`, `channel.created`'s `name`,
+// (`channel.created`'s `name`,
 // the repo / workspace / worktree lifecycle payload's `repoMountId` /
 // `workspaceId` / `worktreeId` / `actor`, `RunStateChangeEvent`'s `runVersion` and
 // `previousState`), and where the console owns the vocabulary itself it quotes its

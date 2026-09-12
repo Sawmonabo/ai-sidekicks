@@ -45,16 +45,11 @@ describe("the run's durable intervention record", () => {
     });
 
     const value = servedValueOf(outcome);
-    // The principal is present exactly on the participant arm and the system arm
-    // carries none — the requiredness rule the union encodes, checked against the rows
-    // rather than against the type that admits them.
+    // Both admission paths appear, so a surface that renders only one has a row that
+    // renders wrongly rather than a case nothing exercises.
     const origins = value.records.map((record) => record.origin);
-    expect(origins.filter((origin) => origin.kind === "system")).toHaveLength(1);
-    for (const origin of origins) {
-      if (origin.kind === "participant") {
-        expect(origin.admittingPrincipalId).not.toBe("");
-      }
-    }
+    expect(origins.filter((origin) => origin === "system")).toHaveLength(1);
+    expect(origins.filter((origin) => origin === "participant")).not.toHaveLength(0);
   });
 
   it("refuses for a run this scenario declares no record for", async () => {

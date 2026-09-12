@@ -164,8 +164,7 @@ export const ChannelListRequestSchema: z.ZodType<ChannelListRequest, ChannelList
 //
 // `.strict()` rejects unknown keys at parse time, surfacing schema drift
 // early — matches the convention used by every other projection-element
-// schema in this package (`ChannelSummary`, `MembershipSummary`,
-// `PresenceReadResponseParticipant`).
+// schema in this package (`ChannelSummary`, `PresenceReadResponseDevice`).
 
 export interface ChannelListResponseChannel {
   id: ChannelId;
