@@ -1,9 +1,9 @@
 // What the accelerator sends, and what it refuses to send.
 //
-// `Spec-017 §Chat-start surface (SA-38)`: "A start issued from a channel carries the
-// originating channel as an additive-optional `channelId` on `WorkflowRunStartRequest`
-// — provenance and progress-surface binding only." The composer already knows which
-// channel it is addressed within, so the field travels from that address; these cases
+// A start issued from a channel carries the originating channel as an
+// additive-optional `channelId` on `WorkflowRunStartRequest` — provenance and
+// progress-surface binding only. The composer already knows which channel it is
+// addressed within, so the field travels from that address; these cases
 // hold both halves of it, since a `channelId` sent from a composer that is NOT
 // addressed at a channel would be provenance the console invented.
 //

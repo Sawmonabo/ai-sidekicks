@@ -1,10 +1,10 @@
 // Reading the text-neutralization tripwire off a failed run.
 //
-// `Spec-005 §Required Behavior` (provider-bound text neutrality): a send whose first
-// word is command-shaped for the bound provider is neutralized at the driver
-// boundary IN TRANSPORT ONLY — the participant's text is never changed in the
-// ledger. When the guard trips, the driver fails the run rather than recording the
-// provider's zero-turn success, and the terminal carries the reason.
+// Provider-bound text neutrality: a send whose first word is command-shaped for the
+// bound provider is neutralized at the driver boundary IN TRANSPORT ONLY — the
+// participant's text is never changed in the ledger. When the guard trips, the driver
+// fails the run rather than recording the provider's zero-turn success, and the
+// terminal carries the reason.
 //
 // THE FORM IS FIXED AND THE CONSUMER RULE IS STATED ON THE WIRE ITSELF.
 // `RunStateChangeEvent.providerFailureDetail` has two producers — free-form prose

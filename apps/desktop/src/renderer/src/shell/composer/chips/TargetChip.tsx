@@ -1,9 +1,9 @@
 // The target chip: where this message is going, in one line a person can read.
 //
-// `Spec-023 §Console Design (Meridian)` §Target chip: it names the agent or channel
-// this text goes to, states the binding in one clause, names the paying account, and
-// marks a pending switch. Everything on it is a PROJECTION of what the daemon said —
-// there is no field here the console computed and none it defaulted.
+// It names the agent or channel this text goes to, states the binding in one clause,
+// names the paying account, and marks a pending switch. Everything on it is a
+// PROJECTION of what the daemon said — there is no field here the console computed and
+// none it defaulted.
 //
 // THE FIVE FACTS COME FROM THREE PLACES, AND THE CHIP DOES NOT PRETEND OTHERWISE.
 // The address and the binding clause are the session store's, folded from the event
@@ -18,7 +18,8 @@
 // the fixture answers and a live bridge refuses in type. What the chip still refuses
 // to do is draw a control against nothing: `target-axis-reach.ts` settles that in the
 // order it states, and a build whose port carries no such operation gets the sentence
-// rather than the button (`Spec-023 §Console Design (Meridian)` rule 8).
+// rather than the button, because a control that could silently do nothing is
+// forbidden.
 //
 // AND ONE HALF OF THE FAILED SWITCH IS STILL UNREACHABLE. The DEFERRED arm rides
 // `agent.provider_switch_failed`, an event type `packages/contracts`' union does not

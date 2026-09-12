@@ -1,11 +1,10 @@
 // Which `/name` the composer may run, and the sentence it says when it may not.
 //
-// Spec-017's C-18 reserves the slash prefix for CLIENT commands: a registered one is
-// executed by the client and never composes into a message, a context, or a provider
-// turn on any path. `Spec-023 §Signature Feature Composition Sketches` §The Session
-// Composer then closes the other half — the provider's own commands are a DISCOVERY
-// surface, and V1 sends exactly one enumerated entry, the compaction command, through
-// its own control and never through a typed line.
+// The slash prefix is reserved for CLIENT commands: a registered one is executed by
+// the client and never composes into a message, a context, or a provider turn on any
+// path. The other half is closed the same way — the provider's own commands are a
+// DISCOVERY surface, and exactly one enumerated entry, the compaction command, is
+// sent through its own control and never through a typed line.
 //
 // So this module answers exactly two things about a name, and both are about the
 // CONSOLE's own registry: a registered id is this composer's to run, and anything

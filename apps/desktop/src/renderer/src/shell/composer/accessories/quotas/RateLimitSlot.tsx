@@ -11,10 +11,6 @@
 // against ONE clock reading per render so a screenshot is byte-stable and a fixture
 // scenario's frozen clock reaches every surface. Handing the instant over is what
 // keeps that true through the seat.
-//
-// GOVERNANCE IDS LIVE IN THIS COMMENT AND NOT IN THE VALUE, as they do in every
-// contract in this directory: the indicator body is Plan-013's, mounted under the
-// obligation Plan-023 Phase 6 records for it.
 
 import type { OwnerSlotContract, OwnerSlotProps } from "../../../../console/seats/index.js";
 import { RateChips, type RateChipsProps } from "./RateChips.js";

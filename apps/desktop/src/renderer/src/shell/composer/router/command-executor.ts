@@ -1,8 +1,8 @@
 // The seam between recognising a client command and running one.
 //
 // The router INTERCEPTS: a leading slash whose name a recogniser knows resolves to
-// `client-command`, carrying the name and no request, because Spec-017's C-18
-// reserves the prefix and such a line never composes into a message on any path.
+// `client-command`, carrying the name and no request, because the prefix is reserved
+// and such a line never composes into a message on any path.
 // Interception is where the send path ends — and it is not where the act happens.
 //
 // SO THE OUTCOME IS A VALUE AND NOT A VOID. A controller that cleared the line on

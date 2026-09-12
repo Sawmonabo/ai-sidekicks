@@ -1,11 +1,10 @@
 // The first send into a session this console started, and what it does to the list.
 //
-// `Spec-023 §Console Design (Meridian)` §All-sessions list makes auto-pin on first
-// send a setting, and until this wire existed the switch changed its own persisted
-// value and nothing else: `autoPinDecision` had two readers, the explanatory
-// sentences beside the switch and its own suite, and no send path consulted either.
-// A person could turn the switch on, start a session, send into it, and watch the row
-// stay exactly where it was.
+// Auto-pin on first send is a setting on the all-sessions list, and until this wire
+// existed the switch changed its own persisted value and nothing else:
+// `autoPinDecision` had two readers, the explanatory sentences beside the switch and
+// its own suite, and no send path consulted either. A person could turn the switch on,
+// start a session, send into it, and watch the row stay exactly where it was.
 //
 // These cases drive the real hook over a real bridge, because the claim is about the
 // SETTLED arm of a send: an intercepted command, a refusal, and a call still in

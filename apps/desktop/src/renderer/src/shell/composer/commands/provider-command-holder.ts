@@ -1,10 +1,10 @@
 // The one enumeration this composer holds, and the two zones that read it.
 //
-// `Spec-023 §Signature Feature Composition Sketches` §The Session Composer states the
-// enumeration's lifetime as a rule: "not persisted, not cached across sessions, and
-// re-read rather than patched". That is what this holder is — one live reading, keyed
-// on the addressed agent, discarded when the key changes and when the surface that
-// opened it closes. It is not a registry and nothing here survives a re-address.
+// The enumeration's lifetime is a rule: it is not persisted, not cached across
+// sessions, and re-read rather than patched. That is what this holder is — one live
+// reading, keyed on the addressed agent, discarded when the key changes and when the
+// surface that opened it closes. It is not a registry and nothing here survives a
+// re-address.
 //
 // WHY IT IS A HOLDER AND NOT A HOOK IN EACH ZONE. Two zones need the same reading and
 // they need it for different reasons: the popover LISTS what the bound provider
@@ -122,8 +122,8 @@ export class ProviderCommandEnumeration {
    * A key change DISCARDS before it re-reads, and the intermediate state is
    * `not-loaded` rather than the previous agent's list: a list that survived a
    * re-address for one frame would be one frame in which the surface offered the
-   * wrong binding's commands, which is the routing invariant
-   * `Spec-005 §The provider command and skill surface` exists to forbid.
+   * wrong binding's commands — the routing rule every entry is held to: a command
+   * enumerated under one binding is never offered under another.
    */
   public open(key: ProviderCommandReadKey): void {
     if (this.#openKey !== undefined && isSameReadKey(this.#openKey, key)) {

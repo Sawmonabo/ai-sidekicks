@@ -10,12 +10,6 @@
 // the body is a COMPONENT rather than a rendered node: a node would mean the owning
 // plan reaching for the timeline a second time, and the fold that answers this
 // question is the rail's — one selector, three readings, one subscription.
-//
-// GOVERNANCE IDS LIVE IN THIS COMMENT AND NOT IN THE VALUE. Every member of the
-// contract below is a string a program holds at runtime, and the repository keeps
-// plan, spec, and task ids out of runtime strings — so the prose names the owning
-// work and a reader who needs the identifier reads it here: the meter body is
-// Plan-013's, mounted under the obligation Plan-023 Phase 6 records for it.
 
 import type { OwnerSlotContract, OwnerSlotProps } from "../../../../console/seats/index.js";
 import { ContextMeter, type ContextMeterProps } from "./ContextMeter.js";

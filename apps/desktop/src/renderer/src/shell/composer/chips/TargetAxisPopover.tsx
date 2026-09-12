@@ -18,8 +18,7 @@
 // component's state, but the portal, the positioner, and the popup are
 // `primitives/overlay/OverlayPopoverPopup.tsx`'s — that is what registers the popup in
 // the window's airspace, and a composer that mounted its own portal would be a form a
-// native browser-pane view paints over and eats the input of
-// (`Spec-023 §Console Design (Meridian)` 12.3).
+// native browser-pane view paints over and eats the input of.
 //
 // THE TRIGGER IS ITS OWN CONTROL RATHER THAN THE BINDING CHIP MADE PRESSABLE. A chip
 // is one fact in one word and the binding clause is a wire-verbatim figure; turning a

@@ -7,12 +7,11 @@
 // so a build that carries no way to move an axis says so whether or not it ever read
 // the agent, and a control is never drawn against an operation nothing serves.
 //
-// THAT IS FAIL-CLOSED AND NOT DEFENSIVE. `Spec-023 §Console Design (Meridian)` rule 8
-// forbids a control that could silently do nothing: the growth port is the console's
-// seam for a wire it does not have, and an operation absent from the port is a press
-// that reaches no call at all rather than one the daemon refuses. The two are
-// different facts and the second one is renderable — the mutation's own refusal — so
-// only the first is settled here.
+// THAT IS FAIL-CLOSED AND NOT DEFENSIVE. A control that could silently do nothing is
+// forbidden: the growth port is the console's seam for a wire it does not have, and an
+// operation absent from the port is a press that reaches no call at all rather than one
+// the daemon refuses. The two are different facts and the second one is renderable —
+// the mutation's own refusal — so only the first is settled here.
 //
 // AND THE ROSTER ROW IS THE SECOND CONJUNCT, because the form the popover mounts is a
 // difference FROM a binding. Without the row there is no binding to differ from, and

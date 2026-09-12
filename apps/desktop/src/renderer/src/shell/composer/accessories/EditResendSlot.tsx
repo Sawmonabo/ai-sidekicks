@@ -14,12 +14,6 @@
 // is a fail-closed projection of a daemon predicate, never a second source of
 // eligibility truth, so the console renders the seat's absence rather than a
 // control that looks live.
-//
-// GOVERNANCE IDS LIVE IN THIS COMMENT AND NOT IN THE VALUE. Every member of the
-// contract below is a string a program holds at runtime, and the repository keeps
-// plan, spec, and task ids out of runtime strings — so the prose names the owning
-// work and a reader who needs the identifier reads it here: the body is Plan-004's
-// task T4.8, handed to this console under the obligation that pairs with it.
 
 import { Nothing } from "../../../console/primitives/index.js";
 import type { OwnerSlotContract, OwnerSlotProps } from "../../../console/seats/index.js";

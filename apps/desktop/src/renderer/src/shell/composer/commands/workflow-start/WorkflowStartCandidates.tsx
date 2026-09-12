@@ -1,12 +1,11 @@
 // The definitions a half-typed `/workflow start <name>` could still become.
 //
-// THE READ HAPPENS WHILE THE NAME IS BEING TYPED, WHICH IS THE WHOLE POINT.
-// `Spec-017 §Chat-start surface (SA-38)`: "autocomplete enumerates candidates via
-// `workflow.definitionList`". The accelerator already read that enumeration — but
-// only after Enter, to resolve a name somebody had to know already, so a person who
-// did not know it was told the name they guessed does not exist and offered nothing
-// instead. This is the other half: the same enumeration, read while the argument is
-// still open, offered as a list.
+// THE READ HAPPENS WHILE THE NAME IS BEING TYPED, WHICH IS THE WHOLE POINT. The
+// autocomplete enumerates candidates via `workflow.definitionList`. The accelerator
+// already read that enumeration — but only after Enter, to resolve a name somebody had
+// to know already, so a person who did not know it was told the name they guessed does
+// not exist and offered nothing instead. This is the other half: the same enumeration,
+// read while the argument is still open, offered as a list.
 //
 // IT IS THE SAME DOOR AND NOT A SECOND ONE. `definition-enumeration.ts` walks the
 // wire's cursor to exhaustion for both readers, so a candidate offered here is a name

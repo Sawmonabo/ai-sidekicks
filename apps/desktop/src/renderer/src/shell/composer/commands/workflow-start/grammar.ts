@@ -1,9 +1,8 @@
 // The one command root the composer registers for workflows, and how its line reads.
 //
-// `Spec-017 §Chat-start surface (SA-38)` states the surface exactly: "The session
-// composer registers exactly one command root, `workflow`, with exactly one V1 verb,
-// `start`: `/workflow start <name>`." The root is what the recogniser matches and the
-// palette lists; the verb and the definition name that follows it are this module's
+// The session composer registers exactly one command root, `workflow`, with exactly one
+// verb, `start`: `/workflow start <name>`. The root is what the recogniser matches and
+// the palette lists; the verb and the definition name that follows it are this module's
 // grammar and nobody else's.
 //
 // WHY THE ROOT IS THE REGISTERED ID AND THE VERB IS NOT PART OF IT. The composer

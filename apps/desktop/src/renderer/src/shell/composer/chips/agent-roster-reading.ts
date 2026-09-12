@@ -1,19 +1,18 @@
 // The addressed agent's roster read, as a reading rather than a one-shot effect.
 //
-// WHY THIS IS A CLASS AND NOT THE `useEffect` IT REPLACES. The read was armed once
-// per `(bridge, sessionId, agentId)` and never again — no focus trigger, no repair
-// trigger, no timeline trigger — which `Spec-023 §Rules every console surface obeys`
-// forbids for exactly the reason this chip demonstrates: `agent.list` is how a client
-// that did not issue the mutation learns a provider switch is queued, so a
-// collaborator queueing one after this composer mounted left the chip showing no
-// pending switch indefinitely. The label half beside it DID refresh — the
-// account-plane reading wires the window triggers — so one chip carried two
-// staleness rules.
+// WHY THIS IS A CLASS AND NOT THE `useEffect` IT REPLACES. The read was armed once per
+// `(bridge, sessionId, agentId)` and never again — no focus trigger, no repair trigger,
+// no timeline trigger — which a console surface may not do, for exactly the reason this
+// chip demonstrates: `agent.list` is how a client that did not issue the mutation
+// learns a provider switch is queued, so a collaborator queueing one after this
+// composer mounted left the chip showing no pending switch indefinitely. The label half
+// beside it DID refresh — the account-plane reading wires the window triggers — so one
+// chip carried two staleness rules.
 //
 // `store/read/read-triggers.ts` owns the four moments and `store/read/refresh-scheduler.ts` owns what
 // asking costs; what this class adds is the `ReadTriggerTarget` shape that makes it
-// wireable, which is what the console's other four readings are and what
-// `apps/desktop/AGENTS.md` §Chokepoints holds every reading to.
+// wireable, which is what the console's other four readings are and what the
+// chokepoint rules in `apps/desktop/AGENTS.md` hold every reading to.
 //
 // THE TRIGGERING KINDS ARE THE AGENT LIFECYCLE'S, AND THEIR PAYLOADS ARE NEVER READ.
 // The `approvals-wire.ts` rule, for the same reason: the roster read is the single

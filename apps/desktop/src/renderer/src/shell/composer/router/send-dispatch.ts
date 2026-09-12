@@ -103,15 +103,14 @@ export async function dispatchIntervention(
 /**
  * Whether an intervention state means the composed text reached the run.
  *
- * A total switch over the registered union rather than a list, so a seventh state
- * has to be classified rather than falling into whichever arm was written last.
- * `Queue And Intervention Model §Intervention State Transition Table` is what
- * decides each one: `requested` and `accepted` are admissions the daemon will act
- * on, `applied` is the provider confirming the effect, and `degraded` is the
- * orchestration layer having fallen back — the message travelled on all four. Only
- * `rejected` (refused before dispatch) and `expired` (the version guard, or the run
- * moving between accept and apply) leave the participant's words unsent, and those
- * are the two that keep the draft.
+ * A total switch over the registered union rather than a list, so a seventh state has
+ * to be classified rather than falling into whichever arm was written last. The
+ * intervention state transitions are what decide each one: `requested` and `accepted`
+ * are admissions the daemon will act on, `applied` is the provider confirming the
+ * effect, and `degraded` is the orchestration layer having fallen back — the message
+ * travelled on all four. Only `rejected` (refused before dispatch) and `expired` (the
+ * version guard, or the run moving between accept and apply) leave the participant's
+ * words unsent, and those are the two that keep the draft.
  */
 function isInterventionAdmitted(state: InterventionState): boolean {
   switch (state) {

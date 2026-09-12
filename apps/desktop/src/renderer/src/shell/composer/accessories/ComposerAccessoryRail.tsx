@@ -12,16 +12,15 @@
 // control pointed at neither, and offering to compact on the strength of it. A
 // composer addressed to a channel asks both folds for nothing.
 //
-// THE QUOTA CHIPS COME OFF THE ACCOUNT PLANE AND NOT OFF THIS TIMELINE. They used to
-// be a third fold here, over `usage.rate_limit_update` — a row `Spec-006 §Daemon-Scope
-// Event Binding And Node-Scope Anchoring` binds to the reserved node-scope sentinel
-// session, so no session store this rail can select from ever holds one. The chips
-// were therefore reachable only under a fixture that put the row in a session's log,
-// and against a daemon the seat would have rendered nothing forever. They now read
-// `console/bridge/quotas/provider-account-quota.ts`, which is one `providerAccount.list` and
-// one `providerAccount.subscribe` per BRIDGE — node-scoped, like the readings — and a
-// read that failed says so beside the meters rather than leaving a quota-shaped
-// silence that reads as healthy.
+// THE QUOTA CHIPS COME OFF THE ACCOUNT PLANE AND NOT OFF THIS TIMELINE. They used to be
+// a third fold here, over `usage.rate_limit_update` — a row bound to the reserved
+// node-scope sentinel session, so no session store this rail can select from ever holds
+// one. The chips were therefore reachable only under a fixture that put the row in a
+// session's log, and against a daemon the seat would have rendered nothing forever.
+// They now read `console/bridge/quotas/provider-account-quota.ts`, which is one
+// `providerAccount.list` and one `providerAccount.subscribe` per BRIDGE — node-scoped,
+// like the readings — and a read that failed says so beside the meters rather than
+// leaving a quota-shaped silence that reads as healthy.
 //
 // THE SHELF ASKS A NARROWER QUESTION OF THE SESSION'S ONE QUEUE READING. The rows
 // still waiting are what the shelf holds; the runs pane shows the whole queue,

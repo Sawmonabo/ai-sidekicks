@@ -13,10 +13,6 @@
 // actually compacted. The seat states that here so the body inherits the rule rather
 // than rediscovering it, and it is why the completed reading is passed in rather
 // than derived from the reply.
-//
-// GOVERNANCE IDS LIVE IN THIS COMMENT AND NOT IN THE VALUE, as they do in every
-// contract in this directory: the control body is Plan-013's, mounted under the
-// obligation Plan-023 Phase 6 records for it.
 
 import type { OwnerSlotContract, OwnerSlotProps } from "../../../../console/seats/index.js";
 import { CompactionControl, type CompactionControlProps } from "./CompactionControl.js";

@@ -1,11 +1,11 @@
 // What the two chips SAY, derived from what the daemon has actually said.
 //
-// `Spec-023 §Console Design (Meridian)` gives the composer two chips and one job
-// each: the target chip names where a message goes, and the posture chip names the
-// posture the run got. Both are projections. Neither derives eligibility, neither
-// guesses, and neither renders a value the wire has not supplied — so this module
-// is where the derivation lives, separate from the components, because a derivation
-// inside a render body is a derivation nobody can drive from a test.
+// The composer carries two chips with one job each: the target chip names where a
+// message goes, and the posture chip names the posture the run got. Both are
+// projections. Neither derives eligibility, neither guesses, and neither renders a
+// value the wire has not supplied — so this module is where the derivation lives,
+// separate from the components, because a derivation inside a render body is a
+// derivation nobody can drive from a test.
 //
 // THE ADDRESSING VOCABULARY LIVES HERE AND NOT IN THE ROUTER, even though the
 // router is what spends it. The chip is what a person reads the address off, and
@@ -39,7 +39,7 @@ import type { ConsolePaneAddress } from "../../../console/seats/index.js";
 import { resolveAddressedRun } from "./addressed-run.js";
 
 /**
- * The two paths a composed message can travel (§Channel and provider paths).
+ * The two paths a composed message can travel: a channel, or a bound provider.
  *
  * Closed, declared once, union derived — the whole of the `/` rule branches on this
  * discriminant, so a third path added to a hand-written union while this tuple
@@ -101,8 +101,8 @@ export interface ComposerRunTarget {
    * carries; they would part the moment a state change reaches a client without an
    * event this store admits. The subscription is not wired in the renderer yet, so
    * nothing here reads it, and this member stays the projection — named rather than
-   * silently substituted, and re-homed onto that reading by the task that lands it
-   * (Plan-023, the run-state subscription task).
+   * silently substituted, and re-homed onto that reading by the task that lands the
+   * run-state subscription.
    */
   readonly runState: string | undefined;
   /**
@@ -146,7 +146,7 @@ export interface PostureChipModel {
 /** The wire-supplied axis keys the binding clause is assembled from, in read order. */
 const BINDING_CLAUSE_AXES = ["driverName", "model", "effort"] as const;
 
-/** The separator `Spec-023 §Console Design (Meridian)` uses between binding axes. */
+/** The separator the console uses between binding axes. */
 const BINDING_CLAUSE_SEPARATOR = " · ";
 
 /** What `resolveComposerTarget` is given. All of it comes from the composer seat. */
@@ -220,7 +220,7 @@ export function resolveTargetChipModel(
  *
  * The posture is read off the target run's entity body and nowhere else. A session
  * default, a policy lookup, or a per-agent guess would each be the renderer deriving
- * a posture, which `Spec-012 §Required Behavior` puts at the daemon at run start.
+ * a posture, and the posture is the daemon's decision, made at run start.
  *
  * AND THE READ IS THE WIRE'S EDGE'S, NOT THIS MODULE'S. It used to check
  * `typeof mode === "string"` and `Array.isArray(writableRoots)` and then assert the

@@ -1,10 +1,10 @@
 // The renderer's root component.
 //
-// Plan-023 Phase 1C mounts the console here, replacing the Phase-1 substrate probe
-// (`SessionBootstrap`) that this component rendered while there was nothing else to
-// render. That component is not deleted — it is Plan-002's, it keeps its own unit
-// tests, and Plan-002's surfaces mount it through the console's surface registry
-// when they land. What changes is only what the ROOT renders.
+// The root mounts the console, replacing the early substrate probe (`SessionBootstrap`)
+// that this component rendered while there was nothing else to render. That component
+// is not deleted — it keeps its own unit tests, and the session surfaces mount it
+// through the console's surface registry when they land. What changes is only what the
+// ROOT renders.
 //
 // Everything the console needs it builds for itself: `ConsoleRoot` installs the
 // token sheet before first paint, resolves the bridge (live or `define`-gated
@@ -24,12 +24,11 @@ import { SignInOverlay } from "./console/sign-in/index.js";
 /**
  * The scenario this window plays, or `undefined` when fixtures are compiled out.
  *
- * At MODULE scope rather than inside the component, and that is the whole
- * mechanism: `Spec-023 §Console Design (Meridian)` §The fixture bridge forbids a
- * runtime fixture switch, so the id is read exactly once — before the first render
- * — and the value is a constant for the life of the window. A read inside the
- * component would run again on every render and make a mid-session change
- * representable, which is the shape the provider's single-resolution rule exists
+ * At MODULE scope rather than inside the component, and that is the whole mechanism:
+ * the fixture bridge forbids a runtime fixture switch, so the id is read exactly once —
+ * before the first render — and the value is a constant for the life of the window. A
+ * read inside the component would run again on every render and make a mid-session
+ * change representable, which is the shape the provider's single-resolution rule exists
  * to rule out.
  *
  * `__SIDEKICKS_CONSOLE_FIXTURES__` is a build-time literal, so a release bundle

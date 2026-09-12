@@ -27,10 +27,10 @@ export interface ComposerSteerResolution {
 /**
  * The interception arm: a registered client command.
  *
- * Spec-017's C-18 reserves the slash prefix: a registered command
- * is executed by the client and never composes into a message, a context, or a
- * provider turn on any path. So this arm carries the command's NAME and no request
- * at all: there is nothing for the wire to be handed.
+ * The slash prefix is reserved: a registered command is executed by the client and
+ * never composes into a message, a context, or a provider turn on any path. So this arm
+ * carries the command's NAME and no request at all: there is nothing for the wire to be
+ * handed.
  */
 export interface ComposerClientCommandResolution {
   readonly outcome: "client-command";
@@ -78,10 +78,9 @@ export type EnumeratedProviderCommand = Pick<ProviderCatalogEntry, "name" | "kin
  *
  * A SECOND port beside the client-command predicate and deliberately not a widening
  * of it: the two answers lead to opposite acts. A client command is run; a provider
- * entry is refused by name, because `Spec-023 §Signature Feature Composition
- * Sketches` §The Session Composer makes the enumeration a discovery surface — V1
- * sends exactly one enumerated entry, the compaction command, through its own control
- * and never through a typed line. The default answers `undefined` for every name,
+ * entry is refused by name, because the enumeration is a discovery surface — exactly
+ * one enumerated entry, the compaction command, is sent through its own control and
+ * never through a typed line. The default answers `undefined` for every name,
  * which leaves a composer with no enumeration behind it saying exactly what it said
  * before this port existed.
  */

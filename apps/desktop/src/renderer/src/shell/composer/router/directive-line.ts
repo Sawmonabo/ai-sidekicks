@@ -1,10 +1,9 @@
 // The directive line: what the input SAYS, and what walking its history does.
 //
-// `Spec-023 §Console Design (Meridian)` gives the line two jobs beyond holding text.
-// It is ADDRESSED — the placeholder names the target, so a person reading nothing
-// else still knows where their sentence is going — and it is WALKABLE: ArrowUp and
-// ArrowDown at the edge offsets recall this participant's sent messages, guarded so
-// that a walk never destroys an unsent draft.
+// The line has two jobs beyond holding text. It is ADDRESSED — the placeholder names
+// the target, so a person reading nothing else still knows where their sentence is
+// going — and it is WALKABLE: ArrowUp and ArrowDown at the edge offsets recall this
+// participant's sent messages, guarded so that a walk never destroys an unsent draft.
 //
 // The recall is stateful, so it is a class with private fields. The two derivations
 // are pure, so they are functions: the placeholder is a projection of the target and

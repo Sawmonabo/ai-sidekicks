@@ -1,8 +1,7 @@
 // The composer: the shell chrome every session view contains, and the seat's body.
 //
-// `Spec-023 §Signature Feature Composition Sketches` §The Session Composer calls it
-// "the shell chrome every session view already contains" — one input, one primary
-// action, and the two chips that say where a message is going and under what
+// It is the shell chrome every session view already contains — one input, one
+// primary action, and the two chips that say where a message is going and under what
 // posture. The workspace mounts whatever fills the composer seat; this file is what
 // fills it.
 //
@@ -26,12 +25,12 @@
 //
 // The second is the provider command enumeration. The popover LISTS what the bound
 // provider publishes and the send bar has to know whether a typed `/name` is one of
-// those entries, and both readings must be one: a second hook in the send bar would
-// be a second read of one wire, and a copy kept beside the router would be the
-// stored list `Spec-023 §Signature Feature Composition Sketches` §The Session
-// Composer forbids. So the host constructs one holder and hands it to both — the
-// popover opens it, the send bar only reads it. The host still reads no wire itself;
-// it owns the holder the way it owns the region.
+// those entries, and both readings must be one: a second hook in the send bar would be
+// a second read of one wire, and a copy kept beside the router would be a stored list,
+// which the composer may not keep — the enumeration is read live and never cached. So
+// the host constructs one holder and hands it to both — the popover opens it, the send
+// bar only reads it. The host still reads no wire itself; it owns the holder the way
+// it owns the region.
 //
 // THE HOLDER IS A RESOURCE AND IS HELD AS ONE. It owns an open read and a generation
 // that supersedes one, so it has a lifetime, and `useMemo` does not give a value one:

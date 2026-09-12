@@ -72,12 +72,12 @@ export function unparseableIdentifier(subject: string): ConsoleRefusal {
  * The refusal for an intervention the daemon answered and did not admit.
  *
  * DAEMON-ORIGIN, because the daemon is who declined it. The code slot carries the
- * response's own machine-readable `rejectionReason` where it sent one — that member
- * is the cause, and `Spec-023 §Console Design (Meridian)` rule 9 puts the code in
- * mono — and the lifecycle state where it did not, which is the daemon's own word
- * for what happened and never a category this console invented. The sentence beside
- * it is about the participant's TEXT rather than about the daemon's rule: what the
- * console knows and the daemon does not is that the line still holds the message.
+ * response's own machine-readable `rejectionReason` where it sent one — that member is
+ * the cause, and a refusal code is rendered in mono — and the lifecycle state where it
+ * did not, which is the daemon's own word for what happened and never a category this
+ * console invented. The sentence beside it is about the participant's TEXT rather than
+ * about the daemon's rule: what the console knows and the daemon does not is that the
+ * line still holds the message.
  */
 export function interventionNotApplied(
   state: InterventionState,
