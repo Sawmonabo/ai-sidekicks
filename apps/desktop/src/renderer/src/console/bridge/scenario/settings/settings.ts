@@ -99,10 +99,9 @@ export const SETTINGS_SCENARIO: ConsoleScenario = {
     "One quiet session so the rail is reachable, two runtime nodes of which one falls into the degraded band, and the three unbound settings planes answered through the growth port: node diagnostics, the provider-account registry with its sign-in handoff, and the MCP governance inventory.",
   sessionId: SESSION_ID,
   userIdsInJoinOrder: [USER_YOU],
-  // The only user, and stated rather than inferred all the same: a
-  // single-member roster makes the head of the join order coincide with the viewer,
-  // and a surface that read the coincidence as the rule would be wrong everywhere
-  // else.
+  // The only user, and stated rather than inferred all the same: a one-entry join
+  // order makes its head coincide with the caller, and a surface that read the
+  // coincidence as the rule would be wrong everywhere else.
   viewingUserId: USER_YOU,
   startedAtIso: "2026-01-01T08:00:00.000Z",
   runtimeNodeRoster: RUNTIME_NODE_ROSTER_FRAMES,
