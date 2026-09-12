@@ -1,6 +1,6 @@
 {
   "name": "@ai-sidekicks/contracts",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "description": "Shared protocol contracts, schema definitions, and cross-container types.",
   "license": "Apache-2.0",
