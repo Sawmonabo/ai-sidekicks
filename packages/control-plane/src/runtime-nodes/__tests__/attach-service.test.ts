@@ -1319,7 +1319,7 @@ describe("AttachService — P7/P8 + detach (offline transition)", () => {
 // (capability-validation failure leaves the node `degraded`) + `Spec-003 §Required Behavior` / `Spec-003 §Default Behavior` (the
 // control plane is NOT the daemon-side capability-declaration authority) +
 // Plan-003 §Invariants I-003-2 (cannot drive registering -> online) / I-003-3
-// (no session-directory mutation) / I-003-5 (single active attachment) +
+// (no session-directory mutation) / single active attachment +
 // ADR-017 (no control-plane event log).
 //
 // updateCapabilities refreshes the `capabilities` JSONB snapshot (the discovery
