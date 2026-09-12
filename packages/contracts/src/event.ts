@@ -128,13 +128,13 @@ import { WorktreeLifecyclePayloadSchema, type WorktreeLifecyclePayload } from ".
 // Ed25519 signature; producers MUST emit the category that matches the type's
 // namespace, and consumers MUST NOT silently coerce mismatches. The literal
 // `category` per variant in the discriminatedUnion below enforces this on
-// the wire — a `{type: "session.created", category: "membership_change"}`
+// the wire — a `{type: "session.created", category: "presence"}`
 // payload is rejected at parse time, BEFORE it can be hashed under the
 // wrong category string and break replay.
 //
 // ORDER IS NOT LOAD-BEARING — `Spec-006 §Canonical Serialization Rules` specifies RFC 8785 JCS
 // canonicalization, which serializes the LITERAL wire string ("session_
-// lifecycle", "membership_change", etc.) into the canonical bytes that back
+// lifecycle", "presence", etc.) into the canonical bytes that back
 // the BLAKE3 hash chain and Ed25519 signature. The TypeScript enum's
 // declaration order does not affect canonical bytes; reordering, inserting,
 // or appending categories is byte-equivalent at the integrity layer (it IS
@@ -147,7 +147,7 @@ export type EventCategory =
   | "tool_activity"
   | "interactive_request"
   | "artifact_publication"
-  | "membership_change"
+  | "presence"
   | "session_lifecycle"
   | "approval_flow"
   | "usage_telemetry"
@@ -168,7 +168,7 @@ export const EventCategorySchema: z.ZodType<EventCategory> = z.enum([
   "tool_activity",
   "interactive_request",
   "artifact_publication",
-  "membership_change",
+  "presence",
   "session_lifecycle",
   "approval_flow",
   "usage_telemetry",
@@ -3158,7 +3158,7 @@ export type SessionEventType =
   | "diff.created"
   | "pr.prepared"
   | "pr.submitted"
-  // membership_change (4) — per-device presence transitions for the one user.
+  // presence (4) — per-device presence transitions for the one user.
   | "presence.online"
   | "presence.idle"
   | "presence.reconnecting"
@@ -3417,7 +3417,7 @@ export const ARTIFACT_PUBLICATION_EVENT_TYPES: readonly SessionEventType[] = [
   "pr.submitted",
 ] as const;
 
-export const MEMBERSHIP_CHANGE_EVENT_TYPES: readonly SessionEventType[] = [
+export const PRESENCE_EVENT_TYPES: readonly SessionEventType[] = [
   "presence.online",
   "presence.idle",
   "presence.reconnecting",
@@ -3634,11 +3634,11 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "diff.created": "artifact_publication",
   "pr.prepared": "artifact_publication",
   "pr.submitted": "artifact_publication",
-  // membership_change (4)
-  "presence.online": "membership_change",
-  "presence.idle": "membership_change",
-  "presence.reconnecting": "membership_change",
-  "presence.offline": "membership_change",
+  // presence (4)
+  "presence.online": "presence",
+  "presence.idle": "presence",
+  "presence.reconnecting": "presence",
+  "presence.offline": "presence",
   // session_lifecycle (31)
   "session.created": "session_lifecycle",
   "session.activated": "session_lifecycle",

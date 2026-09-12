@@ -93,7 +93,7 @@ import {
   INTERACTIVE_REQUEST_EVENT_TYPES,
   KeyReuseDetectedEventSchema,
   MCP_GOVERNANCE_EVENT_TYPES,
-  MEMBERSHIP_CHANGE_EVENT_TYPES,
+  PRESENCE_EVENT_TYPES,
   ONBOARDING_LIFECYCLE_EVENT_TYPES,
   PARTICIPANT_LIFECYCLE_EVENT_TYPES,
   POLICY_EVENTS_EVENT_TYPES,
@@ -345,12 +345,12 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
     },
   );
 
-  it("rejects a category/type mismatch (membership_change on session.created)", () => {
+  it("rejects a category/type mismatch (presence on session.created)", () => {
     // Wire-integrity check: the per-variant `category: z.literal(...)`
     // forbids cross-namespace smuggling. If this ever silently accepted,
     // the integrity protocol would hash the event under the wrong
     // category byte and replay would diverge.
-    const broken = { ...buildSessionCreated(), category: "membership_change" as const };
+    const broken = { ...buildSessionCreated(), category: "presence" as const };
     const result = SessionEventSchema.safeParse(broken);
     expect(result.success).toBe(false);
   });
@@ -374,7 +374,7 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
       "tool_activity",
       "interactive_request",
       "artifact_publication",
-      "membership_change",
+      "presence",
       "session_lifecycle",
       "approval_flow",
       "usage_telemetry",
@@ -712,7 +712,7 @@ const CENSUS_BASELINE: ReadonlyArray<
   ["tool_activity", TOOL_ACTIVITY_EVENT_TYPES, 7],
   ["interactive_request", INTERACTIVE_REQUEST_EVENT_TYPES, 16],
   ["artifact_publication", ARTIFACT_PUBLICATION_EVENT_TYPES, 6],
-  ["membership_change", MEMBERSHIP_CHANGE_EVENT_TYPES, 4],
+  ["presence", PRESENCE_EVENT_TYPES, 4],
   ["session_lifecycle", SESSION_LIFECYCLE_EVENT_TYPES, 31],
   ["approval_flow", APPROVAL_FLOW_EVENT_TYPES, 8],
   ["usage_telemetry", USAGE_TELEMETRY_EVENT_TYPES, 8],

@@ -56,7 +56,7 @@ describe("session-event streams — what a subscription name delivers", () => {
     // payload-free signal rather than any of them — the fixture's own seam owns that —
     // and the other half, what a person is doing, rides on no registered event at all.
     expect(sorted(carriedKindsOf(PRESENCE_EVENT_STREAM))).toStrictEqual(
-      sorted(registeredKindsIn("membership_change").filter((kind) => kind.startsWith("presence."))),
+      sorted(registeredKindsIn("presence").filter((kind) => kind.startsWith("presence."))),
     );
     expect(subscriptionDeliversEventKind(PRESENCE_EVENT_STREAM, "presence.idle")).toBe(true);
     expect(subscriptionDeliversEventKind(PRESENCE_EVENT_STREAM, "run.starting")).toBe(false);

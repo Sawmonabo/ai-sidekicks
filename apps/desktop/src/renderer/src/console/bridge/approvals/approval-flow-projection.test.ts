@@ -232,7 +232,7 @@ describe("one event, folded", () => {
             category: "network_access",
             scope: "session",
             ruleId: "rule-2",
-            invalidationTrigger: "membership_change",
+            invalidationTrigger: "node_trust_change",
           },
         }),
       ),

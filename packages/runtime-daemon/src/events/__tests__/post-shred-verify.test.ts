@@ -1498,7 +1498,7 @@ const CANONICAL_MEMBER_TAMPERS: ReadonlyArray<{
   {
     member: "category",
     canonicalMember: "category",
-    sql: "UPDATE session_events SET category = 'membership_change'",
+    sql: "UPDATE session_events SET category = 'presence'",
   },
   {
     member: "type",

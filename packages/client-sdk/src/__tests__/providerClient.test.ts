@@ -588,11 +588,10 @@ function buildDriverEvent(): SessionEvent {
 }
 
 /**
- * A `membership_change` row — a fully valid `SessionEvent` that belongs on no
- * driver stream. The membership family is the sharpest fixture available: it
- * carries a participant identity and a role, so a consumer that received one
- * from a driver subscription would be reading session-governance state off a
- * per-run event channel.
+ * A session-lifecycle row — a fully valid `SessionEvent` that belongs on no
+ * driver stream. A channel's creation is the sharpest fixture available: it is
+ * session-scoped and names no run at all, so a consumer that received one from a
+ * driver subscription would be reading session state off a per-run event channel.
  */
 function buildNonDriverEvent(): SessionEvent {
   return {

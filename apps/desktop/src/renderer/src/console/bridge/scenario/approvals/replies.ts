@@ -193,7 +193,7 @@ export const APPROVALS_REPLIES: readonly ScenarioReply[] = [
           scope: { kind: "session" },
           grantedAt: "2026-01-01T12:00:00.000Z",
           revokedAt: "2026-01-01T13:10:00.000Z",
-          invalidationTrigger: "membership_change",
+          invalidationTrigger: "node_trust_change",
         },
       ],
     },

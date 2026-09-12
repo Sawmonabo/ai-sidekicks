@@ -470,7 +470,7 @@ describe("SessionEventSchema registration of the five Plan-010 variants (CP-010-
     (eventType, state) => {
       const broken = {
         ...buildWorktreeEvent(eventType, state),
-        category: "membership_change" as const,
+        category: "presence" as const,
       };
       expect(SessionEventSchema.safeParse(broken).success).toBe(false);
     },
@@ -569,7 +569,7 @@ describe("standalone worktree event schemas agree with the union arms", () => {
       // chain — pinned on the union above, pinned here on the standalone
       // surface (the fourth axis of the repo.test.ts precedent this block
       // mirrors).
-      const withMismatchedCategory = { ...fixture, category: "membership_change" as const };
+      const withMismatchedCategory = { ...fixture, category: "presence" as const };
       expect(standaloneSchema.safeParse(withMismatchedCategory).success).toBe(false);
       expect(SessionEventSchema.safeParse(withMismatchedCategory).success).toBe(false);
     },

@@ -34,7 +34,7 @@
 // version-tolerant carrier, and the STRICT layer is "the interpretation surface,
 // where unknown types and category/type mismatches fail loud at parse time". Only
 // the first of those runs here. So an envelope pairing `run.running` with
-// `membership_change` parses — both members are individually registered — and this
+// `presence` parses — both members are individually registered — and this
 // boundary used to drop `category` on the floor, after which every projector routes
 // on `kind` alone and mutates the run partition off a pair the strict layer rejects.
 // The census is exported for exactly this: `SESSION_EVENT_CATEGORY_BY_TYPE` is
