@@ -143,9 +143,9 @@ describe("creating a channel — the reserved bootstrap name", () => {
 
 describe("creating a channel — what it never collects", () => {
   it("takes exactly one value per member of the create request, and no other", () => {
-    // Five controls: the name, and the four the configuration is made of. A field whose
+    // Four controls: the name, and the three the configuration is made of. A field whose
     // value can go nowhere reads as a broken feature, and there is none here.
     const { container } = renderCreateChannel();
-    expect(container.querySelectorAll("input, select, textarea")).toHaveLength(5);
+    expect(container.querySelectorAll("input, select, textarea")).toHaveLength(4);
   });
 });
