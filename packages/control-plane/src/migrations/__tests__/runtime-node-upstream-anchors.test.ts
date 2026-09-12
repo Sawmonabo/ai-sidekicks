@@ -54,8 +54,8 @@
 // Assertion (3) was PHASE-1-SCOPED: it asserted `runtime_node_attachments` /
 // `runtime_node_presence` were ABSENT, with the documented expectation that it
 // WOULD — and MUST — fail once shipped the control-plane migration creating those
-// two tables (`0003-runtime-nodes.ts`, registered as v3 in
-// `migration-runner.ts`). That has now happened: Phase 3 ships v3,
+// two tables (`0002-runtime-nodes.ts`, registered as v2 in
+// `migration-runner.ts`). That has now happened: Phase 3 ships v2,
 // `applyMigrations` in this file's beforeEach materializes both tables, and
 // assertion (3) was flipped ABSENT→PRESENT (it now asserts `.toBe(true)`). The
 // full-schema carve-out the tripwire alluded to ("fold the two tables into a
@@ -70,8 +70,8 @@
 // The PGlite→Querier adapter and `snapshotPublicTables` below are inlined, not
 // imported from a shared fixture, because the dispatch contract forbids
 // exporting a new test fixture from `packages/control-plane/`, and the helper
-// is small. Sibling tests do the same — e.g. `migration-shape.test.ts` and
-// `0002-session-invites.test.ts` — each carrying its own local copy. Revisit
+// is small. Sibling tests do the same — e.g. `migration-shape.test.ts` —
+// each carrying its own local copy. Revisit
 // the extraction trade-off if the call-site count grows.
 
 import { PGlite, type Transaction } from "@electric-sql/pglite";
@@ -83,8 +83,8 @@ import { applyMigrations, type Querier } from "../../sessions/migration-runner.j
 // PGlite -> Querier adapter (local copy — see header note (e))
 // ----------------------------------------------------------------------------
 //
-// Mirrors the adapter in `migration-shape.test.ts` /
-// `0002-session-invites.test.ts` (see header note (e)). Inlined here (rather
+// Mirrors the adapter in `migration-shape.test.ts` (see header note (e)).
+// Inlined here (rather
 // than extracted to a shared fixture) because the dispatch contract forbids
 // exporting a new test fixture from `packages/control-plane/`, and the helper
 // is small; revisit the extraction trade-off if the call-site count grows.
@@ -188,7 +188,7 @@ describe("upstream-anchor guard (reads, does not CREATE)", () => {
     expect(column?.data_type).toBe("text");
   });
 
-  it("(3) Postgres tables are PRESENT after Phase 3 (v3 migration shipped)", async () => {
+  it("(3) Postgres tables are PRESENT after Phase 3 (v2 migration shipped)", async () => {
     // Phase 3 shipped that migration, so `applyMigrations` in this
     // file's beforeEach now materializes both tables; this assertion was
     // flipped from ABSENT→PRESENT then. Assertions (1) and (2) remain
@@ -203,8 +203,8 @@ describe("upstream-anchor guard (reads, does not CREATE)", () => {
     // presence (Yjs Awareness CRDT — cursors/awareness) in-memory only. This pins
     // that the ONLY durable presence-NAMED table is the sanctioned runtime-node one
     // — a future durable COLLABORATIVE-presence table would surface here as an extra
-    // member and re-fail at full-schema scope (the coverage v1→v2 guards
-    // intentionally no longer span post-v3).
+    // member and re-fail at full-schema scope, which the narrower per-migration
+    // guards no longer span.
     const tables: Set<string> = await snapshotPublicTables(ctx.querier);
     const presenceTables: string[] = [...tables]
       .filter((tableName) => tableName.toLowerCase().includes("presence"))

@@ -32,7 +32,7 @@
 // Server clock, not JS `Date`: both methods use SQL `now()` (the Postgres
 // transaction-start timestamp) so `last_heartbeat_at` and the staleness math
 // share ONE clock — consistent with `runtime_node_attachments.attached_at`
-// (0003-runtime-nodes.ts line 111). A JS `Date` passed from the service would
+// (0002-runtime-nodes.ts line 111). A JS `Date` passed from the service would
 // drift against the database clock and split the comparison across two clocks.
 //
 // Dependency injection (mirrors AttachService): the minimal
@@ -59,7 +59,7 @@
 //     detach. This service touches ONLY `runtime_node_presence`. The read-time
 //     roster reconciliation of the two axes (`presence.health_state` liveness ×
 //     `attachments.state` slot) is a separate downstream concern, not.
-//   * `runtime_node_presence` table DDL — owned by `migrations/0003-runtime-
+//   * `runtime_node_presence` table DDL — owned by `migrations/0002-runtime-
 //     nodes.ts`. This service only INSERT/UPDATEs rows; it never ALTERs the
 //     schema.
 //

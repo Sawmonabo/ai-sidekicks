@@ -988,12 +988,12 @@ describe("AttachService — P2/P3 (version-floor comparison)", () => {
 // Why no production change is needed (this block is purely characterization —
 // the shipped attach path already satisfies P5; see attach-service.ts):
 //   * The upsert's conflict arbiter is the TOTAL `(node_id, session_id)` unique
-//     (`idx_node_attachments_node`, 0003-runtime-nodes.ts line 116). Node A and
+//     (`idx_node_attachments_node`, 0002-runtime-nodes.ts line 116). Node A and
 //     node B against the same session are two DISTINCT (node_id, session_id)
 //     pairs, so neither attach conflicts with the other — both take the INSERT
 //     arm cleanly.
 //   * The single-active constraint `idx_node_attachments_active`
-//     (0003-runtime-nodes.ts lines 122-123) is partial-UNIQUE on `(node_id)`
+//     (0002-runtime-nodes.ts lines 122-123) is partial-UNIQUE on `(node_id)`
 //     ALONE — per node, NOT per session. Node A active and node B active in the
 //     same session are distinct node_ids, so the index admits both; it only
 //     forbids ONE node holding two active rows (the P9 cross-session case).

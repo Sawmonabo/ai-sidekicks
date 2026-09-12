@@ -1,7 +1,7 @@
-// `0004-event-log-anchors.ts` migration shape regression.
+// `0003-event-log-anchors.ts` migration shape regression.
 //
-// Phase 3 acceptance criterion: applying `0004` against a Postgres DB already
-// migrated through `0003` creates `event_log_anchors` with the exact column
+// Phase 3 acceptance criterion: applying `0003` against a Postgres DB already
+// migrated through `0002` creates `event_log_anchors` with the exact column
 // set, the `end_sequence >= start_sequence` CHECK, the four-column UNIQUE key,
 // the `sessions` FK, and both anchored_at-DESC indexes; idempotent under the
 // runner.
@@ -9,11 +9,11 @@
 // This file pins nine load-bearing properties of
 // `EVENT_LOG_ANCHORS_MIGRATION_SQL`:
 //
-//   P1 — the table exists only AFTER applying v4 (probe
-//        `information_schema.tables`): absent at the "migrated through 0003"
+//   P1 — the table exists only AFTER applying v3 (probe
+//        `information_schema.tables`): absent at the "migrated through 0002"
 //        baseline, present after.
-//   P2 — `schema_migrations` carries (1, ...), (3, ...), and
-//        (4, 'Event log anchors (integrity witness)').
+//   P2 — `schema_migrations` carries (1, ...), (2, ...), and
+//        (3, 'Event log anchors (integrity witness)').
 //   P3 — exact column set (the AC): EXACTLY the 8 columns of the canonical DDL,
 //        with their declared types and nullability.
 //   P4 — the `CHECK (end_sequence >= start_sequence)` rejects an inverted range.
@@ -31,18 +31,18 @@
 //        store's read/write path depends on it and the two drivers DIVERGE.
 //
 // ----------------------------------------------------------------------------
-// Why this file uses a direct-exec v1 + v3 bootstrap + direct-exec v4
+// Why this file uses a direct-exec v1 + v2 bootstrap + direct-exec v3
 // ----------------------------------------------------------------------------
 //
 // This file exercises `EVENT_LOG_ANCHORS_MIGRATION_SQL` semantics in isolation
 // at the SQL layer. Post `applyMigrations()` iterates every registered
 // migration and applies them all in one call, so using `applyMigrations()` in
-// this file's `beforeEach` would pre-apply v4 — defeating P1's "the table
-// should not yet exist" probe and P2-P8's "apply v4 cleanly, then probe"
-// structure. Instead `beforeEach` direct-execs v1 and v3 so each test starts
+// this file's `beforeEach` would pre-apply v3 — defeating P1's "the table
+// should not yet exist" probe and P2-P8's "apply v3 cleanly, then probe"
+// structure. Instead `beforeEach` direct-execs v1 and v2 so each test starts
 // at exactly the AC's precondition, mirroring the pattern
-// `0003-runtime-nodes.test.ts` states in full. Canonical-path runner coverage
-// (the v1..v4 loop and its idempotency) lives in
+// `0002-runtime-nodes.test.ts` states in full. Canonical-path runner coverage
+// (the v1..v3 loop and its idempotency) lives in
 // `sessions/__tests__/migration-runner.test.ts`.
 //
 // The `adaptPGlite` helper is a local copy for the same reason the sibling
@@ -55,8 +55,8 @@ import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { INITIAL_MIGRATION_SQL } from "../0001-initial.js";
-import { RUNTIME_NODES_MIGRATION_SQL } from "../0003-runtime-nodes.js";
-import { EVENT_LOG_ANCHORS_MIGRATION_SQL } from "../0004-event-log-anchors.js";
+import { RUNTIME_NODES_MIGRATION_SQL } from "../0002-runtime-nodes.js";
+import { EVENT_LOG_ANCHORS_MIGRATION_SQL } from "../0003-event-log-anchors.js";
 import { applyMigrations, type Querier } from "../../sessions/migration-runner.js";
 
 // ----------------------------------------------------------------------------
@@ -204,10 +204,10 @@ async function insertAnchor(
 }
 
 // ----------------------------------------------------------------------------
-// P1 — the table exists after applying v4
+// P1 — the table exists after applying v3
 // ----------------------------------------------------------------------------
 
-describe("0004-event-log-anchors migration (P1 — the table exists after v4)", () => {
+describe("0003-event-log-anchors migration (P1 — the table exists after v3)", () => {
   it("creates event_log_anchors in the public schema", async () => {
     const before = await ctx.querier.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables
@@ -229,14 +229,14 @@ describe("0004-event-log-anchors migration (P1 — the table exists after v4)", 
 // P2 — schema_migrations anchor rows
 // ----------------------------------------------------------------------------
 
-describe("0004-event-log-anchors migration (P2 — schema_migrations anchor rows)", () => {
-  it("inserts (4, 'Event log anchors (integrity witness)') alongside (1, ...) and (3, ...)", async () => {
+describe("0003-event-log-anchors migration (P2 — schema_migrations anchor rows)", () => {
+  it("inserts (3, 'Event log anchors (integrity witness)') alongside (1, ...) and (2, ...)", async () => {
     await applyEventLogAnchorsMigration(ctx.querier);
 
     const probe = await ctx.querier.query<{ version: number; description: string }>(
       "SELECT version, description FROM schema_migrations ORDER BY version ASC",
     );
-    expect(probe.rows.map((row) => row.version)).toEqual([1, 3, 4]);
+    expect(probe.rows.map((row) => row.version)).toEqual([1, 2, 3]);
     // The description is pinned defensively: `hasMigrationApplied` keys on
     // `version` alone, so a copy-pasted description would slip past every
     // version-only probe while making manual migration debugging misleading.
@@ -248,7 +248,7 @@ describe("0004-event-log-anchors migration (P2 — schema_migrations anchor rows
 // P3 — exact column set (the AC)
 // ----------------------------------------------------------------------------
 
-describe("0004-event-log-anchors migration (P3 — exact column set)", () => {
+describe("0003-event-log-anchors migration (P3 — exact column set)", () => {
   it("creates EXACTLY the 8 canonical columns with their declared types", async () => {
     await applyEventLogAnchorsMigration(ctx.querier);
 
@@ -308,7 +308,7 @@ describe("0004-event-log-anchors migration (P3 — exact column set)", () => {
 // P4 — the range CHECK
 // ----------------------------------------------------------------------------
 
-describe("0004-event-log-anchors migration (P4 — CHECK end_sequence >= start_sequence)", () => {
+describe("0003-event-log-anchors migration (P4 — CHECK end_sequence >= start_sequence)", () => {
   it("rejects an inverted range and accepts a single-row range", async () => {
     await applyEventLogAnchorsMigration(ctx.querier);
     await seedSession(ctx.querier);
@@ -329,7 +329,7 @@ describe("0004-event-log-anchors migration (P4 — CHECK end_sequence >= start_s
 // P5 — THE KEY: coverage, not exact-start
 // ----------------------------------------------------------------------------
 
-describe("0004-event-log-anchors migration (P5 — four-column UNIQUE key)", () => {
+describe("0003-event-log-anchors migration (P5 — four-column UNIQUE key)", () => {
   it("collides on an identical range but admits a wider anchor sharing start_sequence", async () => {
     await applyEventLogAnchorsMigration(ctx.querier);
     await seedSession(ctx.querier);
@@ -396,7 +396,7 @@ describe("0004-event-log-anchors migration (P5 — four-column UNIQUE key)", () 
 // P6 — the sessions FK
 // ----------------------------------------------------------------------------
 
-describe("0004-event-log-anchors migration (P6 — session_id FK)", () => {
+describe("0003-event-log-anchors migration (P6 — session_id FK)", () => {
   it("refuses an anchor naming a session that does not exist (23503)", async () => {
     await applyEventLogAnchorsMigration(ctx.querier);
     // Deliberately NOT seeding the session.
@@ -422,7 +422,7 @@ describe("0004-event-log-anchors migration (P6 — session_id FK)", () => {
 // P7 — the two read indexes
 // ----------------------------------------------------------------------------
 
-describe("0004-event-log-anchors migration (P7 — anchored_at DESC indexes)", () => {
+describe("0003-event-log-anchors migration (P7 — anchored_at DESC indexes)", () => {
   it("creates the session and node lookup indexes with their DESC ordering", async () => {
     await applyEventLogAnchorsMigration(ctx.querier);
 
@@ -451,7 +451,7 @@ describe("0004-event-log-anchors migration (P7 — anchored_at DESC indexes)", (
 // P8 — anchored_at: DEFAULT exists, explicit write wins
 // ----------------------------------------------------------------------------
 
-describe("0004-event-log-anchors migration (P8 — anchored_at is the daemon's timestamp)", () => {
+describe("0003-event-log-anchors migration (P8 — anchored_at is the daemon's timestamp)", () => {
   it("keeps an explicitly supplied anchored_at rather than substituting now()", async () => {
     // `anchored_at` is part of what the daemon SIGNED, and the local
     // `pending_anchor_uploads` mirror holds the same value. If the DEFAULT
@@ -505,7 +505,7 @@ describe("0004-event-log-anchors migration (P8 — anchored_at is the daemon's t
 // P9 — driver hydration of the non-TEXT columns
 // ----------------------------------------------------------------------------
 
-describe("0004-event-log-anchors migration (P9 — driver hydration)", () => {
+describe("0003-event-log-anchors migration (P9 — driver hydration)", () => {
   it("hydrates bytea as bytes, timestamptz as Date, and bigint as a NUMBER under PGlite", async () => {
     // This is a DRIVER-BEHAVIOUR pin, and it exists because the two drivers
     // DIVERGE on `bigint` and a reader could otherwise draw the wrong
@@ -549,14 +549,14 @@ describe("0004-event-log-anchors migration (P9 — driver hydration)", () => {
 });
 
 // ----------------------------------------------------------------------------
-// P10 — runner idempotency over a directly-applied v4
+// P10 — runner idempotency over a directly-applied v3
 // ----------------------------------------------------------------------------
 
-describe("0004-event-log-anchors migration (P10 — runner idempotency)", () => {
-  it("applyMigrations short-circuits cleanly when v4 was applied via direct exec", async () => {
+describe("0003-event-log-anchors migration (P10 — runner idempotency)", () => {
+  it("applyMigrations short-circuits cleanly when v3 was applied via direct exec", async () => {
     // The cross-path complement to `sessions/__tests__/migration-runner.test.ts`
-    // R2: that test proves the runner is idempotent when v4 came from the runner
-    // loop; THIS one proves the per-version outer probe still recognizes a v4
+    // R2: that test proves the runner is idempotent when v3 came from the runner
+    // loop; THIS one proves the per-version outer probe still recognizes a v3
     // applied at the SQL layer. A regression that stopped recognizing
     // pre-applied versions would surface here as `42P07 relation already
     // exists`.
@@ -567,6 +567,6 @@ describe("0004-event-log-anchors migration (P10 — runner idempotency)", () => 
     const probe = await ctx.querier.query<{ version: number }>(
       "SELECT version FROM schema_migrations ORDER BY version ASC",
     );
-    expect(probe.rows).toEqual([{ version: 1 }, { version: 3 }, { version: 4 }]);
+    expect(probe.rows).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }]);
   });
 });

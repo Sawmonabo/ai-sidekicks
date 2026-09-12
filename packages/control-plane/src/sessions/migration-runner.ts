@@ -1,12 +1,10 @@
 // Schema migration runner for the control-plane Postgres database.
 //
 // Version 1 is `migrations/0001-initial.ts` (the identity anchor and the
-// session directory); version 3 is `migrations/0003-runtime-nodes.ts` (the
-// `runtime_node_attachments` + `runtime_node_presence` tables); version 4 is
-// `migrations/0004-event-log-anchors.ts`. Version 2 was the invite table and
-// is gone — the runner probes each registered version independently, so the
-// gap in the sequence costs nothing. The runner iterates the `MIGRATIONS`
-// array declared below; to register a new migration, add
+// session directory); version 2 is `migrations/0002-runtime-nodes.ts` (the
+// `runtime_node_attachments` + `runtime_node_presence` tables); version 3 is
+// `migrations/0003-event-log-anchors.ts`. The runner probes each registered
+// version independently and iterates the `MIGRATIONS` array declared below; to register a new migration, add
 // `{ version: N, sql: ... }` in ascending version order.
 //
 // SQL is sourced as a TypeScript string constant (not a sibling .sql file)
@@ -47,8 +45,8 @@
 // avoid the race externally — the runner now closes it at the source.
 
 import { INITIAL_MIGRATION_SQL } from "../migrations/0001-initial.js";
-import { RUNTIME_NODES_MIGRATION_SQL } from "../migrations/0003-runtime-nodes.js";
-import { EVENT_LOG_ANCHORS_MIGRATION_SQL } from "../migrations/0004-event-log-anchors.js";
+import { RUNTIME_NODES_MIGRATION_SQL } from "../migrations/0002-runtime-nodes.js";
+import { EVENT_LOG_ANCHORS_MIGRATION_SQL } from "../migrations/0003-event-log-anchors.js";
 
 // Ordered registry of every migration the control-plane is responsible for
 // applying. Iteration order is the apply order — the runner walks this array
@@ -79,8 +77,8 @@ import { EVENT_LOG_ANCHORS_MIGRATION_SQL } from "../migrations/0004-event-log-an
 // only place BigInt is load-bearing in this module.
 const MIGRATIONS: ReadonlyArray<{ readonly version: number; readonly sql: string }> = [
   { version: 1, sql: INITIAL_MIGRATION_SQL },
-  { version: 3, sql: RUNTIME_NODES_MIGRATION_SQL },
-  { version: 4, sql: EVENT_LOG_ANCHORS_MIGRATION_SQL },
+  { version: 2, sql: RUNTIME_NODES_MIGRATION_SQL },
+  { version: 3, sql: EVENT_LOG_ANCHORS_MIGRATION_SQL },
 ];
 
 // Stable advisory-lock ID for ai-sidekicks control-plane migrations.

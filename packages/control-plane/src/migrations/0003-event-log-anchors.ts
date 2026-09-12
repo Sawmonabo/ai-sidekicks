@@ -1,9 +1,9 @@
-// Fourth Control Plane Postgres migration (inlined SQL).
+// Third Control Plane Postgres migration (inlined SQL).
 // Adds the `event_log_anchors` table.
 //
 // SQL is inlined as a TypeScript string constant rather than loaded from a
-// sibling `.sql` file. The rationale mirrors `migrations/0001-initial.ts`,
-// `migrations/0002-session-invites.ts`, and `migrations/0003-runtime-nodes.ts`:
+// sibling `.sql` file. The rationale mirrors `migrations/0001-initial.ts` and
+// `migrations/0002-runtime-nodes.ts`:
 //
 //   1. The build pipeline (`tsc -b`) does NOT copy non-TS assets into
 //      `dist/`. Any FS-relative load path (`new URL(..., import.meta.url)`)
@@ -52,9 +52,9 @@
 //   * `sessions` — owns the table. `sessions` ships in v1 (`0001-initial`), so
 //     the FK resolves at this migration's CREATE time.
 //   * `sessions/migration-runner.ts` — owns the runner. This SQL is wired into the
-//     canonical `applyMigrations()` per-version loop by appending `{ version: 4, sql:
-//     EVENT_LOG_ANCHORS_MIGRATION_SQL }` to `MIGRATIONS` (after the v3), in the SAME
-//     change set, so deployers pulling `develop` apply v1 through v4 automatically.
+//     canonical `applyMigrations()` per-version loop by appending `{ version: 3, sql:
+//     EVENT_LOG_ANCHORS_MIGRATION_SQL }` to `MIGRATIONS` (after the v2), in the SAME
+//     change set, so deployers pulling `develop` apply v1 through v3 automatically.
 //
 // ----------------------------------------------------------------------------
 // Why one transactional batch
@@ -64,7 +64,7 @@
 // plus the schema_migrations INSERT in a single `querier.transaction(...)`
 // boundary (mirroring how `applyMigrations` wraps the earlier versions) so a
 // torn write (process kill mid-migration, disk error) leaves the database fully
-// at v3, never half-migrated to "v4 partial". The migration SQL itself does NOT
+// at v2, never half-migrated to "v3 partial". The migration SQL itself does NOT
 // contain `BEGIN;`/`COMMIT;` — the transaction boundary is owned by the caller,
 // identical to `INITIAL_MIGRATION_SQL` and `RUNTIME_NODES_MIGRATION_SQL`.
 //
@@ -96,5 +96,5 @@ CREATE INDEX idx_event_log_anchors_session ON event_log_anchors(session_id, anch
 CREATE INDEX idx_event_log_anchors_node ON event_log_anchors(node_id, anchored_at DESC);
 
 INSERT INTO schema_migrations (version, description)
-VALUES (4, 'Event log anchors (integrity witness)');
+VALUES (3, 'Event log anchors (integrity witness)');
 `;

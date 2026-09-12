@@ -1,9 +1,8 @@
-// third Control Plane Postgres migration (inlined SQL).
+// Second Control Plane Postgres migration (inlined SQL).
 // Adds the `runtime_node_attachments` and `runtime_node_presence` tables.
 //
 // SQL is inlined as a TypeScript string constant rather than loaded from a
-// sibling `.sql` file. The rationale mirrors `migrations/0001-initial.ts` and
-// `migrations/0002-session-invites.ts`:
+// sibling `.sql` file. The rationale mirrors `migrations/0001-initial.ts`:
 //
 //   1. The build pipeline (`tsc -b`) does NOT copy non-TS assets into
 //      `dist/`. Any FS-relative load path (`new URL(..., import.meta.url)`)
@@ -35,7 +34,7 @@
 //                       (`node_id` PRIMARY KEY; no FK).
 //
 // Plus the schema_migrations anchor row consumed by the migration runner
-// (`(version, description) = (3, 'Runtime node attachments and presence')`).
+// (`(version, description) = (2, 'Runtime node attachments and presence')`).
 //
 // ----------------------------------------------------------------------------
 // Boundary — why this CREATE TABLE runtime_node_presence is sanctioned
@@ -61,10 +60,10 @@
 //     nor ALTERs it.
 //   * `sessions/migration-runner.ts` — this SQL is wired into the canonical
 //     `applyMigrations()` per-version loop by appending
-//     `{ version: 3, sql: RUNTIME_NODES_MIGRATION_SQL }` to `MIGRATIONS` so
+//     `{ version: 2, sql: RUNTIME_NODES_MIGRATION_SQL }` to `MIGRATIONS` so
 //     deployers pulling `develop` apply every registered version
 //     automatically. Coverage is split: the co-located
-//     `__tests__/0003-runtime-nodes.test.ts` exercises this v3 SQL via direct
+//     `__tests__/0002-runtime-nodes.test.ts` exercises this v2 SQL via direct
 //     `tx.exec()` (`applyRuntimeNodesMigration` helper) as a SQL-layer
 //     regression backstop; `sessions/__tests__/migration-runner.test.ts` pins
 //     the canonical runner-loop path (fresh-DB apply + idempotency).
@@ -77,7 +76,7 @@
 // plus the schema_migrations INSERT in a single `querier.transaction(...)`
 // boundary (mirroring how `applyMigrations` wraps v1) so a torn write
 // (process kill mid-migration, disk error) leaves the database fully at the
-// previous version, never half-migrated to "v3 partial". The migration SQL
+// previous version, never half-migrated to "v2 partial". The migration SQL
 // itself does NOT contain `BEGIN;`/`COMMIT;` — the transaction boundary is
 // owned by the caller, identical to `INITIAL_MIGRATION_SQL`.
 
@@ -113,5 +112,5 @@ CREATE TABLE runtime_node_presence (
 );
 
 INSERT INTO schema_migrations (version, description)
-VALUES (3, 'Runtime node attachments and presence');
+VALUES (2, 'Runtime node attachments and presence');
 `;

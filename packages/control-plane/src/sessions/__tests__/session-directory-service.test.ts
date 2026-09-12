@@ -670,7 +670,7 @@ describe("applyMigrations — idempotency", () => {
     const probe = await ctx.querier.query<{ version: number }>(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    expect(probe.rows).toEqual([{ version: 1 }, { version: 3 }, { version: 4 }]);
+    expect(probe.rows).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }]);
   });
 
   it("applyMigrations is concurrency-safe — concurrent calls on the same fresh database serialize via advisory lock (Codex R8)", async () => {
@@ -761,7 +761,7 @@ describe("applyMigrations — idempotency", () => {
       const migrationsProbe = await pg.query<{ version: number }>(
         "SELECT version FROM schema_migrations ORDER BY version",
       );
-      expect(migrationsProbe.rows).toEqual([{ version: 1 }, { version: 3 }, { version: 4 }]);
+      expect(migrationsProbe.rows).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }]);
 
       const usersProbe = await pg.query<{ exists: boolean }>(
         `SELECT EXISTS (

@@ -70,7 +70,7 @@
 //     ONLY `runtime_node_attachments` and acquires NO `sessions` lock — it
 //     never SELECTs that table FOR UPDATE and never UPDATEs it. The
 //     runtime-node attach domain is entirely disjoint from the session
-//     directory (see the 0003-runtime-nodes.ts header "Cross-plan boundary").
+//     directory (see the 0002-runtime-nodes.ts header "Cross-plan boundary").
 //     The test asserts the byte-for-byte no-mutation property by re-SELECTing
 //     a seeded session row's columns after a successful attach. The DETACH
 //     path holds the same property: it writes ONLY the two runtime-node
@@ -109,7 +109,7 @@
 //
 // Cross-task boundaries (DO NOT CROSS):
 //   * `runtime_node_attachments` / `runtime_node_presence` table DDL — owned by
-//     `migrations/0003-runtime-nodes.ts`. This service only
+//     `migrations/0002-runtime-nodes.ts`. This service only
 //     INSERT/UPDATE/SELECTs rows; it never ALTERs the schema.
 //   * The `VERSION_FLOOR_EXCEEDED` write-refusal — the typed
 //     `VersionFloorExceededException` class is DEFINED + wire-wired but it is
@@ -553,7 +553,7 @@ export class AttachService {
       // (1) Slot axis — retire the node's SINGLE active attachment. The
       // `state IN ('registering', 'online', 'degraded')` set is EXACTLY the
       // `idx_node_attachments_active` partial-index predicate in
-      // `0003-runtime-nodes.ts`. It is LOAD-BEARING, not a convenience filter:
+      // `0002-runtime-nodes.ts`. It is LOAD-BEARING, not a convenience filter:
       //   - it resolves the one active row by `nodeId` alone (guarantees <=1
       //     active row per node, so no `sessionId` is needed);
       //   - it protects revocation-terminality (P10) — a lone `revoked` row is
@@ -700,7 +700,7 @@ export class AttachService {
       // ('registering', 'online', 'degraded')` set is the same load-bearing
       // active-state filter detach uses — EXACTLY the
       // `idx_node_attachments_active` partial-index predicate
-      // (`0003-runtime-nodes.ts`): guarantees <=1 active row per node across all
+      // (`0002-runtime-nodes.ts`): guarantees <=1 active row per node across all
       // sessions, so `nodeId` alone resolves it (the request carries no
       // `sessionId`), and the band EXCLUDES the inactive SLOT states (`offline`,
       // `revoked`) so a late update against a row whose slot was retired (by
