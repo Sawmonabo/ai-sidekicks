@@ -1,5 +1,5 @@
 // Capability refresh — the CLI-version floor seam + the daemon-side refresh
-// scheduler (P0-2 + P2-9).
+// scheduler.
 //
 // Two concerns share this module because they share one lifecycle moment: a
 // capability READING. The floor seam decides whether a reading's version is
@@ -11,7 +11,7 @@
 // driver tree (the driver trees stay import-independent of each other; both may
 // import `provider/`-level daemon modules).
 //
-// -- P0-2: the CLI-version floor ------------------------------------------------
+// -- The CLI-version floor ------------------------------------------------
 //
 // every `getCapabilities` report carries a `DriverCliVersionReport { raw,
 // semver }`; the daemon enforces a per-driver minimum-version floor
@@ -32,15 +32,15 @@
 // the floor comparison is the whole of the version gate (the 2026-08-26
 // version-tolerance amendment).
 //
-// -- P2-9: the refresh scheduler ------------------------------------------------
+// -- The refresh scheduler ------------------------------------------------
 //
 // capability and account-state declarations refresh per runtime node on a
 // bounded periodic cadence — 15 minutes in V1 — and may additionally update
 // live where the provider pushes; correctness must not depend on push-only
 // updates.
 //
-// The `CapabilityRefreshScheduler` is the named lifecycle owner that finding
-// P2-9 demanded: without a file that starts and stops the poll, capability /
+// The `CapabilityRefreshScheduler` is the named lifecycle owner the cadence
+// needs: without a file that starts and stops the poll, capability /
 // CLI-floor / auth state could stay stale indefinitely. It is started on
 // runtime-node attach and stopped on detach by the daemon provider subsystem
 // (a sanctioned wiring call — this module claims no bootstrap-file ownership),
@@ -51,7 +51,7 @@
 // capabilities-only poll would leave admission auth state stale after a
 // post-attach logout. With the pair, a post-attach logout surfaces within one
 // cadence period; mid-run credential expiry stays the live-signal path
-// (`RecoveryCondition` `reauth-required` P3-3), not this poll's.
+// (`RecoveryCondition` `reauth-required`), not this poll's.
 //
 // Change-detected emission is the WRITER's: `refreshDeclaration`
 // declares through `DriverCapabilitiesWriter`, which compares the reconstructed
@@ -79,7 +79,7 @@ import { type DriverDiagnosticKind, type DriverDiagnosticsEmitter } from "./driv
 import { CLI_VERSION_RAW_MAX_LEN } from "./provider-output-validation.js";
 
 // --------------------------------------------------------------------------
-// P0-2 — the per-driver floors
+// The per-driver version floors
 // --------------------------------------------------------------------------
 
 /** The two drivers the V1 floor table answers for. */
@@ -182,7 +182,7 @@ export function parseCliVersionReport(
 }
 
 /**
- * The floor gate (P0-2): refuse a report whose version sits below the
+ * The floor gate: refuse a report whose version sits below the
  * configured per-driver floor.
  *
  * The comparison is the WHOLE of the version gate — at or above the floor the
@@ -206,7 +206,7 @@ export function assertCliVersionMeetsFloor(
 }
 
 // --------------------------------------------------------------------------
-// P2-9 — the refresh scheduler
+// The refresh scheduler
 // --------------------------------------------------------------------------
 
 /**
@@ -463,7 +463,7 @@ async function settleLegWithinDeadline<TValue>(
 }
 
 /**
- * The poll-lifecycle owner (P2-9): one timer per attached runtime node, each
+ * The poll-lifecycle owner: one timer per attached runtime node, each
  * tick driving every registered driver's refresh + auth-probe pair.
  *
  * Lifecycle: `startForNode` on attach, `stopForNode` on detach, `shutdown` at

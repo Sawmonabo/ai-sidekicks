@@ -182,7 +182,7 @@ describe("ClaudeInterventionDispatcher native interrupt and cancel", () => {
   });
 });
 
-describe("ClaudeInterventionDispatcher cancel receipt grading (P3-1)", () => {
+describe("ClaudeInterventionDispatcher cancel receipt grading", () => {
   it("degrades a cancel the provider acknowledged while reporting survivors", async () => {
     const harness = buildHarness();
     harness.channel.controlResponse = {
@@ -247,7 +247,7 @@ describe("ClaudeInterventionDispatcher cancel receipt grading (P3-1)", () => {
     });
   });
 
-  it("invents no client identifier on the dispatched control request (P0-3)", async () => {
+  it("invents no client identifier on the dispatched control request", async () => {
     const harness = buildHarness();
 
     await harness.dispatcher.applyIntervention(buildCancelParams());

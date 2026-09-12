@@ -1,5 +1,5 @@
-// The provider-neutral terminal-emission gate (P1-1 intended close +
-// P1-2-driver duplicate suppression).
+// The provider-neutral terminal-emission gate: intended-close signalling plus
+// duplicate-terminal suppression.
 //
 // Both driver legs need exactly one guarantee at the moment a provider's
 // terminal frame arrives: at most one terminal per `(runId, runVersion)` epoch
@@ -57,7 +57,7 @@ export type TerminalEmissionDecision =
       readonly emit: true;
       readonly runId: string;
       readonly runVersion: number;
-      /** P1-1: `true` exactly when a daemon-initiated close preceded it. */
+      /** `true` exactly when a daemon-initiated close preceded it. */
       readonly intendedClose: boolean;
     }
   | { readonly emit: false; readonly suppressionReason: TerminalSuppressionReason };
@@ -95,7 +95,7 @@ export class TerminalEmissionGate {
   }
 
   /**
-   * Signal a daemon-initiated close (P1-1). Called by the lifecycle module at
+   * Signal a daemon-initiated close. Called by the lifecycle module at
    * the top of `closeSession`, BEFORE teardown asks the provider to stop, so
    * the terminal the teardown provokes is already inside the intent.
    */

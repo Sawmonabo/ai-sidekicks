@@ -15,7 +15,7 @@
 // absent — `respondToRequest`, `listModes`, `getCapabilities`, `exportTranscript`
 // — are authored by sibling Phase-3 tasks (capabilities / modes interactive
 // requests the canonical-transcript export). `listModels` left that list with the
-// currency duty (C-8), `compactContext` / `listProviderCommands` with the
+// currency duty, `compactContext` / `listProviderCommands` with the
 // console-parity surfaces, and `replayTranscript` with the replay leg and
 // post-replay assertion. The enumeration is re-derived from the type argument
 // rather than restated, so it cannot drift from what this class implements.
@@ -151,7 +151,7 @@ export type ClaudeDriverOperations = Pick<
 
 export type ClaudeDriverDependencies = ClaudeSessionLifecycleDependencies & {
   /**
-   * The live `list_models` read backing `listModels()` (C-8), or an EXPLICIT
+   * The live `list_models` read backing `listModels()`, or an EXPLICIT
    * `null` for a composition that binds none — in which case the driver
    * answers the provenance-stamped declaration in `./capabilities.ts`.
    *
@@ -229,7 +229,7 @@ export class ClaudeDriver implements ClaudeDriverOperations {
   }
 
   /**
-   * The selectable model catalog (C-8).
+   * The selectable model catalog.
    *
    * Delegates rather than deciding: `./capabilities.ts` owns both the declared
    * catalog and the normalization of a live reply, so the wire shape and its

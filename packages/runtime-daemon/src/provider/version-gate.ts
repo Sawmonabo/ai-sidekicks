@@ -51,7 +51,7 @@
 //     table below is the single source of truth for the suppression mandates,
 //     and CONSUMES it rather than restating it.
 //   * **The floor VALUES and the comparison.** Both stay in
-//     `./capability-refresh.js` (P0-2). This task re-points the SOURCE of the
+//     `./capability-refresh.js`. This task re-points the SOURCE of the
 //     compared version, never the comparison — which is the whole of the version
 //     gate: at or above the floor a build attaches, above the measured pin
 //     included.

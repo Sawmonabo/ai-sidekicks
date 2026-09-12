@@ -907,7 +907,7 @@ export interface ClaudeSessionTransport {
   /**
    * Starts a provider process for a new session.
    *
-   * SPAWN-ENVIRONMENT OBLIGATION (P0-4), owned here for the same reason the auth
+   * SPAWN-ENVIRONMENT OBLIGATION, owned here for the same reason the auth
    * probe is: THIS BAND SPAWNS NOTHING, so the only place the rule can bind is
    * the port. The child environment is CONSTRUCTED, never inherited — the
    * transport composes it from the curated base plus the run-provisioned
@@ -957,7 +957,7 @@ export interface ClaudeSessionTransport {
    * than applies, so a transport that folded under the policy's value would be
    * reintroducing exactly the case the builder rejects.
    *
-   * AUTH-FAILURE OBLIGATION, shared with `resumeSession` below (P3-3): a
+   * AUTH-FAILURE OBLIGATION, shared with `resumeSession` below: a
    * DETERMINATE logged-out failure throws `ClaudeAuthenticationRequiredError`,
    * and every other failure throws anything else. That typed distinction is the
    * only route by which this band reports `reauth-required` instead of
@@ -989,7 +989,7 @@ export interface ClaudeSessionTransport {
    */
   rewindSession(request: ClaudeSessionRewindRequest): Promise<ClaudeRewoundSessionAttachment>;
   /**
-   * The zero-turn authentication probe (P0-5), owned by the transport because
+   * The zero-turn authentication probe, owned by the transport because
    * THIS BAND SPAWNS NOTHING.
    *
    * No authless protocol probe exists for this provider, which is measured
@@ -2457,7 +2457,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   // a single-threaded runtime.
   readonly #sessionSlots: Map<SessionId, ClaudeSessionSlot> = new Map();
   readonly #sessionIdByRunId: Map<RunId, SessionId> = new Map();
-  // The P1-1 producer half. One gate per session, installed at establishment
+  // The intended-close producer half. One gate per session, installed at establishment
   // and signalled at the top of `closeSession`; the terminal-emission boundary
   // in `event-normalizer.ts` is the CONSUMER that stamps the flag, because that
   // is the module that owns the terminal frame.
@@ -3140,7 +3140,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   /**
-   * Zero-turn authentication probe (P0-5). NEVER throws.
+   * Zero-turn authentication probe. NEVER throws.
    *
    * The classification, and nothing else: the transport owns the observation
    * (this band spawns no process and reads no environment variable, which is why
@@ -4159,7 +4159,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   async closeSession(params: CloseSessionParams): Promise<void> {
-    // P1-1, FIRST and unconditionally — before the chaining loop, not inside
+    // The intended-close latch, FIRST and unconditionally — before the chaining loop, not inside
     // it. The daemon has expressed the intent by calling this method at all, so
     // every terminal from this point on belongs to a clean shutdown: the ones a
     // chained close only reaches after another transition settles, and the ones

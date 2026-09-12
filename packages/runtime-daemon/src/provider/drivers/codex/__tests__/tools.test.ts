@@ -158,7 +158,7 @@ describe("Codex tool metadata declaration", () => {
 // MCP idempotency floor + dormant task-handle seam + status census
 // ==========================================================================
 
-describe("Codex MCP idempotency floor (P2-7)", () => {
+describe("Codex MCP idempotency floor", () => {
   it("classifies an MCP-discovered tool manual_reconcile_only with no annotations", () => {
     expect(classifyMcpDiscoveredTool()).toBe("manual_reconcile_only");
     expect(classifyMcpDiscoveredTool(undefined)).toBe("manual_reconcile_only");
@@ -236,7 +236,7 @@ describe("Codex durable MCP task-handle seam (observation active)", () => {
   });
 });
 
-describe("Codex MCP server-status census normalization (P2-10-L1)", () => {
+describe("Codex MCP server-status census normalization", () => {
   const listRow = (overrides: Record<string, unknown>): Record<string, unknown> => ({
     name: "filesystem",
     authStatus: "oAuth",

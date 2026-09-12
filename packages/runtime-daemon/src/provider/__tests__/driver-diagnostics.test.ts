@@ -1,4 +1,4 @@
-// Driver diagnostics + reorder-buffer suite (P0-1 / P2-1).
+// Driver diagnostics + reorder-buffer suite.
 //
 // Spec coverage under test:
 //   • an unrecognized wire shape lands on the daemon diagnostic surface,
@@ -9,7 +9,7 @@
 //     `driver.reorder_buffer.overflow` counter, and a pairing timeout sheds
 //     with its own diagnostic; neither is ever silent.
 //
-// Verifies invariant: none directly (the emitter is the P0-1 substrate
+// Verifies invariant: none directly (the emitter is the substrate the other
 // suites emit through; those invariants are asserted in
 // `usage-delta-accountant.test.ts` and `thread-frame-router.test.ts`).
 
@@ -34,7 +34,7 @@ function makeRecord(overrides?: Partial<DriverDiagnosticRecord>): DriverDiagnost
   };
 }
 
-describe("DriverDiagnosticsEmitter (P0-1)", () => {
+describe("DriverDiagnosticsEmitter", () => {
   it("delivers every record to the log sink, the counter sink, and the ring", () => {
     const loggedRecords: DriverDiagnosticRecord[] = [];
     const counterSink = new InMemoryDriverDiagnosticCounterSink();
@@ -78,7 +78,7 @@ describe("DriverDiagnosticsEmitter (P0-1)", () => {
   });
 
   it("pins the reorder-buffer overflow instrument name verbatim", () => {
-    // P2-1 leg names this counter literally; a rename is a contract change,
+    // The bounded-buffer leg names this counter literally; a rename is a contract change,
     // not a refactor.
     expect(DRIVER_DIAGNOSTIC_COUNTER_NAMES.reorder_buffer_overflow).toBe(
       "driver.reorder_buffer.overflow",
@@ -127,7 +127,7 @@ describe("DriverDiagnosticsEmitter (P0-1)", () => {
   });
 });
 
-describe("NormalizedEventReorderBuffer (P2-1)", () => {
+describe("NormalizedEventReorderBuffer", () => {
   function makeBuffer(options?: { maxBufferedEvents?: number; pairingTimeoutMs?: number }) {
     const emitter = new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
     const buffer = new NormalizedEventReorderBuffer<string>({

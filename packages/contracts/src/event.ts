@@ -3902,7 +3902,7 @@ const EVENT_DISPOSITION_RECORD = {
     eventType: "session.notice",
   },
   // Transient retry (row 18): transient-retry record; the Claude
-  // `system.api_retry` typed-error enum (C-5) enriches this same kind —
+  // `system.api_retry` typed-error enum enriches this same kind —
   // capability-bearing, never dropped.
   api_retry: { disposition: "adopt", category: "usage_telemetry", eventType: "usage.api_retry" },
   // System, no timeline row (rows 19–24).

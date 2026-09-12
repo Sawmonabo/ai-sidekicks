@@ -354,7 +354,7 @@ export interface ResumeSessionParams {
   // survives daemon restart and session relaunch. Same idiom note as
   // StartRunParams below.
   admittedCostCapCents?: number | undefined;
-  // Resume is a FRESH PROCESS SPAWN (the C-12 posture-relaunch precedent — an
+  // Resume is a FRESH PROCESS SPAWN (the posture-relaunch precedent — an
   // existing process never mutates into a resumed leg), so every spawn-bound
   // surface `CreateSessionParams` binds must RE-REALIZE here or the resumed leg
   // silently sheds it: a posture-less resume relaunches UNSANDBOXED, a
@@ -857,8 +857,8 @@ export type InterventionType = "steer" | "interrupt" | "cancel" | "rollback";
 // dedupe keys receives the CALLER's key — the `compensable` propagation pattern.
 // Non-optional for the same reason `expectedRunVersion` is: an absent key must
 // be a type error, not a silently non-deduped intervention. The driver-side
-// threading itself is P0-3's, landing in Phase 3; this arm set only makes the
-// value impossible to omit on the way there.
+// threading itself is the driver's, landing in Phase 3; this arm set only makes
+// the value impossible to omit on the way there.
 //
 // No paired Zod schema, deliberately: this is a daemon-CONSTRUCTED param like
 // the rest of the `*Params` family, so there is nothing untrusted to parse — the
@@ -1035,7 +1035,7 @@ export const RECOVERY_CONDITIONS = ["recovery-needed", "reauth-required"] as con
 
 export type RecoveryCondition = (typeof RECOVERY_CONDITIONS)[number];
 
-// Exported so every carrier REFERENCES this parser instead of restating its values (P3-4).
+// Exported so every carrier REFERENCES this parser instead of restating its values.
 // Four surfaces carry the condition: the `DriverResumeResult` `failed` variant below
 // (REQUIRED), the `RunStateChangeEvent` projection in `runControl.ts` (optional), and —
 // when their owning plans author them — the `RecoveryStatusReadResponse` and the
@@ -1144,7 +1144,7 @@ export const DriverResumeResultSchema: z.ZodType<DriverResumeResult, DriverResum
     z
       .object({
         status: z.literal("failed"),
-        // REFERENCES the hoisted parser (P3-4) rather than restating its two
+        // REFERENCES the hoisted parser rather than restating its two
         // values, so a condition added to `RECOVERY_CONDITIONS` reaches this
         // carrier by construction instead of dead-lettering at parse right here.
         recoveryCondition: RecoveryConditionSchema,
@@ -1173,8 +1173,7 @@ export const DriverResumeResultSchema: z.ZodType<DriverResumeResult, DriverResum
   ]);
 
 // --------------------------------------------------------------------------
-// Typed provider usage-limit signal (
-//         consumed C-19 through verifies)
+// Typed provider usage-limit signal
 // --------------------------------------------------------------------------
 //
 // A SIBLING AXIS beside `RecoveryCondition`, minted on exactly the ground

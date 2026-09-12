@@ -1,10 +1,9 @@
 // Codex driver — intervention dispatcher tests.
 //
-// Coverage map (the cites are the authoritative contract, not just the ACs):
+// Coverage map:
 //
-//   one generic dispatcher routes every
-//     intervention type onto a native provider operation, or returns a
-//     structured degraded result.
+//   One generic dispatcher routes every intervention type onto a native
+//     provider operation, or returns a structured degraded result.
 //   An unsupported intervention is DATA the orchestration layer acts
 //     on, never an exception.
 //   An intervention type whose capability flag is not declared `true`
@@ -12,11 +11,10 @@
 //     operation. The second half matters as much as the first: a dispatcher that
 //     returned `degraded` after already steering would have applied an
 //     intervention the layer above is about to compensate for.
-//     false one.
-//   P0-3 — the REQUESTER's `clientIdempotencyKey` reaches the runtime
-//     verbatim on the steer path, and is never re-minted per dispatch.
-//   P3-1 — a steer acknowledgement that names a different turn, or names
-//     none at all, degrades instead of reading as success.
+//   The REQUESTER's `clientIdempotencyKey` reaches the runtime verbatim on the
+//     steer path, and is never re-minted per dispatch.
+//   A steer acknowledgement that names a different turn, or names none at all,
+//     degrades instead of reading as success.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -322,7 +320,7 @@ describe("CodexInterventionDispatcher degraded fallback", () => {
   });
 });
 
-describe("CodexInterventionDispatcher idempotency-key ride-through (P0-3)", () => {
+describe("CodexInterventionDispatcher idempotency-key ride-through", () => {
   it("hands the requester's key to the runtime verbatim", async () => {
     const harness = createHarness();
 
@@ -361,7 +359,7 @@ describe("CodexInterventionDispatcher idempotency-key ride-through (P0-3)", () =
   });
 });
 
-describe("CodexInterventionDispatcher ambiguous steer acknowledgement (P3-1)", () => {
+describe("CodexInterventionDispatcher ambiguous steer acknowledgement", () => {
   function harnessAcknowledging(acknowledgedTurnId: string | null): Harness {
     return createHarness(
       {},

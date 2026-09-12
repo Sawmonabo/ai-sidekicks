@@ -93,7 +93,7 @@ interface ExpectedNormalizedRow {
 const EXPECTED_NORMALIZED_ROWS: ReadonlyMap<CodexInboundFrameMethod, ExpectedNormalizedRow> =
   new Map([
     // ServerRequest — callback tool + the seven asks that surface as
-    // `driver_ask.*` (P1-4-driver).
+    // `driver_ask.*`.
     [
       "item/tool/call",
       {
@@ -1137,7 +1137,7 @@ describe("Codex event normalizer — the truncated delta names stay off the cens
 // Emission routing, family classification, child announcements.
 // --------------------------------------------------------------------------
 
-describe("resolveCodexFrameEmissionRoute (P0-1)", () => {
+describe("resolveCodexFrameEmissionRoute", () => {
   function makeDiagnostics() {
     return new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
   }
@@ -1290,7 +1290,7 @@ describe("deriveCodexChildThreadAnnouncement", () => {
 });
 
 // --------------------------------------------------------------------------
-// P1-1 / P1-2-driver — the terminal-emission boundary.
+// The terminal-emission boundary.
 // --------------------------------------------------------------------------
 //
 // Spec coverage under test:
@@ -1300,7 +1300,7 @@ describe("deriveCodexChildThreadAnnouncement", () => {
 //     post-interrupt double is absorbed at the driver rather than failing loud
 //     against the partial unique index.
 
-describe("CodexTerminalEmissionGate (P1-1, P1-2-driver)", () => {
+describe("CodexTerminalEmissionGate", () => {
   const PROJECTED_ROUTE = { decision: "project" } as const;
 
   function terminalFrame(overrides: Partial<CodexTerminalRunFrame> = {}): CodexTerminalRunFrame {

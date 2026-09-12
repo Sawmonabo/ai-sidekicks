@@ -145,7 +145,7 @@ describe("load-before-bind", () => {
 // "typed error" wording is load-bearing: a regression that threw a
 // generic `Error("config bad")` would still match a `toThrow(string)`
 // assertion but would lose the structured `.code` downstream consumers
-// (and the C-7 envelope, when it lands) key on. Hence `try/catch` +
+// (and the typed wire envelope, when it lands) key on. Hence `try/catch` +
 // `toBeInstanceOf(SecureDefaultsValidationError)`
 // + `caught.code === "<expected>"` rather than a regex shortcut.
 //

@@ -2152,7 +2152,7 @@ describe("DriverResumeResultSchema — RecoverySpanClassification on the failed 
 // The hoisted recovery vocabularies: REFERENCED, never re-inlined.
 // ===========================================================================
 //
-// P3-4 requires the hoisted `RecoveryCondition` to be "referenced, never re-inlined" at every
+// The hoisted `RecoveryCondition` must be referenced, never re-inlined, at every
 // carrying surface. These tests are written to go red if a carrier drifts back to restating the
 // values, which is the one shape of drift the type system does NOT catch: `z.ZodType` is COVARIANT
 // in its output, so a re-inlined `z.enum` narrower than the union still satisfies a

@@ -974,7 +974,7 @@ describe("RunStateChangeEvent", () => {
   it("carries every member of both recovery vocabularies", () => {
     // Driven from the IMPORTED arrays, not from a list written out here, and for
     // the same reason the `InterventionType` fan-out above is: this module is the
-    // second of the four surfaces P3-4 binds to REFERENCE the hoisted vocabularies
+    // second of the four surfaces bound to REFERENCE the hoisted vocabularies
     // rather than restate them. It used to restate them, as two module-private
     // `z.enum` mirrors, and the `z.ZodType<T>` annotations that were said to hold
     // those mirrors in lockstep do not: `ZodType` is covariant in its output, so a

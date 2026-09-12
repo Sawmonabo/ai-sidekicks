@@ -364,7 +364,7 @@ export function observeMcpTaskAcceptance(
 }
 
 // --------------------------------------------------------------------------
-// MCP server-status census normalization (P2-10-L1)
+// MCP server-status census normalization
 // --------------------------------------------------------------------------
 
 /**

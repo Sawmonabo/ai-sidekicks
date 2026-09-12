@@ -48,7 +48,7 @@
 // object should not carry a key whose meaning is "no fallback applies".
 //
 // ---------------------------------------------------------------------------
-// P0-3 — the caller's idempotency key rides the wire, and is never re-minted
+// The caller's idempotency key rides the wire, and is never re-minted
 // ---------------------------------------------------------------------------
 //
 // `ApplyInterventionParams` carries the REQUESTER's `clientIdempotencyKey` on
@@ -65,7 +65,7 @@
 //                       for, which is strictly worse than sending none.
 //
 // ---------------------------------------------------------------------------
-// P3-1 — an ambiguous acknowledgement never reads as success
+// An ambiguous acknowledgement never reads as success
 // ---------------------------------------------------------------------------
 //
 // The two operations this dispatcher routes onto acknowledge in different
@@ -143,7 +143,7 @@ export interface CodexSteerRunRequest {
    */
   readonly expectedTurnId?: string | undefined;
   /**
-   * The REQUESTER's key (P0-3), placed on the wire unchanged and never re-minted
+   * The REQUESTER's key, placed on the wire unchanged and never re-minted
    * at this boundary. See the header.
    */
   readonly clientIdempotencyKey: string;
@@ -183,7 +183,7 @@ export interface CodexSteerAcknowledgement {
  * dispatcher depends on the two operations it calls rather than on the manager.
  * Two, not three: `cancel` and `interrupt` share `interruptRun` (see the arm).
  *
- * `steerRun` returns its acknowledgement because P3-1 grades it; `interruptRun`
+ * `steerRun` returns its acknowledgement because the grader reads it; `interruptRun`
  * returns `void` because the pinned `turn/interrupt` response has no payload to
  * grade, and because it is `ProviderDriver.interruptRun` — widening a contract
  * operation's return type to serve one caller would be the dispatcher setting
@@ -236,7 +236,7 @@ function degradeUnroutedInterventionType(params: never): DriverInterventionResul
 }
 
 /**
- * Grades a steer acknowledgement into the single normalized outcome (P3-1).
+ * Grades a steer acknowledgement into the single normalized outcome.
  *
  * The mismatch and the named-nothing cases collapse into one degraded answer on
  * purpose: both mean the driver holds no evidence that the turn it targeted was
@@ -313,7 +313,7 @@ export class CodexInterventionDispatcher {
           frameOrigin: "human_text",
         });
         // Asked against the turn that actually went on the wire, not against the
-        // caller's optional hint — the same value P3-1 grades the ack on, for
+        // caller's optional hint — the same value the ack is graded on, for
         // the same reason: a stale hint would ask about a turn this steer never
         // touched.
         return normalizeSteerAcknowledgement(
@@ -346,7 +346,7 @@ export class CodexInterventionDispatcher {
 
     // Reached by the interrupt and cancel arms only — the steer arm returns its
     // graded acknowledgement above. `turn/interrupt` resolving without a
-    // JSON-RPC error IS the evidence for those two (P3-1, header). `applied`
+    // JSON-RPC error IS the evidence for those two . `applied`
     // carries no `fallbackAction` key at all — see the header note.
     return DriverInterventionResultSchema.parse({ status: "applied" });
   }

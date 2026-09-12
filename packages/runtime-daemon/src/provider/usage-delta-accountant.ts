@@ -439,7 +439,7 @@ export class UsageDeltaAccountant {
 }
 
 // --------------------------------------------------------------------------
-// P1-6-producer — 3-tier cost resolution + native-cap provenance.
+// Cost-update provenance — 3-tier cost resolution + native-cap provenance.
 // --------------------------------------------------------------------------
 
 /** The `` cost-status enum. */
@@ -490,7 +490,7 @@ export type CostUpdateResolution =
   | { readonly resolution: "budget-warning"; readonly reason: "unpriced-model" };
 
 /**
- * Resolve one `usage.cost_update`'s provenance P1-6-producer ladder: (a) a
+ * Resolve one `usage.cost_update`'s provenance ladder: (a) a
  * provider-emitted cost, sanity-bounded (non-negative, finite, below the
  * configured absurdity ceiling; gross divergence from a derivable estimate
  * is a diagnostic, never a halt) → `provider_reported`; (b) else
@@ -510,7 +510,7 @@ export function resolveCostUpdateProvenance(options: {
   readonly providerReportedCostCents: number | null;
   /** The pricing-table derivation, or null for an unpriceable model. */
   readonly derivedQuote: DerivedCostQuote | null;
-  /** Whether this run was owner-admitted under a native cap (the C-12 leg). */
+  /** Whether this run was owner-admitted under a native cap. */
   readonly nativeCapAdmitted: boolean;
   readonly absurdityCeilingCents: number;
   /** Reported-vs-derived ratio beyond which divergence is diagnosed. */
@@ -584,7 +584,7 @@ export function resolveCostUpdateProvenance(options: {
 }
 
 // --------------------------------------------------------------------------
-// P2-6-producer — window telemetry.
+// Window telemetry.
 // --------------------------------------------------------------------------
 
 /** The `` window-provenance vocabulary. */
@@ -611,7 +611,7 @@ export type WindowTelemetry =
 
 /**
  * Derive one window-telemetry update at the normalize boundary
- * (P2-6-producer). The driver stamps `windowSource` and computes
+ *. The driver stamps `windowSource` and computes
  * `exceeded`; the Codex leg subtracts its session baseline before deriving
  * `windowUsedTokens` (the ~12k-token constant-overhead reading, supplied by
  * the caller from its capability read rather than hard-coded here — the

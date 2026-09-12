@@ -1984,7 +1984,7 @@ describe("ClaudeSessionLifecycle mandated spawn environment", () => {
   it("hands a resume the policy ref of the posture BEING RESUMED", async () => {
     // The Claude analogue of the codex resume fix, and a ROUTING assertion
     // rather than a strip assertion: the deny strip belongs to the transport
-    // under the P0-4 obligation, so what this band owes is handing that
+    // under the spawn-environment obligation, so what this band owes is handing that
     // transport the ref of the posture the resume states. Both paths build
     // their legs from `params` through the one shared builder, which is why
     // there is no stale-policy path here to close — this pins that.

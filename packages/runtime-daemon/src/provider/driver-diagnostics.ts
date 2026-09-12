@@ -18,7 +18,7 @@
 // timeline.
 //
 // Metrics: the counter NAMES below are the OpenTelemetry instrument names
-// (`driver.reorder_buffer.overflow` is pinned verbatim P2-1).
+// (`driver.reorder_buffer.overflow` is pinned verbatim).
 //
 
 // --------------------------------------------------------------------------
@@ -44,16 +44,16 @@ export type DriverProviderName = "codex" | "claude";
  * new diagnostic kind added without a counter name is a compile error rather
  * than an unmetered record. Each kind is owned by a named leg:
  *
- *   - `unmapped_wire_kind` — P0-1 default branch: a wire kind outside the
+ *   - `unmapped_wire_kind` — the default branch: a wire kind outside the
  *     pinned census, or an interim `typePending` kind whose literal has not
  *     landed.
- *   - `payload_variant_pending` — P0-1's second arm: a censused kind whose
+ *   - `payload_variant_pending` — the default branch's second arm: a censused kind whose
  *     target `SessionEventType` has no registered `SessionEventSchema` payload
  *     variant yet, so envelope construction is forbidden (the
  *     flip-is-not-emission rule).
- *   - `reorder_buffer_overflow` / `tool_pairing_timeout` — P2-1: the bounded
+ *   - `reorder_buffer_overflow` / `tool_pairing_timeout` — the bounded
  *     reorder buffer's two never-silent conditions.
- *   - `reorder_initiation_ledger_evicted` — P2-1's third bound: the seen-
+ *   - `reorder_initiation_ledger_evicted` — that buffer's third bound: the seen-
  *     initiation ledger is per-provider-session state with no completion
  *     guarantee, so it is capped and evicted oldest-first. An eviction changes
  *     how a later completion for that call routes, so it is never silent.
@@ -240,7 +240,7 @@ export type DriverDiagnosticKind =
  * One operator-visible daemon diagnostic.
  *
  * The `{ provider, rawWireType, dispositionReason }` triple is the exact shape
- * P0-1 pins for the default-branch record; `kind` discriminates the emitting
+ * Pinned for the default-branch record; `kind` discriminates the emitting
  * leg and selects the counter, and `details` carries the leg's structured
  * context (axis names, counts, thread identities) as flat JSON-safe primitives
  * so the log sink can serialize without walking a graph.
@@ -261,7 +261,7 @@ export interface DriverDiagnosticRecord {
 /**
  * The OpenTelemetry instrument name for each diagnostic kind.
  *
- * `driver.reorder_buffer.overflow` is pinned verbatim P2-1; the rest follow
+ * `driver.reorder_buffer.overflow` is pinned verbatim; the rest follow
  * its `driver.<band>.<condition>` shape. Keyed by the closed kind union so a
  * new kind without a counter is a compile error.
  */
@@ -337,7 +337,7 @@ export class ConsoleDriverDiagnosticLogSink implements DriverDiagnosticLogSink {
 /**
  * The default counter sink: exact in-memory totals keyed by counter name plus
  * serialized attributes. This is what makes an overflow "queryable via those
- * diagnostics/metrics surfaces" (P2-1) before substrate binds OpenTelemetry
+ * diagnostics/metrics surfaces" before substrate binds OpenTelemetry
  * behind the same interface.
  */
 export class InMemoryDriverDiagnosticCounterSink implements DriverDiagnosticCounterSink {
@@ -447,7 +447,7 @@ export class DriverDiagnosticsEmitter {
 }
 
 // --------------------------------------------------------------------------
-// The bounded reorder buffer (P2-1).
+// The bounded reorder buffer.
 // --------------------------------------------------------------------------
 
 /**
@@ -466,7 +466,7 @@ export interface ReorderBufferedEvent<TEvent> {
 
 /**
  * The bounded reorder buffer for a normalize boundary that pairs tool events
- * (P2-1).
+ *.
  *
  * Constructed by the EMISSION PIPELINE, not by a driver lifecycle band: pairing
  * operates on normalized events, and the lifecycle bands hand raw frames to

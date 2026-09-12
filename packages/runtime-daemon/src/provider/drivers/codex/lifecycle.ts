@@ -636,7 +636,7 @@ const CODEX_SERVER_REQUEST_METHODS: ReadonlySet<string> = new Set([
 //   `item/permissions/requestApproval`), the legacy approval pair
 //   (`execCommandApproval`, `applyPatchApproval`), and
 //   `mcpServer/elicitation/request`. All seven are reachable at the negotiated
-//   posture and all seven are asks: P1-4-driver enumerates exactly this set as
+//   posture and all seven are asks: the driver-ask binding enumerates exactly this set as
 //   the Codex interactive-request mechanism. Routing the modern trio while
 //   leaving the legacy pair on `-32601` would make the daemon's answer depend on
 //   which spelling the provider chose for the same question.
@@ -1359,7 +1359,7 @@ const JSON_RPC_METHOD_NOT_FOUND = -32601;
 
 /**
  * The `thread/realtime/*` server notifications suppressed for this connection
- * (leg 7, `docs/reference/provider-wire/codex.md` C-16).
+ * (leg 7, `docs/reference/provider-wire/codex.md`).
  *
  * Read from the generated `ServerNotification` union at the pin: `codex-cli
  * 0.150.1` publishes exactly these eleven `thread/realtime/*` names. V1 ships no
@@ -1907,7 +1907,7 @@ const DEFAULT_TURN_START_TIMEOUT_MS = 60_000;
 const UNSUBSCRIBE_TIMEOUT_MS = 5_000;
 
 /**
- * The pinned in-band, zero-turn authentication probe surface (P0-5 / C-17).
+ * The pinned in-band, zero-turn authentication probe surface.
  *
  * `getAuthStatus` is a member of the DEFAULT-generated `ClientRequest` union —
  * not an experimental one — so it is answerable over the same connection this
@@ -1930,7 +1930,7 @@ const CODEX_AUTH_STATUS_METHOD = "getAuthStatus";
 const CODEX_AUTH_PROBE_TIMEOUT_MS = 10_000;
 
 /**
- * Deadline for the resume-failure auth classification (P3-3).
+ * Deadline for the resume-failure auth classification.
  *
  * Deliberately tighter than the admission probe's. The two answer different
  * questions: the probe runs BEFORE work is admitted and can afford to wait,
@@ -3355,7 +3355,7 @@ async function requestCodexAuthStatus(
 }
 
 /**
- * Classifies a FAILED resume into the closed `RecoveryCondition` (P3-3).
+ * Classifies a FAILED resume into the closed `RecoveryCondition`.
  *
  * The two conditions name two different operator actions — `reauth-required`
  * means "re-authenticate this provider on the node, then recovery may retry",
@@ -5593,7 +5593,7 @@ export class CodexLifecycleManager {
    * the only settlement a re-dispatch follows.
    */
   readonly #ambiguousDeliveryReconciler: AmbiguousDeliveryReconciler;
-  // The P1-1 producer half. One gate per session, latched at the top of
+  // The intended-close producer half. One gate per session, latched at the top of
   // `closeSession`; the terminal-emission boundary in `event-normalizer.ts` is
   // the CONSUMER that stamps the flag on the terminal payload, because that is
   // the module that owns the terminal frame.
@@ -6258,7 +6258,7 @@ export class CodexLifecycleManager {
       // typed result. A close that escaped here would turn the `recovery-needed`
       // condition back into an exception, which is exactly the loss forbids.
       // Classified BEFORE the release, because the classification asks this very
-      // connection whether the credential is still good (P3-3). A refused resume
+      // connection whether the credential is still good. A refused resume
       // leaves the transport open, so the child is still there to answer.
       const recoveryCondition = await classifyResumeRecoveryCondition(connection, cause);
       await this.#releaseAbandonedConnection(connection);
@@ -6624,7 +6624,7 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Zero-turn authentication probe (P0-5). NEVER throws.
+   * Zero-turn authentication probe. NEVER throws.
    *
    * WHY A DEDICATED CONNECTION. `probeAuth()` takes no parameters and holds no
    * session, and its whole purpose is to detect a logged-out provider BEFORE a
@@ -7582,7 +7582,7 @@ export class CodexLifecycleManager {
     // deadlock: no establishment path calls `closeSession` (each closes its own
     // CONNECTION directly), so the wait can never be on this call.
     //
-    // P1-1 is latched FIRST, before the unknown-session early return and before
+    // The intended-close flag is latched FIRST, before the unknown-session early return and before
     // the claim: the daemon has expressed the intent by calling this method at
     // all, so every terminal from this point on belongs to a clean shutdown —
     // including the ones a chained close only reaches after the establishment
@@ -7613,7 +7613,7 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * The terminal-emission gate for one session (P1-1 / P1-2-driver).
+   * The terminal-emission gate for one session.
    *
    * The emission pipeline reads it to stamp `intendedClose` and to suppress a
    * duplicate terminal for an already-settled `(runId, runVersion)` epoch. Read
@@ -8126,7 +8126,7 @@ export class CodexLifecycleManager {
     // silently retargeted at whatever turn is running now. Held in a local
     // because it is also half of the acknowledgement comparison: the dispatcher
     // grades the ack against what actually went on the wire, not against the
-    // caller's optional hint (P3-1).
+    // caller's optional hint.
     const targetedTurnId = request.expectedTurnId ?? turnId;
     // The steer directive is the SECOND provider-bound text path on this leg
     // and takes the identical treatment: composed by the writer, correlated
@@ -8169,7 +8169,7 @@ export class CodexLifecycleManager {
         // reach its turn's settlement evidence-less and trip a healthy
         // session. Recorded for a NULL acknowledgment too: naming no turn
         // weakens the correlation, never the receipt — the dispatcher already
-        // grades that answer degraded rather than applied (P3-1).
+        // grades that answer degraded rather than applied.
         this.#outboundFrameTripwire.recordRequestAnswered(steerFrame);
         if (acknowledgedTurnId !== null && acknowledgedTurnId !== targetedTurnId) {
           // The provider named a turn OTHER than the one this steer targeted,
@@ -8199,7 +8199,7 @@ export class CodexLifecycleManager {
           // path is the same statement here, and delivery it proves does not
           // stop being proven because the destination finished first. The
           // mismatch itself stays visible: the dispatcher grades this answer
-          // degraded on the ack comparison (P3-1), so nothing here is silent.
+          // degraded on the ack comparison, so nothing here is silent.
           if (this.#canStillRuleFrameOnTurn(record, acknowledgedTurnId)) {
             this.#outboundFrameTripwire.recorrelateFrame(steerFrame, acknowledgedTurnId);
           } else {
@@ -8415,7 +8415,7 @@ export class CodexLifecycleManager {
       threadId: record.threadId,
       input: [{ type: "text", text: steerFrame.wireText, text_elements: [] }],
       expectedTurnId: targetedTurnId,
-      // P0-3: the REQUESTER's key, verbatim and never re-minted here — a fresh
+      // The REQUESTER's key, verbatim and never re-minted here — a fresh
       // value per retry is exactly what the daemon's `interventions` dedupe guard
       // exists to prevent. `clientUserMessageId` is the pinned home for a
       // caller-supplied message id, the same member `turn/start` above already
@@ -9788,7 +9788,7 @@ function readThreadTurnIds(turns: unknown): string[] {
  * TOTAL rather than throwing, unlike `readTurnId` beside it, and the difference
  * is the point: a steer whose ack is unreadable is not a transport fault — the
  * request WAS answered — it is an acknowledgement carrying no evidence, and
- * P3-1 grades that as a degraded intervention rather than as an outage. Throwing
+ * The dispatcher grades that as a degraded intervention rather than as an outage. Throwing
  * here would tell the orchestration layer to treat a live provider as unreachable.
  *
  * `TurnSteerResponse` is the flat `{ turnId }` at the pin, deliberately NOT the

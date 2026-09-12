@@ -386,7 +386,7 @@ describe("Codex capability refresh seam", () => {
   });
 });
 
-describe("Codex CLI-version floor (P0-2)", () => {
+describe("Codex CLI-version floor", () => {
   it("refuses a below-floor report at composition, so attach and refresh both hit the gate", () => {
     let thrown: unknown;
     try {
@@ -519,7 +519,7 @@ describe("Codex composition is bound to the spawned build", () => {
 });
 
 // --------------------------------------------------------------------------
-// C-8 — the current model catalog + per-model effort vocabularies
+// The current model catalog + per-model effort vocabularies
 // --------------------------------------------------------------------------
 
 /**
@@ -602,7 +602,7 @@ function codexRecordedModel(
   };
 }
 
-describe("Codex model catalog (C-8)", () => {
+describe("Codex model catalog", () => {
   it("reads the recorded reply into the provider's own eight models, in order", () => {
     const models = normalizeCodexModelCatalog(CODEX_RECORDED_MODEL_LIST_REPLY);
 

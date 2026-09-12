@@ -89,7 +89,7 @@ export const CLAUDE_STEER_FALLBACK_ACTION: string = "queue_and_interrupt";
 const CLAUDE_INTERRUPT_RECEIPT_SURVIVOR_KEY = "still_queued";
 
 /**
- * Counts the queued messages the provider reports as having survived (P3-1).
+ * Counts the queued messages the provider reports as having survived.
  *
  * Total over an arbitrary payload on purpose: this value crosses the provider
  * trust boundary, so a missing key, a null, or a non-array all read as "reported
@@ -158,7 +158,7 @@ export class ClaudeInterventionDispatcher {
       return DriverInterventionResultSchema.parse({ status: "degraded" });
     }
     if (cancelQueued && countSurvivingQueuedMessages(response.response) > 0) {
-      // A cancel the provider acknowledged while reporting survivors (P3-1).
+      // A cancel the provider acknowledged while reporting survivors.
       // Also no `fallbackAction`: the survivors are already queued, so the
       // documented `queue_and_interrupt` fallback would re-queue what is queued,
       // and naming any other verb here would invent daemon behaviour this band

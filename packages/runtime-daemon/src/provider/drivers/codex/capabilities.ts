@@ -50,8 +50,8 @@
 //
 // What this function deliberately does NOT own: the poll timer, the 15-minute
 // cadence, the paired `probeAuth()`, and node attach/detach lifecycle. Those
-// belong to the `CapabilityRefreshScheduler` (`../../capability-refresh.js`
-// P2-9), which drives THIS seam on the bounded cadence. Change detection is
+// belong to the `CapabilityRefreshScheduler` (`../../capability-refresh.js`),
+// which drives THIS seam on the bounded cadence. Change detection is
 // likewise NOT re-implemented here: duplicating the writer's snapshot compare
 // would create a second, divergable answer to "did the capabilities change?".
 //
@@ -415,7 +415,7 @@ export async function refreshCodexCapabilities(
 }
 
 // --------------------------------------------------------------------------
-// The model catalog (C-8)
+// The model catalog
 // --------------------------------------------------------------------------
 
 /**

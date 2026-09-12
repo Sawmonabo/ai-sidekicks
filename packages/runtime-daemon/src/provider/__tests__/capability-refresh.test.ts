@@ -44,7 +44,7 @@ import {
 import { CLI_VERSION_RAW_MAX_LEN } from "../provider-output-validation.js";
 
 // --------------------------------------------------------------------------
-// P0-2 — parse + floor seam
+// The parse + floor seam
 // --------------------------------------------------------------------------
 
 describe("parseCliVersionReport", () => {
@@ -139,7 +139,7 @@ describe("assertCliVersionMeetsFloor", () => {
 });
 
 // --------------------------------------------------------------------------
-// P2-9 — CapabilityRefreshScheduler
+// The CapabilityRefreshScheduler
 // --------------------------------------------------------------------------
 
 /** A controllable driver entry whose call history the assertions read. */

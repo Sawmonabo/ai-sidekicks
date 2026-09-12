@@ -592,7 +592,7 @@ describe("NodeRegistry — D4 (detach + reconnect under stable node identity)", 
 
 // ----------------------------------------------------------------------------
 // The runtime-node lifecycle observer seam — the sanctioned wiring point the
-// provider subsystem's per-node refresh cadence attaches to (P2-9). Three
+// provider subsystem's per-node refresh cadence attaches to. Three
 // properties, each with a distinct failure it forecloses.
 // ----------------------------------------------------------------------------
 

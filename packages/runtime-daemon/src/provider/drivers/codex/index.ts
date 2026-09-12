@@ -29,7 +29,7 @@
 // forward, because each side of that subtraction moved three times this phase:
 // the earlier "14-op" figure in this comment predated `exportTranscript` /
 // `replayTranscript` () and `compactContext` / `listProviderCommands`, while
-// `listModels` joined the `Pick` with the currency duty (C-8) and
+// `listModels` joined the `Pick` with the currency duty and
 // `replayTranscript` joined it with the replay leg. The four remaining
 // (`respondToRequest`, `listModes`, `getCapabilities`, `exportTranscript`) are
 // authored by the sibling Phase-3 tasks, and this class is widened to the full
@@ -191,7 +191,7 @@ export interface CodexDriverOptions extends CodexLifecycleOptions {
    */
   readonly transportConfig?: DriverTransportConfig | undefined;
   /**
-   * The live `model/list` read backing `listModels()` (C-8), or an EXPLICIT
+   * The live `model/list` read backing `listModels()`, or an EXPLICIT
    * `null` for a composition that binds none — in which case the driver
    * answers the provenance-stamped declaration in `./capabilities.ts`.
    *
@@ -309,7 +309,7 @@ export class CodexDriver implements Pick<
   }
 
   /**
-   * The selectable model catalog (C-8).
+   * The selectable model catalog.
    *
    * Delegates rather than deciding: `./capabilities.ts` owns both the declared
    * catalog and the normalization of a live reply, so the wire shape and its

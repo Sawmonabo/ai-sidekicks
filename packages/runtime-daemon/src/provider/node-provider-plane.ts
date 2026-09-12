@@ -1,5 +1,5 @@
 // Node provider plane — the runtime-node lifecycle binder for the provider
-// subsystem (P2-9's sanctioned wiring call).
+// subsystem (the provider subsystem's sanctioned wiring call).
 //
 // The `CapabilityRefreshScheduler` is a lifecycle owner with two lifecycle
 // verbs — `startForNode` on attach, `stopForNode` on detach — and nothing in

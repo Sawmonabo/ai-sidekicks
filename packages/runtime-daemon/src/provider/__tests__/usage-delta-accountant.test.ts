@@ -1,5 +1,5 @@
-// Usage-delta accountant suite (usage-delta leg, plus the P1-6-producer /
-// P2-6-producer decision functions).
+// Usage-delta accountant suite (the usage-delta leg, plus the cost-provenance
+// and window-telemetry decision functions).
 //
 // Spec coverage under test:
 //   • the four-value cost provenance enum and the both-or-neither window
@@ -320,7 +320,7 @@ describe("UsageDeltaAccountant", () => {
   });
 });
 
-describe("resolveCostUpdateProvenance (P1-6-producer)", () => {
+describe("resolveCostUpdateProvenance", () => {
   function makeDiagnostics() {
     return new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
   }
@@ -453,7 +453,7 @@ describe("resolveCostUpdateProvenance (P1-6-producer)", () => {
   });
 });
 
-describe("deriveWindowTelemetry (P2-6-producer)", () => {
+describe("deriveWindowTelemetry", () => {
   it("counts travel both-or-neither: a full pair emits both members", () => {
     const telemetry = deriveWindowTelemetry({
       windowSource: "provider_reported",

@@ -645,7 +645,7 @@ function createHarness(
 ): Harness {
   const server = new FakeCodexAppServer();
   server.on("initialize", () => ({ result: { userAgent: "codex-driver/0.149.1" } }));
-  // Answered by default so the P3-3 resume-failure auth classification resolves:
+  // Answered by default so the resume-failure auth classification resolves:
   // these tests run on a manual scheduler where its deadline would never fire,
   // and a logged-in provider is the realistic baseline. Cases that care about
   // the logged-out reading re-register this method.
@@ -784,7 +784,7 @@ function createManagerHarness(options: ManagerHarnessOptions = {}): ManagerHarne
   // Answered, because the manager's teardown awaits it and these tests run on a
   // manual scheduler where the courtesy deadline would never fire.
   server.on("thread/unsubscribe", () => ({ result: {} }));
-  // Answered by default so the P3-3 resume-failure auth classification resolves:
+  // Answered by default so the resume-failure auth classification resolves:
   // these tests run on a manual scheduler where its deadline would never fire,
   // and a logged-in provider is the realistic baseline. Cases that care about
   // the logged-out reading re-register this method.
@@ -1405,7 +1405,7 @@ describe("CodexDriver resumeSession", () => {
     server.on("thread/resume", () => ({
       error: { code: -32600, message: "thread not found" },
     }));
-    // The typed refusal above admits the P3-3 classification, which asks this
+    // The typed refusal above admits the resume-failure classification, which asks this
     // connection one question before the release under test happens.
     server.on("getAuthStatus", () => ({ result: { authMethod: "chatgpt", authToken: null } }));
     const scheduler = makeManualScheduler();
@@ -2026,10 +2026,10 @@ describe("CodexDriver approval reviewer pinning", () => {
 });
 
 // --------------------------------------------------------------------------
-// Zero-turn auth probe (P0-5) — `getAuthStatus` over a dedicated connection
+// Zero-turn auth probe — `getAuthStatus` over a dedicated connection
 // --------------------------------------------------------------------------
 
-describe("CodexLifecycleManager probeAuth (P0-5)", () => {
+describe("CodexLifecycleManager probeAuth", () => {
   function probingHarness(answer: JsonRpcAnswer | undefined): ManagerHarness {
     const harness = createManagerHarness();
     if (answer !== undefined) {
@@ -2174,13 +2174,13 @@ describe("CodexLifecycleManager probeAuth (P0-5)", () => {
 });
 
 // --------------------------------------------------------------------------
-// Steer on the wire — P0-3's key ride-through and P3-1's acknowledgement grade
+// Steer on the wire — the key ride-through and the acknowledgement grade
 // --------------------------------------------------------------------------
 
-describe("CodexDriver spawn-environment hygiene (P0-4)", () => {
+describe("CodexDriver spawn-environment hygiene", () => {
   // A variable that exists in the DAEMON's environment and in no supplied
   // config. Any appearance of it in a child environment means some path spread
-  // `process.env`, which is the whole failure P0-4 forbids: the child
+  // `process.env`, which is the whole failure the spawn-environment rule forbids: the child
   // environment is CONSTRUCTED, never inherited. It is also the shape a deny
   // list depends on — a policy can only strip what the constructor put there, so
   // a driver that adds entries of its own would defeat the strip no matter how
@@ -3189,7 +3189,7 @@ describe("CodexDriver turn posture realization", () => {
   });
 });
 
-describe("CodexDriver resume-failure taxonomy (P3-3)", () => {
+describe("CodexDriver resume-failure taxonomy", () => {
   const REFUSED_RESUME: JsonRpcAnswer = {
     error: { code: -32600, message: "thread not found" },
   };
@@ -3302,7 +3302,7 @@ describe("CodexDriver resume-failure taxonomy (P3-3)", () => {
   });
 });
 
-describe("CodexLifecycleManager steer wire shape (P0-3, P3-1)", () => {
+describe("CodexLifecycleManager steer wire shape", () => {
   const STEER_KEY = "9a1d8f30-0000-4000-8000-0000000000aa";
 
   /** A harness with one live session and one live turn, ready to be steered. */
@@ -4675,7 +4675,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     // that actually took it rather than lingering on one it provably did not
     // enter (the frame-scoped move semantics are pinned at the tripwire unit
     // level). What this test holds is the integration contract: the mismatch
-    // is returned to the dispatcher for degraded grading (P3-1), no turn trips
+    // is returned to the dispatcher for degraded grading, no turn trips
     // over it, and the binding is not condemned.
     const acknowledgedTurnId = "turn-acknowledged";
     const harness = createManagerHarness();
@@ -4736,7 +4736,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     // weakens the correlation, never the delivery: the answered request is
     // still the provider's typed statement that it took the bytes, so the
     // steer passes at the targeted turn's settlement — the dispatcher already
-    // grades the null ack degraded rather than applied (P3-1), which is where
+    // grades the null ack degraded rather than applied, which is where
     // that weakness is reported.
     const harness = createManagerHarness();
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
@@ -4781,7 +4781,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     // tripped — condemning the session over a receipt the provider just
     // attested contradicted the attribution rule that consumes every other
     // answered steer. The mismatch stays visible through
-    // the dispatcher's degraded grading (P3-1).
+    // the dispatcher's degraded grading.
     const acknowledgedTurnId = "turn-acknowledged";
     const harness = createManagerHarness();
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
@@ -4975,7 +4975,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     // on the live-destination path does not stop holding because the
     // destination finished first. The oddity of the ack itself — a provider
     // naming a turn it had already ended — reaches the caller through the
-    // dispatcher's degraded grading of the mismatch (P3-1).
+    // dispatcher's degraded grading of the mismatch.
     const acknowledgedTurnId = "turn-acknowledged";
     const harness = createManagerHarness();
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
@@ -8540,10 +8540,10 @@ describe("CodexLifecycleManager thread routing and usage metering", () => {
 });
 
 // --------------------------------------------------------------------------
-// C-8 — the model catalog, reachable through the composed driver.
+// The model catalog, reachable through the composed driver.
 // --------------------------------------------------------------------------
 
-describe("CodexDriver model catalog (C-8)", () => {
+describe("CodexDriver model catalog", () => {
   function buildCatalogDriverOptions(): ConstructorParameters<typeof CodexDriver>[0] {
     return {
       ptyHost: new FakeCodexAppServer(),

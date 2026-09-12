@@ -1,5 +1,5 @@
 // NodeProviderPlane — the runtime-node lifecycle binder for the capability /
-// auth refresh cadence (P2-9's sanctioned wiring call).
+// auth refresh cadence (the provider subsystem's sanctioned wiring call).
 //
 // Coverage targets (audit-derived):
 //   * capability and account-state declarations refresh per runtime node on a

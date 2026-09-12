@@ -75,7 +75,7 @@
 //   • The union is keyed on server-originated frames (`ServerNotification` ∪
 //     `ServerRequest`). The `account/rateLimits/read` PULL leg feeds the same
 //     `rate_limits` normalized kind as the `account/rateLimits/updated` PUSH
-//     row below (P0-1, C-9), but it arrives as a reply to a daemon-issued
+//     row below, but it arrives as a reply to a daemon-issued
 //     request rather than as an inbound frame, so its plumbing belongs to the
 //     request path, not here.
 //
@@ -662,7 +662,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     eventType: "driver_ask.requested",
     normalizedKind: "user_input_request",
   },
-  // Permission asks — modern trio then legacy pair. P1-4-driver binds all five
+  // Permission asks — modern trio then legacy pair. The driver-ask binding covers all five
   // plus the two input asks above to the four `driver_ask.*` types, which
   // normalizer routes into the Cedar pipeline. They are `approval_request`
   // (row 7), NOT `approval_resolved`: the ask reaches the daemon undecided,
@@ -716,7 +716,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     nativeMethod: "attestation/generate",
     transport: "server-request",
     reason:
-      "control-plane request answered on the transport (the initialize-declared requestAttestation capability, codex.md C-16); it asks the daemon to mint an attestation and carries no session observation, so it has no timeline capability to lose",
+      "control-plane request answered on the transport (the initialize-declared requestAttestation capability, codex.md); it asks the daemon to mint an attestation and carries no session observation, so it has no timeline capability to lose",
   },
   "account/chatgptAuthTokens/refresh": {
     disposition: "not-evented",
@@ -809,7 +809,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     normalizedKind: null,
   },
   // Row 20 is a RENAME precisely to keep this off context-window telemetry,
-  // and P0-1 corrects the corpus checklist in the same direction: "the Codex
+  // and the default branch reads the same direction: "the Codex
   // `rate_limits` account-quota kind maps to `usage.rate_limit_update`
   // (account-quota utilization is not context-window utilization)".
   "account/rateLimits/updated": {
@@ -1120,7 +1120,7 @@ export function normalizeCodexInboundFrame(nativeMethod: string): CodexFrameNorm
 }
 
 // --------------------------------------------------------------------------
-// The daemon-diagnostic default branch (P0-1).
+// The daemon-diagnostic default branch.
 // --------------------------------------------------------------------------
 
 /** The census-mapped emission answer, or the frame's routed diagnostic. */
@@ -1130,7 +1130,7 @@ export type CodexFrameEmissionRoute =
   | { readonly route: "diagnostic"; readonly record: DriverDiagnosticRecord };
 
 /**
- * P0-1 default branch — the driver core's entry point onto this table. Total
+ * The default branch — the driver core's entry point onto this table. Total
  * over EVERY method string and never throws: a method outside the pinned
  * census, an interim `typePending` kind whose literal has not landed, and a
  * censused kind whose target has no registered payload variant all route to
@@ -1356,20 +1356,20 @@ export function classifyCodexFrameFamilyForRouting(nativeMethod: string): Thread
 }
 
 // --------------------------------------------------------------------------
-// The terminal-emission boundary (P1-1 + P1-2-driver).
+// The terminal-emission boundary.
 // --------------------------------------------------------------------------
 //
 // This module is the SOLE terminal-emission boundary for the Codex leg: the
 // provider-native → `run_lifecycle` mapping above lives here, so the two
 // properties that attach to a terminal frame attach here too.
 //
-//   P1-1 — INTENDED CLOSE. A daemon-initiated `closeSession` signals its
+//   INTENDED CLOSE. A daemon-initiated `closeSession` signals its
 //   intent into this boundary through the lifecycle module; the boundary
 //   stamps `intendedClose` on the terminal payload so the recovery classifier
 //   reads a clean shutdown as a clean shutdown rather than as a crash. The
 //   lifecycle module cannot stamp it — it does not own the terminal frame.
 //
-//   P1-2-driver — DUPLICATE SUPPRESSION. At most one terminal per `(runId,
+//   DUPLICATE SUPPRESSION. At most one terminal per `(runId,
 //   runVersion)` epoch. The primary guard is the dispatcher and the schema
 //   backstop is the partial unique index; without THIS boundary-level
 //   suppression a duplicate provider terminal — the ordinary post-interrupt
