@@ -183,9 +183,8 @@ const EMPTY_READ_PARAMS: DriverReadParams = Object.freeze({});
  * intervention was applied natively" is the misreading this envelope exists to
  * prevent (I-005-4).
  *
- * `subscribeEvents` returns SYNCHRONOUSLY, unlike the `AsyncIterable` wrappers
- * `sessionClient.subscribe` and `membershipClient.subscribePresence` expose.
- * This is the shape Plan-005 §Phase 4 T4.3 ratifies, and it hands the caller the
+ * `subscribeEvents` returns SYNCHRONOUSLY, unlike the `AsyncIterable` wrapper
+ * `sessionClient.subscribe` exposes. It hands the caller the
  * raw consumer handle — `next()` polling, `for await` iteration, and an
  * idempotent `cancel()` — rather than choosing one consumption style for them.
  */
@@ -381,17 +380,17 @@ export function createDaemonProviderClient(client: JsonRpcClient): DriverClient 
  * validation and the subscription ends in a typed `JsonRpcSchemaError` on the
  * `value` phase, which is the loud failure the SDK boundary exists to give.
  *
- * PARAMS ARE VALIDATED HERE, WHICH DIVERGES FROM THE TWO SIBLING SUBSCRIBE
- * WRAPPERS, ON PURPOSE. `sessionClient`'s `daemonSubscribe` and
- * `membershipClient`'s `daemonSubscribePresence` both note that subscribe-init
- * params go unvalidated at the SDK boundary — `JsonRpcClient.subscribe` erases
- * them through a passthrough schema — and lean on the daemon's I-007-7 parse.
- * Two things make that trade wrong for this method. First, both siblings are
- * async generators, so a malformed request surfaces to the caller on the first
+ * PARAMS ARE VALIDATED HERE, WHICH DIVERGES FROM THE SIBLING SUBSCRIBE
+ * WRAPPER, ON PURPOSE. `sessionClient`'s `daemonSubscribe` notes that
+ * subscribe-init params go unvalidated at the SDK boundary —
+ * `JsonRpcClient.subscribe` erases them through a passthrough schema — and
+ * leans on the daemon's own parse.
+ * Two things make that trade wrong for this method. First, the sibling is an
+ * async generator, so a malformed request surfaces to the caller on the first
  * iteration; this one hands back a consumer handle SYNCHRONOUSLY, so an
  * unvalidated bad `runId` would leave the caller holding a live-looking handle
  * whose failure only appears at an eventual `next()`, detached from the call
- * that caused it. Second, `DriverSubscribeEventsParamsSchema` is a T4.2 SDK-seam
+ * that caused it. Second, `DriverSubscribeEventsParamsSchema` is an SDK-seam
  * schema whose stated job is guarding client input crossing into the daemon;
  * skipping it here would leave the daemon's registry as its only reader.
  *

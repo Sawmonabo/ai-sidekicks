@@ -928,9 +928,8 @@ describe("I3 / `Spec-003 §Acceptance Criteria` (AC4) + I-003-1 — mixed-versio
     // `version.floor_exceeded` (asserted against the canonical
     // `VERSION_FLOOR_EXCEEDED_CODE` constant, never a string literal) and the
     // HTTP 409 CONFLICT provenance (error-contracts.md §Version row). The
-    // capture-once `.then()` idiom (membershipClient.integration.test.ts
-    // precedent) attempts the refused write exactly ONCE and asserts instance
-    // + fields on the same rejection.
+    // capture-once `.then()` idiom attempts the refused write exactly ONCE and
+    // asserts instance + fields on the same rejection.
     const refusal = await sdk
       .capabilityUpdate({
         nodeId: BELOW_FLOOR_NODE_ID,

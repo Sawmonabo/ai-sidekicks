@@ -43,6 +43,8 @@
 // `SessionClient` interface without leaking transport details.
 
 import type {
+  ChannelListRequest,
+  ChannelListResponse,
   EventCursor,
   SessionCreateRequest,
   SessionCreateResponse,
@@ -54,6 +56,8 @@ import type {
   SessionReadResponse,
 } from "@ai-sidekicks/contracts";
 import {
+  ChannelListRequestSchema,
+  ChannelListResponseSchema,
   EventCursorSchema,
   SessionCreateRequestSchema,
   SessionCreateResponseSchema,
@@ -120,6 +124,12 @@ const SESSION_METHOD_JOIN = "session.join";
 const SESSION_METHOD_SUBSCRIBE = "session.subscribe";
 
 /**
+ * The sidekick-channel listing read. Daemon-only: the control-plane router
+ * mounts no procedure for it, so this name is never appended to a tRPC URL.
+ */
+const CHANNEL_METHOD_LIST = "channel.list";
+
+/**
  * Common consumer-side surface for the four V1 session methods. Both
  * `createDaemonSessionClient` and `createControlPlaneSessionClient` return
  * an object satisfying this interface.
@@ -131,12 +141,24 @@ export interface SessionClient {
   subscribe(options: SessionSubscribeOptions): AsyncIterable<SessionEventEnvelope>;
 }
 
+/**
+ * The daemon transport's surface: every `SessionClient` method plus
+ * `listChannels`, which exists only over the daemon. The control-plane
+ * deployment exposes no channel-listing procedure, so widening the shared
+ * `SessionClient` interface would hand the HTTP factory a method with no
+ * route behind it. Callers that need the listing take this narrower type;
+ * callers that are transport-agnostic keep taking `SessionClient`.
+ */
+export interface DaemonSessionClient extends SessionClient {
+  listChannels(request: ChannelListRequest): Promise<ChannelListResponse>;
+}
+
 // --------------------------------------------------------------------------
 // Daemon transport factory
 // --------------------------------------------------------------------------
 
 /**
- * Build a `SessionClient` over a daemon transport. The caller is responsible
+ * Build a `DaemonSessionClient` over a daemon transport. The caller is responsible
  * for wiring the underlying `ClientTransport` (Unix socket, Windows named
  * pipe, in-memory test double) and instantiating the `JsonRpcClient` —
  * including completing the `daemon.hello` handshake before the first
@@ -153,7 +175,7 @@ export interface SessionClient {
  * removed (Spec-001 contract is shape-stable; the server-side change
  * widens the streaming envelope additively per ADR-018).
  */
-export function createDaemonSessionClient(client: JsonRpcClient): SessionClient {
+export function createDaemonSessionClient(client: JsonRpcClient): DaemonSessionClient {
   return {
     create: (request) =>
       client.call(
@@ -177,6 +199,13 @@ export function createDaemonSessionClient(client: JsonRpcClient): SessionClient 
         SessionJoinResponseSchema,
       ),
     subscribe: (options) => daemonSubscribe(client, options),
+    listChannels: (request) =>
+      client.call(
+        CHANNEL_METHOD_LIST,
+        request,
+        ChannelListRequestSchema,
+        ChannelListResponseSchema,
+      ),
   };
 }
 

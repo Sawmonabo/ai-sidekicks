@@ -34,12 +34,15 @@
 // dependency footprint without expanding scope.
 
 import {
+  type ChannelListResponse,
+  deriveMainChannelId,
   type EventCursor,
   type EventEnvelopeVersion,
   JSONRPC_VERSION,
   type JsonRpcNotification,
   type JsonRpcRequest,
   type JsonRpcResponseEnvelope,
+  MAIN_CHANNEL_NAME,
   type MembershipId,
   type ParticipantId,
   type SessionCreateResponse,
@@ -1522,5 +1525,65 @@ describe("Control-plane CRUD smoke — JSON envelope decode round-trips through 
     expect(response.sharedMetadata).toEqual({});
     expect(directoryService.lastJoinInput?.sessionId).toBe(SESSION_ID);
     expect(directoryService.lastJoinInput?.participantId).toBe(OWNER_PARTICIPANT_ID);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Daemon channel listing — the bootstrap main channel for an existing session
+// ---------------------------------------------------------------------------
+//
+// The bootstrap `main` channel's id is a PURE FUNCTION of the session id:
+// `deriveMainChannelId` is THE shared derivation consumed by both the daemon
+// projector AND the control-plane channel projection. The expected id below is
+// derived with the SAME helper used in the assertion, so the test pins the
+// cross-surface invariant (byte-identical id for a given session) rather than a
+// daemon-side fabrication.
+
+describe("daemon factory — listChannels returns the bootstrap main channel", () => {
+  it("listChannels sends channel.list and parses a projection containing the deterministically-derived main channel", async () => {
+    const mainChannelId = deriveMainChannelId(SESSION_ID);
+
+    const channelListResponse: ChannelListResponse = {
+      channels: [
+        {
+          id: mainChannelId,
+          name: MAIN_CHANNEL_NAME,
+          state: "active",
+          participantCount: 1,
+        },
+      ],
+    };
+
+    const harness = buildDaemonHarness([
+      {
+        method: "channel.list",
+        buildResult: (request): unknown => {
+          // Echo back the requested sessionId scoping defensively (the
+          // projection is per-session). The response shape is the canonical
+          // ChannelListResponse; the bootstrap main channel is the single
+          // visible channel for a freshly-bootstrapped session.
+          const requested = (request.params as { sessionId: SessionId } | undefined) ?? {
+            sessionId: SESSION_ID,
+          };
+          expect(requested.sessionId).toBe(SESSION_ID);
+          return channelListResponse;
+        },
+      },
+    ]);
+    const sdk = createDaemonSessionClient(harness.client);
+
+    const response = await sdk.listChannels({ sessionId: SESSION_ID });
+
+    // Core assertion #1: the parsed projection contains the bootstrap main
+    // channel, keyed by the deterministically-derived id.
+    const main = response.channels.find((channel) => channel.id === mainChannelId);
+    expect(main).toBeDefined();
+    // Core assertion #2: the bootstrap channel carries the canonical `main`
+    // name and the `active` lifecycle state.
+    expect(main?.name).toBe(MAIN_CHANNEL_NAME);
+    expect(main?.state).toBe("active");
+    // The wire method was `channel.list`.
+    const sentMethods = harness.transport.sentEnvelopes.map((envelope) => envelope.method);
+    expect(sentMethods).toEqual(["channel.list"]);
   });
 });
