@@ -4,7 +4,7 @@
 
 - [Thesis](#thesis)
 - [Product Goal](#product-goal)
-- [The Collaboration Model](#the-collaboration-model)
+- [The Remote Control Model](#the-remote-control-model)
 - [What Every Device Shows](#what-every-device-shows)
 - [What Every Device Can Do](#what-every-device-can-do)
 - [Remote Control Invariants](#remote-control-invariants)
@@ -69,7 +69,7 @@ This is the defining requirement:
 
 That means the session cannot be designed as a window onto one process. The session is the durable object; a device is a view onto it.
 
-## The Collaboration Model
+## The Remote Control Model
 
 One user, many linked devices, one machine executing. The session is a durable agentic workspace with channels, history, and device presence — never a mirrored screen or a forwarded keyboard. The shared object is the conversation, the activity, and the work product.
 

@@ -3271,11 +3271,6 @@ ${SYNTHETIC_PLAN_INVARIANTS}`,
 // silent-disable class is caught (a durable spawn guard, not a one-time run).
 // REPO_ROOT/SKILL_MD resolve from the script's own __dirname, so the real repo
 // satisfies Gate 1 while the temp plan drives Gates 2–5 from planSource.
-// --allow-stale-manifest is passed because the CLI defaults Gate 6 (manifest
-// freshness) ON and Gate 6 shells the real gh — a fixture plan named 001-*
-// would be cross-checked against the real repo's merged Plan-001 PRs (network
-// in a unit test + a guaranteed stale halt). The flag is the documented
-// offline escape; its stderr skip-line is asserted so the bypass stays loud.
 
 const PREFLIGHT_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "preflight.mjs");
 
@@ -3337,15 +3332,10 @@ shipped: []
 ### Notes
 ${SYNTHETIC_PLAN_INVARIANTS}`,
   );
-  const r = spawnSync(
-    process.execPath,
-    [PREFLIGHT_CLI, planFile, "2", "--allow-stale-manifest", "--allow-unpromoted"],
-    {
-      encoding: "utf8",
-    },
-  );
+  const r = spawnSync(process.execPath, [PREFLIGHT_CLI, planFile, "2", "--allow-unpromoted"], {
+    encoding: "utf8",
+  });
   assert.equal(r.status, 1, `status=${r.status} stdout=${r.stdout} stderr=${r.stderr}`);
-  assert.match(r.stderr, /Gate 6 \(manifest freshness\) SKIPPED via --allow-stale-manifest/);
   assert.match(
     r.stderr,
     /Gate 7 \(status promotion \+ governance preconditions\) SKIPPED via --allow-unpromoted/,
@@ -3836,16 +3826,13 @@ test("CLI entry: review-status plan halts at Gate 7 by default; --allow-unpromot
     planFile,
     `# Plan-001\n\n| Field | Value |\n| --- | --- |\n| **Status** | \`review\` |\n\n## Preconditions\n\n- [x] **Plan-readiness audit complete per runbook.\n`,
   );
-  // Gate 7 fires before Gate 6, so no --allow-stale-manifest is needed —
   // the halt path stays network-free by construction.
   const gated = spawnSync(process.execPath, [PREFLIGHT_CLI, planFile], { encoding: "utf8" });
   assert.equal(gated.status, 1, `status=${gated.status} stdout=${gated.stdout}`);
   assert.match(gated.stdout, /plan not promoted \(Gate 7\)/);
-  const skipped = spawnSync(
-    process.execPath,
-    [PREFLIGHT_CLI, planFile, "--allow-unpromoted", "--allow-stale-manifest"],
-    { encoding: "utf8" },
-  );
+  const skipped = spawnSync(process.execPath, [PREFLIGHT_CLI, planFile, "--allow-unpromoted"], {
+    encoding: "utf8",
+  });
   assert.match(
     skipped.stderr,
     /Gate 7 \(status promotion \+ governance preconditions\) SKIPPED via --allow-unpromoted/,
@@ -4048,11 +4035,9 @@ test("CLI entry: an explicit supplement label prints the label then its size cla
       { n: "1B", title: "Supplement", tasks: ["T-001-1B-1"], invariant: 3 },
     ],
   });
-  const r = spawnSync(
-    process.execPath,
-    [PREFLIGHT_CLI, planFile, "1B", "--allow-stale-manifest", "--allow-unpromoted"],
-    { encoding: "utf8" },
-  );
+  const r = spawnSync(process.execPath, [PREFLIGHT_CLI, planFile, "1B", "--allow-unpromoted"], {
+    encoding: "utf8",
+  });
   assert.equal(r.status, 0, `status=${r.status} stdout=${r.stdout} stderr=${r.stderr}`);
   // The two-line success contract, across the real argv → exit-code plumbing.
   assert.equal(r.stdout, "1B\nsize-class: S\n");
@@ -4063,11 +4048,9 @@ test("CLI entry: a malformed phase argument exits 2 and names both accepted form
     phases: [{ n: 1, title: "Bootstrap", tasks: ["T1.1"] }],
   });
   for (const bad of ["3b", "R2", "abc"]) {
-    const r = spawnSync(
-      process.execPath,
-      [PREFLIGHT_CLI, planFile, bad, "--allow-stale-manifest", "--allow-unpromoted"],
-      { encoding: "utf8" },
-    );
+    const r = spawnSync(process.execPath, [PREFLIGHT_CLI, planFile, bad, "--allow-unpromoted"], {
+      encoding: "utf8",
+    });
     assert.equal(r.status, 2, `${bad}: status=${r.status} stdout=${r.stdout} stderr=${r.stderr}`);
     assert.match(r.stderr, new RegExp(`bad phase argument: ${bad}\\b`));
     assert.match(r.stderr, /supplement label/);

@@ -1533,292 +1533,35 @@ export function gateAuditCheckbox(planSource, planFile) {
   };
 }
 
-// Gate 6 — manifest freshness. Plan-level: numbered by accretion order (Gates
-// 1-5 keep their historical numbers — docs, tests, and halt messages reference
-// them by number), but EXECUTED between Gate 2 and the per-phase walk, because
-// a stale manifest corrupts Gate 3's declared-vs-shipped set comparison (a
-// merged-but-unrecorded shipment re-opens an already-shipped phase).
-//
-// This is NOT a return to the pre-Commit-3 gh-search shipment inference that
-// the manifest refactor removed (see preflight-contract.md §Gate 3 "Why
-// manifest set-comparison, not gh search"). The manifest remains the sole
-// authority for phase selection; gh is consulted only to cross-check manifest
-// COMPLETENESS — the BL-110 doctrine that ground truth stays git and the
-// manifest is a cache. Three deliberate narrowings keep the old false-match
-// classes out: (1) `in:title` only — never `in:title,body` (PR bodies cite
-// plans in passing constantly; titles cite the plan they ship for — empirical
-// sweep 2026-07-06: title-search precision was exact across all 27 plans),
-// and the returned titles are re-filtered locally through `hasPlanTitleToken`
-// because GitHub's search tokenizer is looser than a word-boundary match (see
-// that predicate's sync contract);
-// This recall trade IS the enhancement-lane boundary (CONTRIBUTING.md §How Code
-// Lands): lane-2 enhancement and lane-3 tooling PRs deliberately omit the token,
-// so they are invisible to this gate BY DESIGN — only lane-1 plan-task shipments
-// participate in manifest freshness.
-// (2) only PRs whose diff touches a MATERIAL_PATH_PREFIXES path count —
-// packages/ + apps/ are the ownership map's code families, .github/ covers
-// workflow-only shipments (Plan-024 T-024-4-1 ships sidecar-build.yml alone;
-// Codex P2 on PR #182), and deploy/ covers self-host compose shipments
-// (Plan-025 T-025d-14-1 ships deploy/self-host/* alone — formerly the G6
-// blind spot). The inverted form (material = anything outside docs/)
-// was rejected on corpus evidence: governance PRs whose titles cite plans also
-// touch root files (PR #1 ships .gitignore/README.md/AGENTS.md under a
-// Plan-001 title), so exclude-docs would permanently false-halt Plan-001;
-// (3) a missing entry HALTS
-// with the rebuild tool as remediation — the gate never derives or writes
-// manifest entries itself (rebuild's operator-confirmation model owns phase /
-// task attribution ambiguity).
-//
-// Fail-closed contract (ADR-023 gate-vs-detector discipline: gates fail
-// closed, detectors warn): gh unreachable, malformed output, fetch
-// saturation, and file-list truncation all HALT rather than pass. The
-// explicit CLI escape is --allow-stale-manifest (skip is logged to stderr).
-export const FRESHNESS_FETCH_LIMIT = 100;
-// Sync contract: tools/docs-corpus/bin/lane-boundary-check.ts mirrors this
-// constant (the CI lane guard must classify "material" exactly as G6 does);
-// a deep-equality test in tools/docs-corpus/__tests__/lane-boundary-check.test.ts
-// fails CI on divergence.
+// Shared with tools/docs-corpus/bin/lane-boundary-check.ts, which mirrors this
+// constant so the CI lane guard classifies "material" exactly as this file
+// does; a deep-equality test in
+// tools/docs-corpus/__tests__/lane-boundary-check.test.ts fails CI on
+// divergence.
 export const MATERIAL_PATH_PREFIXES = ["packages/", "apps/", ".github/", "deploy/"];
 
 // Does `title` carry a genuine `Plan-NNN` token? GitHub's `in:title` search is
 // a TOKENIZER match, not a substring or word-boundary match, so `gh pr list`
 // returns titles the plan is not actually cited in.
 //
-// Sync contract: `rebuild-shipment-manifest.mjs` — the tool Gate 6's own halt
-// text prescribes as the remedy — imports this predicate to decide which
-// merged PRs it will emit manifest entries for. The two MUST agree on the
-// population or the tools DEADLOCK. They did on 2026-08-15: Gate 6 halted
-// Plan-025 naming merged PR #216 `chore(repo): retire Plan-007/025
-// compact-inline cite exemptions` (GitHub tokenized the compound `Plan-007/025`
-// and matched it for `Plan-025 in:title`, though the literal token `Plan-025`
-// never occurs in it), while rebuild's word-boundary test correctly refused to
-// emit an entry — leaving the operator with a halt and no move. Sharing one
-// predicate makes that divergence unrepresentable.
+// Sync contract: `rebuild-shipment-manifest.mjs` imports this predicate to
+// decide which merged PRs it will emit manifest entries for. Sharing one
+// predicate keeps the two tools from disagreeing about the population.
 //
-// A THIRD matcher exists and is deliberately not shared:
+// A second matcher exists and is deliberately not shared:
 // `tools/docs-corpus/bin/lane-boundary-check.ts` §extractTitlePlanTokens runs
-// pre-merge in CI and EXTRACTS every cited plan from one title (`/\bplan-(\d{3})\b/gi`)
-// rather than testing one plan, so it cannot take a `paddedPlan` argument. It
-// agrees with this predicate by construction — same `\b…\b` boundaries, same
-// case-insensitivity, same 3-digit width — verified 2026-08-15 across the
-// compound, lowercase, 4-digit, `workplan-` and `ADR-024`/`cp-004-12`
-// shapes. That guard left-shifts PART of the class `non_shipment_prs` cleans
-// up after, and it is important not to overstate which part: it fails a
-// tokened material PR only when NEITHER a `<type>/plan-NNN-*` branch NOR a
-// `docs/plans/NNN-*.md` edit is present. PR #216 itself would PASS it — its
-// diff touches `docs/plans/007-*.md` and the Plan-025 doc alongside one
-// material file, and that plan-doc allowance is presence-only by design (a
-// content check cannot tell an amendment from a prose edit). So the ratified-
-// non-shipment residual is permanent, not a pre-guard legacy: a tooling PR
-// that edits plan docs can still merge with a token and reach this gate.
+// pre-merge in CI and EXTRACTS every cited plan from one title
+// (`/\bplan-(\d{3})\b/gi`) rather than testing one plan, so it cannot take a
+// `paddedPlan` argument. It agrees with this predicate by construction — same
+// `\b…\b` boundaries, same case-insensitivity, same 3-digit width.
 //
-// This filter can only REMOVE candidates, so its risk is blinding the gate,
-// not false-halting it. Corpus sweep 2026-08-15 over all 28 plans: 118 of 125
-// tokenizer matches survive this predicate, and of the 7 it rejects only #216
-// touches a material path (the other 6 — `ADR-024`/`cp-004-12`-style numeric
-// collisions — are docs-only and were already invisible via the material-path
-// filter). So the gate loses no shipment it was catching.
-//
-// The predicate is deliberately NOT loosened to cover the residual: `Plan-007`
-// IS a real token in `Plan-007/025` (`/` is a word boundary), yet that PR
-// shipped no Plan-007 task. That class is closed by the manifest's ratified
-// `non_shipment_prs` key — an explicit, reviewable operator assertion — rather
-// than by a matcher heuristic that would silently widen for every plan.
+// The predicate is deliberately NOT loosened: `Plan-007` IS a real token in a
+// compound like `Plan-007/025` (`/` is a word boundary) even when that PR
+// shipped no Plan-007 task. Widening the matcher to chase that residual would
+// silently widen it for every plan.
 export function hasPlanTitleToken(title, paddedPlan) {
   if (typeof title !== "string") return false;
   return new RegExp(`\\bPlan-${paddedPlan}\\b`, "i").test(title);
-}
-
-export function gateManifestFreshness(planSource, planNumber) {
-  const manifest = parseManifestBlock(planSource);
-  // Structural manifest defects halt in Gate 3 with richer remediation text;
-  // freshness only cross-checks a manifest that already parses. Future-schema
-  // manifests stay opaque per the lib/manifest.mjs fail-open policy.
-  if (!manifest.ok) return { ok: true, reason: "deferred_to_gate3" };
-  if (manifest.version > MANIFEST_SCHEMA_VERSION) {
-    return { ok: true, reason: "manifest_future_schema" };
-  }
-  const manifestPrs = new Set(manifest.shipped.map((entry) => entry.pr));
-  const paddedPlan = String(planNumber).padStart(3, "0");
-  const listRun = runGh(
-    `gh pr list --state merged --search "Plan-${paddedPlan} in:title" ` +
-      `--json number,title,mergedAt --limit ${FRESHNESS_FETCH_LIMIT}`,
-  );
-  if (!listRun.ok) return ghUnreachableHalt(paddedPlan, listRun.error);
-  let merged;
-  try {
-    merged = JSON.parse(listRun.out);
-  } catch (e) {
-    return ghMalformedHalt(paddedPlan, `gh pr list output is not JSON: ${e.message}`);
-  }
-  if (!Array.isArray(merged)) {
-    return ghMalformedHalt(paddedPlan, "gh pr list output is not a JSON array");
-  }
-  if (merged.length === FRESHNESS_FETCH_LIMIT) {
-    return {
-      ok: false,
-      kind: "freshness_fetch_saturated",
-      halt: [
-        "## Preflight halt: manifest-freshness fetch saturated (Gate 6)",
-        "",
-        `gh pr list returned exactly ${FRESHNESS_FETCH_LIMIT} matches for`,
-        `"Plan-${paddedPlan} in:title" — the result MAY be truncated, so manifest`,
-        "completeness cannot be cross-checked. Raise FRESHNESS_FETCH_LIMIT in",
-        "preflight.mjs (mirroring rebuild-shipment-manifest.mjs's FETCH_LIMIT",
-        "anti-silent-truncation discipline) and re-run.",
-      ].join("\n"),
-    };
-  }
-  // Narrow the tokenizer's population to real title tokens, then subtract the
-  // operator-ratified non-shipments. Both run BEFORE the manifest-membership
-  // check and the per-PR `gh pr view` fetch below, so a removed candidate
-  // costs no API call. Saturation is measured on the RAW fetch above — a
-  // truncated page is untrustworthy however few of its rows survive here.
-  const ratifiedNonShipmentPrs = new Set(manifest.nonShipmentPrs);
-  const candidates = merged.filter(
-    (pullRequest) =>
-      hasPlanTitleToken(pullRequest.title, paddedPlan) &&
-      !ratifiedNonShipmentPrs.has(pullRequest.number),
-  );
-  const stale = [];
-  for (const pullRequest of candidates) {
-    if (manifestPrs.has(pullRequest.number)) continue;
-    // Two commands, the shape rebuild-shipment-manifest.mjs uses and the
-    // lane-boundary CI step already used: `gh pr view` for the authoritative
-    // count, and the REST file endpoint walked with `--paginate` for the list.
-    // `gh pr view --json files` is NOT asked for it — that compiles to a single
-    // `pullRequest.files(first: 100)` GraphQL page, so every candidate above
-    // 100 files halted this gate on a truncation it created itself.
-    const viewRun = runGh(`gh pr view ${pullRequest.number} --json changedFiles`);
-    if (!viewRun.ok) return ghUnreachableHalt(paddedPlan, viewRun.error);
-    let details;
-    try {
-      details = JSON.parse(viewRun.out);
-    } catch (e) {
-      return ghMalformedHalt(
-        paddedPlan,
-        `gh pr view ${pullRequest.number} output is not JSON: ${e.message}`,
-      );
-    }
-    // `{owner}`/`{repo}` are gh's own placeholders, filled from the repository
-    // of the current directory.
-    const filesEndpoint = `repos/{owner}/{repo}/pulls/${pullRequest.number}/files`;
-    const filesRun = runGh(`gh api ${filesEndpoint} --paginate --jq '.[].filename'`);
-    if (!filesRun.ok) return ghUnreachableHalt(paddedPlan, filesRun.error);
-    const files = filesRun.out.split(/\r?\n/).filter((line) => line.length > 0);
-    // Fail closed on ANY disagreement and on a missing count. Short means the
-    // walk stopped early — that endpoint returns at most 3000 files and stops
-    // there with no in-band signal — and long means a path carrying a newline
-    // was split by the raw `--jq` stream. Either way the material-path
-    // classification would rest on a list that does not describe the PR.
-    if (typeof details.changedFiles !== "number" || files.length !== details.changedFiles) {
-      const countPhrase =
-        typeof details.changedFiles === "number"
-          ? `${details.changedFiles} changed files`
-          : "an absent changedFiles count";
-      return {
-        ok: false,
-        kind: "freshness_files_unreconciled",
-        halt: [
-          "## Preflight halt: manifest-freshness file list did not reconcile (Gate 6)",
-          "",
-          `gh api ${filesEndpoint} --paginate returned ${files.length} of`,
-          `${countPhrase}, so the material-path classification for`,
-          `PR #${pullRequest.number} cannot be trusted (mirrors`,
-          "rebuild-shipment-manifest.mjs exit-7 discipline). That endpoint",
-          "returns at most 3000 files; a PR above that ceiling halts here rather",
-          "than being classified off a partial list. Classify the PR manually,",
-          "reconcile the manifest, and re-run — or bypass explicitly with",
-          "--allow-stale-manifest.",
-        ].join("\n"),
-      };
-    }
-    const materialFileCount = files.filter((path) =>
-      MATERIAL_PATH_PREFIXES.some((prefix) => path.startsWith(prefix)),
-    ).length;
-    if (materialFileCount > 0) {
-      stale.push({
-        number: pullRequest.number,
-        title: pullRequest.title,
-        mergedAt: pullRequest.mergedAt,
-        materialFileCount,
-      });
-    }
-  }
-  if (stale.length === 0) return { ok: true };
-  return {
-    ok: false,
-    kind: "manifest_stale",
-    stale,
-    halt: [
-      "## Preflight halt: shipment manifest is stale (Gate 6 — manifest freshness)",
-      "",
-      `Plan-${paddedPlan}'s ### Shipment Manifest has no entry for ${stale.length} merged`,
-      `material PR(s) whose title cites Plan-${paddedPlan} (diff touches`,
-      `${MATERIAL_PATH_PREFIXES.join(" / ")}):`,
-      "",
-      ...stale.map(
-        (p) =>
-          `  - PR #${p.number} (merged ${String(p.mergedAt ?? "").split("T")[0]}, ` +
-          `${p.materialFileCount} material file(s)): ${p.title}`,
-      ),
-      "",
-      "Gate 3 selects the next phase by comparing declared tasks against this",
-      "manifest; a missing entry can re-open an already-shipped phase and",
-      "re-dispatch completed work. Ground truth stays git — the manifest is the",
-      "cache (BL-110). Reconcile, then re-run preflight:",
-      "",
-      "  node --experimental-strip-types \\",
-      "    .claude/skills/plan-execution/scripts/rebuild-shipment-manifest.mjs \\",
-      `    --plan ${paddedPlan} --dry-run`,
-      "",
-      "Inspect the emitted entries, resolve operator-confirmation ambiguities",
-      "(phase/task attribution), apply them to the plan file, and land the",
-      "manifest edit through a PR.",
-      "",
-      "If a listed PR shipped NO task of this plan — a lane-2/lane-3 PR that",
-      "picked up the title token by accident, which rebuild will also decline to",
-      "emit an entry for — ratify it instead by adding its number to the",
-      "manifest's optional `non_shipment_prs: [...]` key, with a comment saying",
-      "why. That is an explicit, reviewed assertion; unratified title-tokened",
-      "material PRs keep halting. Emergency bypass (gh outage / offline):",
-      "re-run preflight with --allow-stale-manifest (skip is logged to stderr).",
-    ].join("\n"),
-  };
-}
-
-function ghUnreachableHalt(paddedPlan, error) {
-  return {
-    ok: false,
-    kind: "freshness_gh_unreachable",
-    halt: [
-      "## Preflight halt: manifest-freshness cross-check unavailable (Gate 6)",
-      "",
-      `gh failed while cross-checking Plan-${paddedPlan}'s manifest against merged`,
-      `PRs: ${error}`,
-      "",
-      "Gate 6 fails closed (ADR-023 gate discipline): a manifest that cannot be",
-      "cross-checked is treated as potentially stale rather than silently",
-      "trusted. Fix gh (auth/network) and re-run, or bypass explicitly with",
-      "--allow-stale-manifest (skip is logged to stderr).",
-    ].join("\n"),
-  };
-}
-
-function ghMalformedHalt(paddedPlan, detail) {
-  return {
-    ok: false,
-    kind: "freshness_gh_malformed",
-    halt: [
-      "## Preflight halt: manifest-freshness cross-check unavailable (Gate 6)",
-      "",
-      `Unexpected gh output while cross-checking Plan-${paddedPlan}'s manifest:`,
-      detail,
-      "",
-      "Gate 6 fails closed. Investigate the gh installation / API response and",
-      "re-run, or bypass explicitly with --allow-stale-manifest.",
-    ].join("\n"),
-  };
 }
 
 // Strict per-phase audit gate, called inside _checkPhase after the target
@@ -1975,8 +1718,8 @@ export function gatePhaseUnshipped(planSource, planNumber, phase) {
         "  - invalid_non_shipment_prs: the optional `non_shipment_prs:` key is present but",
         "    is not a list of positive integers. Write it as `non_shipment_prs: [216]` (or",
         "    an indented `- 216` list), or omit the key entirely when there is nothing to",
-        "    ratify — it is parsed strictly so a typo cannot silently widen a Gate 6",
-        "    freshness exemption.",
+        "    ratify — it is parsed strictly so a typo cannot silently widen the",
+        "    ratified set.",
         ...(result.errors ?? []).map((message) => `      ${message}`),
       ].join("\n"),
     };
@@ -4726,7 +4469,7 @@ export function gatePreconditions(phaseSection, planFile, phaseNumber, opts = {}
 // shipped), which is the truthful message for it. A missing or
 // unparseable row halts (fail closed). CLI runs default the gate ON;
 // --allow-unpromoted is the explicit authoring-time escape for inspecting
-// draft/review plans, mirroring --allow-stale-manifest.
+// draft/review plans.
 export function gateStatusPromotion(planSource, planFile) {
   // Scope the search to the plan header — everything before the first `##`
   // section heading. A whole-document match could hit an embedded example
@@ -6996,12 +6739,7 @@ function _checkPhase(planSource, planNumber, phase, planFile, opts) {
 export function runPreflight(
   planFile,
   phaseArg,
-  {
-    repoRoot = REPO_ROOT,
-    skillMd = SKILL_MD,
-    checkFreshness = false,
-    checkStatusPromotion = false,
-  } = {},
+  { repoRoot = REPO_ROOT, skillMd = SKILL_MD, checkStatusPromotion = false } = {},
 ) {
   const g1 = gateProjectLocality({ repoRoot, skillMd });
   if (!g1.ok) return { exit: 1, stdout: g1.halt };
@@ -7017,9 +6755,8 @@ export function runPreflight(
   if (!g2.ok) return { exit: 1, stdout: g2.halt };
 
   // Gate 7 sits with the plan-level gates, before the phase walk: promotion
-  // is a plan property, and halting here keeps the CLI status check
-  // network-free (it fires before Gate 6's gh calls). Same CLI-on /
-  // programmatic-opt-in split as checkFreshness.
+  // is a plan property. CLI runs default it ON; programmatic and test callers
+  // opt in.
   if (checkStatusPromotion) {
     const g7 = gateStatusPromotion(planSource, planFile);
     if (!g7.ok) return { exit: 1, stdout: g7.halt };
@@ -7036,15 +6773,6 @@ export function runPreflight(
       exit: 2,
       stderr: `no \`### Phase N\` headers found in ${planFile} (accepted separators: \`—\`, \`:\`, \`-\`)`,
     };
-
-  // Gate 6 — manifest freshness. CLI runs default it ON (--allow-stale-manifest
-  // is the explicit escape); programmatic/test callers opt in via
-  // checkFreshness so fixture-driven suites stay network-free. Runs before the
-  // phase walk because a stale manifest corrupts Gate 3's phase selection.
-  if (checkFreshness) {
-    const g6 = gateManifestFreshness(planSource, planNumber);
-    if (!g6.ok) return { exit: 1, stdout: g6.halt };
-  }
 
   // One invariant-declaration cache per RUN, so the auto-walk parses each owning
   // plan's `## Invariants` block once and reports a structural failure on it once
@@ -7159,14 +6887,7 @@ export function runPreflight(
 
 async function main() {
   const args = process.argv.slice(2);
-  const knownFlags = new Set([
-    "--allow-stale-manifest",
-    "--allow-unpromoted",
-    "--help",
-    "-h",
-    "--survey",
-    "--enforce-cites",
-  ]);
+  const knownFlags = new Set(["--allow-unpromoted", "--help", "-h", "--survey", "--enforce-cites"]);
   const unknownFlags = args.filter((a) => a.startsWith("-") && !knownFlags.has(a));
   if (unknownFlags.length > 0) {
     process.stderr.write(`unknown flag(s): ${unknownFlags.join(", ")}\n`);
@@ -7214,12 +6935,11 @@ async function main() {
     process.exitCode = blockingCount > 0 ? 1 : 0;
     return;
   }
-  const allowStaleManifest = args.includes("--allow-stale-manifest");
   const allowUnpromoted = args.includes("--allow-unpromoted");
   const positional = args.filter((a) => !a.startsWith("-"));
   if (positional.length === 0 || args.includes("--help") || args.includes("-h")) {
     process.stderr.write(
-      "Usage: node preflight.mjs <plan-file> [phase] [--allow-stale-manifest] [--allow-unpromoted] | --survey [--enforce-cites]\n" +
+      "Usage: node preflight.mjs <plan-file> [phase] [--allow-unpromoted] | --survey [--enforce-cites]\n" +
         "  [phase] — a phase number (`4`) or a supplement label (`3B`). Omit it to auto-walk\n" +
         "  the numeric phases; supplements are dispatch-by-name and are never auto-selected.\n" +
         "See ../references/preflight-contract.md.\n",
@@ -7235,18 +6955,12 @@ async function main() {
     );
     process.exit(2);
   }
-  if (allowStaleManifest) {
-    process.stderr.write(
-      "preflight: Gate 6 (manifest freshness) SKIPPED via --allow-stale-manifest\n",
-    );
-  }
   if (allowUnpromoted) {
     process.stderr.write(
       "preflight: Gate 7 (status promotion + governance preconditions) SKIPPED via --allow-unpromoted\n",
     );
   }
   const result = runPreflight(planFile, phaseArg, {
-    checkFreshness: !allowStaleManifest,
     checkStatusPromotion: !allowUnpromoted,
   });
   const warningLines = (result.warnings ?? []).map(

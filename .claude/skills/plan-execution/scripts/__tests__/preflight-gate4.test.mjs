@@ -539,7 +539,7 @@ test("corpus: every marker is attributed to its nearest preceding declared task 
       // assert attribution picked the nearest preceding one. "Attributed id is
       // SOME declared id" is too weak to catch the original defect: markers
       // under `T-025s-1` were attributed to `T-025d-19-1`, which is itself a
-      // declared id, so a membership check passes over the exact bug.
+      // declared id, so a set-membership check passes over the exact bug.
       const headerIdByLine = lines.map((line) => {
         for (const id of declared) {
           const esc = id.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&");
@@ -704,7 +704,7 @@ test("PASS 30: runPreflight threads opts.repoRoot into Gate 4 file lookups", () 
 // line / AC content check.
 
 test("FAIL 31: §NotARealSection line N rejects with section-not-found", () => {
-  const { verifyFailures } = verifyAll("Spec-002 §NotARealSection line 11 (MembershipUpdate)");
+  const { verifyFailures } = verifyAll("Spec-002 §NotARealSection line 11 (DeviceRename)");
   assert.equal(verifyFailures.length, 1);
   assert.equal(verifyFailures[0].result.reason, "section-not-found");
 });
@@ -777,7 +777,7 @@ test("PASS 37: multi-§Section with bare-digit continuations (T2.2-shape)", () =
 });
 
 test("FAIL 38: AC line-hint outside §Acceptance Criteria rejects", () => {
-  // Fixture line 10 = `InviteCreate` payload bullet. AC1 maps to fixture
+  // Fixture line 10 = `DeviceLink` payload bullet. AC1 maps to fixture
   // line 45. A hint pointing at line 10 (`(line 10)`) sits in §Interfaces
   // and Contracts, not §Acceptance Criteria — pre-fix this passed
   // because line 10 starts with `- ` (a checkbox-ish bullet shape in the
@@ -1393,7 +1393,7 @@ test("FAIL 48: mid-list compound range with distinct subjects still rejects", ()
   // behavior rejection — accepting multi-subject ranges mid-list would
   // weaken the gate relative to the standalone form.
   const { failures } = parseCitePayload(
-    "Spec-002 line 11 (InviteCreate), lines 13-14 (PresenceUpdate/PresenceRead)",
+    "Spec-002 line 11 (DeviceLink), lines 13-14 (PresenceUpdate/PresenceRead)",
   );
   assert.ok(
     failures.some((f) => f.kind === "compound-range-multi-subject"),
@@ -1516,11 +1516,11 @@ test("extractDeclaredTaskIds rejects prose bolds starting with T — no phantom 
 
 test("extractDeclaredFilePaths counts directory and glob targets as root-bearing (Codex, PR #190)", () => {
   const paths = extractDeclaredFilePaths(
-    "Files: `packages/runtime-daemon/src/ipc/handlers/`, `apps/desktop/src/renderer/src/participants/`",
+    "Files: `packages/runtime-daemon/src/ipc/handlers/`, `apps/desktop/src/renderer/src/devices/`",
   );
   assert.deepEqual(paths, [
     "packages/runtime-daemon/src/ipc/handlers/",
-    "apps/desktop/src/renderer/src/participants/",
+    "apps/desktop/src/renderer/src/devices/",
   ]);
   assert.equal(classifyPhaseSize(["T1", "T2"], paths), "L");
   assert.deepEqual(extractDeclaredFilePaths("Files: `packages/a/src/**/*.ts`"), [
@@ -1620,7 +1620,7 @@ test("runPreflight surfaces sizeClass on the explicit-phase success path", () =>
 test("CLI prints size-class as stdout line 2 (line 1 UNCHANGED; spawn — the bin guard requires it)", () => {
   const cli = spawnSync(
     process.execPath,
-    [SIZE_CLASS_PREFLIGHT_CLI, PASSING_S_PLAN, "1", "--allow-stale-manifest", "--allow-unpromoted"],
+    [SIZE_CLASS_PREFLIGHT_CLI, PASSING_S_PLAN, "1", "--allow-unpromoted"],
     { encoding: "utf8" },
   );
   assert.equal(cli.status, 0, `status=${cli.status} stdout=${cli.stdout} stderr=${cli.stderr}`);
@@ -1640,7 +1640,7 @@ test("auto-walk (a): S-class grammar defect selects the phase with warnings ridi
 test("auto-walk (a) CLI: two-line stdout contract + demoted warnings on STDERR", () => {
   const cliWalk = spawnSync(
     process.execPath,
-    [SIZE_CLASS_PREFLIGHT_CLI, GRAMMAR_S_PLAN, "--allow-stale-manifest", "--allow-unpromoted"],
+    [SIZE_CLASS_PREFLIGHT_CLI, GRAMMAR_S_PLAN, "--allow-unpromoted"],
     { encoding: "utf8" },
   );
   assert.equal(
@@ -1810,7 +1810,7 @@ test("extractDeclaredTaskIds keeps ids whose bold titles contain a literal star 
     "#### Tasks",
     "",
     "- **T1.4 — Typed repo error classes carrying the canonical `repo.*` code strings.**",
-    "- [ ] **T4.6 — Register `participant.*` handlers.**",
+    "- [ ] **T4.6 — Register `device.*` handlers.**",
     "",
   ].join("\n");
   assert.deepEqual(extractDeclaredTaskIds(block), ["T1.4", "T4.6"]);
@@ -1839,7 +1839,7 @@ test("extractDeclaredTaskIds unions ALL #### Tasks blocks in a phase (refinement
 test("extractDeclaredFilePaths stops at BOLD metadata labels — cite prose slash-tokens stay out (Codex, PR #190)", () => {
   assert.deepEqual(
     extractDeclaredFilePaths(
-      "- **Files:** `packages/a/src/x.ts` **Spec coverage:** Spec-002 §Rate Limiting (20/session/hr + membership/presence)",
+      "- **Files:** `packages/a/src/x.ts` **Spec coverage:** Spec-002 §Rate Limiting (20/session/hr + device links/presence)",
     ),
     ["packages/a/src/x.ts"],
   );
@@ -1875,7 +1875,6 @@ test("CLI folds demoted warnings INTO the stdout halt text (Codex, PR #190)", ()
       resolve(FIXTURE_DIR, "../../preflight.mjs"),
       WARNINGS_CARRY_WALK_PLAN,
       "1",
-      "--allow-stale-manifest",
       "--allow-unpromoted",
     ],
     { encoding: "utf8" },
@@ -2247,7 +2246,7 @@ test("a sibling's §section does not bound a trailing AC line cite", () => {
   // bullet that has nothing to do with §Git Hosting Adapter. Only a section the
   // anchor itself claims — the payload's own `§` prefix — may bound it.
   const inherited = parseCitePayload(
-    "Spec-002 line 10 (InviteCreate), §Rate Limiting lines 17-20 (rate limit thresholds), AC line 45",
+    "Spec-002 line 10 (DeviceLink), §Rate Limiting lines 17-20 (rate limit thresholds), AC line 45",
   ).anchors.find((anchor) => anchor.type === "ac-line");
   assert.equal(
     inherited.section,
@@ -2264,7 +2263,7 @@ test("a sibling's §section does not bound a trailing AC line cite", () => {
   // End-to-end against the real fixture spec: the inherited shape verifies
   // clean, the authored one is held to the section it names.
   const { verifyFailures: inheritedFailures } = verifyAll(
-    "Spec-002 line 10 (InviteCreate), §Rate Limiting lines 17-20 (rate limit thresholds), AC line 45",
+    "Spec-002 line 10 (DeviceLink), §Rate Limiting lines 17-20 (rate limit thresholds), AC line 45",
   );
   assert.deepEqual(
     inheritedFailures.map((failure) => failure.result.reason),
@@ -2319,7 +2318,7 @@ test("a section-adjacent parenthetical before `AC line N` does not swallow the a
   // and the section-only branch took the whole tail as descriptor text. The
   // line claim then vanished entirely — not verified, not reported.
   const { anchors, failures } = parseCitePayload(
-    "Spec-002 §Channel Membership (channels) AC line 45",
+    "Spec-002 §Channel Directory (channels) AC line 45",
   );
   assert.deepEqual(
     failures.map((f) => f.kind),
@@ -2338,7 +2337,7 @@ test("AC line N composes with sibling line sub-anchors under one Spec namespace"
   // The live Plan-011 / Plan-014 marker shape: comma-joined line anchors with
   // a trailing `AC line N`, plus the `+`-combined AC pair.
   const { anchors, parseFailures, verifyFailures } = verifyAll(
-    "Spec-002 line 10 (`InviteCreate` payload), line 15 (`ChannelList` projection), AC line 45 + AC line 46",
+    "Spec-002 line 10 (`DeviceLink` payload), line 15 (`ChannelList` projection), AC line 45 + AC line 46",
   );
   assert.equal(parseFailures.length, 0);
   assert.equal(verifyFailures.length, 0);
@@ -2476,9 +2475,7 @@ test("an unbalanced quote absorbed as a DESCRIPTOR still gates (parity with unqu
 });
 
 test("anchors AHEAD of a stray quote still parse — the guard gates without discarding", () => {
-  const { anchors, parseFailures } = verifyAll(
-    'Spec-002 line 10 (`InviteCreate`), line 15 — "oops',
-  );
+  const { anchors, parseFailures } = verifyAll('Spec-002 line 10 (`DeviceLink`), line 15 — "oops');
   assert.ok(parseFailures.some((f) => f.kind === "unbalanced-cite-quote"));
   assert.ok(
     anchors.some((a) => a.line === 10),
@@ -2490,7 +2487,7 @@ test("a BALANCED quoted run does not trip the parity guard (negative control)", 
   // Proves the guard keys on parity, not on the mere presence of a quote —
   // otherwise it would break the very anchoring style quote tracking enabled.
   const { parseFailures, verifyFailures } = verifyAll(
-    'Spec-002 line 10 ("session id, inviter, expiry")',
+    'Spec-002 line 10 ("session id, requester, expiry")',
   );
   assert.deepEqual(
     parseFailures.map((f) => f.kind),

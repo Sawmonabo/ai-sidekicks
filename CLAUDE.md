@@ -18,21 +18,33 @@ The feature list and tier graph live in [`README.md`](README.md); the forward bu
 
 ## Current State
 
-Code execution started 2026-04-26 with the V1 monorepo scaffold (PR #6). Feature branches cut off `develop` and squash-merge back per the [GitFlow-lite branch-model amendment](docs/decisions/023-v1-ci-cd-and-release-automation.md#decision-log).
+Code execution is under way. What has merged, read off each plan's `### Shipment Manifest`:
 
-All five [Plan-001](docs/plans/001-shared-session-core.md) phases have shipped (Phase 5 across Lanes A–D):
+| Plan | Phases merged |
+| --- | --- |
+| [Plan-001](docs/plans/001-shared-session-core.md) Shared session core | 1-5 (all) |
+| [Plan-003](docs/plans/003-runtime-node-attach.md) Runtime-node attach | 1-5 (all) |
+| [Plan-004](docs/plans/004-queue-steer-pause-resume.md) Queue, steer, pause, resume | 1 |
+| [Plan-005](docs/plans/005-provider-driver-contract-and-capabilities.md) Provider driver contract | 1-4 |
+| [Plan-006](docs/plans/006-session-event-taxonomy-and-audit-log.md) Event taxonomy and audit log | 1-3 |
+| [Plan-007](docs/plans/007-local-ipc-and-daemon-control.md) Local IPC and daemon control | 1-3 |
+| [Plan-009](docs/plans/009-repo-attachment-and-workspace-binding.md) Repo attachment and workspace binding | 1-2 |
+| [Plan-010](docs/plans/010-worktree-lifecycle-and-execution-modes.md) Worktree lifecycle | 1, 2, 5, 6 |
+| [Plan-013](docs/plans/013-live-timeline-visibility-and-reasoning-surfaces.md) Live timeline visibility | 1 |
+| [Plan-023](docs/plans/023-desktop-shell-and-renderer.md) Desktop shell and renderer | 1 (with its 1B and 1C supplements) |
+| [Plan-024](docs/plans/024-rust-pty-sidecar.md) Rust PTY sidecar | 1-3 |
+| [Plan-029](docs/plans/029-provider-accounts-and-credential-homes.md) Provider accounts | 1 |
 
-| GitHub PR | Phase | Package |
-| --- | --- | --- |
-| #6 | Phase 1 — Workspace Bootstrap | repo bootstrap (pnpm + Turbo + Vitest + ESLint per [ADR-022](docs/decisions/022-v1-toolchain-selection.md)) |
-| #8 | Phase 2 — Contracts | `packages/contracts` (session / event / error payload schemas) |
-| #9 | Phase 3 — Daemon Migration + Projection | `packages/runtime-daemon` (migration, projector, append/replay) |
-| #10 | Phase 4 — Control Plane Directory | `packages/control-plane` (session directory service: create/read/join) |
-| #30/#36/#38 (A), #48 (B), #77 (C), #83 (D), #87 (completion) | Phase 5 — Client SDK + Desktop Bootstrap (Lanes A–D) | `packages/client-sdk` + `apps/desktop` (session bootstrap, renderer wiring, sidecar lifecycle) |
+**What to build next** is the forward DAG in [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md): the phases not yet implemented, the real dependencies between them, and which groups can run in parallel. A phase is deleted from that graph by the PR that merges it.
 
-`package.json` is real (`pnpm@10.33.2`, Node `>=22.14.0` — moved from `>=22.12.0` by Plan-023 T-023p-1B-4, the `better-sqlite3` 13.x pin whose Node-API-10 prebuild needs it; ADR-022 §Decision Log 2026-09-01). Use the wired scripts: `pnpm install`, `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build` (Turbo-driven), `pnpm format` / `pnpm format:check`. **Do not invoke `npm`** — the engines field requires pnpm. Pre-commit hooks (lefthook + lint-staged + commitlint + gitleaks) install via `pnpm prepare`. The unit of work is now mixed: `.md` files under `docs/` for governance and TypeScript under `packages/` + `apps/` for code phases. Doc-first ordering still holds for plan-task shipment — a lane-1 PR cites the plan / spec / ADR(s) it implements; enhancement and tooling PRs take the lighter lanes per [CONTRIBUTING.md](CONTRIBUTING.md) §How Code Lands: Work Classification.
+Two gates still bind a lane-1 plan-task PR, and only a lane-1 PR — enhancement and tooling lanes are exempt per [CONTRIBUTING.md](CONTRIBUTING.md) §How Code Lands: Work Classification:
 
-Code execution is under way through Tier 4. Every plan has cleared its implementation-readiness audit and every plan is promoted, so lane-1 plan-task code dispatches on tier order and on the plan's own `§Preconditions`; enhancement and tooling lanes are exempt per [CONTRIBUTING.md](CONTRIBUTING.md) §How Code Lands: Work Classification. [Plan-024](docs/plans/024-rust-pty-sidecar.md) Phases 4-5 (CI cross-compile and signing; the measurement substrate) are the one hard-blocked lane, waiting on hardware and certificate procurement ([BL-108](docs/backlog.md)).
+- **Tier order.** A plan's code ships in the tier order the [README](README.md) graph gives, and on the plan's own `### Preconditions`.
+- **Plan status promotion.** A plan ships its first PR only once it — and every spec, ADR, and plan it cross-references — carries the status its [Documentation Corpus](#documentation-corpus) row requires, and every blocking backlog item is `completed` or deferred behind a named gate. Audit clearance and tier eligibility do not substitute for it.
+
+One lane is hard-blocked: [Plan-024](docs/plans/024-rust-pty-sidecar.md) Phases 4-5 (CI cross-compile and signing; the measurement substrate) wait on hardware and certificate procurement ([BL-108](docs/backlog.md)).
+
+Build and hook mechanics: `pnpm@10.33.2`, Node `>=22.14.0`. Use the wired scripts — `pnpm install`, `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build` (Turbo-driven), `pnpm format` / `pnpm format:check`. **Do not invoke `npm`** — the engines field requires pnpm. Pre-commit hooks (lefthook + lint-staged + commitlint + gitleaks) install via `pnpm prepare`. Feature branches cut off `develop` and squash-merge back per the [GitFlow-lite branch-model amendment](docs/decisions/023-v1-ci-cd-and-release-automation.md#decision-log). Doc-first ordering holds for plan-task shipment: a lane-1 PR cites the plan / spec / ADR(s) it implements.
 
 ## Cross-Tool Conventions
 

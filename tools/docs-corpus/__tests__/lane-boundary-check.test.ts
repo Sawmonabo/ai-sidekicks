@@ -1,8 +1,8 @@
 // lane-boundary-check tests — the lane-1 title-token boundary guard.
 //
-// The predicate must mirror G6 (preflight.mjs gateManifestFreshness) exactly:
+// The predicate must mirror preflight.mjs MATERIAL_PATH_PREFIXES exactly:
 // case-insensitive token, material-path narrowing, manifest-entry surface.
-// The sync test at the bottom imports G6's constant so divergence fails CI
+// The sync test at the bottom imports manifest reconciliation's constant so divergence fails CI
 // rather than waiting for a drifted incident.
 
 import { spawnSync } from "node:child_process";
@@ -53,7 +53,7 @@ describe("checkLaneBoundary", () => {
     expect(result).toEqual({ ok: true, failures: [], advisories: [] });
   });
 
-  it("passes a docs-only diff whose title names a plan (G6 material narrowing)", () => {
+  it("passes a docs-only diff whose title names a plan (manifest reconciliation material narrowing)", () => {
     const result = checkLaneBoundary({
       title: "docs(repo): spec-016 amendment referenced by plan-016",
       branch: "docs/spec-016-amendment",
@@ -103,7 +103,7 @@ describe("checkLaneBoundary", () => {
     expect(result.failures[0]).toContain("CONTRIBUTING.md");
   });
 
-  it("fails when the branch is plan-scoped for a DIFFERENT plan than the title cites (branch plan invisible to G6 — Codex r5)", () => {
+  it("fails when the branch is plan-scoped for a DIFFERENT plan than the title cites (branch plan invisible to manifest reconciliation — Codex r5)", () => {
     const result = checkLaneBoundary({
       title: "feat(daemon): Plan-004 run lifecycle handlers",
       branch: "feat/plan-007-ipc-host",
@@ -112,7 +112,7 @@ describe("checkLaneBoundary", () => {
     expect(result.ok).toBe(false);
     expect(result.failures).toHaveLength(1);
     // The inverse rule fires: the branch-declared Plan-007 shipment would be
-    // invisible to G6's title search even though Plan-004 is properly cited.
+    // invisible to manifest reconciliation's title search even though Plan-004 is properly cited.
     expect(result.failures[0]).toContain("plan-007");
     expect(result.failures[0]).toContain("does not cite Plan-007");
     expect(result.failures[0]).toContain("(it cites Plan-004)");
@@ -147,11 +147,11 @@ describe("checkLaneBoundary", () => {
     expect(result.failures[0]).toContain("Plan-007");
   });
 
-  it("fails a token-carrying material revert (G6 has no revert exemption) with the revert remedy", () => {
+  it("fails a token-carrying material revert (manifest reconciliation has no revert exemption) with the revert remedy", () => {
     // GitHub's default revert head (`revert-<pr>-<branch>`) is not
     // lane-1-shaped, so a default material revert must drop the token or
     // carry the manifest reconciliation — otherwise the merged title joins
-    // G6's freshness population as an unmanifested shipment.
+    // manifest reconciliation's freshness population as an unmanifested shipment.
     const result = checkLaneBoundary({
       title: 'Revert "feat(daemon): Plan-004 run lifecycle handlers"',
       branch: "revert-199-feat/plan-004-run-handlers",
@@ -226,7 +226,7 @@ describe("checkLaneBoundary", () => {
     expect(result.failures[0]).toContain("This is a revert");
   });
 
-  it("passes a docs-only revert (token in title, no material paths — invisible to G6)", () => {
+  it("passes a docs-only revert (token in title, no material paths — invisible to manifest reconciliation)", () => {
     const result = checkLaneBoundary({
       title: 'Revert "docs(repo): Plan-004 phase notes"',
       branch: "revert-201-docs/plan-004-phase-notes",
@@ -244,7 +244,7 @@ describe("checkLaneBoundary", () => {
     expect(result.ok).toBe(false);
   });
 
-  it("fails a MATERIAL diff on a lane-1-shaped branch with a tokenless title (invisible to G6)", () => {
+  it("fails a MATERIAL diff on a lane-1-shaped branch with a tokenless title (invisible to manifest reconciliation)", () => {
     const result = checkLaneBoundary({
       title: "feat(daemon): run lifecycle handlers",
       branch: "feat/plan-004-run-handlers",
@@ -372,7 +372,7 @@ describe("CLI (spawned — the direct-invocation path tests cannot reach via imp
   });
 });
 
-describe("G6 sync contract", () => {
+describe("manifest reconciliation sync contract", () => {
   it("MATERIAL_PATH_PREFIXES is identical to preflight.mjs's (the guard must classify material exactly as the gate does)", () => {
     expect([...MATERIAL_PATH_PREFIXES]).toEqual([...G6_MATERIAL_PATH_PREFIXES]);
   });

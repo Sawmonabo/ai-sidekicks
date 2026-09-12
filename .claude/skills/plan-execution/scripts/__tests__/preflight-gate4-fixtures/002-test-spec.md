@@ -1,5 +1,5 @@
 ---
-name: Test fixture — Spec-002 shape
+name: Test fixture — line-anchor spec shape
 status: test-fixture-only
 ---
 
@@ -7,20 +7,20 @@ status: test-fixture-only
 
 ## Interfaces and Contracts
 
-- `InviteCreate` payload — session id, inviter, expiry.
-- `MembershipUpdate` supports role change and revocation.
-- `PresenceHeartbeat` carries participant id and activity state.
+- `DeviceLink` payload — session id, requester, expiry.
+- `DeviceRename` supports name change and revocation.
+- `PresenceHeartbeat` carries device id and activity state.
 - `PresenceUpdate` (JSON-RPC, local IPC) — daemon-to-client push.
 - `PresenceRead` (JSON-RPC, local IPC) — client-to-daemon read.
 - `ChannelList` — read-only projection of channels in a session.
 
 ### Rate Limiting
 
-| Limit                                | Threshold |
-| ------------------------------------ | --------- |
-| Max invites per session per hour     | 20        |
-| Max invites per participant per hour | 50        |
-| Max pending invites per session      | 100       |
+| Limit                                 | Threshold |
+| ------------------------------------- | --------- |
+| Max device links per session per hour | 20        |
+| Max device links per user per hour    | 50        |
+| Max pending device links per session  | 100       |
 
 ### Rate Limit Response
 
@@ -42,8 +42,8 @@ status: test-fixture-only
 
 ## Acceptance Criteria
 
-- [ ] An invited participant joins active sessions without resetting active runs.
-- [ ] Membership remains durable across presence offline → online cycle.
+- [ ] A newly linked device joins active sessions without resetting active runs.
+- [ ] Device linkage remains durable across presence offline → online cycle.
 - [ ] ChannelList projects all channels in a session at join time.
 
 ### Usage Telemetry (usage_telemetry)
