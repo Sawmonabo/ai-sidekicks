@@ -88,22 +88,27 @@ describe("sidebar sections — one owner per section", () => {
 
   it("refuses a second owner rather than swapping", () => {
     const registry = new SidebarSectionRegistry();
-    registry.register(descriptor("agents", "collaboration-family"));
+    registry.register(descriptor("agents", "session-surfaces-family"));
     expect(() => {
       registry.register(descriptor("agents", "composer-family"));
     }).toThrow(DuplicateRegistrationError);
-    expect(registry.descriptorFor("agents")?.owner).toBe("collaboration-family");
+    expect(registry.descriptorFor("agents")?.owner).toBe("session-surfaces-family");
   });
 
   it("reports registered sections in declaration order", () => {
     const registry = new SidebarSectionRegistry();
     // Registered back to front, so an implementation reporting insertion order
     // would answer differently — and the sidebar would render differently.
-    registry.register(descriptor("members", "collaboration-family"));
+    registry.register(descriptor("artifacts", "session-surfaces-family"));
     registry.register(descriptor("approvals", "composer-family"));
     registry.register(descriptor("runs", "composer-family"));
     registry.register(descriptor("goal", "composer-family"));
-    expect(registry.registeredSectionIds()).toStrictEqual(["goal", "runs", "approvals", "members"]);
+    expect(registry.registeredSectionIds()).toStrictEqual([
+      "goal",
+      "runs",
+      "approvals",
+      "artifacts",
+    ]);
   });
 
   it("negative control: a fresh registry claims nothing on its own", () => {

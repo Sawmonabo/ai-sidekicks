@@ -1,7 +1,7 @@
 // The provider switch as a body a SECOND family may mount, and its own chunk root.
 //
 // WHY A THIRD ROOT RATHER THAN A DOOR LINE. `console/agents/index.ts` is imported
-// eagerly by `collaboration-family.ts`, so every module that door reaches statically
+// eagerly by `session-surfaces-family.ts`, so every module that door reaches statically
 // is on the initial graph of every launch — its own header says so, and it is why the
 // family's eight sheets enter at chunk roots. A door line for `ProviderSwitch` would
 // put the form, the combobox stack, the draft model, and the settlement projection on

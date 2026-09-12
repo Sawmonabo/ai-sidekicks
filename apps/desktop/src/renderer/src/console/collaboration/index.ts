@@ -9,7 +9,7 @@
 // WHAT IS NOT HERE
 //
 // The family's composition. Three sibling view families carry this family's other
-// subtrees, and naming them is what `console/collaboration-family.ts` is for: a view
+// subtrees, and naming them is what `console/session-surfaces-family.ts` is for: a view
 // family may import no other view family, and the console's composition sites are
 // the files the layering gate subtracts from that rule. This door names only its own
 // subtree, which is what makes it a door rather than a second composition site.

@@ -113,7 +113,7 @@ const LEDGER_PANE_ID = "ledger-timeline";
  * `structure:layering`'s `console-view-family-isolation` rule reports the edge. The
  * component arrives as a parameter instead, named by `families.ts`, which sits above
  * every family and is the one file allowed to name more than one. That is the shape
- * `collaboration-family.ts` already takes for the same reason, one family along: the
+ * `session-surfaces-family.ts` already takes for the same reason, one family along: the
  * root names the sessions destination's composed control and that file hands it on.
  *
  * The COMPONENT rather than a built element: which component mounts is the root's

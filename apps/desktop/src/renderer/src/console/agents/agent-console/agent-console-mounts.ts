@@ -5,7 +5,7 @@
 // family that owns its vocabulary, and this body's vocabulary is the agents family's:
 // the card, the two forms that move a binding, the settlement projection, the run
 // linkage. The family door publishes the two registrars below, `panes/index.ts` calls
-// the pane one from its own reserved line, and `collaboration-family.ts` calls the
+// the pane one from its own reserved line, and `session-surfaces-family.ts` calls the
 // surface one. A door of this directory's own would be a barrel the family door
 // forwards through, which `console-no-barrel-chain` fails and which would make this
 // module's symbols reachable by two paths.

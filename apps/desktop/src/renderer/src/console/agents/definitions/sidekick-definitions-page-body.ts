@@ -5,7 +5,7 @@
 // settings and then chooses a section, which is two acts after the first paint.
 //
 // WHY THIS ROOT EXISTS AT ALL, RATHER THAN THE SETTINGS REGISTRATION NAMING THE FAMILY
-// DOOR. The door is `../index.ts`, and `collaboration-family.ts` imports it EAGERLY for
+// DOOR. The door is `../index.ts`, and `session-surfaces-family.ts` imports it EAGERLY for
 // the agent console's surface registration — so the door is in the entry chunk by
 // construction. A dynamic import of a module already assigned to the static chunk defers
 // nothing: the bundler resolves it to the chunk that is already there, and the page would

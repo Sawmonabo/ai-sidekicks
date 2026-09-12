@@ -1,13 +1,13 @@
-// Where the collaboration family's four subtrees are composed in, and nothing else.
+// Where the session-surfaces family's four subtrees are composed in, and nothing else.
 //
-// WHY THIS SITS AT THE CONSOLE ROOT RATHER THAN IN `collaboration/`
+// WHY THIS SITS AT THE CONSOLE ROOT RATHER THAN IN ONE OF THEM
 //
-// This family is four subtrees — the channels, roster, invites, and members
-// sections; the all-sessions destination; the settings frame with its pages; and the
-// agents family, whose agent console claims a surface slot of its own — because they
-// are four different shapes and a single directory holding all four would be a
-// directory named after a task rather than after a thing. Composing them means naming four view families in one file, and a view
-// family may name no other: `console-view-family-isolation` in
+// This family is four subtrees — the channels sidebar section; the all-sessions
+// destination; the settings frame with its pages; and the agents family, whose agent
+// console claims a surface slot of its own — because they are four different shapes
+// and a single directory holding all four would be a directory named after a task
+// rather than after a thing. Composing them means naming four view families in one
+// file, and a view family may name no other: `console-view-family-isolation` in
 // `.dependency-cruiser.mjs` fails that edge, because six concurrent family branches
 // growing edges into each other is a tangle no ordering untangles.
 //
@@ -27,7 +27,6 @@
 // a second code path.
 
 import { registerCollaborationSections } from "./collaboration/index.js";
-import type { ConsoleEntityProjectorRegistry } from "./store/index.js";
 import type {
   ConsoleSurfaceRegistry,
   FrameBindingRegistry,
@@ -52,9 +51,9 @@ import { registerSettingsSurface } from "./settings/index.js";
  * destination, so the rail's count outlives a person navigating away from the sessions
  * list. All three are HANDED to this function rather than reached for.
  *
- * The projector board is taken and not written to. No subtree of this family folds an
- * event kind of its own any more, and the parameter stays only because the composition
- * root hands the same board to every family it registers.
+ * The projector board is not among them. No subtree of this family folds an event kind
+ * of its own, and a board a family never writes to is a parameter that says otherwise —
+ * a seat passes the boards a family claims on and no others.
  *
  * The sidebar board ships a module-scope singleton and the sections registrar used
  * to write straight into it, which is the one shape `registerConsoleFamilies` exists
@@ -63,15 +62,14 @@ import { registerSettingsSurface } from "./settings/index.js";
  * could not compose a subset however it asked. A board a caller supplies has none of
  * those failures, and a test composing this family owns what it asserts against.
  *
- * The fifth argument is a COMPOSITION rather than a board, on the terms `families.ts`
+ * The fourth argument is a COMPOSITION rather than a board, on the terms `families.ts`
  * names one under: the sessions destination offers a composed draft beside the shipped
  * probe, and that control is the workspace family's — a view family this one may not
  * import — so the root names which component fills the place and this file hands it on.
  */
-export function registerCollaborationFamily(
+export function registerSessionSurfacesFamily(
   surfaces: ConsoleSurfaceRegistry,
   sidebarSections: SidebarSectionRegistry,
-  _projectors: ConsoleEntityProjectorRegistry,
   frameBindings: FrameBindingRegistry,
   sessionsComposition: SessionsSurfaceComposition,
 ): void {
@@ -80,7 +78,7 @@ export function registerCollaborationFamily(
   registerSettingsSurface(surfaces);
   registerAgentConsoleSurface(surfaces);
   registerCollaborationSections(sidebarSections);
-  // The third of this family's sidebar sections, and the one whose body lives in the
+  // The second of this family's sidebar sections, and the one whose body lives in the
   // agents subtree rather than in `collaboration/`: it renders the agent roster, so it
   // belongs to the family that owns that vocabulary. Seated here for the same reason
   // everything else in this file is — naming two view families is what a composition

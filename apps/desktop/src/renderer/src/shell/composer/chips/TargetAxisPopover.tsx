@@ -7,7 +7,7 @@
 // and a second copy in the composer would be the copy nobody diffs.
 //
 // SO IT ARRIVES AS A CHUNK AND NOT AS AN IMPORT. `console/agents/index.ts` is imported
-// eagerly by `collaboration-family.ts`, so a door line for the component would put the
+// eagerly by `session-surfaces-family.ts`, so a door line for the component would put the
 // form, the combobox stack, the draft model, and three stylesheets on the initial graph
 // of every launch — including every session nobody ever opens this on. What crosses the
 // door is `loadProviderSwitchBody`, whose `import()` is the only static reference to any
