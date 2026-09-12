@@ -82,7 +82,7 @@ function pathsDisclosure(container: HTMLElement): HTMLDetailsElement {
 }
 
 /**
- * Close the disclosure the way a participant does — by pressing its summary.
+ * Close the disclosure the way a user does — by pressing its summary.
  *
  * The press and not a write to `open`: this disclosure's open state is the component's,
  * so what has to be pinned is that a real toggle reaches it. A test that assigned the
@@ -190,7 +190,7 @@ describe("ExecutionContextDisclosure — expanded by default only while the work
     expect(pathsDisclosure(disclosure.container).open).toBe(true);
   });
 
-  it("stays closed once a participant has closed it on a stale row", () => {
+  it("stays closed once a user has closed it on a stale row", () => {
     // The section re-reads on all four of the admitted refresh reasons, so a default
     // re-derived per render would reopen this on
     // every one of them and the control could never be put away.

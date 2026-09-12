@@ -108,7 +108,7 @@ export interface TerminalOfflineNodeReading {
 export interface TerminalLeaseState {
   readonly holding: TerminalLeaseHolding;
   /** The holder the wire named, or `null` for a free lease. Never inferred. */
-  readonly holderParticipantId: string | null;
+  readonly holderUserId: string | null;
   readonly holderVouching: TerminalHolderVouching;
   /**
    * The host a roster read found offline, and what that did to this lease, when one
@@ -159,7 +159,7 @@ export interface TerminalHoldingNodeReading {
 /** What the fold needs beyond the events. */
 export interface TerminalLeaseProjectionInput {
   /** The viewer, so `held-by-you` can be told from `held-by-another`. */
-  readonly viewerParticipantId: string | undefined;
+  readonly viewerUserId: string | undefined;
   /**
    * The holding node's reachability, when the caller could read one.
    *
@@ -174,7 +174,7 @@ export interface TerminalLeaseProjectionInput {
 /** The state before any transition has been read. */
 export const UNREAD_TERMINAL_LEASE: TerminalLeaseState = {
   holding: "not-checked",
-  holderParticipantId: null,
+  holderUserId: null,
   holderVouching: "not-checked",
   offlineNode: undefined,
   unreadTransition: undefined,
@@ -229,7 +229,7 @@ export function projectTerminalLease(
   }
 
   const newest = transitions.at(-1);
-  const wireHolderParticipantId = newest === undefined ? null : newest.holderParticipantId;
+  const wireHolderUserId = newest === undefined ? null : newest.holderUserId;
   const holdingNode = input.holdingNode;
   const vouching = readVouching(holdingNode);
 
@@ -237,21 +237,21 @@ export function projectTerminalLease(
   // each collapse to the free lease BEFORE the viewer comparison, so a surface can
   // never show "you hold it" on the strength of a node the control plane cannot
   // reach or a transition this build could not read.
-  const holderParticipantId =
-    vouching === "unvouched" || unreadTransition !== undefined ? null : wireHolderParticipantId;
+  const holderUserId =
+    vouching === "unvouched" || unreadTransition !== undefined ? null : wireHolderUserId;
 
   return {
     holding: readHolding({
       transitionCount,
       unreadTransition,
-      holderParticipantId,
-      viewerParticipantId: input.viewerParticipantId,
+      holderUserId,
+      viewerUserId: input.viewerUserId,
     }),
-    holderParticipantId,
+    holderUserId,
     holderVouching: vouching,
     offlineNode: readOfflineNode({
       holdingNode,
-      hasWireHolder: wireHolderParticipantId !== null,
+      hasWireHolder: wireHolderUserId !== null,
       unreadTransition,
     }),
     unreadTransition,
@@ -308,8 +308,8 @@ function readOfflineNode(state: {
 function readHolding(state: {
   readonly transitionCount: number;
   readonly unreadTransition: TerminalLeaseUnreadTransition | undefined;
-  readonly holderParticipantId: string | null;
-  readonly viewerParticipantId: string | undefined;
+  readonly holderUserId: string | null;
+  readonly viewerUserId: string | undefined;
 }): TerminalLeaseHolding {
   if (state.unreadTransition !== undefined) {
     return "unrecognized-transition";
@@ -317,10 +317,8 @@ function readHolding(state: {
   if (state.transitionCount === 0) {
     return "not-checked";
   }
-  if (state.holderParticipantId === null) {
+  if (state.holderUserId === null) {
     return "unheld";
   }
-  return state.holderParticipantId === state.viewerParticipantId
-    ? "held-by-you"
-    : "held-by-another";
+  return state.holderUserId === state.viewerUserId ? "held-by-you" : "held-by-another";
 }

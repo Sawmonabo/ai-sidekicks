@@ -1,7 +1,7 @@
 // Reaching the rows BEFORE the window this console was given.
 //
 // WHY THERE IS ANYTHING TO REACH. A session's stream replays from the position this
-// participant was last acknowledged at, so a resumed read establishes a window whose
+// user was last acknowledged at, so a resumed read establishes a window whose
 // head is somewhere in the middle of the log. Everything below that head exists, was
 // never delivered, and is unreachable by scrolling: the store appends at the tail and
 // the viewport prunes toward it, so no amount of reading moves the head. One

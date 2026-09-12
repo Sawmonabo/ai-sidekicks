@@ -16,8 +16,8 @@ import {
   AGENT_REVIEWER,
   AGENT_SCOUT,
   FLAGSHIP_AGENTS,
-  PARTICIPANT_PRIYA,
-  PARTICIPANT_YOU,
+  USER_PRIYA,
+  USER_YOU,
   RUN_ARCHITECT,
   RUN_ARCHITECT_HELPER,
   RUN_IMPLEMENTER,
@@ -41,7 +41,7 @@ export const FLAGSHIP_SCRIPT: readonly LedgerScriptEntry[] = [
   // scenario reads these eight beats, so they stay first and stay as they were.
   ...ledgerOpeningEntries({
     sessionId: SESSION_ID,
-    openedBy: PARTICIPANT_YOU,
+    openedBy: USER_YOU,
     cast: FLAGSHIP_AGENTS,
   }),
   lane.transition(RUN_IMPLEMENTER, {
@@ -49,7 +49,7 @@ export const FLAGSHIP_SCRIPT: readonly LedgerScriptEntry[] = [
     runVersion: 1,
     newState: "queued",
     agentId: AGENT_IMPLEMENTER,
-    actorId: PARTICIPANT_YOU,
+    actorId: USER_YOU,
   }),
   lane.transition(RUN_IMPLEMENTER, {
     atMs: 500,
@@ -72,7 +72,7 @@ export const FLAGSHIP_SCRIPT: readonly LedgerScriptEntry[] = [
     runVersion: 1,
     newState: "queued",
     agentId: AGENT_REVIEWER,
-    actorId: PARTICIPANT_PRIYA,
+    actorId: USER_PRIYA,
   }),
   lane.transition(RUN_REVIEWER, {
     atMs: 650,
@@ -91,7 +91,7 @@ export const FLAGSHIP_SCRIPT: readonly LedgerScriptEntry[] = [
     runVersion: 1,
     newState: "queued",
     agentId: AGENT_SCOUT,
-    actorId: PARTICIPANT_YOU,
+    actorId: USER_YOU,
   }),
   lane.transition(RUN_SCOUT, {
     atMs: 800,
@@ -110,7 +110,7 @@ export const FLAGSHIP_SCRIPT: readonly LedgerScriptEntry[] = [
     runVersion: 1,
     newState: "queued",
     agentId: AGENT_ARCHITECT,
-    actorId: PARTICIPANT_YOU,
+    actorId: USER_YOU,
   }),
   lane.transition(RUN_ARCHITECT, {
     atMs: 950,
@@ -187,7 +187,7 @@ export const FLAGSHIP_SCRIPT: readonly LedgerScriptEntry[] = [
     atMs: 1_500,
     runId: RUN_IMPLEMENTER,
     costCents: 34,
-    causedBy: PARTICIPANT_YOU,
+    causedBy: USER_YOU,
   }),
   lane.tool(RUN_REVIEWER, {
     atMs: 1_550,
@@ -244,20 +244,20 @@ export const FLAGSHIP_SCRIPT: readonly LedgerScriptEntry[] = [
     atMs: 1_800,
     runId: RUN_REVIEWER,
     costCents: 21,
-    causedBy: PARTICIPANT_PRIYA,
+    causedBy: USER_PRIYA,
   }),
   approvalEntry({
     atMs: 1_840,
     kind: "approval.approved",
-    actorId: PARTICIPANT_YOU,
-    members: { approver: PARTICIPANT_YOU, effectiveScope: APPROVAL_SCOPE },
+    actorId: USER_YOU,
+    members: { approver: USER_YOU, effectiveScope: APPROVAL_SCOPE },
   }),
   lane.transition(RUN_IMPLEMENTER, {
     atMs: 1_850,
     runVersion: 5,
     previousState: "waiting_for_approval",
     newState: "running",
-    actorId: PARTICIPANT_YOU,
+    actorId: USER_YOU,
   }),
   lane.tool(RUN_IMPLEMENTER, {
     atMs: 1_900,
@@ -275,7 +275,7 @@ export const FLAGSHIP_SCRIPT: readonly LedgerScriptEntry[] = [
     contentType: "text/markdown",
     contentLength: 1_412,
   }),
-  costUpdateEntry({ atMs: 2_000, runId: RUN_SCOUT, costCents: 9, causedBy: PARTICIPANT_YOU }),
+  costUpdateEntry({ atMs: 2_000, runId: RUN_SCOUT, costCents: 9, causedBy: USER_YOU }),
   lane.output(RUN_REVIEWER, {
     atMs: 2_050,
     kind: "assistant.thinking_update",
@@ -331,7 +331,7 @@ export const FLAGSHIP_SCRIPT: readonly LedgerScriptEntry[] = [
     atMs: 2_250,
     runId: RUN_ARCHITECT,
     costCents: 57,
-    causedBy: PARTICIPANT_YOU,
+    causedBy: USER_YOU,
   }),
   lane.output(RUN_REVIEWER, {
     atMs: 2_300,

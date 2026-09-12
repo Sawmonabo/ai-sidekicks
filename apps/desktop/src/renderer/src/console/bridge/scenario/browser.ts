@@ -53,10 +53,10 @@
 // growth port's refusal today, which is what the ingest trio returns.
 
 import {
-  ParticipantIdSchema,
+  UserIdSchema,
   RunIdSchema,
   SessionIdSchema,
-  type ParticipantId,
+  type UserId,
   type RunId,
   type SessionId,
 } from "@ai-sidekicks/contracts";
@@ -98,12 +98,8 @@ export const BROWSER_PRODUCED_ARTIFACTS_CALL = "growth:browserProducedArtifacts"
 // The artifact ids below carry no registered brand and stay readable strings.
 const SESSION_ID: SessionId = SessionIdSchema.parse("019b7b20-0280-75e5-8510-ada11a5a4444");
 
-const HUMAN_PARTICIPANT_ID: ParticipantId = ParticipantIdSchema.parse(
-  "019b7b20-0280-79a4-8110-cca0117a0120",
-);
-const AGENT_PARTICIPANT_ID: ParticipantId = ParticipantIdSchema.parse(
-  "019b7b20-0280-7a6e-8100-d1a4c1150022",
-);
+const HUMAN_USER_ID: UserId = UserIdSchema.parse("019b7b20-0280-79a4-8110-cca0117a0120");
+const AGENT_USER_ID: UserId = UserIdSchema.parse("019b7b20-0280-7a6e-8100-d1a4c1150022");
 const RUN_ID: RunId = RunIdSchema.parse("019b7b20-0280-740e-8110-d1a4c1150044");
 
 /**
@@ -137,7 +133,7 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
   // screenshot baseline depends on this list. One person and one agent: the pane's
   // whole design question is what a human sees of what an agent is doing, and a
   // second agent would only add a hue.
-  participantIdsInJoinOrder: [HUMAN_PARTICIPANT_ID, AGENT_PARTICIPANT_ID],
+  userIdsInJoinOrder: [HUMAN_USER_ID, AGENT_USER_ID],
   startedAtIso: "2026-01-01T11:05:00.000Z",
   beats: [
     {
@@ -148,7 +144,7 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
         sequence: 1,
         kind: "session.created",
         occurredAt: "2026-01-01T11:05:00.000Z",
-        actorId: HUMAN_PARTICIPANT_ID,
+        actorId: HUMAN_USER_ID,
         // The registered shape, verbatim: the new session's id plus the resolved
         // config and metadata, both open records the corpus names no key inside. A
         // session's name is read off `session.list`, and the lifecycle payload
@@ -165,12 +161,12 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
         sequence: 2,
         kind: "session.activated",
         occurredAt: "2026-01-01T11:05:00.040Z",
-        actorId: HUMAN_PARTICIPANT_ID,
+        actorId: HUMAN_USER_ID,
         payload: {
           sessionId: SESSION_ID,
           previousState: "provisioning",
           newState: "active",
-          actor: HUMAN_PARTICIPANT_ID,
+          actor: HUMAN_USER_ID,
         },
       },
     },
@@ -184,19 +180,19 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
         occurredAt: "2026-01-01T11:05:00.160Z",
         // The person who attached the agent, not the agent: an agent does not
         // attach itself, and the envelope actor is who acted.
-        actorId: HUMAN_PARTICIPANT_ID,
+        actorId: HUMAN_USER_ID,
         // The full persona registered for an attach, minus the optional
         // members this session does not set. `name` and not `displayName`: the
-        // registered member is `name`, and the cast bar reads whatever the wire
+        // registered member is `name`, and the session header reads whatever the wire
         // spells.
         payload: {
           sessionId: SESSION_ID,
-          agentId: AGENT_PARTICIPANT_ID,
+          agentId: AGENT_USER_ID,
           name: "Scout",
           driverName: "claude",
           modelId: "claude-sonnet-4-5",
           state: "ready",
-          actor: HUMAN_PARTICIPANT_ID,
+          actor: HUMAN_USER_ID,
         },
       },
     },
@@ -208,7 +204,7 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
         sequence: 4,
         kind: "run.queued",
         occurredAt: "2026-01-01T11:05:00.240Z",
-        actorId: AGENT_PARTICIPANT_ID,
+        actorId: AGENT_USER_ID,
         // `previousState` is deliberately absent on the birth transition: the run
         // aggregate has no prior state, and no document names a value for it, so
         // the fixture omits the member rather than inventing one. Every later
@@ -224,7 +220,7 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
         sequence: 5,
         kind: "run.starting",
         occurredAt: "2026-01-01T11:05:00.300Z",
-        actorId: AGENT_PARTICIPANT_ID,
+        actorId: AGENT_USER_ID,
         payload: {
           sessionId: SESSION_ID,
           runId: RUN_ID,
@@ -242,7 +238,7 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
         sequence: 6,
         kind: "run.running",
         occurredAt: "2026-01-01T11:05:00.320Z",
-        actorId: AGENT_PARTICIPANT_ID,
+        actorId: AGENT_USER_ID,
         payload: {
           sessionId: SESSION_ID,
           runId: RUN_ID,
@@ -260,7 +256,7 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
         sequence: 7,
         kind: "artifact.published",
         occurredAt: "2026-01-01T11:05:00.900Z",
-        actorId: AGENT_PARTICIPANT_ID,
+        actorId: AGENT_USER_ID,
         // THE LOADING ROW. A capture whose bytes are still crossing the ingest
         // pipeline: the manifest exists, the payload does not yet. The design's
         // "received bytes against the declared total" is the manifest's own
@@ -285,7 +281,7 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
         sequence: 8,
         kind: "artifact.published",
         occurredAt: "2026-01-01T11:05:01.400Z",
-        actorId: AGENT_PARTICIPANT_ID,
+        actorId: AGENT_USER_ID,
         // The same artifact id settling. Same id on purpose: a loading row that
         // becomes a settled row is one object, and a pane that keyed a new row
         // off this beat would show the capture twice.
@@ -306,7 +302,7 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
         sequence: 9,
         kind: "artifact.published",
         occurredAt: "2026-01-01T11:05:02.000Z",
-        actorId: AGENT_PARTICIPANT_ID,
+        actorId: AGENT_USER_ID,
         // A completed download. Indistinguishable from a capture on the wire —
         // which is the one-pipeline rule showing through, and the reason the
         // pane's overflow control filters by the session's browser rather than by
@@ -328,7 +324,7 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
         sequence: 10,
         kind: "artifact.published",
         occurredAt: "2026-01-01T11:05:02.600Z",
-        actorId: AGENT_PARTICIPANT_ID,
+        actorId: AGENT_USER_ID,
         // The bundled asset set. The design types it `design`, and that
         // discriminator is a MANIFEST member rather than an event member, so it
         // is not scripted here — the row's kind arrives with the manifest read,
@@ -350,7 +346,7 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
         sequence: 11,
         kind: "artifact.published",
         occurredAt: "2026-01-01T11:05:03.200Z",
-        actorId: AGENT_PARTICIPANT_ID,
+        actorId: AGENT_USER_ID,
         payload: {
           sessionId: SESSION_ID,
           artifactId: REPLACEMENT_CAPTURE_ARTIFACT_ID,
@@ -368,7 +364,7 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
         sequence: 12,
         kind: "artifact.superseded",
         occurredAt: "2026-01-01T11:05:03.400Z",
-        actorId: AGENT_PARTICIPANT_ID,
+        actorId: AGENT_USER_ID,
         // The retake lands first and the supersession follows, which is the order
         // a replacement actually happens in: superseding before the replacement
         // exists would leave a window with no current capture at all.
@@ -389,7 +385,7 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
         sequence: 13,
         kind: "run.completed",
         occurredAt: "2026-01-01T11:05:03.900Z",
-        actorId: AGENT_PARTICIPANT_ID,
+        actorId: AGENT_USER_ID,
         // The run reaches a terminal state, so the pane's chrome is exercised
         // against a finished run as well as a live one — a browser surface that
         // only ever renders `running` hides whatever it does when the agent stops.
@@ -408,7 +404,7 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
     // The two reads the scenario answers, instantly: nothing this family renders waits
     // on a reply. Its loading states are the in-flight capture row and the run that
     // stops, and both arrive as beats on the scenario clock.
-    { call: "agent.list", result: { agents: [{ agentId: AGENT_PARTICIPANT_ID }] } },
+    { call: "agent.list", result: { agents: [{ agentId: AGENT_USER_ID }] } },
     // WHICH OF THE FOUR ARTIFACTS ABOVE CAME OUT OF THE BROWSER, which is the one
     // thing the beats cannot say: `artifact_publication` names no producer, so a fold
     // over the log alone cannot tell this session's capture from a repository

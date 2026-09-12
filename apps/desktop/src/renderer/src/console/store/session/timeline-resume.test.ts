@@ -32,7 +32,7 @@ describe("resolveTimelineResume — where the next read starts", () => {
 
   it("restarts from the beginning when nothing has been acknowledged", () => {
     // The ordinary FIRST read, and the case the retired rule refused outright: a
-    // participant who has been acknowledged nowhere has no position to resume from,
+    // user who has been acknowledged nowhere has no position to resume from,
     // and the beginning of the window is where a reader with no position starts.
     const decision = resolveTimelineResume({ latest: LATEST });
 

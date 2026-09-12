@@ -88,7 +88,7 @@ import { RUNTIME_BINDINGS_MIGRATION_SQL } from "../migrations/0003-runtime-bindi
 import { WORKTREE_LIFECYCLE_MIGRATION_SQL } from "../migrations/0004-worktree-lifecycle.js";
 import { DAEMON_SIGNING_KEYS_MIGRATION_SQL } from "../migrations/0005-daemon-signing-keys.js";
 import { RUN_LIFECYCLE_TERMINAL_BACKSTOP_MIGRATION_SQL } from "../migrations/0006-run-lifecycle-terminal-backstop-index.js";
-import { PII_PARTICIPANT_ID_MIGRATION_SQL } from "../migrations/0007-pii-participant-id.js";
+import { PII_USER_ID_MIGRATION_SQL } from "../migrations/0007-pii-user-id.js";
 import { PENDING_ANCHOR_UPLOADS_MIGRATION_SQL } from "../migrations/0008-pending-anchor-uploads.js";
 import { RETENTION_CLASS_AND_STUB_SIGNATURE_MIGRATION_SQL } from "../migrations/0009-retention-class-and-stub-signature.js";
 import { REPO_WORKSPACES_MIGRATION_SQL } from "../migrations/0010-repo-workspaces.js";
@@ -234,13 +234,13 @@ export function applyMigrations(db: DatabaseType): void {
   }
 
   if (!hasMigrationApplied(db, 7)) {
-    // Version 7 — session_events.pii_participant_id, the durable PII
+    // Version 7 — session_events.pii_user_id, the durable PII
     // owner-stamp column. The guards are what make re-application a no-op:
     // SQLite has no `ADD COLUMN IF NOT EXISTS`, so a second exec would throw
     // "duplicate column name".
     db.transaction(() => {
       if (!hasMigrationApplied(db, 7)) {
-        db.exec(PII_PARTICIPANT_ID_MIGRATION_SQL);
+        db.exec(PII_USER_ID_MIGRATION_SQL);
       }
     }).immediate();
   }

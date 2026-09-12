@@ -1,7 +1,7 @@
 // What a send would carry, and what stops it carrying it.
 //
 // AN ATTACHMENT REFERENCE IS AN ORDERED LIST OF ARTIFACT IDS AND NEVER BYTES, and the
-// ORDER is the participant's own — caller-declared and preserved end to end — so this
+// ORDER is the user's own — caller-declared and preserved end to end — so this
 // fold reads the carrier's ledger in its published order and never sorts, groups, or
 // de-duplicates. The ledger is the record; a second ordering here would be a second
 // answer to which attachment is first.
@@ -35,7 +35,7 @@ export type SendAttachmentReference =
   | { readonly disposition: "none" }
   | {
       readonly disposition: "held";
-      /** The minted artifacts, in the order the participant declared them. */
+      /** The minted artifacts, in the order the user declared them. */
       readonly artifactIds: readonly string[];
       /** Uploads still running or refused, which are not part of the reference yet. */
       readonly unsettledCount: number;

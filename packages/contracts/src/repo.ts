@@ -325,7 +325,7 @@ export function buildRepoWorkspaceLifecyclePayloadSchema<TState extends string>(
       // vocabulary its own plan owns; see this function's note on why that is
       // a parameter rather than an ever-widening union.
       state: stateSchema,
-      // The EventEnvelope free-form actor (`participant_id | agent_id | null`),
+      // The EventEnvelope free-form actor (`user_id | agent_id | null`),
       // carried at payload level IN ADDITION to the envelope's own `actor` —
       // the family payload shape spells it, the same way it re-spells
       // `sessionId`. Realized with the package's standard

@@ -20,7 +20,7 @@ export interface LedgerFacetGroupProps<TValue extends string> {
  * One axis' chips, or nothing.
  *
  * An axis with nothing on it renders nothing at all: a heading over an empty row
- * would say this window has participants when it has none.
+ * would say this window has users when it has none.
  */
 export function LedgerFacetGroup<TValue extends string>(
   props: LedgerFacetGroupProps<TValue>,

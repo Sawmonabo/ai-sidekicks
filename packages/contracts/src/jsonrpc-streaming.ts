@@ -2,7 +2,7 @@
 // `$/subscription/cancel` wire envelopes plus the `LocalSubscriptionProducer<T>`
 // server-side producer interface.
 //
-// This file owns the CROSS-PACKAGE wire shape every streaming participant
+// This file owns the CROSS-PACKAGE wire shape every streaming user
 // agrees on. The runtime IMPLEMENTATION (per-subscription state, value-
 // schema validation, transport-scoped cancel authorization, cleanup on
 // disconnect) lives in

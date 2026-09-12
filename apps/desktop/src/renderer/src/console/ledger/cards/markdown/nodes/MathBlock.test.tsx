@@ -66,7 +66,7 @@ describe("a formula that does not typeset", () => {
   it("negative control: a formula KaTeX only warns about still typesets", async () => {
     // `strict: false` is a separate constraint from throwing on a parse error, and this
     // is where the two are told apart: a Unicode character in math mode is a strict
-    // WARNING, and a participant's slip inside a formula is not the console's error to
+    // WARNING, and a user's slip inside a formula is not the console's error to
     // raise. A fix that reached the source arm through KaTeX's strict mode rather than
     // through a parse failure would fail here.
     const { container } = render(<MathBlock source="é = mc^2" isDisplayMode />);

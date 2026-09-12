@@ -8,7 +8,7 @@
 //
 // IT IS NAVIGATION AND SAYS SO. The section states the goal and never edits it: the
 // editor, the draft, the validation, and both mutations live on the approvals
-// surface's goal card, and whether this window's participant may use them is that
+// surface's goal card, and whether this window's user may use them is that
 // card's own resolved authorization. So this act promises a destination rather than
 // a mutation — and the row and the button carry ONE string, so the palette cannot
 // end up calling one act by a second name.

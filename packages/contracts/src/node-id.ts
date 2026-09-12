@@ -53,7 +53,7 @@ import { z } from "zod";
 //
 // `node_id` is `TEXT NOT NULL, -- daemon-assigned node identifier` in
 // `runtime_node_attachments` — deliberately contrasted against `id` /
-// `session_id` / `participant_id`, which are `UUID` in the SAME table — and
+// `session_id` / `user_id`, which are `UUID` in the SAME table — and
 // `TEXT` in both local SQLite tables. So `NodeId` is a daemon-minted opaque
 // scalar, NOT a server-minted UUID: we mirror `SessionId`'s brand SHAPE but
 // deliberately depart from its UUID parser, using the non-UUID branded-scalar

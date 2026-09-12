@@ -67,7 +67,7 @@ import type { ConsoleSessionEvent } from "../../store/index.js";
  * The two renames are the only translation, and each is a rename rather than a
  * reading: `type` is carried to `kind` verbatim, and `actor` to
  * `actorId` verbatim. The wire supplies no discriminator on `actor` —
- * the contract registers it as a participant id, an agent id, or `null` for a
+ * the contract registers it as a user id, an agent id, or `null` for a
  * system-emitted event — so this boundary carries whichever id the daemon named and
  * turns both no-value states, present-`null` and absent, into `undefined`. Guessing
  * which of the two id kinds is in hand would be inventing an arm the wire does not

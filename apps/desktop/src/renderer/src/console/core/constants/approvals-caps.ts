@@ -9,6 +9,6 @@
  * starts reading as a policy nobody audits row by row — which is exactly when the
  * caveat earns its space, and below which it would be noise on a two-domain
  * allow-list. A threshold over what the daemon SENT, unlike the goal bounds the
- * bridge family holds, which bound what a participant may TYPE.
+ * bridge family holds, which bound what a user may TYPE.
  */
 export const BROAD_ALLOW_LIST_THRESHOLD = 8;

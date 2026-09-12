@@ -7,7 +7,7 @@
 // the EMPTY kind — a stated fact with a next action — not the "not loaded" kind and
 // not an error.
 //
-// It scripts exactly one beat, the session the participant is about to create not
+// It scripts exactly one beat, the session the user is about to create not
 // existing yet, and the replies the frame's opening reads need. Everything else the
 // first-run frame shows comes from the growth port refusing, which is the honest
 // rendering of a console whose onboarding wire is not registered.
@@ -24,7 +24,7 @@ import type { ConsoleScenario } from "./runtime/index.js";
 export const FIRST_RUN_SCENARIO_ID = "first-run";
 
 const SESSION_ID = "019b78c9-0a80-75e5-8510-ada11a5a22a5";
-const PARTICIPANT_YOU = "019b78c9-0a80-79a4-8110-cca0117a0220";
+const USER_YOU = "019b78c9-0a80-79a4-8110-cca0117a0220";
 
 export const FIRST_RUN_SCENARIO: ConsoleScenario = {
   id: FIRST_RUN_SCENARIO_ID,
@@ -32,12 +32,12 @@ export const FIRST_RUN_SCENARIO: ConsoleScenario = {
   purpose:
     "A freshly installed console with no sessions, no agents, and no history — the state the empty-state design and the screenshot baseline are pinned against.",
   sessionId: SESSION_ID,
-  participantIdsInJoinOrder: [PARTICIPANT_YOU],
+  userIdsInJoinOrder: [USER_YOU],
   // The sole member, and this window is them. A fresh install has exactly one
-  // participant, so the identity is not in doubt — which is why it is stated: a
-  // first-run surface that could not resolve its own participant would render the
+  // user, so the identity is not in doubt — which is why it is stated: a
+  // first-run surface that could not resolve its own user would render the
   // invite affordance as unavailable on the one screen whose whole job is to offer it.
-  viewingParticipantId: PARTICIPANT_YOU,
+  viewingUserId: USER_YOU,
   startedAtIso: "2026-01-01T09:00:00.000Z",
   beats: [
     {
@@ -51,7 +51,7 @@ export const FIRST_RUN_SCENARIO: ConsoleScenario = {
         sequence: 1,
         kind: "session.created",
         occurredAt: "2026-01-01T09:00:00.000Z",
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
       },
     },

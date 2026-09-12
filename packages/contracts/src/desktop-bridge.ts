@@ -308,7 +308,7 @@ export interface SidekicksBridge {
   readonly controlPlane: {
     /**
      * Generic renderer-facing forwarder for control-plane request/response procedures
-     * (session CRUD, membership, invites, approvals, artifacts, health).
+     * (session CRUD, approvals, artifacts, health).
      *
      * CONTRACT CONSTRAINT — relay negotiation is NOT reachable through this forwarder.
      * Relay negotiation runs main-process-owned and consumes the token in-process to open

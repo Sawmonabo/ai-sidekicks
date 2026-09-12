@@ -13,7 +13,7 @@ import { registerNotificationsPage } from "./NotificationsPage.js";
 import type { AttentionPreference } from "./attention-preference-model.js";
 import { SettingsPageRegistry } from "../../settings-page-registry.js";
 import {
-  SERVED_PARTICIPANT,
+  SERVED_USER,
   bridgeWith,
   press,
   renderPageAt,
@@ -23,7 +23,7 @@ import {
   storedLabels,
   storedSwitches,
 } from "./notifications-page.test-support.js";
-import { PARTICIPANT_ID } from "./notification-preference-writer.test-support.js";
+import { USER_ID } from "./notification-preference-writer.test-support.js";
 
 /** Every row this console supplied rather than read, as the page tags them. */
 function defaultTags(container: HTMLElement): readonly Element[] {
@@ -65,7 +65,7 @@ describe("the notifications page — the tier it never offers", () => {
     // control label is checked, including the ones the daemon's own keys supply.
     const container = await renderSettledPage(
       bridgeWith({
-        callerParticipantRead: async () => await Promise.resolve(SERVED_PARTICIPANT),
+        callerUserRead: async () => await Promise.resolve(SERVED_USER),
         attentionPreferenceRead: async () =>
           await Promise.resolve(
             servedPreferences([{ key: "attention", value: { mentions: true, runs: false } }]),
@@ -84,8 +84,8 @@ describe("the notifications page — the tier it never offers", () => {
 
 describe("the notifications page — the chain that starts with who you are", () => {
   it("asks nothing when this window has opened no session to resolve an identity from", async () => {
-    const identityRead = vi.fn(async () => await Promise.resolve(SERVED_PARTICIPANT));
-    const bridge = bridgeWith({ callerParticipantRead: identityRead });
+    const identityRead = vi.fn(async () => await Promise.resolve(SERVED_USER));
+    const bridge = bridgeWith({ callerUserRead: identityRead });
     const container = renderPageAt(bridge, undefined);
     await settle(bridge);
     expect(identityRead).not.toHaveBeenCalled();
@@ -94,11 +94,11 @@ describe("the notifications page — the chain that starts with who you are", ()
   });
 
   it("renders the identity read's own refusal in place of the set", async () => {
-    const refusal = growthUnavailable("callerParticipantRead");
+    const refusal = growthUnavailable("callerUserRead");
     const preferenceRead = vi.fn(async () => await Promise.resolve(servedPreferences([])));
     const container = await renderSettledPage(
       bridgeWith({
-        callerParticipantRead: async () => await Promise.resolve(refusal),
+        callerUserRead: async () => await Promise.resolve(refusal),
         attentionPreferenceRead: preferenceRead,
       }),
     );
@@ -106,37 +106,36 @@ describe("the notifications page — the chain that starts with who you are", ()
     expect(politeText(container)).toBe(refusal.detail);
   });
 
-  it("negative control: it never guesses a participant to ask with", async () => {
+  it("negative control: it never guesses a user to ask with", async () => {
     // Without this, the case above would pass over a page that refused visibly and
     // still went on to read somebody's preferences — the one outcome that would put
     // another person's answers on this screen.
     const preferenceRead = vi.fn(async () => await Promise.resolve(servedPreferences([])));
     await renderSettledPage(
       bridgeWith({
-        callerParticipantRead: async () =>
-          await Promise.resolve(growthUnavailable("callerParticipantRead")),
+        callerUserRead: async () => await Promise.resolve(growthUnavailable("callerUserRead")),
         attentionPreferenceRead: preferenceRead,
       }),
     );
     expect(preferenceRead).not.toHaveBeenCalled();
   });
 
-  it("reads the set for the participant the identity read named", async () => {
+  it("reads the set for the user the identity read named", async () => {
     const preferenceRead = vi.fn(async () => await Promise.resolve(servedPreferences([])));
     await renderSettledPage(
       bridgeWith({
-        callerParticipantRead: async () => await Promise.resolve(SERVED_PARTICIPANT),
+        callerUserRead: async () => await Promise.resolve(SERVED_USER),
         attentionPreferenceRead: preferenceRead,
       }),
     );
-    expect(preferenceRead).toHaveBeenCalledWith({ participantId: PARTICIPANT_ID });
+    expect(preferenceRead).toHaveBeenCalledWith({ userId: USER_ID });
   });
 });
 
 describe("the notifications page — what it draws from a record nobody named", () => {
   function bridgeServing(preferences: readonly AttentionPreference[]): ConsoleBridge {
     return bridgeWith({
-      callerParticipantRead: async () => await Promise.resolve(SERVED_PARTICIPANT),
+      callerUserRead: async () => await Promise.resolve(SERVED_USER),
       attentionPreferenceRead: async () => await Promise.resolve(servedPreferences(preferences)),
     });
   }
@@ -285,7 +284,7 @@ describe("the notifications page — its rail entry", () => {
     // which is the shipped refusal's text and not copy this page composed.
     const container = await renderSettledPage(
       bridgeWith({
-        callerParticipantRead: async () => await Promise.resolve(SERVED_PARTICIPANT),
+        callerUserRead: async () => await Promise.resolve(SERVED_USER),
         attentionPreferenceRead: async () =>
           await Promise.resolve(
             servedPreferences([{ key: "attention", value: { mentions: true } }]),
@@ -303,7 +302,7 @@ describe("the notifications page — a read that produced no outcome at all", ()
     // you are" for the life of the window over a call that had already failed.
     const container = await renderSettledPage(
       bridgeWith({
-        callerParticipantRead: async () => {
+        callerUserRead: async () => {
           await Promise.resolve();
           throw new Error("the identity read never reached the daemon");
         },
@@ -317,7 +316,7 @@ describe("the notifications page — a read that produced no outcome at all", ()
   it("renders the preference rejection the same way, one step further down the chain", async () => {
     const container = await renderSettledPage(
       bridgeWith({
-        callerParticipantRead: async () => await Promise.resolve(SERVED_PARTICIPANT),
+        callerUserRead: async () => await Promise.resolve(SERVED_USER),
         attentionPreferenceRead: async () => {
           await Promise.resolve();
           throw new Error("the preference read never reached the store");
@@ -334,7 +333,7 @@ describe("the notifications page — a read that produced no outcome at all", ()
     // whatever the two reads answered.
     const container = await renderSettledPage(
       bridgeWith({
-        callerParticipantRead: async () => await Promise.resolve(SERVED_PARTICIPANT),
+        callerUserRead: async () => await Promise.resolve(SERVED_USER),
         attentionPreferenceRead: async () =>
           await Promise.resolve(servedPreferences([{ key: "attention", value: { runs: true } }])),
       }),

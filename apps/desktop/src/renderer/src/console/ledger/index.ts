@@ -31,7 +31,7 @@
 // both arrive through one door and one strict descent through the DAG.
 //
 // THE TWO SLOTS, AND WHY THEY NO LONGER MOUNT THE SAME THING. `workspace` is the
-// session's own surface: the cast bar, the deck, and the composer's seat, which is
+// session's own surface: the session header, the deck, and the composer's seat, which is
 // `workspace/Workspace.tsx`. `timeline` is the full-screen ledger WINDOW — a `timeline`
 // pane moved into its own hardened `BrowserWindow`, loading the same renderer bundle at
 // a window route — so
@@ -210,7 +210,7 @@ function ledgerSurfaces(composition: LedgerComposition): readonly ConsoleSurface
 }
 
 /**
- * Mount the session workspace: the cast bar, the deck, and the composer's seat.
+ * Mount the session workspace: the session header, the deck, and the composer's seat.
  *
  * The wrapper keeps the surface's full-height grid, which is what lets the deck
  * inside it be the thing that scrolls rather than the window.

@@ -41,7 +41,7 @@ const EMPTY_SCENARIO: Parameters<typeof createFixtureBridge>[0]["scenario"] = {
   label: "Accounts, with nothing scripted",
   purpose: "Drives the account-plane calls against overridden growth operations.",
   sessionId: "session-accounts",
-  participantIdsInJoinOrder: [],
+  userIdsInJoinOrder: [],
   beats: [],
   replies: [],
   startedAtIso: "2026-01-01T08:00:00.000Z",

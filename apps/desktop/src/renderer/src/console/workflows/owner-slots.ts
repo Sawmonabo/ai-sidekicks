@@ -85,7 +85,7 @@ export const WORKFLOW_HUMAN_FORM_SLOT: OwnerSlotContract = {
 export const WORKFLOW_DRAFT_SLOT: OwnerSlotContract = {
   ...WORKFLOW_ENGINE_BODY,
   mountObligation:
-    "the mounting pane supplies the window-lifetime draft store and never the durable one; a draft that survived a restart would be participant content in a durable home",
+    "the mounting pane supplies the window-lifetime draft store and never the durable one; a draft that survived a restart would be user content in a durable home",
 };
 
 /**

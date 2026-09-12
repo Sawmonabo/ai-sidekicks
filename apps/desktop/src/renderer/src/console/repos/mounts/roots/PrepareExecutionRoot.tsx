@@ -339,7 +339,7 @@ function renderSettlement(
           <span className="meridian-prepare-root__state">{reading.act.state}</span>
           {/*
             THE RE-READ IS A CONTROL, NOT AN EFFECT. A prepared root lands in the
-            section's own roots list on its next read, and the participant asking for
+            section's own roots list on its next read, and the user asking for
             that read is one of the three admitted refresh reasons — which is why
             the control stays after the first press rather than disappearing: the
             list can be asked again.

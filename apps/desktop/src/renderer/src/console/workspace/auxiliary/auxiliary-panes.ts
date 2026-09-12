@@ -1,7 +1,7 @@
 // The hand-off, wired: what the deck is told about panes that are in windows.
 //
 // ITS OWN MODULE BECAUSE IT IS A DIFFERENT SUBJECT FROM THE ARRANGEMENT. `Workspace.tsx`
-// composes a cast bar, a deck, a sidebar and a composer, and owns the split between
+// composes a session header, a deck, a sidebar and a composer, and owns the split between
 // them. This file owns one thing: the lifecycle of `AuxiliaryHandoff` inside a
 // surface — constructing it, following what it publishes, opening and closing the
 // window signals with the detached set, and turning the four acts a slot offers into

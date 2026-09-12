@@ -1,7 +1,7 @@
 // The edit-and-resend editor's slot — reserved, not stubbed.
 //
 // THE AFFORDANCE IS SPLIT ACROSS TWO OWNERS, AND THIS IS THE COMPOSER'S HALF. The
-// pencil that opens it lives in the footer of a participant `user.message` row and
+// pencil that opens it lives in the footer of a user `user.message` row and
 // belongs to the family that builds the ledger. The BODY it opens — the inline
 // editor and the confirm that dispatches the existing `rollback` intervention
 // carrying `replacementSend` — is authored by the run-controls plan, not here. What

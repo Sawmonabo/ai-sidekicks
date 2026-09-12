@@ -323,7 +323,7 @@ export const CODEX_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = 
     probe: {
       probeNames: ["thread/compact/start"],
       decisiveness:
-        "The flag asserts that participant-triggered compaction exists on the wire, and this is precisely the method its consumer — the driver's `compactContext` leg — calls. Unlike the sibling `rollback` entry, acceptance leaves NO parameter-level fact unestablished: the method's whole parameter set is the thread identity the driver already holds, so a build that accepts the method accepts every argument this driver will ever send it.",
+        "The flag asserts that user-triggered compaction exists on the wire, and this is precisely the method its consumer — the driver's `compactContext` leg — calls. Unlike the sibling `rollback` entry, acceptance leaves NO parameter-level fact unestablished: the method's whole parameter set is the thread identity the driver already holds, so a build that accepts the method accepts every argument this driver will ever send it.",
     },
   },
   provider_commands: {

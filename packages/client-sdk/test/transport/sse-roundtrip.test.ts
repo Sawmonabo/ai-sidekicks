@@ -72,7 +72,7 @@
 //     guarantee IS unblock contract this test verifies.
 //
 //   * Refusal-asserting deps factory inlined here: `session.subscribe`
-//     does NOT exercise the directoryService / participant / id-generator
+//     does NOT exercise the directoryService / user / id-generator
 //     / identity-resolver paths — those are the CRUD trio's domain.
 //     Every non-subscribe field below throws so any future regression
 //     (e.g., a refactor that wires those callbacks into the subscribe
@@ -188,8 +188,8 @@ function makeIntegrationDeps(provider: SessionEventStreamProvider): ControlPlane
     // Same never-reached posture as the runtime-node services above:
     // holds the throwing querier, throws only on use.
     anchorStore: new EventLogAnchorStore(throwingQuerier),
-    resolveCurrentParticipantId: () => {
-      throw NEVER_REACHED("resolveCurrentParticipantId");
+    resolveCurrentUserId: () => {
+      throw NEVER_REACHED("resolveCurrentUserId");
     },
     generateSessionId: () => {
       throw NEVER_REACHED("generateSessionId");

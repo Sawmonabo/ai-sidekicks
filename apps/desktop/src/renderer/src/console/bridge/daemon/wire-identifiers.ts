@@ -20,7 +20,7 @@
 // WHAT THEY DO NOT DO. They mint no refusal and compose no sentence. Whether an
 // unreadable identifier is a rendered refusal, a dropped row, or a silent skip is
 // the caller's decision and differs by surface: the composer refuses the send and
-// keeps the participant's text, the runs pane refuses the control, and the addressed
+// keeps the user's text, the runs pane refuses the control, and the addressed
 // -run chip simply shows no state. A reader that refused on their behalf would have
 // had to choose one, and the console's refusal codes would have moved into the
 // bridge family where no surface can read them.

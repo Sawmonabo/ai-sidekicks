@@ -3,7 +3,7 @@
 // These cases moved here with the schemas. Left in the approvals suite they would
 // have been a view family's test of a bridge-family rule, and the rule they cover is
 // the daemon's own: a goal is one to four thousand and ninety-six code units,
-// non-blank, and NUL-free, and the text the console sends is the text the participant
+// non-blank, and NUL-free, and the text the console sends is the text the user
 // typed rather than one this module trimmed into shape.
 
 import { describe, expect, it } from "vitest";

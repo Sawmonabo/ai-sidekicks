@@ -13,7 +13,7 @@ import { EMPTY_CARRIER_TITLE } from "./attachment-carrier-copy.js";
  * THE DENOMINATOR IS THE POINT, and it used to be missing. A carrier is capped at ten
  * attachments and the WHOLE carrier is refused at acceptance once it is past that, so
  * "7 attached" and "7 of 10 attached"
- * are two different amounts of warning — and the first one leaves a participant to
+ * are two different amounts of warning — and the first one leaves a user to
  * discover the bound by hitting it. What happens at the bound is stated in the
  * affordance's own disclosure beside this line.
  *

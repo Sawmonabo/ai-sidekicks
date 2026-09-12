@@ -16,7 +16,7 @@ import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.j
 import { unscriptedScenario } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { SETTINGS_SCENARIO } from "../../../bridge/scenario/settings/settings.js";
 import {
-  PARTICIPANT_YOU,
+  USER_YOU,
   SETTINGS_RUNTIME_NODE_ATTACH_DRAFT,
 } from "../../../bridge/scenario/settings/runtime-nodes.js";
 import { consoleTestUiStateStore } from "../../settings-page-mount.test-support.js";
@@ -35,7 +35,7 @@ const BOTH_MACHINES_ONLINE_MS = 200;
 /**
  * A tick inside the scenario's second roster frame, before the write lease is taken.
  *
- * Its first two frames carry a `null` holder and its last two carry this participant,
+ * Its first two frames carry a `null` holder and its last two carry this user,
  * so one scenario reaches both readings of the shared-shell line and neither needs a
  * deck of its own. The frame's rows are what pin it: at this tick both machines are
  * admitted and neither has heartbeated.
@@ -144,7 +144,7 @@ describe("runtime nodes page", () => {
 
   it("offers the attach control against the declaration the deck supplies", async () => {
     // The control is REVIEW BEFORE SEND: the machine's whole claim is on screen and
-    // the button is the participant's own act. A mount that fired on render would
+    // the button is the user's own act. A mount that fired on render would
     // pass a text assertion and be the wrong surface, so the declaration and the
     // un-fired state are asserted together.
     render(
@@ -186,7 +186,7 @@ describe("runtime nodes page", () => {
 
     const holderLine = await screen.findByText("Held by");
     const block = holderLine.closest("p");
-    expect(block?.textContent).toContain(PARTICIPANT_YOU);
+    expect(block?.textContent).toContain(USER_YOU);
     await settle();
   });
 

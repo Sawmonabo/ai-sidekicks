@@ -69,7 +69,7 @@ import type { CumulativeAxisReadings, MeteredUsageDelta } from "../../../usage-d
 import { hostEnvNameMatchForPlatform } from "../../../spawn-env.js";
 import {
   PermanentStructuralRefusalError,
-  type ParticipantTurnReadbackReader,
+  type UserTurnReadbackReader,
 } from "../../../transcript/failure-mapping.js";
 import {
   PostReplayAssertionFailedError,
@@ -761,13 +761,13 @@ interface ManagerHarnessOptions {
   /** Binds the replay target-readback reader, so the post-replay assertion can run. */
   transcriptReplayReadback?: ReplayTargetReadbackReader;
   /**
-   * Binds the participant-turn readback, so the positional reconcile can run.
+   * Binds the user-turn readback, so the positional reconcile can run.
    *
    * Left unbound by default, exactly as the production composition leaves it, so
    * every test that does not name it exercises the unreadable settlement — which
    * is the shipped teardown-and-replay behaviour.
    */
-  participantTurnReadback?: ParticipantTurnReadbackReader;
+  userTurnReadback?: UserTurnReadbackReader;
 }
 
 /**
@@ -844,9 +844,9 @@ function createManagerHarness(options: ManagerHarnessOptions = {}): ManagerHarne
     ...(options.transcriptReplayReadback === undefined
       ? {}
       : { transcriptReplayReadback: options.transcriptReplayReadback }),
-    ...(options.participantTurnReadback === undefined
+    ...(options.userTurnReadback === undefined
       ? {}
-      : { participantTurnReadback: options.participantTurnReadback }),
+      : { userTurnReadback: options.userTurnReadback }),
     ...(options.onServerNotification === true
       ? {
           onServerNotification: (method: string, params: unknown): void => {
@@ -894,7 +894,7 @@ function turnCompletedFrame(turnId: string, status: string): Record<string, unkn
 
 /**
  * A `completed` turn that produced NOTHING — the shape a provider answers with
- * when its input surface consumed the participant's words as a client-side
+ * when its input surface consumed the user's words as a client-side
  * command.
  */
 function zeroTurnCompletedFrame(turnId: string): Record<string, unknown> {
@@ -1853,7 +1853,7 @@ describe("CodexDriver session ownership", () => {
   });
 
   it("fails a superseded leg's unsettled frame instead of dropping it", async () => {
-    // The guarantee: a participant's text that provably may not have reached the
+    // The guarantee: a user's text that provably may not have reached the
     // model never silently vanishes. The resume replaces the binding the frame
     // was written on, so no terminal for it can ever arrive — and a dropped
     // frame leaves the run looking exactly like one whose words landed.
@@ -1897,7 +1897,7 @@ describe("CodexDriver session ownership", () => {
     const detail = harness.textNeutralizationFailures[0]?.providerFailureDetail ?? "";
     expect(detail).not.toContain(TEXT_NEUTRALIZATION_REFUSAL_CODE);
     expect(detail).toContain("superseded");
-    // And the participant's own words are never quoted into the detail — the
+    // And the user's own words are never quoted into the detail — the
     // cause says what happened to them, not what they were.
     expect(detail).not.toContain("rebase");
   });
@@ -1934,7 +1934,7 @@ describe("CodexDriver session ownership", () => {
 
   it("reports one failure per run, not one per frame", async () => {
     // Two frames on one run — the opening frame and a steer — and one supersede.
-    // One supersede is one cause; a report per frame would tell the participant
+    // One supersede is one cause; a report per frame would tell the user
     // their run failed twice for the same reason.
     const harness = createHarness();
     await createdSession(harness);
@@ -4097,21 +4097,21 @@ function typedTurnStartRefusal(codexErrorInfo: string): Record<string, unknown> 
  * proves the reconcile happened before any further send on the thread, which is
  * the property that makes the count trustworthy at all.
  */
-interface RecordedParticipantTurnReads {
+interface RecordedUserTurnReads {
   readonly targetIds: string[];
   readonly turnStartFramesAtRead: number[];
 }
 
-/** Answers a fixed participant-turn count, recording what the wire held when asked. */
-function countingParticipantTurnReadback(
-  participantOriginatedTurns: number,
-  reads: RecordedParticipantTurnReads,
+/** Answers a fixed user-turn count, recording what the wire held when asked. */
+function countingUserTurnReadback(
+  userOriginatedTurns: number,
+  reads: RecordedUserTurnReads,
   readHarness: () => ManagerHarness,
-): ParticipantTurnReadbackReader {
+): UserTurnReadbackReader {
   return (targetProviderSessionId: string) => {
     reads.targetIds.push(targetProviderSessionId);
     reads.turnStartFramesAtRead.push(readHarness().server.framesForMethod("turn/start").length);
-    return Promise.resolve({ kind: "counted" as const, participantOriginatedTurns });
+    return Promise.resolve({ kind: "counted" as const, userOriginatedTurns });
   };
 }
 
@@ -4216,13 +4216,13 @@ describe("CodexLifecycleManager permanent structural refusal", () => {
 
 describe("CodexLifecycleManager ambiguous turn/start reconciliation", () => {
   it("settles an ambiguous start DELIVERED and re-sends nothing", async () => {
-    const reads: RecordedParticipantTurnReads = { targetIds: [], turnStartFramesAtRead: [] };
+    const reads: RecordedUserTurnReads = { targetIds: [], turnStartFramesAtRead: [] };
     // One more turn than the daemon ever acknowledged: the ambiguous start landed
     // at the provider even though its answer never came back. The reader closes
     // over the harness it is bound into, which is only ever CALLED after the
     // constructor returned.
     const built: ManagerHarness = createManagerHarness({
-      participantTurnReadback: countingParticipantTurnReadback(1, reads, () => built),
+      userTurnReadback: countingUserTurnReadback(1, reads, () => built),
     });
     built.server.uniqueSpawnSessionIds = true;
     // Unanswered on purpose: the deadline is the only way this settles, and it is
@@ -4266,11 +4266,11 @@ describe("CodexLifecycleManager ambiguous turn/start reconciliation", () => {
   });
 
   it("CLEARS an ambiguous start for retry when the target proves nothing landed", async () => {
-    const reads: RecordedParticipantTurnReads = { targetIds: [], turnStartFramesAtRead: [] };
+    const reads: RecordedUserTurnReads = { targetIds: [], turnStartFramesAtRead: [] };
     // The thread holds exactly what the daemon already knows about, so the
     // ambiguous start never landed and a re-dispatch duplicates nothing.
     const harness: ManagerHarness = createManagerHarness({
-      participantTurnReadback: countingParticipantTurnReadback(0, reads, () => harness),
+      userTurnReadback: countingUserTurnReadback(0, reads, () => harness),
     });
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
 
@@ -4305,7 +4305,7 @@ describe("CodexLifecycleManager ambiguous turn/start reconciliation", () => {
   it("fails visibly and sends NOTHING when the target cannot be read back", async () => {
     let reads = 0;
     const harness = createManagerHarness({
-      participantTurnReadback: () => {
+      userTurnReadback: () => {
         reads += 1;
         return Promise.resolve({ kind: "unreadable" as const, reason: "no turn read on this pin" });
       },
@@ -4326,7 +4326,7 @@ describe("CodexLifecycleManager ambiguous turn/start reconciliation", () => {
 
     // A FAILED settlement, never a silent success — and zero re-sends beside it.
     // Neither silent option is admissible: a re-send risks duplicate spend and an
-    // assumed delivery suppresses the participant's request.
+    // assumed delivery suppresses the user's request.
     expect(await failure).toBeInstanceOf(CodexRequestTimeoutError);
     expect(reads).toBe(1);
     expect(harness.server.framesForMethod("turn/start")).toHaveLength(1);
@@ -4336,9 +4336,9 @@ describe("CodexLifecycleManager ambiguous turn/start reconciliation", () => {
     expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
   });
 
-  it("treats a THROWING participant-turn reader as an unreadable target", async () => {
+  it("treats a THROWING user-turn reader as an unreadable target", async () => {
     const harness = createManagerHarness({
-      participantTurnReadback: () => Promise.reject(new Error("read failed")),
+      userTurnReadback: () => Promise.reject(new Error("read failed")),
     });
     harness.server.uniqueSpawnSessionIds = true;
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
@@ -4454,7 +4454,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     // A trip retires the route as well as disposing the binding, so without the
     // quarantine check this steer would fail with "no active turn" — a
     // plausible wrong cause that reads as a race and invites a retry into the
-    // process that already swallowed the participant's words.
+    // process that already swallowed the user's words.
     const harness = createManagerHarness();
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
@@ -4464,7 +4464,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       agentConfig: {
         sessionId: SESSION_ID,
         input: "/status please",
-        frameOrigin: "participant_text",
+        frameOrigin: "human_text",
       },
     });
 
@@ -4478,7 +4478,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
         runId: RUN_ID,
         content: "actually, stop",
         clientIdempotencyKey: "steer-after-trip",
-        frameOrigin: "participant_text",
+        frameOrigin: "human_text",
       }),
     ).rejects.toThrow(TextNeutralizationRefusedError);
     await expect(harness.manager.interruptRun({ runId: RUN_ID })).rejects.toThrow(
@@ -4507,7 +4507,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       agentConfig: {
         sessionId: SESSION_ID,
         input: "/status please",
-        frameOrigin: "participant_text",
+        frameOrigin: "human_text",
       },
     });
 
@@ -4515,7 +4515,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       {
         sessionId: SESSION_ID,
         runId: RUN_ID,
-        providerFailureDetail: "driver.text_neutralization_failed origin=participant_text",
+        providerFailureDetail: "driver.text_neutralization_failed origin=human_text",
       },
     ]);
     expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
@@ -4542,7 +4542,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       agentConfig: {
         sessionId: SESSION_ID,
         input: "review the diff",
-        frameOrigin: "participant_text",
+        frameOrigin: "human_text",
       },
     });
 
@@ -4555,7 +4555,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
   it("refuses a later run on the SESSION a trip disposed, not only the run that was on it", async () => {
     // A run-keyed quarantine cannot reach this: `startRun` resolves a SESSION,
     // so the surviving record would hand the next run straight back to the
-    // process that swallowed the participant's words. The refusal names the
+    // process that swallowed the user's words. The refusal names the
     // neutralization rather than a transport fault, so one cause reads as one
     // cause.
     const harness = createManagerHarness();
@@ -4567,7 +4567,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       agentConfig: {
         sessionId: SESSION_ID,
         input: "/status please",
-        frameOrigin: "participant_text",
+        frameOrigin: "human_text",
       },
     });
     harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
@@ -4600,7 +4600,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       agentConfig: {
         sessionId: SESSION_ID,
         input: "/status please",
-        frameOrigin: "participant_text",
+        frameOrigin: "human_text",
       },
     });
     harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
@@ -4645,7 +4645,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       agentConfig: {
         sessionId: SESSION_ID,
         input: "review the diff",
-        frameOrigin: "participant_text",
+        frameOrigin: "human_text",
       },
     });
     // The opening frame's own evidence, observed BEFORE the steer is written.
@@ -4696,7 +4696,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       runId: RUN_ID,
       content: "/clear and start over",
       clientIdempotencyKey: "steer-1",
-      frameOrigin: "participant_text",
+      frameOrigin: "human_text",
     });
     expect(acknowledgement).toStrictEqual({
       targetedTurnId: TURN_ID,
@@ -4754,7 +4754,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       runId: RUN_ID,
       content: "/clear and start over",
       clientIdempotencyKey: "steer-1",
-      frameOrigin: "participant_text",
+      frameOrigin: "human_text",
     });
     expect(acknowledgement).toStrictEqual({
       targetedTurnId: TURN_ID,
@@ -5063,7 +5063,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       agentConfig: {
         sessionId: SESSION_ID,
         input: "review the diff",
-        frameOrigin: "participant_text",
+        frameOrigin: "human_text",
       },
     });
     harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
@@ -5072,7 +5072,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       runId: RUN_ID,
       content: "also check the tests",
       clientIdempotencyKey: "steer-1",
-      frameOrigin: "participant_text",
+      frameOrigin: "human_text",
     });
     // Answered after the steer, so it is attributable to the steer.
     harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
@@ -5104,7 +5104,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       agentConfig: {
         sessionId: SESSION_ID,
         input: "review the diff",
-        frameOrigin: "participant_text",
+        frameOrigin: "human_text",
       },
     });
     harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
@@ -5115,7 +5115,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
         runId: RUN_ID,
         content: "also check the tests",
         clientIdempotencyKey: "steer-1",
-        frameOrigin: "participant_text",
+        frameOrigin: "human_text",
       }),
     ).rejects.toThrow();
     harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
@@ -5142,7 +5142,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       agentConfig: {
         sessionId: SESSION_ID,
         input: "review the diff",
-        frameOrigin: "participant_text",
+        frameOrigin: "human_text",
       },
     });
     harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
@@ -5185,7 +5185,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       agentConfig: {
         sessionId: SESSION_ID,
         input: "review the diff",
-        frameOrigin: "participant_text",
+        frameOrigin: "human_text",
       },
     });
     // The opening frame's own evidence, observed BEFORE the steer is written, so
@@ -5245,7 +5245,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       agentConfig: {
         sessionId: SESSION_ID,
         input: "review the diff",
-        frameOrigin: "participant_text",
+        frameOrigin: "human_text",
       },
     });
     harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
@@ -5302,7 +5302,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       agentConfig: {
         sessionId: SESSION_ID,
         input: "/status please",
-        frameOrigin: "participant_text",
+        frameOrigin: "human_text",
       },
     });
     await harness.manager.interruptRun({ runId: RUN_ID });
@@ -5315,12 +5315,12 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       {
         sessionId: SESSION_ID,
         runId: RUN_ID,
-        providerFailureDetail: "driver.text_neutralization_failed origin=participant_text",
+        providerFailureDetail: "driver.text_neutralization_failed origin=human_text",
       },
     ]);
     // And the session arm too: the run failure alone would leave the next run
     // free to resolve this record by session id and dispatch into the process
-    // that swallowed the participant's words.
+    // that swallowed the user's words.
     await expect(
       harness.manager.startRun({
         runId: SECOND_RUN_ID,
@@ -5345,7 +5345,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       agentConfig: {
         sessionId: SESSION_ID,
         input: "/status please",
-        frameOrigin: "participant_text",
+        frameOrigin: "human_text",
       },
     });
     await harness.manager.interruptRun({ runId: RUN_ID });
@@ -5361,7 +5361,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
   it("does not trip an interrupted turn whose terminal carries model output", async () => {
     // The negative control. A retained correlation must not become a second
     // route that fails an ordinary interrupted turn — the overwhelmingly common
-    // case, where a participant simply stopped a run that was working.
+    // case, where a user simply stopped a run that was working.
     const harness = createManagerHarness();
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     harness.server.on("turn/interrupt", () => ({ result: {} }));
@@ -5372,7 +5372,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       agentConfig: {
         sessionId: SESSION_ID,
         input: "review the diff",
-        frameOrigin: "participant_text",
+        frameOrigin: "human_text",
       },
     });
     harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
@@ -5421,7 +5421,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
         agentConfig: {
           sessionId: SESSION_ID,
           input: "/status please",
-          frameOrigin: "participant_text",
+          frameOrigin: "human_text",
         },
       });
       // Interrupted and never terminated, so every frame stays unsettled and
@@ -5736,7 +5736,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(true);
     expect(harness.textNeutralizationFailures).toHaveLength(1);
     expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toBe(
-      "driver.text_neutralization_failed origin=participant_text",
+      "driver.text_neutralization_failed origin=human_text",
     );
   });
 
@@ -5783,7 +5783,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     expect(harness.manager.textNeutralizationDecisionForTurn(secondTurnId).refused).toBe(true);
     expect(harness.textNeutralizationFailures).toHaveLength(1);
     expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toBe(
-      "driver.text_neutralization_failed origin=participant_text",
+      "driver.text_neutralization_failed origin=human_text",
     );
     // The first attempt's frame stayed on ITS turn: still unsettled, still owed
     // a ruling, and not consumed by the turn beside it.
@@ -5831,7 +5831,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     expect(harness.textNeutralizationFailures).toHaveLength(1);
     expect(harness.textNeutralizationFailures[0]?.runId).toBe(RUN_ID);
     expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toBe(
-      "driver.text_neutralization_failed origin=participant_text",
+      "driver.text_neutralization_failed origin=human_text",
     );
     expect(harness.manager.textNeutralizationDecisionForTurn(firstTurnId).refused).toBe(true);
     // And the second turn's frame was RULED as the condemned binding went away
@@ -5891,7 +5891,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       runId: RUN_ID,
       content: "narrow the diff to the parser",
       clientIdempotencyKey: "steer-survivor",
-      frameOrigin: "participant_text",
+      frameOrigin: "human_text",
     });
     expect(harness.server.framesForMethod("turn/steer")[0]?.["params"]).toMatchObject({
       expectedTurnId: firstTurnId,
@@ -5989,7 +5989,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
   it("refuses a run whose config declares a frame origin, before any byte is written", async () => {
     // The origin of a run's opening frame is MINTED at the boundary, so the
     // untyped `agentConfig` bag cannot name one — least of all the exempt arm,
-    // which would have the participant's command-shaped words delivered verbatim
+    // which would have the user's command-shaped words delivered verbatim
     // to the provider's own command layer AND excuse the swallowed turn from the
     // tripwire. No type reaches a bag, so the refusal is the enforcement.
     const harness = createManagerHarness();
@@ -6030,7 +6030,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       agentConfig: {
         sessionId: SESSION_ID,
         input: "review the diff",
-        frameOrigin: "participant_text",
+        frameOrigin: "human_text",
       },
     });
 
@@ -6973,7 +6973,7 @@ describe("CodexDriver transport construction (leg 6)", () => {
   it("refuses construction when a websocket transport has no bearer resolver", () => {
     // The refusal is at CONSTRUCTION, not at the first session: a registry that
     // accepted this would report a healthy driver for the whole interval before
-    // a participant started a run.
+    // a user started a run.
     expect(
       () => new CodexDriver({ ...buildDriverOptions(), transportConfig: websocketTransportConfig }),
     ).toThrow(CodexDriverConfigError);
@@ -7267,7 +7267,7 @@ describe("CodexAppServerConnection routed server requests (R3)", () => {
     // sole-active fallback answered that claim by substituting a DIFFERENT run,
     // so a delayed approval from a retired turn was evaluated, persisted, and
     // projected under a newer run's identity and authorization context. A
-    // decline is visible to the participant and retryable; an approval decided
+    // decline is visible to the user and retryable; an approval decided
     // against the wrong run is neither.
     const attributedRuns: Array<string | null> = [];
     const { harness, askProvider, driverDiagnosticRecords } = await routedAskHarness({
@@ -9130,7 +9130,7 @@ describe("CodexLifecycleManager.compactContext (native)", () => {
     // The property that makes the withdrawal safe, and the reason it is not a
     // settlement. Settling is per-key because one provider compaction is one
     // compaction; withdrawing is per-waiter. A caller whose own dispatch threw
-    // must therefore not settle a participant who asked independently and is
+    // must therefore not settle a user who asked independently and is
     // still owed the truth about the compaction that IS running.
     const harness = createManagerHarness({ onServerNotification: true });
     let dispatchCount = 0;
@@ -9348,11 +9348,11 @@ describe("CodexLifecycleManager.compactContext (native)", () => {
     expect(harness.driverDiagnostics.recentRecordsOfKind("compaction_wait_terminal")).toEqual([]);
   });
 
-  it("a registered CHILD thread's compaction never settles the participant's wait", async () => {
+  it("a registered CHILD thread's compaction never settles the user's wait", async () => {
     const harness = await compactionHarness();
     // A provider-INTERNAL compaction child: the most adversarial case this leg
     // has, because the child is itself a compaction, so the only thing
-    // separating its boundary frame from the participant's is whose thread it
+    // separating its boundary frame from the user's is whose thread it
     // names.
     harness.server.emitFrame({
       jsonrpc: "2.0",
@@ -9377,7 +9377,7 @@ describe("CodexLifecycleManager.compactContext (native)", () => {
 
     // The child's boundary frame routed `carve-out-usage` — a different arm
     // from the two the tap is called from — so it reached neither the
-    // participant's wait nor the parent's timeline.
+    // user's wait nor the parent's timeline.
     expect(harness.notifications).toStrictEqual([]);
     expect(harness.scheduler.pendingDelays()).toContain(CODEX_COMPACTION_WAIT_MS);
 
@@ -10420,14 +10420,14 @@ describe("CodexLifecycleManager.replayTranscript", () => {
   } as const;
 
   /** A rendered transcript frame at the shape `exportTranscript` emits. */
-  function frame(position: number, role: "participant" | "assistant", text: string): unknown {
+  function frame(position: number, role: "user" | "assistant", text: string): unknown {
     return { position, role, segments: [{ kind: "text", position, text }] };
   }
 
   const TRANSCRIPT: readonly unknown[] = [
-    frame(1, "participant", "what changed in the parser?"),
+    frame(1, "user", "what changed in the parser?"),
     frame(2, "assistant", "the enclosure settle moved after the strip"),
-    frame(3, "participant", "why that order?"),
+    frame(3, "user", "why that order?"),
     frame(4, "assistant", "stripping first orphans the tool calls"),
   ];
 
@@ -10682,7 +10682,7 @@ describe("CodexLifecycleManager.replayTranscript", () => {
       harness.manager.replayTranscript({
         target: TARGET,
         frames: [
-          frame(1, "participant", "kept"),
+          frame(1, "user", "kept"),
           { position: 2, role: "assistant", segments: [{ kind: "hologram", position: 2 }] },
         ],
       }),

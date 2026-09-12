@@ -3,7 +3,7 @@
 //
 // SPLIT FROM `artifact-model.ts` ON THE SEAM THAT FILE'S OWN FIRST LINE DRAWS: what an
 // artifact IS versus what the console may say about one. The model side is the row
-// type, the filter, and the pure reductions; this side is every word a participant
+// type, the filter, and the pure reductions; this side is every word a user
 // reads. They part cleanly because the dependency runs one way — copy names the model's
 // types, and no model function names a sentence — so a change to a sentence recompiles
 // nothing but the surfaces that draw it.
@@ -105,7 +105,7 @@ export const ARTIFACT_REPLICATION_ABSENT: ArtifactPresentation = {
 /** What an absent `createdBy` names. A producer, stated as one. */
 export const ARTIFACT_PRODUCER_ABSENT_LABEL = "the daemon";
 
-/** What each payload disposition tells a participant about the bytes. */
+/** What each payload disposition tells a user about the bytes. */
 export const ARTIFACT_PAYLOAD_DISPOSITION_COPY: Readonly<
   Record<ArtifactPayloadDisposition, string>
 > = {
@@ -152,7 +152,7 @@ export function artifactDeleteReceiptSentence(receipt: ArtifactDeleteReceipt): s
  * only thing removed is the claim that it is the case here.
  */
 export const ARTIFACT_DELETE_CONSEQUENCE =
-  "Deleting may foreclose re-publishing this artifact: where this row carried the retained relay key, that key is destroyed with it and a participant who joins later has no way back to it. The receipt this delete answers with reports whether that happened.";
+  "Deleting may foreclose re-publishing this artifact: where this row carried the retained relay key, that key is destroyed with it and a user who joins later has no way back to it. The receipt this delete answers with reports whether that happened.";
 
 /** The replication reading for a row, absent status included. */
 export function artifactReplicationPresentation(row: ArtifactManifestRow): ArtifactPresentation {

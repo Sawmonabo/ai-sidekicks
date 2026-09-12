@@ -4,7 +4,7 @@
 import { fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { REPOS_VIEWING_PARTICIPANT_ID } from "../../bridge/scenario/repos/repos.js";
+import { REPOS_VIEWING_USER_ID } from "../../bridge/scenario/repos/repos.js";
 import { refuse } from "../../core/index.js";
 import { formatByteQuantity, formatCount } from "../../primitives/index.js";
 import { artifactRow } from "./artifacts.test-support.js";
@@ -143,7 +143,7 @@ describe("ArtifactsPanel — the row's face", () => {
     expect(container.textContent).toContain("published");
     expect(container.textContent).toContain("shared");
     expect(container.textContent).toContain(formatByteQuantity(row.size).text);
-    expect(container.textContent).toContain(REPOS_VIEWING_PARTICIPANT_ID);
+    expect(container.textContent).toContain(REPOS_VIEWING_USER_ID);
     expect(container.textContent).toContain(ARTIFACT_REPLICATION_PRESENTATION.over_cap.meaning);
   });
 
@@ -218,7 +218,7 @@ describe("ArtifactsPanel — the type filter is one filter over one list", () =>
   it("negative control: the session-empty copy survives, on the arm that earns it", () => {
     // The other side of the same branch. A fix that routed every empty body through
     // the filter-scoped sentence would leave a read that genuinely found none with
-    // no way to say so, and would name a filter the participant never touched.
+    // no way to say so, and would name a filter the user never touched.
     const { container } = render(
       <ArtifactsPanel state={{ kind: "listed", rows: [] }} nowMilliseconds={NOW_MILLISECONDS} />,
     );

@@ -33,7 +33,7 @@ import {
  */
 export function openSessionStoreWithTerminalChapter(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
+  sessionStore.initialise({ cursor: -1, entities: [], userJoinLog: [] });
   sessionStore.applyBatch([
     {
       id: ledgerFixtureEventId(0),
@@ -150,7 +150,7 @@ export function foldedMessageChapterLog(): readonly ConsoleSessionEvent[] {
 /** That log, in a real store. */
 export function openSessionStoreWithFoldedMessageChapter(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
+  sessionStore.initialise({ cursor: -1, entities: [], userJoinLog: [] });
   sessionStore.applyBatch([...foldedMessageChapterLog()]);
   return sessionStore;
 }
@@ -226,7 +226,7 @@ export function rewoundTerminalChapterLog(): readonly ConsoleSessionEvent[] {
  */
 export function openSessionStoreWithSeam(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
+  sessionStore.initialise({ cursor: -1, entities: [], userJoinLog: [] });
   sessionStore.applyBatch([
     {
       id: ledgerFixtureEventId(0),

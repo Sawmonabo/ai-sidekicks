@@ -17,7 +17,7 @@
 // what keeps a later edit from collapsing it back into the signed-out refusal.
 
 import { render } from "@testing-library/react";
-import type { ParticipantId } from "@ai-sidekicks/contracts";
+import type { UserId } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import { SignInCard } from "./SignInCard.js";
@@ -25,9 +25,9 @@ import type { SignInState } from "./sign-in-flow.js";
 
 const HANDOFF = { verificationUri: "http://127.0.0.1:8419/callback", userCode: "JQPD-4KTM" };
 
-/** The participant the relying party verified. Rendered verbatim, so it is asserted so. */
-const PARTICIPANT_ID = "019b78c9-0a80-79a4-8110-cca0117a3301";
-const CLAIMS = { participantId: PARTICIPANT_ID as ParticipantId };
+/** The user the relying party verified. Rendered verbatim, so it is asserted so. */
+const USER_ID = "019b78c9-0a80-79a4-8110-cca0117a3301";
+const CLAIMS = { userId: USER_ID as UserId };
 
 const STATES: readonly SignInState[] = [
   { kind: "signed-out" },
@@ -90,7 +90,7 @@ describe("what each state actually says", () => {
     expect(text).toContain("Open the browser");
   });
 
-  it("names the participant it signed in, as a wire figure and not as prose", () => {
+  it("names the user it signed in, as a wire figure and not as prose", () => {
     // The defect: the card stated where the credential was kept and never who it
     // belonged to, on the one surface whose whole purpose is to establish an
     // identity. The id wears the mono provenance signature (rule 4) because the
@@ -101,7 +101,7 @@ describe("what each state actually says", () => {
     const figures = [...container.querySelectorAll(".meridian-figure--wire")].map(
       (figure) => figure.textContent,
     );
-    expect(figures).toContain(PARTICIPANT_ID);
+    expect(figures).toContain(USER_ID);
   });
 
   it("states the memory-only consequence at the moment it is minted", () => {

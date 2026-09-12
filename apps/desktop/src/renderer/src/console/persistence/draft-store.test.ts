@@ -3,7 +3,7 @@
 //
 // The property worth the most here is the disclosure, because its failure is
 // silent. The module's own header states the rule the whole class exists for — a
-// draft is never lost without the participant being told — and the live ceiling
+// draft is never lost without the user being told — and the live ceiling
 // reached around it: past the bound the least-recently-typed draft was deleted and
 // its composer notified with `undefined`, which is byte-for-byte what a send looks
 // like. Cleared, sent, and evicted arrived through one signal and only one of them
@@ -55,10 +55,10 @@ describe("the draft store — a ceiling that drops text says so", () => {
     expect(store.evictionNoticePendingFor("composer-c")).toBe(false);
   });
 
-  it("negative control: text the participant themselves cleared carries none either", () => {
+  it("negative control: text the user themselves cleared carries none either", () => {
     // A send and an eviction reach the subscriber through the same `undefined`, so a
     // store that armed on every removal would put a loss notice beside a message the
-    // participant had just sent.
+    // user had just sent.
     const { store, typeInto } = storeHolding(2);
     typeInto("composer-a", "about to be sent");
     store.clear("composer-a");
@@ -66,7 +66,7 @@ describe("the draft store — a ceiling that drops text says so", () => {
     expect(store.evictionNoticePendingFor("composer-a")).toBe(false);
   });
 
-  it("retires the notice when the participant types there again", () => {
+  it("retires the notice when the user types there again", () => {
     const { store, typeInto } = storeHolding(1);
     typeInto("composer-a", "the oldest thing anybody typed");
     typeInto("composer-b", "newer");

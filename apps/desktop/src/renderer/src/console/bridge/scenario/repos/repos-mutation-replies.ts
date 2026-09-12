@@ -163,7 +163,7 @@ function bindResultFor(request: unknown): unknown {
  * prepare with no branch draws `workspace.branch_name_required`, which is the one field
  * whose optionality on the wire does not mean optional — a wire prepare is pre-run by
  * definition and the daemon has nothing to derive a slug from. A branch that already has
- * a live checkout draws `worktree.branch_collision`, because a name a participant typed
+ * a live checkout draws `worktree.branch_collision`, because a name a user typed
  * is never silently adapted.
  *
  * The served arm carries `worktreeId` and `branchContextId` and no `ephemeralCloneId`:
@@ -280,7 +280,7 @@ function disposeResultFor(request: unknown): unknown {
  *
  * THE GIT WORKSPACE IS THE INTERESTING ONE, and it is the only binding in which the
  * three roots genuinely differ. It is bound `branch`, which under
- * turn-boundary snapshots mean the execution root is the participant's own
+ * turn-boundary snapshots mean the execution root is the user's own
  * live working tree — here a linked worktree rather than the checkout the mount resolved
  * to — and it is bound at a SUBDIRECTORY of that tree, which the same rule normalizes to
  * the enclosing working-tree top level. So the bound root is nested inside the
@@ -337,7 +337,7 @@ export const REPOS_MUTATION_REPLIES: ConsoleScenario["replies"] = [
   { call: "repo.worktreeReuseCheck", resultFor: reuseCheckResultFor },
   {
     // The one act with no refusing arm scripted, and the reason is the request rather
-    // than an omission: every member of a clone prepare that a participant can get
+    // than an omission: every member of a clone prepare that a user can get
     // wrong — the workspace, the branch — is refused by one of the acts above under a
     // code this table would only be restating. What it does state is the EFFECTIVE
     // cleanup policy, which the daemon applies and echoes back, and a deadline ahead of

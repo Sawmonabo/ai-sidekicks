@@ -78,7 +78,7 @@ const SESSION_ID: string = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f00";
 // `NodeId` is a daemon-minted opaque scalar (min 1, max 256), NOT a UUID.
 const NODE_ID: string = "node-01J0ND0000NN5J5J5J5J5J5J";
 // `actor` is the EventEnvelope free-form actor string (here a ULID).
-const PARTICIPANT_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
+const USER_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
 
 // Raw read shape for the persisted `runtime_node.registered` event. The integrity
 // columns are not relevant here (D5 owns them); we read the payload + type to assert
@@ -268,7 +268,7 @@ describe("NodeRegistry — registration does not mutate the session directory", 
     // Capture the row counts of the tables that DO exist before registering, so
     // we can prove registration touched only the two expected tables.
     const beforeSnapshots: number = tableRowCount(ctx.db, "session_snapshots");
-    const beforeParticipantKeys: number = tableRowCount(ctx.db, "participant_keys");
+    const beforeUserKeys: number = tableRowCount(ctx.db, "user_keys");
 
     await registry.register({
       nodeId: NODE_ID,
@@ -289,7 +289,7 @@ describe("NodeRegistry — registration does not mutate the session directory", 
     // No OTHER Local SQLite table was written — registration is scoped to
     // node_trust_state + session_events.
     expect(tableRowCount(ctx.db, "session_snapshots")).toBe(beforeSnapshots);
-    expect(tableRowCount(ctx.db, "participant_keys")).toBe(beforeParticipantKeys);
+    expect(tableRowCount(ctx.db, "user_keys")).toBe(beforeUserKeys);
   });
 });
 
@@ -303,7 +303,7 @@ describe("NodeRegistry — emits runtime_node.registered", () => {
     await registry.register({
       nodeId: NODE_ID,
       sessionId: SESSION_ID,
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
       // Register CARRYING capabilities on the wire — the registered event replays
       // them, but they must NOT be persisted as schedulable `node_capabilities`
       // rows (asserted below).
@@ -329,7 +329,7 @@ describe("NodeRegistry — emits runtime_node.registered", () => {
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       newState: "registering",
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
       capabilities: { "provider-driver": { contractVersion: "1.0" } },
       nodeVersion: "1.4.2",
       platform: "darwin-arm64",

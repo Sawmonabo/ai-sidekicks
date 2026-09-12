@@ -62,10 +62,10 @@ export interface ConsoleScenario {
   /** What this scenario is for, so a reader knows which to reach for. */
   readonly purpose: string;
   readonly sessionId: string;
-  /** Participants in join order — the hue allocator's input (rule 2). */
-  readonly participantIdsInJoinOrder: readonly string[];
+  /** Users in join order — the hue allocator's input (rule 2). */
+  readonly userIdsInJoinOrder: readonly string[];
   /**
-   * Which of those participants this window IS, where the scenario states one.
+   * Which of those users this window IS, where the scenario states one.
    *
    * OPTIONAL, and the optionality is the point: join order is who opened the session
    * and who followed, so reading its head as "me" is a fabrication — and a surface
@@ -73,12 +73,12 @@ export interface ConsoleScenario {
    * scenario that does not say leaves this absent and the fixture refuses the
    * caller-identity read, which is the honest "not checked" answer.
    *
-   * When present it must be one of `participantIdsInJoinOrder`: an identity outside
+   * When present it must be one of `userIdsInJoinOrder`: an identity outside
    * that list is a viewer of some other session, and every surface that resolves it
    * would look it up and find nothing. `scenario/wire-truth/wire-truth.ts` holds every
    * scenario to that, the substrate's own two included.
    */
-  readonly viewingParticipantId?: string;
+  readonly viewingUserId?: string;
   readonly beats: readonly ScenarioBeat[];
   readonly replies: readonly ScenarioReply[];
   /**

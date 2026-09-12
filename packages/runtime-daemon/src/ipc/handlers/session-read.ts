@@ -25,7 +25,7 @@
 //     projection through `SessionReadDeps.readSession`.
 //   * Cursor materialization — `timelineCursors.latest` is the head of
 //     the per-session sequence; `acknowledged` is the optional last-
-//     viewed cursor for the calling participant. The deps' implementor
+//     viewed cursor for the calling user. The deps' implementor
 //     is responsible for both.
 //
 // Method-name format ratified: dotted-camelCase. The `register` call site

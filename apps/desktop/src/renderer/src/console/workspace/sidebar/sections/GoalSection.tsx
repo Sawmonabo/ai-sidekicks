@@ -25,7 +25,7 @@
 // only for a role the goal contract admits, so a viewer or a runtime contributor was
 // promised an act and handed a surface that offers them none. The remedy is the copy
 // rather than a role gate here: gating would need a second reading of the caller's
-// identity beside the card's own, and it would hide the goal from a participant
+// identity beside the card's own, and it would hide the goal from a user
 // entitled to read it. The words are `goal-section-commands.ts`'s and the act is that
 // module's one function, both shared with the palette row — so the button, the row,
 // and the destination cannot come apart.

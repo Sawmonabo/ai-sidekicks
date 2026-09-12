@@ -1,7 +1,7 @@
 // The attachment card a ledger row carries, and the seat registration that fills it.
 //
 // A secondary control lives one click away, and THIS FAMILY'S OWN RULE puts an
-// attachment in the position the participant
+// attachment in the position the user
 // put it: an attachment belongs to the
 // turn that carried it, and its marker sits in the attachment's
 // DECLARED POSITION rather than being appended or footnoted — which is exactly what a

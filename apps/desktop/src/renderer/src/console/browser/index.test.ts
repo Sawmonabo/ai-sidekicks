@@ -12,7 +12,7 @@
 // Both are legs of `bridge/scenario/wire-truth/wire-truth.ts`, the single predicate every
 // scenario on the seat board is measured through, and it reads the compiled
 // `SESSION_EVENT_CATEGORY_BY_TYPE` census rather than a copy — which matters, because
-// the copy had already gone stale once, carrying `participant.joined`, a name the
+// the copy had already gone stale once, carrying `user.joined`, a name the
 // taxonomy does not register at all. The call names below survive because nothing
 // else censuses them: wire truth walks the replies for duplicates and spendable
 // latency and never asks what a call is named.

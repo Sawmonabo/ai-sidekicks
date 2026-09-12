@@ -78,7 +78,7 @@ const GROWTH_SLATE_ROWS_BY_ID: {
   },
   "session-directory-read": {
     id: "session-directory-read",
-    wire: "typed session snapshot read for a store's base state, and the participant's session directory read, over the daemon method union, plus the resume-position member on that read's request — `SessionReadRequest` is strict over `sessionId` alone and `SessionSubscribeRequest.afterCursor` is the only cursor a registered request carries",
+    wire: "typed session snapshot read for a store's base state, and the user's session directory read, over the daemon method union, plus the resume-position member on that read's request — `SessionReadRequest` is strict over `sessionId` alone and `SessionSubscribeRequest.afterCursor` is the only cursor a registered request carries",
     owningDocument:
       "the daemon method union; the session.read payloads (no directory read is registered)",
     wireRegistered: false,
@@ -115,7 +115,7 @@ const GROWTH_SLATE_ROWS_BY_ID: {
   },
   // The linkage read is its own row rather than a member of the agent row above,
   // because it is a different namespace with a different owner: an agent is a
-  // participant in a session and a child run is a relationship between two RUNS, and
+  // user in a session and a child run is a relationship between two RUNS, and
   // the refusal fold it carries has no counterpart on any agent read.
   "child-run-linkage": {
     id: "child-run-linkage",
@@ -264,9 +264,9 @@ const GROWTH_SLATE_ROWS_BY_ID: {
       "the workflow design (the run operations, none of which enumerates) and its build plan (the shared-contracts and client-SDK registration an enumeration would join)",
     wireRegistered: false,
   },
-  "caller-participant-identity": {
-    id: "caller-participant-identity",
-    wire: "the caller's own participant identity — which of a session's projected participants this window IS",
+  "caller-user-identity": {
+    id: "caller-user-identity",
+    wire: "the caller's own user identity — which of a session's projected users this window IS",
     owningDocument:
       "the authenticated-principal and authorization model (the resolved principal's outbound disposition, which it does not yet carry); the identity design (the reply shape)",
     wireRegistered: false,
@@ -287,9 +287,9 @@ const GROWTH_SLATE_ROWS_BY_ID: {
   },
   "hydrated-event-read": {
     id: "hydrated-event-read",
-    wire: "the hydrated event read that pairs a verified event row with its opened machine-authored body, and the participant-text body no arm of that read opens",
+    wire: "the hydrated event read that pairs a verified event row with its opened machine-authored body, and the human-text body no arm of that read opens",
     owningDocument:
-      "the assistant-output event family; the machine-authored content column (the HydratedSessionEvent projection over session_events.content_payload, which the daemon builds and no bridge namespace serves; the participant half rides session_events.pii_payload under the same design and has no read projection at all)",
+      "the assistant-output event family; the machine-authored content column (the HydratedSessionEvent projection over session_events.content_payload, which the daemon builds and no bridge namespace serves; the user half rides session_events.pii_payload under the same design and has no read projection at all)",
     wireRegistered: false,
   },
   "cost-receipt-read": {
@@ -348,11 +348,11 @@ const GROWTH_SLATE_ROWS_BY_ID: {
       "the channel design (the create-time-immutable ChannelConfig); the orchestration payload contracts (the four method strings and their payload shapes, registered there and in no code package)",
     wireRegistered: false,
   },
-  "participant-presence-detail": {
-    id: "participant-presence-detail",
-    wire: "participant.presenceDetail — the owner/operator-only per-device presence fan-out behind the aggregated summary every role may read",
+  "user-presence-detail": {
+    id: "user-presence-detail",
+    wire: "user.presenceDetail — the owner/operator-only per-device presence fan-out behind the aggregated summary every role may read",
     owningDocument:
-      "the identity design (the aggregated summary is the unauthorized-default projection); the participant method-name registry (PresenceDetailReadRequest / PresenceDetailReadResponse, registered there and in no code package)",
+      "the identity design (the aggregated summary is the unauthorized-default projection); the user method-name registry (PresenceDetailReadRequest / PresenceDetailReadResponse, registered there and in no code package)",
     wireRegistered: false,
   },
   "terminal-control-holder": {
@@ -402,7 +402,7 @@ const GROWTH_SLATE_ROWS_BY_ID: {
   },
   "health-diagnostics-reads": {
     id: "health-diagnostics-reads",
-    wire: "the four `health.*` operations that have no row of their own — one run's classified failure detail, one run's stall reading, the operator's recovery request, and the diagnostic redaction policy — with the request and reply shapes each carries. The status projection is `health-status-read` above, which this page's banner consumes beside the cast bar; the health SUBSCRIPTION is a third row and a third wire, and this page is forbidden to consume one",
+    wire: "the four `health.*` operations that have no row of their own — one run's classified failure detail, one run's stall reading, the operator's recovery request, and the diagnostic redaction policy — with the request and reply shapes each carries. The status projection is `health-status-read` above, which this page's banner consumes beside the session header; the health SUBSCRIPTION is a third row and a third wire, and this page is forbidden to consume one",
     owningDocument:
       "the observability design (the failure-classification, stuck-run, recovery, and redaction-policy surfaces); the observability payload contracts and the health method-name registry (the four method strings and their request/reply shapes, registered there and in no code package — `packages/contracts/src/health/health.ts` is named as their eventual home and does not exist)",
     wireRegistered: false,

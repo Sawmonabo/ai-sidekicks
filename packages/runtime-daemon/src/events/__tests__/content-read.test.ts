@@ -278,7 +278,7 @@ describe("content ciphertext digest binding", () => {
     }
   });
 
-  it("is independent of the participant digest on the same row", () => {
+  it("is independent of the user digest on the same row", () => {
     // A row carrying both partitions must not have one binding answer for the
     // other — the two columns are digested under their own keys.
     const payload = {

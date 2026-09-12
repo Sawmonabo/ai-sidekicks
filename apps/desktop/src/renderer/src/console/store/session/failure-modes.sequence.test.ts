@@ -22,7 +22,7 @@ describe("failure matrix — a delivered sequence the store cannot reconcile", (
   // jump would spend far longer than two seconds before producing any answer.
   it("settles a jump of a billion into the repair path instead of enumerating it", () => {
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
 
     const outcome = store.applyBatch([eventAt(1_000_000_000)]);
 
@@ -41,7 +41,7 @@ describe("failure matrix — a delivered sequence the store cannot reconcile", (
 
   it("refuses a sequence too large to increment reliably rather than poisoning the cursor", () => {
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
 
     const outcome = store.applyBatch([
       eventAt(Number.MAX_SAFE_INTEGER),
@@ -66,7 +66,7 @@ describe("failure matrix — a delivered sequence the store cannot reconcile", (
     // beside it undefined. One hostile sequence must not decide where the real
     // ones land.
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
 
     const outcome = store.applyBatch([eventAt(3), eventAt(Number.NaN), eventAt(1)]);
 
@@ -97,7 +97,7 @@ describe("failure matrix — a delivered sequence the store cannot reconcile", (
     // arithmetic of the class is what fails: a bound on a single jump would let
     // the range list grow one entry per hole for the life of the session.
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
 
     const strided = Array.from({ length: MAX_REPAIRABLE_SEQUENCE_GAP + 8 }, (_unused, index) =>
       eventAt(index * 2 + 2),
@@ -115,7 +115,7 @@ describe("failure matrix — a delivered sequence the store cannot reconcile", (
     // Without this the cases above would pass over a store that had simply stopped
     // admitting anything with a hole in front of it.
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
 
     const outcome = store.applyBatch([eventAt(1), eventAt(MAX_REPAIRABLE_SEQUENCE_GAP + 1)]);
 
@@ -130,7 +130,7 @@ describe("failure matrix — a delivered sequence the store cannot reconcile", (
     store.initialise({
       cursor: MAX_REPAIRABLE_SEQUENCE_GAP + 1,
       entities: [],
-      participantJoinLog: [],
+      userJoinLog: [],
     });
 
     expect(store.snapshot().degradedCause).toBeUndefined();

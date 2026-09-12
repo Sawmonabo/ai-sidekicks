@@ -272,7 +272,7 @@ export class OnboardingFlow implements ReadTriggerTarget {
   }
 
   /**
-   * Put the relay choice in front of the participant, in main's own window.
+   * Put the relay choice in front of the user, in main's own window.
    *
    * The renderer collects nothing: the option a person picks and the admin token
    * they type both belong to a surface this window cannot read, and what comes back

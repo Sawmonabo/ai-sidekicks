@@ -74,7 +74,7 @@ import { IngestHaltRegistry, NeverHaltedIngestHaltSource } from "../ingest-halt-
 import {
   CodecOwnedContentKeyError,
   PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
-  PII_PARTICIPANT_ID_PAYLOAD_KEY,
+  PII_USER_ID_PAYLOAD_KEY,
   type PiiEncryptionRequest,
   type PiiEncryptor,
 } from "../pii-indirection.js";
@@ -95,12 +95,12 @@ const OTHER_SESSION: SessionId = SessionIdSchema.parse("0190f8a0-7e2d-7c4a-9b1c-
 const ENVELOPE_VERSION = EventEnvelopeVersionSchema.parse("1.0");
 
 // A UUID rather than a readable slug, and the constraint is a real one worth
-// knowing before writing a fixture: `pii_participant_id` is plain TEXT and
+// knowing before writing a fixture: `pii_user_id` is plain TEXT and
 // `EventLogAppendPii` types the id as a bare `string`, but
-// `EventShreddedPayloadSchema` requires a UUID. A participant that will ever be
+// `EventShreddedPayloadSchema` requires a UUID. A user that will ever be
 // named in a shred record has to be one from the start, or the two halves of
 // Path 1 disagree about who was shredded.
-const PARTICIPANT = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f20";
+const USER = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f20";
 
 const DAEMON_PRIVATE_KEY = new Uint8Array(32).fill(11) as Ed25519PrivateKey;
 const DAEMON_PUBLIC_KEY = ed25519.getPublicKey(DAEMON_PRIVATE_KEY) as Ed25519PublicKey;
@@ -181,12 +181,12 @@ class ParkableSigningKeySource implements DaemonSigningKeySource {
 
 /**
  * Stub: an XOR over a BLAKE3 keystream seeded by
- * `participantId || eventId`.
+ * `userId || eventId`.
  *
  * Not an AEAD and not trying to be. It is DETERMINISTIC, which is what lets an
  * arm name expected bytes instead of re-deriving them, and it binds the two
  * identifiers in the one observable way a stub can — a ciphertext minted for one
- * (participant, event) pair differs bytewise from every other pair's.
+ * (user, event) pair differs bytewise from every other pair's.
  * `writeEventWithPii` digests whatever bytes it is handed and asserts nothing
  * about their width, exactly as requires of an interface that fixes no AEAD.
  */
@@ -195,10 +195,9 @@ class DeterministicPiiEncryptor implements PiiEncryptor {
 
   encrypt(request: PiiEncryptionRequest): Promise<Uint8Array> {
     this.encryptCallCount += 1;
-    const keystream = blake3(
-      new TextEncoder().encode(`${request.participantId} ${request.eventId}`),
-      { dkLen: Math.max(1, request.plaintext.length) },
-    );
+    const keystream = blake3(new TextEncoder().encode(`${request.userId} ${request.eventId}`), {
+      dkLen: Math.max(1, request.plaintext.length),
+    });
     const sealed = new Uint8Array(request.plaintext.length);
     for (let index = 0; index < request.plaintext.length; index += 1) {
       sealed[index] = (request.plaintext[index] ?? 0) ^ (keystream[index] ?? 0);
@@ -270,7 +269,7 @@ interface HydratedRow {
   readonly canonical: CanonicalBytes;
   readonly signedRow: SignedRow;
   readonly piiPayload: Uint8Array | null;
-  readonly piiParticipantId: string | null;
+  readonly piiUserId: string | null;
 }
 
 interface RawEventRow {
@@ -289,7 +288,7 @@ interface RawEventRow {
   readonly prev_hash: Uint8Array;
   readonly row_hash: Uint8Array;
   readonly daemon_signature: Uint8Array;
-  readonly pii_participant_id: string | null;
+  readonly pii_user_id: string | null;
 }
 
 function readRawRows(sessionId: SessionId): ReadonlyArray<RawEventRow> {
@@ -332,7 +331,7 @@ function hydrate(row: RawEventRow): HydratedRow {
       daemonSignature: row.daemon_signature,
     },
     piiPayload: row.pii_payload,
-    piiParticipantId: row.pii_participant_id,
+    piiUserId: row.pii_user_id,
   };
 }
 
@@ -546,7 +545,7 @@ describe("EventLogService — PII indirection", () => {
         type: "assistant.message",
         payload: { sessionId: SESSION, runId: "run-1" },
       }),
-      { pii: { participantId: PARTICIPANT, piiPayload: { text: "secret prose" } } },
+      { pii: { userId: USER, piiPayload: { text: "secret prose" } } },
     );
 
     expect(encryptor.encryptCallCount).toBe(1);
@@ -557,8 +556,8 @@ describe("EventLogService — PII indirection", () => {
 
     // The durable column carries the SAME id the codec stamped into the payload
     // — the two are what a post-shred verifier joins on, so they must agree.
-    expect(hydrated.piiParticipantId).toBe(PARTICIPANT);
-    expect(hydrated.envelope.payload[PII_PARTICIPANT_ID_PAYLOAD_KEY]).toBe(PARTICIPANT);
+    expect(hydrated.piiUserId).toBe(USER);
+    expect(hydrated.envelope.payload[PII_USER_ID_PAYLOAD_KEY]).toBe(USER);
     expect(typeof hydrated.envelope.payload[PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]).toBe("string");
     expect(hydrated.piiPayload).toBeInstanceOf(Uint8Array);
 
@@ -580,7 +579,7 @@ describe("EventLogService — PII indirection", () => {
 
     const [row] = readRawRows(SESSION);
     expect(row?.pii_payload).toBeNull();
-    expect(row?.pii_participant_id).toBeNull();
+    expect(row?.pii_user_id).toBeNull();
     expect(encryptor.encryptCallCount).toBe(0);
   });
 
@@ -589,7 +588,7 @@ describe("EventLogService — PII indirection", () => {
 
     await expect(
       service.append(makeEnvelope({ category: "assistant_output" }), {
-        pii: { participantId: PARTICIPANT, piiPayload: { text: "secret prose" } },
+        pii: { userId: USER, piiPayload: { text: "secret prose" } },
       }),
     ).rejects.toThrow(/PiiEncryptor/);
 
@@ -608,7 +607,7 @@ describe("EventLogService — daemon.pii_split_bypass", () => {
     const mapped = await mappedRefusalOf(
       service.append(
         makeEnvelope({
-          payload: { [PII_PARTICIPANT_ID_PAYLOAD_KEY]: PARTICIPANT, note: "x" },
+          payload: { [PII_USER_ID_PAYLOAD_KEY]: USER, note: "x" },
         }),
       ),
     );
@@ -618,7 +617,7 @@ describe("EventLogService — daemon.pii_split_bypass", () => {
     // A KEY path and never a value: the write is refused BECAUSE it carries PII
     // outside the split, so echoing the value would complete the leak.
     expect(mapped.error.data?.fields).toEqual({
-      fieldPath: `payload.${PII_PARTICIPANT_ID_PAYLOAD_KEY}`,
+      fieldPath: `payload.${PII_USER_ID_PAYLOAD_KEY}`,
     });
     expect(readRawRows(SESSION)).toHaveLength(0);
   });
@@ -647,14 +646,14 @@ describe("EventLogService — daemon.pii_split_bypass", () => {
         makeEnvelope({
           payload: {
             [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: "d",
-            [PII_PARTICIPANT_ID_PAYLOAD_KEY]: PARTICIPANT,
+            [PII_USER_ID_PAYLOAD_KEY]: USER,
           },
         }),
       ),
     );
 
     expect(mapped.error.data?.fields).toEqual({
-      fieldPath: `payload.${PII_PARTICIPANT_ID_PAYLOAD_KEY}`,
+      fieldPath: `payload.${PII_USER_ID_PAYLOAD_KEY}`,
     });
   });
 
@@ -664,12 +663,12 @@ describe("EventLogService — daemon.pii_split_bypass", () => {
     const mapped = await mappedRefusalOf(
       service.append(
         makeEnvelope({
-          payload: { [PII_PARTICIPANT_ID_PAYLOAD_KEY]: "participant-with-real-pii-in-the-id" },
+          payload: { [PII_USER_ID_PAYLOAD_KEY]: "user-with-real-pii-in-the-id" },
         }),
       ),
     );
 
-    expect(JSON.stringify(mapped)).not.toContain("participant-with-real-pii-in-the-id");
+    expect(JSON.stringify(mapped)).not.toContain("user-with-real-pii-in-the-id");
   });
 });
 
@@ -774,7 +773,7 @@ describe("EventLogService — daemon.event_canonical_bytes_exceeded", () => {
 
     const mapped = await mappedRefusalOf(
       service.append(atCeiling, {
-        pii: { participantId: PARTICIPANT, piiPayload: { text: "secret prose" } },
+        pii: { userId: USER, piiPayload: { text: "secret prose" } },
       }),
     );
 
@@ -904,7 +903,7 @@ describe("EventLogService — the plain branch parses what it signs", () => {
       service.append(
         makeEnvelope({
           type: "session.created",
-          payload: { ...validSessionCreatedPayload, [PII_PARTICIPANT_ID_PAYLOAD_KEY]: PARTICIPANT },
+          payload: { ...validSessionCreatedPayload, [PII_USER_ID_PAYLOAD_KEY]: USER },
         }),
       ),
     );
@@ -1117,7 +1116,7 @@ describe("EventLogService — codec-owned content keys are refused before the br
           type: "session.updated",
           payload: {
             note: "x",
-            [PII_PARTICIPANT_ID_PAYLOAD_KEY]: PARTICIPANT,
+            [PII_USER_ID_PAYLOAD_KEY]: USER,
             [CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: "d".repeat(64),
           },
         }),
@@ -1165,7 +1164,7 @@ describe("EventLogService — ingest-halt gate", () => {
     await haltRegistry.halt(SESSION);
 
     const mapped = await mappedRefusalOf(
-      service.append(makeEnvelope({ payload: { [PII_PARTICIPANT_ID_PAYLOAD_KEY]: PARTICIPANT } })),
+      service.append(makeEnvelope({ payload: { [PII_USER_ID_PAYLOAD_KEY]: USER } })),
     );
 
     expect(mapped.error.data?.type).toBe(DAEMON_INGEST_HALTED_CODE);
@@ -1744,7 +1743,7 @@ function shreddedEnvelope(overrides?: Record<string, unknown>): UnsequencedEvent
       nodeId: "node-shred-0001",
       operationId: "op-shred-1",
       occurredAt: "2026-08-04T12:00:00.000Z",
-      participantId: PARTICIPANT,
+      userId: USER,
       affectedSessionIds: [SESSION],
       piiPayloadsCleared: 3,
       shredReason: "gdpr_article_17",

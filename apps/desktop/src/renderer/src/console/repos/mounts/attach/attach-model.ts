@@ -2,7 +2,7 @@
 // pick from.
 //
 // PURE, AND SEPARATE FROM THE ACT FOR THAT REASON. Everything below is a function of
-// what a participant typed and what the roster read answered; nothing here reaches a
+// what a user typed and what the roster read answered; nothing here reaches a
 // bridge or holds a lifetime. The controller beside it owns both.
 //
 // THE CONSOLE VALIDATES TWO THINGS AND RESOLVES NOTHING. Resolution, containment,
@@ -76,7 +76,7 @@ export interface AttachFormState {
   /** Exactly what was typed. Never trimmed, normalised, or joined by this console. */
   readonly localPath: string;
   /**
-   * The node a participant PICKED, or none picked yet.
+   * The node a user PICKED, or none picked yet.
    *
    * NEVER THE SOLE-NODE DEFAULT. That default is derived per read by
    * {@link resolveAttachForm} against the roster on screen, so it cannot survive the
@@ -125,7 +125,7 @@ export interface AttachNodeOption {
    * KEPT SEPARATE FROM `state` because the wire keeps them separate: a node whose slot
    * reads `online` and whose presence reads `offline` is a real and reportable
    * disagreement, and a picker that collapsed them into one word would pick which of
-   * the two to believe on the participant's behalf.
+   * the two to believe on the user's behalf.
    */
   readonly healthState: string;
   /** Whether this node reports itself read-only. Disclosed, never used as a gate. */
@@ -136,7 +136,7 @@ export interface AttachNodeOption {
  * Read one form against the roster that is currently served.
  *
  * THE ROSTER IS AN INPUT AND NOT A LATER CHECK. Which node this form is on is a
- * function of what a participant picked AND of what the session still offers, so a
+ * function of what a user picked AND of what the session still offers, so a
  * refresh that removes the picked node closes the control in the same act that removes
  * the row — rather than leaving an enabled button over an id the daemon would refuse.
  *

@@ -182,7 +182,7 @@ export class BrowserSettingsView implements ReadTriggerTarget {
       return { status: "refused", refusal: outcome };
     }
     this.#supersedeReads();
-    this.requestRead("participant-request");
+    this.requestRead("user-request");
     return { status: "done" };
   };
 
@@ -221,7 +221,7 @@ export class BrowserSettingsView implements ReadTriggerTarget {
    * Ask for a read. The scheduler decides what a burst of these costs.
    *
    * `subscribe` at mount, `window-focus` on return, `reconnect` when the transport
-   * came back, and `participant-request` after an act this page performed — the four
+   * came back, and `user-request` after an act this page performed — the four
    * reasons that reach a node-wide answer nothing events.
    */
   public requestRead(reason: RefreshReason): void {
@@ -297,14 +297,14 @@ export class BrowserSettingsView implements ReadTriggerTarget {
     }
     this.#supersedeReads();
     if (settlement.kind === "served") {
-      this.requestRead("participant-request");
+      this.requestRead("user-request");
       return;
     }
     // Published FIRST on both failing arms, so the seam's own words are on screen while
     // the reconciliation below is still inside its window.
     this.#publish({ policyReading: settlement.reading });
     if (settlement.kind === "ambiguous") {
-      this.requestRead("participant-request");
+      this.requestRead("user-request");
     }
   }
 
@@ -334,7 +334,7 @@ export class BrowserSettingsView implements ReadTriggerTarget {
       return;
     }
     this.#supersedeReads();
-    this.requestRead("participant-request");
+    this.requestRead("user-request");
   }
 
   /**

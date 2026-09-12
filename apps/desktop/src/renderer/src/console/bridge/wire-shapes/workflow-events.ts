@@ -14,7 +14,7 @@
 // A pane that could not name those events has two options and both are wrong: poll on
 // a timer, which that rule forbids outright, or re-read only when the operator at THIS
 // keyboard acts — which is what the run pane did, so a run moved by another window, by
-// another participant, or by the engine itself sat unchanged on screen until somebody
+// another user, or by the engine itself sat unchanged on screen until somebody
 // pressed something.
 //
 // A KIND SET IS SAFE TO ARM EARLY AND A PAYLOAD SHAPE IS NOT. What this module

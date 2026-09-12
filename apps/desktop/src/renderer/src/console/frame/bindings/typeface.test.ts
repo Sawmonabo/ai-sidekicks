@@ -138,7 +138,7 @@ describe("the generated @font-face block", () => {
   // The slashed zero is the MONO signature — mono is what says a number came from the
   // wire — so it is a property of the mono FACE and reaches nothing else. Declared as a
   // descriptor it is scoped by construction: `font-feature-settings` INHERITS as a
-  // property, so the same features on `body` put a slashed zero on every participant
+  // property, so the same features on `body` put a slashed zero on every user
   // name, repo path, and branch in the console, which is the design's mark for a wire
   // figure spent on prose. Asserted per block rather than by count, because a
   // descriptor in the right count and the wrong block is exactly the sans-carries-it

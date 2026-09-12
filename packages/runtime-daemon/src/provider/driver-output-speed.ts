@@ -20,7 +20,7 @@
  *
  * SETTABLE is the operative word, and it is why an entry can be narrower than
  * the states its provider can REPORT. A provider may declare a state a
- * participant may not ask for — a rate-limit cooldown the build enters on its
+ * user may not ask for — a rate-limit cooldown the build enters on its
  * own is the shipped example — and `ProviderOutputSpeedState.declared` carries
  * whatever the provider reported VERBATIM, including a value absent from these
  * lists, because that is a real state under version skew and coercing it would
@@ -49,7 +49,7 @@ export const DRIVER_OUTPUT_SPEED_LEVELS: Readonly<Record<FlooredDriverName, read
   Object.freeze({
     // The pinned Claude build declares its state from a three-value vocabulary,
     // of which only these two are requestable — the third is a provider-entered
-    // condition after a rate limit rather than something a participant may ask
+    // condition after a rate limit rather than something a user may ask
     // for.
     claude: Object.freeze(["off", "on"]),
     // EMPTY, and that is the complete declaration the `output_speed: false` flag

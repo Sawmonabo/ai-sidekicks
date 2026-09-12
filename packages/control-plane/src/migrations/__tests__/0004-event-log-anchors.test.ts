@@ -153,7 +153,7 @@ async function applyEventLogAnchorsMigration(querier: Querier): Promise<void> {
 // Seed the FK ancestors — a session needs the user who owns it. P6
 // deliberately skips both.
 async function seedSession(querier: Querier): Promise<void> {
-  await querier.query("INSERT INTO participants (id) VALUES ($1)", [SESSION_OWNER_ID]);
+  await querier.query("INSERT INTO users (id) VALUES ($1)", [SESSION_OWNER_ID]);
   await querier.query("INSERT INTO sessions (id, owner_user_id) VALUES ($1, $2)", [
     SESSION_ID,
     SESSION_OWNER_ID,

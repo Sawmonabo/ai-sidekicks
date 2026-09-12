@@ -42,7 +42,7 @@ describe("the ledger feed — what it does not hold", () => {
   it("names entries the stream numbered and never delivered", () => {
     withLaidOutViewport();
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-    sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
+    sessionStore.initialise({ cursor: -1, entities: [], userJoinLog: [] });
     sessionStore.applyBatch([
       {
         id: "event-0",

@@ -75,7 +75,7 @@ export function unparseableIdentifier(subject: string): ConsoleRefusal {
  * response's own machine-readable `rejectionReason` where it sent one — that member is
  * the cause, and a refusal code is rendered in mono — and the lifecycle state where it
  * did not, which is the daemon's own word for what happened and never a category this
- * console invented. The sentence beside it is about the participant's TEXT rather than
+ * console invented. The sentence beside it is about the user's TEXT rather than
  * about the daemon's rule: what the console knows and the daemon does not is that the
  * line still holds the message.
  */

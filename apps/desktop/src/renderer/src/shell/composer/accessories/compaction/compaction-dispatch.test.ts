@@ -37,7 +37,7 @@ function scenarioReplying(result: unknown): ConsoleScenario {
     label: "Compaction unit",
     purpose: "One canned compaction reply, so the dispatcher's settlement is observable.",
     sessionId: SESSION_ID,
-    participantIdsInJoinOrder: ["participant-you"],
+    userIdsInJoinOrder: ["user-you"],
     startedAtIso: "2026-01-01T00:00:00.000Z",
     beats: [],
     replies: [{ call: "driver.compactContext", result }],

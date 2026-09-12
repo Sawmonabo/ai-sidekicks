@@ -15,7 +15,7 @@
 //
 //   • It never presents a `memo` settlement as an ordinary success, and never
 //     decorates a lossless one with a generic caution.
-//   • It never renders the failed arm as a switch. The participant asked for a
+//   • It never renders the failed arm as a switch. The user asked for a
 //     change that did not happen.
 //   • It never drops an unrecognized `reason` or continuity value: an unknown member
 //     renders as itself, so a later amendment is visible rather than silently gone.
@@ -39,7 +39,7 @@ export interface SettlementRendering {
   readonly tone: SettlementTone;
   /** Whether `status` is a member this console knows. Unknown still renders. */
   readonly isKnownStatus: boolean;
-  /** The one-line statement, in the participant's terms. */
+  /** The one-line statement, in the user's terms. */
   readonly headline: string;
   /**
    * What the new binding can see, where the settlement said. `undefined` on the

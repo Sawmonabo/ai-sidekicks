@@ -25,7 +25,7 @@
 // `agent.provider_switch_failed`, an event type `packages/contracts`' union does not
 // register, so no fold can carry it and the growth slate holds that debt. What is
 // rendered below is the IMMEDIATE arm only — the reply to a mutation this window
-// issued — which is why a participant on another machine watching the same agent sees
+// issued — which is why a user on another machine watching the same agent sees
 // no failure clause here.
 //
 // The absences are the `not-checked` kind rather than `empty` on purpose: nobody asked
@@ -122,7 +122,7 @@ export function TargetChip(props: TargetChipProps): React.JSX.Element {
           a call that did not land and a daemon that answered "failed" are two facts,
           and each is unreachable from the other. It lives HERE rather than only on the
           form because the form is portalled and unmounts on a dismissal, and a
-          participant who pressed Apply and clicked away would otherwise be told
+          user who pressed Apply and clicked away would otherwise be told
           nothing at all. */}
       {switchRefusal === undefined ? null : <AxisSwitchRefusal refusal={switchRefusal} />}
       {renderAxisAffordance(props.axes)}

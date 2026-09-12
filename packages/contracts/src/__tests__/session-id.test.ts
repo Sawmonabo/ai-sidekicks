@@ -72,7 +72,7 @@ describe("SessionIdSchema (C1: id-format invariant)", () => {
 // ----------------------------------------------------------------------------
 //
 // Asserted on `SessionIdSchema` because the predicate is the FACTORY's, not
-// this family's: every branded UUID id in the package (`ParticipantId`,
+// this family's: every branded UUID id in the package (`UserId`,
 // `ChannelId`, `RunId`, `ArtifactId`, the repo / worktree /
 // runtime-node ids) composes the same `brandedUuidIdSchema`, so one family's
 // accept set is every family's. `provider-driver.test.ts` pins the same

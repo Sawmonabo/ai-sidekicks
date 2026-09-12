@@ -980,7 +980,7 @@ describe("DriverInterventionResultSchema — intervention result envelope (trust
   });
 
   it("rejects the refusal code beside status 'applied' (cross-field contradiction)", () => {
-    // The code IS the classification that the participant's text was swallowed,
+    // The code IS the classification that the user's text was swallowed,
     // and a swallowed text is precisely what `applied` denies — accepted, the
     // pair hands callers a result whose two readers disagree (success by
     // `status`, failure by `refusalCode`).
@@ -2582,7 +2582,7 @@ describe("DECLARED_LOSS_KINDS — the closed declared-loss vocabulary", () => {
 describe("DriverTranscriptExportResultSchema — the canonical transcript export envelope", () => {
   it("round-trips provider-shaped frames without stripping or reshaping them", () => {
     const frames: unknown[] = [
-      { role: "participant", origin: "participant_text", segments: [{ kind: "text", text: "hi" }] },
+      { role: "user", origin: "human_text", segments: [{ kind: "text", text: "hi" }] },
       { role: "assistant", segments: [{ kind: "tool_call", toolCallId: "call-1" }] },
       "an opaque string frame",
       42,
@@ -2754,7 +2754,7 @@ describe("transcript operation params — nominal shapes", () => {
         turns: [
           {
             position: 7,
-            role: "participant",
+            role: "user",
             segments: [{ kind: "text", position: 7, text: "go" }],
           },
           {
@@ -2769,7 +2769,7 @@ describe("transcript operation params — nominal shapes", () => {
           },
           {
             position: 35,
-            role: "participant",
+            role: "user",
             segments: [{ kind: "text", position: 35, text: "later still" }],
           },
         ],
@@ -2806,7 +2806,7 @@ describe("transcript operation params — nominal shapes", () => {
         turns: [
           {
             position: 9,
-            role: "participant",
+            role: "user",
             segments: [{ kind: "text", position: 9, text: "go" }],
           },
         ],

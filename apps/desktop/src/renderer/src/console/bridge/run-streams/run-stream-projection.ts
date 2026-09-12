@@ -106,7 +106,7 @@ import {
  *
  * They are carried rather than dropped because a scenario that scripts one means
  * it: `completionKind` is what tells a turn-complete from a task-complete, and
- * `trigger` is what tells a budget-exhausted interrupt from a participant cancel.
+ * `trigger` is what tells a budget-exhausted interrupt from a user cancel.
  * A projection that kept only the required five would silently flatten both.
  */
 const RUN_STATE_CHANGE_CARRIED_OPTIONAL_MEMBERS: Readonly<

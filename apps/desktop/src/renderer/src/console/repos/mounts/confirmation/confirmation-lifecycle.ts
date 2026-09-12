@@ -39,7 +39,7 @@ export interface ConfirmationLifecycle {
 /**
  * Wire one confirmation's discard rule.
  *
- * `discardSettlement` is called at most once per participant act and never from a
+ * `discardSettlement` is called at most once per user act and never from a
  * render body, so a caller whose discard is a `useState` setter and a caller whose
  * discard reaches a controller are both served without this module knowing which.
  */

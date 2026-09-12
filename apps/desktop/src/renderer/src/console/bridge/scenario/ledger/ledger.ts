@@ -61,8 +61,8 @@ import {
   AGENT_REVIEWER,
   EVENT_ID_STEM,
   LEDGER_AGENTS,
-  PARTICIPANT_PRIYA,
-  PARTICIPANT_YOU,
+  USER_PRIYA,
+  USER_YOU,
   SESSION_ID,
   STARTED_AT_ISO,
   attachedAtIso,
@@ -81,16 +81,10 @@ export const LEDGER_SCENARIO: ConsoleScenario = {
   sessionId: SESSION_ID,
   // Join order IS hue order: two people first, then the agents in attach order,
   // which is what a real session's join log looks like.
-  participantIdsInJoinOrder: [
-    PARTICIPANT_YOU,
-    PARTICIPANT_PRIYA,
-    AGENT_ARCHITECT,
-    AGENT_IMPLEMENTER,
-    AGENT_REVIEWER,
-  ],
+  userIdsInJoinOrder: [USER_YOU, USER_PRIYA, AGENT_ARCHITECT, AGENT_IMPLEMENTER, AGENT_REVIEWER],
   // Which of the roster this window is. Stated rather than read off the head of the
   // join order, which is whoever opened the session on whichever machine.
-  viewingParticipantId: PARTICIPANT_YOU,
+  viewingUserId: USER_YOU,
   startedAtIso: STARTED_AT_ISO,
   beats: scriptLedgerBeats({
     sessionId: SESSION_ID,
@@ -155,7 +149,7 @@ export const LEDGER_SCENARIO: ConsoleScenario = {
         // resume cycle reachable at all: the store submits whatever a read
         // acknowledged on its NEXT read, and a reply carrying only `latest` names
         // no position to submit. Behind `latest`, as a real one is — this
-        // participant has read most of the log and not all of it.
+        // user has read most of the log and not all of it.
         timelineCursors: { latest: "ledger-cursor-33", acknowledged: "ledger-cursor-30" },
       },
     },

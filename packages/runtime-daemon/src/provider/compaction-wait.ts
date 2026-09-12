@@ -33,7 +33,7 @@
 // compaction is still recorded" true by construction rather than by convention.
 //
 // WHY A SET OF WAITERS PER KEY RATHER THAN A SINGLE-FLIGHT REFUSAL. Two
-// participants can ask for a compaction on one binding at once, and
+// users can ask for a compaction on one binding at once, and
 // `DriverCompactionResult`'s refusal arm is CLOSED at `command_absent` and
 // `not_permitted` — neither of which describes "someone else asked first", and
 // widening a closed wire union to describe a driver-internal race would be a
@@ -54,7 +54,7 @@
 // Settlement answers the question "did a compaction happen", so it is per-key —
 // one provider compaction is one compaction. Withdrawal answers "is this caller
 // still asking", which is a property of one registration and of no other, and a
-// caller whose own transport failed must not settle a CONCURRENT participant's
+// caller whose own transport failed must not settle a CONCURRENT user's
 // wait on that failure. Withdrawing therefore removes exactly one registration
 // and cancels exactly one timer, and every sibling on the key stays armed for the
 // evidence it is still waiting on.
@@ -243,7 +243,7 @@ export class PendingCompactionRegistry {
    * instead of it, so the boundary still projects when nobody is waiting. Calling
    * it with no armed waiter is the ordinary case (a provider-initiated compaction
    * nobody asked for) and is deliberately a silent no-op rather than a diagnostic
-   * — there is nothing wrong with a compaction the participant did not trigger.
+   * — there is nothing wrong with a compaction the user did not trigger.
    */
   observeBoundary(key: string, boundaryPosition: number | null): void {
     this.#settleAll(key, { terminal: "observed", boundaryPosition });

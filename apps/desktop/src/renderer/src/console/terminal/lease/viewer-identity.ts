@@ -8,7 +8,7 @@
 // read-only. The fold was right and its input was a placeholder.
 //
 // THE READ IS THE PORT'S. `bridge/growth-operations/identity.ts`'s
-// `callerParticipantRead` is the console's one answer to "which identity is this
+// `callerUserRead` is the console's one answer to "which identity is this
 // window", and this module takes that identifier and nothing else.
 //
 // SETTLED IDENTITIES BELONG TO THE INPUTS THAT PRODUCED THEM. A pane handed a
@@ -35,7 +35,7 @@ import { useSubjectScopedState } from "../../store/index.js";
  */
 export type TerminalViewerIdentity =
   | { readonly status: "not-loaded" }
-  | { readonly status: "read"; readonly participantId: string }
+  | { readonly status: "read"; readonly userId: string }
   | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
 
 /**
@@ -65,7 +65,7 @@ const VIEWER_IDENTITY_REFUSAL_ORIGIN = "terminal-viewer-identity";
 const VIEWER_IDENTITY_REJECTION_FALLBACK = {
   code: "terminal-viewer-identity-unreachable",
   detail:
-    "The console asked which participant this window is and the bridge never answered. Reopening this pane asks again.",
+    "The console asked which user this window is and the bridge never answered. Reopening this pane asks again.",
 } as const;
 
 /**
@@ -88,14 +88,14 @@ export function useTerminalViewerIdentity(
   useEffect(() => {
     let isAbandoned = false;
     void bridge.growth
-      .callerParticipantRead({ sessionId })
+      .callerUserRead({ sessionId })
       .then((outcome) => {
         if (isAbandoned) {
           return;
         }
         publish(
           outcome.status === "served"
-            ? { status: "read", participantId: outcome.value.participantId }
+            ? { status: "read", userId: outcome.value.userId }
             : { status: "refused", refusal: outcome },
         );
       })
@@ -114,7 +114,7 @@ export function useTerminalViewerIdentity(
       });
     return () => {
       // The pane closed, or an input changed, before the read landed. Settling
-      // afterwards would publish a stale window's participant into a fresh one.
+      // afterwards would publish a stale window's user into a fresh one.
       isAbandoned = true;
     };
   }, [bridge, publish, sessionId]);

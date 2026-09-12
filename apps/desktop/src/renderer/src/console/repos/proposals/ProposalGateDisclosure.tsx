@@ -105,7 +105,7 @@ export function gateSummaryLine(reading: ProposalGateReading): string {
  * (`docs/architecture/contracts/api-payload-contracts.md`, `PRPrepareResponse`), and
  * the open gate already withholds the send on a draft. The collapsed line reported
  * every present proposal as ready — and gates are collapsed by default, so a
- * participant could be told an unfinished proposal was ready without ever opening the
+ * user could be told an unfinished proposal was ready without ever opening the
  * disclosure. A third state on the wire fails to compile here until somebody writes
  * its line, rather than joining `ready` by default.
  */

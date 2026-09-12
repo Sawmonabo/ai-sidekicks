@@ -49,7 +49,7 @@ function outsideLedgerSlotProps(): TimelineRowSlotProps {
       timestamp: "2026-01-01T11:00:00.000Z",
       payload: {},
     },
-    participantHue: undefined,
+    actorHue: undefined,
     isSuperseded: false,
     density: "expanded",
   };

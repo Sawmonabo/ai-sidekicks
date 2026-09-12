@@ -78,7 +78,7 @@ function seededSessionStore(): SessionStore {
       body: { agentId: AGENT_IMPLEMENTER },
     },
   ];
-  store.initialise({ cursor: 0, entities, participantJoinLog: [] });
+  store.initialise({ cursor: 0, entities, userJoinLog: [] });
   return store;
 }
 
@@ -330,7 +330,7 @@ describe("the target chip's axis popover — opened, loaded, and dispatched", ()
   it("keeps the refusal on the chip once the popover has been dismissed", async () => {
     // THE ONE OUTCOME A MUTATION SURFACE MAY NOT HAVE. The refusal reached only the
     // form's own `refusal` prop, and the popup is portalled with no `keepMounted` —
-    // base-ui unmounts it on an outside click or Escape. So a participant who pressed
+    // base-ui unmounts it on an outside click or Escape. So a user who pressed
     // Apply and clicked back into the message line to keep typing met a chip showing
     // the pre-switch binding, no failure, and no code, while the daemon had refused.
     const mounted = await mountRail({

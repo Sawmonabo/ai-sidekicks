@@ -18,7 +18,7 @@
 //     object's memory and nowhere else. `discard()` on an empty draft leaves
 //     nothing behind — there is nothing to delete, which is the strongest form of
 //     "leaves no row".
-//   • **Nothing durable.** A draft is participant-authored content, and such content
+//   • **Nothing durable.** A draft is user-authored content, and such content
 //     has no durable home in the renderer: a draft lives in its window's in-memory
 //     store for that window's lifetime and is gone when the window closes.
 //     `console/persistence/value-classes.ts` is the enforcement; this module never
@@ -213,7 +213,7 @@ export class NewSessionDraft {
   /**
    * What this session's first message says.
    *
-   * Kept verbatim: the wire receives the participant's own bytes, so pasted code keeps
+   * Kept verbatim: the wire receives the user's own bytes, so pasted code keeps
    * its indentation and a deliberately separated block keeps its separation. Blankness
    * is decided by trimming where the send asks the question, which is a test of the
    * text rather than an edit of it.

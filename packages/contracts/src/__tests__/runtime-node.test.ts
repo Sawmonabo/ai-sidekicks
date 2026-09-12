@@ -62,18 +62,18 @@ import {
 } from "../runtime-node.js";
 
 // Fixtures must be VALID per the imported upstream schemas:
-//   • sessionId / participantId pass through `RFC_9562_TEXT_FORM` (brandedUuidIdSchema)
+//   • sessionId / userId pass through `RFC_9562_TEXT_FORM` (brandedUuidIdSchema)
 //   • clientVersion must satisfy EventEnvelopeVersionSchema (event.ts) — a
 //     "MAJOR.MINOR" semver string; "1.0" is the canonical accepted form
 //   • nodeId is any non-empty string ≤ NODE_ID_MAX_LEN (daemon-assigned opaque)
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
-const PARTICIPANT_ID = "660e8400-e29b-41d4-a716-446655440001";
+const USER_ID = "660e8400-e29b-41d4-a716-446655440001";
 const NODE_ID = "node-daemon-abc123";
 const CLIENT_VERSION = "1.0";
 
 const buildValidAttachRequest = () => ({
   sessionId: SESSION_ID,
-  participantId: PARTICIPANT_ID,
+  userId: USER_ID,
   nodeId: NODE_ID,
   clientVersion: CLIENT_VERSION,
   capabilities: { ptyHost: true, maxConcurrentRuns: 4 },
@@ -128,7 +128,7 @@ describe("RuntimeNodeAttachRequestSchema (C1: required fields)", () => {
     }
   });
 
-  it("rejects an invalid (non-UUID) sessionId / participantId", () => {
+  it("rejects an invalid (non-UUID) sessionId / userId", () => {
     expect(
       RuntimeNodeAttachRequestSchema.safeParse({
         ...buildValidAttachRequest(),
@@ -138,7 +138,7 @@ describe("RuntimeNodeAttachRequestSchema (C1: required fields)", () => {
     expect(
       RuntimeNodeAttachRequestSchema.safeParse({
         ...buildValidAttachRequest(),
-        participantId: "not-a-uuid",
+        userId: "not-a-uuid",
       }).success,
     ).toBe(false);
   });
@@ -751,7 +751,7 @@ const VALID_LIFECYCLE_BASE = {
   nodeId: NODE_ID,
   previousState: "registering" as const,
   newState: "online" as const,
-  actor: PARTICIPANT_ID,
+  actor: USER_ID,
 };
 
 const buildValidRegisteredPayload = () => ({
@@ -773,7 +773,7 @@ const buildValidOfflinePayload = () => ({
 const buildValidCapabilityDeclaredPayload = () => ({
   sessionId: SESSION_ID,
   nodeId: NODE_ID,
-  actor: PARTICIPANT_ID,
+  actor: USER_ID,
   capability: "provider-driver",
   capabilityDetails: { contractVersion: "1.0", flags: { streaming: true } },
 });
@@ -781,7 +781,7 @@ const buildValidCapabilityDeclaredPayload = () => ({
 const buildValidCapabilityUpdatedPayload = () => ({
   sessionId: SESSION_ID,
   nodeId: NODE_ID,
-  actor: PARTICIPANT_ID,
+  actor: USER_ID,
   capability: "provider-driver",
   previousState: { contractVersion: "1.0" },
   newState: { contractVersion: "1.1" },
@@ -1115,7 +1115,7 @@ const buildValidRosterRequest = () => ({
 
 const buildValidRosterEntry = () => ({
   nodeId: NODE_ID,
-  participantId: PARTICIPANT_ID,
+  userId: USER_ID,
   state: "online" as const,
   healthState: "online" as const,
   lastHeartbeatAt: "2026-06-09T12:00:00.000Z",
@@ -1254,8 +1254,8 @@ describe("RuntimeNodeRosterEntrySchema (nine-field both-axes entry)", () => {
     expect(RuntimeNodeRosterEntrySchema.safeParse(broken).success).toBe(false);
   });
 
-  it("rejects a non-UUID participantId", () => {
-    const broken = { ...buildValidRosterEntry(), participantId: "not-a-uuid" };
+  it("rejects a non-UUID userId", () => {
+    const broken = { ...buildValidRosterEntry(), userId: "not-a-uuid" };
     expect(RuntimeNodeRosterEntrySchema.safeParse(broken).success).toBe(false);
   });
 
@@ -1337,11 +1337,11 @@ describe("RuntimeNodeRosterResponseSchema ({ nodes, controlHolder })", () => {
 
   // The shared-terminal write-lease holder. Session-level rather than per entry —
   // one lease per session — so it rides the response beside the node set.
-  it("accepts a held lease (controlHolder carries the holder's participant id)", () => {
-    const held = { ...buildValidRosterResponse(), controlHolder: PARTICIPANT_ID };
+  it("accepts a held lease (controlHolder carries the holder's user id)", () => {
+    const held = { ...buildValidRosterResponse(), controlHolder: USER_ID };
     const parsed = RuntimeNodeRosterResponseSchema.safeParse(held);
     expect(parsed.success).toBe(true);
-    expect(parsed.success && parsed.data.controlHolder).toBe(PARTICIPANT_ID);
+    expect(parsed.success && parsed.data.controlHolder).toBe(USER_ID);
   });
 
   it("accepts a null holder (a free lease, or one suppressed behind an offline producer)", () => {
@@ -1367,7 +1367,7 @@ describe("RuntimeNodeRosterResponseSchema ({ nodes, controlHolder })", () => {
 
   // The brand is load-bearing: a corrupted stored holder must fail at the read
   // boundary rather than reach a surface that would render it as an identity.
-  it("rejects a holder that is not a participant id", () => {
+  it("rejects a holder that is not a user id", () => {
     const broken = { ...buildValidRosterResponse(), controlHolder: "not-a-uuid" };
     expect(RuntimeNodeRosterResponseSchema.safeParse(broken).success).toBe(false);
   });

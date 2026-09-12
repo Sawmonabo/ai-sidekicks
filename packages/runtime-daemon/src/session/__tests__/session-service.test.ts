@@ -771,7 +771,7 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
     //   * v6 (`RUN_LIFECYCLE_TERMINAL_BACKSTOP_MIGRATION_SQL`) — the
     //     CREATE INDEX, the three CREATE TRIGGERs, and the version-6 INSERT
     //     are one script, one `.exec()`. Holds.
-    //   * v7 (`PII_PARTICIPANT_ID_MIGRATION_SQL`) — the ALTER TABLE ADD
+    //   * v7 (`PII_USER_ID_MIGRATION_SQL`) — the ALTER TABLE ADD
     //     COLUMN and the version-7 INSERT are one script, one `.exec()`.
     //     Holds, and v7 is the arm where a REGRESSION would bite hardest:
     //     SQLite has no `ADD COLUMN IF NOT EXISTS`, so a lost guard turns a

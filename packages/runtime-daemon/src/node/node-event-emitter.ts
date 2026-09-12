@@ -241,10 +241,10 @@ interface RuntimeNodeEmitBase {
   // REQUIRED here even though the payload schema types it optional — the daemon
   // always populates the session_id. Also the sequence-allocation partition key.
   readonly sessionId: string;
-  // EventEnvelope free-form actor (`participant_id | agent_id | null`).
+  // EventEnvelope free-form actor (`user_id | agent_id | null`).
   // Optional; defaults to `null` (system actor). This L1 routing wrapper does
   // not encode actor policy — the L2 producers decide whether the actor is a
-  // participant, an agent, or system-null.
+  // user, an agent, or system-null.
   readonly actor?: string | null;
   // The node this event describes.
   readonly nodeId: string;

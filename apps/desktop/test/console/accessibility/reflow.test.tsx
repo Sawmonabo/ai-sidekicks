@@ -157,7 +157,7 @@ describe("reflow — the console at 320 CSS px", () => {
           sessionId: UNBREAKABLE_SESSION_ID,
           state: "active",
           touchedAtIso: undefined,
-          participantIds: [],
+          userIds: [],
           attentionSeverity: undefined,
           tier: "front",
         }}

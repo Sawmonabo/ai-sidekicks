@@ -28,7 +28,7 @@ import type { Pool, PoolClient } from "pg";
 import type {
   ChannelSummary,
   EventCursor,
-  ParticipantId,
+  UserId,
   SessionCreateResponse,
   SessionId,
   SessionReadResponse,
@@ -85,10 +85,10 @@ interface SessionRow {
  * the schema column exists for the rare control-plane-originated row (admin
  * provisioning) PR #4's create path always supplies the id explicitly.
  *
- * `ownerParticipantId` is REQUIRED and lands verbatim in
+ * `ownerUserId` is REQUIRED and lands verbatim in
  * `sessions.owner_user_id`. This service is a faithful Postgres adapter;
  * identity resolution belongs upstream, so the caller is responsible for
- * resolving identity to a participantId before invoking it. The column carries
+ * resolving identity to a userId before invoking it. The column carries
  * no DEFAULT, so an owner this service failed to supply would be rejected by
  * the database rather than materialize an ownerless session.
  *
@@ -101,7 +101,7 @@ interface SessionRow {
  */
 export interface CreateSessionInput {
   readonly sessionId: SessionId;
-  readonly ownerParticipantId: ParticipantId;
+  readonly ownerUserId: UserId;
   readonly config?: Record<string, unknown> | undefined;
   readonly metadata?: Record<string, unknown> | undefined;
 }
@@ -137,7 +137,7 @@ export class SessionDirectoryService {
    * The guard is exact rather than advisory because the conflict clause does
    * not assign `owner_user_id` — so `RETURNING owner_user_id` yields the
    * PERSISTED owner, which is the row that was there before this call. A
-   * mismatch between that value and the caller's `ownerParticipantId` is a
+   * mismatch between that value and the caller's `ownerUserId` is a
    * caller trying to take over someone else's session, and it is rejected
    * before the transaction commits.
    *
@@ -185,7 +185,7 @@ export class SessionDirectoryService {
          RETURNING id, owner_user_id, state, config, metadata, min_client_version, created_at, updated_at`,
         [
           input.sessionId,
-          input.ownerParticipantId,
+          input.ownerUserId,
           input.config !== undefined ? JSON.stringify(input.config) : null,
           input.metadata !== undefined ? JSON.stringify(input.metadata) : null,
         ],
@@ -207,9 +207,9 @@ export class SessionDirectoryService {
       // same-owner re-create. Both sides are normalized symmetrically: the row
       // side too, as defense against a future driver or substrate that does
       // not return the canonical form.
-      if (session.owner_user_id.toLowerCase() !== input.ownerParticipantId.toLowerCase()) {
+      if (session.owner_user_id.toLowerCase() !== input.ownerUserId.toLowerCase()) {
         throw new Error(
-          `SessionDirectoryService.createSession: session ${String(input.sessionId)} already exists with a different owner; createSession is idempotent only when called with the same ownerParticipantId.`,
+          `SessionDirectoryService.createSession: session ${String(input.sessionId)} already exists with a different owner; createSession is idempotent only when called with the same ownerUserId.`,
         );
       }
 

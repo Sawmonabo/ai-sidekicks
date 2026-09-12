@@ -22,7 +22,7 @@
 //     `CapabilityDeclaration` (declared capabilities), `healthState` (the
 //     daemon's 2-value self-reported health axis —
 //     `packages/contracts/src/runtime-node.ts#RuntimeNodeHealthState`), and
-//     `participantId` + `clientVersion` (trust context: the identity the attach
+//     `userId` + `clientVersion` (trust context: the identity the attach
 //     rides and the version the control plane compares against the session
 //     floor) — and the request carries exactly those fields plus the target
 //     `sessionId` (`packages/contracts/src/runtime-node.ts#RuntimeNodeAttachRequest`).
@@ -143,7 +143,7 @@ import { useSubjectScopedState } from "../console/store/index.js";
  * `sessionId` is the branded {@link SessionId} of the ALREADY-ACTIVE session
  * to attach into: the id is received, never minted, so attach cannot recreate
  * a session. It arrives as a prop (supplied by a router or deep-link), the
- * same prop-contract posture as `NodeRoster` / `ParticipantRoster`.
+ * same prop-contract posture as `NodeRoster` / `UserRoster`.
  *
  * `attachDraft` is the node's self-description (see
  * {@link RuntimeNodeAttachDraft}). It arrives as a prop for the same reason
@@ -222,7 +222,7 @@ export function AttachFlow({ sessionId, attachDraft, reads }: AttachFlowProps): 
   // posture for click paths (invite-accept-view.tsx:169-183), NOT an
   // omission: React 18/19 made `setState` on an unmounted component a silent
   // no-op, and `onClick` handlers are not Strict-Mode double-invoked, so the
-  // mount-effect race that forces `NodeRoster`/`ParticipantRoster` to carry a
+  // mount-effect race that forces `NodeRoster`/`UserRoster` to carry a
   // `cancelled` flag does not arise here. A future reader must not
   // "harmonize" a guard INTO this handler to match the effect-driven siblings
   // — the difference (mount-effect race vs click no-op) is load-bearing in
@@ -255,7 +255,7 @@ export function AttachFlow({ sessionId, attachDraft, reads }: AttachFlowProps): 
       <ul aria-label="attach-node-declaration">
         <li>target session: {sessionId}</li>
         <li>node id: {attachDraft.nodeId}</li>
-        <li>participant id: {attachDraft.participantId}</li>
+        <li>user id: {attachDraft.userId}</li>
         <li>client version: {attachDraft.clientVersion}</li>
         <li>reported health: {attachDraft.healthState}</li>
       </ul>

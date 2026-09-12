@@ -20,13 +20,13 @@
 
 import {
   NodeIdSchema,
-  ParticipantIdSchema,
+  UserIdSchema,
   RepoMountIdSchema,
   RunIdSchema,
   SessionIdSchema,
   WorkspaceIdSchema,
   type NodeId,
-  type ParticipantId,
+  type UserId,
   type RepoMountId,
   type RunId,
   type SessionId,
@@ -84,9 +84,7 @@ export const ATTACHED_WORKSPACE_ID: WorkspaceId = WorkspaceIdSchema.parse(
 // placeholders: the wire-truth predicate presents each beat to the strict contract
 // layer as the whole envelope it claims to be, and a beat whose actor is not the
 // UUID the contract declares is a beat no daemon could emit.
-export const PARTICIPANT_YOU: ParticipantId = ParticipantIdSchema.parse(
-  "9f2c4a10-0000-4000-8000-000000000010",
-);
+export const USER_YOU: UserId = UserIdSchema.parse("9f2c4a10-0000-4000-8000-000000000010");
 export const AGENT_IMPLEMENTER: string = "9f2c4a10-0000-4000-8000-000000000011";
 export const AGENT_REVIEWER: string = "9f2c4a10-0000-4000-8000-000000000012";
 // One execution root per agent, which is what makes the worktree surface a list rather
@@ -177,7 +175,7 @@ export const WORKSPACE_DIFF_MANIFEST_ID: string = "9f2c4a10-0000-4000-8000-00000
  *
  * AND THE CHECKOUT IS A DIFFERENT TOP LEVEL FROM THE MOUNT'S OWN ROOT, which is what
  * makes all three rows differ. That spec's branch-mode sentence admits it directly:
- * the execution root is the participant's own live working tree, main checkout or
+ * the execution root is the user's own live working tree, main checkout or
  * linked worktree, whichever the workspace bound. Neither of the two daemon-created
  * worktrees this scenario holds is reused for it — one is held by an active run and
  * the other was provisioned for `worktree` mode, and a branch-mode binding sharing

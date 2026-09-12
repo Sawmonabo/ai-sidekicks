@@ -154,7 +154,7 @@
   cursor: pointer;
 }
 
-/* One primary act per row: the payload is what a participant came for. */
+/* One primary act per row: the payload is what a user came for. */
 .meridian-artifact-row__act--primary {
   border-color: var(--meridian-accent);
   color: var(--meridian-accent-text);

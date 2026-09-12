@@ -306,9 +306,7 @@ describe("the fixture growth port — what it serves, and what it still refuses"
       // Cursor zero, so the store admits the scenario's first beat rather than
       // discarding a stream that starts below its base state.
       expect(outcome.value.cursor).toBe(0);
-      expect(outcome.value.participantJoinLog).toStrictEqual(
-        FLAGSHIP_SCENARIO.participantIdsInJoinOrder,
-      );
+      expect(outcome.value.userJoinLog).toStrictEqual(FLAGSHIP_SCENARIO.userIdsInJoinOrder);
     }
   });
 
@@ -319,7 +317,7 @@ describe("the fixture growth port — what it serves, and what it still refuses"
 
     expect(outcome.status).toBe("served");
     if (outcome.status === "served") {
-      expect(outcome.value.participantJoinLog).toStrictEqual([]);
+      expect(outcome.value.userJoinLog).toStrictEqual([]);
     }
   });
 

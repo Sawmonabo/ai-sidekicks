@@ -226,7 +226,7 @@ function mintedDiff(artifactManifestId: string, request: unknown): unknown {
     requestedValue(request, "baseRef") !== baseRef ||
     requestedValue(request, "headRef") !== headRef
   ) {
-    // The refs the caller named are NOT echoed back. They are participant input, and a
+    // The refs the caller named are NOT echoed back. They are user input, and a
     // refusal that quoted them would put unbounded text on screen through a sentence
     // the console renders verbatim; what the daemon's own message can honestly carry is
     // the comparison this subject does resolve.

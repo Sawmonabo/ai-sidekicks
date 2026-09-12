@@ -84,7 +84,7 @@ describe("resolveBindForm", () => {
   });
 
   it("does not substitute the new default for a mode that was picked", () => {
-    // Binding in whichever mode is default now is not the act the participant asked for.
+    // Binding in whichever mode is default now is not the act the user asked for.
     const { verdict } = resolveBindForm(
       { directory: "", executionMode: "worktree" },
       { availableModes: ["read-only"], defaultMode: "read-only" },
@@ -146,7 +146,7 @@ describe("defaultBindMode", () => {
 
   it("negative control: a default the reply does not offer pre-fills nothing", () => {
     // Never a guess of the console's. A reply that disagrees with itself leaves the
-    // participant to choose rather than having a mode chosen for them.
+    // user to choose rather than having a mode chosen for them.
     expect(
       defaultBindMode({ availableModes: ["read-only"], defaultMode: "worktree" }),
     ).toBeUndefined();

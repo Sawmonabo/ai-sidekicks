@@ -1,6 +1,6 @@
 // Filters and jumps over the loaded window.
 //
-// Filter by participant and by event family, jump to event by id, scroll to tail: all
+// Filter by user and by event family, jump to event by id, scroll to tail: all
 // renderer-local over the loaded window and cursors.
 //
 // ONE RULE IS LOAD-BEARING AND IT IS NOT A CONVENIENCE: "a filtered subscription
@@ -39,14 +39,14 @@ import { projectedPayload } from "../../cards/wire-payload.js";
  * what makes the default filter the empty object.
  */
 export interface LedgerFilter {
-  /** Participants whose rows are admitted. Empty admits every participant. */
-  readonly participantIds: readonly string[];
+  /** Users whose rows are admitted. Empty admits every user. */
+  readonly userIds: readonly string[];
   /** Event families admitted. Empty admits every family. */
   readonly categories: readonly EventCategory[];
 }
 
 /** The filter that narrows nothing. */
-export const UNFILTERED_LEDGER: LedgerFilter = { participantIds: [], categories: [] };
+export const UNFILTERED_LEDGER: LedgerFilter = { userIds: [], categories: [] };
 
 /** One filterable value and how many rows in the window carry it. */
 export interface LedgerFacet<TValue> {
@@ -61,27 +61,27 @@ export interface LedgerFacet<TValue> {
  * a bare list of names makes them guess which one narrows to anything.
  */
 export interface LedgerFacets {
-  readonly participants: readonly LedgerFacet<string>[];
+  readonly users: readonly LedgerFacet<string>[];
   readonly categories: readonly LedgerFacet<EventCategory>[];
 }
 
 /** Whether a filter narrows anything at all. Drives the "clear filters" affordance. */
 export function isLedgerFiltered(filter: LedgerFilter): boolean {
-  return filter.participantIds.length > 0 || filter.categories.length > 0;
+  return filter.userIds.length > 0 || filter.categories.length > 0;
 }
 
 /** Every value the window offers to filter on, in first-appearance order. */
 export function deriveLedgerFacets(rows: readonly TimelineRow[]): LedgerFacets {
-  const participantCounts = new Map<string, number>();
+  const userCounts = new Map<string, number>();
   const categoryCounts = new Map<EventCategory, number>();
   for (const row of rows) {
     if (row.actor !== undefined) {
-      participantCounts.set(row.actor, (participantCounts.get(row.actor) ?? 0) + 1);
+      userCounts.set(row.actor, (userCounts.get(row.actor) ?? 0) + 1);
     }
     categoryCounts.set(row.category, (categoryCounts.get(row.category) ?? 0) + 1);
   }
   return {
-    participants: [...participantCounts].map(([value, rowCount]) => ({ value, rowCount })),
+    users: [...userCounts].map(([value, rowCount]) => ({ value, rowCount })),
     categories: [...categoryCounts].map(([value, rowCount]) => ({ value, rowCount })),
   };
 }
@@ -99,14 +99,13 @@ export function applyLedgerFilter(
   if (!isLedgerFiltered(filter)) {
     return rows;
   }
-  const admittedParticipants = new Set(filter.participantIds);
+  const admittedUsers = new Set(filter.userIds);
   const admittedCategories = new Set<EventCategory>(filter.categories);
   return narrowLedgerRows(rows, (row) => {
-    const participantAdmits =
-      admittedParticipants.size === 0 ||
-      (row.actor !== undefined && admittedParticipants.has(row.actor));
+    const userAdmits =
+      admittedUsers.size === 0 || (row.actor !== undefined && admittedUsers.has(row.actor));
     const categoryAdmits = admittedCategories.size === 0 || admittedCategories.has(row.category);
-    return participantAdmits && categoryAdmits;
+    return userAdmits && categoryAdmits;
   });
 }
 
@@ -320,14 +319,14 @@ export function jumpToEventId(
 }
 
 /**
- * Narrow or widen one participant, from a facet the bar rendered.
+ * Narrow or widen one user, from a facet the bar rendered.
  *
  * A pure value in, a pure value out: the bar holds no filter of its own, so a chip
  * press is a derivation of the next filter rather than a mutation of the current
  * one. That is what lets the whole narrowing be driven by a test with no DOM.
  */
-export function withToggledParticipant(filter: LedgerFilter, participantId: string): LedgerFilter {
-  return { ...filter, participantIds: toggledMembership(filter.participantIds, participantId) };
+export function withToggledUser(filter: LedgerFilter, userId: string): LedgerFilter {
+  return { ...filter, userIds: toggledMembership(filter.userIds, userId) };
 }
 
 /** Narrow or widen one event family, from a facet the bar rendered. */

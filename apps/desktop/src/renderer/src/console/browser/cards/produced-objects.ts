@@ -23,7 +23,7 @@
 // `docs/specs/006-session-event-taxonomy-and-audit-log.md` nor the `ArtifactPublish` /
 // `ArtifactRead` shapes in `docs/architecture/contracts/api-payload-contracts.md`
 // carry a producer, an origin, or anything else naming what made the object — the
-// manifest's `createdBy` names the publishing PARTICIPANT and not a surface. So a
+// manifest's `createdBy` names the publishing USER and not a surface. So a
 // fold that accepted every readable artifact beat was not folding browser output at
 // all — a repository attachment published from the same session is that exact shape,
 // and it listed under "Produced objects" as though this window had made it.

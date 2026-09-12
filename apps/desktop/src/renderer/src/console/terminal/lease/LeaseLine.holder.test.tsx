@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 
 import { TERMINAL_LEASE_HOLDINGS, UNREAD_TERMINAL_LEASE } from "./lease-model.js";
 import { leaseState, renderLease } from "./LeaseLine.test-support.js";
-import { OTHER_PARTICIPANT, VIEWER_PARTICIPANT } from "./lease-model.test-support.js";
+import { OTHER_USER, VIEWER_USER } from "./lease-model.test-support.js";
 
 describe("the holding line — every state the fold settles into", () => {
   it("says the lease has not been read, which is not the lease being free", () => {
@@ -37,20 +37,20 @@ describe("the holding line — every state the fold settles into", () => {
     const { container } = renderLease(
       leaseState({
         holding: "held-by-another",
-        holderParticipantId: OTHER_PARTICIPANT,
+        holderUserId: OTHER_USER,
         holderVouching: "vouched",
       }),
     );
     expect(container.textContent).toContain("Held");
     expect(container.textContent).toContain("The shell is held from another window.");
-    expect(container.textContent).not.toContain(OTHER_PARTICIPANT);
+    expect(container.textContent).not.toContain(OTHER_USER);
   });
 
   it("tells the holding window it may type, and offers the handback rather than a claim", () => {
     const { container } = renderLease(
       leaseState({
         holding: "held-by-you",
-        holderParticipantId: VIEWER_PARTICIPANT,
+        holderUserId: VIEWER_USER,
         holderVouching: "vouched",
       }),
     );
@@ -65,7 +65,7 @@ describe("the holding line — every state the fold settles into", () => {
 
   it("reports an unread node roster rather than vouching for a hold it cannot check", () => {
     const { container } = renderLease(
-      leaseState({ holding: "held-by-another", holderParticipantId: OTHER_PARTICIPANT }),
+      leaseState({ holding: "held-by-another", holderUserId: OTHER_USER }),
     );
     const absence = container.querySelector(".meridian-nothing");
     expect(absence?.className).toContain("meridian-nothing--not-checked");
@@ -215,12 +215,12 @@ describe("the holding line — every state the fold settles into", () => {
           leaseState({ holding: "unheld", holderVouching: "vouched" }),
           leaseState({
             holding: "held-by-another",
-            holderParticipantId: OTHER_PARTICIPANT,
+            holderUserId: OTHER_USER,
             holderVouching: "vouched",
           }),
           leaseState({
             holding: "held-by-you",
-            holderParticipantId: VIEWER_PARTICIPANT,
+            holderUserId: VIEWER_USER,
             holderVouching: "vouched",
           }),
           leaseState({

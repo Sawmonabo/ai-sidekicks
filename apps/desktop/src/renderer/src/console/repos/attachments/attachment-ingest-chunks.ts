@@ -3,7 +3,7 @@
 //
 // SPLIT FROM `attachment-ingest-stream.ts` BECAUSE IT IS A LOOP AND THEY ARE CALLS.
 // Open and complete are one request each with one answer to read; this is a loop that
-// slices a `Blob`, reads bytes off the participant's own disk, encodes them, and moves
+// slices a `Blob`, reads bytes off the user's own disk, encodes them, and moves
 // an offset that only the daemon may move — with three answers that are unusable and a
 // payload read that can fail for a reason no growth call can. Its own subject, its own
 // failure vocabulary, its own module.
@@ -18,7 +18,7 @@
 // that are unusable and why each one stops the stream instead of being rounded off.
 //
 // THE BYTES ARE SENT, NOT DESCRIBED. Each chunk carries the base64 of one slice read
-// out of the participant's own `Blob`. A request that described a size and carried no
+// out of the user's own `Blob`. A request that described a size and carried no
 // payload would let this client advance its ledger and call Complete over a stream the
 // daemon received nothing on — minting an empty artifact rather than the file. The
 // slice bounds memory too: `ATTACHMENT_CHUNK_BYTE_CAP` raw bytes at a time, so a
@@ -30,7 +30,7 @@
 // differs are named and classified in `attachment-policy.ts`; this file acts on that
 // and invents no policy.
 //
-// A PARTICIPANT CAN ACT WHILE A CALL IS IN FLIGHT, so every continuation re-reads the
+// A USER CAN ACT WHILE A CALL IS IN FLIGHT, so every continuation re-reads the
 // ledger after its await and proceeds only if the entry still stands where it stood. A
 // stream stopped mid-chunk would otherwise run on to completion.
 
@@ -111,7 +111,7 @@ export class AttachmentChunkStream {
       }
       const slice = payload.slice(offset, offset + ATTACHMENT_CHUNK_BYTE_CAP);
       // The read goes through the same door as the three calls, because it fails the
-      // same way: a `Blob` off a picker points at a file on disk, and a participant who
+      // same way: a `Blob` off a picker points at a file on disk, and a user who
       // moved or deleted it between two chunks gets a rejecting `arrayBuffer()` rather
       // than an answer. Unhandled, that left an upload sitting at `ingesting` with the
       // file already gone.

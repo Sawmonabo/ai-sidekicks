@@ -54,7 +54,7 @@ describe("ProposalGateReader — the reasons it reads again", () => {
     await settle(clock, reader);
     expect(reader.performCount).toBe(1);
 
-    sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
     await settle(clock, reader);
 
     expect(reader.performCount).toBe(2);
@@ -100,7 +100,7 @@ describe("ProposalGateReader — the reasons it reads again", () => {
 
     reader.dispose();
     sessionStore.markDegraded("subscription-closed");
-    sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
     sessionStore.applyBatch([eventOfKind(REPOS_SCENARIO.sessionId, "workspace.stale", 1)]);
     await settle(clock, reader);
 
@@ -201,7 +201,7 @@ describe("ProposalGateReader — the roots the registered read has no key for", 
     // The two reasons a gate re-reads without anybody acting. Both reach an addressable
     // root; neither may buy a call here, because the answer would be the same refusal.
     store.markDegraded("subscription-closed");
-    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
     store.applyBatch([eventOfKind(REPOS_SCENARIO.sessionId, "workspace.stale", 1)]);
     await settle(clock, reader);
 

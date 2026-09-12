@@ -10,7 +10,7 @@ import { IncidentPlayer, composeIncidentScenario } from "./incident-replay.js";
 import type { IncidentRecording } from "./incident-recording.js";
 
 const SESSION_ID = "019b7a10-4c00-7d31-9f02-6b1a5e900001";
-const PARTICIPANT_YOU = "019b7a10-4c00-79a4-8110-2c40117a0001";
+const USER_YOU = "019b7a10-4c00-79a4-8110-2c40117a0001";
 
 /** One frame the wire does send, as its text. */
 function sessionCreatedFrameJson(sequence: number): string {
@@ -21,7 +21,7 @@ function sessionCreatedFrameJson(sequence: number): string {
     occurredAt: "2026-01-14T11:20:00.000Z",
     category: "session_lifecycle",
     type: "session.created",
-    actor: PARTICIPANT_YOU,
+    actor: USER_YOU,
     payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
     version: "1.0",
   });
@@ -42,8 +42,8 @@ const SHAPE_UNDER_TEST = {
   label: "Incident under test",
   purpose: "A composition standing in for a seeded incident.",
   sessionId: SESSION_ID,
-  participantIdsInJoinOrder: [PARTICIPANT_YOU],
-  viewingParticipantId: PARTICIPANT_YOU,
+  userIdsInJoinOrder: [USER_YOU],
+  viewingUserId: USER_YOU,
   startedAtIso: "2026-01-14T11:20:00.000Z",
   replies: [],
 } as const;
@@ -62,7 +62,7 @@ describe("the player reads a recording back through the console's own boundary",
           sequence: 1,
           kind: "session.created",
           occurredAt: "2026-01-14T11:20:00.000Z",
-          actorId: PARTICIPANT_YOU,
+          actorId: USER_YOU,
           payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
         },
       },

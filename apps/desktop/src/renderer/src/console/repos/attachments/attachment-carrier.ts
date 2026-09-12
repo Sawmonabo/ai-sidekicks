@@ -1,4 +1,4 @@
-// The carrier binding: where a file a participant chose becomes an ingest, and where
+// The carrier binding: where a file a user chose becomes an ingest, and where
 // the ingest client is constructed, subscribed, and disposed.
 //
 // WHY THIS MODULE EXISTS AT ALL. `attachment-ingest-machine.ts` is a class with a
@@ -281,7 +281,7 @@ export class AttachmentCarrier {
  * now. React's StrictMode double-mount runs the seam's cleanup and then this effect's
  * setup again on the SAME committed carrier: the cleanup terminally disposed the
  * ingest client, the replayed setup called `start()` on the corpse, and every file the
- * participant chose afterwards reached a client whose `attach` returns at once — the
+ * user chose afterwards reached a client whose `attach` returns at once — the
  * attachment surface inert, with nothing on screen to say so. That arm is
  * `isClosed`'s, supplied beside `close`; this effect had re-derived it and published
  * the replacement itself, which left the corpse committed and disposed twice. Nothing

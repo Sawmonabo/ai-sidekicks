@@ -16,7 +16,7 @@
 //
 // THE SIZE LINE IS THE BOUND STATED AHEAD OF THE REFUSAL. `core/constants/attachment-caps.ts` gives the
 // reason the console carries these figures at all: to explain a bound before a
-// participant spends an upload earning it. The declared length here is the payload's
+// user spends an upload earning it. The declared length here is the payload's
 // own `Blob` size rather than a caller's claim, and when it is past the bound the row
 // says what `artifact.too_large` will say — as a warning, never as a gate. Nothing here
 // refuses to send: the three enforcement points are the daemon's.

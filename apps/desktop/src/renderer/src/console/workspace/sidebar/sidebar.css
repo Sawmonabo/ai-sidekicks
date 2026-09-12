@@ -359,7 +359,7 @@
   gap: var(--meridian-space-1);
 }
 
-/* One measure and one line. The text is the participant's own, so it is clamped
+/* One measure and one line. The text is the user's own, so it is clamped
    rather than shortened: the whole of it stays in the element and in its title. */
 .meridian-sidebar-goal__text {
   margin: 0;

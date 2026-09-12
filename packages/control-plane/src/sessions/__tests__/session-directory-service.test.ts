@@ -26,7 +26,7 @@ import { PGlite, type Transaction } from "@electric-sql/pglite";
 import type { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ParticipantId, SessionId } from "@ai-sidekicks/contracts";
+import type { UserId, SessionId } from "@ai-sidekicks/contracts";
 
 import { applyMigrations, type Querier } from "../migration-runner.js";
 import {
@@ -44,9 +44,8 @@ import {
 // Real UUID v7 generation is daemon-side; the service treats the id as opaque.
 const SESSION_ID: SessionId = "01970000-0000-7000-8000-00000000a001" as SessionId;
 const SECOND_SESSION_ID: SessionId = "01970000-0000-7000-8000-00000000a002" as SessionId;
-const OWNER_PARTICIPANT_ID: ParticipantId = "01970000-0000-7000-8000-00000000b001" as ParticipantId;
-const SECOND_PARTICIPANT_ID: ParticipantId =
-  "01970000-0000-7000-8000-00000000b002" as ParticipantId;
+const OWNER_USER_ID: UserId = "01970000-0000-7000-8000-00000000b001" as UserId;
+const SECOND_USER_ID: UserId = "01970000-0000-7000-8000-00000000b002" as UserId;
 
 // ----------------------------------------------------------------------------
 // PGlite -> Querier adapter
@@ -239,12 +238,12 @@ describe("SessionDirectoryService — P1 (create persists with stable id)", () =
     // server-side regeneration).
     const input: CreateSessionInput = {
       sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
+      ownerUserId: OWNER_USER_ID,
       config: { greeting: "hello" },
       metadata: { tag: "p1" },
     };
     // The owning user must exist before the session's owner FK can resolve.
-    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [OWNER_PARTICIPANT_ID]);
+    await ctx.querier.query("INSERT INTO users (id) VALUES ($1)", [OWNER_USER_ID]);
 
     const response = await ctx.service.createSession(input);
 
@@ -270,7 +269,7 @@ describe("SessionDirectoryService — P1 (create persists with stable id)", () =
     expect(row).toBeDefined();
     if (row === undefined) return;
     expect(row.id).toBe(SESSION_ID);
-    expect(row.owner_user_id).toBe(OWNER_PARTICIPANT_ID);
+    expect(row.owner_user_id).toBe(OWNER_USER_ID);
     expect(row.state).toBe("provisioning");
   });
 
@@ -284,10 +283,10 @@ describe("SessionDirectoryService — P1 (create persists with stable id)", () =
     // that swaps the JSONB hydration order (config <-> metadata) surfaces
     // here as well as in P2 — the read-side proof should mirror the
     // read surface across both fields.
-    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [OWNER_PARTICIPANT_ID]);
+    await ctx.querier.query("INSERT INTO users (id) VALUES ($1)", [OWNER_USER_ID]);
     await ctx.service.createSession({
       sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
+      ownerUserId: OWNER_USER_ID,
       config: { greeting: "hello" },
       metadata: { tag: "round-trip" },
     });
@@ -315,7 +314,7 @@ describe("SessionDirectoryService — P1 (create persists with stable id)", () =
   });
 
   it("createSession refuses an owner who is not a registered user and leaves no session row", async () => {
-    // `sessions.owner_user_id` carries a FK to `participants(id)` and no
+    // `sessions.owner_user_id` carries a FK to `users(id)` and no
     // DEFAULT, so a create naming an unregistered owner fails at the database
     // rather than materializing a session nobody owns. The refusal happens on
     // the session INSERT itself, inside the transaction, so nothing commits.
@@ -327,12 +326,12 @@ describe("SessionDirectoryService — P1 (create persists with stable id)", () =
     if (beforeRow === undefined) return;
     expect(Number.parseInt(beforeRow.count, 10)).toBe(0);
 
-    // Note: OWNER_PARTICIPANT_ID is intentionally NOT inserted — the session
-    // row's owner FK against `participants(id)` will throw.
+    // Note: OWNER_USER_ID is intentionally NOT inserted — the session
+    // row's owner FK against `users(id)` will throw.
     await expect(
       ctx.service.createSession({
         sessionId: SESSION_ID,
-        ownerParticipantId: OWNER_PARTICIPANT_ID,
+        ownerUserId: OWNER_USER_ID,
       }),
     ).rejects.toThrow();
 
@@ -357,11 +356,11 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
     // sessions.updated_at RETURNING *`. A retry-after-crash (network
     // blip mid-create, daemon restart between request send and ack) MUST
     // yield the same row, not a sibling.
-    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [OWNER_PARTICIPANT_ID]);
+    await ctx.querier.query("INSERT INTO users (id) VALUES ($1)", [OWNER_USER_ID]);
 
     const first = await ctx.service.createSession({
       sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
+      ownerUserId: OWNER_USER_ID,
       config: { phase: "first" },
       metadata: { phase: "first" },
     });
@@ -372,7 +371,7 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
     // first-call's payload.
     const second = await ctx.service.createSession({
       sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
+      ownerUserId: OWNER_USER_ID,
       config: { phase: "second" },
       metadata: { phase: "second" },
     });
@@ -402,7 +401,7 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
     const persisted = persistedRow.rows[0];
     expect(persisted).toBeDefined();
     if (persisted === undefined) return;
-    expect(persisted.owner_user_id).toBe(OWNER_PARTICIPANT_ID);
+    expect(persisted.owner_user_id).toBe(OWNER_USER_ID);
     expect(persisted.config).toEqual({ phase: "first" });
     expect(persisted.metadata).toEqual({ phase: "first" });
   });
@@ -413,15 +412,15 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
     // that's the normal multi-session case, not a fork. This test pins
     // the boundary so a future regression that keys idempotency on
     // owner instead of sessionId surfaces immediately.
-    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [OWNER_PARTICIPANT_ID]);
+    await ctx.querier.query("INSERT INTO users (id) VALUES ($1)", [OWNER_USER_ID]);
 
     const a = await ctx.service.createSession({
       sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
+      ownerUserId: OWNER_USER_ID,
     });
     const b = await ctx.service.createSession({
       sessionId: SECOND_SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
+      ownerUserId: OWNER_USER_ID,
     });
 
     expect(a.sessionId).not.toBe(b.sessionId);
@@ -437,20 +436,20 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
   it("createSession with an existing sessionId but a different owner is rejected", async () => {
     // The owner-mismatch guard inside `createSession`'s transaction. Owner
     // identity is bound at the first create, so a second create with the same
-    // `sessionId` but a DIFFERENT `ownerParticipantId` is NOT a retry — it is
+    // `sessionId` but a DIFFERENT `ownerUserId` is NOT a retry — it is
     // an attempt to take over someone else's session. Without the guard the
     // upsert's conflict clause would silently leave the original owner in place
     // and report success, so the caller would believe it owned a session it
     // does not.
-    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1), ($2)", [
-      OWNER_PARTICIPANT_ID,
-      SECOND_PARTICIPANT_ID,
+    await ctx.querier.query("INSERT INTO users (id) VALUES ($1), ($2)", [
+      OWNER_USER_ID,
+      SECOND_USER_ID,
     ]);
 
     // First create binds the owner.
     await ctx.service.createSession({
       sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
+      ownerUserId: OWNER_USER_ID,
     });
 
     // Second create: same sessionId, DIFFERENT user. MUST throw. The error
@@ -459,7 +458,7 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
     await expect(
       ctx.service.createSession({
         sessionId: SESSION_ID,
-        ownerParticipantId: SECOND_PARTICIPANT_ID,
+        ownerUserId: SECOND_USER_ID,
       }),
     ).rejects.toThrow(SESSION_ID);
 
@@ -474,13 +473,13 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
     const persistedOwner = probe.rows[0];
     expect(persistedOwner).toBeDefined();
     if (persistedOwner === undefined) return;
-    expect(persistedOwner.owner_user_id).toBe(OWNER_PARTICIPANT_ID);
+    expect(persistedOwner.owner_user_id).toBe(OWNER_USER_ID);
 
     // Same-owner retry must still be idempotent — the guard does NOT turn into
     // a "first-create-only" gate.
     const retry = await ctx.service.createSession({
       sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
+      ownerUserId: OWNER_USER_ID,
     });
     expect(retry.sessionId).toBe(SESSION_ID);
 
@@ -519,7 +518,7 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
   // boundary, so two genuinely concurrent transactions on the same sessionId
   // cannot be simulated without a multi-connection harness.
   it("createSession issues ONE session statement inside the transaction and reads the owner from its RETURNING clause", async () => {
-    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [OWNER_PARTICIPANT_ID]);
+    await ctx.querier.query("INSERT INTO users (id) VALUES ($1)", [OWNER_USER_ID]);
 
     // Wrap the test querier in a logging proxy that captures every SQL
     // statement issued — including queries inside `transaction(...)` (the
@@ -536,7 +535,7 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
 
     await service.createSession({
       sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
+      ownerUserId: OWNER_USER_ID,
     });
 
     // The single load-bearing statement, identified by a stable SQL fragment.
@@ -593,12 +592,12 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
       [SESSION_ID],
     );
     expect(probe.rows).toHaveLength(1);
-    expect(probe.rows[0]?.owner_user_id).toBe(OWNER_PARTICIPANT_ID);
+    expect(probe.rows[0]?.owner_user_id).toBe(OWNER_USER_ID);
   });
 
   it("createSession with same logical owner but UPPERCASE UUID is idempotent", async () => {
     // The owner-mismatch guard compares the persisted `owner_user_id` against
-    // `input.ownerParticipantId`. Postgres canonicalizes UUIDs to lowercase on
+    // `input.ownerUserId`. Postgres canonicalizes UUIDs to lowercase on
     // storage and return (RFC 9562 admits both cases as valid input), so under
     // strict string equality a caller that passes the same logical owner UUID
     // with uppercase hex digits on retry would falsely trip the "different
@@ -606,24 +605,24 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
     // whose id source happens to use uppercase. Both sides are normalized via
     // `.toLowerCase()` before equality. A regression that dropped the
     // normalization would surface here as a thrown error.
-    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [OWNER_PARTICIPANT_ID]);
+    await ctx.querier.query("INSERT INTO users (id) VALUES ($1)", [OWNER_USER_ID]);
 
     // First create: owner UUID in canonical lowercase form (the
-    // `OWNER_PARTICIPANT_ID` fixture is already lowercase).
+    // `OWNER_USER_ID` fixture is already lowercase).
     await ctx.service.createSession({
       sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
+      ownerUserId: OWNER_USER_ID,
     });
 
     // Second create: same sessionId + same logical owner UUID, but
     // UPPERCASED. RFC 9562 admits both cases; the brand has no runtime
     // case-validator. Without the .toLowerCase() normalization in the
     // owner-mismatch guard, this call throws.
-    const uppercaseOwner: ParticipantId = OWNER_PARTICIPANT_ID.toUpperCase() as ParticipantId;
+    const uppercaseOwner: UserId = OWNER_USER_ID.toUpperCase() as UserId;
     await expect(
       ctx.service.createSession({
         sessionId: SESSION_ID,
-        ownerParticipantId: uppercaseOwner,
+        ownerUserId: uppercaseOwner,
       }),
     ).resolves.not.toThrow();
 
@@ -638,7 +637,7 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
     const persistedSession = ownerProbe.rows[0];
     expect(persistedSession).toBeDefined();
     if (persistedSession === undefined) return;
-    expect(persistedSession.owner_user_id).toBe(OWNER_PARTICIPANT_ID);
+    expect(persistedSession.owner_user_id).toBe(OWNER_USER_ID);
   });
 });
 
@@ -676,7 +675,7 @@ describe("applyMigrations — idempotency", () => {
 
   it("applyMigrations is concurrency-safe — concurrent calls on the same fresh database serialize via advisory lock (Codex R8)", async () => {
     // Codex R8 (P2): the prior runner observed "not applied" at the outer
-    // probe, opened the transaction, and ran `CREATE TABLE participants`
+    // probe, opened the transaction, and ran `CREATE TABLE users`
     // unconditionally. Two concurrent racers under shared Postgres (rolling
     // deploys, multi-replica daemons) could both pass the unguarded outer
     // probe and both proceed into the transaction; the second would then
@@ -718,10 +717,10 @@ describe("applyMigrations — idempotency", () => {
     //   (a) End-state correctness — `Promise.all([apply, apply])` on a
     //       fresh DB resolves with no throw; each migration lands exactly
     //       once (`schema_migrations` carries v1 + v2 + v3 anchor rows post
-    //       PR #145; `participants` table exists from v1). This IS
+    //       PR #145; `users` table exists from v1). This IS
     //       load-bearing on PGlite: empirically, the pre-R8 broken shape (no
     //       advisory lock around the transaction) DOES throw `relation
-    //       "participants" already exists` on PGlite under `Promise.all`,
+    //       "users" already exists` on PGlite under `Promise.all`,
     //       because both outer probes race to false and both transactions
     //       execute the unguarded `CREATE TABLE`. Removing the lock would
     //       crash this assertion.
@@ -764,13 +763,13 @@ describe("applyMigrations — idempotency", () => {
       );
       expect(migrationsProbe.rows).toEqual([{ version: 1 }, { version: 3 }, { version: 4 }]);
 
-      const participantsProbe = await pg.query<{ exists: boolean }>(
+      const usersProbe = await pg.query<{ exists: boolean }>(
         `SELECT EXISTS (
            SELECT 1 FROM information_schema.tables
-            WHERE table_schema = 'public' AND table_name = 'participants'
+            WHERE table_schema = 'public' AND table_name = 'users'
          ) AS exists`,
       );
-      expect(participantsProbe.rows[0]?.exists).toBe(true);
+      expect(usersProbe.rows[0]?.exists).toBe(true);
 
       // (b) Lock-query presence: the runner that entered each version's
       // transaction issued the advisory lock. Assert "at least one"
@@ -799,7 +798,7 @@ describe("applyMigrations — idempotency", () => {
     await expect(
       ctx.querier.query("INSERT INTO sessions (id, owner_user_id, state) VALUES ($1, $2, $3)", [
         SESSION_ID,
-        OWNER_PARTICIPANT_ID,
+        OWNER_USER_ID,
         "not_a_real_state",
       ]),
     ).rejects.toThrow();
@@ -1064,7 +1063,7 @@ function cannedRowsForCreateSession(): CannedResponse[] {
       rows: [
         {
           id: SESSION_ID,
-          owner_user_id: OWNER_PARTICIPANT_ID,
+          owner_user_id: OWNER_USER_ID,
           state: "provisioning",
           config: {},
           metadata: {},
@@ -1554,7 +1553,7 @@ describe("createPgPoolQuerier — pool-checkout-and-release path", () => {
 
     const response = await service.createSession({
       sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
+      ownerUserId: OWNER_USER_ID,
     });
 
     // Contract-shape assertions: one stable id and a default (empty) channels
@@ -1657,7 +1656,7 @@ describe("createPgPoolQuerier — pool-checkout-and-release path", () => {
 
     await service.createSession({
       sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
+      ownerUserId: OWNER_USER_ID,
     });
     const createResolvedAt = performance.now();
 

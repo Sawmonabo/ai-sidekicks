@@ -143,7 +143,7 @@ describe("useSessionStoreRegistry — the projectors the window's stores fold wi
     expect(store).toBeDefined();
     // The same base state the fixture's own session read establishes, so a read
     // landing later answers at this cursor and changes nothing.
-    store?.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    store?.initialise({ cursor: 0, entities: [], userJoinLog: [] });
 
     act(() => {
       registry.enqueue(sessionId, [queuedRunEvent(sessionId, 1, "run-projection-1")]);
@@ -162,7 +162,7 @@ describe("useSessionStoreRegistry — the projectors the window's stores fold wi
     const registry = new SessionStoreRegistry({ read: () => Promise.resolve(undefined) });
     const sessionId = "session-unprojected";
     const store = registry.open(sessionId);
-    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
 
     registry.enqueue(sessionId, [queuedRunEvent(sessionId, 1, "run-projection-1")]);
     registry.flush(sessionId);
@@ -227,7 +227,7 @@ describe("useSessionStoreRegistry — the board a family projects its own events
     );
     const { registry } = lastObservation(observed);
     const store = registry.peek(sessionId);
-    store?.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    store?.initialise({ cursor: 0, entities: [], userJoinLog: [] });
 
     act(() => {
       registry.enqueue(sessionId, [familyEvent(sessionId, 1)]);
@@ -250,7 +250,7 @@ describe("useSessionStoreRegistry — the board a family projects its own events
     });
     const sessionId = "session-unclaimed-kind";
     const store = registry.open(sessionId);
-    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
 
     registry.enqueue(sessionId, [familyEvent(sessionId, 1)]);
     registry.flush(sessionId);

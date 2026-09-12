@@ -56,7 +56,7 @@ import type {
   JsonRpcResponseEnvelope,
   ListProviderCommandsRequest,
   ChannelId,
-  ParticipantId,
+  UserId,
   ProviderCommandListResult,
   RunId,
   SessionEvent,
@@ -554,7 +554,7 @@ describe("DriverClient — the ratified client-facing surface", () => {
 /** Low-entropy sentinel ids — see the header note on the secret scanner. */
 const TEST_SUBSCRIPTION_ID = "00000000-0000-4000-8000-000000000003";
 const TEST_SESSION_ID = "00000000-0000-4000-8000-000000000004" as SessionId;
-const TEST_PARTICIPANT_ID = "00000000-0000-4000-8000-000000000005" as ParticipantId;
+const TEST_USER_ID = "00000000-0000-4000-8000-000000000005" as UserId;
 const TEST_CHANNEL_ID = "00000000-0000-4000-8000-000000000006" as ChannelId;
 
 /**
@@ -593,7 +593,7 @@ function buildNonDriverEvent(): SessionEvent {
     occurredAt: "2026-01-22T19:14:36.000Z",
     category: "session_lifecycle",
     type: "channel.created",
-    actor: TEST_PARTICIPANT_ID,
+    actor: TEST_USER_ID,
     version: EVENT_VERSION,
     payload: {
       channelId: TEST_CHANNEL_ID,

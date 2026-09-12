@@ -145,8 +145,8 @@ export const SETTINGS_DIAGNOSTICS_RUN_BEATS: readonly ScenarioBeat[] = RUN_TRANS
       kind: `run.${transition.newState}`,
       occurredAt: occurredAt(transition.atMs),
       // No actor on any of them. `queued` here is a run this node picked up rather
-      // than one a participant started from this window, and every later transition
-      // is the daemon moving its own aggregate — a participant id on either would
+      // than one a user started from this window, and every later transition
+      // is the daemon moving its own aggregate — a user id on either would
       // attribute a system transition to a person.
       payload: {
         sessionId: SESSION_ID,

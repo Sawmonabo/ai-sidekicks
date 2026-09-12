@@ -12,7 +12,7 @@
 // THE DRAG DATA IS A LOCAL ID AND NOTHING ELSE. `getInitialData` runs once as the drag
 // starts, so anything richer put in it would be a snapshot of an entry that can settle,
 // be refused, or be abandoned before the drop — and the drop would then move a row the
-// participant is no longer looking at. One opaque string, re-read against the ledger by
+// user is no longer looking at. One opaque string, re-read against the ledger by
 // whoever performs the move.
 //
 // A ROW NEVER ACCEPTS ITSELF. `canDrop` refuses the source row, so a drag that ends

@@ -49,7 +49,7 @@ const FIXTURE_ONLY_ROW = {
 const WELL_FORMED_RULE = {
   ruleId: "rule-01",
   sessionId: "session-one",
-  participantId: "participant-you",
+  userId: "user-you",
   nodeId: "node-local",
   category: "tool_execution",
   scope: { kind: "session" },
@@ -260,7 +260,7 @@ describe("the resolved quad", () => {
           state: "approved",
           resolvedAt: "2026-01-01T00:00:01.000Z",
           decision: "approved",
-          approverId: "participant-you",
+          approverId: "user-you",
           effectiveScope: "session",
         },
       ],

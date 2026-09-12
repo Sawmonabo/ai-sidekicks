@@ -234,7 +234,7 @@ const RUN_ID_PAYLOAD_KEY = "runId" as const;
  *     commits to ciphertext this UPDATE destroys, so preserving it would leave
  *     every compacted body-bearing row asserting a binding to bytes that no
  *     longer exist — the failure the 2026-07-27 owner-stamp amendment fixed
- *     retroactively for `pii_participant_id`, stated here at mint time instead.
+ *     retroactively for `pii_user_id`, stated here at mint time instead.
  *
  * Enforcement, not narration, for the first pair: `trg_run_terminal_key_update`
  * fires on this module's `UPDATE OF payload` and ABORTs a stub that dropped,
@@ -995,9 +995,9 @@ export class Compactor {
     // The mutation of step 5, and its SET list is exhaustive BY OMISSION as much
     // as by inclusion. `payload` is REWRITTEN, never nulled (the column is NOT
     // NULL, and replay must still be able to surface the visible stub).
-    // `pii_participant_id` joins the NULLed set alongside `pii_payload` per the
+    // `pii_user_id` joins the NULLed set alongside `pii_payload` per the
     // 2026-07-27 PII-owner-stamp amendment: the stub projection carries no PII
-    // owner, so a surviving stamp would name a participant for a row whose
+    // owner, so a surviving stamp would name a user for a row whose
     // ciphertext is gone and the read-side check would report
     // `pii_owner_stamp_unbound` on every compacted row. `content_payload` joins
     // the same NULLed set: the machine-authored body is destroyed here exactly
@@ -1019,7 +1019,7 @@ export class Compactor {
               correlation_id = NULL,
               causation_id = NULL,
               pii_payload = NULL,
-              pii_participant_id = NULL,
+              pii_user_id = NULL,
               content_payload = NULL,
               retention_class = ?,
               stub_signature = ?

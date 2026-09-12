@@ -37,7 +37,7 @@ import {
   type JsonRpcRequest,
   type JsonRpcResponseEnvelope,
   MAIN_CHANNEL_NAME,
-  type ParticipantId,
+  type UserId,
   type SessionCreateResponse,
   type SessionEvent,
   type SessionId,
@@ -72,7 +72,7 @@ import type { ClientTransport } from "../src/transport/types.js";
 // ---------------------------------------------------------------------------
 
 const SESSION_ID: SessionId = "01970000-0000-7000-8000-00000000a001" as SessionId;
-const OWNER_PARTICIPANT_ID: ParticipantId = "01970000-0000-7000-8000-00000000b001" as ParticipantId;
+const OWNER_USER_ID: UserId = "01970000-0000-7000-8000-00000000b001" as UserId;
 
 // Event ids whose UUID format also satisfies `EventCursor.min(1).max(256)`.
 // On the daemon transport, the SDK synthesizes `eventId = event.id`; on the
@@ -220,8 +220,8 @@ function buildSubscribeOnlyDeps(provider: SessionEventStreamProvider): ControlPl
     // Same never-reached posture as the runtime-node services above:
     // holds the throwing querier, throws only on use.
     anchorStore: new EventLogAnchorStore(throwingQuerier),
-    resolveCurrentParticipantId: (): ParticipantId => {
-      throw NEVER_REACHED("resolveCurrentParticipantId");
+    resolveCurrentUserId: (): UserId => {
+      throw NEVER_REACHED("resolveCurrentUserId");
     },
     generateSessionId: (): SessionId => {
       throw NEVER_REACHED("generateSessionId");
@@ -270,7 +270,7 @@ function buildCrudOnlyDeps(directoryService: FixtureDirectoryService): ControlPl
     // Same never-reached posture as the runtime-node services above:
     // holds the throwing querier, throws only on use.
     anchorStore: new EventLogAnchorStore(throwingQuerier),
-    resolveCurrentParticipantId: (): ParticipantId => OWNER_PARTICIPANT_ID,
+    resolveCurrentUserId: (): UserId => OWNER_USER_ID,
     generateSessionId: (): SessionId => SESSION_ID,
     eventStreamProvider: () => {
       throw new Error("CRUD smoke tests must not exercise the eventStreamProvider");
@@ -1294,7 +1294,7 @@ describe("daemon factory — listChannels returns the bootstrap main channel", (
           id: mainChannelId,
           name: MAIN_CHANNEL_NAME,
           state: "active",
-          participantCount: 1,
+          userCount: 1,
         },
       ],
     };

@@ -128,7 +128,7 @@ export async function answerFromScriptedReply<TOperationId extends GrowthOperati
  *
  * The precondition is read off `engine.scenario` BEFORE the settlement rather than as a
  * fifth settlement arm inside `answerFromScriptedReply`, because it is a fact about the
- * SCENARIO rather than about the settlement — `callerParticipantRead` in the port reads
+ * SCENARIO rather than about the settlement — `callerUserRead` in the port reads
  * its own precondition the same way and for the same reason. What is left after the
  * check is exactly the settlement the seam reports, so the parked, abandoned, and
  * over-cap arms all keep their own answers.

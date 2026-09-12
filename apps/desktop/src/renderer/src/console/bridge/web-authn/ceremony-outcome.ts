@@ -2,7 +2,7 @@
 //
 // The credential flow fixes the answer: main resolves the bridge call with a
 // `WebAuthnCeremonyOutcome` — a closed union of an authenticated arm carrying the
-// participant identity claims, a fallback-required arm naming the probe result that
+// user identity claims, a fallback-required arm naming the probe result that
 // produced it, and a refused arm carrying a typed reason. No arm carries an
 // assertion, a PRF output, a derived key, or a handle to one.
 //
@@ -30,7 +30,7 @@
 // resolution as success would be this console asserting an identity nothing
 // established — the one failure that must not be reachable from here.
 
-import { ParticipantIdSchema, type ParticipantId } from "@ai-sidekicks/contracts";
+import { UserIdSchema, type UserId } from "@ai-sidekicks/contracts";
 
 import { isWireRecord, readWireString, type ConsoleRefusal } from "../../core/index.js";
 
@@ -58,7 +58,7 @@ export type WebAuthnProbeResult = (typeof WEB_AUTHN_PROBE_RESULTS)[number];
 /**
  * Why the ceremony ended without authenticating, when the host was capable.
  *
- * `cancelled` is the arm that is NOT a capability result: a participant who
+ * `cancelled` is the arm that is NOT a capability result: a user who
  * dismisses the OS dialog has answered the question, and the answer is no. It is
  * terminal — it opens no loopback and tries no second provider — and the sign-in
  * model honours that by construction.
@@ -95,26 +95,26 @@ export type WebAuthnCustody = (typeof WEB_AUTHN_CUSTODY_STATES)[number];
  *
  * The credential flow puts these on the authenticated arm and makes them the whole
  * of what crosses the bridge: main returns only the ceremony success signal and the
- * participant identity claims to the renderer. Without
+ * user identity claims to the renderer. Without
  * them the arm carries custody alone, and a console that has just authenticated
  * somebody can say only that a sign-in happened — which is a receipt with no subject.
  *
- * THE TYPE IS THE CORPUS'S OWN. `ParticipantId` is
+ * THE TYPE IS THE CORPUS'S OWN. `UserId` is
  * `packages/contracts/src/session.ts`' branded id, imported rather than restated, and
- * the reader below narrows against `ParticipantIdSchema` — the same discipline
+ * the reader below narrows against `UserIdSchema` — the same discipline
  * `bridge/daemon/entity-body-reads.ts` states for every registered wire shape: a
  * hand-written narrowing checks what its author remembered to check, and this one
  * would admit an empty string as an identity.
  *
  * ONE MEMBER TODAY, AND THAT IS THE HONEST CLAIM SET RATHER THAN A STUB. The corpus
- * declares no participant display name anywhere: `identityHandle` is supplied at
+ * declares no user display name anywhere: `identityHandle` is supplied at
  * `session.join` and belongs to a MEMBERSHIP, so a ceremony that runs before any
  * session has none to carry. It is a named group rather than a bare member on the arm
  * because the spec names it as one and four surfaces thread it — so a claim the
  * relying party later adds lands here and at no call site.
  */
-export interface ParticipantIdentityClaims {
-  readonly participantId: ParticipantId;
+export interface UserIdentityClaims {
+  readonly userId: UserId;
 }
 
 /**
@@ -145,7 +145,7 @@ export type WebAuthnCeremonyOutcome =
       readonly kind: "authenticated";
       readonly custody: WebAuthnCustody;
       /** Who was signed in. Required: an authentication with no subject is not one. */
-      readonly claims: ParticipantIdentityClaims;
+      readonly claims: UserIdentityClaims;
     }
   | {
       readonly kind: "fallback-required";
@@ -179,14 +179,14 @@ export type ProducedCeremonyOutcome = Exclude<
  * one that crosses the bridge: a scripted ceremony is "a fact about the HOST rather
  * than about the session — which authenticator this machine has, whether it does PRF,
  * and whether the OS keystore will hold what the ceremony mints." WHO signs in is none
- * of those. It is the scenario's `viewingParticipantId`, stated once, and a second
+ * of those. It is the scenario's `viewingUserId`, stated once, and a second
  * statement on the ceremony script could disagree with it — which is exactly the
  * fabrication `fixture/growth/growth-port.refusals.test.ts` pins the identity read against.
  *
  * So the fixture composes the claims from the viewer the scenario already names, and a
  * scenario that names none cannot script an authenticated host at all: it takes the
  * same `capability-absent` refusal an unstated ceremony takes, which is the honest
- * answer rather than an invented participant.
+ * answer rather than an invented user.
  *
  * DERIVED IN BOTH DIRECTIONS rather than written out: `Omit` over the produced arm
  * keeps custody in step with it, and `Exclude` carries every other arm unchanged, so
@@ -265,7 +265,7 @@ function readAuthenticated(
   candidate: Record<string, unknown>,
 ): WebAuthnCeremonyOutcome | undefined {
   const custody = WEB_AUTHN_CUSTODY_STATES.find((state) => state === candidate["custody"]);
-  const claims = readParticipantIdentityClaims(candidate["claims"]);
+  const claims = readUserIdentityClaims(candidate["claims"]);
   if (custody === undefined || claims === undefined) {
     return undefined;
   }
@@ -276,19 +276,19 @@ function readAuthenticated(
  * The identity claims on an authenticated resolution, or `undefined`.
  *
  * FAIL-CLOSED, AND THIS IS THE ARM WHERE THAT COSTS SOMETHING. A resolution that names
- * a participant the contract's own schema will not accept — an empty string, a label,
+ * a user the contract's own schema will not accept — an empty string, a label,
  * a value some other build's ceremony carried — is not read as an authentication at
  * all, so the adapter renders it as _not checked_ rather than signing somebody in
- * under an identity nothing established. Narrowed through `ParticipantIdSchema` and
+ * under an identity nothing established. Narrowed through `UserIdSchema` and
  * never through a local predicate: the brand is the contract's, and a cast here would
  * be this console asserting a shape it did not check.
  */
-function readParticipantIdentityClaims(value: unknown): ParticipantIdentityClaims | undefined {
+function readUserIdentityClaims(value: unknown): UserIdentityClaims | undefined {
   if (!isWireRecord(value)) {
     return undefined;
   }
-  const participantId = ParticipantIdSchema.safeParse(value["participantId"]);
-  return participantId.success ? { participantId: participantId.data } : undefined;
+  const userId = UserIdSchema.safeParse(value["userId"]);
+  return userId.success ? { userId: userId.data } : undefined;
 }
 
 function readFallbackRequired(

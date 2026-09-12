@@ -65,7 +65,7 @@ export function InlineArtifactCard(props: InlineArtifactCardProps): React.JSX.El
           Artifact
         </h4>
         {/* Wire-verbatim, with the full string recoverable through the title: an
-            artifact id is how a participant reaches this row anywhere else in the
+            artifact id is how a user reaches this row anywhere else in the
             product, so a truncated one that could not be read back would be useless. */}
         <span className="meridian-artifact-card__id" title={props.card.artifact.id}>
           {props.card.artifact.id}

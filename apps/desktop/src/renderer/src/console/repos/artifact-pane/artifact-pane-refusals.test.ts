@@ -18,7 +18,7 @@ import {
 describe("artifact pane refusals — a read that threw", () => {
   it("names this reader as the origin and never quotes the rejected value", () => {
     // The sentence names the leg and stops there: a rejection off the wire can carry
-    // participant content as readily as a schema failure can. The copy this replaces
+    // user content as readily as a schema failure can. The copy this replaces
     // interpolated `error.message` into it.
     const refusal = readFailureRefusal(new Error("/Users/someone/secret-branch"));
     expect(refusal.code).toBe("read-threw");
@@ -85,7 +85,7 @@ describe("artifact pane refusals — the closed vocabulary", () => {
 
   it("names the row a held visibility change is about, so the sentence is not generic", () => {
     // The control that mints it is a TOGGLE whose label is read off the row, so a
-    // participant told only that "something is in flight" cannot tell which row is
+    // user told only that "something is in flight" cannot tell which row is
     // being re-classified or what it is being re-classified to.
     const refusal = visibilityUpdateInFlightRefusal("artifact-7");
 

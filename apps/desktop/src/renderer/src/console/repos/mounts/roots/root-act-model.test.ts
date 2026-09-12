@@ -245,7 +245,7 @@ describe("prepareAcknowledgement", () => {
   });
 
   it("drops a consent the verdict no longer calls for, which a refresh can leave set", () => {
-    // The checkbox is ticked under a `dirty` verdict, another participant commits, the
+    // The checkbox is ticked under a `dirty` verdict, another user commits, the
     // re-check settles `reusable`, and the checkbox unmounts with the consent recorded.
     expect(
       prepareAcknowledgement(form(WORKTREE_ID), { kind: "reusable", worktreeId: WORKTREE_ID }),

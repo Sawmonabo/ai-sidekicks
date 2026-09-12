@@ -23,7 +23,7 @@ import { FLAGSHIP_SCENARIO } from "../../scenario/flagship/flagship.js";
 import { findScenarioWireTruthDefects } from "../../scenario/wire-truth/wire-truth.js";
 
 const ATTENTION_SESSION_ID = "019b7a11-0280-75e5-8510-ada11a5a33a5";
-const ATTENTION_PARTICIPANT_ID = "019b7a11-0280-79a4-8110-cca0117a0330";
+const ATTENTION_USER_ID = "019b7a11-0280-79a4-8110-cca0117a0330";
 const RUN_AWAITING_APPROVAL = "019b7a11-0280-740e-8110-d1a4c1150021";
 const RUN_FINISHED = "019b7a11-0280-740e-8120-d1a4c1150022";
 const RUN_FAILED = "019b7a11-0280-740e-8130-d1a4c1150023";
@@ -90,7 +90,7 @@ function twoRunAttentionScenario(extraBeats: readonly ScenarioBeat[] = []): Cons
     purpose:
       "Drives the fixture's attention derivation over an actionable and an informational contributor.",
     sessionId: ATTENTION_SESSION_ID,
-    participantIdsInJoinOrder: [ATTENTION_PARTICIPANT_ID],
+    userIdsInJoinOrder: [ATTENTION_USER_ID],
     startedAtIso: "2026-01-01T16:00:00.000Z",
     beats: [
       runTransition(100, 1, RUN_FINISHED, "running", "completed"),
@@ -114,7 +114,7 @@ function failedRunScenario(extraBeats: readonly ScenarioBeat[] = []): ConsoleSce
     label: "One run, and it failed",
     purpose: "Drives the fixture's attention derivation over a terminal run failure.",
     sessionId: ATTENTION_SESSION_ID,
-    participantIdsInJoinOrder: [ATTENTION_PARTICIPANT_ID],
+    userIdsInJoinOrder: [ATTENTION_USER_ID],
     startedAtIso: "2026-01-01T16:00:00.000Z",
     beats: [runTransition(100, 1, RUN_FAILED, "running", "failed"), ...extraBeats],
     replies: [],
@@ -263,7 +263,7 @@ describe("the fixture's attention projection — derived from the scenario, neve
     // classification a `run.failed` beat fell through the fold's delete branch, so a
     // scenario that played a failure served an EMPTY projection and every
     // failure-oriented surface would have been built against it. Run failure is a
-    // required trigger, and a terminal run blocks on no participant, so the severity
+    // required trigger, and a terminal run blocks on no user, so the severity
     // is the informational one the class definition assigns.
     const scenario = failedRunScenario();
     const { port, advanceToEnd } = playScenario(scenario);
@@ -369,9 +369,9 @@ describe("the fixture's attention projection — derived from the scenario, neve
     const { port } = playScenario(twoRunAttentionScenario());
 
     for (const outcome of [
-      await port.attentionPreferenceRead({ participantId: ATTENTION_PARTICIPANT_ID }),
+      await port.attentionPreferenceRead({ userId: ATTENTION_USER_ID }),
       await port.attentionPreferenceUpdate({
-        participantId: ATTENTION_PARTICIPANT_ID,
+        userId: ATTENTION_USER_ID,
         key: "mute-all",
         value: { enabled: true },
       }),

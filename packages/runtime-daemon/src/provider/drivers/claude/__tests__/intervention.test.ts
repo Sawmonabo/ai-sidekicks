@@ -192,7 +192,7 @@ describe("ClaudeInterventionDispatcher cancel receipt grading (P3-1)", () => {
 
     const result = await harness.dispatcher.applyIntervention(buildCancelParams());
 
-    // Reporting `applied` here would tell the daemon a participant's cancellation
+    // Reporting `applied` here would tell the daemon a user's cancellation
     // took hold while messages it was meant to stop are still queued to run.
     expect(result).toStrictEqual({ status: "degraded" });
     expect(result.fallbackAction).toBeUndefined();

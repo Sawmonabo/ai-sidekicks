@@ -9,7 +9,7 @@
 // The DDL below is transcribed VERBATIM from the `pending_anchor_uploads` block
 // — including the `-- Owner: ` stamp, every per-column comment, and the
 // two-line coverage-vs-exact-match rationale on the UNIQUE key — the same
-// convention `0007-pii-participant-id.ts` and `0005-daemon-signing-keys.ts`
+// convention `0007-pii-user-id.ts` and `0005-daemon-signing-keys.ts`
 // state, and the same direction of authority: the schema doc defines the table,
 // this file applies it. Change the doc first, then mirror it here. The one
 // resolved token is the migration filename in the Owner stamp: the doc carries

@@ -68,10 +68,10 @@ import { PushDrivenRead } from "../../../src/renderer/src/console/seats/read/pus
 const CHURN_CYCLES = 400;
 
 /** A reply body the presence schema refuses. Released after every abandonment. */
-const UNREADABLE_REPLY = { participants: "not a list" };
+const UNREADABLE_REPLY = { users: "not a list" };
 
 /** A reply body the presence schema admits, for the control run. */
-const READABLE_REPLY = { participants: [] };
+const READABLE_REPLY = { users: [] };
 
 /** What one churn run observed, counted rather than inferred. */
 interface ChurnTally {

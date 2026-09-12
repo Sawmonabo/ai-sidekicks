@@ -39,7 +39,7 @@ export function costUpdateEntry(input: {
       costCents: input.costCents,
       costStatus: "priced",
       costSource: "provider_reported",
-      effectivePrincipal: { kind: "participant", participantId: input.causedBy },
+      effectivePrincipal: { kind: "user", userId: input.causedBy },
     },
   };
 }

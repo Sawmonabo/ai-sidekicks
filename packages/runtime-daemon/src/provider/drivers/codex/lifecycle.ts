@@ -199,7 +199,7 @@ import {
   AmbiguousDeliveryReconciler,
   classifyProviderRequestFailure,
   PermanentStructuralRefusalError,
-  type ParticipantTurnReadbackReader,
+  type UserTurnReadbackReader,
   type ProviderRefusalShape,
   type ProviderRequestFailureObservation,
 } from "../../transcript/failure-mapping.js";
@@ -952,7 +952,7 @@ const ABSENT_ASK_OPTION_SET: CodexAskOptionSetReading = Object.freeze({ kind: "a
  * `mcpServer/elicitation/request` publish a choice set at all; the approval
  * arms publish a decision vocabulary the daemon composes rather than a set the
  * provider offers, and treating those as options would put the daemon's own
- * answer shape on the participant's card.
+ * answer shape on the user's card.
  *
  * `item/tool/requestUserInput` IS DORMANT AT THE SHIPPED POSTURE AND IS STILL
  * READ. It is EXPERIMENTAL at the pin and this driver negotiates
@@ -1001,7 +1001,7 @@ export function readCodexAskOptionSet(method: string, params: unknown): CodexAsk
  * NO question identity, so a flat choice set can stand in for the whole answer
  * only where the ask declares exactly ONE question. An ask pairing a single
  * option-bearing question with a free-text sibling would otherwise project a
- * choice set that, whichever entry the participant picked, answers only one of
+ * choice set that, whichever entry the user picked, answers only one of
  * the questions asked: the card would look complete and the provider would
  * still be waiting. Counting only the OPTION-BEARING questions is exactly what
  * made that shape look eligible, so the count that decides is the ask's own
@@ -1075,7 +1075,7 @@ function readCodexRequestUserInputOptionSet(params: unknown): CodexAskOptionSetR
  * a label and NO property identity — so a flat choice set can stand in for the
  * whole answer only where the form has exactly ONE property. A form pairing a
  * single-select with any sibling property would otherwise project a choice set
- * that, whichever entry the participant picked, produces an answer missing a
+ * that, whichever entry the user picked, produces an answer missing a
  * field the form requires: the card would look complete and the provider would
  * still be waiting. Counting only the ENUM-BEARING properties is what made that
  * shape look eligible, and the sibling's REQUIREDNESS is deliberately not
@@ -1152,7 +1152,7 @@ function readCodexElicitationEnumArm(property: unknown): readonly unknown[] | nu
  * Bound one candidate set, or say why it was refused.
  *
  * ALL-OR-NOTHING, and that is the point: a partially-bounded set would silently
- * remove a choice the provider offered, so the participant would see a card
+ * remove a choice the provider offered, so the user would see a card
  * that looks complete and cannot express the answer the provider is waiting
  * for. Refusing the whole set leaves the free-text arm, which can.
  */
@@ -2303,7 +2303,7 @@ export type CodexTransportDiagnostic =
    * would substitute a DIFFERENT run's identity and authorization context for
    * the one the provider named, and an approval decided under that substitution
    * is evaluated, persisted, and projected against a run that never asked for
-   * it. That is a worse outcome than a declined approval, which the participant
+   * it. That is a worse outcome than a declined approval, which the user
    * sees and can retry.
    *
    * THE FALLBACK IS NOT DELETED — it is scoped to the shapes it was always for.
@@ -2621,10 +2621,10 @@ export interface CodexSessionConfig {
 /**
  *
  * A CONSTANT rather than an input. The text this driver opens a run with is
- * the participant's own message, composed by the daemon's run pipeline, so the
+ * the user's own message, composed by the daemon's run pipeline, so the
  * origin is a fact of the code path and not a claim a caller gets to make.
  */
-const RUN_OPENING_FRAME_ORIGIN: CallerDeclaredFrameOrigin = "participant_text";
+const RUN_OPENING_FRAME_ORIGIN: CallerDeclaredFrameOrigin = "human_text";
 
 /**
  * The posture-affecting `turn/start` fields the DAEMON derives, and which a
@@ -3217,7 +3217,7 @@ export function parseCodexRunConfig(agentConfig: unknown): CodexRunConfig {
   // Accepting a declared origin here would put the tripwire-EXEMPT arm inside
   // an untyped record the daemon's run pipeline fills — and that arm both
   // delivers command-shaped bytes verbatim and excuses the turn from the
-  // tripwire, so a caller that named it would get the participant's words
+  // tripwire, so a caller that named it would get the user's words
   // dispatched as a provider command and the swallow reported as a completed
   // turn. No type can reach a bag, so the refusal is the enforcement.
   //
@@ -4935,7 +4935,7 @@ function rememberInterruptedRun(record: CodexSessionRecord, turnId: string, runI
  * The derived direction of the turn-keyed routes, and the tie-break is the
  * point: an intervention names a run and acts on the turn that run is currently
  * taking, so when two overlapping starts left two live turns the one the
- * participant means is the LATEST — the turn their words are landing in. The
+ * user means is the LATEST — the turn their words are landing in. The
  * routes are insertion-ordered by acceptance, so the last match is that turn.
  * Under the ordinary single-turn shape this is the only match and the tie-break
  * never fires.
@@ -5024,7 +5024,7 @@ type CodexSessionTransitionKind = Exclude<CodexSessionSlotState, "live">;
 // above: it adopts nothing, keeps nothing alive, and owes no interrupt
 // machinery. It reads a turn COUNT to decide whether a re-dispatch would
 // duplicate a turn, and on every arm the run still fails. Where the leg binds no
-// participant-turn reader — the default — the count is unobtainable and the
+// user-turn reader — the default — the count is unobtainable and the
 // settlement is the teardown-and-replay described above, unchanged.
 //
 // The boolean predicate that used to state this partition is gone rather than
@@ -5067,7 +5067,7 @@ type CodexSessionTransitionKind = Exclude<CodexSessionSlotState, "live">;
  * `badRequest` is the single member mapped to the structural class, and the
  * mapping is about what a `turn/start` actually varies. Its parameters are fixed
  * by this driver; what changes between one turn and the next is the THREAD's
- * accumulated history plus the participant's input. A provider that typed the
+ * accumulated history plus the user's input. A provider that typed the
  * request itself as bad is therefore refusing the conversation state, and will
  * refuse it identically on every later request against the same thread — the
  * definition of the permanent class. Every other member names a condition that
@@ -5323,13 +5323,13 @@ export interface CodexLifecycleOptions extends CodexConnectionOptions {
    */
   readonly transcriptReplayReadback?: ReplayTargetReadbackReader | undefined;
   /**
-   * Reads how many PARTICIPANT-ORIGINATED turns a thread holds, for the
+   * Reads how many USER-ORIGINATED turns a thread holds, for the
    * positional reconcile of an ambiguous `turn/start`.
    *
    * A sibling of `transcriptReplayReadback` rather than a reuse of it, because
    * the two ask for different units: that reader answers with turn BODIES, which
    * interleave the assistant turns the daemon's acknowledged set does not hold,
-   * so counting it would compare a provider-side total against a participant-side
+   * so counting it would compare a provider-side total against a user-side
    * one. The count this reader answers with is compared directly against
    * `CodexSessionRecord.turnBoundaries`, which is appended once per ACCEPTED
    * `turn/start` and seeded on resume from the thread's own turn list — so both
@@ -5343,7 +5343,7 @@ export interface CodexLifecycleOptions extends CodexConnectionOptions {
    * the count binds it and gets the narrower settlements; binding it is a
    * composition-root edit, not a driver edit.
    */
-  readonly participantTurnReadback?: ParticipantTurnReadbackReader | undefined;
+  readonly userTurnReadback?: UserTurnReadbackReader | undefined;
 }
 
 /**
@@ -5665,9 +5665,7 @@ export class CodexLifecycleManager {
     this.#pendingCompactions = new PendingCompactionRegistry(
       options.scheduleTimeout ?? defaultScheduleTimeout,
     );
-    this.#ambiguousDeliveryReconciler = new AmbiguousDeliveryReconciler(
-      options.participantTurnReadback,
-    );
+    this.#ambiguousDeliveryReconciler = new AmbiguousDeliveryReconciler(options.userTurnReadback);
     this.#outboundTextFrameWriter = new OutboundTextFrameWriter({
       mechanismGrade: options.textNeutralityMechanismGrade ?? "emulated",
       mintCorrelationId: options.mintOutboundFrameCorrelationId,
@@ -5712,7 +5710,7 @@ export class CodexLifecycleManager {
    */
   #composeRunOpeningFrame(params: StartRunParams, runConfig: CodexRunConfig): OutboundTextFrame {
     // The origin is MINTED here from a literal rather than carried in from the
-    // caller's config bag. A run's opening text is the participant's message by
+    // caller's config bag. A run's opening text is the user's message by
     // construction on this path, and the arm a caller could otherwise have named
     // — `driver_command` — is the one that skips neutralization and exempts the
     // turn from the tripwire, so leaving it nameable through an untyped record
@@ -6208,7 +6206,7 @@ export class CodexLifecycleManager {
       // Not ruled fail-closed, unlike the quarantine teardown path, and not
       // dropped either — the two arms this path used to have to choose between.
       // A trip claims the provider swallowed the text, which nothing observed
-      // here; a drop claims nothing at all, and a participant's words vanish
+      // here; a drop claims nothing at all, and a user's words vanish
       // behind a session that resumed cleanly. `abandonScope` states the third
       // thing, which is the true one: the answer became unreachable when the
       // binding was superseded, and it will never arrive. The run fails on that.
@@ -6476,11 +6474,11 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Settles an ambiguous `turn/start` by reading the thread's participant-turn
+   * Settles an ambiguous `turn/start` by reading the thread's user-turn
    * count back, and disposes unless the read proved nothing landed.
    *
    * POSITIONAL, never content-based. An ordinary turn carries no identity marker
-   * and a participant may legitimately send the same words twice, so matching
+   * and a user may legitimately send the same words twice, so matching
    * text would settle a repeated question as a duplicate. `turnBoundaries` is the
    * daemon's side of the comparison and is exact for it: one entry is appended
    * per ACCEPTED `turn/start` and the ledger is seeded on resume from the
@@ -6519,7 +6517,7 @@ export class CodexLifecycleManager {
     await this.#ambiguousDeliveryReconciler.reconcileThenAct(
       {
         targetProviderSessionId: record.threadId,
-        acknowledgedParticipantSends: record.turnBoundaries.length,
+        acknowledgedUserSends: record.turnBoundaries.length,
       },
       async (settlement) => {
         if (settlement.settlement === "cleared-for-retry") {
@@ -7057,7 +7055,7 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Triggers a participant-requested context compaction (NATIVE).
+   * Triggers a user-requested context compaction (NATIVE).
    *
    * SETTLES ON THE PROVIDER'S TYPED EVIDENCE AND NEVER ON THE REQUEST BEING
    * ACCEPTED. `thread/compact/start` answers with `Record<string, never>` — an
@@ -7078,7 +7076,7 @@ export class CodexLifecycleManager {
    * withdrawal is per-waiter and is not a settlement, which is the distinction
    * that makes it safe: settling is per-key because one provider compaction is
    * one compaction, so settling here would report this caller's transport failure
-   * to a CONCURRENT participant waiting on the same binding — but withdrawing
+   * to a CONCURRENT user waiting on the same binding — but withdrawing
    * removes exactly this registration and cancels exactly its timer, and every
    * sibling stays armed. Leaving it registered instead is a real leak rather than
    * untidiness: `CODEX_COMPACTION_WAIT_MS` is longer than the transport deadline
@@ -7919,7 +7917,7 @@ export class CodexLifecycleManager {
    * convention — a late frame that arrives after a wait expired settles nobody
    * and projects exactly as it would have.
    *
-   * A CHILD THREAD'S COMPACTION CANNOT SETTLE THE PARTICIPANT'S WAIT, and the
+   * A CHILD THREAD'S COMPACTION CANNOT SETTLE THE USER'S WAIT, and the
    * routing decision is what guarantees it rather than a second check here.
    * `thread/compacted` classifies as thread-scoped usage, so a frame on a
    * registered child thread routes `carve-out-usage` — a different arm from the
@@ -8592,7 +8590,7 @@ export class CodexLifecycleManager {
                   // ORDER is the decision rather than an accident: an ask this
                   // seam will not answer needs no card, so reading its garnish
                   // could only produce a diagnostic about a request no
-                  // participant will ever see.
+                  // user will ever see.
                   return { decision: "refuse", reason: attribution.reason };
                 }
                 // Normalized at the SAME seam that stamps session and run
@@ -8855,7 +8853,7 @@ export class CodexLifecycleManager {
    * substituting a different run: a provider request delayed past its own turn's
    * retirement would then be evaluated, persisted, and projected under a NEWER
    * run's identity and authorization context. For an approval that is strictly
-   * worse than declining it — a decline is visible to the participant and
+   * worse than declining it — a decline is visible to the user and
    * retryable, while an approval decided against the wrong run is neither, and
    * the authorization it was granted under is not the one the caller asked for.
    *
@@ -9268,7 +9266,7 @@ export class CodexLifecycleManager {
    * never deliver a terminal to this driver, so the frames written into them are
    * owed a ruling that nothing else will ever make. Dropping them, which is what
    * releasing the scope alone does, is the swallowed turn reported as nothing at
-   * all: the participant's words went to a provider process the daemon then
+   * all: the user's words went to a provider process the daemon then
    * killed, and no run heard a thing.
    *
    * Ruled with `UNRECOGNIZED_TURN_EVIDENCE` because that is exactly what the
@@ -9319,7 +9317,7 @@ export class CodexLifecycleManager {
    * Fails the runs whose frames a RESUME superseded before the provider settled
    * them.
    *
-   * The visible-failure guarantee this closes: a participant's text that
+   * The visible-failure guarantee this closes: a user's text that
    * provably may not have reached the model never silently vanishes. A resume
    * replaces the binding those frames were written on, so no terminal for them
    * can ever arrive — and before this existed the frames were dropped with the
@@ -9559,7 +9557,7 @@ export class CodexLifecycleManager {
 
   #requireSession(sessionId: SessionId): CodexSessionRecord {
     // Without it a new run would resolve the surviving record by session id and
-    // dispatch into the process that swallowed the participant's words. Released
+    // dispatch into the process that swallowed the user's words. Released
     // at establishment, so the promised recovery — a fresh spawn — is the thing
     // that lifts it.
     this.#providerBindingQuarantine.assertSessionAttachable(sessionId);
@@ -9604,7 +9602,7 @@ export class CodexLifecycleManager {
    * disposes the run's binding and retires its route, so without this check the
    * very next steer would fail with "no active turn" — a plausible wrong cause
    * that reads as a race and invites a retry into the process that already
-   * swallowed the participant's words. This is the Codex half of the assertion
+   * swallowed the user's words. This is the Codex half of the assertion
    * that separates FAILED THE RUN from QUARANTINED THE PROCESS; the Claude half
    * sits on `findChannelForRun`, which its interrupt and cancel paths both pass
    * through. The coverage is symmetric even though the call sites are not:
@@ -9656,7 +9654,7 @@ function readRenderedTranscriptFrameForReplay(frame: unknown): SeededTranscriptF
       { method: CODEX_THREAD_INJECT_ITEMS_METHOD },
     );
   }
-  if (role !== "participant" && role !== "assistant") {
+  if (role !== "user" && role !== "assistant") {
     throw new CodexTransportError(
       `A transcript frame at position ${String(position)} carried the unrecognized role "${String(role)}".`,
       { method: CODEX_THREAD_INJECT_ITEMS_METHOD },
@@ -9716,7 +9714,7 @@ function readRenderedTranscriptFrameForReplay(frame: unknown): SeededTranscriptF
  * The pinned reference types `ThreadInjectItemsParams.items` as
  * `Array<JsonValue>` and describes it as raw Responses API items, so the shape
  * below is composed against that API's message item rather than against a Codex
- * type: `input_text` for a participant turn and `output_text` for an assistant
+ * type: `input_text` for a user turn and `output_text` for an assistant
  * one, which is the split that API draws between what was given to the model and
  * what it produced.
  *
@@ -9726,10 +9724,10 @@ function readRenderedTranscriptFrameForReplay(frame: unknown): SeededTranscriptF
  * cannot map back.
  */
 function codexResponsesItemForFrame(frame: SeededTranscriptFrame): Record<string, unknown> {
-  const contentType: string = frame.role === "participant" ? "input_text" : "output_text";
+  const contentType: string = frame.role === "user" ? "input_text" : "output_text";
   return {
     type: "message",
-    role: frame.role === "participant" ? "user" : "assistant",
+    role: frame.role === "user" ? "user" : "assistant",
     content: [{ type: contentType, text: frame.text }],
   };
 }

@@ -304,9 +304,9 @@ describe("PresenceHeartbeatSchema (2 outer + 5 metadata fields)", () => {
   // Field-level type guards — ID composability, ISO datetime, boolean shape
   // ----------------------------------------------------------------------
 
-  it("rejects heartbeat carrying a participantId (no participant axis survives)", () => {
+  it("rejects heartbeat carrying a userId (no user axis survives)", () => {
     const valid = buildHeartbeatPayload();
-    const broken = { ...valid, participantId: "660e8400-e29b-41d4-a716-446655440003" };
+    const broken = { ...valid, userId: "660e8400-e29b-41d4-a716-446655440003" };
     expect(PresenceHeartbeatSchema.safeParse(broken).success).toBe(false);
   });
 
@@ -580,7 +580,7 @@ describe("PresenceReadRequestSchema (JSON-RPC local IPC, client → daemon query
 // Wire shape:
 //   `{devices: Array<{deviceId, deviceType, appVisible, state, lastSeen}>}`
 //
-// Every element is one DEVICE of the one user — there is no participant axis.
+// Every element is one DEVICE of the one user — there is no user axis.
 
 const buildDeviceEntry = () => ({
   deviceId: DEVICE_ID,
@@ -674,7 +674,7 @@ describe("PresenceReadResponseSchema (device projection)", () => {
   });
 
   it("rejects extraneous keys within a device element (.strict() guard)", () => {
-    const broken = { ...buildDeviceEntry(), participantId: "leak" };
+    const broken = { ...buildDeviceEntry(), userId: "leak" };
     expect(PresenceReadResponseSchema.safeParse({ devices: [broken] }).success).toBe(false);
   });
 });

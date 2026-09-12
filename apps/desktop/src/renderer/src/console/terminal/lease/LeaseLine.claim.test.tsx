@@ -33,7 +33,7 @@ import {
   requestShapeOf,
   servingBridge,
 } from "./LeaseLine.test-support.js";
-import { OTHER_PARTICIPANT, VIEWER_PARTICIPANT } from "./lease-model.test-support.js";
+import { OTHER_USER, VIEWER_USER } from "./lease-model.test-support.js";
 
 /**
  * How far past any plausible retry the frozen clock is advanced.
@@ -176,7 +176,7 @@ describe("the claim control — one affordance, and three things it never does",
     const { container } = renderLease(
       leaseState({
         holding: "held-by-you",
-        holderParticipantId: VIEWER_PARTICIPANT,
+        holderUserId: VIEWER_USER,
         holderVouching: "vouched",
       }),
       bridge,
@@ -202,7 +202,7 @@ describe("the claim control — one affordance, and three things it never does",
       const { container } = renderLease(
         leaseState({
           holding: registered.holding,
-          holderParticipantId: registered.holding === "held-by-you" ? VIEWER_PARTICIPANT : null,
+          holderUserId: registered.holding === "held-by-you" ? VIEWER_USER : null,
           holderVouching: "vouched",
         }),
         bridge,
@@ -294,7 +294,7 @@ describe("the claim control — one affordance, and three things it never does",
     const { container } = renderLease(
       leaseState({
         holding: "held-by-another",
-        holderParticipantId: OTHER_PARTICIPANT,
+        holderUserId: OTHER_USER,
         holderVouching: "vouched",
       }),
       bridge,

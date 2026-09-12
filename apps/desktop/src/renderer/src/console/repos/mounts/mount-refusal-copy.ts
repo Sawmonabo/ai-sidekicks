@@ -200,7 +200,7 @@ const MOUNT_REFUSAL_RECOVERIES: Readonly<Record<MountRefusalCode, MountRefusalRe
   },
   "worktree.branch_collision": {
     // Never auto-suffixed here. A daemon-DERIVED name may take an ordinal suffix and
-    // is displayed with it; a name a participant typed is never silently adapted.
+    // is displayed with it; a name a user typed is never silently adapted.
     nextMove:
       "That branch already has a live checkout on this mount. Choosing a different branch name, or reusing the existing checkout, are the two moves — the name you typed is never adapted for you.",
     distinctions: NO_DISTINCTIONS,

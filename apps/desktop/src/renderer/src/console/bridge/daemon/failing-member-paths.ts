@@ -20,7 +20,7 @@ const NAMED_FAILING_PATH_CAP = 3;
  * Name the members that failed, without naming what was in them.
  *
  * PATHS ONLY. A path is a member name the contract itself publishes; the value at
- * that path is whatever the wire or the caller supplied, which may be participant
+ * that path is whatever the wire or the caller supplied, which may be user
  * content. The validator's own message interpolates those values, which is why it
  * is never rendered.
  *

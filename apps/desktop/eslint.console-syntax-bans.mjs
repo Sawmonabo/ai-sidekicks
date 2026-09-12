@@ -145,7 +145,7 @@ export const CONSOLE_TIME_READING_SELECTORS = [
     // `String(row.touchedAt).localeCompare(...)`. Both were measured.
     //
     // `localeCompare` on anything else is untouched: sorting a display path, a repo
-    // name, or a participant handle is what it is for.
+    // name, or a user handle is what it is for.
     selector: `CallExpression[callee.property.name="localeCompare"]:has(:matches(MemberExpression[property.name=/${WIRE_STAMP_NAME_SUFFIX}/], Identifier[name=/${WIRE_STAMP_NAME_SUFFIX}/]))`,
     message:
       "Two RFC 3339 stamps are not lexically ordered: an offset form and a `Z` form naming the same moment differ, and a `+01:00` stamp sorts AFTER the `Z` stamp it PRECEDES. Order them with `compareInstants` from `console/core/instant.ts`, which compares the moments; `localeCompare` on a name, a path, or a handle is untouched.",

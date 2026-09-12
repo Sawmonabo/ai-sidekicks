@@ -29,7 +29,7 @@
  */
 export const CONSOLE_ENTITY_KINDS = [
   "session",
-  "participant",
+  "user",
   "channel",
   "run",
   "agent",
@@ -91,8 +91,8 @@ export interface ConsoleEntity {
    * Who this entity is attributed to, when the wire names anyone.
    *
    * The projector carries `ConsoleSessionEvent.actorId` here unchanged, so it holds the
-   * same three-state fact that member does — a participant id, an agent id, or nobody
-   * — and a renderer that read it as a participant's would mislabel every agent-driven
+   * same three-state fact that member does — a user id, an agent id, or nobody
+   * — and a renderer that read it as a user's would mislabel every agent-driven
    * run. Naming a KIND here would be the guess the decode boundary refuses to make.
    */
   readonly attributedTo?: string;
@@ -154,12 +154,12 @@ export interface ConsoleSessionEvent {
    * Who the event is attributed to, wire-verbatim, when the wire names anyone.
    *
    * `EventEnvelope.actor`, carried under this name rather than a narrower one. The
-   * contract registers that member as a participant id, an AGENT id, or `null` for a
+   * contract registers that member as a user id, an AGENT id, or `null` for a
    * system-emitted event, and supplies no discriminator to tell the first two apart —
    * so this member holds whichever id the daemon named and the console never guesses
-   * which kind it has. The member used to be called `actorParticipantId`, which named
+   * which kind it has. The member used to be called `actorUserId`, which named
    * one of the three states and quietly mis-described the other two: every agent-
-   * emitted event in the store was being read as a participant's.
+   * emitted event in the store was being read as a user's.
    *
    * Absent for the system arm, and absent is the ONE no-value state: the wire has two,
    * present-`null` and omitted, and the decode boundary folds both into this one

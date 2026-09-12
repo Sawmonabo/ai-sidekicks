@@ -12,7 +12,7 @@ import { describe, expect, it, vi } from "vitest";
 import { growthUnavailable } from "../../../bridge/index.js";
 import type { AttentionPreference } from "./attention-preference-model.js";
 import {
-  SERVED_PARTICIPANT,
+  SERVED_USER,
   bridgeWith,
   press,
   renderSettledPage,
@@ -21,7 +21,7 @@ import {
   storedSwitches,
   switchesIn,
 } from "./notifications-page.test-support.js";
-import { PARTICIPANT_ID } from "./notification-preference-writer.test-support.js";
+import { USER_ID } from "./notification-preference-writer.test-support.js";
 
 describe("the notifications page — what a switch sends", () => {
   /** Serves the identity and the set, and records every update the page attempts. */
@@ -39,7 +39,7 @@ describe("the notifications page — what a switch sends", () => {
     const update = vi.fn(async () => await Promise.resolve(options.updateOutcome));
     return {
       bridge: bridgeWith({
-        callerParticipantRead: async () => await Promise.resolve(SERVED_PARTICIPANT),
+        callerUserRead: async () => await Promise.resolve(SERVED_USER),
         attentionPreferenceRead: read,
         attentionPreferenceUpdate: update,
       }),
@@ -56,7 +56,7 @@ describe("the notifications page — what a switch sends", () => {
     const container = await renderSettledPage(recorded.bridge);
     await press(storedSwitches(container)[0]);
     expect(recorded.update).toHaveBeenCalledWith({
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       key: "attention",
       value: { mentions: false, runs: false, digests: false },
     });
@@ -117,7 +117,7 @@ function bridgeHoldingItsWrite(preferences: readonly AttentionPreference[]): {
   const update = vi.fn(async () => await new Promise<never>(() => undefined));
   return {
     bridge: bridgeWith({
-      callerParticipantRead: async () => await Promise.resolve(SERVED_PARTICIPANT),
+      callerUserRead: async () => await Promise.resolve(SERVED_USER),
       attentionPreferenceRead: async () => await Promise.resolve(servedPreferences(preferences)),
       attentionPreferenceUpdate: update,
     }),
@@ -154,7 +154,7 @@ describe("the notifications page — one write per record at a time", () => {
 
     expect(held.update).toHaveBeenCalledTimes(1);
     expect(held.update).toHaveBeenCalledWith({
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       key: "attention",
       value: { mentions: false, runs: false },
     });

@@ -68,7 +68,7 @@
 
 /* What a payload fetch established, above the list it was fetched from.
 
-   Above rather than below: the fetch is the act the participant just performed, and
+   Above rather than below: the fetch is the act the user just performed, and
    its answer belongs where their attention already is. It is present only after a
    fetch — there is no empty frame holding a place for one. */
 .meridian-artifact-payload {

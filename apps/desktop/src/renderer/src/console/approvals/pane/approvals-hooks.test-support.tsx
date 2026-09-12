@@ -114,7 +114,7 @@ export async function mountReader(sessionStore: SessionStore): Promise<Approvals
 
 export function initialisedStore(sessionId: string = SESSION_ID): SessionStore {
   const store = new SessionStore({ sessionId });
-  store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+  store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
   return store;
 }
 

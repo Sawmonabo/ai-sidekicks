@@ -103,7 +103,7 @@ function storeHoldingRun(runId: string): SessionStore {
         body: { agentId: OWNED_AGENT_ID },
       },
     ],
-    participantJoinLog: [],
+    userJoinLog: [],
   });
   return sessionStore;
 }

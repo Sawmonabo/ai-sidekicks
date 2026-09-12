@@ -135,15 +135,15 @@ export function bridgeRejectingOutputWith(rejection: unknown): ConsoleBridge {
  * chosen by the case, so a scenario edit cannot silently move one onto a different arm
  * than the one its name claims.
  */
-export function bridgeAnsweringCallerWith(participantId: string): ConsoleBridge {
+export function bridgeAnsweringCallerWith(userId: string): ConsoleBridge {
   const base = paneBridge();
   return {
     ...base,
     growth: {
       ...base.growth,
-      callerParticipantRead: async () => ({
+      callerUserRead: async () => ({
         status: "served" as const,
-        value: { participantId },
+        value: { userId },
       }),
     },
   };
@@ -161,7 +161,7 @@ export function bridgeRefusingCaller(): ConsoleBridge {
     ...base,
     growth: {
       ...base.growth,
-      callerParticipantRead: async () => growthUnavailable("callerParticipantRead"),
+      callerUserRead: async () => growthUnavailable("callerUserRead"),
     },
   };
 }

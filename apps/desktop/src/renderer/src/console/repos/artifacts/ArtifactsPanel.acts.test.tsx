@@ -185,7 +185,7 @@ describe("ArtifactsPanel — delete states the consequence before the act", () =
 
   it("closes an armed confirm when the pane is re-pointed and the list comes back", () => {
     // The defect: the confirm register was a bare `useState`, scoped to nothing. A
-    // participant armed Delete on one artifact, the deck re-pointed the pane at
+    // user armed Delete on one artifact, the deck re-pointed the pane at
     // another — the reader is re-minted per subject, so the reading returns to its
     // unread absence and the rows unmount — and this component stayed mounted at the
     // same tree position. When the new subject's list landed carrying the same session
@@ -222,7 +222,7 @@ describe("ArtifactsPanel — delete states the consequence before the act", () =
 
   it("negative control: a refresh that lists the same rows holds the confirm open", () => {
     // Without this the case above would pass against a register cleared on every
-    // republish — which would take a confirmation away under a participant's cursor
+    // republish — which would take a confirmation away under a user's cursor
     // because an unrelated session frame arrived, and leave the control they were
     // about to press replaced by whatever the row draws instead.
     const onDelete = vi.fn();

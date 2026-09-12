@@ -109,8 +109,8 @@ describe("the flagship frame — the park, counting down", () => {
 });
 
 describe("the flagship frame — the cast and the receipt", () => {
-  it("seats at least five participants, so the bar has a cast to show", () => {
-    expect(FLAGSHIP_SCENARIO.participantIdsInJoinOrder.length).toBeGreaterThanOrEqual(5);
+  it("seats at least five users, so the bar has a cast to show", () => {
+    expect(FLAGSHIP_SCENARIO.userIdsInJoinOrder.length).toBeGreaterThanOrEqual(5);
   });
 
   it("answers the accountant, so the bar's figure is the receipt's own", () => {

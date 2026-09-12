@@ -1,6 +1,6 @@
 // One act, the question it is issued against, and what both halves publish.
 //
-// WHAT AN ACT IS, in this console. A participant presses something, one call goes on
+// WHAT AN ACT IS, in this console. A user presses something, one call goes on
 // the wire, and the answer is a settlement they read — attached, bound, prepared,
 // sent, held. Around that there is always a second question the act depends on and
 // which fails independently of it: the roster a node is picked from, the modes a mount
@@ -200,7 +200,7 @@ export class ActController<
    * not changed the question either.
    *
    * A DIFFERENT QUESTION RESETS THE HALF AND ABANDONS THE ANSWER IN FLIGHT. The
-   * verdict on screen must never be the one for a branch the participant has already
+   * verdict on screen must never be the one for a branch the user has already
    * edited away from, and a reply still on the wire for the old question installs
    * nothing — its own read sees `#question` has moved, and the fire this request
    * schedules supersedes its round.
@@ -218,7 +218,7 @@ export class ActController<
   /**
    * Withdraw the question, and put the half back to unasked.
    *
-   * For the participant who cleared the field: leaving the last answer on screen would
+   * For the user who cleared the field: leaving the last answer on screen would
    * attach it to a question nobody is asking. The act half is deliberately untouched,
    * and so is the read line — a withdrawal fires no read, so no newer round supersedes
    * the answer in flight and what keeps it off screen is that its question is unnamed.
@@ -245,9 +245,9 @@ export class ActController<
     this.#scheduler.request(reason);
   }
 
-  /** Ask again after a refused read. The participant-driven one of the four reasons. */
+  /** Ask again after a refused read. The user-driven one of the four reasons. */
   public retryRead(): void {
-    this.requestRead("participant-request");
+    this.requestRead("user-request");
   }
 
   /**
@@ -308,7 +308,7 @@ export class ActController<
    *
    * ITS OWN CALL RATHER THAN A SIDE EFFECT OF CLOSING, because the two are different
    * moments: a settlement is read after the call settles and the surface is still
-   * open, and a participant who comes back to act a second time must not meet the
+   * open, and a user who comes back to act a second time must not meet the
    * first one's sentence. The prerequisite half is deliberately untouched, and the
    * single-flight key is not given back — a call still on the wire is not recallable,
    * so a second act is still refused until that one answers.

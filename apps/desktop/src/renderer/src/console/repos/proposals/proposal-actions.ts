@@ -41,7 +41,7 @@ import type { ProposalGateState } from "./proposal-gate-state.js";
  *
  * THE ORDER IS THE PIPELINE'S, NOT THE VOCABULARY'S. `commit` records on the head
  * branch, `prepare-proposal` builds the payload where it can be read, and only then does
- * `push` send anything — so a participant who works down the list has reviewed what
+ * `push` send anything — so a user who works down the list has reviewed what
  * leaves the machine before it leaves. A tuple that put the remote act first would draw
  * a confirmable send above the thing it would send.
  */
@@ -151,7 +151,7 @@ export function reachesGitAction(action: ProposalAction): action is GitActionPro
  * Total over `ProposalAction` by construction.
  *
  * `prepare-proposal` states the gate's whole reason for existing: preparation happens
- * BEFORE any remote mutation, so its sentence is what a participant reads to know that
+ * BEFORE any remote mutation, so its sentence is what a user reads to know that
  * pressing it sends nothing.
  */
 export const PROPOSAL_ACTION_PRESENTATION: Readonly<
@@ -253,7 +253,7 @@ export function withheldRemoteActionCopy(state: ProposalGateState): string | und
 }
 
 /**
- * The one sentence the withheld send owes a participant.
+ * The one sentence the withheld send owes a user.
  *
  * Stated on the condition the rule turns on — being `ready` — rather than on the state
  * the proposal happens to be in, so a third preparation state added to the wire reads
@@ -268,7 +268,7 @@ export const PROPOSAL_NOT_SENDABLE_COPY =
  * Read off the SAME predicate the dispatch routes on rather than from a table of its
  * own, so the wire a refusal names and the wire the act was sent on are one decision: a
  * second routing could disagree with the first for a fourth act, and the sentence a
- * participant reads would then name a call the console never made. Beside that
+ * user reads would then name a call the console never made. Beside that
  * predicate rather than beside the dispatch, so the two cannot be separated.
  *
  * TYPED AS THE PORT'S OWN KEY AND NOT AS A STRING, which is what makes that one

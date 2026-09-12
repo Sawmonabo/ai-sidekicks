@@ -65,7 +65,7 @@ export function snapshotEnabling(enabled: boolean): SessionSnapshot {
   return {
     cursor: 4,
     entities: [sessionEntity({ peerInvocationEnabled: enabled })],
-    participantJoinLog: [],
+    userJoinLog: [],
   };
 }
 

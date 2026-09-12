@@ -69,7 +69,7 @@ export {
 
 export { SessionStore, type SessionStoreState } from "./session/session-store.js";
 // What the session still has open, from the module that HOLDS it rather than from the
-// store that publishes one reading of it. It leaves the family because the cast bar
+// store that publishes one reading of it. It leaves the family because the session header
 // renders the strip's all-clear line, and that line is a claim about lifecycles rather
 // than about rows: the journal is kept apart from the window precisely so a pruned or
 // re-read timeline cannot silently clear an approval, and a surface reading the window

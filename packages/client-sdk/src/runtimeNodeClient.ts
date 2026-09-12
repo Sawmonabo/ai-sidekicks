@@ -5,7 +5,7 @@
 // the widened `ControlPlaneRuntimeNodeClient`, which adds the
 // control-plane-only `roster` query.
 //
-//   * `RuntimeNodeAttach` fields (sessionId, participantId, nodeId, clientVersion, capabilities,
+//   * `RuntimeNodeAttach` fields (sessionId, userId, nodeId, clientVersion, capabilities,
 //     healthState). `attach()` below threads `RuntimeNodeAttachRequestSchema` /
 //     `RuntimeNodeAttachResponseSchema`; the server-derived `readOnly` PERMISSION verdict and the
 //     `state` LIVENESS axis ride the response through unchanged (the SDK does NOT compute

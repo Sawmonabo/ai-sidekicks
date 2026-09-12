@@ -41,7 +41,7 @@ function projectedRow(overrides: Partial<SessionListRow> & { sessionId: string }
   return {
     state: "active",
     touchedAtIso: "2026-01-01T10:00:00.000Z",
-    participantIds: [],
+    userIds: [],
     attentionSeverity: undefined,
     ...overrides,
   };
@@ -97,13 +97,11 @@ describe("mergeSessionRows — two sources, neither dropped", () => {
     const rows = mergeSessionRows({
       directory: servedDirectory(["session-a"]),
       windowSessionIds: [],
-      projectedRows: [
-        projectedRow({ sessionId: "session-a", participantIds: ["participant-one"] }),
-      ],
+      projectedRows: [projectedRow({ sessionId: "session-a", userIds: ["user-one"] })],
     });
 
     expect(rows[0]?.touchedAtIso).toBe("2026-01-01T10:00:00.000Z");
-    expect(rows[0]?.participantIds).toStrictEqual(["participant-one"]);
+    expect(rows[0]?.userIds).toStrictEqual(["user-one"]);
   });
 
   it("keeps the node's lifecycle state where the projection has none", () => {

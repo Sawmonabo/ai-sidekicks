@@ -9,7 +9,7 @@
 //
 // Every statement below is transcribed from the canonical `session_events`
 // block — the same convention `0006-run-lifecycle-terminal-backstop-index.ts`
-// and `0007-pii-participant-id.ts` state, and the same direction of authority:
+// and `0007-pii-user-id.ts` state, and the same direction of authority:
 // the schema doc defines the columns and the index, this file applies them.
 // Change the doc first, then mirror it here.
 //

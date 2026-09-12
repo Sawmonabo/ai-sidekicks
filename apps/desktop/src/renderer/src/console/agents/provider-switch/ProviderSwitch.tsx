@@ -84,7 +84,7 @@ export interface ProviderSwitchProps {
    * Whether a mutation on this agent's binding is outstanding.
    *
    * This form owns no latch — the caller performs the call and holds it — but it
-   * owes the participant that the controls SAY so: disabled, because a press that
+   * owes the user that the controls SAY so: disabled, because a press that
    * the latch will refuse is not offered silently, `aria-busy`, because a screen
    * reader is told the act is under way rather than handed a dead control, and a
    * described REASON, because "busy" says the act is running and not why a second
@@ -97,7 +97,7 @@ export interface ProviderSwitchProps {
    * A ROUND AND NOT THE REPLY'S `switch` MEMBER, because that member is optional and its
    * absence is a real answer: the daemon accepted the update and minted no switch. This
    * form took the member bare and rendered nothing for it, so a press whose reply left it
-   * out reported nothing at all — the participant's own act, answered and unreported.
+   * out reported nothing at all — the user's own act, answered and unreported.
    */
   readonly round?: AgentSwitchRound | undefined;
   readonly refusal?: ConsoleRefusal | undefined;
@@ -212,7 +212,7 @@ export function ProviderSwitch(props: ProviderSwitchProps): React.JSX.Element {
 
       {hasEdit ? (
         <>
-          {/* Told, not consented to twice: the rule is that the participant knows,
+          {/* Told, not consented to twice: the rule is that the user knows,
               and no axis is exempt from the assumption. */}
           <p className="meridian-switch__cache-note">
             Every switch is assumed to lose the provider-side prompt cache. No axis is exempt.

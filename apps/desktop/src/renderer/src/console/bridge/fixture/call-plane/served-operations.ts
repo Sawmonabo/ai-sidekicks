@@ -31,7 +31,7 @@
 // served absence here would be a shape no daemon can send, which is the one thing a
 // fixture must not script. The refusal is the same "not checked" the live bridge
 // takes, which is the honest reading of a script that has not said — the
-// `callerParticipantRead` posture below, for the same reason.
+// `callerUserRead` posture below, for the same reason.
 //
 // The corpus premise behind that: two things would have to be true for a scenario to
 // derive a branch context from its beats rather than script one, and neither is:
@@ -116,7 +116,7 @@
 // a scenario cannot teach the pane a row shape the surface will not accept later.
 //
 // A scenario that scripts none of them refuses rather than serving an empty
-// projection, which is the `callerParticipantRead` disposition and not the branch
+// projection, which is the `callerUserRead` disposition and not the branch
 // read's: an empty approvals list is a claim that nothing is waiting on a decision,
 // and a scenario that models no approvals has not made it.
 //
@@ -181,7 +181,7 @@
 // and no bridge member carries the fact, so the read is the growth port's.
 //
 // It is served here so a scenario can put the centre in that arm, and it REFUSES for
-// a scenario that scripts nothing, which is `callerParticipantRead`'s disposition
+// a scenario that scripts nothing, which is `callerUserRead`'s disposition
 // rather than an empty answer: a permission has no empty form. "Nobody asked"
 // is a true statement about a script that has not said, and answering `granted`
 // would be the fixture promising a notification nothing in the console can deliver.
@@ -325,7 +325,7 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // that performed the handshake — scripted for the reason above, since a fixture that
   // answered it would be asserting which two builds met.
   "daemonNegotiationRead",
-  // The accountant's committed figure, which the cast bar's all-clear line renders and
+  // The accountant's committed figure, which the session header's all-clear line renders and
   // is forbidden to compute. Scripted, never derived: an unscripted zero would be a
   // claim about a session's spend rather than an absence.
   "orchestrationBudgetRead",

@@ -13,7 +13,7 @@
 // mechanism this repository already ships: ' rotate-on-shred generates a fresh
 // master `M'`, re-wraps the stored key rows, and DESTROYS `M`. A derived key
 // cannot be recovered once `M` is gone, so the first time any unrelated
-// participant exercised erasure, every existing machine-authored body on this
+// user exercised erasure, every existing machine-authored body on this
 // daemon would become permanently unreadable — destroying co-owned session work
 // product the erasure request has no claim on, and doing it silently. A stored
 // key is re-wrappable: rotation moves only its envelope and no ciphertext is
@@ -25,7 +25,7 @@
 //
 // XChaCha20-Poly1305, 24-byte random nonce, wire `nonce || ciphertext || tag`,
 // `AAD = session_id || "ais.session-content-wrap.v1" || key_version` — the
-// `participant_keys.encrypted_key_blob` custody shape, domain-separated by its
+// `user_keys.encrypted_key_blob` custody shape, domain-separated by its
 // own info string so the two wrap domains can never be confused.
 //
 // Without that AAD the envelope authenticates on the master key ALONE. Two
@@ -57,9 +57,9 @@
 // {@link SessionContentKeyStore.rewrapAll} is SYNCHRONOUS and takes both master
 // keys as already-materialized bytes. This is not an oversight to be tidied
 // later: rotate-on-shred re-wraps this table INSIDE the single `BEGIN
-// EXCLUSIVE` that re-wraps `participant_keys`, a better-sqlite3 transaction
+// EXCLUSIVE` that re-wraps `user_keys`, a better-sqlite3 transaction
 // cannot span an `await`, and a promise-returning re-wrap would therefore
-// commit around nothing — leaving the crash window where participant keys are
+// commit around nothing — leaving the crash window where user keys are
 // under `M'` while content keys are still under `M` and the destroyed master is
 // the only thing that could read them. The caller resolves both keys first and
 // hands them in.
@@ -156,7 +156,7 @@ const MINT_ROTATION_PASS_LIMIT = 3;
 
 /**
  * The domain-separation string inside the wrap AAD. Distinct from the
- * participant wrap's `"ais.master-wrap.v1"` so a blob from one domain can never
+ * user wrap's `"ais.master-wrap.v1"` so a blob from one domain can never
  * authenticate in the other, even under the same master key.
  */
 export const SESSION_CONTENT_WRAP_INFO = "ais.session-content-wrap.v1";
@@ -695,7 +695,7 @@ export class SessionContentKeyStore
    *
    * SYNCHRONOUS AND TRANSACTION-LESS BY CONTRACT. The caller is rotate-on-shred,
    * and this runs INSIDE the `BEGIN EXCLUSIVE` that already re-wraps
-   * `participant_keys` — opening a transaction here would nest inside that one,
+   * `user_keys` — opening a transaction here would nest inside that one,
    * and returning a promise would commit around nothing. Do not "fix" either.
    *
    * The inner AES-256 key is unchanged: only the envelope moves, so no
@@ -776,7 +776,7 @@ export class SessionContentKeyStore
    * outlived every body it ever sealed — permanently. Two costs follow, and the
    * second is the one that matters. The first is ordinary: rows accumulate for
    * the life of the node. The second is that {@link rewrapAll} walks EVERY row
-   * on every rotate-on-shred, so each unrelated participant's erasure paid to
+   * on every rotate-on-shred, so each unrelated user's erasure paid to
    * unwrap and re-wrap the keys of long-since-compacted sessions, and each of
    * those re-wraps is another chance for one unopenable historical blob to throw
    * and roll back a rotation that had nothing to do with it. Keys that die with

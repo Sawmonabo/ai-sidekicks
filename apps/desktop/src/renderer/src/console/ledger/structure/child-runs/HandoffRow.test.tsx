@@ -14,7 +14,7 @@ function handoff(overrides: Partial<HandoffEntry> = {}): HandoffEntry {
   return {
     rowId: "h1",
     wireType: "agent.attached",
-    fromActor: "participant-ana",
+    fromActor: "user-ana",
     toActor: "agent-reviewer",
     reason: undefined,
     channelId: undefined,
@@ -38,7 +38,7 @@ function renderHandoff(entry: HandoffEntry, hasThreadTarget?: boolean): HTMLElem
 describe("the handoff row — who handed what to whom", () => {
   it("draws both actors verbatim", () => {
     const line = renderHandoff(handoff());
-    expect(line.textContent).toContain("participant-ana");
+    expect(line.textContent).toContain("user-ana");
     expect(line.textContent).toContain("agent-reviewer");
   });
 

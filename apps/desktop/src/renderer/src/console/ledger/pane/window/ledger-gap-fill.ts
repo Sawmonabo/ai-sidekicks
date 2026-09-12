@@ -123,7 +123,7 @@ const REPLAYING: LedgerGapFillState = { status: "replaying" };
 /**
  * Put one replay ask per hole, and report where it got to.
  *
- * AND NO POLLING, on the cast bar's rule: the ask goes out once from the effect the
+ * AND NO POLLING, on the session header's rule: the ask goes out once from the effect the
  * read chokepoint arms, and again only when the port or the hole moves. A hole that
  * closes re-addresses the holder to `undefined`, which re-seeds this to `whole` — so
  * the surface clears with the store's own repair rather than on a timer of its own.

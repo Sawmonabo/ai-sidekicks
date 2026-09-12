@@ -412,7 +412,7 @@ const CENTS_PER_CURRENCY_UNIT = 100;
  * Render a cents figure the accountant supplied as money.
  *
  * HERE RATHER THAN BESIDE EITHER READER. The cost-receipt settings page and the
- * session cast bar both render the same committed-spend figure from the same
+ * session session header both render the same committed-spend figure from the same
  * accountant, and they are sibling view families that may not import each other. It
  * belongs in this module on its own terms too: the precision is `formatMoney`'s and
  * none of it is re-decided — including its sub-unit arm, which keeps four fractional

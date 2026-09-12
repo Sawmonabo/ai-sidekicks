@@ -18,8 +18,7 @@
 // validates every delivered value against the schema. The set previously lived
 // module-locally in the daemon handler, which left the SDK seam with no
 // narrower schema to reach for — a mismatched daemon could push an approval or
-// membership row onto a driver-event subscription and every layer would accept
-// it (Codex review, PR #396).
+// audit row onto a driver-event subscription and every layer would accept it.
 //
 // WHY A SEPARATE MODULE RATHER THAN A BLOCK IN `provider-driver.ts` — the
 // eager cycle it avoids.
@@ -140,8 +139,8 @@ export type DriverEventType = DriverEvent["type"];
  *
  * Accepts exactly the values `SessionEventSchema` accepts whose `type` is in
  * `DRIVER_EVENT_TYPES`, and REFUSES every other session event — so a consumer
- * validating with this schema cannot be handed a membership, approval, or
- * audit row by a daemon that filtered wrongly or not at all.
+ * validating with this schema cannot be handed an approval or an audit row
+ * by a daemon that filtered wrongly or not at all.
  *
  * `.superRefine()` rather than `.transform()` or a rebuilt union: the taxonomy's
  * schemas are non-normalizing by contract (parsed output must be byte-identical

@@ -15,7 +15,7 @@
 //   • **Never queues a claim.** A refusal renders beside the control and stays
 //     there until the person acts. No retry, no timer, no wait list.
 //   • **Never offers a claim it cannot attribute.** The control acts on this window's
-//     behalf and the fold names the holder by participant id, so until the viewer's
+//     behalf and the fold names the holder by user id, so until the viewer's
 //     identity has been READ there is no control here at all. Taking the shell is not
 //     gated on anything else: the shell belongs to the one person using this machine.
 //     `lease-acquisition.ts` owns that fold and states why release is not gated either.
@@ -68,7 +68,7 @@ export interface LeaseLineProps {
    * Which window this is, which is what the claim control is gated on.
    *
    * The control acts on this window's behalf and the fold names the holder by
-   * participant id, so a surface that offered it without the identity would be
+   * user id, so a surface that offered it without the identity would be
    * offering a control it cannot report the outcome of: a take would come back as a
    * hold it could not recognise, the button would still read Claim, and there would be
    * no way to release. A control that cannot act is neither an offer nor a refusal.
@@ -123,7 +123,7 @@ export function LeaseLine(props: LeaseLineProps): React.JSX.Element {
   // whether a roster read happened, and a fold that answered `vouched` because
   // nobody holds the lease would be reporting a read it never performed.
   const isHolderHealthUnread =
-    state.holderParticipantId !== null && state.holderVouching === "not-checked";
+    state.holderUserId !== null && state.holderVouching === "not-checked";
 
   const onToggleLedger = useCallback(() => {
     setIsLedgerOpen((wasOpen) => !wasOpen);

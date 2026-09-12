@@ -209,7 +209,7 @@ describe("artifact pane — re-classifying one row", () => {
 describe("artifact pane — deleting one row", () => {
   it("takes the row off the list and reads the list again", async () => {
     // The case a discarded reply fails: a served delete used to leave the manifest on
-    // screen, so a participant could keep acting on something the daemon destroyed.
+    // screen, so a user could keep acting on something the daemon destroyed.
     const artifactList = vi
       .fn<() => Promise<GrowthPortAnswer<"artifactList">>>()
       .mockResolvedValueOnce(LISTED_ONE_ROW)

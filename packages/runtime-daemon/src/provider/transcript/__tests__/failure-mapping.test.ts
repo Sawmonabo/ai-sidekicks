@@ -3,13 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   AmbiguousDeliveryReconciler,
   MAX_DEFINITELY_UNSENT_DISPATCH_ATTEMPTS,
-  NO_PARTICIPANT_TURN_READER_BOUND,
-  PARTICIPANT_TURN_READ_FAILED,
+  NO_USER_TURN_READER_BOUND,
+  USER_TURN_READ_FAILED,
   PermanentStructuralRefusalError,
   classifyProviderRequestFailure,
   mayReattemptAfterDefinitelyUnsent,
   type AmbiguousDeliverySettlement,
-  type ParticipantTurnReadback,
+  type UserTurnReadback,
   type ProviderRequestDeliveryClass,
   type ProviderRequestFailureDisposition,
   type ProviderRefusalShape,
@@ -134,18 +134,16 @@ describe("PermanentStructuralRefusalError", () => {
 // The positional reconcile
 // --------------------------------------------------------------------------
 
-function countedReadback(
-  participantOriginatedTurns: number,
-): () => Promise<ParticipantTurnReadback> {
-  return () => Promise.resolve({ kind: "counted", participantOriginatedTurns });
+function countedReadback(userOriginatedTurns: number): () => Promise<UserTurnReadback> {
+  return () => Promise.resolve({ kind: "counted", userOriginatedTurns });
 }
 
 async function settle(
   reconciler: AmbiguousDeliveryReconciler,
-  acknowledgedParticipantSends: number,
+  acknowledgedUserSends: number,
 ): Promise<AmbiguousDeliverySettlement> {
   return await reconciler.reconcileThenAct(
-    { targetProviderSessionId: "thread-1", acknowledgedParticipantSends },
+    { targetProviderSessionId: "thread-1", acknowledgedUserSends },
     (settlement) => Promise.resolve(settlement),
   );
 }
@@ -153,7 +151,7 @@ async function settle(
 describe("AmbiguousDeliveryReconciler", () => {
   it("settles DELIVERED when the target holds more than the daemon acknowledged", async () => {
     const settlement = await settle(new AmbiguousDeliveryReconciler(countedReadback(4)), 3);
-    expect(settlement).toStrictEqual({ settlement: "delivered", participantOriginatedTurns: 4 });
+    expect(settlement).toStrictEqual({ settlement: "delivered", userOriginatedTurns: 4 });
   });
 
   it("CLEARS FOR RETRY when the count matches what the daemon already knows", async () => {
@@ -162,7 +160,7 @@ describe("AmbiguousDeliveryReconciler", () => {
     const settlement = await settle(new AmbiguousDeliveryReconciler(countedReadback(3)), 3);
     expect(settlement).toStrictEqual({
       settlement: "cleared-for-retry",
-      participantOriginatedTurns: 3,
+      userOriginatedTurns: 3,
     });
   });
 
@@ -176,12 +174,12 @@ describe("AmbiguousDeliveryReconciler", () => {
 
   it("settles UNRECOVERABLE when no reader is bound", async () => {
     const reconciler = new AmbiguousDeliveryReconciler();
-    expect(reconciler.canReadParticipantTurns).toBe(false);
+    expect(reconciler.canReadUserTurns).toBe(false);
     // An unbound reader is a correct settlement rather than a hole: the caller's
     // answer is the same one an unreadable target gets, which is a specified arm.
     expect(await settle(reconciler, 3)).toStrictEqual({
       settlement: "unrecoverable",
-      reason: NO_PARTICIPANT_TURN_READER_BOUND,
+      reason: NO_USER_TURN_READER_BOUND,
     });
   });
 
@@ -203,7 +201,7 @@ describe("AmbiguousDeliveryReconciler", () => {
     // would hand it a failure it cannot classify in place of one it can.
     expect(await settle(reconciler, 3)).toStrictEqual({
       settlement: "unrecoverable",
-      reason: PARTICIPANT_TURN_READ_FAILED,
+      reason: USER_TURN_READ_FAILED,
     });
   });
 
@@ -214,11 +212,11 @@ describe("AmbiguousDeliveryReconciler", () => {
     let acknowledged = 0;
     const reconciler = new AmbiguousDeliveryReconciler((targetProviderSessionId) => {
       order.push(`read:${targetProviderSessionId}:${String(acknowledged)}`);
-      return Promise.resolve({ kind: "counted", participantOriginatedTurns: acknowledged });
+      return Promise.resolve({ kind: "counted", userOriginatedTurns: acknowledged });
     });
     const send = async (label: string): Promise<void> => {
       await reconciler.reconcileThenAct(
-        { targetProviderSessionId: "thread-1", acknowledgedParticipantSends: acknowledged },
+        { targetProviderSessionId: "thread-1", acknowledgedUserSends: acknowledged },
         async () => {
           await Promise.resolve();
           order.push(`act:${label}`);
@@ -244,17 +242,17 @@ describe("AmbiguousDeliveryReconciler", () => {
     });
     const reconciler = new AmbiguousDeliveryReconciler((targetProviderSessionId) => {
       started.push(targetProviderSessionId);
-      return Promise.resolve({ kind: "counted", participantOriginatedTurns: 0 });
+      return Promise.resolve({ kind: "counted", userOriginatedTurns: 0 });
     });
 
     const held = reconciler.reconcileThenAct(
-      { targetProviderSessionId: "thread-1", acknowledgedParticipantSends: 0 },
+      { targetProviderSessionId: "thread-1", acknowledgedUserSends: 0 },
       async () => {
         await firstReadReached;
       },
     );
     await reconciler.reconcileThenAct(
-      { targetProviderSessionId: "thread-2", acknowledgedParticipantSends: 0 },
+      { targetProviderSessionId: "thread-2", acknowledgedUserSends: 0 },
       () => Promise.resolve(),
     );
     releaseFirst();
@@ -271,7 +269,7 @@ describe("AmbiguousDeliveryReconciler", () => {
     const reconciler = new AmbiguousDeliveryReconciler(countedReadback(0));
     const failing = reconciler
       .reconcileThenAct(
-        { targetProviderSessionId: "thread-1", acknowledgedParticipantSends: 0 },
+        { targetProviderSessionId: "thread-1", acknowledgedUserSends: 0 },
         async () => {
           await Promise.resolve();
           order.push("first");
@@ -281,7 +279,7 @@ describe("AmbiguousDeliveryReconciler", () => {
       .catch((error: unknown) => error);
 
     const following = reconciler.reconcileThenAct(
-      { targetProviderSessionId: "thread-1", acknowledgedParticipantSends: 0 },
+      { targetProviderSessionId: "thread-1", acknowledgedUserSends: 0 },
       () => {
         order.push("second");
         return Promise.resolve("ok" as const);

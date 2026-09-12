@@ -21,7 +21,7 @@ import type { NodeRosterReads } from "../../../../runtime-node-attach/index.js";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
 import { SETTINGS_SCENARIO } from "../../../bridge/scenario/settings/settings.js";
-import { PARTICIPANT_YOU } from "../../../bridge/scenario/settings/runtime-nodes.js";
+import { USER_YOU } from "../../../bridge/scenario/settings/runtime-nodes.js";
 import { unscriptedScenario } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { ConsoleRefusalError } from "../../../core/index.js";
 import { renderAbsorbedNodeRoster } from "../../../seats/index.js";
@@ -54,10 +54,10 @@ async function readRosterThrough(bridge: ConsoleBridge, sessionId: string): Prom
   await mount.props.reads.readRoster({ sessionId: sessionId as SessionId });
 }
 
-/** A store for this session, with the scenario's one participant on the wheel. */
+/** A store for this session, with the scenario's one user on the wheel. */
 function initialisedStore(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SETTINGS_SCENARIO.sessionId });
-  sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [PARTICIPANT_YOU] });
+  sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [USER_YOU] });
   return sessionStore;
 }
 
@@ -89,7 +89,7 @@ describe("control holder block", () => {
     );
 
     expect(screen.getByText("Held by")).not.toBeNull();
-    expect(container.textContent ?? "").toContain(PARTICIPANT_YOU);
+    expect(container.textContent ?? "").toContain(USER_YOU);
     // The hue rides a mark and never text — rule 2 — so the assertion is on the mark's
     // treatment class and on the custom property carrying the token.
     const mark = container.querySelector(".meridian-control-holder__mark");
@@ -113,7 +113,7 @@ describe("control holder block", () => {
       />,
     );
 
-    expect(container.textContent ?? "").toContain(PARTICIPANT_YOU);
+    expect(container.textContent ?? "").toContain(USER_YOU);
     expect(container.querySelector(".meridian-control-holder__mark")?.className).toContain(
       "--unattributed",
     );
@@ -125,7 +125,7 @@ describe("control holder block", () => {
     const bridge = bridgeAt(LEASE_HELD_MS);
     await readRosterThrough(bridge, SETTINGS_SCENARIO.sessionId);
     const emptyWheelStore = new SessionStore({ sessionId: SETTINGS_SCENARIO.sessionId });
-    emptyWheelStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    emptyWheelStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
 
     const { container } = render(
       <ControlHolderBlock
@@ -135,7 +135,7 @@ describe("control holder block", () => {
       />,
     );
 
-    expect(container.textContent ?? "").toContain(PARTICIPANT_YOU);
+    expect(container.textContent ?? "").toContain(USER_YOU);
     expect(container.querySelector(".meridian-control-holder__mark")?.className).toContain(
       "--unattributed",
     );

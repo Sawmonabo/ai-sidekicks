@@ -23,7 +23,7 @@
 // ONE table, and deliberately only one. `daemon_signing_keys` holds the
 // per-session Ed25519 keypair whose private half signs every `session_events`
 // row for that session: the public key as-is (it is published to the session
-// participant roster anyway) and the private key SEALED, never in the clear.
+// user roster anyway) and the private key SEALED, never in the clear.
 // `packages/runtime-daemon/src/events/signing-key-source.ts` is the only module
 // that reads or writes it.
 //
@@ -38,7 +38,7 @@
 //
 // It is reserved storage for a rotation ceremony no V1 document specifies —
 // V1's rotation policy is refusal — kept on the same "get the envelope right
-// in the initial migration" discipline as `participant_keys.rotated_at`
+// in the initial migration" discipline as `user_keys.rotated_at`
 // (pinned NULL in V1).
 //
 // The sibling tables are NOT here. `pending_anchor_uploads` ships in its own
@@ -56,7 +56,7 @@ export const DAEMON_SIGNING_KEYS_MIGRATION_SQL: string = `
 -- kSecAttrAccessibleWhenUnlockedThisDeviceOnly on macOS / CRED_TYPE_GENERIC
 -- CRED_PERSIST_LOCAL_MACHINE on Windows / Secret Service via libsecret +
 -- kwallet6 + keyutils fallback on Linux). Public key is registered in the
--- session participant roster at join time. Sealed-key storage lives in local
+-- session user roster at join time. Sealed-key storage lives in local
 -- SQLite (NOT shared-Postgres sessions) SQLite- local-state boundary —
 -- daemon-private secrets are per-machine. rotated_at is reserved and unwritten
 -- in V1: no daemon signing-key rotation ceremony is specified anywhere (a

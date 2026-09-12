@@ -13,7 +13,7 @@ import { AttachmentBoundsDisclosure } from "./AttachmentBoundsDisclosure.js";
 import { SHIPPED_DEFAULT_ALLOWLIST } from "./attachment-bounds.js";
 import { ATTACHMENT_ALLOWLIST_DEFAULT } from "./attachment-policy.js";
 
-describe("attachment bounds disclosure — which list a participant is looking at", () => {
+describe("attachment bounds disclosure — which list a user is looking at", () => {
   it("says the shipped default is not necessarily this deployment's list", () => {
     const { container } = render(
       <AttachmentBoundsDisclosure allowlist={SHIPPED_DEFAULT_ALLOWLIST} />,

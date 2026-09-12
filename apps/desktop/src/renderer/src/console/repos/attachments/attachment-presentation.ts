@@ -36,7 +36,7 @@ import type { AttachmentIngestEntry } from "./attachment-shapes.js";
 // `core/constants/attachment-caps.ts` with their rationales and their wire sources, and the two this
 // file's own arithmetic spends are imported above like any other consumer's.
 
-/** What a cause means, and what a participant can do about it. */
+/** What a cause means, and what a user can do about it. */
 export interface UnresolvedAttachmentPresentation {
   readonly meaning: string;
   /** ABSENT means there is no remedy — said outright rather than left blank. */

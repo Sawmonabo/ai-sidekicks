@@ -24,7 +24,7 @@ import {
   REPOS_IMPLEMENTER_RUN_ID,
   REPOS_SCENARIO,
   REPOS_SESSION_ID,
-  REPOS_VIEWING_PARTICIPANT_ID,
+  REPOS_VIEWING_USER_ID,
 } from "./repos.js";
 import { REPOS_SCENARIO_STARTED_AT_ISO, scenarioInstant } from "./repos-beats.js";
 import {
@@ -202,7 +202,7 @@ describe("the repos scenario — the facts the repos family is drawn against", (
   });
 
   it("names a viewer the session actually joined", () => {
-    expect(REPOS_SCENARIO.participantIdsInJoinOrder).toContain(REPOS_VIEWING_PARTICIPANT_ID);
+    expect(REPOS_SCENARIO.userIdsInJoinOrder).toContain(REPOS_VIEWING_USER_ID);
   });
 });
 
@@ -266,19 +266,19 @@ describe("the repos scenario — the growth reads it answers", () => {
   it("answers the caller-identity read with the viewer it states", async () => {
     const bridge = createFixtureBridge({ scenario: REPOS_SCENARIO });
 
-    const outcome = await bridge.growth.callerParticipantRead({ sessionId: REPOS_SESSION_ID });
+    const outcome = await bridge.growth.callerUserRead({ sessionId: REPOS_SESSION_ID });
 
     expect(outcome.status).toBe("served");
     if (outcome.status === "served") {
-      expect(outcome.value.participantId).toBe(REPOS_VIEWING_PARTICIPANT_ID);
+      expect(outcome.value.userId).toBe(REPOS_VIEWING_USER_ID);
     }
   });
 
   it("negative control: a scenario stating no viewer refuses that read", async () => {
-    const { viewingParticipantId: _stated, ...withoutViewer } = REPOS_SCENARIO;
+    const { viewingUserId: _stated, ...withoutViewer } = REPOS_SCENARIO;
     const bridge = createFixtureBridge({ scenario: { ...withoutViewer, id: "repos-no-viewer" } });
 
-    const outcome = await bridge.growth.callerParticipantRead({ sessionId: REPOS_SESSION_ID });
+    const outcome = await bridge.growth.callerUserRead({ sessionId: REPOS_SESSION_ID });
 
     expect(outcome.status).toBe("unavailable");
   });

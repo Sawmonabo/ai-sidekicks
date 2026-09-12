@@ -77,8 +77,8 @@ const SESSION_ID: string = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f00";
 // (contracts `node-id.ts` header) — an arbitrary non-UUID string is valid.
 const NODE_ID: string = "node-01J0ND0000NN5J5J5J5J5J5J";
 // `actor` is the EventEnvelope free-form actor string (`wireFreeFormString`),
-// NOT a branded ParticipantId — any bounded string (here a ULID) is valid.
-const PARTICIPANT_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
+// NOT a branded UserId — any bounded string (here a ULID) is valid.
+const USER_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
 
 // The integrity-column widths (32/32/64 per 0001-initial.ts CHECK constraints).
 // The emitter never touches these; D5 asserts the append path materialized REAL
@@ -1118,7 +1118,7 @@ describe("RuntimeNodeEventEmitter — per-event payload shapes", () => {
     const event: EventLogAppendReceipt = await emitter.emitRegistered({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
       previousState: "registering",
       newState: "online",
       capabilities: { "provider-driver": { contractVersion: "1.0" } },
@@ -1132,7 +1132,7 @@ describe("RuntimeNodeEventEmitter — per-event payload shapes", () => {
       nodeId: NODE_ID,
       previousState: "registering",
       newState: "online",
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
       capabilities: { "provider-driver": { contractVersion: "1.0" } },
       nodeVersion: "1.4.2",
       platform: "darwin-arm64",
@@ -1140,7 +1140,7 @@ describe("RuntimeNodeEventEmitter — per-event payload shapes", () => {
     // Envelope actor mirrors payload actor — single reconciliation point. Read
     // off the PERSISTED row (the receipt carries identifiers only), which is a
     // strictly stronger read: it proves the reconciliation survived the write.
-    expect(persistedRow(ctx.db, BigInt(event.sequence)).actor).toBe(PARTICIPANT_ID);
+    expect(persistedRow(ctx.db, BigInt(event.sequence)).actor).toBe(USER_ID);
   });
 
   it("online → base (no extension), defaulting actor to null when omitted", async () => {
@@ -1190,7 +1190,7 @@ describe("RuntimeNodeEventEmitter — per-event payload shapes", () => {
     const event: EventLogAppendReceipt = await emitter.emitCapabilityDeclared({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
       capability: "provider-driver",
       capabilityDetails: { contractVersion: "1.0", flags: { streaming: true } },
     });
@@ -1202,7 +1202,7 @@ describe("RuntimeNodeEventEmitter — per-event payload shapes", () => {
     expect(payload).toEqual({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
       capability: "provider-driver",
       capabilityDetails: { contractVersion: "1.0", flags: { streaming: true } },
     });

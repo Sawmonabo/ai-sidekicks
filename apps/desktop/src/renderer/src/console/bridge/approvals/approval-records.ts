@@ -69,7 +69,7 @@ export interface ApprovalResolveRequest {
   /** Never broader than requested. The surface offers no scope-widening control. */
   readonly effectiveScope?: string;
   /**
-   * Present only where the participant opted in, and only on an `approved`
+   * Present only where the user opted in, and only on an `approved`
    * decision. An untouched control omits the member entirely rather than sending a
    * falsy one, because a remembered scope is valid only on the approve path.
    */
@@ -210,7 +210,7 @@ export interface RememberedRule {
   readonly ruleId: string;
   readonly sessionId: string;
   /** The GRANTOR. An audit and membership-invalidation key, never a match key. */
-  readonly participantId: string;
+  readonly userId: string;
   readonly nodeId: string;
   /** Present exactly when the scope kind is `run`. */
   readonly runId?: string | undefined;
@@ -255,7 +255,7 @@ const rememberedRuleSchema: z.ZodType<RememberedRule> = z
   .object({
     ruleId: z.string().min(1),
     sessionId: z.string().min(1),
-    participantId: z.string().min(1),
+    userId: z.string().min(1),
     nodeId: z.string().min(1),
     runId: z.string().optional(),
     category: z.string().min(1),

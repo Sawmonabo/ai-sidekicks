@@ -335,7 +335,7 @@ export const CredentialGenerationSchema: z.ZodType<CredentialGeneration, Credent
 // A PROJECTION, not a row mirror. Four column groups are deliberately absent:
 //   * `credential_home_path` — the home reaches an operator's screen through
 //     `ProviderSignInRemedy.credentialHomePath` and nowhere else. On every
-//     surface a session participant can reach, `credential_home_path` names a
+//     surface a session user can reach, `credential_home_path` names a
 //     column and nothing else.
 //   * `created_at` / `updated_at` — row bookkeeping with no wire consumer.
 //     `updated_at` moves on ANY mutation, so surfacing it beside the health
@@ -351,7 +351,7 @@ export const CredentialGenerationSchema: z.ZodType<CredentialGeneration, Credent
 export interface ProviderAccount {
   accountId: ProviderAccountId;
   provider: ProviderName;
-  /** Operator-chosen; participant-adjacent PII. Never provider-reported. */
+  /** Operator-chosen; user-adjacent PII. Never provider-reported. */
   displayLabel: string;
   credentialGeneration: CredentialGeneration;
   billingMode: BillingMode;

@@ -311,7 +311,7 @@ describe("ProviderAccount record", () => {
 
   it("carries no credential-home path", () => {
     // The prohibition, asserted rather than trusted to the header: on every
-    // surface a session participant can reach, a credential home names a column
+    // surface a session user can reach, a credential home names a column
     // and nothing else. The one wire member that carries a home is the readiness
     // remedy's sign-in arm.
     expect(

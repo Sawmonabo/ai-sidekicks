@@ -29,7 +29,7 @@
 // a mount that can never bind again
 // is a lying read model. The recovery is NAMED rather than implied — re-attach, which
 // mints a new mount row — because the alternative reading of this verdict is that a
-// participant waits for a root to come back that has not gone anywhere.
+// user waits for a root to come back that has not gone anywhere.
 
 import type {
   ExecutionMode,
@@ -86,7 +86,7 @@ const HEALTH_READINGS: Readonly<Record<RepoMountHealth["status"], MountAxisReadi
     // repository, so no amount of waiting turns it back into the one that was attached.
     // The sentence therefore says the refusal is permanent for THIS row and names the
     // recovery, and the new-mount consequence is said here rather than left to the
-    // confirm dialog, because a participant reads the card before they press anything.
+    // confirm dialog, because a user reads the card before they press anything.
     sentence:
       "The root is reachable but is no longer the repository this mount was attached as. Binds and runs on this mount refuse permanently; re-attaching the path mints a new mount and leaves this row as history.",
   },
@@ -221,7 +221,7 @@ export function workspaceControlPosture(
   }
   if (pendingMode !== undefined) {
     // The sentence the selection act already refuses a second press with — one
-    // in-flight switch, one wording, wherever the participant meets it.
+    // in-flight switch, one wording, wherever the user meets it.
     return { live: false, heldBecause: selectionInFlightCopy(pendingMode) };
   }
   return WORKSPACE_CONTROLS_LIVE;

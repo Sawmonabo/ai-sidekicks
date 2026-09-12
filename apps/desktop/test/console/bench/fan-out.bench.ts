@@ -236,7 +236,7 @@ export function buildConsoleEntities(entityCount: number): readonly ConsoleEntit
       id: `${kind}-${String(ordinal).padStart(6, "0")}`,
       state: "active",
       touchedAt: "2026-09-01T00:00:00.000Z",
-      attributedTo: `participant-${String(ordinal % 12).padStart(2, "0")}`,
+      attributedTo: `user-${String(ordinal % 12).padStart(2, "0")}`,
       body: { sequence: ordinal },
     });
   }

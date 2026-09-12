@@ -77,7 +77,7 @@ export const AUDIT_STUB_SESSION_STATES: readonly SessionState[] = ["purge_reques
  * re-parsed into a richer value, and `undefined` where the wire named none. There
  * is deliberately no `title` — `SessionSnapshot` carries `config` and `metadata`
  * bags and no name column, so an unnamed session renders by its identifier and its
- * participants and never by an invented one.
+ * users and never by an invented one.
  */
 export interface SessionListRow {
   readonly sessionId: string;
@@ -85,8 +85,8 @@ export interface SessionListRow {
   readonly state: string | undefined;
   /** ISO-8601 of the newest event that touched the session, wire-verbatim. */
   readonly touchedAtIso: string | undefined;
-  /** Participants the console has seen in this session, in the order it saw them. */
-  readonly participantIds: readonly string[];
+  /** Users the console has seen in this session, in the order it saw them. */
+  readonly userIds: readonly string[];
   /** From the attention projection. `undefined` means the projection said nothing. */
   readonly attentionSeverity: AttentionSeverity | undefined;
 }

@@ -104,7 +104,7 @@ function renderBody(props: SignInCardProps): React.ReactNode {
            */}
           <p className="meridian-sign-in__note">
             {`${SIGNED_IN_AS_LABEL} `}
-            <WireFigure value={state.claims.participantId} />
+            <WireFigure value={state.claims.userId} />
           </p>
           <p
             className={

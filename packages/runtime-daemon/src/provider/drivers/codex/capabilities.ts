@@ -195,7 +195,7 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
     // capless leg rather than admitting an unbounded run
     // (`orchestration.budget_exhausted`, `reason: 'driver_capless'`).
     cost_cap: false,
-    // Participant-triggered compaction is a first-class client-request method
+    // User-triggered compaction is a first-class client-request method
     // (`thread/compact/start`), and the compaction it performs announces itself
     // with the same typed frame an unsolicited compaction does — which is the
     // evidence the operation settles on.
@@ -574,7 +574,7 @@ function readNonEmptyCodexString(source: Record<string, unknown>, key: string): 
  *
  *   1. **A paginated reply REFUSES.** `nextCursor` is `null` at the pin. A
  *      non-null cursor means this page is not the catalog, and answering the
- *      first page would publish a silently short model list — a participant
+ *      first page would publish a silently short model list — a user
  *      would simply not see models the provider offers, with nothing anywhere
  *      recording that a page was dropped. Refusing is loud and, at the pin,
  *      unreachable.

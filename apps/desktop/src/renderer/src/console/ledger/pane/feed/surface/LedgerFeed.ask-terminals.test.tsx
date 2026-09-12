@@ -5,7 +5,7 @@
 // unfurled channel-scoped projection and never the model a narrowing left: a facet
 // press that admits a request row while excluding the row that answered it must not be
 // able to take the terminal with it, or the card offers answer controls for an ask the
-// log has already settled and a participant answers it twice.
+// log has already settled and a user answers it twice.
 //
 // Driven through the COMPOSED feed rather than through the fold, because the fold has
 // been correct since it was written and what regressed — twice — is which window it is
@@ -101,7 +101,7 @@ describe("the mounted ledger's ask terminals — folded above every narrowing", 
     const feed = renderFeed(openSessionStoreWithSplitActorAsk(true), undefined, renderAskProbeRow);
 
     // The requester's chip. It admits the request row and excludes the response row,
-    // which a different participant authored.
+    // which a different user authored.
     fireEvent.click(facetChip(feed, EARLY_JOINER));
 
     // The narrowing really took the terminal ROW out of the rendered window — without

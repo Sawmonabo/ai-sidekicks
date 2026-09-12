@@ -241,7 +241,7 @@ export interface ProviderDriver {
   replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult>;
   // Capability-GATED on the `context_compaction` flag, under the same
   // static-refusal split as `rollbackTo` above. Compacts the bound session's own
-  // provider-side context ON PARTICIPANT REQUEST — never on a threshold, timer,
+  // provider-side context ON USER REQUEST — never on a threshold, timer,
   // or heuristic. It SETTLES on the provider's TYPED COMPACTION EVIDENCE (the
   // frame that already produces `usage.context_compacted`) and NEVER on the
   // request being accepted: the Codex method answers an empty ack and the Claude
@@ -540,7 +540,7 @@ export const DRIVER_CAPABILITY_FLAGS = [
   "subagents",
   "transcript_replay",
   "cost_cap",
-  // Participant-triggered compaction of the bound session's own provider-side
+  // User-triggered compaction of the bound session's own provider-side
   // context via `compactContext`. Native on Codex, emulated on Claude through
   // the one tripwire-exempt `driver_command` frame V1 produces.
   "context_compaction",
@@ -548,7 +548,7 @@ export const DRIVER_CAPABILITY_FLAGS = [
   // `listProviderCommands`. Held as driver-session state and discarded with
   // it, which is why this flag mints no table and no column.
   "provider_commands",
-  // A participant-settable provider-side accelerated-output mode. A
+  // A user-settable provider-side accelerated-output mode. A
   // SINGLE-PROVIDER flag by construction: one pinned CLI declares such a state
   // and the other supplies neither conjunct this axis requires — no statically
   // declarable level vocabulary and no declared-state read — so the `false`
@@ -985,7 +985,7 @@ export const DriverInterventionResultSchema: z.ZodType<
   })
   .strict()
   // Cross-field, because the two members contradict each other on one arm: the
-  // refusal code IS the classification that the participant's text was
+  // refusal code IS the classification that the user's text was
   // swallowed, and a swallowed text is precisely what `applied` denies. A
   // version-skewed driver reporting the pair must fail parse at this trust
   // boundary rather than hand out a result whose two readers disagree — a
@@ -999,7 +999,7 @@ export const DriverInterventionResultSchema: z.ZodType<
         code: "custom",
         path: ["refusalCode"],
         message:
-          "refusalCode classifies the participant text as swallowed, which status 'applied' denies; the code is expressible only on a degraded result.",
+          "refusalCode classifies the user text as swallowed, which status 'applied' denies; the code is expressible only on a degraded result.",
       });
     }
   });
@@ -1526,12 +1526,12 @@ export const DeclaredLossKindSchema: z.ZodType<DeclaredLossKind, DeclaredLossKin
   z.enum(DECLARED_LOSS_KINDS);
 
 /** Who authored a turn. The transcript carries no third author in V1. */
-export type CanonicalTranscriptRole = "participant" | "assistant";
+export type CanonicalTranscriptRole = "user" | "assistant";
 
-// Whether a reasoning block was ever visible to the participant. The strip keys
+// Whether a reasoning block was ever visible to the user. The strip keys
 // on THIS, not on `reasoningKind`: a filter matching one kind name silently
 // leaves that kind's redacted sibling behind, and the multi-turn protocol then
-// breaks on a block nobody classified. Summaries are participant-visible and
+// breaks on a block nobody classified. Summaries are user-visible and
 // therefore already canonical, so they carry forward as plain text.
 export type CanonicalReasoningDisclosure = "private" | "summary";
 
@@ -2081,7 +2081,7 @@ export interface ProviderCommandListResult {
 // `createSession` nor `resumeSession` can carry it: both resolve before the first
 // such exchange, and neither may spend a synthetic turn or block waiting for one.
 // The driver records this against the binding WHEN THE HANDSHAKE ACTUALLY
-// ARRIVES, on the first turn-bearing exchange the participant's own work
+// ARRIVES, on the first turn-bearing exchange the user's own work
 // produces, and holds it for the binding's life. Until then the binding HAS NO
 // OBSERVATION, and every reader is absent-until-observed rather than defaulted.
 //
@@ -2413,7 +2413,7 @@ export type DriverTransportConfig =
 // clause routes it to a client, so it is omitted on the stated bias that adding
 // a member later is additive while removing one is a break. `outputSpeedLevels`
 // is the one member that DOES cross, and it must: makes its reader a
-// participant-facing control, so a client would otherwise receive `output_speed:
+// user-facing control, so a client would otherwise receive `output_speed:
 // true` without the values it has to render.
 
 // Per-field length caps for the SDK seam. Same defense-in-depth posture as the
@@ -2445,13 +2445,13 @@ export type DriverTransportConfig =
 //     descriptive colour while the intervention itself is expressible without
 //     it.
 //   • DRIVER_WIRE_STEER_CONTENT_MAX_LEN (16384) — `SteerPayload.content`, the
-//     participant's actual directive text. Prose/message tier, sized like the
+//     user's actual directive text. Prose/message tier, sized like the
 //     tool-description cap: a steer routinely carries a paragraph of correction
 //     and occasionally a pasted fragment, and because the helper REJECTS the
 //     whole payload rather than truncating it, a tight cap would silently make
 //     long-but-honest corrections impossible to send. This is the one cap on
-//     this seam whose value a participant typed, so it is sized to accept what a
-//     participant plausibly types.
+//     this seam whose value a user typed, so it is sized to accept what a
+//     user plausibly types.
 //   • DRIVER_WIRE_CATALOG_ENTRIES_MAX (256) — per-driver entry cap on the model
 //     and mode lists, and on the token arrays inside a model. Unlike
 //     `DRIVER_PROVIDER_COMMAND_ENTRIES_MAX` this cap REJECTS rather than
@@ -2849,7 +2849,7 @@ export const DriverSubscribeEventsParamsSchema: z.ZodType<
 // validator is owed to — and lands compatibly with — the swap that ships
 // orchestration.ts.
 
-// `driver.compactContext` — the participant-triggered compaction request.
+// `driver.compactContext` — the user-triggered compaction request.
 //
 // Run-addressed WITHIN the session: compaction drives one run's live binding,
 // and the daemon resolves that binding itself (refusing `run.not_found` /

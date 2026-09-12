@@ -128,7 +128,7 @@ describe("provider switch — a driver move clears the axes that driver governs"
   it("negative control: a model change on the same driver keeps the account", () => {
     // Without this the cases above would pass over a form that cleared the account on
     // every edit, which would make an ordinary model change look like an account move
-    // the participant never asked for.
+    // the user never asked for.
     const onApply = vi.fn();
     const { container } = render(
       <ProviderSwitch
@@ -149,7 +149,7 @@ describe("provider switch — a driver move clears the axes that driver governs"
   it("negative control: an agent on no explicit account moves driver without naming one", () => {
     // An omitted account on an agent running under its provider's registered default
     // is a move the daemon resolves for itself, so holding the actions there would
-    // demand a value the participant has no reason to have.
+    // demand a value the user has no reason to have.
     const { container } = render(
       <ProviderSwitch agent={ON_CLAUDE} catalog={LOADED} onApply={() => {}} />,
     );

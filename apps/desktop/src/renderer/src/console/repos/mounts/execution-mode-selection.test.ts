@@ -172,7 +172,7 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
 
   it("accepts the corrected choice once the first has settled", async () => {
     // The whole point of refusing the second press rather than dropping it: the
-    // participant's correction is not lost, it is deferred to a picker that comes back.
+    // user's correction is not lost, it is deferred to a picker that comes back.
     const { reader, port } = await openWithHeldSelect();
     void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
     await crossMacrotaskBoundary();
@@ -246,7 +246,7 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
 describe("ExecutionModeSelections — a retry clears the refusal it is retrying", () => {
   it("shows no stale refusal while the retried switch is on the wire", async () => {
     // The defect: `#hold` published the pending mode and left the old entry in
-    // `workspaceRefusals.bySelection`, so the picker showed the failure the participant had
+    // `workspaceRefusals.bySelection`, so the picker showed the failure the user had
     // just retried away from beside "Switching to …" for the whole flight — and, on an
     // accepted switch, until the follow-up read finished.
     const { reader, port } = await openWithHeldSelect(["rejected", "served"]);

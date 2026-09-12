@@ -4,7 +4,7 @@
 // ITS OWN MODULE BESIDE THE LIST because the list renders and this asks. The history
 // used to be a projection of what THIS WINDOW dispatched — `run-control-surface.ts`'s
 // records — which is a true statement about this window and the wrong statement about
-// the run: an intervention raised by another participant, or by this participant in a
+// the run: an intervention raised by another user, or by this user in a
 // previous window, or by the system, appeared nowhere. This read is what makes the
 // list the run's record.
 //

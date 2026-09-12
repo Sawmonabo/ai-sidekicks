@@ -17,7 +17,7 @@ export interface GitflowGrowthSignatures {
   // than cosmetic: this row carried `{ workspaceId, action } -> { accepted }`, and
   // `docs/architecture/contracts/api-payload-contracts.md` registers
   // `GitActionExecuteRequest` as `{ repoMountId, action, params, causationRunId?,
-  // causationParticipantId? }` answering `{ success, output?, error? }`. `workspaceId`
+  // causationUserId? }` answering `{ success, output?, error? }`. `workspaceId`
   // is on NEITHER side of that contract, `params` is required rather than optional, and
   // `accepted` was never a reply member at all — so every act this console sent would
   // have been refused by a contract-valid daemon before it ran, on a shape no test
@@ -40,7 +40,7 @@ export interface GitflowGrowthSignatures {
       readonly action: string;
       readonly params: Readonly<Record<string, unknown>>;
       readonly causationRunId?: string;
-      readonly causationParticipantId?: string;
+      readonly causationUserId?: string;
     };
     value: {
       readonly success: boolean;

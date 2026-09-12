@@ -53,7 +53,7 @@ const REFUSED_CALL = "session.read";
  */
 const SCRIPTED_REFUSAL: WireErrorEnvelope = {
   code: "ratelimit.exceeded",
-  message: "Too many session reads from this participant. Retry after 30 seconds.",
+  message: "Too many session reads from this user. Retry after 30 seconds.",
 };
 
 describe("fixture bridge — a scenario can script a call that refuses", () => {

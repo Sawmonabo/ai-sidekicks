@@ -16,7 +16,7 @@
 //
 // THE DEFAULT IS A TRANSITION RULE, NOT A RENDER RULE, and the asymmetry is deliberate:
 // the edge INTO `stale` opens the disclosure, whether it arrives at mount or at a later
-// read, and no other transition touches it. So a participant who closes it on a stale
+// read, and no other transition touches it. So a user who closes it on a stale
 // row stays closed — the section re-reads on four separate reasons and a control that
 // reopened on each of them is a control nobody can put away — and a row that RECOVERS
 // never slams shut on the person reading it. The rule is stated in

@@ -48,7 +48,7 @@ export function GoalLine(props: {
   }
   if (props.goal.status === "set") {
     // Clamped to one measure by the sheet rather than truncated here: the text is the
-    // participant's own and a console-shortened goal is a different goal. The full
+    // user's own and a console-shortened goal is a different goal. The full
     // text is the element's title, so it is reachable without a pane.
     return (
       <p className="meridian-sidebar-goal__text" title={props.goal.text}>

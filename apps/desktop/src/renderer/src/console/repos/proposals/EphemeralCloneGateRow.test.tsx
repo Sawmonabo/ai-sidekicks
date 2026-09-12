@@ -109,7 +109,7 @@ describe("EphemeralCloneGateRow", () => {
 
   it("negative control: the two absences are different sentences", () => {
     // Without this, both cases above would pass against a row that printed one
-    // catch-all sentence for "no gate here" — which would tell a participant nothing
+    // catch-all sentence for "no gate here" — which would tell a user nothing
     // about whether the roster is incomplete or the wire has no key for this root.
     expect(CLONE_WORKSPACE_UNNAMED_COPY).not.toBe(EPHEMERAL_CLONE_UNADDRESSABLE_COPY);
     const paired = renderRow(ROSTER);

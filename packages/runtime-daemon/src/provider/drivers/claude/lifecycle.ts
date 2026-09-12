@@ -184,7 +184,7 @@ const UNDESCRIBED_FAILURE_DETAIL =
 // Console-parity constants
 // --------------------------------------------------------------------------
 
-// THE DECLARED BOUND for one participant-triggered compaction on this driver.
+// THE DECLARED BOUND for one user-triggered compaction on this driver.
 //
 // "Declared" means exactly this: the driver states, up front, how long it will
 // wait for the provider's own typed compaction evidence before reporting the
@@ -218,7 +218,7 @@ const CLAUDE_COMPACTION_COMMAND_TEXT = `/${CLAUDE_COMPACTION_COMMAND_NAME}`;
 // Minted from a LITERAL, in the module that composes the frame, which is the
 // discipline `OutboundTextFrameWriter` requires of the `driver_command` arm: the
 // arm is exempt from the text-neutralization tripwire, so a value that could be
-// forwarded from a caller would let participant words reach the provider under a
+// forwarded from a caller would let user words reach the provider under a
 // driver's exemption. Nothing outside this module can name it.
 const CLAUDE_COMPACTION_FRAME_ORIGIN = "driver_command";
 
@@ -226,7 +226,7 @@ const CLAUDE_COMPACTION_FRAME_ORIGIN = "driver_command";
 // Transport ports — the seam between this driver band and the provider process
 // --------------------------------------------------------------------------
 
-// A single outbound participant-authored text frame.
+// A single outbound user-authored text frame.
 //
 // Now the SHARED branded frame rather than a local shape, which is what makes
 // the neutralization structural instead of conventional: `OutboundTextFrame`
@@ -381,7 +381,7 @@ export interface ClaudeHandshakeDeclaration {
    * The provider itself separates these from `slash_commands`, and the reason is
    * load-bearing: they run in the provider's own terminal UI and are NOT
    * interactively invocable over the programmatic surface this driver drives.
-   * Merging them into the invocable set would offer a participant a control that
+   * Merging them into the invocable set would offer a user a control that
    * silently does nothing; dropping them would hide a surface the provider
    * really does publish. They are therefore carried, and the distinction is
    * recorded on the entry rather than erased (see `scope` below).
@@ -468,7 +468,7 @@ export interface ClaudeSessionChannel {
   readonly isClosed: boolean;
 
   /**
-   * Writes one participant-authored text frame and REPORTS the outcome.
+   * Writes one user-authored text frame and REPORTS the outcome.
    *
    * TRANSPORT OBLIGATION — a failure MUST be reported as a `failed` attempt
    * carrying the delivery classification, NOT raised as a rejection. The
@@ -617,7 +617,7 @@ export interface ClaudeSpawnBoundLegs {
    * TRANSPORT OBLIGATION — a present goal is realized as the CLI's system-prompt
    * append on this spawn. It is not a user turn and MUST NOT be delivered as
    * one: the goal is daemon-authored standing instruction, and injecting it into
-   * the participant's message stream would put words in a participant's mouth
+   * the user's message stream would put words in a user's mouth
    * and put them in the transcript.
    *
    * Rides the SPAWN-BOUND shape rather than a live control request because this
@@ -845,7 +845,7 @@ export interface ClaudeAuthProbeRequest {
    * costs most. A probe runs on a cadence and its child is short-lived, so an
    * unsuppressed probe can UPDATE THE INSTALLATION underneath the very version
    * and capability readings the next admission is decided against — drift with
-   * no participant action anywhere behind it, produced by the check that exists
+   * no user action anywhere behind it, produced by the check that exists
    * to make admission safe.
    */
   readonly mandatedEnvironment: readonly SpawnEnvPair[];
@@ -1033,10 +1033,10 @@ export interface ClaudeSessionTransport {
  * The origin a run's opening frame is written under.
  *
  * A CONSTANT rather than a port member. The text this driver opens a run with
- * is the participant's own message, composed by the daemon's run pipeline, so
+ * is the user's own message, composed by the daemon's run pipeline, so
  * the origin is a fact of the code path and not a claim a resolver gets to make.
  */
-const RUN_OPENING_FRAME_ORIGIN: CallerDeclaredFrameOrigin = "participant_text";
+const RUN_OPENING_FRAME_ORIGIN: CallerDeclaredFrameOrigin = "human_text";
 
 // `StartRunParams` carries `runId` / `channelId` / `agentConfig` and NEITHER the
 // owning `sessionId` NOR the run's opening text. Both are daemon-owned facts:
@@ -1062,7 +1062,7 @@ export interface ClaudeRunDispatchResolver {
 // with no route, and a THROWN refusal for a run whose provider binding a
 // text-neutralization trip disposed. The third is deliberately not folded into
 // the second — "this run has no channel yet" invites a retry, and a retry into
-// a process that has already swallowed a participant's words is the one
+// a process that has already swallowed a user's words is the one
 // response that must not happen. A caller that treats every non-channel answer
 // as absence will now see the refusal escape instead, which is the intended
 // direction: it names the real cause rather than a plausible wrong one.
@@ -1264,7 +1264,7 @@ function readRenderedTranscriptFrameForClaudeReplay(frame: unknown): SeededTrans
       "A transcript frame handed to the Claude replay leg carried no integer position.",
     );
   }
-  if (role !== "participant" && role !== "assistant") {
+  if (role !== "user" && role !== "assistant") {
     throw new ClaudeTranscriptReplayFailedError(
       `A transcript frame at position ${String(position)} carried the unrecognized role "${String(role)}".`,
     );
@@ -1725,7 +1725,7 @@ export interface ClaudeSubagentAdmissionPort {
  *
  * FIFO rather than a bare counter. A waiter set resolved in arbitrary order
  * starves whichever subagent is unlucky, and a starved subagent inside a run
- * with a wall-clock budget is a run that fails for a reason no participant did.
+ * with a wall-clock budget is a run that fails for a reason no user did.
  */
 export class ClaudeSubagentConcurrencyGate implements ClaudeSubagentAdmissionPort {
   readonly #sessionId: SessionId;
@@ -2824,7 +2824,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     // Asked BEFORE the live-session lookup so the cause survives. A trip
     // disposes the session's channel, so a quarantined session fails that lookup
     // too — with `no_live_session`, a plausible wrong cause that reads as a race
-    // and invites a retry into the process that swallowed the participant's
+    // and invites a retry into the process that swallowed the user's
     // words. Asked here, the refusal names the neutralization instead. Released
     // at establishment, so the promised recovery — a fresh spawn under this id —
     // is the thing that lifts it.
@@ -2846,7 +2846,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     // under the same key `UNRECOGNIZED_TURN_EVIDENCE`, which trips. Registering
     // a second opening frame for a run whose first has not settled would
     // therefore quarantine this session over a duplicate dispatch, not over a
-    // swallowed participant. Refused HERE, before compose and register, so the
+    // swallowed user. Refused HERE, before compose and register, so the
     // duplicate mutates nothing; the first dispatch's frame, route, and pending
     // turn all stand exactly as they were. Deliberately NOT keyed on the run
     // route (`#sessionIdByRunId`): `#ruleFailedOpeningFrame`'s dead-channel arm
@@ -2909,7 +2909,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       // claim about bytes: the provider saw nothing, so there is no turn to
       // duplicate and no spend to repeat. The other arm reaching here is
       // `reconcile-ambiguous-delivery`, which on this leg has no positional read
-      // available — this driver holds no acknowledged-participant-send ledger and
+      // available — this driver holds no acknowledged-user-send ledger and
       // the provider publishes no turn readback — so it settles the way an
       // unreadable target settles everywhere: nothing is re-sent, nothing is
       // assumed delivered, and the turn fails visibly on the run's existing
@@ -2943,12 +2943,12 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     // by the frame it admits.
     //
     // The origin is MINTED from a literal and is deliberately not a member of
-    // `ClaudeRunDispatch`. A run's opening text is the participant's own
+    // `ClaudeRunDispatch`. A run's opening text is the user's own
     // message, composed by the daemon's run pipeline, so the origin is a fact of
     // this code path rather than a claim the resolver gets to make — and the arm
     // a resolver could otherwise have named, `driver_command`, is the one that
     // delivers command-shaped bytes verbatim AND exempts the turn from the
-    // tripwire, so a wrong value there would swallow the participant's words and
+    // tripwire, so a wrong value there would swallow the user's words and
     // report the turn completed. A port that cannot state it cannot get it wrong.
     //
     // A re-attempt therefore composes a FRESH frame rather than re-offering the
@@ -3074,7 +3074,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    * ambiguous frame consumes the settling evidence and the later run is ruled
    * against none — so the trip is reported against the wrong run. That is the
    * fail-closed direction: the session is quarantined and disposed either way,
-   * and the participant is protected. The alternative — dropping the ambiguous
+   * and the user is protected. The alternative — dropping the ambiguous
    * frame so the attribution reads cleanly — is a SILENT PASS on the exact case
    * this tripwire exists for.
    *
@@ -3488,12 +3488,12 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   // ------------------------------------------------------------------------
 
   /**
-   * Triggers a participant-requested context compaction (EMULATED on this
+   * Triggers a user-requested context compaction (EMULATED on this
    * provider).
    *
    * THE MECHANISM. This CLI publishes no compaction request on its programmatic
    * surface; what it publishes is its own `/compact` command, in the same
-   * enumeration a participant would pick it from. So the driver sends that
+   * enumeration a user would pick it from. So the driver sends that
    * command as a `driver_command` frame — the FIRST V1 producer of one — and the
    * two guards below are what make sending provider-interpreted text safe. They
    * are independent and neither substitutes for the other.
@@ -3524,7 +3524,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    * evidence something this driver authored.
    *
    * THE FRAME IS NOT REGISTERED WITH THE OUTBOUND TRIPWIRE, and that is a
-   * decision rather than an omission. It carries no participant words, so there
+   * decision rather than an omission. It carries no user words, so there
    * is nothing for the tripwire to rule; and `startRun`'s session-serialization
    * guard refuses a run while this scope holds a pending frame, so registering
    * one here would make a compaction block every subsequent run on the session
@@ -3567,7 +3567,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       const frame = this.#outboundTextFrameWriter.compose({
         text: CLAUDE_COMPACTION_COMMAND_TEXT,
         // A module-level LITERAL, per the frame writer's rule for this arm: a
-        // value forwarded from a caller could carry participant words under a
+        // value forwarded from a caller could carry user words under a
         // driver's tripwire exemption.
         origin: CLAUDE_COMPACTION_FRAME_ORIGIN,
       });
@@ -3604,7 +3604,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       //
       // The armed wait is WITHDRAWN, not left to time out. Withdrawal is
       // per-waiter and is not a settlement: settling would be per-key and would
-      // report this caller's write failure to a CONCURRENT participant waiting on
+      // report this caller's write failure to a CONCURRENT user waiting on
       // the same binding, while withdrawing cancels exactly this wait's timer and
       // forgets exactly its registration. Left registered, it would hold an armed
       // timer for the whole of `CLAUDE_COMPACTION_WAIT_MS` after its caller
@@ -3671,7 +3671,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    * `skills` differ in KIND and are reported as such. `terminal_slash_commands`
    * are published by the provider under a separate member because they run in
    * its own terminal UI and are not invocable over this transport; merging them
-   * into the commands would offer a participant a control that silently does
+   * into the commands would offer a user a control that silently does
    * nothing, and dropping them would hide a surface the provider really
    * publishes. They are therefore carried with `scope: "terminal"` — the
    * distinction recorded on the entry rather than erased — while the invocable
@@ -3693,7 +3693,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    * it says no tail was dropped, which is true of an empty list — so it is not
    * repurposed to mean "not yet known". A refusal was considered and rejected:
    * the pre-first-turn palette read is an answerable question, and this
-   * provider's declaring handshake rides a turn-bearing exchange the participant
+   * provider's declaring handshake rides a turn-bearing exchange the user
    * has not yet produced.
    */
   async listProviderCommands(
@@ -3761,7 +3761,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    * REFUSING IS THE ONLY SAFE ANSWER TO A DISAGREEMENT, and it is safe in a way
    * neither candidate is. Stamping the record's would publish an identity the
    * daemon's own registry contradicts; stamping the registry's would route a
-   * participant's command enumeration onto an account this process never
+   * user's command enumeration onto an account this process never
    * authenticated as — the same identity divergence the sibling band refuses at
    * its spawn seam. A refusal is the only answer that cannot move a session's
    * billing identity without saying so, and this call is a READ: refusing it
@@ -3803,7 +3803,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    *
    * `declared` is carried VERBATIM. The pinned provider reports `on`, `cooldown`,
    * and `off`, while the settable vocabulary this driver publishes as
-   * `outputSpeedLevels` is `off` and `on` — a participant may not REQUEST a
+   * `outputSpeedLevels` is `off` and `on` — a user may not REQUEST a
    * cooldown, but the provider may certainly REPORT one. Coercing a reported
    * level into the settable set would fabricate a state the provider is not in.
    *
@@ -3901,7 +3901,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   // than admitted by an omission.
   //
   // A REJECTED ENTRY IS DROPPED, NEVER SILENTLY AND NEVER FATALLY. Dropping is
-  // per-entry so one unusable name cannot empty a participant's palette, and the
+  // per-entry so one unusable name cannot empty a user's palette, and the
   // diagnostic is what keeps the drop findable. The sibling driver reports the
   // same condition on the same kind: its module-level composer stays pure and
   // RETURNS what it refused, and the manager seam that holds the emitter and the
@@ -4487,7 +4487,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     // thread id, so an absent subagent identity IS the session's own thread; a
     // child's handshake or a child's compaction says nothing about the parent
     // binding, and recording either against the session would answer a palette
-    // read with a subagent's surface or settle a participant's compaction on a
+    // read with a subagent's surface or settle a user's compaction on a
     // boundary they did not ask for.
     if (observation.subagentId === null) {
       if (observation.handshake !== null) {
@@ -5359,7 +5359,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    * Fails the runs whose frames a REWIND superseded before the provider settled
    * them.
    *
-   * The visible-failure guarantee this closes: a participant's text that
+   * The visible-failure guarantee this closes: a user's text that
    * provably may not have reached the model never silently vanishes. A rewind
    * replaces the binding those frames were written on and keeps the session id
    * live, so no terminal for them can ever arrive — the successor's terminal

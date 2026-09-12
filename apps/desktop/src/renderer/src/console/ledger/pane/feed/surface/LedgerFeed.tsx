@@ -166,14 +166,14 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   });
   const find = findAndJump.find;
 
-  // The STORE's wheel, which is the one the cast bar reads, handed to the rows so one
+  // The STORE's wheel, which is the one the session header reads, handed to the rows so one
   // person wears one colour everywhere. A surface asks the session who somebody is
   // rather than deciding it again from the order this window happened to meet them in.
   // `assignmentFor` never allocates, so an actor the wheel has never admitted
   // answers `undefined`: the row renders its unattributed shape rather than being
   // handed a colour nobody else would agree with.
   const hueForActor = useCallback(
-    (participantId: string) => props.sessionStore.hueAllocator.assignmentFor(participantId),
+    (userId: string) => props.sessionStore.hueAllocator.assignmentFor(userId),
     [props.sessionStore],
   );
 
@@ -202,7 +202,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     rowOffers,
   });
 
-  // The palette's chords and the cast bar's chips both act on whichever ledger is
+  // The palette's chords and the session header's chips both act on whichever ledger is
   // mounted when they fire, and neither can import this component. Both seats are
   // claimed here for the mount's lifetime; what each act does is its own module's.
   const collapseAllTerminal = chapterDisclosure.collapseAllTerminal;

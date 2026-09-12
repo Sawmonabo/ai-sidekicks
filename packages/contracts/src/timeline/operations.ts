@@ -57,7 +57,7 @@
 //
 // The principal is resolved by the class rule: that section scopes every
 // endpoint to the authenticated caller implicitly, and its
-// informational-body-fields rule makes any participant-naming body field
+// informational-body-fields rule makes any user-naming body field
 // routing and audit metadata Cedar does not read. So a principal member would
 // be inert at best, and at worst the second source of identity truth that rule
 // exists to forbid. The request is `{ runId, afterCursor? }` and its schema is

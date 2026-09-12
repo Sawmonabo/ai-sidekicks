@@ -66,7 +66,7 @@ describe("decideWorkflowStartPrefill", () => {
   it("raises an explicit decision over unsent text, carrying the text itself", () => {
     expect(decideWorkflowStartPrefill("  ship the parser fix  ")).toStrictEqual({
       status: "confirm-replace",
-      // The participant's own bytes, untrimmed: what is preserved is what they typed.
+      // The user's own bytes, untrimmed: what is preserved is what they typed.
       displacedText: "  ship the parser fix  ",
     });
   });

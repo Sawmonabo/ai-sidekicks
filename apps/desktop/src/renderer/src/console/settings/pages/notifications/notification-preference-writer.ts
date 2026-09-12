@@ -117,7 +117,7 @@ interface QueuedFlip {
 const WRITE_ROUND_KEY = "write-round";
 
 /**
- * One participant's stored preference writes, serialised per record.
+ * One user's stored preference writes, serialised per record.
  *
  * A class with private fields rather than a hook body, per `apps/desktop/AGENTS.md`:
  * it owns a queue, a write generation, and the rule that decides what a queued
@@ -129,11 +129,11 @@ export class NotificationPreferenceWriter {
    * Whose preferences these are, or `undefined` until the identity read lands.
    *
    * The switches are not drawn before then — the section renders its loading shape —
-   * so a toggle cannot reach a writer with no participant through the interface. The
+   * so a toggle cannot reach a writer with no user through the interface. The
    * guard makes that a property rather than a coincidence, and it fails closed:
-   * a record is never written under a participant nobody resolved.
+   * a record is never written under a user nobody resolved.
    */
-  readonly #participantId: string | undefined;
+  readonly #userId: string | undefined;
   readonly #reReadSet: AttentionSetReReader;
   readonly #changes = new Emitter<void>("notification preference write change");
   #snapshot: PreferenceWriteSnapshot = NOTHING_IN_FLIGHT;
@@ -156,12 +156,12 @@ export class NotificationPreferenceWriter {
 
   public constructor(options: {
     readonly port: AttentionPreferencePort;
-    readonly participantId: string | undefined;
+    readonly userId: string | undefined;
     /** The set read a served write triggers. Owned by the reading, not by this. */
     readonly reReadSet: AttentionSetReReader;
   }) {
     this.#port = options.port;
-    this.#participantId = options.participantId;
+    this.#userId = options.userId;
     this.#reReadSet = options.reReadSet;
   }
 
@@ -180,7 +180,7 @@ export class NotificationPreferenceWriter {
    * record becomes busy, which is what disables every switch inside it.
    */
   public toggle(row: TogglePreferenceRow, member: PreferenceToggleMember): void {
-    if (this.#participantId === undefined) {
+    if (this.#userId === undefined) {
       return;
     }
     // Last time's reason is dropped on the attempt rather than on its settlement, so
@@ -235,8 +235,8 @@ export class NotificationPreferenceWriter {
     firstValue: Readonly<Record<string, boolean>>,
     firstMemberKey: string,
   ): Promise<void> {
-    const participantId = this.#participantId;
-    if (participantId === undefined) {
+    const userId = this.#userId;
+    if (userId === undefined) {
       return;
     }
     let value = firstValue;
@@ -244,7 +244,7 @@ export class NotificationPreferenceWriter {
     try {
       for (;;) {
         const written = await this.#port.attentionPreferenceUpdate({
-          participantId,
+          userId,
           key: recordKey,
           value,
         });

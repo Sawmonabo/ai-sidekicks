@@ -18,7 +18,7 @@ import { SCENARIO_ENVELOPE_VERSION, composeScenarioEventEnvelope } from "./envel
 
 const SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a99a9";
 const EVENT_ID = "019b79ee-0280-7ea1-8110-e5e0d1159901";
-const PARTICIPANT_ID = "019b79ee-0280-79a4-8110-cca0117a0110";
+const USER_ID = "019b79ee-0280-79a4-8110-cca0117a0110";
 
 /** One beat in the shape a scenario author writes. */
 function authoredBeat(overrides: Partial<ConsoleSessionEvent> = {}): ConsoleSessionEvent {
@@ -35,19 +35,19 @@ function authoredBeat(overrides: Partial<ConsoleSessionEvent> = {}): ConsoleSess
 
 describe("composeScenarioEventEnvelope — the shape the fixture delivers", () => {
   it("composes an envelope the registered carrier accepts", () => {
-    const composed = composeScenarioEventEnvelope(authoredBeat({ actorId: PARTICIPANT_ID }));
+    const composed = composeScenarioEventEnvelope(authoredBeat({ actorId: USER_ID }));
 
     expect(EventEnvelopeSchema.safeParse(composed).success).toBe(true);
     expect(composed.type).toBe("run.running");
     expect(composed.category).toBe("run_lifecycle");
-    expect(composed.actor).toBe(PARTICIPANT_ID);
+    expect(composed.actor).toBe(USER_ID);
     expect(composed.version).toBe(SCENARIO_ENVELOPE_VERSION);
   });
 
   it("negative control: the authoring record the composer was given does not", () => {
     // Without this, the case above passes against a composer that returns its
     // argument unchanged — which is exactly what the fixture used to deliver.
-    const beat = authoredBeat({ actorId: PARTICIPANT_ID });
+    const beat = authoredBeat({ actorId: USER_ID });
 
     expect(EventEnvelopeSchema.safeParse(beat).success).toBe(false);
     expect(composeScenarioEventEnvelope(beat)).not.toHaveProperty("kind");

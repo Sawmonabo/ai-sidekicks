@@ -17,7 +17,7 @@ import { findScenarioWireTruthDefects } from "./wire-truth.js";
 import type { ConsoleScenario, ScenarioBeat } from "../runtime/vocabulary.js";
 
 /** Someone this session never joins, spelled as the branded id type declares. */
-const STRANGER_PARTICIPANT_ID = "019b79ee-0280-79a4-8110-cca0117a9999";
+const STRANGER_USER_ID = "019b79ee-0280-79a4-8110-cca0117a9999";
 
 describe("scenario wire truth — the shipped seat board", () => {
   it("accepts every scenario a family has landed on the board", () => {
@@ -33,7 +33,7 @@ describe("scenario wire truth — the shipped seat board", () => {
 const CONTROL_QUEUE_ITEM_ID = "019b79ee-0280-7c11-8110-d1a4c1159902";
 
 /** Someone the flagship joins, so a viewer case varies the viewer and nothing else. */
-const FLAGSHIP_MEMBER_ID = FLAGSHIP_SCENARIO.participantIdsInJoinOrder[0] ?? "";
+const FLAGSHIP_MEMBER_ID = FLAGSHIP_SCENARIO.userIdsInJoinOrder[0] ?? "";
 
 /**
  * The flagship playing exactly ONE beat, built from its own opening beat.
@@ -119,7 +119,7 @@ describe("scenario wire truth — the shape a beat's envelope and payload have t
     // lifecycle kinds register no payload variant, so the strict layer reports nothing
     // for them and this beat used to pass silently. The defect is on `actorId`, a
     // canonical envelope member no run payload carries and no ordering rule reads — an
-    // empty one is neither a participant nor the system arm, which omits the key, so
+    // empty one is neither a user nor the system arm, which omits the key, so
     // the delivery would be counted unreadable and dropped, which in a fixture reads as
     // a beat that renders nothing.
     const runBeat = FLAGSHIP_SCENARIO.beats.find((beat) => beat.event.kind === "run.starting");
@@ -214,7 +214,7 @@ describe("scenario wire truth — the state a queue beat says its row moved to",
 
 describe("scenario wire truth — the viewer a scenario answers its identity read with", () => {
   it("reports a stated viewer who is not in the scenario's own roster", () => {
-    // A viewer outside the join order resolves to no participant entry, so every
+    // A viewer outside the join order resolves to no user entry, so every
     // surface that attributes a row to this window silently attributes it to nobody —
     // a defect that renders as a session nobody is looking at rather than as anything
     // wrong.
@@ -222,16 +222,14 @@ describe("scenario wire truth — the viewer a scenario answers its identity rea
       {
         ...FLAGSHIP_SCENARIO,
         id: "names-a-viewer-it-never-joins",
-        viewingParticipantId: STRANGER_PARTICIPANT_ID,
+        viewingUserId: STRANGER_USER_ID,
       },
     ]);
 
     expect(defects.map((defect) => defect.subject)).toContain(
-      `viewingParticipantId "${STRANGER_PARTICIPANT_ID}"`,
+      `viewingUserId "${STRANGER_USER_ID}"`,
     );
-    expect(defects.some((defect) => defect.reason.includes("participantIdsInJoinOrder"))).toBe(
-      true,
-    );
+    expect(defects.some((defect) => defect.reason.includes("userIdsInJoinOrder"))).toBe(true);
   });
 
   it("accepts a stated viewer the scenario actually joins", () => {
@@ -243,7 +241,7 @@ describe("scenario wire truth — the viewer a scenario answers its identity rea
         {
           ...FLAGSHIP_SCENARIO,
           id: "names-a-viewer-it-joins",
-          viewingParticipantId: FLAGSHIP_MEMBER_ID,
+          viewingUserId: FLAGSHIP_MEMBER_ID,
         },
       ]),
     ).toStrictEqual([]);

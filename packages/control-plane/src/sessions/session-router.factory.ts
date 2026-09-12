@@ -77,7 +77,7 @@ export function createSessionRouter(deps: SessionRouterDeps): SessionRouter {
         .mutation(async ({ input, ctx }) =>
           deps.directoryService.createSession({
             sessionId: deps.generateSessionId(),
-            ownerParticipantId: deps.resolveCurrentParticipantId(ctx),
+            ownerUserId: deps.resolveCurrentUserId(ctx),
             config: input.config,
             metadata: input.metadata,
           }),

@@ -27,7 +27,7 @@
 // rewrites nothing.
 //
 // STEER AND REWIND OPEN THE COMPOSER, THEY DO NOT SEND. Both need a body the
-// participant has not written yet, and the row's own buttons open the same form.
+// user has not written yet, and the row's own buttons open the same form.
 // A palette entry that sent an empty steer would be inventing a message.
 //
 // AND A SEVENTH ACT THAT BELONGS TO NO RUN. The pane's empty state offers to put the

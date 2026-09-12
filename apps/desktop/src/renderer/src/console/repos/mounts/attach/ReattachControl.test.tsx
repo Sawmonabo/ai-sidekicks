@@ -106,7 +106,7 @@ describe("ReattachControl — the confirm press keeps its settlement", () => {
 });
 
 describe("ReattachControl — a discarded consideration", () => {
-  it("discards the standing settlement when the participant walks away from the question", async () => {
+  it("discards the standing settlement when the user walks away from the question", async () => {
     const { container } = renderControl(bridgeRefusingTheCall());
 
     await pressOpen();

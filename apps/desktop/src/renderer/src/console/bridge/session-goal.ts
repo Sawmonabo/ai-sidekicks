@@ -61,7 +61,7 @@ const [, SESSION_GOAL_CLEARED_EVENT_KIND] = SESSION_GOAL_EVENT_KINDS;
  * id so the boundary between them is unambiguous however a node id is spelled.
  *
  * It is deliberately NOT the goal's text: a goal re-set to the text it already had
- * is still a new act by a participant, and a consumer told otherwise would treat it
+ * is still a new act by a user, and a consumer told otherwise would treat it
  * as though nothing had happened.
  */
 type GoalRevisionPrefix = "o:" | "e:";

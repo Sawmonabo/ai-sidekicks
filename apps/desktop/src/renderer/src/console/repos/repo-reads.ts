@@ -206,7 +206,7 @@ export async function readWorktreeStatus(
  *
  * THE PATH TRAVELS VERBATIM. Resolution, canonicalization, containment, symlink
  * following, and case folding are the daemon's, so this console sends the string a
- * participant typed and renders whatever
+ * user typed and renders whatever
  * comes back — including `repo.root_resolution_failed`, which it never re-reads as
  * "attached as a plain directory".
  *
@@ -347,7 +347,7 @@ export async function disposeEphemeralClone(
  * machine-readable.
  *
  * THE REJECTED VALUE IS NOT QUOTED INTO THE SENTENCE. It names the leg and stops
- * there — a rejection off the wire can carry participant content as readily as a
+ * there — a rejection off the wire can carry user content as readily as a
  * schema failure can, which is the rule the copy this replaces broke by stringifying
  * the rejection into it.
  */

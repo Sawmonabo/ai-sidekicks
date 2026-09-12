@@ -15,7 +15,7 @@ export function HeldRunLinkage(props: {
   // down. The view below renders the refusal and owns no stream, and a refusal a
   // person cannot act on is the shape this arm exists to stop being.
   const reopen = useCallback(() => {
-    read.refresh("participant-request");
+    read.refresh("user-request");
   }, [read]);
   return <RunLinkage parentRunId={props.parentRunId} state={state} onReopen={reopen} />;
 }

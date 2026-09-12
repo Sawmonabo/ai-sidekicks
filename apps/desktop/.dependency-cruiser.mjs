@@ -238,7 +238,7 @@ export default {
       comment:
         "One VIEW family imported another. View families are siblings, not a ladder: the rule " +
         "above only forbids a LAYER family reaching up into a view family, so without this one " +
-        "`collaboration/` → `repos/` stayed green and the six concurrent family branches could " +
+        "`channels/` → `repos/` stayed green and the six concurrent family branches could " +
         "grow edges into each other that no ordering could ever untangle. Hoist the shared " +
         "contract into `seats/` — that is what `seats/` is for — or into the lowest layer " +
         "family that needs it. The two composition sites are the only files that name more " +

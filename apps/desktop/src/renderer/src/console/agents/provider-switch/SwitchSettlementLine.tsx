@@ -5,7 +5,7 @@
 // closed loss vocabulary to WORDS is testable without a DOM, and this component
 // decides only where those words sit and which of them carries a caution.
 //
-// EXACTLY ONE ARM READS AS A CAUTION. The failed arm is the participant asking for a
+// EXACTLY ONE ARM READS AS A CAUTION. The failed arm is the user asking for a
 // change that did not happen, and a row implying otherwise would be worse than none.
 // The `memo` settlement is not a failure and is not an ordinary success either: it
 // gets the same line plus the loss clause, and a lossless switch gets no decoration
@@ -18,7 +18,7 @@
 // today is the HELD-OPEN reply, which is what this renders. The absence is stated
 // rather than approximated with a row composed from the reply, because a row in the
 // timeline claims the log carried it, and because only the client that ISSUED the
-// mutation ever sees that reply: a participant on another machine watching the same
+// mutation ever sees that reply: a user on another machine watching the same
 // agent switch has no reply and would get a row about a settlement nothing delivered
 // to them.
 //

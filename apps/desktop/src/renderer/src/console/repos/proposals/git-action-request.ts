@@ -9,7 +9,7 @@
 //
 // THE REGISTERED REQUEST NAMES A MOUNT, WHICH IS COARSER THAN WHAT IS BEING ACTED ON.
 // `docs/architecture/contracts/api-payload-contracts.md` types `GitActionExecuteRequest`
-// as `{ repoMountId, action, params, causationRunId?, causationParticipantId? }`, and
+// as `{ repoMountId, action, params, causationRunId?, causationUserId? }`, and
 // one mount can carry several workspaces and each of those several execution roots. So
 // `repoMountId` alone cannot say WHICH checkout an act runs in — and `params` is where
 // that is said, which is the whole reason the member is required and typed
@@ -29,7 +29,7 @@
 //     one — `PROPOSAL_ACTION_PRESENTATION.commit` says the act records the working
 //     tree's changes and names no message, and the prepared proposal's `title` is the
 //     PROPOSAL's title, written for a host, and reusing it would be a message the
-//     participant never wrote. A commit-message composer is a surface this console does
+//     user never wrote. A commit-message composer is a surface this console does
 //     not have; until it does, the message is the daemon's own.
 //   • No `causationRunId`. The change-proposal gate is mounted per execution root and
 //     no run is in view on it, so the member is omitted rather than carrying a run this
@@ -61,7 +61,7 @@ type GitActionParamSource = "branchContextId" | "headBranch" | "upstreamRef";
  * `branchContextId` is on both because the mount is not the root: it is the identity
  * the daemon minted for exactly this (base, head, root) triple, so it is the narrowest
  * thing this console can hand back. `headBranch` rides beside it because both acts name
- * it in their own consequence sentence — a participant reading "records on the head
+ * it in their own consequence sentence — a user reading "records on the head
  * branch" and "sends the head branch" is reading what the request says.
  */
 const GIT_ACTION_PARAM_SOURCES: Readonly<
@@ -76,7 +76,7 @@ export interface GitActionCausation {
   /** The mount the registered request names. The subject's, never re-derived here. */
   readonly repoMountId: string;
   /**
-   * Which participant pressed the control, where the caller identity read answered.
+   * Which user pressed the control, where the caller identity read answered.
    *
    * ATTRIBUTION AND NOT AUTHORITY, which is why an unread identity is not an error:
    * the member is optional on the registered request and the daemon resolves the
@@ -85,7 +85,7 @@ export interface GitActionCausation {
    * press over a fact the daemon does not take from it — and it is never filled with a
    * placeholder, which would be a claim about who acted.
    */
-  readonly causationParticipantId?: string | undefined;
+  readonly causationUserId?: string | undefined;
 }
 
 /**
@@ -116,7 +116,7 @@ export function gitActionParams(
  * ONE FUNCTION RATHER THAN A LITERAL PER CALL SITE: the request has five members, two
  * of them optional, and `exactOptionalPropertyTypes` makes an explicit `undefined` a
  * different type from an absent member — so a caller spreading the causation by hand
- * would send `causationParticipantId: undefined` on exactly the path where the identity
+ * would send `causationUserId: undefined` on exactly the path where the identity
  * could not be read. The spread below is conditional for that reason.
  */
 export function gitActionExecuteRequest(
@@ -128,8 +128,8 @@ export function gitActionExecuteRequest(
     repoMountId: causation.repoMountId,
     action,
     params: gitActionParams(action, context),
-    ...(causation.causationParticipantId === undefined
+    ...(causation.causationUserId === undefined
       ? {}
-      : { causationParticipantId: causation.causationParticipantId }),
+      : { causationUserId: causation.causationUserId }),
   };
 }

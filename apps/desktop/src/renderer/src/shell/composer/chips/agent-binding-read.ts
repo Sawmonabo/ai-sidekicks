@@ -197,8 +197,8 @@ export function useAgentBindingReading(
   // this composer mounted never reached the chip.
   useReadTriggers(reading, sessionStore, bridge.transportReconnect);
   // The fifth reason, and the one the store cannot supply. A ROUND SETTLING is a
-  // participant's own act reaching its answer, so it is scheduled as
-  // `participant-request` — the same reason the catalog's reopen control uses, and
+  // user's own act reaching its answer, so it is scheduled as
+  // `user-request` — the same reason the catalog's reopen control uses, and
   // the one the scheduler treats as asked-for rather than as a background repair. It
   // fires on the round and never on the reply's optional `switch` member: a reply that
   // carries none has still been answered, and the binding it answered about has still
@@ -207,7 +207,7 @@ export function useAgentBindingReading(
     if (settledSwitch === undefined) {
       return;
     }
-    reading.requestRead("participant-request");
+    reading.requestRead("user-request");
   }, [reading, settledSwitch]);
   const readout = useSyncExternalStore(
     (onReadoutChanged) => reading.subscribe(onReadoutChanged),

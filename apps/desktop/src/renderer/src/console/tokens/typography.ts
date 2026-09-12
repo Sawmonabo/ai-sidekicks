@@ -27,7 +27,7 @@
 //   inside its two `@font-face` rules in `frame/bindings/typeface.ts`. It was on
 //   `body` here first, and that was the wrong home twice over: rule 4 makes mono
 //   the signature that a number came from the wire, and `font-feature-settings`
-//   INHERITS, so a root declaration slashed the zero in every participant name,
+//   INHERITS, so a root declaration slashed the zero in every user name,
 //   repo path, and branch name in the console — and then, because CSS Fonts 4
 //   gives that property precedence over the features `font-variant-*` computes,
 //   left no descendant able to scope the feature back.

@@ -7,7 +7,7 @@
 //
 // AND THE ASSERTION IS THE LABEL ASSOCIATION, not the id string. What a shared id costs
 // is exactly this: activating either label focuses the first matching field, so one
-// participant's answer is typed into another run's question, and assistive technology
+// user's answer is typed into another run's question, and assistive technology
 // can associate neither label unambiguously. The ids are read only to say what went
 // wrong when the association fails.
 

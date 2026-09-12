@@ -45,9 +45,9 @@ import {
 import { BODY_LINE_HEIGHT, FONT_STACKS, TYPE_SCALE_REM } from "./typography.js";
 import type { ConsoleScheme } from "./tokens.js";
 import {
-  PARTICIPANT_HUES,
+  ACTOR_HUES,
   SCHEME_COLOR_TOKENS,
-  participantHueTokenName,
+  actorHueTokenName,
   tokenReference,
   tokenVariableName,
 } from "./tokens.js";
@@ -142,7 +142,7 @@ export function generateMeridianCss(): string {
     `  line-height: ${BODY_LINE_HEIGHT};`,
     // No `font-feature-settings` here, deliberately. Rule 4's slashed zero is the
     // MONO signature, and this property inherits — declaring it on the root put the
-    // slash on every participant name, repo path, and branch in the console, and
+    // slash on every user name, repo path, and branch in the console, and
     // then prevented any descendant from scoping the feature back. It rides the mono
     // `@font-face` descriptors in `frame/bindings/typeface.ts` instead.
     "  -webkit-font-smoothing: antialiased;",
@@ -192,9 +192,9 @@ function invariantBlock(): string {
   const lines: string[] = [];
 
   lines.push("");
-  lines.push("  /* Participant wheel — identity, never attention, never theme. */");
-  PARTICIPANT_HUES.forEach((color, step) => {
-    lines.push(declaration(participantHueTokenName(step), formatOklch(color)));
+  lines.push("  /* User wheel — identity, never attention, never theme. */");
+  ACTOR_HUES.forEach((color, step) => {
+    lines.push(declaration(actorHueTokenName(step), formatOklch(color)));
   });
 
   lines.push("");

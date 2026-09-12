@@ -17,7 +17,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { PARTICIPANT_YOU } from "../../bridge/scenario/repos/repos-fixture-data.js";
+import { USER_YOU } from "../../bridge/scenario/repos/repos-fixture-data.js";
 import { ManualClock } from "../../core/index.js";
 import { offeredProposalActions, type ProposalAction } from "./proposal-actions.js";
 import type { ProposalGateReader } from "./proposal-gate-reader.js";
@@ -253,7 +253,7 @@ describe("ProposalGateActions — the request a git action puts on the wire", ()
   /** Send one act against a recording port and give back the request it produced. */
   async function requestSentBy(
     action: ProposalAction,
-    script: { readonly callerParticipant?: unknown } = {},
+    script: { readonly callerUser?: unknown } = {},
   ): Promise<unknown> {
     const clock = new ManualClock();
     const port = recordingPort({ branchContext: SERVED_CONTEXT, ...script });
@@ -283,7 +283,7 @@ describe("ProposalGateActions — the request a git action puts on the wire", ()
         branchContextId: SERVED_CONTEXT_VALUE["branchContextId"],
         headBranch: SERVED_CONTEXT_VALUE["headBranch"],
       },
-      causationParticipantId: PARTICIPANT_YOU,
+      causationUserId: USER_YOU,
     });
   });
 
@@ -296,7 +296,7 @@ describe("ProposalGateActions — the request a git action puts on the wire", ()
         headBranch: SERVED_CONTEXT_VALUE["headBranch"],
         upstreamRef: SERVED_CONTEXT_VALUE["upstreamRef"],
       },
-      causationParticipantId: PARTICIPANT_YOU,
+      causationUserId: USER_YOU,
     });
   });
 
@@ -304,9 +304,9 @@ describe("ProposalGateActions — the request a git action puts on the wire", ()
     // The identity is attribution and not authority, so the act still goes — and the
     // member is absent rather than empty, because a placeholder would be a claim about
     // who acted.
-    const request = await requestSentBy("commit", { callerParticipant: WIRE_UNREGISTERED });
+    const request = await requestSentBy("commit", { callerUser: WIRE_UNREGISTERED });
 
-    expect(Object.keys(request as object)).not.toContain("causationParticipantId");
+    expect(Object.keys(request as object)).not.toContain("causationUserId");
     expect((request as { readonly repoMountId: unknown }).repoMountId).toBe(SUBJECT.repoMountId);
   });
 

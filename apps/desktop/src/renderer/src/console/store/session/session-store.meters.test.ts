@@ -30,7 +30,7 @@ describe("the apply chokepoint's perf-meter readings", () => {
     );
 
     const store = new SessionStore({ sessionId: SESSION_ID });
-    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
     store.applyBatch([eventAt(1), eventAt(2)]);
 
     const latency = devPerfMeters?.reading("apply-latency", SESSION_ID) ?? null;
@@ -53,8 +53,8 @@ describe("the apply chokepoint's perf-meter readings", () => {
   it("keys the readings by session, so two stores are two series", () => {
     const first = new SessionStore({ sessionId: SESSION_ID });
     const second = new SessionStore({ sessionId: "session-2" });
-    first.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
-    second.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    first.initialise({ cursor: 0, entities: [], userJoinLog: [] });
+    second.initialise({ cursor: 0, entities: [], userJoinLog: [] });
     first.applyBatch([eventAt(1)]);
     second.applyBatch([{ ...eventAt(1), sessionId: "session-2" }]);
 
@@ -68,7 +68,7 @@ describe("the apply chokepoint's perf-meter readings", () => {
 
   it("leaves the size gauge alone when a batch admits nothing", () => {
     const store = new SessionStore({ sessionId: SESSION_ID });
-    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
     store.applyBatch([eventAt(1)]);
     const admittedSize = devPerfMeters?.reading("store-size", SESSION_ID)?.recordedCount ?? 0;
 

@@ -271,7 +271,7 @@ describe("SessionEventBinder — the console's one subscription to the wire", ()
     const registry = new SessionStoreRegistry({
       read: (_sessionId, reasons) => {
         reasonsSeen.push(...reasons);
-        return Promise.resolve({ cursor: 0, entities: [], participantJoinLog: [] });
+        return Promise.resolve({ cursor: 0, entities: [], userJoinLog: [] });
       },
       clock: engine.clock,
       refreshDebounceMs: 0,

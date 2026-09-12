@@ -14,7 +14,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ParticipantHueAllocator } from "../../../../tokens/index.js";
+import { ActorHueAllocator } from "../../../../tokens/index.js";
 import { renderFeed, withLaidOutViewport } from "./LedgerFeedFixtures.test-support.js";
 import {
   EARLY_JOINER,
@@ -32,8 +32,8 @@ describe("the ledger feed — one wheel", () => {
     const sessionStore = openStoreWhereJoinOrderIsNotEventOrder();
     const stepByActor = new Map<string, number>();
     renderFeed(sessionStore, (mount) => {
-      if (mount.row.actor !== undefined && mount.participantHue !== undefined) {
-        stepByActor.set(mount.row.actor, mount.participantHue.step);
+      if (mount.row.actor !== undefined && mount.actorHue !== undefined) {
+        stepByActor.set(mount.row.actor, mount.actorHue.step);
       }
     });
     expect(stepByActor.get(EARLY_JOINER)).toBe(
@@ -48,7 +48,7 @@ describe("the ledger feed — one wheel", () => {
     // Without this the case above would pass over a ledger that kept its own wheel,
     // because two allocators agree wherever the two orders do. These two ids prefer
     // the same step, so the order decides who gets it — and the orders disagree.
-    const byFirstEvent = new ParticipantHueAllocator();
+    const byFirstEvent = new ActorHueAllocator();
     byFirstEvent.admit(LATE_JOINER);
     byFirstEvent.admit(EARLY_JOINER);
     const sessionStore = openStoreWhereJoinOrderIsNotEventOrder();

@@ -106,7 +106,7 @@ const REPO_MOUNT_ID: string = "0190f8b2-2d4e-7f7b-9a32-3d8e7c5f0b21";
 const WORKSPACE_ID: string = "0190f8b3-3e5f-7a8c-8b43-4e9f8d60c132";
 // `actor` is the free-form envelope actor string (a bounded audit scalar), NOT
 // a branded id — any bounded non-blank string is valid.
-const PARTICIPANT_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
+const USER_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
 
 // The integrity-column widths the `session_events` CHECK constraints enforce.
 // The emitter never writes them; the arm below asserts the append path
@@ -346,14 +346,14 @@ describe("WorktreeEventEmitter — per-event emission", () => {
     await makeEmitter().emitWorktreeCreated({
       sessionId: SESSION_ID,
       worktreeId: WORKTREE_ID,
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
     });
 
     expectPersistedPayload(readSingleRow("worktree.created"), {
       sessionId: SESSION_ID,
       worktreeId: WORKTREE_ID,
       state: "creating",
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
     });
   });
 
@@ -368,7 +368,7 @@ describe("WorktreeEventEmitter — per-event emission", () => {
       worktreeId: WORKTREE_ID,
       state: "ready",
       // A system-driven transition: absent input actor narrows to null, the
-      // wire form for "no participant or agent did this".
+      // wire form for "no user or agent did this".
       actor: null,
     });
   });
@@ -405,14 +405,14 @@ describe("WorktreeEventEmitter — per-event emission", () => {
     await makeEmitter().emitWorktreeRetired({
       sessionId: SESSION_ID,
       worktreeId: WORKTREE_ID,
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
     });
 
     expectPersistedPayload(readSingleRow("worktree.retired"), {
       sessionId: SESSION_ID,
       worktreeId: WORKTREE_ID,
       state: "retired",
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
     });
   });
 
@@ -630,7 +630,7 @@ describe("WorktreeEventEmitter — envelope/payload reconciliation", () => {
     await makeEmitter().emitWorktreeCreated({
       sessionId: SESSION_ID,
       worktreeId: WORKTREE_ID,
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
     });
 
     const row: LifecycleRow = readSingleRow("worktree.created");
@@ -638,8 +638,8 @@ describe("WorktreeEventEmitter — envelope/payload reconciliation", () => {
     // The row's own actor column IS the payload's actor, and the row lives under
     // the session the payload names — a caller has no second input with which to
     // make the two disagree.
-    expect(row.actor).toBe(PARTICIPANT_ID);
-    expect(persisted["actor"]).toBe(PARTICIPANT_ID);
+    expect(row.actor).toBe(USER_ID);
+    expect(persisted["actor"]).toBe(USER_ID);
     expect(persisted["sessionId"]).toBe(SESSION_ID);
   });
 
@@ -695,7 +695,7 @@ describe("WorktreeEventEmitter — envelope/payload reconciliation", () => {
       worktreeId: WORKTREE_ID,
       repoMountId: REPO_MOUNT_ID,
       workspaceId: WORKSPACE_ID,
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
     });
 
     expectPersistedPayload(readSingleRow("worktree.ready"), {
@@ -704,7 +704,7 @@ describe("WorktreeEventEmitter — envelope/payload reconciliation", () => {
       repoMountId: REPO_MOUNT_ID,
       workspaceId: WORKSPACE_ID,
       state: "ready",
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
     });
   });
 

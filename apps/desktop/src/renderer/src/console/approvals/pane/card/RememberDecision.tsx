@@ -19,7 +19,7 @@
 //     a defined meaning on the wire (category-wide) and an empty `pattern` has none,
 //     which is the same reason an untouched control omits `rememberedScope` whole.
 //   • **The text is sent verbatim, whitespace included.** Trimming a pattern would
-//     send the daemon something other than what the participant typed, and what a
+//     send the daemon something other than what the user typed, and what a
 //     pattern matches is the daemon's to decide.
 //
 // Its own module rather than more of `ApprovalCard.tsx`: the card was at the file
@@ -40,12 +40,12 @@ import {
 } from "../../../bridge/index.js";
 import { type ApprovalResolveRequest } from "../approvals-wire.js";
 
-/** What the participant has said about remembering this answer, so far. */
+/** What the user has said about remembering this answer, so far. */
 export interface RememberedGrantIntent {
   /** False until the opt-in is checked. An unengaged intent sends nothing. */
   readonly isRemembering: boolean;
   readonly kind: RememberedScopeKind;
-  /** Verbatim, as typed. Empty means the participant narrowed nothing. */
+  /** Verbatim, as typed. Empty means the user narrowed nothing. */
   readonly pattern: string;
 }
 

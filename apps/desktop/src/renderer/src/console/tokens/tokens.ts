@@ -10,7 +10,7 @@
 // Component code never reaches into these records for a color. It writes
 // `var(--meridian-text-muted)` and lets the cascade resolve the scheme; the
 // records exist so a TEST can measure what the cascade will resolve to, and so
-// the participant-hue allocator can hand a caller a wheel step by number.
+// the actor-hue allocator can hand a caller a wheel step by number.
 
 import type { OklchColor } from "./color.js";
 import { resolveEmittedColor } from "./color.js";
@@ -19,12 +19,12 @@ import {
   ANSI_TOKENS,
   ATTENTION_TOKENS,
   CODE_TOKENS,
-  PARTICIPANT_HUE_CHROMA,
-  PARTICIPANT_HUE_LIGHTNESS,
-  PARTICIPANT_HUE_STEPS,
+  ACTOR_HUE_CHROMA,
+  ACTOR_HUE_LIGHTNESS,
+  ACTOR_HUE_STEPS,
   SURFACE_TOKENS,
   TEXT_TOKENS,
-  participantHueAngle,
+  actorHueAngle,
 } from "./palette.js";
 
 /**
@@ -138,33 +138,31 @@ export const SCHEME_COLOR_TOKENS: readonly (readonly [string, SchemePair])[] = [
  */
 const SCHEME_PAIR_BY_TOKEN_NAME = new Map<string, SchemePair>(SCHEME_COLOR_TOKENS);
 
-/** The token name of a participant wheel step. */
-export function participantHueTokenName(step: number): string {
+/** The token name of a user wheel step. */
+export function actorHueTokenName(step: number): string {
   return `hue-${String(step).padStart(2, "0")}`;
 }
 
 /**
- * The twelve participant hues, resolved and scheme-independent. Index is the
- * wheel step; `ParticipantHueAllocator` is the only thing that decides WHICH
- * step a participant gets.
+ * The twelve user hues, resolved and scheme-independent. Index is the
+ * wheel step; `ActorHueAllocator` is the only thing that decides WHICH
+ * step a user gets.
  */
-export const PARTICIPANT_HUES: readonly OklchColor[] = Array.from(
-  { length: PARTICIPANT_HUE_STEPS },
+export const ACTOR_HUES: readonly OklchColor[] = Array.from(
+  { length: ACTOR_HUE_STEPS },
   (_unused, step) =>
     resolve({
-      lightness: PARTICIPANT_HUE_LIGHTNESS,
-      chroma: PARTICIPANT_HUE_CHROMA,
-      hueDegrees: participantHueAngle(step),
+      lightness: ACTOR_HUE_LIGHTNESS,
+      chroma: ACTOR_HUE_CHROMA,
+      hueDegrees: actorHueAngle(step),
     }),
 );
 
 /** The resolved color of a wheel step. Throws on a step outside the wheel. */
-export function participantHue(step: number): OklchColor {
-  const color = PARTICIPANT_HUES[step];
+export function actorHue(step: number): OklchColor {
+  const color = ACTOR_HUES[step];
   if (color === undefined) {
-    throw new RangeError(
-      `participant hue step ${step} is outside the ${PARTICIPANT_HUE_STEPS}-step wheel`,
-    );
+    throw new RangeError(`user hue step ${step} is outside the ${ACTOR_HUE_STEPS}-step wheel`);
   }
   return color;
 }

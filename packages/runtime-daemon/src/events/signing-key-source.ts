@@ -14,7 +14,7 @@
 // The public/private split, and exactly how much of it the types enforce
 // ----------------------------------------------------------------------------
 //
-// The provisioning caller registers the daemon's PUBLIC key in the session participant
+// The provisioning caller registers the daemon's PUBLIC key in the session user
 // roster (leg B — the post-attach control-plane registration) — the key a verifier later
 // resolves by `NodeId`. It has no business holding the private half, and row says so:
 // daemon-private signing material never crosses the provisioning boundary.
@@ -67,8 +67,8 @@
 // preference: no byte format for `daemon_signing_keys.sealed_private_key` is
 // specified anywhere. specifies the MASTER key's own custody (the OS-keystore
 // tier-1 ladder, the KEK derivation, the 98-byte envelope) and specifies the
-// wrap for `participant_keys.encrypted_key_blob` (XChaCha20-Poly1305, AAD
-// `participant_id || "ais.master-wrap.v1" || key_version`) — neither covers this
+// wrap for `user_keys.encrypted_key_blob` (XChaCha20-Poly1305, AAD
+// `user_id || "ais.master-wrap.v1" || key_version`) — neither covers this
 // column. Inventing a third format here would pre-commit every later reader of
 // the column, including whatever re-wrap a master-key rotation needs, on a
 // guess. So the OPERATION is declared and the FORMAT ships with the implementor,
@@ -124,8 +124,8 @@ const ED25519_KEY_LENGTH = 32;
  *
  * `sessionId` IS PASSED ON BOTH SIDES, AND WHAT THAT DOES AND DOES NOT MEAN.
  * It is passed so an implementation CAN bind it as AEAD associated data, which
- * is the shape the participant wrap already uses (its AAD leads with
- * `participant_id`); with the binding, a `sealed_private_key` blob copied from
+ * is the shape the user wrap already uses (its AAD leads with
+ * `user_id`); with the binding, a `sealed_private_key` blob copied from
  * one row to another fails to unseal instead of silently authenticating the
  * wrong session's rows. This interface does NOT claim the binding happens — it
  * cannot, having fixed no format — so an implementation that ignores the
@@ -190,7 +190,7 @@ export interface DaemonSigningKeyProvisioner {
   /**
    * Generates this session's Ed25519 keypair, seals the private half, persists
    * both to `daemon_signing_keys`, and resolves to the PUBLIC key — which the
-   * caller registers in the session participant roster.
+   * caller registers in the session user roster.
    *
    * EXACTLY ONCE PER SESSION, ENFORCED BY THE SCHEMA. `session_id` is the
    * table's PRIMARY KEY, so a second `create` for a live session raises a
@@ -293,7 +293,7 @@ interface DaemonSigningKeyRow {
  * canonical DDL as reserved storage for a rotation ceremony no V1 document
  * specifies (V1's rotation policy is refusal governs CLI-identity custody, not
  * daemon session keys), and nothing here writes it — consistent with
- * `participant_keys.rotated_at`, which pins NULL for V1. Rotating a signing key
+ * `user_keys.rotated_at`, which pins NULL for V1. Rotating a signing key
  * is not a re-key in isolation: it needs a roster update and a rule for
  * verifying rows signed under the superseded key, neither of which V1
  * specifies.

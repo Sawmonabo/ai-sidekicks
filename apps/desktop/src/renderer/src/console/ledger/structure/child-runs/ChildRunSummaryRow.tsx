@@ -37,7 +37,7 @@
 // a fact about the window holding both — which for these entries is `expansion.entries`
 // and never the parent ledger the outer provider folded. Rendered under that outer map
 // the child's request found no terminal, kept offering its answer controls, and let a
-// participant re-answer an ask the log had already settled. The fold is the one the
+// user re-answer an ask the log had already settled. The fold is the one the
 // ledger's card family declares; what this row supplies is the window it runs over.
 //
 // MOUNTED AS COMPONENTS AND NOT CALLED AS FUNCTIONS. The seat's renderer holds hooks,
@@ -52,7 +52,7 @@ import { formatCount } from "../../../primitives/index.js";
 import { type RunId, type TimelineRow } from "@ai-sidekicks/contracts";
 
 import { type TimelineRowRenderer } from "../../../seats/index.js";
-import { type ParticipantHueAssignment } from "../../../tokens/index.js";
+import { type ActorHueAssignment } from "../../../tokens/index.js";
 // The ledger's own rollback ranking, taken from the module that declares it rather
 // than approximated here: an expanded page can hold the child's own rollback
 // boundaries, and rows past one are superseded in the child's log exactly as they are
@@ -71,7 +71,7 @@ export interface ChildRunSummaryRowProps {
   /** The wire type of the row this summary rides, drawn in the row's kind slot. */
   readonly wireType: string;
   /** The child agent's allocated hue, or `undefined` on an unattributed row. */
-  readonly participantHue?: ParticipantHueAssignment | undefined;
+  readonly actorHue?: ActorHueAssignment | undefined;
   /** Whether a rollback later in the log put this row behind it. */
   readonly isSuperseded?: boolean | undefined;
   readonly expansion: ChildRunExpansion;
@@ -90,10 +90,10 @@ export interface ChildRunSummaryRowProps {
    *
    * The allocation is over the SESSION's join log rather than over a window, so a
    * child run's entries carry the same author colours their actors wear in the parent
-   * log. Resolving them here rather than dropping them would be the same participant
+   * log. Resolving them here rather than dropping them would be the same user
    * drawn two ways on one screen.
    */
-  readonly hueForActor: (participantId: string) => ParticipantHueAssignment | undefined;
+  readonly hueForActor: (userId: string) => ActorHueAssignment | undefined;
 }
 
 /** One child run, as a summary row. */
@@ -120,10 +120,8 @@ export function ChildRunSummaryRow(props: ChildRunSummaryRowProps): React.JSX.El
   };
   return (
     <LedgerRow
-      participantHueStep={props.participantHue?.step ?? -1}
-      {...(props.participantHue === undefined
-        ? {}
-        : { ringTreatment: props.participantHue.ringTreatment })}
+      actorHueStep={props.actorHue?.step ?? -1}
+      {...(props.actorHue === undefined ? {} : { ringTreatment: props.actorHue.ringTreatment })}
       occurredAtIso={entry.timestamp}
       actorLabel={entry.actorId ?? "Child run"}
       kindLabel={props.wireType}
@@ -180,7 +178,7 @@ export function ChildRunSummaryRow(props: ChildRunSummaryRowProps): React.JSX.El
  */
 interface ChildRunEntryDecisions {
   readonly renderTimelineRow: TimelineRowRenderer;
-  readonly hueForActor: (participantId: string) => ParticipantHueAssignment | undefined;
+  readonly hueForActor: (userId: string) => ActorHueAssignment | undefined;
   readonly superseded: SupersededIndex;
   readonly askTerminalByAskIdentity: ReadonlyMap<string, DriverAskReading>;
 }
@@ -296,9 +294,7 @@ function renderExpandedEntries(
           <li key={row.id} className="meridian-child-run-row__entry">
             <EntryBody
               row={row}
-              participantHue={
-                row.actor === undefined ? undefined : decisions.hueForActor(row.actor)
-              }
+              actorHue={row.actor === undefined ? undefined : decisions.hueForActor(row.actor)}
               isSuperseded={decisions.superseded.isSuperseded(row.id)}
               density="collapsed"
             />

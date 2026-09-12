@@ -28,7 +28,7 @@
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { AnchorPayload, NodeId, ParticipantId, SessionId } from "@ai-sidekicks/contracts";
+import type { AnchorPayload, NodeId, UserId, SessionId } from "@ai-sidekicks/contracts";
 
 import { buildControlPlaneFetchHandler, type ControlPlaneEnv } from "../../server/host.js";
 import { makePassThroughDeps } from "../../server/__tests__/_helpers.js";
@@ -41,7 +41,7 @@ import { applyMigrations, type Querier } from "../../sessions/migration-runner.j
 const SESSION_ID = "01970000-0000-7000-8000-00000000a001" as SessionId;
 const SESSION_OWNER_ID = "01970000-0000-7000-8000-00000000b0ff";
 const ABSENT_SESSION_ID = "01970000-0000-7000-8000-00000000dead" as SessionId;
-const CURRENT_PARTICIPANT_ID = "01970000-0000-7000-8000-00000000b001" as ParticipantId;
+const CURRENT_USER_ID = "01970000-0000-7000-8000-00000000b001" as UserId;
 const NEXT_SESSION_ID = "01970000-0000-7000-8000-00000000a002" as SessionId;
 const NODE_ID = "node-alpha" as NodeId;
 const ANCHORED_AT = "2026-08-04T00:00:00.000Z";
@@ -128,7 +128,7 @@ beforeEach(async () => {
   const querier: Querier = adaptPGlite(pg);
   await applyMigrations(querier);
   // A session needs the user who owns it — `owner_user_id` is NOT NULL.
-  await querier.query("INSERT INTO participants (id) VALUES ($1)", [SESSION_OWNER_ID]);
+  await querier.query("INSERT INTO users (id) VALUES ($1)", [SESSION_OWNER_ID]);
   await querier.query("INSERT INTO sessions (id, owner_user_id) VALUES ($1, $2)", [
     SESSION_ID,
     SESSION_OWNER_ID,
@@ -136,7 +136,7 @@ beforeEach(async () => {
   handler = buildControlPlaneFetchHandler(
     makePassThroughDeps({
       querier,
-      currentParticipantId: CURRENT_PARTICIPANT_ID,
+      currentUserId: CURRENT_USER_ID,
       nextSessionId: NEXT_SESSION_ID,
     }),
   );

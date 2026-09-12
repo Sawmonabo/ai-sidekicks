@@ -44,7 +44,7 @@ const PROBE_DEFINITION = (() => {
  *
  * The session is the scenario's OWN, and that is load-bearing rather than tidy: a
  * served operation may legitimately scope its answer to the session it is playing —
- * `callerParticipantRead` does, because an identity is a fact about one roster — so
+ * `callerUserRead` does, because an identity is a fact about one roster — so
  * a probe carrying no session would be asking about a session the fixture is not
  * playing and would read a correct scoping refusal as a broken served claim.
  *

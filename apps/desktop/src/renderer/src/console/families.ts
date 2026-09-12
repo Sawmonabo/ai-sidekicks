@@ -128,7 +128,7 @@ export function registerConsoleFamilies(
   // NO SHIPPED TIER-1 FAMILY CLAIMS A SLOT OF ITS OWN ANY MORE. Two of them are
   // absorbed by the console surfaces that mount them, through the helpers
   // `seats/surface/absorbed-surfaces.ts` publishes, so they reach the screen inside a
-  // console-authored surface rather than beside one. The shipped participant roster
+  // console-authored surface rather than beside one. The shipped user roster
   // was the last slot claimant, and it is retired rather than re-homed: it rendered
   // presence a second time in one application, and the collaboration family renders
   // presence from the bridge the console resolved. The `workspace` slot it used to

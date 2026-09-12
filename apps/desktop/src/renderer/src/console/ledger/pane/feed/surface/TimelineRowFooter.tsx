@@ -1,4 +1,4 @@
-// The footer under a participant message row, and the two nothings it renders as.
+// The footer under a user message row, and the two nothings it renders as.
 //
 // ITS OWN MODULE FOR THE ONE-COMPONENT RULE, and because the two conditions it
 // answers are decisions rather than markup: whether this row takes a footer at all
@@ -8,7 +8,7 @@
 // AN EMPTY SEAT RENDERS NOTHING AT ALL, WHICH IS THE ONE PLACE THIS FAMILY DIFFERS
 // FROM ITS OTHER SLOTS. A pane-sized slot renders the "reserved, not stubbed"
 // sentence because a person looking at an empty pane needs to be told the pane is
-// reserved. A row footer repeats once per participant message — a reserved marker
+// reserved. A row footer repeats once per user message — a reserved marker
 // there would print a paragraph of unbuilt-feature prose down the whole ledger, and
 // the honest reading of an absent offer is the absent offer — the same reading that
 // took the structural surfaces' load-earlier buttons out, recorded in

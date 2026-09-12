@@ -43,7 +43,7 @@ import { ReadScope, type ReadRound } from "./read-cancellation.js";
 /**
  * Why a refresh was requested. Rendered in diagnostics; never inferred.
  *
- * `participant-request` is the one a person caused: somebody pressed the control that
+ * `user-request` is the one a person caused: somebody pressed the control that
  * reads again. It is its own member rather than borrowed from a neighbour, and the rule
  * is that a press is a reason of its own — never disguised as a subscription, which
  * says a surface has just opened, and never as a terminal event, which says the wire
@@ -59,7 +59,7 @@ export type RefreshReason =
   | "reconnect"
   | "terminal-event"
   | "gap-repull"
-  | "participant-request";
+  | "user-request";
 
 /**
  * The read a scheduler performs. Rejections are surfaced, never swallowed.

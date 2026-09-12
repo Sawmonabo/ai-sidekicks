@@ -39,7 +39,7 @@
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { beforeEach, afterEach, describe, expect, it } from "vitest";
 
-import type { NodeId, ParticipantId, SessionId } from "@ai-sidekicks/contracts";
+import type { NodeId, UserId, SessionId } from "@ai-sidekicks/contracts";
 import {
   RUNTIME_NODE_ATTACH_CONFLICT_CODE,
   RUNTIME_NODE_ATTACH_REVOKED_CODE,
@@ -59,23 +59,21 @@ const PASSING_ENV: ControlPlaneEnv = {
 };
 
 // Session-side ids required by PassThroughDepsConfig. The heartbeat path never
-// reads them (no session/participant FK on `runtime_node_presence`), but the
+// reads them (no session/user FK on `runtime_node_presence`), but the
 // config type requires them; UUID v7-shaped values satisfy the brand validators.
-const CURRENT_PARTICIPANT_ID: ParticipantId =
-  "01970000-0000-7000-8000-0000000f0001" as ParticipantId;
+const CURRENT_USER_ID: UserId = "01970000-0000-7000-8000-0000000f0001" as UserId;
 const NEXT_SESSION_ID: SessionId = "01970000-0000-7000-8000-0000000e0001" as SessionId;
 
 // Ids for the errorFormatter-projection dispatches (the attach / capabilityupdate
 // / join refusals seed real attachment + membership rows). `SESSION_ID` reuses
 // `NEXT_SESSION_ID`; `NODE_ID` is a daemon-minted opaque TEXT scalar (not a UUID).
 const SESSION_ID: SessionId = NEXT_SESSION_ID;
-const PARTICIPANT_ID: ParticipantId = CURRENT_PARTICIPANT_ID;
+const USER_ID: UserId = CURRENT_USER_ID;
 
-// The user who owns the seeded sessions. Distinct from `CURRENT_PARTICIPANT_ID`
+// The user who owns the seeded sessions. Distinct from `CURRENT_USER_ID`
 // so the seed does not accidentally pre-register the caller the dispatches act
 // as; `sessions.owner_user_id` is NOT NULL, so every session seed needs one.
-const SESSION_OWNER_PARTICIPANT_ID: ParticipantId =
-  "01970000-0000-7000-8000-0000000f00ff" as ParticipantId;
+const SESSION_OWNER_USER_ID: UserId = "01970000-0000-7000-8000-0000000f00ff" as UserId;
 const NODE_ID: NodeId = "node-alpha-01" as NodeId;
 
 // A second session id for the attach cross-session-conflict projection: the node
@@ -155,7 +153,7 @@ function buildAttachRequest(): Request {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       sessionId: String(SESSION_ID),
-      participantId: String(PARTICIPANT_ID),
+      userId: String(USER_ID),
       nodeId: String(NODE_ID),
       clientVersion: "1.4",
       capabilities: { "provider-driver": "claude" },
@@ -166,20 +164,18 @@ function buildAttachRequest(): Request {
 
 // Seed helpers for the projection dispatches — bypass the services to set up the
 // rows the capabilityupdate refusals exercise (mirrors runtime-node-router.test.ts).
-async function seedParticipant(querier: Querier, participantId: ParticipantId): Promise<void> {
-  await querier.query("INSERT INTO participants (id) VALUES ($1) ON CONFLICT DO NOTHING", [
-    participantId,
-  ]);
+async function seedUser(querier: Querier, userId: UserId): Promise<void> {
+  await querier.query("INSERT INTO users (id) VALUES ($1) ON CONFLICT DO NOTHING", [userId]);
 }
 
 // Seed a session with NO floor (NULL `min_client_version`) — the attach
 // conflict/revoked refusals do not exercise the floor, so the
 // default-no-floor session is the minimal precondition.
 async function seedSession(querier: Querier, sessionId: SessionId): Promise<void> {
-  await seedParticipant(querier, SESSION_OWNER_PARTICIPANT_ID);
+  await seedUser(querier, SESSION_OWNER_USER_ID);
   await querier.query("INSERT INTO sessions (id, owner_user_id, state) VALUES ($1, $2, 'active')", [
     sessionId,
-    SESSION_OWNER_PARTICIPANT_ID,
+    SESSION_OWNER_USER_ID,
   ]);
 }
 
@@ -190,10 +186,10 @@ async function seedFlooredSession(
   sessionId: SessionId,
   minClientVersion: string,
 ): Promise<void> {
-  await seedParticipant(querier, SESSION_OWNER_PARTICIPANT_ID);
+  await seedUser(querier, SESSION_OWNER_USER_ID);
   await querier.query(
     "INSERT INTO sessions (id, owner_user_id, state, min_client_version) VALUES ($1, $2, 'active', $3)",
-    [sessionId, SESSION_OWNER_PARTICIPANT_ID, minClientVersion],
+    [sessionId, SESSION_OWNER_USER_ID, minClientVersion],
   );
 }
 
@@ -201,7 +197,7 @@ async function seedAttachment(
   querier: Querier,
   args: {
     sessionId: SessionId;
-    participantId: ParticipantId;
+    userId: UserId;
     nodeId: NodeId;
     state: string;
     clientVersion: string;
@@ -209,9 +205,9 @@ async function seedAttachment(
 ): Promise<void> {
   await querier.query(
     `INSERT INTO runtime_node_attachments
-       (session_id, participant_id, node_id, capabilities, client_version, state)
+       (session_id, user_id, node_id, capabilities, client_version, state)
      VALUES ($1, $2, $3, $4, $5, $6)`,
-    [args.sessionId, args.participantId, args.nodeId, {}, args.clientVersion, args.state],
+    [args.sessionId, args.userId, args.nodeId, {}, args.clientVersion, args.state],
   );
 }
 
@@ -241,7 +237,7 @@ beforeEach(async () => {
   handler = buildControlPlaneFetchHandler(
     makePassThroughDeps({
       querier,
-      currentParticipantId: CURRENT_PARTICIPANT_ID,
+      currentUserId: CURRENT_USER_ID,
       nextSessionId: NEXT_SESSION_ID,
     }),
   );
@@ -300,11 +296,11 @@ describe("errorFormatter projection — AisWireException base covers all subtype
     // WRITE is refused with the typed VersionFloorExceededException, which the catch-arm maps
     // to CONFLICT and the shared formatter projects onto error.data.aisError.
     const querier = adaptPGlite(pg);
-    await seedParticipant(querier, PARTICIPANT_ID);
+    await seedUser(querier, USER_ID);
     await seedFlooredSession(querier, SESSION_ID, "2.0");
     await seedAttachment(querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "online",
       clientVersion: "1.0",
@@ -352,12 +348,12 @@ describe("errorFormatter projection — AisWireException base covers all subtype
     // maps the cross-session conflict (RuntimeNodeAttachConflictException) to CONFLICT` — re-run on
     // the HTTP path, the only surface where `aisError` is observable.
     const querier = adaptPGlite(pg);
-    await seedParticipant(querier, PARTICIPANT_ID);
+    await seedUser(querier, USER_ID);
     await seedSession(querier, SESSION_ID);
     await seedSession(querier, OTHER_SESSION_ID);
     await seedAttachment(querier, {
       sessionId: OTHER_SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "online",
       clientVersion: "1.4",
@@ -389,11 +385,11 @@ describe("errorFormatter projection — AisWireException base covers all subtype
     // twin of
     // `packages/control-plane/src/runtime-nodes/__tests__/runtime-node-router.test.ts#runtimenode.attach maps the revoked-row refusal (RuntimeNodeAttachRevokedException) to CONFLICT`.
     const querier = adaptPGlite(pg);
-    await seedParticipant(querier, PARTICIPANT_ID);
+    await seedUser(querier, USER_ID);
     await seedSession(querier, SESSION_ID);
     await seedAttachment(querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "revoked",
       clientVersion: "1.4",

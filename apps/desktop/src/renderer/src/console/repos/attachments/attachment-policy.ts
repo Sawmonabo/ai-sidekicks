@@ -56,7 +56,7 @@ export const ATTACHMENT_ALLOWLIST_DEFAULT: readonly string[] = [
 ];
 
 /**
- * What a refusal means for the NEXT act, which is the only thing a participant can use.
+ * What a refusal means for the NEXT act, which is the only thing a user can use.
  *
  * Every call of the ingest trio is retry-safe — a replayed chunk is acknowledged
  * without re-appending, and a replayed completion
@@ -64,7 +64,7 @@ export const ATTACHMENT_ALLOWLIST_DEFAULT: readonly string[] = [
  * never restarted. The two named codes are the exceptions and they are deliberately
  * distinct: `artifact.ingest_stream_invalid` (409) is terminal for the stream and means
  * begin again, `artifact.ingest_capacity_exhausted` (429) is transient with no stream
- * state created and means wait and retry. Collapsing them would tell a participant to
+ * state created and means wait and retry. Collapsing them would tell a user to
  * re-upload a hundred megabytes because the daemon was momentarily busy.
  */
 export const INGEST_REFUSAL_DISPOSITIONS = ["retry-in-place", "wait-and-retry", "restart"] as const;
@@ -84,7 +84,7 @@ export type IngestRefusalDisposition = (typeof INGEST_REFUSAL_DISPOSITIONS)[numb
 export const INGEST_STREAM_INVALID_CODE = "artifact.ingest_stream_invalid";
 export const INGEST_CAPACITY_EXHAUSTED_CODE = "artifact.ingest_capacity_exhausted";
 
-/** What a participant should do next about this refusal. Total over every code. */
+/** What a user should do next about this refusal. Total over every code. */
 export function ingestRefusalDisposition(code: string): IngestRefusalDisposition {
   if (code === INGEST_STREAM_INVALID_CODE) {
     return "restart";

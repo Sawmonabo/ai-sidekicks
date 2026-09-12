@@ -11,7 +11,7 @@
 // as exceptions to each other; apart, each is one subject with one lifetime.
 //
 // CANCEL IS ABANDONMENT, AND THE COPY SAYS SO. There is no cancel call in the ingest
-// trio. A participant who stops an upload stops SENDING; the daemon's abandoned-spool
+// trio. A user who stops an upload stops SENDING; the daemon's abandoned-spool
 // reaper claims the bytes afterwards. `artifactIngestAbort` is the first-class version
 // and is its own slate row (`artifact-allowlist-and-abort`), so this asks for it
 // best-effort and the caller states the honest outcome either way.
@@ -113,7 +113,7 @@ export class AttachmentSpoolReclaimer {
    * process, so no daemon was asked and none refused — the same `not-checked` against
    * `refused` distinction every surface in this console draws, applied to a call whose
    * answer nobody renders. Recording it would put a firing on the diagnostic band for
-   * V1's designed absence, and the abandonment copy already tells a participant what
+   * V1's designed absence, and the abandonment copy already tells a user what
    * happens to those bytes: the reaper claims them.
    *
    * EVERY OTHER CODE IS A DAEMON THAT ANSWERED AND DID NOT RELEASE. The spool and the

@@ -116,7 +116,7 @@ describe("nothing is optimistic", () => {
   it("keeps the editor and the draft across an event that did not touch the goal", () => {
     // The fold runs over the whole timeline and answers with a fresh object on every
     // beat, so a `usage.*` reading or a run transition arriving mid-edit used to
-    // close this editor and throw away what the participant had typed. Same
+    // close this editor and throw away what the user had typed. Same
     // revision, different object: the goal did not move, and neither does this.
     const view = renderCard({ goal: A_GOAL });
     fireEvent.click(screen.getByRole("button", { name: "Change goal" }));
@@ -127,7 +127,7 @@ describe("nothing is optimistic", () => {
   });
 
   it("closes the editor when the goal is re-set to the text it already had", () => {
-    // A new revision carrying the same words is a participant's act, not a no-op,
+    // A new revision carrying the same words is a user's act, not a no-op,
     // and a card that compared TEXT would leave the editor open over it.
     const view = renderCard({ goal: A_GOAL });
     fireEvent.click(screen.getByRole("button", { name: "Change goal" }));

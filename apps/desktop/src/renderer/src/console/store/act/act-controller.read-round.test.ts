@@ -172,9 +172,9 @@ describe("ActController — a prerequisite read is performed inside a round", ()
     // The published half of supersession, and the signal half beside it: by the time
     // the second question is being read, the first read's round is over.
     const { controller, clock, reads } = open();
-    controller.ask("first", "participant-request");
+    controller.ask("first", "user-request");
     await runScheduledRead(clock);
-    controller.ask("second", "participant-request");
+    controller.ask("second", "user-request");
     reads[0]?.serve("first answer");
     await flush();
     expect(controller.snapshot.prerequisite.status).toBe("reading");
@@ -194,7 +194,7 @@ describe("ActController — a prerequisite read is performed inside a round", ()
     // flight — which is exactly why the question check is a separate fact and not a
     // second copy of the round's rule.
     const { controller, clock, reads } = open();
-    controller.ask("first", "participant-request");
+    controller.ask("first", "user-request");
     await runScheduledRead(clock);
     controller.withdraw();
     expect(controller.snapshot.prerequisite.status).toBe("not-read");

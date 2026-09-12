@@ -46,7 +46,7 @@ export interface GrowthActivitySnapshot {
 }
 
 /**
- * One device behind a participant's aggregated presence.
+ * One device behind a user's aggregated presence.
  *
  * `deviceId` is wire-verbatim and is rendered as such: it is an opaque identifier the
  * console has no vocabulary for, and a friendly name here would be invented.
@@ -67,7 +67,7 @@ export interface GrowthPresenceDeviceReading {
  * this reading is the detail behind it, never a second source of truth for it.
  */
 export interface GrowthPresenceDetail {
-  readonly participantId: string;
+  readonly userId: string;
   readonly devices: readonly GrowthPresenceDeviceReading[];
   readonly aggregateState: string;
 }

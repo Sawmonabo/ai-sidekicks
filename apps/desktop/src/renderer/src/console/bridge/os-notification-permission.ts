@@ -200,7 +200,7 @@ const OS_PERMISSION_READ_DISPOSAL: SubjectScopedDisposal<OsNotificationPermissio
 /**
  * Watch this machine's permission, re-read whenever it can have changed.
  *
- * KEYED ON THE BRIDGE AND NOT ON A SESSION OR A PARTICIPANT, because the subject is
+ * KEYED ON THE BRIDGE AND NOT ON A SESSION OR A USER, because the subject is
  * the machine: two surfaces open in one window ask one question, and a bridge swapped
  * underneath — the fixture's scenario switch — re-addresses the holder during the
  * render that first sees the new one.

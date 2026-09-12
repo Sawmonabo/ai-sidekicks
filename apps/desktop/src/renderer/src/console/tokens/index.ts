@@ -1,7 +1,7 @@
 // The design-token door.
 //
 // Everything the Meridian language decides — the colour space and its gamut fit,
-// the scheme pairs, the participant hue wheel, the type / space / radius scales,
+// the scheme pairs, the user hue wheel, the type / space / radius scales,
 // the motion durations, the glyph set, and the two functions that install a
 // generated stylesheet into a document — reaches the rest of the console through
 // this file.
@@ -33,12 +33,12 @@
 // declares them.
 export type { ConsoleScheme, SchemePreference } from "./tokens.js";
 export {
-  PARTICIPANT_HUES,
+  ACTOR_HUES,
   SCHEME_COLOR_TOKENS,
   SCHEME_PREFERENCES,
   SYSTEM_SCHEME_PREFERENCE,
   isSchemePreference,
-  participantHueTokenName,
+  actorHueTokenName,
   tokenReference,
   tokenVariableName,
 } from "./tokens.js";
@@ -46,7 +46,7 @@ export {
 export {
   ATTRIBUTION_EDGE_WIDTH_PX,
   BOUNDED_ENUMERATION_HEIGHT_REM,
-  PARTICIPANT_HUE_STEPS,
+  ACTOR_HUE_STEPS,
 } from "./palette.js";
 
 // From the module that DECLARES it: the motion scale moved to `motion.ts` with the
@@ -80,7 +80,7 @@ export {
   GLYPH_SIZE_ROW,
 } from "./glyphs.js";
 
-export type { ParticipantHueAssignment, ParticipantRingTreatment } from "./participant-hue.js";
-export { ParticipantHueAllocator } from "./participant-hue.js";
+export type { ActorHueAssignment, ActorRingTreatment } from "./actor-hue.js";
+export { ActorHueAllocator } from "./actor-hue.js";
 
 export { SCHEME_ATTRIBUTE, generateMeridianCss } from "./generate-css.js";

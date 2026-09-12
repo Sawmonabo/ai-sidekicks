@@ -40,7 +40,7 @@ afterEach(() => {
 /** A store the trigger set will read transitions off — initialised, as it requires. */
 function initialisedStore(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+  sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
   return sessionStore;
 }
 
@@ -132,7 +132,7 @@ describe("WorkflowRunLiveRounds — what advances the round", () => {
     await settle(clock);
     expect(reading.round).toBe(0);
 
-    sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
     await settle(clock);
 
     expect(reading.round).toBe(1);
@@ -317,7 +317,7 @@ describe("WorkflowRunLiveRounds — teardown", () => {
     sessionStore.applyBatch([eventOfKind(SESSION_ID, "workflow.completed", 2)]);
     window.dispatchEvent(new Event("focus"));
     sessionStore.markDegraded("subscription-closed");
-    sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
     await settle(clock);
 
     expect(reading.round).toBe(roundBeforeDispose);

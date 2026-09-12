@@ -24,21 +24,21 @@ import {
   srgbContrastRatio,
   type SrgbColor,
 } from "./color.js";
-import { PARTICIPANT_HUE_STEPS } from "./palette.js";
+import { ACTOR_HUE_STEPS } from "./palette.js";
 import {
   ACCENT_FILL_PAIRS,
   CONSOLE_SCHEMES,
   GROUND_TOKEN_NAMES,
   NON_TEXT_CONTRAST_FLOOR,
   NON_TEXT_FLOOR_TOKEN_NAMES,
-  PARTICIPANT_HUES,
+  ACTOR_HUES,
   SCHEME_COLOR_TOKENS,
   SUNKEN_WELL_GROUND_TOKEN_NAME,
   SUNKEN_WELL_TEXT_TOKEN_NAMES,
   TEXT_CONTRAST_FLOOR,
   TEXT_FLOOR_TOKEN_NAMES,
   TINTED_GROUND_PAIRS,
-  participantHue,
+  actorHue,
   schemeColor,
 } from "./tokens.js";
 
@@ -57,8 +57,8 @@ describe("Meridian palette — every colour is inside the sRGB gamut as authored
     expect(outsideGamut).toStrictEqual([]);
   });
 
-  it("fits every participant hue", () => {
-    const outsideGamut = PARTICIPANT_HUES.map((hue, step) => ({ step, hue }))
+  it("fits every user hue", () => {
+    const outsideGamut = ACTOR_HUES.map((hue, step) => ({ step, hue }))
       .filter(({ hue }) => !isOklchInsideSrgbGamut(hue))
       .map(({ step }) => step);
     expect(outsideGamut).toStrictEqual([]);
@@ -183,17 +183,17 @@ describe("Meridian palette — non-text boundaries clear WCAG 2.2 AA (3:1)", () 
   }
 });
 
-describe("Meridian palette — every participant hue is findable on every ground", () => {
+describe("Meridian palette — every user hue is findable on every ground", () => {
   for (const scheme of CONSOLE_SCHEMES) {
     for (const groundToken of GROUND_TOKEN_NAMES) {
-      it(`${scheme}: all ${String(PARTICIPANT_HUE_STEPS)} hues on ${groundToken}`, () => {
+      it(`${scheme}: all ${String(ACTOR_HUE_STEPS)} hues on ${groundToken}`, () => {
         // The attribution edge is a non-text boundary a person must be able to
         // find, so the whole wheel is held to 3:1 — including the yellow-greens
         // around step 4, which is the constraint that sets the wheel's lightness.
         const ground = schemeColor(groundToken, scheme);
         const failures: string[] = [];
-        for (let step = 0; step < PARTICIPANT_HUE_STEPS; step += 1) {
-          const ratio = contrastRatio(participantHue(step), ground);
+        for (let step = 0; step < ACTOR_HUE_STEPS; step += 1) {
+          const ratio = contrastRatio(actorHue(step), ground);
           if (ratio < NON_TEXT_CONTRAST_FLOOR) {
             failures.push(`step ${String(step)} at ${ratio.toFixed(2)}:1`);
           }
@@ -310,7 +310,7 @@ describe("Meridian palette — the measurement itself is not vacuous", () => {
   });
 
   it("refuses a step outside the wheel rather than wrapping silently", () => {
-    expect(() => participantHue(PARTICIPANT_HUE_STEPS)).toThrow(RangeError);
-    expect(() => participantHue(-1)).toThrow(RangeError);
+    expect(() => actorHue(ACTOR_HUE_STEPS)).toThrow(RangeError);
+    expect(() => actorHue(-1)).toThrow(RangeError);
   });
 });

@@ -92,7 +92,7 @@ export function mergeSessionRows(sources: SessionRowSources): readonly SessionLi
         sessionId: summary.sessionId,
         state: summary.state,
         touchedAtIso: undefined,
-        participantIds: [],
+        userIds: [],
         attentionSeverity: undefined,
       });
     }
@@ -103,7 +103,7 @@ export function mergeSessionRows(sources: SessionRowSources): readonly SessionLi
         sessionId,
         state: undefined,
         touchedAtIso: undefined,
-        participantIds: [],
+        userIds: [],
         attentionSeverity: undefined,
       });
     }

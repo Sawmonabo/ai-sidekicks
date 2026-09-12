@@ -18,7 +18,7 @@ import { resolveServedSelection, selectedChoiceOf } from "./served-selection.js"
 const TWO_CHOICES: readonly string[] = ["node-a", "node-b"];
 
 describe("resolveServedSelection — a pick the served answer still offers", () => {
-  it("resolves the participant's own pick", () => {
+  it("resolves the user's own pick", () => {
     const selection = resolveServedSelection({
       chosen: "node-b",
       servedChoices: TWO_CHOICES,

@@ -76,7 +76,7 @@ import { ZodError } from "zod";
 import type {
   EventEnvelopeVersion,
   NodeId,
-  ParticipantId,
+  UserId,
   RuntimeNodeAttachRequest,
   RuntimeNodeCapabilityUpdateRequest,
   SessionId,
@@ -105,12 +105,12 @@ import {
 
 const SESSION_ID: SessionId = "01970000-0000-7000-8000-0000000e0001" as SessionId;
 const OTHER_SESSION_ID: SessionId = "01970000-0000-7000-8000-0000000e0002" as SessionId;
-const PARTICIPANT_ID: ParticipantId = "01970000-0000-7000-8000-0000000f0001" as ParticipantId;
-// A SECOND participant for the cross-owner reconnect block: a DIFFERENT participant
+const USER_ID: UserId = "01970000-0000-7000-8000-0000000f0001" as UserId;
+// A SECOND user for the cross-owner reconnect block: a DIFFERENT user
 // attempting to reattach a node to a session whose existing `(node_id, session_id)` row is
-// owned by `PARTICIPANT_ID`. The owner is immutable across reconnect, so this reattach is
-// refused and the row's owner stays `PARTICIPANT_ID` (never destroy node provenance).
-const OTHER_PARTICIPANT_ID: ParticipantId = "01970000-0000-7000-8000-0000000f0002" as ParticipantId;
+// owned by `USER_ID`. The owner is immutable across reconnect, so this reattach is
+// refused and the row's owner stays `USER_ID` (never destroy node provenance).
+const OTHER_USER_ID: UserId = "01970000-0000-7000-8000-0000000f0002" as UserId;
 const NODE_ID: NodeId = "node-alpha-01" as NodeId;
 // A SECOND daemon-minted node id for the P5 multi-node-coexistence block: a
 // distinct opaque TEXT scalar so node A and node B are two separate active
@@ -145,7 +145,7 @@ function buildAttachRequest(
 ): RuntimeNodeAttachRequest {
   return {
     sessionId: SESSION_ID,
-    participantId: PARTICIPANT_ID,
+    userId: USER_ID,
     nodeId: NODE_ID,
     clientVersion: CLIENT_VERSION,
     capabilities: CAPABILITIES,
@@ -217,11 +217,11 @@ function isPGlite(handle: PGlite | Transaction): handle is PGlite {
 // Seed helpers
 // ----------------------------------------------------------------------------
 
-async function seedParticipant(querier: Querier, participantId: ParticipantId): Promise<void> {
-  await querier.query("INSERT INTO participants (id) VALUES ($1)", [participantId]);
+async function seedUser(querier: Querier, userId: UserId): Promise<void> {
+  await querier.query("INSERT INTO users (id) VALUES ($1)", [userId]);
 }
 
-// Seed a session owned by `PARTICIPANT_ID` — every caller seeds that user
+// Seed a session owned by `USER_ID` — every caller seeds that user
 // first, and `sessions.owner_user_id` is NOT NULL, so the owner is not an
 // argument the call sites need to repeat. `minClientVersion` omitted => the
 // column stays SQL NULL ("no floor") — the P1 unconditional-admission shape.
@@ -230,19 +230,17 @@ async function seedSession(
   sessionId: SessionId,
   minClientVersion?: string,
 ): Promise<void> {
-  await querier.query("INSERT INTO participants (id) VALUES ($1) ON CONFLICT DO NOTHING", [
-    PARTICIPANT_ID,
-  ]);
+  await querier.query("INSERT INTO users (id) VALUES ($1) ON CONFLICT DO NOTHING", [USER_ID]);
   if (minClientVersion === undefined) {
     await querier.query(
       "INSERT INTO sessions (id, owner_user_id, state) VALUES ($1, $2, 'active')",
-      [sessionId, PARTICIPANT_ID],
+      [sessionId, USER_ID],
     );
     return;
   }
   await querier.query(
     "INSERT INTO sessions (id, owner_user_id, state, min_client_version) VALUES ($1, $2, 'active', $3)",
-    [sessionId, PARTICIPANT_ID, minClientVersion],
+    [sessionId, USER_ID, minClientVersion],
   );
 }
 
@@ -255,7 +253,7 @@ async function seedAttachment(
   querier: Querier,
   args: {
     sessionId: SessionId;
-    participantId: ParticipantId;
+    userId: UserId;
     nodeId: NodeId;
     state: string;
     clientVersion?: string;
@@ -263,10 +261,10 @@ async function seedAttachment(
 ): Promise<string> {
   const inserted = await querier.query<{ id: string }>(
     `INSERT INTO runtime_node_attachments
-       (session_id, participant_id, node_id, capabilities, client_version, state)
+       (session_id, user_id, node_id, capabilities, client_version, state)
      VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING id`,
-    [args.sessionId, args.participantId, args.nodeId, {}, args.clientVersion ?? "1.0", args.state],
+    [args.sessionId, args.userId, args.nodeId, {}, args.clientVersion ?? "1.0", args.state],
   );
   const row: { id: string } | undefined = inserted.rows[0];
   if (row === undefined) {
@@ -295,7 +293,7 @@ async function readAttachmentRow(
   return probe.rows[0];
 }
 
-// Read an attachment row's `participant_id` (the owner) for the reconnect provenance
+// Read an attachment row's `user_id` (the owner) for the reconnect provenance
 // assertions: the same-owner reconnect must leave it unchanged, and a cross-owner
 // reconnect must NOT overwrite it. Returns `undefined` when no row exists for the
 // `(node_id, session_id)` pair.
@@ -304,11 +302,11 @@ async function readAttachmentOwner(
   nodeId: NodeId,
   sessionId: SessionId,
 ): Promise<string | undefined> {
-  const probe = await querier.query<{ participant_id: string }>(
-    "SELECT participant_id FROM runtime_node_attachments WHERE node_id = $1 AND session_id = $2",
+  const probe = await querier.query<{ user_id: string }>(
+    "SELECT user_id FROM runtime_node_attachments WHERE node_id = $1 AND session_id = $2",
     [nodeId, sessionId],
   );
-  return probe.rows[0]?.participant_id;
+  return probe.rows[0]?.user_id;
 }
 
 // Read the FULL capability-update-relevant projection of an attachment row,
@@ -458,12 +456,12 @@ afterEach(async () => {
 
 describe("AttachService — P10 (revocation is terminal)", () => {
   it("refuses a re-attach against a revoked row with the typed revoked exception and does not reactivate it", async () => {
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     // The node's attachment for THIS session is in the terminal revoked state.
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "revoked",
     });
@@ -489,14 +487,14 @@ describe("AttachService — P10 (revocation is terminal)", () => {
 
 describe("AttachService — P9a (cross-session active conflict)", () => {
   it("refuses attach when the node is already actively attached to another session with the typed conflict exception", async () => {
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     await seedSession(ctx.querier, OTHER_SESSION_ID);
     // The node already holds an ACTIVE-state attachment in ANOTHER session — the
     // partial-unique idx_node_attachments_active forbids a second active row.
     await seedAttachment(ctx.querier, {
       sessionId: OTHER_SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "online",
     });
@@ -528,18 +526,18 @@ describe("AttachService — P9a (cross-session active conflict)", () => {
     // partial-unique index raises 23505 DURING the update. The constraint-name +
     // SQLSTATE guard (not the statement phase) translates it to the same typed
     // conflict refusal as the INSERT-sourced collision (P9a).
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     await seedSession(ctx.querier, OTHER_SESSION_ID);
     const offlineAttachmentId = await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "offline",
     });
     await seedAttachment(ctx.querier, {
       sessionId: OTHER_SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "online",
     });
@@ -570,9 +568,9 @@ describe("AttachService — raw-rethrow of a non-conflict database error", () =>
     // 23505 on idx_node_attachments_active passes through untranslated. Attaching
     // against a NON-EXISTENT session reaches it — the NULL-floor read tolerates a
     // missing session (returns no row -> floor = null, no throw), then the INSERT
-    // violates the `session_id` FK with SQLSTATE 23503. The participant IS seeded,
+    // violates the `session_id` FK with SQLSTATE 23503. The user IS seeded,
     // so `session_id` is the ONLY unsatisfied FK; the violation is unambiguous.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     // Deliberately do NOT seed the session.
 
     const error = await ctx.service.attach(buildAttachRequest()).catch((e: unknown) => e);
@@ -597,14 +595,14 @@ describe("AttachService — raw-rethrow of a non-conflict database error", () =>
 
 describe("AttachService — P9b (reconnect reactivates an offline row)", () => {
   it("reactivates an offline attachment for the same session (offline -> registering) instead of refusing", async () => {
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     // The node's prior attachment for THIS session went offline (a dropped
     // heartbeat). The partial active index does NOT constrain an offline row, so
     // re-attach is eligible and the DO UPDATE reactivates it.
     const attachmentId = await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "offline",
     });
@@ -628,11 +626,11 @@ describe("AttachService — P9b (reconnect reactivates an offline row)", () => {
     // registration handshake — the DO UPDATE flips online -> registering in place.
     // Asserting it here makes any future deliberate change visible at review,
     // rather than silently shipping as a contract break.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     const attachmentId = await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "online",
     });
@@ -656,37 +654,35 @@ describe("AttachService — P9b (reconnect reactivates an offline row)", () => {
 // ` index is the upsert ON CONFLICT target for the reconnect path).
 //
 // The reconnect upsert's DO UPDATE is guarded
-// `WHERE state <> 'revoked' AND participant_id = EXCLUDED.participant_id`, and
-// `participant_id` is NOT in the SET — so the owner participant is IMMUTABLE
+// `WHERE state <> 'revoked' AND user_id = EXCLUDED.user_id`, and
+// `user_id` is NOT in the SET — so the owner user is IMMUTABLE
 // across reconnect. The two tests below pin both sides of that guard, exercising
 // the full reconnect path through the service (attach -> detach -> attach):
-//   (1) SAME-participant reconnect-after-detach SUCCEEDS (the legitimate P9
+//   (1) SAME-user reconnect-after-detach SUCCEEDS (the legitimate P9
 //       reconnect: offline -> registering) and the owner is unchanged (the SET
 //       removal must not break the happy path or drop the owner); and
 //   (4) CROSS-owner reconnect is REFUSED with the typed conflict, and the row's
-//       owner is STILL the original participant (provenance preserved, not overwritten) —
+//       owner is STILL the original user (provenance preserved, not overwritten) —
 //       the data-integrity guarantee mandates.
 // (Cases 2 and 3 of the matrix — the cross-session active conflict and the
 // revoked refusal — are the P9a and P10 blocks above; they remain regression
 // guards for the SET/WHERE change and are not duplicated here.)
 
 describe("AttachService — P9 owner-immutability (reconnect preserves node provenance)", () => {
-  it("reconnects a SAME-participant node after detach (offline -> registering) and leaves the owner participant unchanged", async () => {
+  it("reconnects a SAME-user node after detach (offline -> registering) and leaves the owner user unchanged", async () => {
     // The legitimate P9 reconnect, end-to-end through the service: the SAME
-    // participant attaches node N, detaches it (slot -> offline), then reattaches.
+    // user attaches node N, detaches it (slot -> offline), then reattaches.
     // The reattach must SUCCEED (the same-owner DO UPDATE reactivates the offline
-    // row) — and the owner participant must be byte-for-byte unchanged (the SET no
-    // longer reassigns participant_id; the happy path must not break or drop it).
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    // row) — and the owner user must be byte-for-byte unchanged (the SET no
+    // longer reassigns user_id; the happy path must not break or drop it).
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
 
     // Attach, then detach (retires the slot to offline), then reattach — all as
-    // the SAME participant.
+    // the SAME user.
     const first = await ctx.service.attach(buildAttachRequest());
     expect(first.state).toBe("registering");
-    expect(await readAttachmentOwner(ctx.querier, NODE_ID, SESSION_ID)).toBe(
-      String(PARTICIPANT_ID),
-    );
+    expect(await readAttachmentOwner(ctx.querier, NODE_ID, SESSION_ID)).toBe(String(USER_ID));
 
     await ctx.service.detach({ nodeId: NODE_ID });
     const afterDetach = await readAttachmentRow(ctx.querier, NODE_ID, SESSION_ID);
@@ -701,24 +697,22 @@ describe("AttachService — P9 owner-immutability (reconnect preserves node prov
     expect(await countAttachments(ctx.querier)).toBe(1);
     const after = await readAttachmentRow(ctx.querier, NODE_ID, SESSION_ID);
     expect(after?.state).toBe("registering");
-    // The owner participant survived the reconnect unchanged (the SET-removal
+    // The owner user survived the reconnect unchanged (the SET-removal
     // did not drop the owner; provenance preserved on the legitimate path too).
-    expect(await readAttachmentOwner(ctx.querier, NODE_ID, SESSION_ID)).toBe(
-      String(PARTICIPANT_ID),
-    );
+    expect(await readAttachmentOwner(ctx.querier, NODE_ID, SESSION_ID)).toBe(String(USER_ID));
   });
 
   it("refuses a CROSS-owner reconnect to the same session with the typed conflict and preserves the original owner", async () => {
-    // The data-integrity bug this fix closes: participant A attaches node N to
-    // session S and detaches it (slot -> offline); participant B (the SAME session
+    // The data-integrity bug this fix closes: user A attaches node N to
+    // session S and detaches it (slot -> offline); user B (the SAME session
     // S) then attempts to attach node N. The ON CONFLICT (node_id, session_id)
-    // path fires, but the DO UPDATE's `participant_id = EXCLUDED.participant_id` conjunct
+    // path fires, but the DO UPDATE's `user_id = EXCLUDED.user_id` conjunct
     // is false (existing owner A != B), so the update is suppressed (zero RETURNING rows)
     // and the zero-row verify discriminates the cross-owner cause -> the typed conflict
     // refusal. Crucially, the original owner A is NOT overwritten (never destroy
     // historical node provenance).
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
-    await seedParticipant(ctx.querier, OTHER_PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
+    await seedUser(ctx.querier, OTHER_USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
 
     // A attaches node N to session S, then detaches (slot -> offline) so the row
@@ -730,9 +724,9 @@ describe("AttachService — P9 owner-immutability (reconnect preserves node prov
     const afterDetach = await readAttachmentRow(ctx.querier, NODE_ID, SESSION_ID);
     expect(afterDetach?.state).toBe("offline");
 
-    // B (a DIFFERENT participant, SAME session) attempts to reattach node N.
+    // B (a DIFFERENT user, SAME session) attempts to reattach node N.
     const error = await ctx.service
-      .attach(buildAttachRequest({ participantId: OTHER_PARTICIPANT_ID }))
+      .attach(buildAttachRequest({ userId: OTHER_USER_ID }))
       .catch((thrown: unknown) => thrown);
 
     // The typed conflict refusal (the same code as the cross-session P9a case,
@@ -740,18 +734,16 @@ describe("AttachService — P9 owner-immutability (reconnect preserves node prov
     expect(error).toBeInstanceOf(RuntimeNodeAttachConflictException);
     expect(error).toMatchObject({ code: RUNTIME_NODE_ATTACH_CONFLICT_CODE });
     // No-info-leak: the message names the node id + the caller's OWN session id,
-    // never the owning participant's id.
+    // never the owning user's id.
     expect((error as Error).message).toContain(String(NODE_ID));
     expect((error as Error).message).toContain(String(SESSION_ID));
-    expect((error as Error).message).not.toContain(String(PARTICIPANT_ID));
+    expect((error as Error).message).not.toContain(String(USER_ID));
 
     // PROVENANCE PRESERVED (the load-bearing property): the transaction rolled back and
     // the row's owner is STILL A — B did NOT overwrite it. The row also stays offline
     // (the suppressed DO UPDATE did not reactivate it), and there is exactly one row (no
     // duplicate inserted).
-    expect(await readAttachmentOwner(ctx.querier, NODE_ID, SESSION_ID)).toBe(
-      String(PARTICIPANT_ID),
-    );
+    expect(await readAttachmentOwner(ctx.querier, NODE_ID, SESSION_ID)).toBe(String(USER_ID));
     const after = await readAttachmentRow(ctx.querier, NODE_ID, SESSION_ID);
     expect(after?.state).toBe("offline");
     expect(await countAttachments(ctx.querier)).toBe(1);
@@ -759,19 +751,19 @@ describe("AttachService — P9 owner-immutability (reconnect preserves node prov
 
   it("refuses a CROSS-owner reconnect to an ACTIVE same-session row via the cross-owner branch (NOT the cross-session 23505 path)", async () => {
     // The ACTIVE sub-case of cross-owner (the offline test above is the inactive
-    // sub-case) — a distinct two-index interaction worth pinning. Participant A
+    // sub-case) — a distinct two-index interaction worth pinning. User A
     // attaches node N to session S and the row STAYS active (`registering`; A does
-    // NOT detach). Participant B (SAME session S) then attaches node N. The ON
+    // NOT detach). User B (SAME session S) then attaches node N. The ON
     // CONFLICT matches the `(node_id, session_id)` composite arbiter
-    // (`idx_node_attachments_node`); the DO UPDATE's `participant_id =
-    // EXCLUDED.participant_id` conjunct is false (A != B) so the update touches NO
+    // (`idx_node_attachments_node`); the DO UPDATE's `user_id =
+    // EXCLUDED.user_id` conjunct is false (A != B) so the update touches NO
     // row — which means the partial active index `idx_node_attachments_active` is
     // NOT triggered (no second active row is written), so this does NOT take the
     // cross-SESSION 23505 path. The zero-row verify then routes to the cross-OWNER
     // branch. This proves an active cross-owner reconnect surfaces the cross-owner
     // refusal, never the "attached to another session" cross-session refusal.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
-    await seedParticipant(ctx.querier, OTHER_PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
+    await seedUser(ctx.querier, OTHER_USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
 
     // A attaches node N to session S; the row stays ACTIVE (registering) — no
@@ -779,9 +771,9 @@ describe("AttachService — P9 owner-immutability (reconnect preserves node prov
     const first = await ctx.service.attach(buildAttachRequest());
     expect(first.state).toBe("registering");
 
-    // B (a DIFFERENT participant, SAME session) attempts to attach node N.
+    // B (a DIFFERENT user, SAME session) attempts to attach node N.
     const error = await ctx.service
-      .attach(buildAttachRequest({ participantId: OTHER_PARTICIPANT_ID }))
+      .attach(buildAttachRequest({ userId: OTHER_USER_ID }))
       .catch((thrown: unknown) => thrown);
 
     // The typed conflict refusal — and specifically the CROSS-OWNER message, NOT
@@ -793,17 +785,15 @@ describe("AttachService — P9 owner-immutability (reconnect preserves node prov
     expect(error).toMatchObject({ code: RUNTIME_NODE_ATTACH_CONFLICT_CODE });
     expect((error as Error).message).toContain(String(NODE_ID));
     expect((error as Error).message).toContain(String(SESSION_ID));
-    expect((error as Error).message).toContain("under a different participant");
+    expect((error as Error).message).toContain("under a different user");
     expect((error as Error).message).not.toContain("attached to another session");
-    // No-info-leak: the owning participant id is never disclosed.
-    expect((error as Error).message).not.toContain(String(PARTICIPANT_ID));
+    // No-info-leak: the owning user id is never disclosed.
+    expect((error as Error).message).not.toContain(String(USER_ID));
 
     // PROVENANCE PRESERVED: the row's owner is STILL A (B did NOT overwrite it),
     // the row's state is STILL `registering` (the suppressed DO UPDATE left it
     // untouched — not demoted, not reactivated), and there is exactly one row.
-    expect(await readAttachmentOwner(ctx.querier, NODE_ID, SESSION_ID)).toBe(
-      String(PARTICIPANT_ID),
-    );
+    expect(await readAttachmentOwner(ctx.querier, NODE_ID, SESSION_ID)).toBe(String(USER_ID));
     const after = await readAttachmentRow(ctx.querier, NODE_ID, SESSION_ID);
     expect(after?.state).toBe("registering");
     expect(await countAttachments(ctx.querier)).toBe(1);
@@ -816,7 +806,7 @@ describe("AttachService — P9 owner-immutability (reconnect preserves node prov
 
 describe("AttachService — P1 (NULL-floor unconditional admission)", () => {
   it("admits a fresh attach with readOnly=false and state=registering when the session floor is NULL", async () => {
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     // No min_client_version => NULL floor => no version gate.
     await seedSession(ctx.querier, SESSION_ID);
 
@@ -868,7 +858,7 @@ describe("AttachService — P2/P3 (version-floor comparison)", () => {
     // write refusal (VERSION_FLOOR_EXCEEDED) on this read-only daemon's next
     // write is asserted elsewhere; here the daemon is admitted joined with
     // readOnly = true.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID, "2.0");
 
     const response = await ctx.service.attach(
@@ -881,7 +871,7 @@ describe("AttachService — P2/P3 (version-floor comparison)", () => {
 
   it("admits a daemon AT the floor as read-write (P2 — the >= boundary edge)", async () => {
     // The boundary edge: client_version === floor is AT-or-above, so read-write.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID, "2.0");
 
     const response = await ctx.service.attach(
@@ -893,7 +883,7 @@ describe("AttachService — P2/P3 (version-floor comparison)", () => {
   });
 
   it("admits a daemon ABOVE the floor as read-write (P2 — minor above)", async () => {
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID, "2.0");
 
     const response = await ctx.service.attach(
@@ -905,7 +895,7 @@ describe("AttachService — P2/P3 (version-floor comparison)", () => {
 
   it("admits a daemon a MAJOR above the floor as read-write (P2 — 2.0 above floor 1.9)", async () => {
     // Major dominates: client 2.0 outranks floor 1.9 despite minor 0 < 9.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID, "1.9");
 
     const response = await ctx.service.attach(
@@ -918,7 +908,7 @@ describe("AttachService — P2/P3 (version-floor comparison)", () => {
   it("admits a multi-digit-MAJOR daemon above the floor as read-write (P2 — lexical-bug guard, 10.0 > 2.0)", async () => {
     // Numeric major 10 > 2 -> read-write. A lexical string compare would give
     // `"10" < "2"` and WRONGLY flip this to read-only; this pins numeric ordering.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID, "2.0");
 
     const response = await ctx.service.attach(
@@ -931,7 +921,7 @@ describe("AttachService — P2/P3 (version-floor comparison)", () => {
   it("admits a multi-digit-MINOR daemon below the floor in read-only state (P3 — lexical-bug guard, 1.9 < 1.10)", async () => {
     // Numeric minor 9 < 10 -> below floor -> read-only. A lexical compare would
     // give `"1.9" > "1.10"` and WRONGLY admit read-write; this pins numeric order.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID, "1.10");
 
     const response = await ctx.service.attach(
@@ -947,7 +937,7 @@ describe("AttachService — P2/P3 (version-floor comparison)", () => {
     // attach() does NOT throw, (b) the node lands in a joined liveness state
     // (registering), and (c) the attachment row is persisted (a subsequent read
     // finds it). Together these are "the daemon remains joined and may read".
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID, "2.0");
 
     const response = await ctx.service.attach(
@@ -976,7 +966,7 @@ describe("AttachService — P2/P3 (version-floor comparison)", () => {
       // "1.0.0"). An `as`-cast bypass would instead reach the numeric comparator
       // as NaN and silently admit. seedSession writes the malformed floor fine
       // (TEXT column, no DB CHECK), so the parse is the only guard.
-      await seedParticipant(ctx.querier, PARTICIPANT_ID);
+      await seedUser(ctx.querier, USER_ID);
       await seedSession(ctx.querier, SESSION_ID, malformedFloor);
 
       await expect(ctx.service.attach(buildAttachRequest())).rejects.toThrow(ZodError);
@@ -1017,7 +1007,7 @@ describe("AttachService — P2/P3 (version-floor comparison)", () => {
 
 describe("AttachService — P5 (multi-node coexistence AC session identity)", () => {
   it("admits two distinct nodes as co-active attachments in one session and leaves the sessions row byte-for-byte unchanged", async () => {
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     // A NULL-floor session (no version gate) — both daemons are admitted
     // read-write; the focus here is coexistence + session identity, not the
     // floor verdict (P1/P2/P3 cover that).
@@ -1041,7 +1031,7 @@ describe("AttachService — P5 (multi-node coexistence AC session identity)", ()
     );
     expect(sessionCountProbe.rows[0]?.n).toBe(1);
 
-    // Node A then node B attach to the SAME session under the SAME participant.
+    // Node A then node B attach to the SAME session under the SAME user.
     // Neither call throws — the distinct (node_id, session_id) pairs do not
     // conflict, and the per-node active index admits both distinct node_ids.
     const responseAlpha = await ctx.service.attach(buildAttachRequest());
@@ -1100,7 +1090,7 @@ describe("AttachService — P5 (multi-node coexistence AC session identity)", ()
 
 describe("AttachService — attach must not mutate the session directory", () => {
   it("leaves the session row byte-for-byte unchanged after a successful attach", async () => {
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     // The attach flow must touch ONLY runtime_node_attachments — never
     // read-for-update, insert, or update the session row it attaches to. The
     // runtime-node attach domain is disjoint from the session directory.
@@ -1142,13 +1132,13 @@ describe("AttachService — attach must not mutate the session directory", () =>
 
 describe("AttachService — P7/P8 + detach (offline transition)", () => {
   it("retires an active node to offline on both axes and leaves the session row byte-for-byte unchanged (P8)", async () => {
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     // An ACTIVE attachment (slot axis) + a presence row (liveness axis), both
     // `online` — the live-node starting state an explicit detach retires.
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "online",
     });
@@ -1202,11 +1192,11 @@ describe("AttachService — P7/P8 + detach (offline transition)", () => {
     // re-attach). A naive `WHERE node_id = $1` (no state guard) would corrupt revoked ->
     // offline, silently breaking revocation-terminality. No presence row is seeded (a
     // revoked node need not have heartbeated).
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "revoked",
     });
@@ -1223,11 +1213,11 @@ describe("AttachService — P7/P8 + detach (offline transition)", () => {
   it("is idempotent — a second detach of an already-offline node is a clean no-op", async () => {
     // An already-`offline` attachment is INACTIVE, so a (re-)detach matches no
     // active row and returns null without re-writing. The state stays `offline`.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "offline",
     });
@@ -1242,7 +1232,7 @@ describe("AttachService — P7/P8 + detach (offline transition)", () => {
   it("returns null and creates no row when detaching a node that was never attached", async () => {
     // No attachment row exists for the node at all. Detach is a clean no-op: it
     // returns null and does NOT INSERT a row (the slot UPDATE matches nothing).
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
 
     const result = await ctx.service.detach({ nodeId: NODE_ID });
@@ -1254,11 +1244,11 @@ describe("AttachService — P7/P8 + detach (offline transition)", () => {
   it("retires the attachment but does NOT create a presence row when the node never heartbeated (presence UPDATE is UPDATE-only)", async () => {
     // An ACTIVE attachment but NO presence row — a node admitted by attach that
     // has not yet heartbeated (presence rows are heartbeat-owned).
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "online",
     });
@@ -1288,12 +1278,12 @@ describe("AttachService — P7/P8 + detach (offline transition)", () => {
 
 describe("AttachService — updateCapabilities (discovery-snapshot refresh)", () => {
   it("refreshes the capabilities JSONB snapshot on the active row (round-trips, cast-free bind)", async () => {
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     // An ACTIVE (online) attachment whose capabilities the daemon now replaces.
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "online",
     });
@@ -1318,11 +1308,11 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh)", ()
   });
 
   it("sets updatedAt to the server now() (valid ISO-8601) and leaves attached_at byte-for-byte unchanged", async () => {
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "online",
     });
@@ -1365,11 +1355,11 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh)", ()
     // request `healthChanges.state` enum (online|degraded) CANNOT express. No other test
     // exercises a response state outside the request enum, so this is the asymmetry's only
     // pin.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "registering",
     });
@@ -1391,11 +1381,11 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh)", ()
   it("refuses driving a registering attachment online (guard) and rolls back byte-for-byte", async () => {
     // The wire VALUE `online` is legal (the 2-value health enum); only its application to
     // a registering row is refused.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "registering",
     });
@@ -1428,11 +1418,11 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh)", ()
     // the node `degraded`, so registering -> degraded MUST succeed. This pins
     // the guard's narrowness: an over-broad `registering -> any health change`
     // regression would redden this.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "registering",
     });
@@ -1455,11 +1445,11 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh)", ()
     // the allow does NOT rest on "the node was declared online once" — whether a node was
     // ever daemon-declared online is not something the control plane tracks or gates on;
     // it gates the single edge, nothing more.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "degraded",
     });
@@ -1481,11 +1471,11 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh)", ()
     // row is `offline` (a detached node) — outside the active band — so a late
     // capability-update finds nothing to refresh. (The never-attached variant
     // follows.)
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "offline",
     });
@@ -1508,7 +1498,7 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh)", ()
     // The never-attached variant of the no-active-row refusal: the node has NO
     // attachment row at all. The method must throw the typed refusal and NOT
     // INSERT a row (it only ever UPDATEs an existing active row).
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
 
     const error = await ctx.service
@@ -1528,11 +1518,11 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh)", ()
     // offline test above covers the band mechanism generically; this pins `revoked`
     // SPECIFICALLY, so a future edit widening the band to include `revoked` (which would
     // let a capability update silently resurrect a revoked node) is caught.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "revoked",
     });
@@ -1562,18 +1552,18 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh)", ()
     // while the inactive A row is left byte-for-byte unchanged. This proves the
     // single-active-attachment resolution is unambiguous and the band excludes
     // the inactive row.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     await seedSession(ctx.querier, OTHER_SESSION_ID);
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "offline",
     });
     await seedAttachment(ctx.querier, {
       sessionId: OTHER_SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "online",
     });
@@ -1606,11 +1596,11 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh)", ()
     // read-for-update, insert, update, or delete a `sessions` row. Asserted
     // along the SAME two disjoint mutation modes as the attach and detach tests
     // (byte-identity snapshot + total count).
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "online",
     });
@@ -1642,11 +1632,11 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh)", ()
     // are orthogonal) NOR the `sessions` row. (There is no events table to assert
     // against — inventing one would be inventing a control-plane event log
     // forbids.)
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "online",
     });
@@ -1692,7 +1682,7 @@ describe("AttachService — updateCapabilities version-floor write-refusal (P4 /
     // Full lifecycle through the real admission path: a floored session (floor
     // 2.0) admits a below-floor daemon (client 1.0) READ-ONLY at attach, then
     // the daemon's capability WRITE is refused.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID, "2.0");
 
     // Attach admits read-only — the precondition this write-refusal builds
@@ -1748,7 +1738,7 @@ describe("AttachService — updateCapabilities version-floor write-refusal (P4 /
     // first, so the below-floor verdict MUST win: a stale daemon learns it is
     // below the floor (VERSION_FLOOR_EXCEEDED) rather than the narrower "you
     // cannot self-promote to online" conflict.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID, "2.0");
 
     // Attach lands the below-floor node read-only in `registering` (the same
@@ -1776,11 +1766,11 @@ describe("AttachService — updateCapabilities version-floor write-refusal (P4 /
     // Boundary: client_version === floor is AT-or-above, so read-write — the
     // write must succeed. Pins the gate's narrowness against an off-by-one that
     // would wrongly refuse the at-floor node (parallels the P2 attach edge).
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID, "2.0");
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "online",
       clientVersion: "2.0",
@@ -1800,11 +1790,11 @@ describe("AttachService — updateCapabilities version-floor write-refusal (P4 /
   it("ALLOWS an above-floor node's capability write (read-write admission, no gate)", async () => {
     // A daemon comfortably above the floor (client 2.5 > floor 2.0) writes
     // freely — the read-write complement to the AT-floor edge above.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID, "2.0");
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "online",
       clientVersion: "2.5",
@@ -1823,11 +1813,11 @@ describe("AttachService — updateCapabilities version-floor write-refusal (P4 /
     // version, however old, writes freely. Pins that the gate's NULL-floor
     // branch (`#deriveReadOnly` returns false) does not refuse the write. The
     // seeded daemon's `client_version` is the helper default "1.0".
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "online",
       clientVersion: "1.0",
@@ -1863,13 +1853,13 @@ describe("AttachService — readRoster (roster projection)", () => {
     // One session, five DISTINCT nodes, one in each NodeState. Distinct node_ids never
     // collide on the per-node active index (three active rows are fine), and the
     // `(node_id, session_id)` arbiter sees five distinct pairs.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     const allFiveStates = ["registering", "online", "degraded", "offline", "revoked"] as const;
     for (const state of allFiveStates) {
       await seedAttachment(ctx.querier, {
         sessionId: SESSION_ID,
-        participantId: PARTICIPANT_ID,
+        userId: USER_ID,
         nodeId: `node-roster-${state}` as NodeId,
         state,
       });
@@ -1891,9 +1881,9 @@ describe("AttachService — readRoster (roster projection)", () => {
     // service path (not seeds) with DIFFERENT capability maps, then the roster
     // returns both entries each carrying its OWN identity + fields — per-node
     // capabilities (the JSONB round-trips per row), the branded clientVersion,
-    // the owner participantId, and a parseable attachedAt. Both are
+    // the owner userId, and a parseable attachedAt. Both are
     // pre-first-heartbeat, so the liveness axis is NULL on each.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     await ctx.service.attach(buildAttachRequest());
     await ctx.service.attach(
@@ -1910,7 +1900,7 @@ describe("AttachService — readRoster (roster projection)", () => {
     // Per-node fields stayed per-node (no cross-row bleed through the JOIN).
     expect(alphaEntry?.capabilities).toEqual(CAPABILITIES);
     expect(betaEntry?.capabilities).toEqual(UPDATED_CAPABILITIES);
-    expect(String(alphaEntry?.participantId)).toBe(String(PARTICIPANT_ID));
+    expect(String(alphaEntry?.userId)).toBe(String(USER_ID));
     expect(String(alphaEntry?.clientVersion)).toBe(String(CLIENT_VERSION));
     expect(Number.isFinite(new Date(alphaEntry?.attachedAt ?? "").getTime())).toBe(true);
     // Fresh attaches: slot `registering`, liveness NULL (no heartbeat yet).
@@ -1930,17 +1920,17 @@ describe("AttachService — readRoster (roster projection)", () => {
     // one axis never masks a degradation on the other, and no collapsed scalar
     // exists to lose either verdict. The seeded heartbeat instant also
     // round-trips verbatim (the read reports the clock; it never rewrites it).
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "online",
     });
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID_BETA,
       state: "degraded",
     });
@@ -1975,11 +1965,11 @@ describe("AttachService — readRoster (roster projection)", () => {
     // `online` (the sweep has not run). The roster must report `online` verbatim: deriving
     // `degraded`/`offline` from heartbeat age at read time would make readRoster a second,
     // racing liveness author (sweep owns that derivation).
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "online",
     });
@@ -2006,18 +1996,18 @@ describe("AttachService — readRoster (roster projection)", () => {
     // below-floor node's slot state reads verbatim (`online`, still joined,
     // admit-not-eject) and its stored row is byte-for-byte unchanged by the
     // read. readOnly is the PERMISSION axis, orthogonal to `state`.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID, "2.0");
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "online",
       clientVersion: "1.0",
     });
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID_BETA,
       state: "online",
       clientVersion: "2.0",
@@ -2049,11 +2039,11 @@ describe("AttachService — readRoster (roster projection)", () => {
     // A NULL-floor session ("no floor") admits every version read-write; the
     // roster's per-row derivation must mirror that: even an old client (the
     // seed default 1.0) reads readOnly=false.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "online",
       clientVersion: "1.0",
@@ -2069,11 +2059,11 @@ describe("AttachService — readRoster (roster projection)", () => {
     // node attached but never heartbeated has NO presence row — the LEFT JOIN
     // carries SQL NULLs, which the wire entry surfaces as null/null rather
     // than dropping the node or inventing a liveness verdict.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "registering",
     });
@@ -2096,24 +2086,24 @@ describe("AttachService — readRoster (roster projection)", () => {
     // ALPHA's A-row; roster(B) must carry exactly its OWN two rows — BETA's
     // active row AND ALPHA's offline row (visibility: an offline row is B's to
     // show, not A's).
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     await seedSession(ctx.querier, OTHER_SESSION_ID);
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "online",
     });
     await seedAttachment(ctx.querier, {
       sessionId: OTHER_SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "offline",
     });
     await seedAttachment(ctx.querier, {
       sessionId: OTHER_SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID_BETA,
       state: "online",
     });
@@ -2142,7 +2132,7 @@ describe("AttachService — readRoster (roster projection)", () => {
     // router tier's concern (the same posture attach's NULL-floor read takes),
     // and the FK guarantees no attachment row can reference a missing session,
     // so "no session" and "no attachments" are indistinguishable at this READ.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
 
     const emptyRoster = await ctx.service.readRoster({ sessionId: SESSION_ID });
@@ -2159,12 +2149,12 @@ describe("AttachService — readRoster (roster projection)", () => {
     // the true reading: `session_terminal_leases` and its `runtimenode.
     // leaseupdate` producer both belong to lease leg, so nothing has written a
     // lease for this session and no live holder exists to advertise.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     await seedAttachment(ctx.querier, {
       nodeId: NODE_ID,
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       state: "online",
     });
 
@@ -2185,11 +2175,11 @@ describe("AttachService — readRoster (roster projection)", () => {
     // control plane has no event log/table to write — the roster read PROJECTS
     // coordination records, colliding with nothing V1.1 durable-authorship
     // gate governs.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "online",
     });
@@ -2224,11 +2214,11 @@ describe("AttachService — readRoster (roster projection)", () => {
     // (the TEXT column has no DB CHECK, so the seed lands fine) must throw
     // loud at the read boundary — an `as`-cast bypass would reach the numeric
     // comparator as NaN and silently mis-derive the permission verdict.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID, "2.0");
     await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "online",
       clientVersion: "1.0.0",

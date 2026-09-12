@@ -234,9 +234,9 @@ interface WorkspaceEventEmitBase {
   // `SessionId` is assignable to it, and the payload schema below does the
   // branding, so producers holding either form pass uncast.
   readonly sessionId: string;
-  // Envelope free-form actor (`participant_id | agent_id | null`). Optional;
+  // Envelope free-form actor (`user_id | agent_id | null`). Optional;
   // defaults to `null` (system actor). This seam encodes no actor policy —
-  // the producers decide whether a transition is participant-, agent-, or
+  // the producers decide whether a transition is user-, agent-, or
   // system-driven.
   readonly actor?: string | null;
   // Optional envelope linkage fields. The detach cascade uses them to tie

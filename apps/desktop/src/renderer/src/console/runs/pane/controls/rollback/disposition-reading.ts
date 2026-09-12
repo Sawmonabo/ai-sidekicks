@@ -71,7 +71,7 @@ export interface RollbackDispositionReading {
   readonly summary: string;
   /** Present on exactly the three arms whose enumerations are never silent. */
   readonly files: RollbackFileEnumerations | undefined;
-  /** Daemon-supplied positions, in the order the participant reads them. */
+  /** Daemon-supplied positions, in the order the user reads them. */
   readonly positions: readonly RollbackPositionReading[];
   /** Read off the result, never inferred from the disposition. */
   readonly resendDisposition: "admitted" | "unapplied" | undefined;

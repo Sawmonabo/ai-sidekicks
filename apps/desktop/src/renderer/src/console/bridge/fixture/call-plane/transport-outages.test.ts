@@ -39,7 +39,7 @@ function scenarioWithOutages(
     label: "Outage probe",
     purpose: "Drives the transport signal from a scripted outage.",
     sessionId: "session-outage",
-    participantIdsInJoinOrder: ["participant-you"],
+    userIdsInJoinOrder: ["user-you"],
     beats: [],
     replies: [],
     startedAtIso: "2026-01-01T00:00:00.000Z",

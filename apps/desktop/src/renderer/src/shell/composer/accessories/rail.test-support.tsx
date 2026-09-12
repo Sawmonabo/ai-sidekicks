@@ -86,7 +86,7 @@ export const RAIL_SCENARIO: ConsoleScenario = {
   label: "Rail unit",
   purpose: "A bridge for the rail's mount; the rail's own reads come from the store.",
   sessionId: SESSION_ID,
-  participantIdsInJoinOrder: ["participant-you"],
+  userIdsInJoinOrder: ["user-you"],
   startedAtIso: "2026-01-01T00:00:00.000Z",
   beats: [],
   // The rail's quota chips are a NODE-scoped read and not a store selection, so a
@@ -168,7 +168,7 @@ export function mountRail(
   sessionStore.initialise({
     cursor: 0,
     entities: [...(addressing.entities ?? [])],
-    participantJoinLog: ["participant-you"],
+    userJoinLog: ["user-you"],
   });
   sessionStore.applyBatch(events);
   const { container } = render(

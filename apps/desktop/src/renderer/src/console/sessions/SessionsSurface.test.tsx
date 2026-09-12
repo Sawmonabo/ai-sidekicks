@@ -145,7 +145,7 @@ describe("what an open session contributes to its row", () => {
   // The regression these three close: this destination is mounted at an address that
   // names no session, so the frame hands it `undefined` for the route's store and the
   // list used to be built from that. Every locally open session was reduced to its
-  // identifier — no projected touched time to order by, no participants on the row —
+  // identifier — no projected touched time to order by, no users on the row —
   // and the ordering sentence the design opens with had nothing to order.
 
   /** The session identifiers the list renders, in the order it renders them. */
@@ -171,22 +171,22 @@ describe("what an open session contributes to its row", () => {
     expect(listedSessionIds(container)).toStrictEqual(["session-newer", "session-older"]);
   });
 
-  it("carries an open session's participants onto its row", async () => {
+  it("carries an open session's users onto its row", async () => {
     const { container } = renderSurface(
       contextWith({
         openStores: [
           storeHolding({
             sessionId: "session-a",
-            participantIds: ["participant-mira", "participant-tomas"],
+            userIds: ["user-mira", "user-tomas"],
           }),
         ],
       }),
     );
     await settle();
 
-    const participants = container.querySelector(".meridian-session-row__participants");
-    expect(participants?.textContent).toContain("participant-mira");
-    expect(participants?.textContent).toContain("participant-tomas");
+    const users = container.querySelector(".meridian-session-row__users");
+    expect(users?.textContent).toContain("user-mira");
+    expect(users?.textContent).toContain("user-tomas");
   });
 
   it("leaves a directory-only session as its directory row", async () => {
@@ -195,15 +195,13 @@ describe("what an open session contributes to its row", () => {
     const { container } = renderSurface(
       contextWith({
         directorySessionIds: ["session-elsewhere"],
-        openStores: [
-          storeHolding({ sessionId: "session-a", participantIds: ["participant-mira"] }),
-        ],
+        openStores: [storeHolding({ sessionId: "session-a", userIds: ["user-mira"] })],
       }),
     );
     await settle();
 
     expect(listedSessionIds(container)).toContain("session-elsewhere");
-    expect(container.querySelectorAll(".meridian-session-row__participants")).toHaveLength(1);
+    expect(container.querySelectorAll(".meridian-session-row__users")).toHaveLength(1);
   });
 
   it("negative control: the route-scoped store contributes nothing here", async () => {
@@ -215,14 +213,14 @@ describe("what an open session contributes to its row", () => {
         directorySessionIds: [],
         sessionStore: storeHolding({
           sessionId: "session-route",
-          participantIds: ["participant-route"],
+          userIds: ["user-route"],
         }),
       }),
     );
     await settle();
 
     expect(listedSessionIds(container)).toStrictEqual([]);
-    expect(container.textContent ?? "").not.toContain("participant-route");
+    expect(container.textContent ?? "").not.toContain("user-route");
   });
 
   it("negative control: the same store reached through the registry is listed", async () => {
@@ -231,15 +229,13 @@ describe("what an open session contributes to its row", () => {
     const { container } = renderSurface(
       contextWith({
         directorySessionIds: [],
-        openStores: [
-          storeHolding({ sessionId: "session-route", participantIds: ["participant-route"] }),
-        ],
+        openStores: [storeHolding({ sessionId: "session-route", userIds: ["user-route"] })],
       }),
     );
     await settle();
 
     expect(listedSessionIds(container)).toStrictEqual(["session-route"]);
-    expect(container.textContent ?? "").toContain("participant-route");
+    expect(container.textContent ?? "").toContain("user-route");
   });
 });
 

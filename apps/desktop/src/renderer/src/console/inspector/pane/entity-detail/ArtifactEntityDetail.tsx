@@ -27,7 +27,7 @@ export function ArtifactEntityDetail(props: EntityDetailProps): React.JSX.Elemen
       degradedCause={props.degradedCause}
       degradedConsequence="an artifact that has since been deleted could still read as present."
       absentTitle="No artifact with this identifier is in the session."
-      absentDetail="An artifact joins the record when a participant or an agent publishes one. Nothing about this identifier is held, so there is nothing to open."
+      absentDetail="An artifact joins the record when a user or an agent publishes one. Nothing about this identifier is held, so there is nothing to open."
       facets={[
         wireFacet("Name", readBodyMember(props.entity, "name"), "name"),
         wireFacet("Content type", readBodyMember(props.entity, "contentType"), "content type"),

@@ -354,7 +354,7 @@ export class ReplayTargetAbandonedError extends Error {
  * ambiguity and equally on an interior refusal after an accepted prefix — and
  * the memo settlement always lands in a fresh target. The rule is not fussiness
  * about tidiness: both surviving-session shapes it forbids are conversations a
- * participant then reads. A target holding half a transcript and then a memo
+ * user then reads. A target holding half a transcript and then a memo
  * summarizing the whole of it states the same exchanges twice, once truncated;
  * a target retried after an ambiguous delivery states one exchange twice
  * verbatim. Neither is recoverable afterwards, because nothing downstream can

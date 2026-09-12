@@ -1,14 +1,14 @@
 // The shipped Tier-1 families the console absorbed, and the guard one of them uses.
 //
 // Four families shipped before the console existed and were rendered by the
-// renderer root directly: the session probe, the participant roster, the runtime-node
+// renderer root directly: the session probe, the user roster, the runtime-node
 // roster, and the invite acceptance prompt. When the console took over the root they
 // stopped being rendered by anything, which is not a decision anybody made — it is
 // what happens when a new mount point lands before the old surfaces are re-homed.
 // This module re-homes TWO of them. The other two are mounted by nothing at all, and
 // each is retired for its own reason rather than for one shared one.
 //
-// THE PARTICIPANT ROSTER IS THE FIRST, and the reason is not that nowhere would take
+// THE USER ROSTER IS THE FIRST, and the reason is not that nowhere would take
 // it. It rendered presence for a session, and so does `collaboration/`, which means
 // one application drew one session's presence twice from two reads whose answers were
 // free to disagree. One of the two had to go, and it could only be this one: the
@@ -41,7 +41,7 @@
 //
 // THE FRAME KEEPS NOTHING OF THEM NOW. It held a TABLE — which slot each family
 // holds and who owns it — for as long as one of these components claimed a slot
-// outright; the last one that did was the participant roster, and retiring it left
+// outright; the last one that did was the user roster, and retiring it left
 // the table with no rows and the registrar with nothing to register. Every surviving
 // mount is called by the console surface that absorbed it, through this family's
 // door, like every other consumer.
@@ -120,7 +120,7 @@ export function absorbedSurfaceAsks(bridgeSource: ConsoleBridgeSource): boolean 
 }
 
 /**
- * The session probe, built on the participant's own act.
+ * The session probe, built on the user's own act.
  *
  * Exported as a BUILDER rather than registered as a mount, because the probe creates
  * a session from its mount effect and a route lifecycle remounts a slot on every

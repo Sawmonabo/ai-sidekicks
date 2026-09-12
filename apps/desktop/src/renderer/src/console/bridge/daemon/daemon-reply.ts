@@ -29,7 +29,7 @@
 // already cost, and it is the half a per-site parse always skipped.
 //
 // NO REFUSED VALUE EVER REACHES THE DETAIL SENTENCE. A schema failure knows exactly
-// what it rejected, and what it rejected can be a participant's message, a repo
+// what it rejected, and what it rejected can be a user's message, a repo
 // path, or an invite token. A refused value never reaches a refusal's detail, so
 // this module composes
 // its own sentence from the METHOD and, at most, the member PATHS that failed —
@@ -268,7 +268,7 @@ export async function callDaemon<MethodName extends ConsoleDaemonMethod>(
       // rejection carrying a code of its own keeps it and only one that carries
       // none reaches this sentence. It names the method and stops there — the
       // rejected value is not quoted into it, because a rejection off the wire can
-      // carry participant content as readily as a schema failure can.
+      // carry user content as readily as a schema failure can.
       refusal: normalizeWireRejection(DAEMON_REPLY_REFUSAL_ORIGIN, rejection, {
         code: "call-rejected" satisfies DaemonReplyRefusalCode,
         detail: `${method} was rejected.`,

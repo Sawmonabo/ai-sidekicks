@@ -15,7 +15,7 @@ import { VERSION_FLOOR_EXCEEDED_CODE } from "@ai-sidekicks/contracts";
 import type {
   EventEnvelopeVersion,
   NodeId,
-  ParticipantId,
+  UserId,
   RuntimeNodeRosterEntry,
   VersionFloorExceededError,
 } from "@ai-sidekicks/contracts";
@@ -25,11 +25,11 @@ import type {
 export const ATTACHED_NODE_ID = "01970000-0000-7000-8000-0000000000c1" as NodeId;
 export const BELOW_FLOOR_CLIENT_VERSION = "1.0" as EventEnvelopeVersion;
 
-// Not exported: no case names the at-floor version or the owning participant
+// Not exported: no case names the at-floor version or the owning user
 // directly — both reach the assertions only through the builder below, which is
 // what makes them the DEFAULT rather than a fixture a case picks up.
 const AT_FLOOR_CLIENT_VERSION = "2.0" as EventEnvelopeVersion;
-const OWNING_PARTICIPANT_ID = "01970000-0000-7000-8000-0000000000b1" as ParticipantId;
+const OWNING_USER_ID = "01970000-0000-7000-8000-0000000000b1" as UserId;
 
 /**
  * A roster entry as the control-plane `readRoster` projection emits it.
@@ -43,7 +43,7 @@ export function buildRosterEntry(
 ): RuntimeNodeRosterEntry {
   return {
     nodeId: ATTACHED_NODE_ID,
-    participantId: OWNING_PARTICIPANT_ID,
+    userId: OWNING_USER_ID,
     state: "online",
     healthState: "online",
     lastHeartbeatAt: "2026-06-10T10:00:00.000Z",

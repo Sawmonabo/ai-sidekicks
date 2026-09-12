@@ -21,7 +21,7 @@ export interface EphemeralCloneListProps {
    * its own.
    */
   readonly frameStore: FrameStore;
-  /** Read the section again after a participant's own act on one of these roots. */
+  /** Read the section again after a user's own act on one of these roots. */
   readonly onRequestRead: () => void;
 }
 
@@ -57,7 +57,7 @@ export const CLONES_NOT_READ_TITLE = "Execution roots have not been read.";
  *
  * AND EACH CLONE CARRIES ITS OWN CHANGE-PROPOSAL GATE, for the reason the mount card
  * states about the in-place root: a clone is one of the three WRITABLE execution
- * modes, so a list that drew the root and no gate left a participant running in that
+ * modes, so a list that drew the root and no gate left a user running in that
  * mode with no way to read a branch context, prepare a proposal, or ask for a reviewed
  * act at all.
  *

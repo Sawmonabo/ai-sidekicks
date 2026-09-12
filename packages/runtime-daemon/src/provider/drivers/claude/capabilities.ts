@@ -797,7 +797,7 @@ function readNonEmptyString(source: Record<string, unknown>, key: string): strin
  *      (`sonnet` → `claude-sonnet-5`), so keying on `value` would publish
  *      selector strings as model ids — and a same-agent provider switch
  *      validates its model against this list, so an alias admitted here is a
- *      switch whose target can move under the participant.
+ *      switch whose target can move under the user.
  *      Where several entries resolve to one model, the reserved
  *      `default` pointer loses to a row that names the model, and it is kept
  *      only when it is that model's only row.

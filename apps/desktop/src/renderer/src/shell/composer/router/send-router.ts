@@ -45,11 +45,11 @@
 //
 // TRIMMING IS A TEST AND NEVER A TRANSFORM. This module used to resolve against
 // `text.trim()` and hand that trimmed value to both request builders, so the daemon
-// received text the participant did not author: pasted code lost its indentation, an
+// received text the user did not author: pasted code lost its indentation, an
 // indentation-sensitive instruction lost its shape, and a deliberately separated
 // Markdown block lost its separation. Blankness is still decided by trimming — that
 // is a question about the text, not an edit of it — and everything that reaches the
-// wire is the participant's own bytes. The slash rules read the RAW text through
+// wire is the user's own bytes. The slash rules read the RAW text through
 // `directive-syntax.ts` for the same reason, which narrows them deliberately: a
 // command opens its line, and indented text beginning with a slash is prose.
 //

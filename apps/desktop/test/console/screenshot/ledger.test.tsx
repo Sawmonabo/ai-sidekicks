@@ -7,7 +7,7 @@
 // reach.
 //
 // WHY THE FLAGSHIP PAIR IS THE WHOLE FRAME AND NOT THE LEDGER ALONE. The claim
-// those two pin is a COMPOSITION: the rail, the cast bar, the deck, the chapters,
+// those two pin is a COMPOSITION: the rail, the session header, the deck, the chapters,
 // and the attribution hues all have to be true at once and in the right
 // relationship to each other. A shot cropped to the ledger's own box would still be
 // green the day the rail overlapped it. Being whole frames is also what makes the

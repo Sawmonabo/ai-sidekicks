@@ -49,9 +49,9 @@ const RENDERER_ROOT = path.join(import.meta.dirname, "../renderer");
 // is not `standard` has no origin and therefore no IndexedDB and no
 // `localStorage`, which is where the console persists layout, scroll position,
 // selection, pins, and expansion sets — UI state ONLY. Drafts are deliberately
-// NOT in that set: composer text, form values, paths, and code a participant has
+// NOT in that set: composer text, form values, paths, and code a user has
 // typed and not sent live in their window's in-memory store for that window's
-// lifetime and are gone when it closes, because participant-authored content's
+// lifetime and are gone when it closes, because user-authored content's
 // only durable homes are the daemon's encrypted, PII-mapped stores.
 registerRendererScheme();
 

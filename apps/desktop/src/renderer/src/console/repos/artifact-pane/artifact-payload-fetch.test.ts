@@ -111,7 +111,7 @@ describe("artifact pane actions — one payload fetch in flight, each with its o
 
   it("negative control: the register is given back, so a later press is sent rather than refused", async () => {
     // Without this a register that was taken and never released would pass every case
-    // above and refuse the second fetch a participant ever asks for, for the life of
+    // above and refuse the second fetch a user ever asks for, for the life of
     // the pane.
     const clock = new ManualClock();
     const { reader, artifactRead, releaseRead } = readerWithHeldPayloadFetch(clock);
@@ -187,7 +187,7 @@ describe("artifact pane actions — a delete supersedes the fetch for the row it
 
   it("negative control: a delete of another row leaves the fetch standing", async () => {
     // Without this, clearing the register on every served delete would throw away
-    // the answer to a fetch the delete says nothing about — a participant deleting
+    // the answer to a fetch the delete says nothing about — a user deleting
     // one artifact would silently lose the preview they had just asked for of
     // another, and the pane would report `superseded` for work it did do.
     const clock = new ManualClock();

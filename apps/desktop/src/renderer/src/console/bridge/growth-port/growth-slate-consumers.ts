@@ -40,7 +40,7 @@ export const GROWTH_SLATE_CONSUMING_SURFACES: Readonly<Record<GrowthSlateRowId, 
   "onboarding-methods": "first-run frame",
   "shell-config-preferences": "settings pages",
   "health-subscribe": "health strip, park banner",
-  "agent-snapshot-axes": "agent console, cast bar",
+  "agent-snapshot-axes": "agent console, session header",
   "child-run-linkage": "agent console run-linkage panel",
   "agent-provider-switch-failure": "composer (the target chip)",
   "agent-provider-switch-terminal":
@@ -69,7 +69,7 @@ export const GROWTH_SLATE_CONSUMING_SURFACES: Readonly<Record<GrowthSlateRowId, 
   "workflow-run-control": "workflow-run pane, workflow builder",
   "workflow-run-enumeration":
     "workflows destination (the runs it holds), channel timeline pane (the pinned progress card)",
-  "caller-participant-identity":
+  "caller-user-identity":
     "members surface (invite create), approvals pane (the role-gated control)",
   "callback-tool-registry-read": "approvals pane",
   "sidekick-definition-registry":
@@ -78,7 +78,7 @@ export const GROWTH_SLATE_CONSUMING_SURFACES: Readonly<Record<GrowthSlateRowId, 
   "cost-receipt-read": "cost-receipt settings page, cost meters",
   "workflow-version-chain": "workflow-run pane (the resume control's re-pin picker)",
   "health-status-read":
-    "cast bar health form, health strip, diagnostics settings page (its banner)",
+    "session header health form, health strip, diagnostics settings page (its banner)",
   "daemon-version-negotiation": "frame version banner",
   "timeline-live-resubscribe": "ledger gap fill",
   "workspace-execution-context":
@@ -86,8 +86,8 @@ export const GROWTH_SLATE_CONSUMING_SURFACES: Readonly<Record<GrowthSlateRowId, 
   "mount-health-identity-verdict":
     "repos surface (the mount card's health chip and the re-attach control the permanent verdict carries); settings mounts page (the mount row's verdict)",
   "channel-lifecycle-verbs": "channel list (mute / unmute / archive), create-a-channel form",
-  "participant-presence-detail": "roster (the per-device detail behind a row)",
-  "terminal-control-holder": "roster (the holder mark on the holding participant's row)",
+  "user-presence-detail": "roster (the per-device detail behind a row)",
+  "terminal-control-holder": "roster (the holder mark on the holding user's row)",
   "presence-activity-fields": "typing and agent-activity indicators (channel rows, roster rows)",
   "notification-permission-read":
     "notification centre (the OS-notifications-denied arm); notifications settings page (the permission notice)",

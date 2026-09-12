@@ -11,7 +11,7 @@
 // session id IS this terminal's identity in the console's own request shapes; it is not
 // a fabricated key, it is the name of the session's single shell.
 //
-// THE VIEWER IS READ, NOT ASSUMED. `callerParticipantRead` is the port's answer to which
+// THE VIEWER IS READ, NOT ASSUMED. `callerUserRead` is the port's answer to which
 // window this is, and the fold takes it as the input that tells a hold this window has
 // from one it does not. It used to take a hard-coded `undefined`, which made every take
 // read as somebody else's: the window the daemon had just granted the shell to kept
@@ -102,18 +102,17 @@ export function BoundTerminalPane(props: BoundTerminalPaneProps): React.JSX.Elem
   // pending or refused identity passes `undefined`, which keeps every held lease at
   // `held-by-another` and the emulator read-only. The claim control is withheld on
   // those same two arms, so the surface never offers an act it could not attribute.
-  const viewerParticipantId =
-    viewerIdentity.status === "read" ? viewerIdentity.participantId : undefined;
+  const viewerUserId = viewerIdentity.status === "read" ? viewerIdentity.userId : undefined;
 
   const lease: TerminalLeaseState = useMemo(
     () =>
       projectTerminalLease(timeline, {
-        viewerParticipantId,
+        viewerUserId,
         // Omitted rather than passed as `undefined`, because the member's absence is
         // what the fold reads as "nothing was checked".
         ...(holdingNode === undefined ? {} : { holdingNode }),
       }),
-    [timeline, holdingNode, viewerParticipantId],
+    [timeline, holdingNode, viewerUserId],
   );
 
   // The aside is a sentence about the step-in control, so it renders where that

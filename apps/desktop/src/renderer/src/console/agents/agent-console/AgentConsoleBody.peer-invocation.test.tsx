@@ -5,7 +5,7 @@
 // of what a mutation settled with outlived the session it was about. Two ways: the
 // value kept winning over the session the console had arrived at, and a reply from
 // the session it had left could land after the move and decide the switch there. A
-// refusal the participant raised is the third: it is theirs and not the grant's, so
+// refusal the user raised is the third: it is theirs and not the grant's, so
 // a partition that moves under it retires the settlement and never the refusal.
 //
 // Every case drives the real pane over a real fixture bridge with one scripted
@@ -71,7 +71,7 @@ describe("agent console — the peer-invocation settlement belongs to one sessio
 
   it("shows what the projection says once it has moved past the reply", async () => {
     // The session stamp only reaches a move BETWEEN sessions. Within one session the
-    // reply used to win forever, so a grant another participant turned off — or a
+    // reply used to win forever, so a grant another user turned off — or a
     // reconnect read that answered differently — never reached the switch, and the
     // control sat on a value nothing on the wire claimed any more.
     const scriptedDaemon = new PeerInvocationDaemon();
@@ -85,14 +85,14 @@ describe("agent console — the peer-invocation settlement belongs to one sessio
     expect(switchState(container)).toBe(true);
 
     // The projection moving is a read landing in the store, which is exactly what a
-    // reconnect and another participant's event both are.
+    // reconnect and another user's event both are.
     await act(async () => {
       sessionStore.initialise({
         cursor: 9,
         entities: [
           { kind: "session", id: FIRST_SESSION_ID, body: { peerInvocationEnabled: false } },
         ],
-        participantJoinLog: [],
+        userJoinLog: [],
       });
       await crossMacrotaskBoundary();
     });
@@ -136,12 +136,12 @@ describe("agent console — the peer-invocation settlement belongs to one sessio
   });
 });
 
-describe("agent console — a refused grant is the participant's own fact", () => {
+describe("agent console — a refused grant is the user's own fact", () => {
   it("keeps the refusal when the session partition moves under it", async () => {
     // The projection moving is the daemon speaking more recently about the GRANT. It
-    // says nothing about whether this participant's press was refused, and the
+    // says nothing about whether this user's press was refused, and the
     // refusal used to be retired with the settlement anyway — so any unrelated
-    // partition event (another participant's `session.*`, a reconnect read, the
+    // partition event (another user's `session.*`, a reconnect read, the
     // re-read control beside this one) took the reason off the screen with no act of
     // theirs, possibly before it was read.
     const scriptedDaemon = new PeerInvocationDaemon();
@@ -161,7 +161,7 @@ describe("agent console — a refused grant is the participant's own fact", () =
   });
 
   it("replaces it on the next press rather than letting it stand for ever", async () => {
-    // The other half. A refusal is kept because nothing but the participant has
+    // The other half. A refusal is kept because nothing but the user has
     // spoken about it — so the moment they speak again, it goes.
     const scriptedDaemon = new PeerInvocationDaemon();
     const bridge = bridgeCalling(scriptedDaemon);
@@ -183,7 +183,7 @@ describe("agent console — a refused grant is the participant's own fact", () =
   it("negative control: a settlement IS retired when the partition moves", async () => {
     // Without this, the first case would hold for a control that kept every arm
     // through a projection move — which is the defect the move exists to fix: a
-    // grant another participant turned off would go on reading as on.
+    // grant another user turned off would go on reading as on.
     const scriptedDaemon = new PeerInvocationDaemon();
     const bridge = bridgeCalling(scriptedDaemon);
     const sessionStore = storeProjecting(FIRST_SESSION_ID, false);

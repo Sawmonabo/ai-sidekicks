@@ -159,7 +159,7 @@ export type DriverProviderName = "codex" | "claude";
  * settlement carries a closed reason and the operator needs the terminal, the
  * count, or the wire text behind it.
  *
- *   - `compaction_wait_terminal` — a participant-triggered compaction was
+ *   - `compaction_wait_terminal` — a user-triggered compaction was
  *     dispatched and the wait for the provider's typed compaction frame reached
  *     a terminal that is not the frame: the declared per-driver bound elapsed,
  *     or the binding stopped being live. The caller already settles `failed`
@@ -174,7 +174,7 @@ export type DriverProviderName = "codex" | "claude";
  *   - `interactive_request_option_set_dropped` — a structured input ask
  *     published a choice set the cardinality cap refuses, or one no admissible
  *     option could be read from. The ask STILL NORMALIZES and still reaches the
- *     participant as free text: dropping the ask would hang the turn, and
+ *     user as free text: dropping the ask would hang the turn, and
  *     carrying an unbounded set would let provider-authored strings size a
  *     client render. What is lost is the choice set, and losing it silently is
  *     what this forbids.

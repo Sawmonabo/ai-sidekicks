@@ -18,7 +18,7 @@ import {
 function seededFrames(...bodies: readonly string[]): SeededTranscriptFrame[] {
   return bodies.map((text, index) => ({
     position: index + 1,
-    role: index % 2 === 0 ? ("participant" as const) : ("assistant" as const),
+    role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
     text,
   }));
 }

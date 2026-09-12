@@ -102,7 +102,7 @@ export function readComposerSettlement(outcome: RunControlOutcome): ComposerSett
  * What a refused admission says, in this form's own words.
  *
  * Total over the closed refusal set, so a second reason fails to compile here rather
- * than reaching a participant as an empty sentence beside a form that did nothing.
+ * than reaching a user as an empty sentence beside a form that did nothing.
  */
 export function admissionRefusal(reason: RunControlAdmissionRefusal): ConsoleRefusal {
   return refuse(RUN_CONTROL_REFUSAL_ORIGIN, reason, ADMISSION_REFUSAL_DETAIL[reason]);
@@ -115,7 +115,7 @@ export function admissionRefusal(reason: RunControlAdmissionRefusal): ConsoleRef
  * next move, and two of them are acts a person has to perform before this same
  * request can ever be admitted — so where the daemon names one, the form says the act
  * rather than "change what it asks for", which for a pending queued send names
- * nothing the participant can change in this box. Every other rejection keeps the
+ * nothing the user can change in this box. Every other rejection keeps the
  * general sentence, because that is the honest one when the wire attributed the
  * refusal to none of the four.
  *

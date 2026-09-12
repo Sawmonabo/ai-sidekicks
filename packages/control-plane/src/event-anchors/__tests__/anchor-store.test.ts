@@ -110,7 +110,7 @@ beforeEach(async () => {
   // registered schema rather than a hand-stepped subset.
   await applyMigrations(querier);
   // A session needs the user who owns it — `owner_user_id` is NOT NULL.
-  await querier.query("INSERT INTO participants (id) VALUES ($1)", [SESSION_OWNER_ID]);
+  await querier.query("INSERT INTO users (id) VALUES ($1)", [SESSION_OWNER_ID]);
   await querier.query("INSERT INTO sessions (id, owner_user_id) VALUES ($1, $2)", [
     SESSION_ID,
     SESSION_OWNER_ID,

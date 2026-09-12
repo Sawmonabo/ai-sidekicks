@@ -263,7 +263,7 @@ describe("a dispatch is recorded only where the surface admitted one", () => {
     await submit(container);
     expect(container.textContent).toContain("in-flight");
     expect(container.textContent).toContain("still settling");
-    // The body the participant typed is still on screen, and the form is still open.
+    // The body the user typed is still on screen, and the form is still open.
     expect(bodyValue(container)).toBe("the second body");
     expect(dismissals).toBe(0);
   });

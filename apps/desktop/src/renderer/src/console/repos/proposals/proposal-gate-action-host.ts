@@ -32,7 +32,7 @@ export interface ProposalGateActionHost {
    */
   servedContext(): BranchContextReading | undefined;
   /**
-   * Which participant this window is, or `undefined` where the read did not answer.
+   * Which user this window is, or `undefined` where the read did not answer.
    *
    * A PROMISE RATHER THAN A SETTLED VALUE, because the identity read and the
    * branch-context read are issued together and neither waits on the other: an act
@@ -40,7 +40,7 @@ export interface ProposalGateActionHost {
    * ordinary reason that one read finished first. The reading half performs it once and
    * every act awaits that same answer.
    */
-  callerParticipantId(): Promise<string | undefined>;
+  callerUserId(): Promise<string | undefined>;
   publish(reading: ProposalGateReading): void;
   /** Hold a prepared proposal, keyed by the context it was prepared against. */
   holdPreparedProposal(proposal: PreparedProposal, preparedFor: BranchContextReading): void;

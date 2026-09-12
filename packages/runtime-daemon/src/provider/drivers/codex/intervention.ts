@@ -104,7 +104,7 @@ import {
 
 /**
  * The fallback the orchestration layer performs when a native intervention is
- * unavailable: hold the participant's directive and interrupt the turn, so the
+ * unavailable: hold the user's directive and interrupt the turn, so the
  * directive is applied at the next boundary instead of being lost.
  */
 export const CODEX_INTERVENTION_FALLBACK_ACTION: string = "queue_and_interrupt";
@@ -148,7 +148,7 @@ export interface CodexSteerRunRequest {
    */
   readonly clientIdempotencyKey: string;
   /**
-   * Why this text is being written. A steer directive is participant text,
+   * Why this text is being written. A steer directive is user text,
    * and this dispatcher says so explicitly rather than relying on the
    * absent-origin default — the default is fail-closed and would neutralize
    * identically, but it would report `origin=unknown` on a trip, which is a
@@ -310,7 +310,7 @@ export class CodexInterventionDispatcher {
           content: params.payload.content,
           expectedTurnId: params.payload.expectedTurnId,
           clientIdempotencyKey: params.clientIdempotencyKey,
-          frameOrigin: "participant_text",
+          frameOrigin: "human_text",
         });
         // Asked against the turn that actually went on the wire, not against the
         // caller's optional hint — the same value P3-1 grades the ack on, for

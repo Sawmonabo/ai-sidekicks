@@ -27,7 +27,7 @@
 // `{ session, timelineCursors }` — a session's identity, state, config, metadata and
 // timestamps beside a `latest` cursor — and `SessionStore.initialise` takes the
 // console's own `SessionSnapshot` from `store/session/session-state.ts`: a numeric
-// `cursor`, the `entities` the read carried, and the `participantJoinLog` the hue
+// `cursor`, the `entities` the read carried, and the `userJoinLog` the hue
 // wheel is allocated in. The reply carries neither of the last two at all, and its
 // cursor is an opaque branded STRING whose internal structure the daemon owns and whose
 // schema is `min(1)` — so nothing here can order on it. Adopting the registered shape
@@ -47,7 +47,7 @@
 //
 // WHY THE CALLER-IDENTITY READ IS ANSWERED FROM A FIELD AND NOT FROM JOIN ORDER
 //
-// `ConsoleScenario` carries `viewingParticipantId` — which of the roster this window
+// `ConsoleScenario` carries `viewingUserId` — which of the roster this window
 // IS — and the read is served from that field and from nothing else. The field exists
 // because the fact had no other honest source: join order is who opened the session
 // and who followed, on any machine, so reading its head as "me" is a fabrication, and
@@ -83,7 +83,7 @@ import type { ScenarioEngine } from "../../scenario/runtime/index.js";
 export const FIXTURE_SERVED_SESSION_OPERATION_IDS = [
   "sessionRead",
   "sessionList",
-  "callerParticipantRead",
+  "callerUserRead",
 ] as const;
 
 /** One session operation the fixture serves. Derived, so the set has one home. */
@@ -132,24 +132,24 @@ export function fixtureSessionAnswers(
       status: "served",
       value: directorySessionsOf(engine.scenario),
     }),
-    callerParticipantRead: async (request) => {
-      const { viewingParticipantId } = engine.scenario;
+    callerUserRead: async (request) => {
+      const { viewingUserId } = engine.scenario;
       // Refused rather than answered with an absence, on the branch-context read's
       // reading: a scenario that has not said has left the question unasked rather
       // than answered it emptily, and a session always HAS a viewer, so there is no
       // "we asked and there is none" state to serve. Both take the "not checked"
       // refusal the live bridge takes.
-      if (viewingParticipantId === undefined) {
-        return growthUnavailable("callerParticipantRead");
+      if (viewingUserId === undefined) {
+        return growthUnavailable("callerUserRead");
       }
       // Scoped to the session the scenario is playing, on the `sessionRead` rule
       // above: an identity is a fact about one session's roster, and lending this
       // session's viewer to another would tell a surface it holds a role in a session
       // it may not even be a member of.
       if (request.sessionId !== engine.scenario.sessionId) {
-        return growthUnavailable("callerParticipantRead");
+        return growthUnavailable("callerUserRead");
       }
-      return { status: "served", value: { participantId: viewingParticipantId } };
+      return { status: "served", value: { userId: viewingUserId } };
     },
   };
 }

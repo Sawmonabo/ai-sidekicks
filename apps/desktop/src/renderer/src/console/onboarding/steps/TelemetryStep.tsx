@@ -37,7 +37,7 @@ const COLLECTED: readonly string[] = [
 const NOT_COLLECTED: readonly string[] = [
   "Anything said or written in a session",
   "File contents",
-  "Who the participants are",
+  "Who the users are",
   "Relay traffic",
 ];
 

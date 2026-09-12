@@ -422,7 +422,7 @@ export const InterventionRequestPayloadSchema: z.ZodType<
       replacementSend: z
         .object({
           // The `steer` arm's `content` vocabulary. No attachment member in
-          // V1: the leg replaces a participant `user.message` body and nothing
+          // V1: the leg replaces a user `user.message` body and nothing
           // else, so widening it is a named future amendment rather than an
           // unregistered field the daemon might silently drop.
           content: wireFreeFormString(
@@ -684,11 +684,11 @@ export const RollbackInterventionResultSchema: z.ZodType<RollbackInterventionRes
 export type RollbackCompositeRejectionGuard =
   | "no-active-turn"
   | "no-pending-send"
-  | "participant-authored-target"
+  | "user-authored-target"
   | "resumable-target";
 
 export const RollbackCompositeRejectionGuardSchema: z.ZodType<RollbackCompositeRejectionGuard> =
-  z.enum(["no-active-turn", "no-pending-send", "participant-authored-target", "resumable-target"]);
+  z.enum(["no-active-turn", "no-pending-send", "user-authored-target", "resumable-target"]);
 
 export interface InterventionResponseBase {
   interventionId: InterventionId;

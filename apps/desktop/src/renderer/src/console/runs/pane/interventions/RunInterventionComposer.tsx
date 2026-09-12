@@ -29,7 +29,7 @@
 //     destroying a tail for nothing." Empty text is the reachable form of that at a
 //     surface with no original body to compare against.
 //
-// The four STRUCTURAL guards — no active turn, no pending send, a participant-
+// The four STRUCTURAL guards — no active turn, no pending send, a user-
 // authored boundary, a resumable target — are the daemon's, each fail-closed at
 // admission, and each arrives here as a typed rejection carrying its own reason.
 // This file refuses none of them and would be wrong to try.
@@ -71,14 +71,14 @@
 // dispatch carries the token its settlement will be recorded under and the form
 // reads the record by that token, which is exact rather than newest-wins. A refused
 // one renders as what it is — an earlier request for this run is still settling —
-// with the body kept and the confirm live, so the participant confirms again when
+// with the body kept and the confirm live, so the user confirms again when
 // the first one lands rather than losing what they typed.
 //
 // THE COMPOSER OUTLIVES ITS DISPATCH. It used to close the moment a dispatch was
-// STARTED, which threw away the participant's body on every arm that did not land:
+// STARTED, which threw away the user's body on every arm that did not land:
 // a composite refused before the intervention was created, a transport rejection, a
 // daemon `rejected`. The surface record keeps the refusal and nothing keeps the
-// text, so the one thing the participant cannot reproduce was the one thing that
+// text, so the one thing the user cannot reproduce was the one thing that
 // was dropped. So the settlement is read — off `RunControlSurface.records`, which is
 // where the dispatcher's own answer lands — and only a settlement that LANDED
 // (`applied` or `degraded`, both of which the run's intervention history then
@@ -287,7 +287,7 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
         return;
       }
       // A test, never a transform: what the daemon is handed below is the body the
-      // participant typed, byte for byte. A trimmed replacement would reach the
+      // user typed, byte for byte. A trimmed replacement would reach the
       // queue having lost the indentation or the separating blank line that was the
       // point of writing it that way.
       const isReplacementBlank = body.trim().length === 0;

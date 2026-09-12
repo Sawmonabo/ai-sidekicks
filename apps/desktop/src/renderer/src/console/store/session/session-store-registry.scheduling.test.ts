@@ -92,7 +92,7 @@ describe("SessionStoreRegistry — applies go through the queue, reads through t
         return Promise.resolve({
           cursor: 7,
           entities: [{ kind: "run", id: `${sessionId}-run`, state: "queued" }],
-          participantJoinLog: ["participant-1"],
+          userJoinLog: ["user-1"],
         });
       },
     });

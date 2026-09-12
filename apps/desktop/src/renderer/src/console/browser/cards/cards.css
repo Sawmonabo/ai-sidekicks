@@ -37,7 +37,7 @@
 /*
  * One shell for a capture, a download, and a tool call. The 2 px inline-start
  * edge is the ledger's attribution edge width reused as a KIND mark rather than a
- * participant one — these three rows have no author to attribute to, and a second
+ * user one — these three rows have no author to attribute to, and a second
  * edge width beside rule 1's would read as a second vocabulary.
  */
 .meridian-browser-card {

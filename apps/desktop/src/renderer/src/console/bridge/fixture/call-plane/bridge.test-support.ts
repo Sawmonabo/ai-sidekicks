@@ -441,7 +441,7 @@ export function unscriptedScenario(id: string): ConsoleScenario {
     label: "Nothing scripted",
     purpose: "Drives a surface against a bridge that scripts no reply and plays no beat.",
     sessionId: `session-${id}`,
-    participantIdsInJoinOrder: [],
+    userIdsInJoinOrder: [],
     beats: [],
     replies: [],
     startedAtIso: "2026-01-01T10:05:00.000Z",

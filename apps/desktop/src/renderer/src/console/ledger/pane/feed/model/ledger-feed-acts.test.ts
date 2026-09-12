@@ -1,7 +1,7 @@
 // The acts the feed publishes, driven with no render at all.
 //
 // Every case below invokes an act and watches what it reached. That is the whole
-// property: the palette and the cast bar both resolve their target at press time,
+// property: the palette and the session header both resolve their target at press time,
 // so the only thing that can be wrong is which of the feed's own callbacks an act
 // runs — and none of them needs a DOM to check.
 //
@@ -97,7 +97,7 @@ function actInputs(
 function recordingFilterState(isFiltered: boolean, trace: ActTrace): LedgerFilterState {
   return {
     filter: UNFILTERED_LEDGER,
-    facets: { participants: [], categories: [] },
+    facets: { users: [], categories: [] },
     isFiltered,
     setFilter: () => {
       trace.push("setFilter");

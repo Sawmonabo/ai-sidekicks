@@ -119,7 +119,7 @@ describe("artifact visibility update — one change per row at a time", () => {
     const second = await reader.updateVisibility(SERVED_SUMMARY.artifactId, "shared");
 
     expect(second.status).toBe("refused");
-    // The sentence names the row, so a participant can tell which one is held.
+    // The sentence names the row, so a user can tell which one is held.
     expect(reader.snapshot.refusalByArtifactId.get(SERVED_SUMMARY.artifactId)?.detail).toContain(
       SERVED_SUMMARY.artifactId,
     );

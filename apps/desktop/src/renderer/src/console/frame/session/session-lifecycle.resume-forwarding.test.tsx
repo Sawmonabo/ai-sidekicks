@@ -80,7 +80,7 @@ function bridgeRecordingSessionReads(): RecordedSessionReads {
             value: {
               cursor: 0,
               entities: [],
-              participantJoinLog: [],
+              userJoinLog: [],
               timelineCursors: {
                 latest: "bridge-swap-cursor-9",
                 acknowledged: ACKNOWLEDGED_CURSOR,

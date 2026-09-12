@@ -489,7 +489,7 @@ export {
 // hazard, four surfaces in two sibling families each holding one answer.
 export { useGrowthReadOnMount } from "./read/growth-read.js";
 
-// Which participant this window is, composed once for the sibling view families that
+// Which user this window is, composed once for the sibling view families that
 // ask it. The read lives on the growth port and the narrowing over its outcome was
 // written out at six sites that then disagreed about the refusing arm. Here it is one
 // module: the served-or-refused narrowing for a reader holding its own outcome.
@@ -503,10 +503,10 @@ export { useGrowthReadOnMount } from "./read/growth-read.js";
 // a family that holds its own reading of it must name that reading's inner type rather
 // than re-deriving the reply beside it — which is how two names for one shape appear.
 export {
-  CALLER_PARTICIPANT_ORIGIN,
-  callerParticipantIdentityFrom,
-  type CallerParticipantOutcome,
-} from "./identity/caller-participant.js";
+  CALLER_USER_ORIGIN,
+  callerUserIdentityFrom,
+  type CallerUserOutcome,
+} from "./identity/caller-user.js";
 
 // The console's single copy of the daemon-EVENT cast. The brand
 // `SidekicksBridge.daemon.subscribe` takes is `never`-shaped until the daemon method
@@ -524,7 +524,7 @@ export { subscribeDaemonEvent } from "./read/wire-access.js";
 // In this family because a mount reads a bridge source, two primitives and the console's
 // own bridge, and nothing above `bridge/`, and on this door because the surfaces that
 // mount them are view families. The other two shipped families are absent on purpose:
-// the participant roster rendered a session's presence a second time beside the
+// the user roster rendered a session's presence a second time beside the
 // collaboration family's own roster, and the invite acceptance prompt is mounted by
 // nothing, its one prop being the raw invite token the deep-link lifecycle confines to
 // the main process.

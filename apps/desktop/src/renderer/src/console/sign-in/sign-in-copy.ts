@@ -49,12 +49,12 @@ export const CUSTODY_NOTES: Readonly<Record<WebAuthnCustody, string>> = {
 };
 
 /**
- * What the signed-in card says before it names the participant.
+ * What the signed-in card says before it names the user.
  *
- * A LABEL AND NOT A SENTENCE, because what follows it is a wire figure: the participant
+ * A LABEL AND NOT A SENTENCE, because what follows it is a wire figure: the user
  * id renders verbatim in mono through `WireFigure`, and a sentence with the id pasted
  * into it would be prose paraphrasing a figure. The id is the whole of the identity
- * this build can name — no participant display name is declared anywhere in the corpus
+ * this build can name — no user display name is declared anywhere in the corpus
  * — so it is shown rather than summarised.
  */
 export const SIGNED_IN_AS_LABEL = "Signed in as";

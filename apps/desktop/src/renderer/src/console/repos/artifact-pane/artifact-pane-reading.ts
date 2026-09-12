@@ -27,7 +27,7 @@ import type { ArtifactPayloadReading } from "./artifact-payload.js";
 /**
  * The instant a reading nobody has published yet carries.
  *
- * Reachable by nothing a participant sees: `NOTHING_READ_YET` draws no row, so no age
+ * Reachable by nothing a user sees: `NOTHING_READ_YET` draws no row, so no age
  * is rendered against it, and the reader stamps its own opening reading from the
  * window's clock at construction. Named rather than written as a bare `0` so the
  * declaration says which of the two it is — an instant nobody took, not midnight 1970.
@@ -63,7 +63,7 @@ export interface ArtifactPaneReading {
    * consequence left standing over a re-read would read as this read's own.
    */
   readonly lastDeleteReceipt: ArtifactDeleteReceipt | undefined;
-  /** The payload fetch a participant asked for, at most one at a time. */
+  /** The payload fetch a user asked for, at most one at a time. */
   readonly payload: ArtifactPayloadReading;
   /**
    * Which rows have a manifest re-read on the wire, so their control holds.
@@ -108,7 +108,7 @@ export interface ArtifactPaneReading {
  * `superseded` is an act whose answer changed nothing on screen and never will —
  * the reader was disposed under it, or the act itself was refused after a refresh
  * had already re-read the row it was about. Announcing a settlement for one of
- * those would report work the participant cannot see.
+ * those would report work the user cannot see.
  *
  * `reconciling` is the other half, and it is NOT silent: the act was SERVED while a
  * refresh was in flight, so the fact it established holds — the reader applied it
@@ -165,7 +165,7 @@ export type ArtifactDeleteOutcome =
  * THE CLASS IS THE REPLY'S AND NEVER THE REQUEST'S, which is the whole reason the arm
  * carries one. A policy-blocked share retains the original and offers a derivative
  * instead, so an announcement composed from what was ASKED FOR would tell a
- * participant their artifact is shared when the daemon has just said it is not.
+ * user their artifact is shared when the daemon has just said it is not.
  */
 export type ArtifactVisibilityUpdateOutcome =
   | { readonly status: "settled"; readonly visibility: ArtifactVisibility }

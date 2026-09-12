@@ -83,7 +83,7 @@ describe("the ledger scenarios", () => {
 
   it("states a viewer who is actually in the roster", () => {
     for (const scenario of LEDGER_SCENARIOS) {
-      expect(scenario.participantIdsInJoinOrder).toContain(scenario.viewingParticipantId);
+      expect(scenario.userIdsInJoinOrder).toContain(scenario.viewingUserId);
     }
   });
 
@@ -279,6 +279,6 @@ describe("the quiet ledger scenario", () => {
   });
 
   it("still carries a roster, because an empty log is not an empty room", () => {
-    expect(LEDGER_QUIET_SCENARIO.participantIdsInJoinOrder.length).toBeGreaterThanOrEqual(3);
+    expect(LEDGER_QUIET_SCENARIO.userIdsInJoinOrder.length).toBeGreaterThanOrEqual(3);
   });
 });

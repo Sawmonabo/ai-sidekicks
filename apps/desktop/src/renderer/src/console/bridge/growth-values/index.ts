@@ -84,7 +84,7 @@ export type {
 export type { GrowthAttentionPreference } from "./attention.js";
 
 // The Awareness activity field's reading, and the per-device fan-out behind one
-// participant's aggregated presence.
+// user's aggregated presence.
 export type {
   GrowthActivitySnapshot,
   GrowthAgentActivityReading,

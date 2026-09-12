@@ -41,7 +41,7 @@ function readStore(kind: ConsoleEntityKind): SessionStore {
         id: PRESENT_ID,
         state: "ready",
         touchedAt: "2026-01-01T16:30:05.000Z",
-        attributedTo: "participant-1",
+        attributedTo: "user-1",
         body: {
           name: "main",
           runVersion: 3,
@@ -49,7 +49,7 @@ function readStore(kind: ConsoleEntityKind): SessionStore {
           repoMountId: "mount-1",
           workspaceId: "workspace-1",
           worktreeId: "worktree-1",
-          actor: "participant-1",
+          actor: "user-1",
           contentType: "text/plain",
           byteLength: 4096,
           category: "file_write",
@@ -63,7 +63,7 @@ function readStore(kind: ConsoleEntityKind): SessionStore {
         },
       },
     ],
-    participantJoinLog: ["participant-1"],
+    userJoinLog: ["user-1"],
   });
   return store;
 }
@@ -149,17 +149,17 @@ describe("the session record, which is composed rather than projected", () => {
     store.initialise({
       cursor: 1,
       entities: [
-        { kind: "participant", id: "participant-1" },
-        { kind: "participant", id: "participant-2" },
+        { kind: "user", id: "user-1" },
+        { kind: "user", id: "user-2" },
         { kind: "run", id: "run-1" },
       ],
-      participantJoinLog: ["participant-1", "participant-2"],
+      userJoinLog: ["user-1", "user-2"],
     });
     const container = renderRecord(store, "session", SESSION_ID);
     const facets = [...container.querySelectorAll(".meridian-entity-record__facet")].map(
       (facet) => facet.textContent ?? "",
     );
-    expect(facets.find((facet) => facet.startsWith("Participants"))).toContain("2");
+    expect(facets.find((facet) => facet.startsWith("Users"))).toContain("2");
     expect(facets.find((facet) => facet.startsWith("Runs"))).toContain("1");
   });
 
@@ -167,7 +167,7 @@ describe("the session record, which is composed rather than projected", () => {
     // And an id that is NOT the open session's is still an absence, so the arm
     // above is a fact about this session rather than a body that always renders.
     const store = new SessionStore({ sessionId: SESSION_ID });
-    store.initialise({ cursor: 1, entities: [], participantJoinLog: [] });
+    store.initialise({ cursor: 1, entities: [], userJoinLog: [] });
     expect(
       renderRecord(store, "session", SESSION_ID).querySelector(".meridian-entity-record"),
     ).not.toBeNull();
@@ -183,7 +183,7 @@ describe("a member the record does not carry", () => {
     store.initialise({
       cursor: 1,
       entities: [{ kind: "artifact", id: PRESENT_ID }],
-      participantJoinLog: [],
+      userJoinLog: [],
     });
     const container = renderRecord(store, "artifact", PRESENT_ID);
     expect(container.querySelectorAll(".meridian-nothing--not-checked").length).toBeGreaterThan(0);

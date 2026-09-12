@@ -59,14 +59,14 @@ export interface GrowthUnpricedFamilyCap {
  * The party a unit of work is attributed to — the turn-scoped effective principal,
  * carried verbatim from the metered rows the receipt folds.
  *
- * Two closed arms with the participant reference required on the participant arm and
+ * Two closed arms with the user reference required on the user arm and
  * absent on the system arm, rather than one nullable id: an unstamped value and a
  * deliberately-unattributed one would otherwise be the same shape, and spend no
- * participant caused — a sweep, an idle settlement, a recovery turn — is a real answer
+ * user caused — a sweep, an idle settlement, a recovery turn — is a real answer
  * rather than a missing one.
  */
 export type GrowthEffectivePrincipal =
-  | { readonly kind: "participant"; readonly participantId: string }
+  | { readonly kind: "user"; readonly userId: string }
   | { readonly kind: "system" };
 
 /**

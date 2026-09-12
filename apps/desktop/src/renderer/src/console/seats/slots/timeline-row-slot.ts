@@ -25,7 +25,7 @@
 // carries, and a renderer that re-derived them would be a second source of truth
 // for each:
 //
-//   • `participantHue` is allocated by `ParticipantHueAllocator` over the session's
+//   • `actorHue` is allocated by `ActorHueAllocator` over the session's
 //     join log — order-dependent state no single row can see.
 //   • `isSuperseded` is a rollback-boundary ranking over the rows AROUND this one.
 //     Only `TimelineRow`'s `run` arm carries a `superseded` marker at all; a
@@ -36,7 +36,7 @@
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 
-import { type ParticipantHueAssignment } from "../../tokens/index.js";
+import { type ActorHueAssignment } from "../../tokens/index.js";
 import { SingleSlotSeat } from "./single-slot-seat.js";
 
 /**
@@ -59,15 +59,15 @@ export interface TimelineRowSlotProps {
   readonly row: TimelineRow;
   /**
    * The author's place on the twelve-step wheel, or `undefined` for a row with no
-   * attributable participant.
+   * attributable user.
    *
    * The whole assignment rather than a colour string because the hue is never the sole
-   * attribution channel — past twelve participants the wheel wraps and the ring
+   * attribution channel — past twelve users the wheel wraps and the ring
    * treatment is what tells two people on one step apart. A row handed only a colour
    * could not render that, and `undefined` is the fail-closed answer rather than step
    * zero, which belongs to somebody.
    */
-  readonly participantHue: ParticipantHueAssignment | undefined;
+  readonly actorHue: ActorHueAssignment | undefined;
   /** Whether a rollback boundary later in the list supersedes this row. */
   readonly isSuperseded: boolean;
   readonly density: TimelineRowDensity;

@@ -7,7 +7,7 @@
 //   • **Revoked rules are labelled, not filtered.** The read carries
 //     `includeRevoked: true`, so the audit history IS the default view here, and a
 //     dead rule renders beside a live one with the trigger that killed it named.
-//   • **The grantor is a grantor.** `participantId` is an audit and
+//   • **The grantor is a grantor.** `userId` is an audit and
 //     membership-invalidation key, never a match key — the copy says whose grant it
 //     is and never implies it covers anyone else's direction.
 //   • **Revoke is two-step, and only the confirming click mutates.** Cancelling
@@ -123,7 +123,7 @@ export function RememberedGrants(props: RememberedGrantsProps): React.JSX.Elemen
                   }
                 />
                 <span className="meridian-grants__grantor">
-                  granted by <WireFigure value={rule.participantId} />
+                  granted by <WireFigure value={rule.userId} />
                 </span>
                 <WireFigure value={rule.grantedAt} />
               </div>

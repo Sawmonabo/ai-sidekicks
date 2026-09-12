@@ -17,7 +17,7 @@ import { ApprovalEntityDetail } from "./ApprovalEntityDetail.js";
 import { ArtifactEntityDetail } from "./ArtifactEntityDetail.js";
 import { BrowserPageEntityDetail } from "./BrowserPageEntityDetail.js";
 import { ChannelEntityDetail } from "./ChannelEntityDetail.js";
-import { ParticipantEntityDetail } from "./ParticipantEntityDetail.js";
+import { UserEntityDetail } from "./UserEntityDetail.js";
 import { RepoEntityDetail } from "./RepoEntityDetail.js";
 import { RunEntityDetail } from "./RunEntityDetail.js";
 import { SessionEntityDetail } from "./SessionEntityDetail.js";
@@ -33,7 +33,7 @@ export type EntityDetailComponent = (props: EntityDetailProps) => React.JSX.Elem
 /** The table, in the order `CONSOLE_ENTITY_KINDS` declares. */
 export const ENTITY_DETAIL_BY_KIND: Readonly<Record<ConsoleEntityKind, EntityDetailComponent>> = {
   session: SessionEntityDetail,
-  participant: ParticipantEntityDetail,
+  user: UserEntityDetail,
   channel: ChannelEntityDetail,
   run: RunEntityDetail,
   agent: AgentEntityDetail,

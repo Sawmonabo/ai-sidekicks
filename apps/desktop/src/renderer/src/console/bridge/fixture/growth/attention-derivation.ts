@@ -30,7 +30,7 @@
 // and the distinction the product turns on is passive informational notifications
 // against actionable blocking attention — where the actionable class is exactly the
 // suspended-run class: a run waiting for an approval decision, or waiting for
-// participant input. A failed run is terminal and blocks on no participant; its
+// user input. A failed run is terminal and blocks on no user; its
 // remedy is a new run, which the ledger already offers. So it is informational by
 // that definition of the classes. Reading the rule as classifying nothing here was
 // the narrower reading, and its consequence was the defect: a scenario that played a
@@ -60,7 +60,7 @@ import type {
 } from "../../wire-shapes/index.js";
 import type { ConsoleScenario } from "../../scenario/runtime/index.js";
 
-/** How one run state reaches a participant, and which class it falls in. */
+/** How one run state reaches a user, and which class it falls in. */
 interface AttentionClassification {
   readonly trigger: AttentionTrigger;
   readonly severity: AttentionSeverity;
@@ -91,7 +91,7 @@ const ATTENTION_BY_RUN_STATE: Readonly<Record<string, AttentionClassification>> 
   waiting_for_input: {
     trigger: "pending_input",
     severity: "actionable",
-    summary: "A run is waiting for participant input.",
+    summary: "A run is waiting for user input.",
   },
   completed: {
     trigger: "run_completed",

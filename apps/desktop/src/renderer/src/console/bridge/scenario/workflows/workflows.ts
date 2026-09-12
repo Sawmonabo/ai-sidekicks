@@ -66,7 +66,7 @@ import {
   WORKFLOWS_SCENARIO_AGENTS,
 } from "./agents.js";
 import { WORKFLOWS_SCENARIO_DEFINITIONS } from "./definitions.js";
-import { WORKFLOWS_PARTICIPANT_YOU, WORKFLOWS_SESSION_ID } from "./ids.js";
+import { WORKFLOWS_USER_YOU, WORKFLOWS_SESSION_ID } from "./ids.js";
 import {
   definitionReadFor,
   phaseOutputsFor,
@@ -117,15 +117,15 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
   sessionId: WORKFLOWS_SESSION_ID,
   // Join order IS the hue order. One person and the two agents a phase-per-agent
   // workflow attaches, in the order a real run would attach them.
-  participantIdsInJoinOrder: [
-    WORKFLOWS_PARTICIPANT_YOU,
+  userIdsInJoinOrder: [
+    WORKFLOWS_USER_YOU,
     ...WORKFLOWS_SCENARIO_AGENTS.map((agent) => agent.agentId),
   ],
   // Which of the three this window is. Stated rather than inferred from the head of
   // the join order — that entry is whoever opened the session, on whichever machine.
   // Absent, the caller-identity read refuses and every operator control on a parked
   // run reads as unchecked rather than as adjudicated.
-  viewingParticipantId: WORKFLOWS_PARTICIPANT_YOU,
+  viewingUserId: WORKFLOWS_USER_YOU,
   startedAtIso: "2026-01-01T07:00:00.000Z",
   beats: [
     {
@@ -136,7 +136,7 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
         sequence: 1,
         kind: "session.created",
         occurredAt: "2026-01-01T07:00:00.000Z",
-        actorId: WORKFLOWS_PARTICIPANT_YOU,
+        actorId: WORKFLOWS_USER_YOU,
         // The registered shape, verbatim: the new session's id plus the resolved
         // config and metadata, both open records the corpus names no key inside. The
         // workflow's title is not on this wire; a fixture that put one here would be
@@ -154,7 +154,7 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
         occurredAt: agent.attachedAtIso,
         // The person who attached the agent, not the agent. An agent does not attach
         // itself, and the envelope actor is who acted.
-        actorId: WORKFLOWS_PARTICIPANT_YOU,
+        actorId: WORKFLOWS_USER_YOU,
         // The full persona plus the daemon-resolved resulting state, so the `agents`
         // projection rebuilds from the log alone. `name` is the member — `displayName`
         // is not on this wire.
@@ -165,7 +165,7 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
           driverName: agent.driverName,
           modelId: agent.modelId,
           state: "ready",
-          actor: WORKFLOWS_PARTICIPANT_YOU,
+          actor: WORKFLOWS_USER_YOU,
         },
       },
     })),
@@ -180,7 +180,7 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
         sequence: 4,
         kind: "run.queued",
         occurredAt: "2026-01-01T07:00:00.240Z",
-        actorId: WORKFLOWS_PARTICIPANT_YOU,
+        actorId: WORKFLOWS_USER_YOU,
         // A run-lifecycle payload is a STATE TRANSITION carrying the progression
         // counter. `previousState` is absent here and only here: a queued run is being
         // born, and no document names a value for the state it came from.
@@ -201,7 +201,7 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
         sequence: 5,
         kind: "run.starting",
         occurredAt: "2026-01-01T07:00:00.320Z",
-        // No actor. The daemon moves a run out of `queued`; a participant id here
+        // No actor. The daemon moves a run out of `queued`; a user id here
         // would attribute a system transition to a person.
         payload: {
           sessionId: WORKFLOWS_SESSION_ID,

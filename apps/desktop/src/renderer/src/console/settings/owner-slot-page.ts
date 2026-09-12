@@ -25,7 +25,7 @@
 // The reservation copy names the FEATURE and never the governance work — a slot
 // contract is developer-facing (`seats/slots/owner-slot.ts` says so in terms),
 // and the repository's standing rule keeps governance identifiers out of what a
-// participant reads.
+// user reads.
 
 import { createElement, type ReactNode } from "react";
 

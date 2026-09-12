@@ -28,7 +28,7 @@ export interface RosterEntryOverrides {
 export function rosterEntry(overrides: RosterEntryOverrides = {}): RuntimeNodeRosterEntry {
   return {
     nodeId: "9f2c4a10-0000-4000-8000-000000000002",
-    participantId: "9f2c4a10-0000-4000-8000-000000000010",
+    userId: "9f2c4a10-0000-4000-8000-000000000010",
     state: "online",
     healthState: "online",
     lastHeartbeatAt: "2026-01-01T09:00:00.000Z",

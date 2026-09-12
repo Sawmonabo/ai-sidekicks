@@ -52,10 +52,10 @@ import { AisWireException } from "../ais-wire-exception.js";
  *      — the node may attach elsewhere once it detaches from its current active
  *      session.
  *   2. Cross-owner same-session reconnect (a reconnect is the same local daemon,
- *      so the owner participant is IMMUTABLE — never destroy historical node
- *      provenance on reconnect). A DIFFERENT participant attempts to reattach to
- *      an existing `(node_id, session_id)` row owned by another participant. The
- *      upsert's DO UPDATE `WHERE... participant_id = EXCLUDED.participant_id`
+ *      so the owner user is IMMUTABLE — never destroy historical node
+ *      provenance on reconnect). A DIFFERENT user attempts to reattach to
+ *      an existing `(node_id, session_id)` row owned by another user. The
+ *      upsert's DO UPDATE `WHERE... user_id = EXCLUDED.user_id`
  *      suppresses the update (zero RETURNING rows), and the service's zero-row
  *      verify discriminates the cross-owner cause and throws this typed refusal
  *      rather than overwriting the owner.
@@ -64,8 +64,8 @@ import { AisWireException } from "../ais-wire-exception.js";
  * No-info-leak stance: case 1 references the offending `nodeId` ONLY — never the
  * OTHER session's id (a caller attaching node N learns N is busy elsewhere, not
  * WHICH session holds it). Case 2 references `nodeId` + the caller's OWN
- * `sessionId` ONLY — never the owning `participant_id` (the caller learns the row
- * belongs to a different participant, not WHICH one).
+ * `sessionId` ONLY — never the owning `user_id` (the caller learns the row
+ * belongs to a different user, not WHICH one).
  */
 export class RuntimeNodeAttachConflictException extends AisWireException {
   readonly code: typeof RUNTIME_NODE_ATTACH_CONFLICT_CODE = RUNTIME_NODE_ATTACH_CONFLICT_CODE;

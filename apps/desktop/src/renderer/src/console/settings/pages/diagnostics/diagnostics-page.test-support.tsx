@@ -51,7 +51,7 @@ export const EMPTY_SCENARIO: FixtureScenario = {
   label: "Diagnostics, with nothing scripted",
   purpose: "Drives the diagnostics page against overridden health reads.",
   sessionId: SESSION_ID,
-  participantIdsInJoinOrder: [],
+  userIdsInJoinOrder: [],
   beats: [],
   replies: [],
   startedAtIso: "2026-01-01T08:00:00.000Z",

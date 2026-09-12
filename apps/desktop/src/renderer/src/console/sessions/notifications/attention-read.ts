@@ -138,7 +138,7 @@ export function useAttentionProjection(
   // branch here would be a second reading of a decision the read already makes, and
   // the branch this replaced could only be right while both halves agreed.
   const retry = useCallback(() => {
-    projectionRead.refresh("participant-request");
+    projectionRead.refresh("user-request");
   }, [projectionRead]);
 
   const state = usePushDrivenRead(projectionRead);

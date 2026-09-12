@@ -8,7 +8,7 @@
 // `import.meta.url` inconsistently).
 //
 // Both tables and both indexes are transcribed — same direction of authority
-// `0007-pii-participant-id.ts` and `0013-content-payload.ts` state: the schema
+// `0007-pii-user-id.ts` and `0013-content-payload.ts` state: the schema
 // doc defines the columns, the constraints, and the defaults; this file
 // applies them. Change the doc first, then mirror it here.
 //
@@ -119,7 +119,7 @@ CREATE TABLE provider_accounts (
   account_id            TEXT NOT NULL PRIMARY KEY,  -- daemon-minted opaque immutable identity; never derived from credential material. NOT NULL is declared explicitly because a TEXT PRIMARY KEY on a rowid table admits NULL, which is a documented SQLite compatibility quirk rather than a design choice: a PRIMARY KEY there is usually just a UNIQUE constraint, an historical oversight lets its column values be NULL, and the vendor's own stated workaround is a NOT NULL constraint on each PRIMARY KEY column — https://www.sqlite.org/quirks.html#primary_keys_can_sometimes_contain_nulls (accessed 2026-08-31). NULLs compare distinct in that unique index, so two identity-less rows would both commit. A NULL identity keys nothing: (account_id, credential_generation) becomes unmatchable, the child table's ON DELETE CASCADE never fires for it, and the credential home derived from it cannot be attributed back. Neither documented exception applies here: this is not an INTEGER PRIMARY KEY rowid alias, and the table is not WITHOUT ROWID.
   provider              TEXT NOT NULL
                         CHECK(provider IN ('claude', 'codex')),  -- the same closed driver-id union the MCP governance tables use
-  display_label         TEXT NOT NULL,  -- operator-chosen label for disambiguation in the UI; free text, treated as participant-adjacent PII
+  display_label         TEXT NOT NULL,  -- operator-chosen label for disambiguation in the UI; free text, treated as user-adjacent PII
   credential_home_path  TEXT NOT NULL,  -- absolute path to this account's isolated credential home; the daemon constructs the spawn environment from it and never inherits ambient provider credentials
   credential_generation INTEGER NOT NULL DEFAULT 1
                         CHECK(typeof(credential_generation) = 'integer' AND credential_generation >= 1),  -- monotonic, starts at 1; bumped at every credential-home lifecycle transition. The CHECK makes the floor enforced rather than asserted: a zero or negative generation sorts BEFORE a freshly registered account, so a reading stamped with one would read as newer than the account it describes and invert the staleness comparison the stamp exists for. The typeof conjunct is not redundant with the INTEGER declaration and is the second half of the same guarantee: a SQLite column type is an AFFINITY, and INTEGER affinity converts a bound REAL only where the conversion is lossless, so 1.5 is stored as REAL 1.5, satisfies >= 1, and makes a monotonic counter divisible — two bumps could then land on 1.5 and 1.75 and order by fraction rather than by generation. Lossless bindings are untouched: 2.0 and '3' both convert to integer and remain admitted, so the conjunct refuses exactly the values that were never generations.

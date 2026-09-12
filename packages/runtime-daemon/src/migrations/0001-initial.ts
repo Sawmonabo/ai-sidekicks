@@ -27,7 +27,7 @@
 //                            integrity-protocol columns forward-declared,
 //                            semantics)
 //   * session_snapshots — projection cache (owner)
-//   * participant_keys     — per-participant key custody (forward-declared,
+//   * user_keys     — per-user key custody (forward-declared,
 //                            semantics + crypto-shred lifecycle)
 //
 // Plus the schema_version anchor consumed by the migration runner.
@@ -39,7 +39,7 @@
 //     zero-fill bytes (32B / 32B / 64B).
 //   * session_events.pii_payload — owns PII custody. writes NULL for every
 //     event; no V1 SessionEvent variant carries PII.
-//   * participant_keys (entire table) — owns wrapping + DELETE-
+//   * user_keys (entire table) — owns wrapping + DELETE-
 //     as-crypto-shred lifecycle. only CREATEs the empty table so
 //     downstream plans need not ALTER its shape.
 //
@@ -67,9 +67,9 @@ CREATE TABLE session_events (
   monotonic_ns           INTEGER NOT NULL,           -- process.hrtime.bigint() at emit; within-daemon ordering only
   category               TEXT NOT NULL,              -- e.g. 'run_lifecycle', 'assistant_output', 'tool_activity'
   type                   TEXT NOT NULL,              -- specific event type within category
-  actor                  TEXT,                       -- participant_id or agent_id or NULL for system
+  actor                  TEXT,                       -- user_id or agent_id or NULL for system
   payload                TEXT NOT NULL DEFAULT '{}', -- JSON event payload
-  pii_payload            BLOB,                       -- encrypted per-participant AES-256-GCM (GDPR); NOT hashed/signed
+  pii_payload            BLOB,                       -- encrypted per-user AES-256-GCM (GDPR); NOT hashed/signed
   correlation_id         TEXT,                       -- links related events
   causation_id           TEXT,                       -- parent event that caused this one
   version                TEXT NOT NULL DEFAULT '1.0'
@@ -111,8 +111,8 @@ CREATE TABLE session_snapshots (
 
 CREATE INDEX idx_session_snapshots_session ON session_snapshots(session_id, as_of_sequence);
 
-CREATE TABLE participant_keys (
-  participant_id    TEXT NOT NULL PRIMARY KEY,
+CREATE TABLE user_keys (
+  user_id    TEXT NOT NULL PRIMARY KEY,
   encrypted_key_blob BLOB NOT NULL,           -- AES-256-GCM key, encrypted at rest
   key_version       INTEGER NOT NULL DEFAULT 1,
   created_at        TEXT NOT NULL,

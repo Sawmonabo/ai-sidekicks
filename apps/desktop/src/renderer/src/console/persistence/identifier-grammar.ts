@@ -4,7 +4,7 @@
 // A write outside the closed value-class enumeration is a tripwire failure at the store's
 // write chokepoint, and the hard part of that is mechanical: how does a chokepoint tell
 // an expansion set from a sentence? This module is one of the two conjuncts that do it.
-// Participant- and machine-authored content is prose: it carries spaces, punctuation, and
+// User- and machine-authored content is prose: it carries spaces, punctuation, and
 // length. Identifiers are bounded, whitespace-free, and drawn from a narrow charset. A
 // value whose strings all pass `IDENTIFIER_PATTERN` cannot be carrying a message, a path,
 // a name, or a line of code. The other conjunct — every admitted class declares a shape,
@@ -75,7 +75,7 @@ export function isSingleNameIdentifierShaped(component: string): boolean {
  * The chokepoint's ADDRESS validator.
  *
  * `partition` and `key` are written to the record verbatim, so a caller that
- * derived either from participant- or machine-authored input would put prose, a
+ * derived either from user- or machine-authored input would put prose, a
  * path, or a name into durable storage while handing the value check a perfectly
  * ordinary boolean. Validating one half of a record and copying the other half
  * through is not a chokepoint, it is a chokepoint on one field.
@@ -102,7 +102,7 @@ export function validatePersistedAddress(
     if (!isSingleNameIdentifierShaped(value)) {
       return refusePersistence(
         "address-not-identifier-shaped",
-        `the record ${component} is not identifier-shaped (${String(value.length)} chars, ceiling ${String(IDENTIFIER_MAX_LENGTH)}, no path separator). A record address is an identifier; participant- and machine-authored content has no durable home in the renderer.`,
+        `the record ${component} is not identifier-shaped (${String(value.length)} chars, ceiling ${String(IDENTIFIER_MAX_LENGTH)}, no path separator). A record address is an identifier; user- and machine-authored content has no durable home in the renderer.`,
       );
     }
   }

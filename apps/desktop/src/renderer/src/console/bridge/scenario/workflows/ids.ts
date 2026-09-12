@@ -46,7 +46,7 @@ export const WORKFLOWS_SESSION_ID = "019b7a10-0280-75e5-8510-ada11a5a3333";
 export const WORKFLOWS_CHANNEL_ID = "019b7a10-0280-7c41-8510-cf1a11e10001";
 
 /** The person this window is, and the actor on every beat a person caused. */
-export const WORKFLOWS_PARTICIPANT_YOU = "019b7a10-0280-79a4-8110-cca0117a0110";
+export const WORKFLOWS_USER_YOU = "019b7a10-0280-79a4-8110-cca0117a0110";
 
 // Definition ids, shared by the summaries a browser groups, the chains three of them
 // have, and the bodies a detail pane reads. They were local to the definitions table

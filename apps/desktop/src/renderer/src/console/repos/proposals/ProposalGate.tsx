@@ -41,7 +41,7 @@ export interface ProposalGateProps {
    * NOT AN ELIGIBILITY DERIVATION, on `isBlocked`'s terms: it is a fact about this
    * surface's own outstanding request, not a second copy of a daemon rule. The holder
    * refuses a second request whatever this component draws; holding the controls is
-   * what stops a participant issuing one and being told off for it.
+   * what stops a user issuing one and being told off for it.
    */
   readonly inFlightAction?: ProposalAction | undefined;
   /** Open a changed path in the diff pane. Absent where no diff exists for it. */

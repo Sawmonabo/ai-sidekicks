@@ -5,7 +5,7 @@
 // input state is what these cases read. And it reaches a person: the region's accessible
 // name says whether this surface may be typed into, and it distinguishes the two
 // read-only states — somebody else holds the shell, versus there is nowhere to send what
-// you type — because a lease this participant holds over a surface with no output stream
+// you type — because a lease this user holds over a surface with no output stream
 // registered is still read-only, and a name that said otherwise would be a promise the
 // wire has not made.
 //

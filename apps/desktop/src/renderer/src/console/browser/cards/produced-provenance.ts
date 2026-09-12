@@ -14,7 +14,7 @@
 // AND WHY THE WIRE HAS TO ANSWER IT. The artifact-publication event family is typed
 // `{sessionId, artifactId?, runId?, diffArtifactId?, visibility?, state}` plus the
 // relay's additive members, and the artifact manifest carries the producer only as
-// `createdBy` — the publishing PARTICIPANT. Neither names a producing
+// `createdBy` — the publishing USER. Neither names a producing
 // surface, an origin, or a pane, so no fold over the log can tell this session's
 // capture from a repository attachment published beside it, and a fold that admitted
 // every readable beat would list one under "Produced objects". The daemon is the only

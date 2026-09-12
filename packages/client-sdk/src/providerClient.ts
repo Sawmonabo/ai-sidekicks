@@ -212,7 +212,7 @@ export interface DriverClient {
   listModes(): Promise<ListModesResult>;
 
   /**
-   * Trigger a participant-initiated context compaction on one run's live
+   * Trigger a user-initiated context compaction on one run's live
    * binding. Resolves the discriminated `DriverCompactionResult` — NEVER a bare
    * acknowledgment, because both provider mechanisms answer before the work is
    * done and only the typed compaction evidence settles `applied`. Callers MUST

@@ -237,7 +237,7 @@ export class CodexDriver implements Pick<
   constructor(options: CodexDriverOptions) {
     // Selection first: a misconfigured transport fails the driver's
     // CONSTRUCTION, not its first session. A registry that accepted a
-    // websocket arm with no resolver and only discovered it when a participant
+    // websocket arm with no resolver and only discovered it when a user
     // started a run would have reported a healthy driver for the whole
     // interval in between.
     this.#modelCatalogExchange = options.modelCatalogExchange;

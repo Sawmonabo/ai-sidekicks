@@ -5,15 +5,15 @@
 // WHAT THE HISTORY SHOWS IS THIS COMPONENT'S OWN RULE, because no committed document
 // states it: every intervention in order with its terminal state from the six-member
 // `InterventionState`, the `origin` discriminator, the admitting principal on the
-// participant arm, the rejection reason verbatim on a `rejected` row, and the
+// user arm, the rejection reason verbatim on a `rejected` row, and the
 // disposition on a `degraded` rollback.
 //
 // THE HISTORY IS THE RUN'S RECORD, NOT THIS WINDOW'S DISPATCH LOG. Two sources, two
 // lists, and the surface says which is which. The daemon's durable rows arrive
 // through the growth port's run-scoped read — `interventions.origin`, the admitting
-// principal required exactly on the participant arm, the queue item the intervention
+// principal required exactly on the user arm, the queue item the intervention
 // admitted, and the decrypted directive where the key still opens it — so an
-// intervention raised by another participant, by the system, or by this participant
+// intervention raised by another user, by the system, or by this user
 // in a previous window appears here. Beside them sit the calls THIS window made,
 // which carry a settlement the durable read does not: the rollback result union and
 // its two never-silent file enumerations.

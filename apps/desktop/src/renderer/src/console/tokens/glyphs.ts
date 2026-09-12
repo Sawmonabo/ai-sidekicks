@@ -2,7 +2,7 @@
 // held to.
 //
 // The design language's layout grammar asks for a single-stroke set plus our own
-// signature glyphs for participants, runs, and provenance kinds in the same collection,
+// signature glyphs for users, runs, and provenance kinds in the same collection,
 // and the library rules admit the Tabler set through `unplugin-icons` at build time.
 // Both halves of that pairing now ship: a name is drawn either by a Tabler face or by
 // one of our own SVGs, and `primitives/figures/glyph-faces.ts` is where each name's

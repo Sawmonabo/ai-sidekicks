@@ -1,4 +1,4 @@
-// When an upload lets go of the participant's bytes, and when it may not.
+// When an upload lets go of the user's bytes, and when it may not.
 //
 // A `Blob` is a handle rather than a copy, but it is a KEEP: the browser holds the file
 // behind it for as long as anything can reach it. The carrier held one per attachment
@@ -65,7 +65,7 @@ describe("attachment payload release — a finished upload lets the bytes go", (
     expect(entry?.derived?.normalizedName).toBe("notes-1.md");
   });
 
-  it("releases the payload when a participant stops sending", async () => {
+  it("releases the payload when a user stops sending", async () => {
     // Abandonment is terminal in the other direction: the daemon's reaper claims the
     // spool and no artifact is minted, so nothing here will ever send these bytes
     // either. Holding them would keep a file alive for an upload somebody cancelled.

@@ -44,7 +44,7 @@ const AXIS_POPOVER_SIDE_OFFSET = 6;
  * What stands in the form's place while its chunk is in flight.
  *
  * The `not-loaded` kind and not `not-checked`: the read behind this surface is armed
- * and the participant's press has been taken — what is missing is the code, which is
+ * and the user's press has been taken — what is missing is the code, which is
  * a different absence from a question nobody asked (rule 8's five kinds).
  *
  * Declared at module level so the identity handed to the constructor is stable, and
@@ -63,7 +63,7 @@ export function TargetAxisPopover(props: TargetAxisPopoverProps): React.JSX.Elem
   // Constructed once and kept, per `apps/desktop/AGENTS.md`: the `lazy()` form inside
   // is what React reconciles the body by, so a second one built on a later render is a
   // second component type and the open form would be unmounted and rebuilt underneath
-  // the participant mid-edit.
+  // the user mid-edit.
   const [loadedBody] = useState(
     () =>
       new LoadedLazyBody<ProviderSwitchBodyContext>(loadProviderSwitchBody, renderPendingAxisForm),

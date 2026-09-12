@@ -27,7 +27,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SessionStore } from "../../store/index.js";
-import { participantHueTokenName, tokenReference } from "../../tokens/index.js";
+import { actorHueTokenName, tokenReference } from "../../tokens/index.js";
 import { registerTimelineRowRenderer } from "../../seats/index.js";
 // The shared stub rather than a second one: `happy-dom` reports zero for both box
 // readings, and a viewport with no box holds no rows — a case that stubbed only the
@@ -96,7 +96,7 @@ describe("TimelinePane — what it hands the chrome", () => {
   });
 
   it("hands over the hue the deck attributed the pane to, untouched", () => {
-    const actorHue = tokenReference(participantHueTokenName(3));
+    const actorHue = tokenReference(actorHueTokenName(3));
     const pane = renderPane({ context: paneContext({ focusHue: actorHue }) });
     expect(pane.style.getPropertyValue("--meridian-pane-hue")).toBe(actorHue);
   });
@@ -161,7 +161,7 @@ describe("TimelinePane — the row slot", () => {
   it("negative control: the same store with no events shows the empty session", () => {
     registerTimelineRowRenderer("timeline-pane-test", () => null);
     const sessionStore = new SessionStore({ sessionId: TIMELINE_PANE_SESSION_ID });
-    sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
+    sessionStore.initialise({ cursor: -1, entities: [], userJoinLog: [] });
     const pane = renderPane({
       context: paneContext({ sessionStore } as Partial<TimelinePaneContext>),
     });

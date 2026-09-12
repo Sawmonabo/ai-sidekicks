@@ -12,7 +12,7 @@
  * UUID hex text is case-INSENSITIVE (RFC 9562 section 4): `0197F00D-…` and
  * `0197f00d-…` denote the SAME logical UUID. The canonical text
  * representation is lowercase. The branded-UUID schemas in this package
- * (`SessionIdSchema`, `ParticipantIdSchema`, … — all `brandedUuidIdSchema`)
+ * (`SessionIdSchema`, `UserIdSchema`, … — all `brandedUuidIdSchema`)
  * accept an uppercase or mixed-case UUID unchanged, and perform no
  * normalization of their own. That acceptance is **uniform across every
  * alternative of the accept set** — the ordinary version-1–8 forms, the Nil
@@ -37,7 +37,7 @@
  * more spelling of the sentinel now reaches these boundaries.
  *
  * The generic preserves the caller's brand: `SessionId -> SessionId`,
- * `ParticipantId -> ParticipantId`, plain `string -> string`. The `as T` cast
+ * `UserId -> UserId`, plain `string -> string`. The `as T` cast
  * is the single contained unsoundness — `String.prototype.toLowerCase()`
  * returns an unbranded `string`, and lowercasing cannot change which logical
  * id the value denotes, so re-stamping the caller's brand is sound in

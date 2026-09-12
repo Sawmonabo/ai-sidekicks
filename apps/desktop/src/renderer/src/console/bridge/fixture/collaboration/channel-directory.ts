@@ -16,19 +16,16 @@
 // this session's log actually said about this channel — and the scripted reply is its
 // opening term rather than its whole answer.
 //
-// AND THE PARTICIPANT COUNT COMES FROM THE ACT, BECAUSE THE LOG CANNOT CARRY IT.
+// AND THE USER COUNT COMES FROM THE ACT, BECAUSE THE LOG CANNOT CARRY IT.
 // `channel.created` is registered as exactly `{channelId, name?}`, so a walk over the log
 // establishes that a channel exists and can fill in no count for it, while
-// `ChannelListResponseChannel.participantCount` is required. So the lifecycle records what
+// `ChannelListResponseChannel.userCount` is required. So the lifecycle records what
 // its own create put there and hands it here; a creation this fixture did not perform — an
 // authored beat — takes the same figure, which is the one person driving this runtime.
 
 import type { ChannelState, SessionEventType } from "@ai-sidekicks/contracts";
 
-import {
-  CHANNEL_CREATED_EVENT_KIND,
-  CREATED_CHANNEL_PARTICIPANT_COUNT,
-} from "./channel-lifecycle.js";
+import { CHANNEL_CREATED_EVENT_KIND, CREATED_CHANNEL_USER_COUNT } from "./channel-lifecycle.js";
 import {
   isWireRecord,
   payloadContradictsSession,
@@ -126,7 +123,7 @@ interface DeliveredChannelCreation {
    * The act's own answer where this fixture performed the create, and the same figure for
    * a creation that arrived as an authored beat, which carries no count at all.
    */
-  readonly participantCount: number;
+  readonly userCount: number;
 }
 
 /** What the delivered log says about this session's channels. */
@@ -178,7 +175,7 @@ function deliveredChannelDirectory(engine: ScenarioEngine): DeliveredChannelDire
       creationByChannelId.set(channelId, {
         channelId,
         name: readWireString(payload["name"]),
-        participantCount: CREATED_CHANNEL_PARTICIPANT_COUNT,
+        userCount: CREATED_CHANNEL_USER_COUNT,
       });
     }
   }
@@ -186,7 +183,7 @@ function deliveredChannelDirectory(engine: ScenarioEngine): DeliveredChannelDire
 }
 
 /**
- * One created channel as a directory row: `{id, name?, state, participantCount}`.
+ * One created channel as a directory row: `{id, name?, state, userCount}`.
  *
  * The STATE comes from the walk rather than from the creation, so a channel created and
  * then moved reads where it ended up. The fallback is the state a creation announces —
@@ -203,7 +200,7 @@ function createdDirectoryRow(
     state:
       stateByChannelId.get(creation.channelId) ??
       CHANNEL_STATE_BY_LIFECYCLE_KIND[CHANNEL_CREATED_EVENT_KIND],
-    participantCount: creation.participantCount,
+    userCount: creation.userCount,
   };
 }
 

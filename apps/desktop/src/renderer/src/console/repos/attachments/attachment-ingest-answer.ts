@@ -34,10 +34,10 @@ export interface PortAnswer<TValue> {
  * THE ONE DOOR EVERY INGEST AWAIT GOES THROUGH, because all of them can fail in a way
  * {@link PortAnswer} cannot express: the three protocol calls ask a bridge whose
  * namespace disappears on an IPC disconnect, and the payload read reads a `Blob` whose
- * backing file the participant may have moved. Both arrive as a throw and both mean the
+ * backing file the user may have moved. Both arrive as a throw and both mean the
  * same thing to the entry — this leg did not happen — so both become the unavailable
  * answer the ledger's refusal write already knows how to record, and the retry the
- * disposition offers is the participant's.
+ * disposition offers is the user's.
  *
  * THROUGH THE REPOS FAMILY'S NORMALIZER RATHER THAN A SECOND ONE, on the artifact
  * pane's reason one directory over: `repo-reads.ts` owns turning a rejection into this

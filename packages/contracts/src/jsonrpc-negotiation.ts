@@ -2,7 +2,7 @@
 // wire envelopes.
 //
 // This file owns the CROSS-PACKAGE wire shape every protocol-negotiation
-// participant agrees on. The runtime IMPLEMENTATION (the registry registration,
+// user agrees on. The runtime IMPLEMENTATION (the registry registration,
 // per-connection state machine, and mutating-op gate) lives in
 // `packages/runtime-daemon/src/ipc/protocol-negotiation.ts` (sibling).
 //

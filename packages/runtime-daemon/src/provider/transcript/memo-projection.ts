@@ -54,7 +54,7 @@
 // absence read after the caller's own bounded settlement barrier resolved.
 // Absent both, the ambiguity is reported and NOTHING further is sent — as when
 // the target cannot be read at all. The operation settles on what did land: a
-// duplicated memo corrupts the conversation the participant is watching, while a
+// duplicated memo corrupts the conversation the user is watching, while a
 // missing one only degrades it, visibly. Rollback-then-retry is not merely
 // discouraged here but unrepresentable, there being no claim to roll back.
 //
@@ -425,7 +425,7 @@ function readMemoContinuityRecord(record: string): MemoContinuityRecordReading {
  * itself attempted against this target, plus the one it is delivering now.
  *
  * The ADMISSION question. Attribution-scoped rather than any-key because
- * marker text is plain prose: a participant can paste a foreign
+ * marker text is plain prose: a user can paste a foreign
  * conversation's marker — or quote one — into the target, and an any-key
  * admission read that quotation as a delivery and settled `already-delivered`
  * over a target holding no memo at all, which is the false yes the asymmetry
@@ -434,7 +434,7 @@ function readMemoContinuityRecord(record: string): MemoContinuityRecordReading {
  * current key alone — the projection grows between deliveries and a grown
  * projection derives a NEW key, so the earlier keys this coordinator
  * attempted must keep suppressing a second summary into the one conversation
- * the participant is watching — and it includes the current key even before
+ * the user is watching — and it includes the current key even before
  * any attempt, so a predecessor lifetime's delivery of THIS memo still
  * suppresses (forging that occurrence takes the exact digest of this memo for
  * this target, not any well-shaped hex run). Reads the shared grammar rather
@@ -621,7 +621,7 @@ export function deriveMemoIdentityKey(
  * approximation, which is enough for a budget expressed as a fraction and is
  * stable across processes (a memo that rendered differently on two daemons would
  * not itself break once-only delivery — the key is derived before the render —
- * but it would make two participants reading one conversation see two summaries).
+ * but it would make two users reading one conversation see two summaries).
  */
 export type MemoTokenEstimator = (text: string) => number;
 
@@ -668,7 +668,7 @@ export function defaultMemoBudgetPolicy(contextWindowTokens: number): MemoBudget
  * tool-call identifier appearing anywhere in the transcript, take the first and
  * last turn indices it appears at; a cut before turn `k` is admissible only when
  * no identifier's span straddles it. That is what makes "a call and its result
- * travel together" structural — including the case where a participant turn sits
+ * travel together" structural — including the case where a user turn sits
  * BETWEEN a call and its result, which a turn-role partition would happily split.
  */
 export interface TranscriptExchange {
@@ -834,7 +834,7 @@ function renderSegment(segment: CanonicalTranscriptSegment): string | undefined 
 }
 
 function renderTurn(turn: CanonicalTranscriptTurn): string {
-  const speaker: string = turn.role === "participant" ? "Participant" : "Assistant";
+  const speaker: string = turn.role === "user" ? "User" : "Assistant";
   const renderedSegments: string[] = [];
   for (const segment of turn.segments) {
     const rendered: string | undefined = renderSegment(segment);
@@ -1098,7 +1098,7 @@ function orderDeclaredLosses(losses: readonly DeclaredLossKind[]): readonly Decl
  * The frame handed to the gateway. Provider-neutral: the driver owns encoding.
  *
  * The memo's prose rides the NOMINAL outbound text frame rather than a raw
- * string. A memo opens with prose the participant never typed, and the same
+ * string. A memo opens with prose the user never typed, and the same
  * boundary that decides whether provider-bound bytes are command-shaped also
  * mints the correlation value the tripwire joins a turn back to; a gateway taking
  * a bare string lets an implementation write bytes that passed through neither,
@@ -1106,7 +1106,7 @@ function orderDeclaredLosses(losses: readonly DeclaredLossKind[]): readonly Decl
  * makes composing it the only way to reach the gateway at all.
  *
  * Minted `system_narration`: the memo is the daemon's own narration of a prior
- * conversation, which is neither the participant's text nor a driver command.
+ * conversation, which is neither the user's text nor a driver command.
  */
 export interface MemoOutboundFrame {
   readonly targetProviderSessionId: string;
@@ -1149,7 +1149,7 @@ export interface MemoTargetGateway {
    * marker that has scrolled out of the answered window reads exactly like a
    * memo that was never delivered, so a retry — or the first call after a
    * restart, which has no register to consult — sends a second memo into a
-   * conversation the participant is watching. The guarantee would then hold for
+   * conversation the user is watching. The guarantee would then hold for
    * as long as the window, and silently expire with it.
    *
    * Rejecting means the target could not be read — which is a settlement, never
@@ -1263,7 +1263,7 @@ export type MemoWithheldReason = "target-unreadable" | "send-refused";
  * settlement resting on this call's own send describes prose this call rendered.
  * A settlement resting on a marker READ off the target describes a memo some
  * earlier moment rendered — possibly under a tighter budget, dropping more — and
- * reporting this render's list there would tell the participant the target holds
+ * reporting this render's list there would tell the user the target holds
  * a summary it does not hold.
  *
  * `unknown` is the fail-closed arm: the delivered memo's record could not be read
@@ -1278,7 +1278,7 @@ export interface MemoDeliverySettlement {
    * A literal, not a union: every operation settled on this floor reports
    * `degraded`. There is no code path here that can report `applied`, which is
    * the point — a floor that could render as a full replay would let the
-   * participant believe the model can see a conversation it cannot.
+   * user believe the model can see a conversation it cannot.
    */
   readonly status: "degraded";
   readonly disposition: MemoDeliveryDisposition;
@@ -1541,7 +1541,7 @@ export class MemoDeliveryCoordinator {
     } catch {
       // The target cannot be read, so whether it already holds this memo is
       // unknowable. Nothing is sent: a duplicate corrupts the conversation the
-      // participant is watching, a missing memo only degrades it, visibly. Where
+      // user is watching, a missing memo only degrades it, visibly. Where
       // a send is already outstanding the honest arm is the ambiguous one —
       // calling that withheld would assert non-delivery nobody established.
       return priorSendUnconfirmed
@@ -1727,7 +1727,7 @@ function thisDeliveryLosses(rendering: MemoRendering): MemoDeclaredLossRecord {
  * could not read was written by some other rendering, and nothing about that
  * rendering is knowable from a token run this parser rejected. Any of them
  * takes the conservative arm. Conservative on purpose and not merely defensive
- * — understating it would let a participant believe a summary carries reasoning
+ * — understating it would let a user believe a summary carries reasoning
  * or exchanges it may not.
  *
  * The conservative arm declares the whole CLOSED VOCABULARY rather than the
@@ -1764,7 +1764,7 @@ function deliveredMemoLosses(
  * driver-boundary result.
  *
  * Carries the settlement so the caller can still disclose what happened — a
- * failure to reconstitute is exactly the moment the participant most needs to
+ * failure to reconstitute is exactly the moment the user most needs to
  * be told which summary did not land, and why.
  */
 export class MemoDeliveryNotEstablishedError extends Error {
@@ -1931,7 +1931,7 @@ export class TranscriptReconstitutionRouter {
     }
     // Returned for EVERY disposition, the unlanded ones included. This method is
     // the reporting seam, and a withheld or unconfirmed delivery is a report the
-    // participant is owed rather than an exception that erases it. The caller
+    // user is owed rather than an exception that erases it. The caller
     // that owes its own boundary a `DriverTranscriptReplayResult` asks
     // `memoSettlementAsReplayResult` for one and takes the throw when the memo
     // established nothing; the caller that owes a disclosure renders this value.
@@ -1941,7 +1941,7 @@ export class TranscriptReconstitutionRouter {
 }
 
 // --------------------------------------------------------------------------
-// Participant-facing disclosure
+// User-facing disclosure
 // --------------------------------------------------------------------------
 
 /**
@@ -1952,7 +1952,7 @@ export class TranscriptReconstitutionRouter {
  * applied replay and a memo settlement CANNOT produce the same sentence, and a
  * memo that reached the target cannot produce the same sentence as one that did
  * not. A degraded settlement that read like an applied one would take from the
- * participant the one thing they are entitled to — knowing that the conversation
+ * user the one thing they are entitled to — knowing that the conversation
  * the model can see is a summary.
  */
 export function renderReconstitutionDisclosure(settlement: ReconstitutionSettlement): string {
@@ -1972,7 +1972,7 @@ export function renderReconstitutionDisclosure(settlement: ReconstitutionSettlem
     // when the declared-loss list is empty. An applied replay may legitimately
     // carry losses — private reasoning stripped, a body this fold could not
     // read — and saying "in full" beside a parenthesized list of what was
-    // dropped tells the participant two contradictory things in one sentence.
+    // dropped tells the user two contradictory things in one sentence.
     return settlement.result.declaredLosses.length === 0
       ? `The prior conversation was replayed into the new session in full (${losses}).`
       : `The prior conversation was replayed into the new session, apart from what could not be carried across (${losses}).`;

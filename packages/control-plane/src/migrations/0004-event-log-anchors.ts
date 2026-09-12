@@ -1,4 +1,4 @@
-// Fourth Collaboration Control Plane Postgres migration (inlined SQL).
+// Fourth Control Plane Postgres migration (inlined SQL).
 // Adds the `event_log_anchors` table.
 //
 // SQL is inlined as a TypeScript string constant rather than loaded from a

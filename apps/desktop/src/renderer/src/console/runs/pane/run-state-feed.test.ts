@@ -55,7 +55,7 @@ describe("an empty read completes", () => {
     // The state the old rule could not reach: `hasRead` true with an empty list, so
     // a session that has never run anything can say so instead of reading forever.
     const opened = await openStateFeed(SESSION_ID, (store) => {
-      store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+      store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
     });
     expect(opened.feed.hasRead).toBe(true);
     expect(opened.feed.runs).toHaveLength(0);
@@ -66,7 +66,7 @@ describe("an empty read completes", () => {
       store.initialise({
         cursor: 3,
         entities: [{ kind: "run", id: RUN_ID, state: "running" }],
-        participantJoinLog: [],
+        userJoinLog: [],
       });
     });
     expect(opened.feed.hasRead).toBe(true);
@@ -127,7 +127,7 @@ describe("a stream that cannot be opened is a refusal, not a crash", () => {
 
   it("still reports the read from the store rather than inventing one", async () => {
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-    sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
     const readFeed = await mountStateFeed(unopenableBridge(TIER_ONE_STUB_REFUSAL), sessionStore);
     expect(readFeed().hasRead).toBe(true);
     expect(readFeed().openRefusal?.code).toBe("bridge.not_wired");

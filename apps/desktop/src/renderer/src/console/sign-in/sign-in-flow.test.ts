@@ -1,6 +1,6 @@
 // The sign-in flow's four rules, each of which is a shape it must never take.
 //
-//   1. A CANCELLATION IS TERMINAL. A participant who dismissed the platform dialog
+//   1. A CANCELLATION IS TERMINAL. A user who dismissed the platform dialog
 //      has answered the question, and the answer is no — so the refused arm must not
 //      fall through to the Device Authorization Grant, which would present a browser
 //      sign-in to somebody who just declined to sign in.
@@ -15,14 +15,14 @@
 //      for a grant this window never obtained.
 //   5. AN ENROLMENT THAT ADDS NOTHING REVOKES NOTHING. Enrolling a second
 //      authenticator is an act performed FROM a session, not a second way into one,
-//      so a prompt the participant dismissed leaves that session exactly as it was
+//      so a prompt the user dismissed leaves that session exactly as it was
 //      and the refusal is carried beside it. A flow that settled the generic refused
-//      arm here signed the participant out for cancelling an optional extra — and
+//      arm here signed the user out for cancelling an optional extra — and
 //      dismissing that refusal then walked them to the signed-out card.
 
 import { describe, expect, it } from "vitest";
 
-import type { ParticipantId } from "@ai-sidekicks/contracts";
+import type { UserId } from "@ai-sidekicks/contracts";
 
 import { SignInFlow, stateFromOutcome } from "./sign-in-flow.js";
 import type { SignInCeremony } from "./ceremony-adapter.js";
@@ -31,11 +31,11 @@ import type { WebAuthnCeremonyOutcome } from "../bridge/index.js";
 const HANDOFF = { verificationUri: "http://127.0.0.1:8419/callback", userCode: "JQPD-4KTM" };
 
 /**
- * Who the relying party said signed in. One participant across every case here,
+ * Who the relying party said signed in. One user across every case here,
  * because what these cases are about is the flow's ordering rather than the identity
  * — and a second id would only make the assertions harder to read.
  */
-const CLAIMS = { participantId: "019b78c9-0a80-79a4-8110-cca0117a3301" as ParticipantId };
+const CLAIMS = { userId: "019b78c9-0a80-79a4-8110-cca0117a3301" as UserId };
 
 /**
  * A ceremony that answers whatever the test scripted, in order.
@@ -111,8 +111,8 @@ describe("what one outcome settles into", () => {
 });
 
 describe("the session names who is in it", () => {
-  it("carries the ceremony's participant claims onto the signed-in state", async () => {
-    // The ceremony resolves with the success signal and the participant identity claims and
+  it("carries the ceremony's user claims onto the signed-in state", async () => {
+    // The ceremony resolves with the success signal and the user identity claims and
     // nothing else, so this state is the only place that fact reaches a surface. Without it
     // the card can say a sign-in happened and never whose — a receipt with no subject.
     const { flow } = flowOver([{ kind: "authenticated", custody: "durable", claims: CLAIMS }]);
@@ -217,7 +217,7 @@ describe("an enrolment that adds nothing revokes nothing", () => {
       enrolmentRefusal: { kind: "refused", reason: "cancelled" },
     });
 
-    // And dismissing it clears the refusal rather than the session: the participant
+    // And dismissing it clears the refusal rather than the session: the user
     // is asking to see the control again, which is what rule 9's dismissal means
     // everywhere else in this family.
     flow.dismissRefusal();
@@ -242,7 +242,7 @@ describe("an enrolment that adds nothing revokes nothing", () => {
     });
   });
 
-  it("does not hand a signed-in participant to the browser grant", async () => {
+  it("does not hand a signed-in user to the browser grant", async () => {
     // The Device Authorization Grant is the way IN for a host with no usable
     // authenticator. Reaching it from an enrolment would offer a browser sign-in to
     // somebody already signed in, so the probe result is carried as a refusal and

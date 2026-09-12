@@ -26,8 +26,8 @@ const SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a99a9";
 /** The daemon's opaque row id for the event under test. */
 const EVENT_ID = "019b79ee-0280-7ea1-8110-e5e0d1159901";
 
-/** The participant a participant-attributed envelope names. */
-const PARTICIPANT_ID = "019b79ee-0280-79a4-8110-cca0117a0110";
+/** The user a user-attributed envelope names. */
+const USER_ID = "019b79ee-0280-79a4-8110-cca0117a0110";
 
 const OCCURRED_AT = "2026-01-01T14:20:00.500Z";
 
@@ -92,7 +92,7 @@ function registeredEnvelope(
 
 describe("readConsoleSessionEvent — the registered envelope", () => {
   it("decodes a wire envelope into the console's event, carrying its type as the kind", () => {
-    const decoded = readConsoleSessionEvent(registeredEnvelope({ actor: PARTICIPANT_ID }));
+    const decoded = readConsoleSessionEvent(registeredEnvelope({ actor: USER_ID }));
 
     expect(decoded).toStrictEqual({
       id: EVENT_ID,
@@ -100,7 +100,7 @@ describe("readConsoleSessionEvent — the registered envelope", () => {
       sequence: 7,
       kind: "run.running",
       occurredAt: OCCURRED_AT,
-      actorId: PARTICIPANT_ID,
+      actorId: USER_ID,
       payload: { runId: SESSION_ID, newState: "running" },
     });
   });
@@ -109,7 +109,7 @@ describe("readConsoleSessionEvent — the registered envelope", () => {
     // `actor: null` is the wire's system arm — the canonical set's only nullable
     // member. It has to reach the console as an ABSENCE and not as the string
     // "null" or an empty id, because the store admits every actor it is handed to
-    // the participant hue allocator.
+    // the user hue allocator.
     const decoded = readConsoleSessionEvent(registeredEnvelope({ actor: null }));
 
     expect(decoded?.actorId).toBeUndefined();
@@ -192,7 +192,7 @@ describe("readConsoleSessionEvent — what it refuses", () => {
       sequence: 7,
       kind: "run.running",
       occurredAt: OCCURRED_AT,
-      actorId: PARTICIPANT_ID,
+      actorId: USER_ID,
       payload: {},
     });
 

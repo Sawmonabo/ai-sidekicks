@@ -33,7 +33,7 @@ const ADMITTED_BYTES = 1_000;
  * handed — and only one of the two is reachable in the shipped console today, which is
  * exactly why the other has to be pinned here: the affordance renders the shipped
  * default on every build, so a suite that only drove the effective arm would leave the
- * arm a participant actually meets undrawn.
+ * arm a user actually meets undrawn.
  */
 const EFFECTIVE_BOUNDS: AttachmentAllowlistReading = {
   source: "effective",

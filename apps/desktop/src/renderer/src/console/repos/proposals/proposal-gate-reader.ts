@@ -10,12 +10,12 @@
 // THE ACTS ARE NEXT DOOR, AND THIS CLASS IS THEIR HOST. `requestAction` delegates to
 // `ProposalGateActions`, which is handed the seven operations `ProposalGateActionHost`
 // names and nothing else: the standing reading, the served context, the caller's own
-// participant id, the publish, the two writes to the held proposal, and the refresh an
+// user id, the publish, the two writes to the held proposal, and the refresh an
 // accepted act asks for. So an act cannot start a read and this class cannot decide
 // what an act sends.
 //
-// THE CALLER-IDENTITY READ IS `caller-participant-attribution.ts`, HELD HERE. An act carries
-// the participant who pressed it as the registered request's `causationParticipantId`,
+// THE CALLER-IDENTITY READ IS `caller-user-attribution.ts`, HELD HERE. An act carries
+// the user who pressed it as the registered request's `causationUserId`,
 // which is a read — but a lazy, unscheduled, unpublished one, so it is that module's and
 // this class holds one of them and hands its answer through the act seam.
 //
@@ -78,7 +78,7 @@
 // sentence the producing side wrote.
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { CallerParticipantAttribution } from "./caller-participant-attribution.js";
+import { CallerUserAttribution } from "./caller-user-attribution.js";
 import { Emitter, refuse, type ConsoleClock, type Unsubscribe } from "../../core/index.js";
 import {
   RefreshScheduler,
@@ -154,7 +154,7 @@ export class ProposalGateReader implements ReadTriggerTarget {
   readonly #scheduler: RefreshScheduler;
   readonly #triggers: SessionRefreshTriggers;
   readonly #actions: ProposalGateActions;
-  readonly #callerParticipant: CallerParticipantAttribution;
+  readonly #callerUser: CallerUserAttribution;
   readonly #changes = new Emitter<ProposalGateReading>("proposal gate reading");
 
   #reading: ProposalGateReading = NOTHING_ASKED_GATE_READING;
@@ -211,7 +211,7 @@ export class ProposalGateReader implements ReadTriggerTarget {
       target: this,
       sessionStore: options.sessionStore,
     });
-    this.#callerParticipant = new CallerParticipantAttribution({
+    this.#callerUser = new CallerUserAttribution({
       bridge: options.bridge,
       sessionId: options.sessionStore.sessionId,
     });
@@ -340,7 +340,7 @@ export class ProposalGateReader implements ReadTriggerTarget {
     return {
       currentReading: () => this.#reading,
       servedContext: () => this.#context,
-      callerParticipantId: async () => await this.#callerParticipant.read(),
+      callerUserId: async () => await this.#callerUser.read(),
       publish: (reading: ProposalGateReading) => {
         this.#publish(reading);
       },

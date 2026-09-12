@@ -67,7 +67,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
 
       // The sessions destination has an owner — the frame's own all-sessions
       // surface, which creates nothing on mount and builds the absorbed
-      // session-bootstrap probe only when a participant presses "Start a
+      // session-bootstrap probe only when a user presses "Start a
       // session". The claim is that the OWNER rendered and the frame's
       // reserved-slot arm did not fire: the owner's section is present and the
       // frame's composed absence wrapper is not.

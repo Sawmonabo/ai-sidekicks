@@ -41,7 +41,7 @@
  * Every attention trigger, transcribed from the registered `AttentionItem` union.
  *
  * The attention plane states the minimum set — pending approval or
- * participant input, run completion, run failure, invite receipt, mention or direct
+ * user input, run completion, run failure, invite receipt, mention or direct
  * request — and the registered union fixes their spellings. Closed and declared
  * once: a seventh trigger is an amendment to the owning document, never a string a
  * console module invents.

@@ -1,5 +1,5 @@
 // What ties one emulator to one host element: the box it is measured against, and
-// whether this participant may type into it.
+// whether this user may type into it.
 //
 // Its own module rather than a section inside `xterm-adapter.ts`, because the two
 // answer different questions: the adapter owns the emulator's LIFE — built once,
@@ -16,7 +16,7 @@
 // send.
 //
 // THE GATE IS A CONJUNCTION, AND THE SECOND HALF IS THIS OBJECT'S. The lease says
-// whether this participant may write; the host says whether there is a surface to
+// whether this user may write; the host says whether there is a surface to
 // write into. An emulator that has been taken off screen has neither a box a person
 // can click nor a size to be measured against, and the write state belongs to the
 // TIE rather than to the emulator — so a detached binding reports the shut gate and
@@ -42,9 +42,9 @@ import type { Unsubscribe } from "../../core/index.js";
 import { observeElementResize } from "../../primitives/index.js";
 
 export interface TerminalHostBindingOptions {
-  /** Whether the lease already says this participant may type. Absent is watch mode. */
+  /** Whether the lease already says this user may type. Absent is watch mode. */
   readonly isWriteEnabled?: boolean | undefined;
-  /** Where a participant's keystrokes go. Absent means this surface never writes. */
+  /** Where a user's keystrokes go. Absent means this surface never writes. */
   readonly onKeystroke?: ((data: string) => void) | undefined;
   /**
    * What a change in the host's box re-enters.

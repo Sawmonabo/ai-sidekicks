@@ -9,7 +9,7 @@
 //
 // Both statements below are transcribed from the canonical `session_events` and
 // `session_content_keys` blocks — the same convention
-// `0007-pii-participant-id.ts` states, and the same direction of authority: the
+// `0007-pii-user-id.ts` states, and the same direction of authority: the
 // schema doc defines the column and the table, this file applies them. Change
 // the doc first, then mirror it here.
 //
@@ -30,15 +30,15 @@
 // (2) `session_content_keys` — the wrapped home of the per-session content
 //     DEK. Created rather than derived: a key derived from the daemon master
 //     key would be destroyed by the rotate-on-shred that generates a fresh
-//     master on any participant's erasure, and every existing body on the
+//     master on any user's erasure, and every existing body on the
 //     daemon would become permanently unreadable the first time an unrelated
-//     participant exercised erasure. A stored key is re-wrappable, so rotation
+//     user exercised erasure. A stored key is re-wrappable, so rotation
 //     moves only its envelope.
 //
 // Deliberately NOT constrained beyond BLOB/nullable on the column:
 //
-//   * No NOT NULL — most rows carry no prose at all (every lifecycle,
-//     membership, and telemetry row), so NULL is the common case.
+//   * No NOT NULL — most rows carry no prose at all (every lifecycle and
+//     telemetry row), so NULL is the common case.
 //   * No CHECK tying it to the payload's `contentCiphertextDigest`. The pairing
 //     is a WRITE-PATH invariant the sole sealing codec enforces (it populates
 //     this column from the same result that produced the digest, in the same
@@ -78,10 +78,10 @@ export const CONTENT_PAYLOAD_MIGRATION_SQL: string = `
 ALTER TABLE session_events ADD COLUMN content_payload BLOB;
 
 -- The wrapped home of the key that seals every content_payload in one session
--- — deliberately a mirror of participant_keys rather than a new custody idea,
+-- — deliberately a mirror of user_keys rather than a new custody idea,
 -- so the machinery that already re-wraps that table covers this one. Keyed by
 -- session, because the body is session work product co-owned by every member
--- and has no participant to key on. The row is created lazily on the session's
+-- and has no user to key on. The row is created lazily on the session's
 -- first content-bearing append, so a session that never runs an agent stores
 -- no key.
 CREATE TABLE session_content_keys (

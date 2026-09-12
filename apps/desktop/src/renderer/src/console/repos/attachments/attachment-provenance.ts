@@ -49,7 +49,7 @@ export interface AttachmentMediaTypeReading {
  *
  * WHERE BOTH EXIST AND DIFFER, THE DERIVED ONE LEADS AND THE DECLARATION SURVIVES
  * BESIDE IT. The derived type is the authority — `AttachmentCard.tsx`'s own rule that
- * derived truth REPLACES the declaration — but a disagreement is a fact a participant
+ * derived truth REPLACES the declaration — but a disagreement is a fact a user
  * acts on, and dropping the declaration would hide that their client claimed something
  * else.
  */

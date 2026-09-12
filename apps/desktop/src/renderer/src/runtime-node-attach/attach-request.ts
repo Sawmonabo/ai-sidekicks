@@ -23,7 +23,7 @@ import { wireRejectionToError } from "../../../shared/wire-errors.js";
 // `RUNTIME_NODE_ATTACH_PROCEDURE` — the REGISTERED runtime-node attach
 // mutation (request `RuntimeNodeAttachRequest`, response
 // `RuntimeNodeAttachResponse`). Hardcoded as a local `const` per the shipped
-// renderer idiom (NodeRoster's `ROSTER_READ_PROCEDURE`, participant-roster's
+// renderer idiom (NodeRoster's `ROSTER_READ_PROCEDURE`, user-roster's
 // `PRESENCE_READ_METHOD`): the bridge surface is generic, so the registered
 // name is the single greppable coupling point the IPC wiring binds. The name
 // lives in the `runtimenode.*` METHOD namespace — deliberately separator-free,

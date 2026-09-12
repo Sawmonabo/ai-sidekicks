@@ -15,7 +15,7 @@
 //
 // AND THE ROSTER ROW IS THE SECOND CONJUNCT, because the form the popover mounts is a
 // difference FROM a binding. Without the row there is no binding to differ from, and
-// an axis surface composed over an absent one would be offering the participant a
+// an axis surface composed over an absent one would be offering the user a
 // change to values nobody has read.
 //
 // WHICH IS WHY THE WHOLE READING COMES IN AND NOT JUST ITS ROW. The row is absent in
@@ -138,7 +138,7 @@ export function failedSwitchOf(
  * failure, a permission refusal, or the latch's own arm. Both belong on the chip for
  * the same reason: the refusal reaches only the popover's form, which is portalled and
  * carries no `keepMounted`, so base-ui unmounts it on an outside click or Escape. A
- * participant who pressed Apply and clicked back into the message line to keep typing
+ * user who pressed Apply and clicked back into the message line to keep typing
  * was then told nothing at all — the one outcome a mutation surface may not have.
  */
 export function switchRefusalOf(axes: TargetAxisReach | undefined): ConsoleRefusal | undefined {

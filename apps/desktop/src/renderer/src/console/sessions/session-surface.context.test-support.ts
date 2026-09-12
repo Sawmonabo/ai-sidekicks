@@ -32,10 +32,10 @@ export function storeHolding(options: {
   readonly sessionId: string;
   /** Wire-verbatim, so a case can order two sessions by what the projection says. */
   readonly touchedAtIso?: string;
-  /** Participants the store has seen, in the order it saw them. */
-  readonly participantIds?: readonly string[];
+  /** Users the store has seen, in the order it saw them. */
+  readonly userIds?: readonly string[];
 }): SessionStore {
-  const participantIds = options.participantIds ?? [];
+  const userIds = options.userIds ?? [];
   const store = new SessionStore({ sessionId: options.sessionId });
   store.initialise({
     cursor: 0,
@@ -46,12 +46,12 @@ export function storeHolding(options: {
         state: "active",
         touchedAt: options.touchedAtIso ?? "2026-01-01T10:00:00.000Z",
       },
-      ...participantIds.map((participantId) => ({
-        kind: "participant" as const,
-        id: participantId,
+      ...userIds.map((userId) => ({
+        kind: "user" as const,
+        id: userId,
       })),
     ],
-    participantJoinLog: [...participantIds],
+    userJoinLog: [...userIds],
   });
   return store;
 }

@@ -1,7 +1,7 @@
 // What may stand in the detail sentence, and what may never.
 //
 // `core/refusal.ts` states the rule: a refusal's `detail` is "never the refused value
-// itself, which may be participant content". A rejection off the bridge is `unknown`
+// itself, which may be user content". A rejection off the bridge is `unknown`
 // and its members are request values, repository paths, headers, or a token as easily
 // as they are prose — and the arm that had a code but no readable sentence used to
 // answer by serializing the whole rejection into that field.

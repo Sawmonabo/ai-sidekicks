@@ -5,7 +5,7 @@
 // is only meaningful while what it would send is still what was on screen when it was
 // opened: a refresh that moves the prepared proposal from `ready` to `draft` withdraws
 // the send, and a later proposal that becomes `ready` is a DIFFERENT payload — one the
-// participant has not read the consequence for. Left unstamped, the open confirmation
+// user has not read the consequence for. Left unstamped, the open confirmation
 // simply reappeared over it.
 //
 // A VALUE RATHER THAN A REFERENCE, because every read publishes a fresh proposal

@@ -32,7 +32,7 @@ export type GrowthArtifactType = (typeof GROWTH_ARTIFACT_TYPES)[number];
  *
  * Two, and the distinction is the one the artifact design makes load-bearing:
  * visibility is explicit and `local-only` is a different fact from shared-visible.
- * Partial per-participant redaction is deliberately absent — it is out of V1 scope,
+ * Partial per-user redaction is deliberately absent — it is out of V1 scope,
  * and a third value here would let a surface offer a state nothing serves.
  *
  * THIS VOCABULARY AND THE TWO BELOW IT ARE UNIONS RATHER THAN DERIVATIONS OF A LIST.

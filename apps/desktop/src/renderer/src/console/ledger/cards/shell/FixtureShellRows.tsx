@@ -122,7 +122,7 @@ export function FixtureShellRow(props: TimelineRowSlotProps): React.JSX.Element 
       return (
         <ToolCard
           row={props.row}
-          participantHue={props.participantHue}
+          actorHue={props.actorHue}
           isSuperseded={props.isSuperseded}
           density={density}
           footnotes={footnotes}
@@ -131,13 +131,13 @@ export function FixtureShellRow(props: TimelineRowSlotProps): React.JSX.Element 
           subFamily={{ contract: TOOL_SUB_FAMILY_SLOT, body: undefined }}
         />
       );
-    case "participant-message":
+    case "user-message":
     case "assistant-message":
     case "assistant-reasoning":
       return (
         <MessageCard
           row={props.row}
-          participantHue={props.participantHue}
+          actorHue={props.actorHue}
           isSuperseded={props.isSuperseded}
           density={density}
           footnotes={footnotes}

@@ -4,7 +4,7 @@
 // is a reason rather than a preference: happy-dom returns zeroes from every
 // `getBoundingClientRect`, resolves no custom property through the cascade, and
 // lays nothing out. Under it, "the rail is 56 px wide", "the attribution edge is
-// 2 px", and "the ledger row's hue resolves to the participant's colour" all pass
+// 2 px", and "the ledger row's hue resolves to the user's colour" all pass
 // while measuring nothing at all. Those live here, in real Chromium, where the
 // numbers come from a layout engine.
 //

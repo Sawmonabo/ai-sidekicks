@@ -38,7 +38,7 @@
 //     empty one is a reply no daemon can build. The only way to answer would be to
 //     invent a run, a finished phase and a version nobody published, and a run pane
 //     offers operator controls on whatever it is handed. They take the same "not
-//     checked" refusal `callerParticipantRead` takes for a scenario that names no
+//     checked" refusal `callerUserRead` takes for a scenario that names no
 //     viewer: the question reached nothing that could answer it.
 //
 // EVERY WORKFLOW READ CHECKS WHAT IT WAS ADDRESSED BY BEFORE IT ANSWERS. A scripted

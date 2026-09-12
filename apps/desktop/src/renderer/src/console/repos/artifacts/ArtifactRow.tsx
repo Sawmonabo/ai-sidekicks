@@ -111,7 +111,7 @@ export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
             // register is what holds it — there is no second flag to keep in step. Two
             // reads of one manifest settle in either order, so the second press is a
             // press whose answer could be the staler row; the acts refuse it in words,
-            // and this is what keeps a participant from meeting that refusal by
+            // and this is what keeps a user from meeting that refusal by
             // pressing a control the panel was offering.
             disabled={props.isManifestReadInFlight ?? false}
           >
@@ -128,7 +128,7 @@ export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
             // label names the class this press would move to, which is read off the row
             // the daemon has not answered for yet, so a second press before the first
             // settles would send the class the row is already being moved to. The acts
-            // refuse it in words, and this is what keeps a participant from meeting
+            // refuse it in words, and this is what keeps a user from meeting
             // that refusal by pressing a control the panel was offering.
             disabled={props.isVisibilityUpdateInFlight ?? false}
           >
@@ -171,7 +171,7 @@ export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
 
       {refusal === undefined ? null : (
         // Inline, beside the controls that produced it, and the controls stay: the
-        // act did not happen and the participant may try another one. The daemon's
+        // act did not happen and the user may try another one. The daemon's
         // own sentence renders VERBATIM in the message; what this family adds sits in
         // the `action` slot rule 9 reserves for exactly that — the next move for the
         // code, and, on a blocked delete, the referencing manifests the refusal itself

@@ -71,7 +71,7 @@ function rosterRow(overrides: Partial<AgentRosterEntry> = {}): AgentRosterEntry 
  */
 function composerSessionStore(): SessionStore {
   const store = new SessionStore({ sessionId: COMPOSER_SCENARIO.sessionId });
-  store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+  store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
   return store;
 }
 

@@ -56,7 +56,7 @@ describe("provider switch — the draft follows the binding it is a difference f
     chooseAxisValue(container, "Output speed", "fast");
     editProviderAccount(container, "account-2");
 
-    // The speed landed; the account edit is still the participant's.
+    // The speed landed; the account edit is still the user's.
     rerender(
       withAgent({
         ...ON_ACCOUNT_ONE,
@@ -71,7 +71,7 @@ describe("provider switch — the draft follows the binding it is a difference f
 
   it("negative control: a re-read that changed nothing leaves the draft alone", () => {
     // The roster answers with a fresh object every read, so a draft cleared by
-    // identity rather than by value would lose the participant's work on a refresh
+    // identity rather than by value would lose the user's work on a refresh
     // that moved nothing at all.
     const { container, rerender } = render(withAgent(ON_ACCOUNT_ONE));
     editProviderAccount(container, "account-2");

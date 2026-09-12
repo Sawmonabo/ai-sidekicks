@@ -117,7 +117,7 @@ describe("the cost page — a served receipt", () => {
   it("names the machine itself rather than an empty party", async () => {
     const container = await renderSettledPage(bridgeServing(balancedReceipt()), SESSION_ID);
     const partyText = sectionText(container, "Per party");
-    expect(partyText).toContain("participant-ana");
+    expect(partyText).toContain("user-ana");
     expect(partyText).toContain("the machine itself");
   });
 

@@ -313,7 +313,7 @@ export const TOO_LARGE_CODE = "artifact.too_large";
  * A SECOND LEAD-IN OVER THE SAME THREE BOUNDS, and the tense is the whole difference.
  * The entry above is written for a refusal that has HAPPENED — it opens "Nothing was
  * stored", which is a report — and the carrier's own row states a bound BEFORE a
- * participant spends an upload, against the figure this console ships with rather than
+ * user spends an upload, against the figure this console ships with rather than
  * one the deployment answered. Rendered there, the refusal's own sentence told a person
  * their file had been rejected by a daemon that had not been asked yet. So the lead-in
  * is future and conditional, and the three bounds under it are the entry's own array

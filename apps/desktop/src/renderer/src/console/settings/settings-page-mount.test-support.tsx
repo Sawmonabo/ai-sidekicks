@@ -191,7 +191,7 @@ export function sessionStoreHolding(
   entities: readonly ConsoleEntity[],
 ): SessionStore {
   const sessionStore = new SessionStore({ sessionId });
-  sessionStore.initialise({ cursor: 0, entities, participantJoinLog: [] });
+  sessionStore.initialise({ cursor: 0, entities, userJoinLog: [] });
   return sessionStore;
 }
 

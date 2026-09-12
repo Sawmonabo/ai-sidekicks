@@ -75,7 +75,7 @@ const ABSENT_DIFF_COPY: Readonly<
     detail:
       "Changes belong to a checkout, and a repository can hold several. Nothing resolves this repository to the workspace a diff would be taken over on this build, so none has been requested — and the console is not reporting that this repository is unchanged.",
   },
-  participant: {
+  user: {
     title: "A member's changes are not read here yet.",
     detail:
       "A member's changes span every root they have worked in, and nothing on this build gathers them. Nothing has been requested, so the console is not reporting that this member has changed nothing.",

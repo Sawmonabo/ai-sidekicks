@@ -4,7 +4,7 @@
 // 2.0 messages between the local daemon and its clients (CLI, desktop shell,
 // future SDK consumers). This file owns the CROSS-PACKAGE type surface — the
 // request / response / notification / error envelopes that every wire
-// participant agrees on. It deliberately contains NO Node-specific imports
+// user agrees on. It deliberately contains NO Node-specific imports
 // (no `Buffer`, no `node:*`); the substrate-side framing parser, transport,
 // and supervision hooks live in
 // `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts`.

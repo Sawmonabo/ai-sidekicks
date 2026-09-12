@@ -95,8 +95,8 @@ export interface TerminalLeaseTransitionBeatInput {
    * omitted member because an unheld lease is an explicit state that reads
    * differently from a suppressed one.
    */
-  readonly holderParticipantId: string | null;
-  readonly previousHolderParticipantId: string | null;
+  readonly holderUserId: string | null;
+  readonly previousHolderUserId: string | null;
   /** One of the five reasons the wire closes the set at. */
   readonly reason: string;
   /** Omitted for a take the daemon's own lease authority performed. */
@@ -167,8 +167,8 @@ export function terminalLeaseTransitionBeat(
     ...(transition.actorId === undefined ? {} : { actorId: transition.actorId }),
     payload: {
       sessionId: TERMINAL_SCENARIO_SESSION_ID,
-      holderParticipantId: transition.holderParticipantId,
-      previousHolderParticipantId: transition.previousHolderParticipantId,
+      holderUserId: transition.holderUserId,
+      previousHolderUserId: transition.previousHolderUserId,
       reason: transition.reason,
     },
   });

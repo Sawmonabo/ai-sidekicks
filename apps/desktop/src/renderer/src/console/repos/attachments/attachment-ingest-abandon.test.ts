@@ -1,5 +1,5 @@
 // Abandonment and disposal: sending stops at once, the spool is asked for back, and a
-// call already in flight does not resume what a participant stopped.
+// call already in flight does not resume what a user stopped.
 //
 // The client is driven directly against the scripted growth port beside it, which can be
 // HELD mid-call — the only way to put an abandonment inside an await and see what the
@@ -95,7 +95,7 @@ describe("ingest client — abandonment, including mid-call", () => {
 
   it("negative control: an unabandoned stream in flight runs to completion", async () => {
     // Without this, both cases above would pass over a client that stopped after one
-    // chunk whatever the participant did.
+    // chunk whatever the user did.
     const port = new ScriptedGrowthPort();
     const client = clientOver(port);
     const gate = port.holdChunks();

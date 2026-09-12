@@ -164,7 +164,7 @@ export interface ConsoleDaemonMethodContract {
     readonly response: ListModelsResult;
   };
   // The answer to a provider-raised ask. The one row whose `response` is `unknown` by
-  // contract and deliberately so: the ask's own choice set or the participant's free
+  // contract and deliberately so: the ask's own choice set or the user's free
   // text both travel this member, which is why the input-ask card mints no wire of its
   // own. `DriverAckResult` is the reply — an acknowledgement that the answer reached
   // the driver, never a settlement of the ask, which only the ask's own row may state.
@@ -266,7 +266,7 @@ export interface ConsoleDaemonMethodContract {
   //
   // The live stream is the store's own subscription rather than a call, so it is not
   // here. The READ is, and only in one direction: a session's stream replays from the
-  // position this participant was last acknowledged at, so the store's log grows at
+  // position this user was last acknowledged at, so the store's log grows at
   // the tail on its own and has no way at all to reach what came before that
   // position. `beforeCursor` is what asks for it.
   readonly "timeline.childRunExpand": {

@@ -40,8 +40,8 @@ describe("the fixture's base state — what a store opens with", () => {
     // scenario's agents are most of the order, which is why they are in it.
     const served = await servedFlagshipSnapshot();
 
-    expect(served.participantJoinLog).toStrictEqual(FLAGSHIP_SCENARIO.participantIdsInJoinOrder);
-    expect(served.participantJoinLog.length).toBeGreaterThan(0);
+    expect(served.userJoinLog).toStrictEqual(FLAGSHIP_SCENARIO.userIdsInJoinOrder);
+    expect(served.userJoinLog.length).toBeGreaterThan(0);
   });
 
   it("files no entity of its own, every partition being the log's to project", async () => {
@@ -55,6 +55,6 @@ describe("the fixture's base state — what a store opens with", () => {
     const snapshot = fixtureSessionSnapshot(FLAGSHIP_SCENARIO, "session-somebody-else");
 
     expect(snapshot.entities).toStrictEqual([]);
-    expect(snapshot.participantJoinLog).toStrictEqual([]);
+    expect(snapshot.userJoinLog).toStrictEqual([]);
   });
 });

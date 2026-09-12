@@ -1,4 +1,4 @@
-// Every attachment this carrier holds, in the position the participant put it — and
+// Every attachment this carrier holds, in the position the user put it — and
 // the two ways that position is changed.
 //
 // AN ORDERED LIST, WHICH IS THE CLAIM THE SURFACE MAKES. Ordering is caller-declared

@@ -94,7 +94,7 @@ export function BindWorkspaceDialog(props: BindWorkspaceDialogProps): React.JSX.
         requestCapabilities();
         return;
       }
-      // A dialog reopened to bind a second workspace must not greet its participant
+      // A dialog reopened to bind a second workspace must not greet its user
       // with the first one's directory, mode, or settlement. The capabilities reading
       // is deliberately untouched — it is the same answer.
       setForm(EMPTY_BIND_FORM);
@@ -206,7 +206,7 @@ export function BindWorkspaceDialog(props: BindWorkspaceDialogProps): React.JSX.
  *
  * A REFUSED READ LEAVES THE DIRECTORY FIELD ALONE AND SAYS SO, on the attach dialog's
  * reason: the directory is still worth typing, the read may answer on a retry, and a
- * dialog that vanished would take the participant's typing with it.
+ * dialog that vanished would take the user's typing with it.
  */
 function renderModes(
   reading: BindReading,

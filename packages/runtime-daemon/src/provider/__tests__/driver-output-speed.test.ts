@@ -37,7 +37,7 @@ describe("DRIVER_OUTPUT_SPEED_LEVELS — the declared, settable vocabularies", (
   });
 
   it("publishes the SETTABLE levels, which are narrower than the reportable ones", () => {
-    // The pinned Claude build can REPORT a rate-limit cooldown; no participant
+    // The pinned Claude build can REPORT a rate-limit cooldown; no user
     // may REQUEST one. A table that carried it would offer a level whose
     // selection cannot be honoured.
     expect(DRIVER_OUTPUT_SPEED_LEVELS.claude).not.toContain("cooldown");

@@ -1,0 +1,102 @@
+/* The session header: which session this is, how its machine is, and what it has cost.
+ *
+ * Imported from `workspace/index.ts` beside the family's other sheets, so the rules
+ * land once per bundle and in the family's own order.
+ *
+ * Every colour is a Meridian custom property and every space a step on the scale,
+ * so the header follows the scheme attribute with no conditional in JSX.
+ */
+
+/* --- The header --------------------------------------------------------- */
+
+/*
+ * One line, and it stays one line: a header that grows to two rows moves the deck
+ * under a person's cursor.
+ */
+.meridian-session-header {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-3);
+  min-width: 0;
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border-bottom: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-session-header__identity {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  flex: 0 0 auto;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-session-header__all-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  /* Right-aligned, which is this header's own placement decision: the all-clear line is
+   * the last thing on it and the one a person's eye should be able to find without
+   * reading the rest. */
+  margin-inline-start: auto;
+  flex: 0 0 auto;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-session-header__all-clear-line {
+  font-size: var(--meridian-text-sm);
+}
+
+/* --- The identity, the status mark, and the figure ----------------------- */
+
+/*
+ * The display title sits between the id and the state chip and gives way first: the
+ * id is the session's only unambiguous name and the state is one short word, so when
+ * the header runs out of room it is the title that ellipses rather than either of them.
+ */
+.meridian-session-header__session-title {
+  overflow: hidden;
+  min-width: 0;
+  max-width: 24ch;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meridian-session-header__status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  flex: 0 0 auto;
+}
+
+.meridian-session-header__spend {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--meridian-space-1);
+}
+
+/*
+ * The qualifier reads as a qualifier: smaller and muted beside the figure, never
+ * mistakable for part of it. It says the accountant could not price every debit, so
+ * the number is a floor — a fact about the figure and not a second figure.
+ */
+.meridian-session-header__spend-qualifier {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+/*
+ * The opening placeholder is the SHAPE of a reading and nothing else: the same height
+ * and a plausible width, so the header's height is settled before the first reading
+ * lands. No animation — a pulsing pill on a surface that is about to fill with a real
+ * one is motion that reports nothing, and motion is spent on things that carry meaning.
+ */
+.meridian-session-header__placeholder {
+  display: inline-block;
+  width: 9ch;
+  height: var(--meridian-space-6);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+}

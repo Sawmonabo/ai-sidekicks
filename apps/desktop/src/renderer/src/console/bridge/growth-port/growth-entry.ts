@@ -233,7 +233,7 @@ export type GrowthOperationId =
   | "gitflowDiffArtifactCreate"
   | "gitflowPrPrepare"
   // identity, and the callback-tool registry the approvals pane reads
-  | "callerParticipantRead"
+  | "callerUserRead"
   | "callbackToolRegistryRead"
   | "approvalProjectionRead"
   | "approvalResolve"
@@ -276,7 +276,7 @@ export type GrowthOperationId =
   | "channelUnmute"
   | "channelArchive"
   // The per-device presence fan-out, which does name a registered wire method.
-  | "participantPresenceDetailRead"
+  | "userPresenceDetailRead"
   // The session's terminal-control holder, which folds to no wire method either: the
   // holder is a MEMBER of the runtime-node roster reply rather than a read of its
   // own, and the shipped strict schema does not carry it.

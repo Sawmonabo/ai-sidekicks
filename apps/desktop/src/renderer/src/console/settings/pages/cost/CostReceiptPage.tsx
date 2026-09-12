@@ -65,7 +65,7 @@ const RECEIPT_PARTITIONS: readonly { readonly title: string; readonly detail: st
   {
     title: "Per party",
     detail:
-      "One row per participant or for the machine itself, keyed on who the turn was issued by. A turn that carries no such stamp is attributed to whoever started the run, and the row says so rather than guessing.",
+      "One row per user or for the machine itself, keyed on who the turn was issued by. A turn that carries no such stamp is attributed to whoever started the run, and the row says so rather than guessing.",
   },
   {
     title: "Per paying account",

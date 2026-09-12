@@ -8,16 +8,16 @@
 //
 // THE PREFERENCE SET IS READ, AND THE CHAIN STARTS WITH WHO YOU ARE
 //
-// The stored set is keyed by PARTICIPANT, so the read cannot be made until this
-// window knows which participant it is — and no read hands it that directly. What
+// The stored set is keyed by USER, so the read cannot be made until this
+// window knows which user it is — and no read hands it that directly. What
 // does is the caller-identity read, scoped to the session the console has open. So
-// the page performs two calls in order: which participant this window is, then the
-// preferences stored for that participant. A refusal on the first is rendered as
+// the page performs two calls in order: which user this window is, then the
+// preferences stored for that user. A refusal on the first is rendered as
 // the answer to the second, because it IS the answer: nothing was asked of the
-// preference store, and guessing a participant would attach one person's answers to
+// preference store, and guessing a user would attach one person's answers to
 // another person's screen.
 //
-// The set is GLOBAL to the participant. The session is how the identity is resolved
+// The set is GLOBAL to the user. The session is how the identity is resolved
 // and never a scope for the preferences themselves — there is no per-session tier
 // anywhere on this page, including in its copy.
 //

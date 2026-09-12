@@ -18,6 +18,6 @@ export const SESSION_GOAL_MIN_LENGTH = 1;
  * The longest a session goal may be.
  *
  * The daemon's own bound, restated so the field refuses on the same rule rather than
- * truncating and sending something the participant did not write.
+ * truncating and sending something the user did not write.
  */
 export const SESSION_GOAL_MAX_LENGTH = 4096;

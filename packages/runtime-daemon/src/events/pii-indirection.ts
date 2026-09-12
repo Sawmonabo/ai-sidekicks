@@ -34,23 +34,23 @@
 // `EventLogService.append` — the sole append path, holder of the per-session
 // append lock — is the module that grows that parameter and writes the row.
 //
-// INHERITS A SECOND, LESS OBVIOUS COLUMN OBLIGATION: the participant-id stamp on
+// INHERITS A SECOND, LESS OBVIOUS COLUMN OBLIGATION: the user-id stamp on
 // {@link PiiEventWriteResult}. Path 1 states that the shred selector "uses the
-// durable participant-id stamp on the event row, not the ciphertext (which is
+// durable user-id stamp on the event row, not the ciphertext (which is
 // opaque)", and `0001-initial.ts` has no such column — `session_events.actor` is
-// documented there as "participant_id or agent_id or NULL for system", which is a
+// documented there as "user_id or agent_id or NULL for system", which is a
 // different value with a different meaning (see {@link
-// PiiEncryptionRequest.participantId}).
+// PiiEncryptionRequest.userId}).
 //
 // THE STAMP LEAVES HERE TWICE, AND THAT IS THE POINT. It rides out in the RETURN
 // TYPE, for to write into that column — and it is ALSO projected into `payload`
-// under `pii_participant_id` at the embed step, which puts it inside the
+// under `pii_user_id` at the embed step, which puts it inside the
 // canonical bytes the signature covers. That matters most exactly where the
 // ciphertext stops helping: once Path 1 destroys the key, no decrypt can ever
 // re-attribute the retained bytes, so the stamp becomes the SOLE surviving
 // evidence of whose data the row held. Signing it spends no confidentiality the
 // canonical form does not already spend — `actor` is a canonical member and
-// already carries participant ids — and the produce-here / persist-there split
+// already carries user ids — and the produce-here / persist-there split
 // the paragraph above draws for the ciphertext is unchanged: this module still
 // writes no row. The binding therefore lands across three phases, and only the
 // first of them is in this file: Phase 2 mints the SIGNED half creates the
@@ -122,7 +122,7 @@ import {
   CONTENT_PAYLOAD_PLAINTEXT_MAX,
   CONTENT_TRUNCATED_PAYLOAD_KEY,
   PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
-  PII_PARTICIPANT_ID_PAYLOAD_KEY,
+  PII_USER_ID_PAYLOAD_KEY,
   SESSION_EVENT_TYPES,
   SessionEventSchema,
 } from "@ai-sidekicks/contracts";
@@ -158,28 +158,28 @@ import { signRow } from "./signer.js";
 //
 //   * THE OWNER STAMP IS NOT REDUNDANT WITH `actor`, which is the first thing a
 //     reader will ask, since `actor` is already a canonical member and already
-//     carries participant ids. They answer different questions. `actor` names
+//     carries user ids. They answer different questions. `actor` names
 //     WHO EMITTED the row — `0001-initial.ts` documents that column as
-//     "participant_id or agent_id or NULL for system". The stamp names WHOSE
+//     "user_id or agent_id or NULL for system". The stamp names WHOSE
 //     CONTENT KEY SEALED the ciphertext. The two coincide often and diverge
 //     exactly where the divergence is expensive: an agent-emitted row (`actor` =
 //     an `agent_id`) or a system-emitted one (`actor` NULL) can still carry a
-//     participant's PII, and on those rows `actor` cannot answer the question
+//     user's PII, and on those rows `actor` cannot answer the question
 //     the scope selector asks. Same KIND of datum as `actor`, different FACT —
 //     which is what keeps the disclosure argument honest.
 //   * WHY THE MEMBER EXISTS AT ALL, given also persists the value as a column: a
-//     column alone is signed by nothing. Path 1 destroys the per-participant key
+//     column alone is signed by nothing. Path 1 destroys the per-user key
 //     and overwrites no column, so after a shred the ciphertext can never again be
 //     attributed to an owner by decryption and this stamp is the only surviving
 //     evidence of whose data the row held. A tampered stamp does not stop the key
-//     DELETE from erasing the data — that operation is global to the participant —
+//     DELETE from erasing the data — that operation is global to the user —
 //     but it corrupts the SCOPE SELECTOR, falsifying the `affectedSessionIds[]` /
 //     `piiPayloadsCleared` an `event.shredded` event records as compliance
 //     evidence, on a row retains indefinitely and never shreds.
 //   * BOTH ARE `as const`, so each type stays its literal rather than widening
 //     to `string` — which is what keeps the computed-key writes in
 //     {@link embedCiphertextDigest} exactly typed.
-export { PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY, PII_PARTICIPANT_ID_PAYLOAD_KEY };
+export { PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY, PII_USER_ID_PAYLOAD_KEY };
 
 // --------------------------------------------------------------------------
 // Brands.
@@ -209,7 +209,7 @@ export type PiiPayloadCiphertext = Uint8Array & { readonly __brand: "PiiPayloadC
 /**
  * An {@link EventEnvelope} whose `payload` already carries both PII bindings —
  * {@link PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY} and
- * {@link PII_PARTICIPANT_ID_PAYLOAD_KEY} — and whose `occurredAt` is already in
+ * {@link PII_USER_ID_PAYLOAD_KEY} — and whose `occurredAt` is already in
  * the canonical RFC 3339 UTC millisecond form — i.e. the exact envelope whose
  * canonical bytes were hashed and signed.
  *
@@ -492,13 +492,13 @@ const REGISTERED_STRICT_VARIANT_EVENT_TYPES: ReadonlySet<string> = new Set<strin
 /** What the PII encrypt stage produces, carried to the embed stage. */
 interface SealedPiiPartition {
   readonly ciphertext: PiiPayloadCiphertext;
-  readonly participantId: string;
+  readonly userId: string;
 }
 
 /**
  * The AEAD associated data both partitions bind, `session_id || event_id`.
  *
- * Record-binding, exactly as fixes it for the participant partition: a
+ * Record-binding, exactly as fixes it for the user partition: a
  * ciphertext sealed under this cannot be replayed onto another row or another
  * session. Unambiguous under the id grammars in play — `session_id` is
  * fixed-width UUID form (or the reserved daemon-scope sentinel) and `event_id`
@@ -647,7 +647,7 @@ function applyPlaintextBound(body: string): {
  * Seals the bounded plaintext under the session content key.
  *
  * Local rather than injected, unlike {@link PiiEncryptor}: the session content key has no
- * per-participant custody question behind it — the key store hands over 32 bytes — and the wire
+ * per-user custody question behind it — the key store hands over 32 bytes — and the wire
  * format is fixed rather than left to an implementor. Housing it here is what makes "one place
  * the write-path order lives" true for both partitions.
  */
@@ -731,18 +731,18 @@ export function openContentPayload(
 
 /**
  * One PII encryption request. The two identifier members exist to be BOUND, not
- * merely logged: fixes the AEAD's associated data as `participant_id ||
+ * merely logged: fixes the AEAD's associated data as `user_id ||
  * event_id`, which is what makes a ciphertext non-replayable onto another
- * participant or another event.
+ * user or another event.
  */
 export interface PiiEncryptionRequest {
   /**
-   * The participant whose content key encrypts this PII, and the row whose
-   * DELETE from `participant_keys` crypto-shreds it. Supplied explicitly rather
+   * The user whose content key encrypts this PII, and the row whose
+   * DELETE from `user_keys` crypto-shreds it. Supplied explicitly rather
    * than derived from the envelope's `actor`, which may be an agent id or
    * `null` for a system event and so cannot name a key holder.
    */
-  readonly participantId: string;
+  readonly userId: string;
   /** The `EventEnvelope.id` of the event this ciphertext belongs to. */
   readonly eventId: string;
   /**
@@ -768,7 +768,7 @@ export interface PiiEncryptionRequest {
  * Returns BARE bytes on purpose; see {@link PiiPayloadCiphertext} for why the
  * brand must not cross this boundary. The implementation owns the wire format
  * (`iv || ciphertext || tag`), the 96-bit random nonce, the AAD binding, and the
- * per-participant key lookup; this module owns none of those and asserts nothing
+ * per-user key lookup; this module owns none of those and asserts nothing
  * about the returned width, since the interface does not fix an AEAD.
  *
  * DECRYPT IS NOT DECLARED HERE. This module is the write path, and a read-side
@@ -786,7 +786,7 @@ export interface PiiEncryptor {
 // --------------------------------------------------------------------------
 
 /**
- * The two categories that carry no participant PII,
+ * The two categories that carry no user PII,
  * ever.
  */
 export type PiiRefusedCategory = "audit_integrity" | "event_maintenance";
@@ -833,19 +833,19 @@ interface RawEventCommonFields extends Readonly<Omit<EventEnvelope, "category" |
  */
 export interface PiiCarryingEventInput extends RawEventCommonFields {
   readonly category: PiiEligibleCategory;
-  readonly piiParticipantId: string;
+  readonly piiUserId: string;
   readonly piiPayload: Record<string, unknown>;
   /**
    * OPTIONAL here, because a row may carry both partitions. An
-   * `assistant.message` that quotes a participant carries machine prose in
-   * `content_payload` and the quoted participant text in `pii_payload`, and the
+   * `assistant.message` that quotes a user carries machine prose in
+   * `content_payload` and the quoted user text in `pii_payload`, and the
    * order runs ONCE over both.
    */
   readonly content?: EventContentInput;
 }
 
 /**
- * An event carrying MACHINE-authored prose and no participant PII — the common
+ * An event carrying MACHINE-authored prose and no user PII — the common
  * case for `assistant.*` and `tool.*` rows, and the arm without which those rows
  * would have no path through this codec at all.
  *
@@ -860,7 +860,7 @@ export interface PiiCarryingEventInput extends RawEventCommonFields {
  */
 export interface ContentOnlyEventInput extends RawEventCommonFields {
   readonly category: PiiEligibleCategory;
-  readonly piiParticipantId?: never;
+  readonly piiUserId?: never;
   readonly piiPayload?: never;
   readonly content: EventContentInput;
 }
@@ -872,7 +872,7 @@ export interface ContentOnlyEventInput extends RawEventCommonFields {
  * `piiPayload?: never` is precise about what it buys and what it does not. It
  * buys the compile-time half: an object literal in either category that attaches
  * a PII partition fails to type-check, so no well-typed producer can route
- * participant PII into a never-shredded row. It does NOT make the arm
+ * user PII into a never-shredded row. It does NOT make the arm
  * unconstructible — a caller can still build a PII-free value of these categories
  * and pass it — which is exactly why {@link writeEventWithPii} refuses the
  * categories at runtime as well (layer 2).
@@ -886,7 +886,7 @@ export interface ContentOnlyEventInput extends RawEventCommonFields {
  */
 export interface PiiRefusedEventInput extends RawEventCommonFields {
   readonly category: PiiRefusedCategory;
-  readonly piiParticipantId?: never;
+  readonly piiUserId?: never;
   readonly piiPayload?: never;
   /**
    * `content?: never` IS the unconstructibility mechanism names, and it is the
@@ -926,12 +926,12 @@ type SealableEventInput = PiiCarryingEventInput | ContentOnlyEventInput;
  * CALLER OBLIGATION — PERSIST THESE FOUR AS A UNIT. `envelope` supplies `payload` (carrying the
  * digest and the owner stamp) and the normalized `occurredAt`; `piiPayload` is the
  * `pii_payload` column; `signedRow` supplies `prev_hash` / `row_hash` / `daemon_signature`;
- * `piiParticipantId` is the value for the stamp column adds, which the shred selector will
+ * `piiUserId` is the value for the stamp column adds, which the shred selector will
  * read. Substituting ANY of the four — a re-canonicalized envelope, a re-encrypted ciphertext,
  * a `prev_hash` read again after the signature was minted, a stamp taken from anywhere but this
  * result — produces an untampered row that can never verify, because the verifier recomputes
  * the digest and the signature from what was STORED and compares the stored stamp against the
- * claim the signature carries ({@link isPiiOwnerStampBound}). `piiParticipantId` USED TO FAIL
+ * claim the signature carries ({@link isPiiOwnerStampBound}). `piiUserId` USED TO FAIL
  * DIFFERENTLY and no longer does: it is projected into `payload` at the embed step, so it is
  * inside the signed bytes rather than beside them, and a wrong or missing value is now a
  * detectable divergence instead of one that verifies cleanly forever.
@@ -957,13 +957,13 @@ type SealableEventInput = PiiCarryingEventInput | ContentOnlyEventInput;
 export interface PiiEventWriteResult {
   readonly envelope: EventWithPiiDigest;
   /**
-   * The participant whose content key sealed `piiPayload` — echoed out of
-   * {@link PiiEncryptionRequest.participantId} as it was bound into the AEAD's
-   * associated data (`participant_id ||
+   * The user whose content key sealed `piiPayload` — echoed out of
+   * {@link PiiEncryptionRequest.userId} as it was bound into the AEAD's
+   * associated data (`user_id ||
    * event_id`).
    *
    * ECHOED RATHER THAN LEFT FOR THE CALLER TO RE-READ OFF ITS OWN INPUT. The
-   * caller does still hold `input.piiParticipantId`, so this is not the only
+   * caller does still hold `input.piiUserId`, so this is not the only
    * reachable copy — it is the only one the persistence contract admits.
    * {@link EventWithPiiDigest} already says PERSIST THIS ENVELOPE, NOT THE
    * CALLER'S INPUT, and a result that made reach back into the input for one of
@@ -972,10 +972,10 @@ export interface PiiEventWriteResult {
    * which the caller also still holds.
    *
    * NOTHING ELSE ON THE ROW RECOVERS IT. `actor` is a different value —
-   * `0001-initial.ts` documents that column "participant_id or agent_id or NULL
-   * for system", and {@link PiiEncryptionRequest.participantId} says why the key
+   * `0001-initial.ts` documents that column "user_id or agent_id or NULL
+   * for system", and {@link PiiEncryptionRequest.userId} says why the key
    * holder cannot be derived from it. The ciphertext does not carry it either:
-   * AEAD associated data is authenticated, not transported, so `participant_id`
+   * AEAD associated data is authenticated, not transported, so `user_id`
    * is an INPUT to any future decrypt rather than an output of it. Persist no
    * stamp and the row is unreadable once its key is gone AND invisible to the
    * Path-1 selector that was supposed to shred it.
@@ -983,34 +983,34 @@ export interface PiiEventWriteResult {
    * IN THE CANONICAL BYTES, DELIBERATELY — a REVERSAL of what this module
    * shipped with, and the reversal is the point. `embedCiphertextDigest`
    * projects this value into `payload` under
-   * {@link PII_PARTICIPANT_ID_PAYLOAD_KEY}, so the signature commits to it and
+   * {@link PII_USER_ID_PAYLOAD_KEY}, so the signature commits to it and
    * {@link isPiiOwnerStampBound} can hold the stored column to the signed claim.
    *
    * The exclusion it replaces rested on a confidentiality argument that was
    * false, and it is worth stating why so it is not re-argued. `actor` is
-   * ALREADY a canonical member and already carries participant ids — the same
-   * `0001-initial.ts` line quoted above, "participant_id or agent_id or NULL for
-   * system" — so the canonical form has signed participant identifiers since it
+   * ALREADY a canonical member and already carries user ids — the same
+   * `0001-initial.ts` line quoted above, "user_id or agent_id or NULL for
+   * system" — so the canonical form has signed user identifiers since it
    * shipped. Adding the stamp introduces no new CLASS of disclosure, only the
    * same kind of datum in a second position, which means the confidentiality
    * argument bought exactly nothing. Path 1 destroys the KEY and overwrites no
    * column, so the stamp was always going to outlive the shred
-   * {@link describeParticipantIdShape}, which has said so all along.
+   * {@link describeUserIdShape}, which has said so all along.
    *
    * WHAT THE EXCLUSION DID COST is the post-shred sole-evidence property. Once
    * the key is gone the ciphertext can never again be attributed to an owner by
    * decryption, so this stamp is the only surviving evidence of whose data the
    * row held — and nothing signed it. A tampered stamp does not stop Path 1's
-   * global `DELETE FROM participant_keys` from erasing that participant's data,
+   * global `DELETE FROM user_keys` from erasing that user's data,
    * but it corrupts the SCOPE SELECTOR: the `affectedSessionIds[]` /
    * `piiPayloadsCleared` an `event.shredded` event records are falsified, and
-   * the row is mis-attributed to whichever participant the stamp now names. That
+   * the row is mis-attributed to whichever user the stamp now names. That
    * event is `event_maintenance`, which never compacts and never shreds, so the
    * falsified compliance evidence is retained indefinitely.
    *
-   * Plain `string`, matching {@link PiiEncryptionRequest.participantId} and
-   * `session/types.ts`'s `MembershipProjection.participantId`, rather than the
-   * contracts-side branded `ParticipantId`: nothing on this path mints that
+   * Plain `string`, matching {@link PiiEncryptionRequest.userId} and
+   * `session/types.ts`'s `MembershipProjection.userId`, rather than the
+   * contracts-side branded `UserId`: nothing on this path mints that
    * brand, and its schema requires a UUID this module has no standing to demand
    * of an injected key holder.
    *
@@ -1020,7 +1020,7 @@ export interface PiiEventWriteResult {
    * a column on every append, and a member that could be silently omitted is one
    * an INSERT could silently stop binding.
    */
-  readonly piiParticipantId: string | undefined;
+  readonly piiUserId: string | undefined;
   readonly piiPayload: PiiPayloadCiphertext | undefined;
   /**
    * The sealed machine-authored body for `session_events.content_payload`, or
@@ -1128,7 +1128,7 @@ const PII_REFUSED_CATEGORY_NAMES: readonly PiiRefusedCategory[] = [
 ];
 
 /**
- * Runs steps 2–6 for one event carrying a participant PII partition, a
+ * Runs steps 2–6 for one event carrying a user PII partition, a
  * machine-authored content partition, or BOTH, and returns everything needs
  * for step 7. Step 1 — the PII / non-PII split — belongs to the EMITTER and
  * has already happened by the time this function is called; see {@link
@@ -1143,7 +1143,7 @@ const PII_REFUSED_CATEGORY_NAMES: readonly PiiRefusedCategory[] = [
  * permit:
  *
  *   2. ENCRYPT — the injected {@link PiiEncryptor} seals the `piiPayload`
- *      partition under the participant's key. The result is branded
+ *      partition under the user's key. The result is branded
  *      {@link PiiPayloadCiphertext} here and nowhere else. The content
  *      partition is BOUNDED and then sealed in the same stage by
  *      {@link sealContentPartition} — AES-256-GCM under the session content key
@@ -1180,7 +1180,7 @@ const PII_REFUSED_CATEGORY_NAMES: readonly PiiRefusedCategory[] = [
  *
  *   1. A STRUCTURAL DEFECT IN THE INPUT'S PARTITIONING, in FOUR arms, in this
  *      order: a refused category (layer 2), then an input carrying NEITHER
- *      partition, then a HALF-PRESENT PII partition (`piiParticipantId` with no
+ *      partition, then a HALF-PRESENT PII partition (`piiUserId` with no
  *      `piiPayload`), then a CONTENT partition on an event type outside the
  *      body-bearing five ({@link BODY_BEARING_EVENT_TYPES}). Arms two and three
  *      were added with the content partition and neither reorders anything that
@@ -1198,7 +1198,7 @@ const PII_REFUSED_CATEGORY_NAMES: readonly PiiRefusedCategory[] = [
  *      answers are refusals before the nonce. Every input carrying content on
  *      one of the five answers exactly as it did.
  *   2. A `payload` that already claims a RESERVED member, in THREE arms over
- *      FIVE members: `pii_ciphertext_digest` first, then `pii_participant_id`,
+ *      FIVE members: `pii_ciphertext_digest` first, then `pii_user_id`,
  *      then one arm over the three content members
  *      ({@link CODEC_OWNED_CONTENT_PAYLOAD_KEYS}). The embed step projects all
  *      five and nothing else produces any of them, so a pre-seeded one is a
@@ -1218,7 +1218,7 @@ const PII_REFUSED_CATEGORY_NAMES: readonly PiiRefusedCategory[] = [
  *      IS a reordering of an input that already drew a refusal, named rather
  *      than denied, and it is benign — the input is invalid either way and both
  *      answers are refusals before the nonce. Every input free of a pre-seeded
- *      `pii_participant_id` answers exactly as it did before. The placement is
+ *      `pii_user_id` answers exactly as it did before. The placement is
  *      its sibling's rather than a new choice: the digest arm has always sat at
  *      2, ahead of `sequence`, and refusal 3's cross-path precedence argument is
  *      about `canonicalizeEvent`, which has no notion of a reserved PII member.
@@ -1244,10 +1244,10 @@ const PII_REFUSED_CATEGORY_NAMES: readonly PiiRefusedCategory[] = [
  *      same no-reordering ground: it fired dead last of every refusal on this
  *      path before the hoist, being the deepest call on the sign path, and of
  *      the three hoists it still fires last.
- *   7. A `piiParticipantId` that is not a non-empty string. STILL NOT A HOIST,
+ *   7. A `piiUserId` that is not a non-empty string. STILL NOT A HOIST,
  *      though the value no longer stops at the encryptor: nothing downstream
  *      judges its SHAPE.
- *      {@link PII_PARTICIPANT_ID_PAYLOAD_KEY}; and the read side, which compares
+ *      {@link PII_USER_ID_PAYLOAD_KEY}; and the read side, which compares
  *      the stored column against that projected claim. The embed step is the
  *      nearest thing to a downstream guard and it is not one: `canonicalizeJson`
  *      would throw on a `NaN` stamp but emits `null` for a `null` one and a bare
@@ -1362,7 +1362,7 @@ export async function writeEventWithPii(
   // two literals: the chained form does not narrow `input` at all. Each
   // comparison is applied on its own, and neither literal ALONE excludes an arm
   // whose discriminant is both of them, so `PiiRefusedEventInput` survives both
-  // steps and `piiPayload` / `piiParticipantId` stay optional. The switch strikes
+  // steps and `piiPayload` / `piiUserId` stay optional. The switch strikes
   // both literals from the discriminant in one step, which leaves the refused
   // arm's `category` disjoint from what remains and drops the arm — so the code
   // below sees `PiiCarryingEventInput`. A membership test over
@@ -1372,14 +1372,14 @@ export async function writeEventWithPii(
   // THAT NARROWING IS NOT A BELIEF ABOUT THE COMPILER — it is re-checked on every
   // build. The refused arm declares both members optional `never`, so without the
   // narrowing they read as `undefined`-bearing, and every site below that DEMANDS
-  // the real value stops compiling: `participantId: input.piiParticipantId` in
+  // the real value stops compiling: `userId: input.piiUserId` in
   // the encrypt call, the `embedCiphertextDigest(input, ...)` argument, and the
-  // `piiParticipantId` echoed into the return. Those errors are the widening half
+  // `piiUserId` echoed into the return. Those errors are the widening half
   // of the drift guard documented on `PII_REFUSED_CATEGORY_NAMES`.
   //
   // TWO SITES BELOW READ THESE MEMBERS AND ARE NOT PART OF THAT GUARD, which is
   // worth naming so neither is mistaken for one: refusal 7 tests
-  // `input.piiParticipantId` for shape at RUNTIME and is deliberately tolerant of
+  // `input.piiUserId` for shape at RUNTIME and is deliberately tolerant of
   // a wider static type, and `canonicalizeJson(input.piiPayload)` takes
   // `unknown`. Both would keep compiling if the narrowing broke.
   //
@@ -1420,14 +1420,14 @@ export async function writeEventWithPii(
   // REFUSAL 1's THIRD ARM — a HALF-PRESENT PII partition.
   //
   // The narrowing below discriminates on `piiPayload` alone, so a value
-  // carrying `piiParticipantId` with no `piiPayload` reads as the content-only
-  // arm and its participant half is DROPPED — sealed nowhere, stamped nowhere,
+  // carrying `piiUserId` with no `piiPayload` reads as the content-only
+  // arm and its user half is DROPPED — sealed nowhere, stamped nowhere,
   // and reported nowhere. That is the one failure this module refuses to have:
-  // every other guard here exists so participant PII is never lost or persisted
+  // every other guard here exists so user PII is never lost or persisted
   // outside the split, and a silent drop is both at once.
   //
   // Unreachable through the type system in either direction — the PII arm
-  // requires `piiPayload` and the content arm types `piiParticipantId` as
+  // requires `piiPayload` and the content arm types `piiUserId` as
   // `never` — so this is layer 2 again: a value that crossed a serialization
   // boundary is a value TypeScript never checked.
   //
@@ -1437,9 +1437,9 @@ export async function writeEventWithPii(
   // shipped code: before the content partition existed this shape reached
   // `canonicalizeJson(undefined)` and threw there, much later and about the
   // wrong thing.
-  if (input.piiParticipantId !== undefined && input.piiPayload === undefined) {
+  if (input.piiUserId !== undefined && input.piiPayload === undefined) {
     throw new Error(
-      "writeEventWithPii refuses an event carrying piiParticipantId with no piiPayload: the two are halves of one partition, and admitting the pair would route the row as content-only and drop the participant half silently — sealed nowhere and invisible to the shred selector. Pass both, or neither.",
+      "writeEventWithPii refuses an event carrying piiUserId with no piiPayload: the two are halves of one partition, and admitting the pair would route the row as content-only and drop the user half silently — sealed nowhere and invisible to the shred selector. Pass both, or neither.",
     );
   }
 
@@ -1504,15 +1504,15 @@ export async function writeEventWithPii(
   }
 
   // Distinct from the digest arm in what it protects: the embed step projects
-  // `input.piiParticipantId` into this member so the signature binds the row's
+  // `input.piiUserId` into this member so the signature binds the row's
   // PII owner, and a caller-supplied value would be signed in its place — the
   // SAME signed-but-unchecked hole the projection exists to close, reopened
   // from the input side. It also disagrees with the stamp writes into the
   // column, which is precisely the divergence
   // {@link isPiiOwnerStampBound} reports.
-  if (Object.hasOwn(input.payload, PII_PARTICIPANT_ID_PAYLOAD_KEY)) {
+  if (Object.hasOwn(input.payload, PII_USER_ID_PAYLOAD_KEY)) {
     throw new Error(
-      `writeEventWithPii refuses an event whose payload already carries ${PII_PARTICIPANT_ID_PAYLOAD_KEY}: this codec is the only producer of that member — it projects the PII owner stamp from input.piiParticipantId so the signature binds it, and a caller-supplied value would be signed in place of the stamp writes into the column. Pass the owner as piiParticipantId, not as a payload member.`,
+      `writeEventWithPii refuses an event whose payload already carries ${PII_USER_ID_PAYLOAD_KEY}: this codec is the only producer of that member — it projects the PII owner stamp from input.piiUserId so the signature binds it, and a caller-supplied value would be signed in place of the stamp writes into the column. Pass the owner as piiUserId, not as a payload member.`,
     );
   }
 
@@ -1653,17 +1653,17 @@ export async function writeEventWithPii(
   // A well-shaped id naming no key holder still passes here — that verdict
   // belongs to the encryptor.
   //
-  // The predicate is `session-projector.ts`'s test for a participant id arriving
+  // The predicate is `session-projector.ts`'s test for a user id arriving
   // off a payload: non-string OR empty, because an empty string names no key
   // holder while satisfying every `string` in the pipeline. Reachable only
   // through a cast or an untyped boundary, like refusal 6 —
   // `PiiCarryingEventInput` declares the member a required `string`.
   if (
     piiCarrying !== undefined &&
-    (typeof piiCarrying.piiParticipantId !== "string" || piiCarrying.piiParticipantId.length === 0)
+    (typeof piiCarrying.piiUserId !== "string" || piiCarrying.piiUserId.length === 0)
   ) {
     throw new Error(
-      `writeEventWithPii requires a non-empty piiParticipantId: it names the participant whose content key seals this row and whose participant_keys DELETE crypto-shreds it, and it is the stamp received ${describeParticipantIdShape(piiCarrying.piiParticipantId)}. Refused before the encrypt step so a rejected append costs no AES-256-GCM nonce; unlike the guards above it, nothing downstream re-checks this value's shape.`,
+      `writeEventWithPii requires a non-empty piiUserId: it names the user whose content key seals this row and whose user_keys DELETE crypto-shreds it, and it is the stamp received ${describeUserIdShape(piiCarrying.piiUserId)}. Refused before the encrypt step so a rejected append costs no AES-256-GCM nonce; unlike the guards above it, nothing downstream re-checks this value's shape.`,
     );
   }
 
@@ -1689,7 +1689,7 @@ export async function writeEventWithPii(
   if (contentInput !== undefined) {
     if (typeof contentInput.body !== "string") {
       throw new Error(
-        `writeEventWithPii requires content.body to be a string — it is the machine-authored prose sealed into session_events.content_payload; received ${describeParticipantIdShape(contentInput.body)}. TextEncoder would stringify a non-string rather than refuse it, so the row would carry a signed commitment to a coerced value; nothing downstream re-checks this shape.`,
+        `writeEventWithPii requires content.body to be a string — it is the machine-authored prose sealed into session_events.content_payload; received ${describeUserIdShape(contentInput.body)}. TextEncoder would stringify a non-string rather than refuse it, so the row would carry a signed commitment to a coerced value; nothing downstream re-checks this shape.`,
       );
     }
     if (
@@ -1730,12 +1730,12 @@ export async function writeEventWithPii(
   }
 
   // --- Step 2: ENCRYPT (PII partition) --------------------------------------
-  // Skipped entirely on a content-only row: there is no participant partition to
+  // Skipped entirely on a content-only row: there is no user partition to
   // seal, and the injected encryptor is never called for one.
   let piiPartition: SealedPiiPartition | undefined;
   if (piiCarrying !== undefined && piiPlaintext !== undefined) {
     const encryptorResult: Uint8Array = await encryptor.encrypt({
-      participantId: piiCarrying.piiParticipantId,
+      userId: piiCarrying.piiUserId,
       eventId: input.id,
       plaintext: piiPlaintext,
     });
@@ -1787,7 +1787,7 @@ export async function writeEventWithPii(
     const piiPayload: PiiPayloadCiphertext = new Uint8Array(
       encryptorResult,
     ) as PiiPayloadCiphertext;
-    piiPartition = { ciphertext: piiPayload, participantId: piiCarrying.piiParticipantId };
+    piiPartition = { ciphertext: piiPayload, userId: piiCarrying.piiUserId };
   }
 
   // --- Step 2 (content partition): BOUND, then SEAL -------------------------
@@ -1834,7 +1834,7 @@ export async function writeEventWithPii(
   const canonical: CanonicalBytes = canonicalizeDigestBearingEvent(envelope);
   const signedRow: SignedRow = signRow(canonical, prevHash, daemonSigningKey);
 
-  // `piiParticipantId` rides out with the other three: it is a column value must
+  // `piiUserId` rides out with the other three: it is a column value must
   // write, and the input is not a source the persistence contract admits. The
   // identical string is also inside `envelope.payload` and therefore inside the
   // signature, which is what makes the column checkable later; echoing it here
@@ -1845,7 +1845,7 @@ export async function writeEventWithPii(
     canonicalByteLength: canonical.length,
     contentPayload: contentPartition?.ciphertext,
     envelope,
-    piiParticipantId: piiPartition?.participantId,
+    piiUserId: piiPartition?.userId,
     piiPayload: piiPartition?.ciphertext,
     signedRow,
   };
@@ -1860,7 +1860,7 @@ export async function writeEventWithPii(
  * `payload`: the digest, and the owner stamp.
  *
  * What it embeds is the pair: `pii_ciphertext_digest` binds the signature to the
- * ciphertext BYTES, `pii_participant_id` binds it to the row's OWNER. The two
+ * ciphertext BYTES, `pii_user_id` binds it to the row's OWNER. The two
  * are the same mechanism applied to the two halves of the PII partition's
  * exposure — the content and whose content it is — and neither is recoverable
  * from the other once a shred has destroyed the key.
@@ -1895,8 +1895,8 @@ function embedCiphertextDigest(
   // ciphertext, which is why the invariant reads "commit to
   // `pii_ciphertext_digest`, not raw ciphertext". It was never a rule against
   // identifiers, and could not have been: `actor` is a canonical member and
-  // `0001-initial.ts` documents that column as "participant_id or agent_id or
-  // NULL for system", so the canonical form has signed participant ids since it
+  // `0001-initial.ts` documents that column as "user_id or agent_id or
+  // NULL for system", so the canonical form has signed user ids since it
   // shipped. Projecting the stamp is therefore a CLARIFICATION of that
   // invariant's scope, not an amendment to it — recorded here so the question is
   // not reopened. The partition itself stays out, and leg 1's sentinel
@@ -1904,11 +1904,11 @@ function embedCiphertextDigest(
   //
   // The two carry the same KIND of datum and answer different questions: `actor`
   // names WHO EMITTED the row — `0001-initial.ts` documents that column as
-  // "participant_id or agent_id or NULL for system" — while the stamp names
+  // "user_id or agent_id or NULL for system" — while the stamp names
   // WHOSE CONTENT KEY SEALED the ciphertext. They coincide often, and diverge
   // exactly where the divergence is expensive: an agent-emitted row (`actor` =
   // an `agent_id`) or a system-emitted one (`actor` NULL) can still carry a
-  // participant's PII, and on those rows `actor` cannot answer the question the
+  // user's PII, and on those rows `actor` cannot answer the question the
   // scope selector asks. Both halves are load-bearing — "no new class of
   // disclosure" is what makes the projection safe, and this is what makes it
   // necessary.
@@ -1917,7 +1917,7 @@ function embedCiphertextDigest(
     payloadWithPiiBindings[PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY] = bytesToHex(
       blake3(piiPartition.ciphertext),
     );
-    payloadWithPiiBindings[PII_PARTICIPANT_ID_PAYLOAD_KEY] = piiPartition.participantId;
+    payloadWithPiiBindings[PII_USER_ID_PAYLOAD_KEY] = piiPartition.userId;
   }
 
   // THE CONTENT PARTITION EMBEDS ONE BINDING AND TWO DESCRIPTIONS, and the
@@ -1947,7 +1947,7 @@ function embedCiphertextDigest(
   // one. Spreading would put the PII partition itself into the canonical bytes —
   // the exact leak this whole codec exists to prevent — and the signature would
   // then pin plaintext PII on disk for as long as the row survives the shred.
-  // `piiParticipantId` is not an envelope member either, and it reaches the
+  // `piiUserId` is not an envelope member either, and it reaches the
   // canonical bytes only through the deliberate projection above, under its own
   // wire name, inside `payload`. The value-typed mapped annotation is the drift
   // guard, in the same register uses: `-?` makes every member required, so a
@@ -2029,7 +2029,7 @@ function embedCiphertextDigest(
  * origin-scopes row four, not soften this row.
  *
  * A crypto-shredded row lands in row ONE and passes. Path 1 destroys the
- * per-participant key and overwrites no column, so the ciphertext bytes are
+ * per-user key and overwrites no column, so the ciphertext bytes are
  * still there and still hash to the signed digest — which is exactly why this
  * check needs no shred-state carve-out.
  *
@@ -2110,7 +2110,7 @@ function isColumnDigestBound(
  * can mean either "the key is gone" or "someone edited the column" means neither.
  *
  * NO OWNER-STAMP SIBLING PAIRS WITH THIS ONE, deliberately. The PII pair needs
- * two checks because the participant whose key sealed the bytes is recoverable
+ * two checks because the user whose key sealed the bytes is recoverable
  * from nothing else once the key is destroyed. The content partition's owner is
  * the SESSION, and `session_id` is a canonical member the signature already
  * covers — there is nothing left to bind, which is why this home costs one
@@ -2137,7 +2137,7 @@ function isColumnDigestBound(
  * NULL and `payload` is replaced by a stub projection that carries no digest —
  * so a compacted row lands in the second state and reads bound. That is stated
  * at mint time rather than left to a later amendment, which is the lesson the
- * corpus paid for once already with `pii_participant_id`.
+ * corpus paid for once already with `pii_user_id`.
  */
 export function isContentCiphertextDigestBound(
   storedContentPayload: unknown,
@@ -2210,7 +2210,7 @@ export function isContentCiphertextDigestBoundUnderProvenance(
 
 /**
  * The owner-stamp half of the same question {@link isCiphertextDigestBound}
- * asks of the ciphertext: does the participant id a row is actually stamped with
+ * asks of the ciphertext: does the user id a row is actually stamped with
  * still equal the one its signature committed to?
  *
  * WHY IT NEEDS ASKING, when the digest check already covers the PII column. The
@@ -2219,7 +2219,7 @@ export function isContentCiphertextDigestBoundUnderProvenance(
  * After a Path 1 shred the second question has no other answer left: the key is
  * destroyed, so no decrypt can re-attribute the retained ciphertext, and the
  * stamp is the sole surviving evidence. A tampered stamp cannot stop the shred
- * itself — Path 1 deletes the participant's key globally — but it corrupts the
+ * itself — Path 1 deletes the user's key globally — but it corrupts the
  * SCOPE SELECTOR that decides which rows the operation reports, so the
  * `affectedSessionIds[]` / `piiPayloadsCleared` of an `event.shredded` event
  * are falsified on a row retains indefinitely as compliance evidence.
@@ -2262,7 +2262,7 @@ export function isContentCiphertextDigestBoundUnderProvenance(
  * digest pair — sets `pii_payload` NULL and replaces `payload` with a stub
  * projection carrying no digest — so a compacted row lands in row two there. The
  * stamp has no such guarantee: the stub projection carries no
- * `pii_participant_id` either, so the CLAIM is gone, and whether the COLUMN goes
+ * `pii_user_id` either, so the CLAIM is gone, and whether the COLUMN goes
  * with it is undecided, because that column does not exist yet and the spec's
  * removal list therefore cannot mention it. This predicate assumes the compactor
  * clears the stamp alongside `pii_payload` — they are the two halves of the same
@@ -2278,7 +2278,7 @@ export function isContentCiphertextDigestBoundUnderProvenance(
  * Fail-closed on a shape it cannot compare: a non-string, non-NULL column value is
  * reported UNBOUND rather than skipped, because a verifier that cannot confirm the
  * binding has not confirmed it. The type test is `typeof === "string"` and not a
- * byte test — the stamp is a participant id and the column will be `TEXT`, where
+ * byte test — the stamp is a user id and the column will be `TEXT`, where
  * the sibling's `instanceof Uint8Array` would refuse every legitimate value.
  * Comparison is exact: the stamp is an opaque id, so this module normalizes no
  * case and trims no whitespace.
@@ -2291,28 +2291,25 @@ export function isContentCiphertextDigestBoundUnderProvenance(
  * a guarded string. Both predicates answer the same way on a malformed member,
  * which is worth more here than closing an exotic fail-open in one of them.
  */
-export function isPiiOwnerStampBound(
-  storedPiiParticipantId: unknown,
-  signedPayload: unknown,
-): boolean {
+export function isPiiOwnerStampBound(storedPiiUserId: unknown, signedPayload: unknown): boolean {
   const signedStamp =
     typeof signedPayload === "object" && signedPayload !== null
-      ? (signedPayload as Record<string, unknown>)[PII_PARTICIPANT_ID_PAYLOAD_KEY]
+      ? (signedPayload as Record<string, unknown>)[PII_USER_ID_PAYLOAD_KEY]
       : undefined;
   const claimedStamp = typeof signedStamp === "string" ? signedStamp : undefined;
 
   // `== null` is the deliberate loose form, as in the sibling: SQLite's NULL and
   // an absent property in one test, and nothing else.
-  if (storedPiiParticipantId == null) {
+  if (storedPiiUserId == null) {
     return claimedStamp === undefined;
   }
   if (claimedStamp === undefined) {
     return false;
   }
-  if (typeof storedPiiParticipantId !== "string") {
+  if (typeof storedPiiUserId !== "string") {
     return false;
   }
-  return storedPiiParticipantId === claimedStamp;
+  return storedPiiUserId === claimedStamp;
 }
 
 /**
@@ -2344,10 +2341,10 @@ const STRICT_LAYER_ISSUES_RENDERED_MAX = 5;
  *
  * The withholding is the point, and it is this module's standing rule rather
  * than a new one: {@link describeByteShape} reports a length or a `typeof` and
- * never a byte, {@link describeParticipantIdShape} reports a type and a
+ * never a byte, {@link describeUserIdShape} reports a type and a
  * character count, and `EventLogService`'s reserved-key refusal reports a KEY
  * PATH and never the value under it. A payload member is the one place on this
- * path a participant's or a model's words can sit, so Zod's own `message` —
+ * path a user's or a model's words can sit, so Zod's own `message` —
  * which quotes received values for several issue codes — is deliberately not
  * forwarded. A path plus a code is what a caller acts on; the value is what a
  * log must not keep.
@@ -2490,7 +2487,7 @@ export interface StrictLayerParseSeam {
  * with nothing projected away. That is a property of the CONTRACTS layer rather
  * than of this function: `packages/contracts/src/event.ts` registers
  * {@link PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY} and
- * {@link PII_PARTICIPANT_ID_PAYLOAD_KEY} as schema-optional members on every
+ * {@link PII_USER_ID_PAYLOAD_KEY} as schema-optional members on every
  * payload variant whose category may carry a PII partition, which is what
  * requires of any row whose `pii_payload` is non-NULL. An earlier revision of
  * this guard excised the pair before parsing, because no variant declared them
@@ -2543,7 +2540,7 @@ function canonicalizeDigestBearingEvent(envelope: EventWithPiiDigest): Canonical
  * over a BYTE-shaped value: the encryptor's result, and the two hoisted byte
  * guards (`prevHash` and `daemonSigningKey`). Refusal 7's value is a `string` by
  * contract rather than bytes, so it is described by
- * {@link describeParticipantIdShape} instead — the two split by the shape of the
+ * {@link describeUserIdShape} instead — the two split by the shape of the
  * subject, not by call site.
  * Deliberately local, and named for the sibling helpers rather than for any one
  * call site: `signer.ts` and `signing-key-source.ts` each keep a
@@ -2558,7 +2555,7 @@ function describeByteShape(value: unknown): string {
 }
 
 /**
- * Renders a refused participant id for a throw message without reproducing it.
+ * Renders a refused user id for a throw message without reproducing it.
  *
  * NOT withheld on privacy grounds — the id is a column value persists AND a
  * member of the signed canonical bytes, and a shred erases the KEY rather than
@@ -2573,7 +2570,7 @@ function describeByteShape(value: unknown): string {
  * start lying if a second call site ever appears. That is what the non-empty
  * branch is for; refusal 7 never reaches it.
  */
-function describeParticipantIdShape(value: unknown): string {
+function describeUserIdShape(value: unknown): string {
   if (typeof value === "string") {
     return value.length === 0 ? "an empty string" : `a ${value.length}-character string`;
   }

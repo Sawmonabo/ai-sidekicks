@@ -1,4 +1,4 @@
-// The act at the window's head: read the rows this participant was never sent.
+// The act at the window's head: read the rows this user was never sent.
 //
 // SYMMETRIC WITH `LedgerTailAffordance.tsx`, and the symmetry is the design rather
 // than a coincidence. The tail affordance is the way back to rows that arrived while

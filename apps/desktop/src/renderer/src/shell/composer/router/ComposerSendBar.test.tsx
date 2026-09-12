@@ -121,7 +121,7 @@ describe("ComposerSendBar — the unsent body lives in the supplied draft store"
 describe("ComposerSendBar — a rejected steer keeps the message in the line", () => {
   it("leaves the text and renders the daemon's cause", async () => {
     // The finding at the surface: fulfilment was treated as success, so the line
-    // emptied and the participant's words were gone for an intervention the run had
+    // emptied and the user's words were gone for an intervention the run had
     // declined. Nothing about the reply says the message travelled, so nothing about
     // the composer may say so either.
     const bar = mountAddressable(

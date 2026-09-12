@@ -13,9 +13,9 @@
 // no daemon could emit. The one exception below is the node id, which the corpus does
 // not declare as a UUID.
 
-const HUMAN_PARTICIPANT_ID = "019b7b30-0280-79a4-8110-cca0117a0130";
-const SECOND_HUMAN_PARTICIPANT_ID = "019b7b30-0280-79a4-8110-cca0117a0132";
-const AGENT_PARTICIPANT_ID = "019b7b30-0280-7a6e-8100-d1a4c1150034";
+const HUMAN_USER_ID = "019b7b30-0280-79a4-8110-cca0117a0130";
+const SECOND_HUMAN_USER_ID = "019b7b30-0280-79a4-8110-cca0117a0132";
+const AGENT_USER_ID = "019b7b30-0280-7a6e-8100-d1a4c1150034";
 
 /** The session whose one shared shell this scenario is about. */
 export const TERMINAL_SCENARIO_SESSION_ID = "019b7b30-0280-75e5-8510-ada11a5a5555";
@@ -38,7 +38,7 @@ export const TERMINAL_HOST_NODE_ID = "node-workstation";
 /**
  * The scenario's cast, by role, for the surfaces that render one of them.
  *
- * `participantIdsInJoinOrder` carries the same three ids, and a caller indexing it
+ * `userIdsInJoinOrder` carries the same three ids, and a caller indexing it
  * gets `string | undefined` — so every consumer would either widen its own types or
  * write a presence check for a fact this module already knows. Naming them here
  * gives the family's tests the wire-declared id AND the role it plays, which an
@@ -52,13 +52,13 @@ export interface TerminalScenarioCast {
   /**
    * The attached agent, whose run's idling is one of the five release reasons. The
    * RUN binds to the lease, never this id: an agent-path take holds as the
-   * node-owner participant, so `owner` above is the holder that take names.
+   * node-owner user, so `owner` above is the holder that take names.
    */
   readonly agent: string;
 }
 
 export const TERMINAL_SCENARIO_CAST: TerminalScenarioCast = {
-  owner: HUMAN_PARTICIPANT_ID,
-  collaborator: SECOND_HUMAN_PARTICIPANT_ID,
-  agent: AGENT_PARTICIPANT_ID,
+  owner: HUMAN_USER_ID,
+  collaborator: SECOND_HUMAN_USER_ID,
+  agent: AGENT_USER_ID,
 };

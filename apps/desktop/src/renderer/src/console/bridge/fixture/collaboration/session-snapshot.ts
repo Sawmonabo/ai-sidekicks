@@ -49,12 +49,12 @@ export function fixtureSessionSnapshot(
   sessionId: string,
 ): SessionSnapshot {
   if (sessionId !== scenario.sessionId) {
-    return { cursor: BASE_STATE_CURSOR, entities: [], participantJoinLog: [] };
+    return { cursor: BASE_STATE_CURSOR, entities: [], userJoinLog: [] };
   }
   return {
     cursor: BASE_STATE_CURSOR,
     entities: [],
-    participantJoinLog: scenario.participantIdsInJoinOrder,
+    userJoinLog: scenario.userIdsInJoinOrder,
     // Carried UNREAD from the scenario's own reply, which is where a daemon puts it.
     // The store's resume rule owns the shape and the narrowing, so a scenario that
     // scripts no cursor block, or one that predates the floor member, reaches the

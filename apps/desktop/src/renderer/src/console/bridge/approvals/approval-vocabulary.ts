@@ -117,7 +117,7 @@ export const STATE_TONE: Readonly<Record<ApprovalState, ChipTone>> = {
 
 /** What an invalidation trigger is called on screen, so revocation is never mysterious. */
 export const TRIGGER_PHRASE: Readonly<Record<InvalidationTrigger, string>> = {
-  explicit: "revoked by a participant",
+  explicit: "revoked by a user",
   node_trust_change: "revoked because the node's trust changed",
   session_end: "revoked because the session ended",
 };

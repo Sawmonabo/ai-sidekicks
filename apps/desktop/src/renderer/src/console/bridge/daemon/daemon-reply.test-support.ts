@@ -4,7 +4,7 @@
 // and the reader that takes the refusal off a reply. The parse suite and the
 // rejection suite each play both, and a second copy of either would be a second
 // place a failure message comes from. It holds nothing a single suite uses — the
-// participant id, the instant, the off-contract value, the served reply, and the
+// user id, the instant, the off-contract value, the served reply, and the
 // retry-bound reader stay beside their one reader, which is the line
 // `fixture/call-plane/bridge.test-support.ts` next door draws for the same reason.
 

@@ -103,7 +103,7 @@ describe("the growth-call door — the two ways one operation fails", () => {
     });
 
     // And the sentence carries what the rejection said. Suppressing it was this door's
-    // own rule and it left a participant with a refusal and no reason; the port's
+    // own rule and it left a user with a refusal and no reason; the port's
     // builder reads the rejection through `core/wire-rejection.ts`, which already
     // refuses to serialize a structure into a sentence, so what survives is prose the
     // producing side wrote rather than a rendering of the value.

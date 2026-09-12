@@ -183,7 +183,7 @@ describe("histories are per address, so a walk never crosses a rebinding", () =>
     histories.forAddress("first").recordSent("written for the first");
 
     // The defect this closes: one history for the mounted bar handed the second
-    // address the first one's participant-authored text on ArrowUp.
+    // address the first one's user-authored text on ArrowUp.
     expect(histories.forAddress("second").recallOlder("")).toBeUndefined();
     expect(histories.forAddress("first").recallOlder("")).toBe("written for the first");
   });

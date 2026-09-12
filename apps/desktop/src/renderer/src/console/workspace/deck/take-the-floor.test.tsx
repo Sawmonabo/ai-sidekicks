@@ -58,7 +58,7 @@ function bridgeServing(worktrees: readonly Record<string, unknown>[]): ConsoleBr
     label: "Take the floor unit",
     purpose: "One canned execution-root read, so the deck's resolution is observable.",
     sessionId: SESSION_ID,
-    participantIdsInJoinOrder: ["participant-you"],
+    userIdsInJoinOrder: ["user-you"],
     startedAtIso: "2026-01-01T00:00:00.000Z",
     beats: [],
     replies: [
@@ -76,7 +76,7 @@ function storeWithBoundRun(agentId: string | undefined): SessionStore {
   const store = new SessionStore({ sessionId: SESSION_ID });
   store.initialise({
     cursor: 1,
-    participantJoinLog: [],
+    userJoinLog: [],
     entities: [
       {
         kind: "run",
@@ -243,7 +243,7 @@ describe("the deck's two acts", () => {
       label: "Take the floor refusal",
       purpose: "The execution-root read refuses, so the deck's third disposition is reachable.",
       sessionId: SESSION_ID,
-      participantIdsInJoinOrder: ["participant-you"],
+      userIdsInJoinOrder: ["user-you"],
       startedAtIso: "2026-01-01T00:00:00.000Z",
       beats: [],
       replies: [

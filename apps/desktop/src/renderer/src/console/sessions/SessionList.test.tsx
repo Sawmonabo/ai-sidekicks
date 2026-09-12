@@ -22,7 +22,7 @@ function row(overrides: Partial<SessionListRow> = {}): SessionListRow {
     sessionId: "session-1",
     state: "active",
     touchedAtIso: TOUCHED_TODAY,
-    participantIds: [],
+    userIds: [],
     attentionSeverity: undefined,
     ...overrides,
   };
@@ -44,7 +44,7 @@ function renderList(rows: readonly SessionListRow[]): HTMLElement {
  * The touched-at readings, one per row.
  *
  * Selected as DIRECT children of the facts row, which is what separates the instant
- * from the participant identifiers rendered beside it in their own wrapper — a
+ * from the user identifiers rendered beside it in their own wrapper — a
  * looser selector would fold the two together and the assertion would stop being
  * about the instant at all.
  */

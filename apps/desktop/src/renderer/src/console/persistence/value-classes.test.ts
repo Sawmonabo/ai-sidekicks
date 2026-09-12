@@ -69,7 +69,7 @@ describe("the value-class enumeration is declared once and reaches a validator",
 
   it("refuses prose through the write chokepoint, whatever class is claimed", () => {
     // The durable store is limited to layouts, selection, pins, and expansion state,
-    // and composer drafts stay in window memory: a draft is participant-authored
+    // and composer drafts stay in window memory: a draft is user-authored
     // content, and a durable copy would need encrypted, PII-mapped storage the
     // renderer does not have. Widen one class's shape predicate — `selection` from a
     // record of branded ids to `Record<string, string>`, say — and draft text

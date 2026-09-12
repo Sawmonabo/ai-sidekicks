@@ -101,7 +101,7 @@ export async function settle(clock: ManualClock, reader: RepoMountsReader): Prom
 type Unbranded<TValue> = TValue extends { readonly __brand: string } ? string : TValue;
 type WireOverrides<TRecord> = { readonly [Member in keyof TRecord]?: Unbranded<TRecord[Member]> };
 
-/** The root a mount resolves to, and the deeper path a participant entered. */
+/** The root a mount resolves to, and the deeper path a user entered. */
 export const CANONICAL_ROOT = "/Users/dev/code/ai-sidekicks";
 export const ENTERED_PATH = "/Users/dev/code/ai-sidekicks/packages/contracts";
 

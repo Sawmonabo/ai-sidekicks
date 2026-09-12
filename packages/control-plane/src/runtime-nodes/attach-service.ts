@@ -15,9 +15,9 @@
 //       - P9 (single active attachment): a node already actively attached to ANOTHER
 //         session is refused with the typed `RuntimeNodeAttachConflictException`; a
 //         SAME-OWNER reconnect of a node whose row for THIS session is `offline`
-//         reactivates it (offline -> registering). The owner participant is IMMUTABLE
+//         reactivates it (offline -> registering). The owner user is IMMUTABLE
 //         across reconnect (a reconnect is the same daemon), so a DIFFERENT
-//         participant reconnecting to that row is REFUSED with the same typed
+//         user reconnecting to that row is REFUSED with the same typed
 //         `RuntimeNodeAttachConflictException` rather than overwriting the owner
 //         (never destroy historical node provenance).
 //       - P10 (revocation is terminal): a re-attach against a row in the
@@ -185,7 +185,7 @@ const UNIQUE_VIOLATION_SQLSTATE = "23505";
 
 // The terminal liveness state a `revoked` attachment row carries. A re-attach against
 // a row in this state is refused (P10); a non-active `offline` row is reactivated by
-// the upsert's DO UPDATE ONLY when the reconnecting participant is the row's existing
+// the upsert's DO UPDATE ONLY when the reconnecting user is the row's existing
 // owner (a cross-owner reconnect is suppressed instead — the owner is immutable).
 const REVOKED_STATE: NodeState = "revoked";
 
@@ -241,7 +241,7 @@ interface CapabilityUpdateRow {
 // still normalize through the same total `toIsoString`).
 interface RosterRow {
   readonly node_id: string;
-  readonly participant_id: string;
+  readonly user_id: string;
   readonly state: string;
   readonly health_state: string | null;
   readonly last_heartbeat_at: Date | string | null;
@@ -308,8 +308,8 @@ export class AttachService {
    *   1. Read the session's `min_client_version` floor.
    *   2. Derive `readOnly` from (floor, clientVersion) via `#deriveReadOnly`.
    *   3. Upsert the attachment row — `INSERT... ON CONFLICT (node_id, session_id) DO
-   *      UPDATE... WHERE state <> 'revoked' AND participant_id =
-   *      EXCLUDED.participant_id RETURNING`. `participant_id` is NOT in the SET, so
+   *      UPDATE... WHERE state <> 'revoked' AND user_id =
+   *      EXCLUDED.user_id RETURNING`. `user_id` is NOT in the SET, so
    *      the owner is never reassigned (never destroy node provenance on reconnect).
    *   4a. Non-empty RETURNING -> map the row to the response (the admit /
    *       same-owner reconnect happy path, P1 / P9 reconnect).
@@ -362,15 +362,15 @@ export class AttachService {
       // suppressing conditions:
       //   - `state <> 'revoked'` — reactivates an `offline` row (P9 reconnect)
       //     and is SUPPRESSED for a `revoked` row (P10 -> zero RETURNING rows).
-      //   - `participant_id = EXCLUDED.participant_id` — the owner participant is
+      //   - `user_id = EXCLUDED.user_id` — the owner user is
       //     IMMUTABLE across reconnect: a reconnect is the SAME local daemon, so a
-      //     DIFFERENT participant attempting to reattach to this `(node_id,
+      //     DIFFERENT user attempting to reattach to this `(node_id,
       //     session_id)` row is SUPPRESSED (-> zero RETURNING rows), the same zero-row
-      //     mechanism the revoked case uses. This is why `participant_id` is NOT in
+      //     mechanism the revoked case uses. This is why `user_id` is NOT in
       //     the SET list: reassigning the owner on a cross-owner reconnect would
       //     destroy node provenance (never destroy historical node provenance when a
       //     node reconnects).
-      // (`EXCLUDED.participant_id` in a DO UPDATE WHERE is valid Postgres — it
+      // (`EXCLUDED.user_id` in a DO UPDATE WHERE is valid Postgres — it
       // refers to the would-be-inserted row's value.)
       //
       // `validated.healthState` is parsed at the boundary but DELIBERATELY NOT
@@ -382,18 +382,18 @@ export class AttachService {
       try {
         upserted = await transaction.query<AttachmentRow>(
           `INSERT INTO runtime_node_attachments
-             (session_id, participant_id, node_id, capabilities, client_version, state)
+             (session_id, user_id, node_id, capabilities, client_version, state)
            VALUES ($1, $2, $3, $4, $5, $6)
            ON CONFLICT (node_id, session_id) DO UPDATE
              SET capabilities   = EXCLUDED.capabilities,
                  client_version = EXCLUDED.client_version,
                  state          = $6
            WHERE runtime_node_attachments.state <> $7
-             AND runtime_node_attachments.participant_id = EXCLUDED.participant_id
+             AND runtime_node_attachments.user_id = EXCLUDED.user_id
            RETURNING id, state, attached_at`,
           [
             validated.sessionId,
-            validated.participantId,
+            validated.userId,
             validated.nodeId,
             validated.capabilities,
             validated.clientVersion,
@@ -438,39 +438,38 @@ export class AttachService {
       // which now has TWO suppressing conditions, so the existing row for THIS
       // session is in ONE of three states (a successful zero-row update does NOT
       // abort the transaction, so this read is safe). Re-read `state` AND
-      // `participant_id` and discriminate the three causes IN ORDER:
+      // `user_id` and discriminate the three causes IN ORDER:
       //   (a) revoked-first — the existing row is `revoked`. Terminal REGARDLESS
-      //       of who probes it (the owner reconnecting OR another participant), so
+      //       of who probes it (the owner reconnecting OR another user), so
       //       it is checked first and unconditionally: revocation is terminal
       //       (P10). The message names the caller's OWN `sessionId` — no other
       //       session's identity is disclosed.
-      //   (b) cross-owner — the existing row is owned by a DIFFERENT participant
-      //       (its `participant_id` differs from the caller's). A reconnect is the
-      //       same daemon, so the owner is IMMUTABLE; a different participant
+      //   (b) cross-owner — the existing row is owned by a DIFFERENT user
+      //       (its `user_id` differs from the caller's). A reconnect is the
+      //       same daemon, so the owner is IMMUTABLE; a different user
       //       attempting to reattach to this `(node_id, session_id)` row is refused
       //       with the typed conflict. The message names `nodeId` + the caller's OWN
-      //       `sessionId` ONLY — never the owning `participant_id` (no cross-owner
+      //       `sessionId` ONLY — never the owning `user_id` (no cross-owner
       //       info-leak).
       //   (c) impossible — neither cause holds (and a row MUST exist: the upsert
       //       hit ON CONFLICT, so a matching row is present). Surface it as a hard
       //       error rather than masquerading as a typed refusal.
       if (upsertedRow === undefined) {
-        const existingProbe = await transaction.query<{ state: string; participant_id: string }>(
-          "SELECT state, participant_id FROM runtime_node_attachments WHERE node_id = $1 AND session_id = $2",
+        const existingProbe = await transaction.query<{ state: string; user_id: string }>(
+          "SELECT state, user_id FROM runtime_node_attachments WHERE node_id = $1 AND session_id = $2",
           [validated.nodeId, validated.sessionId],
         );
-        const existingRow: { state: string; participant_id: string } | undefined =
-          existingProbe.rows[0];
+        const existingRow: { state: string; user_id: string } | undefined = existingProbe.rows[0];
         if (existingRow !== undefined && existingRow.state === REVOKED_STATE) {
           // (a) revoked-first — terminal regardless of caller.
           throw new RuntimeNodeAttachRevokedException(
             `Runtime node ${String(validated.nodeId)}'s attachment to session ${String(validated.sessionId)} was revoked; revocation is terminal.`,
           );
         }
-        if (existingRow !== undefined && existingRow.participant_id !== validated.participantId) {
+        if (existingRow !== undefined && existingRow.user_id !== validated.userId) {
           // (b) cross-owner — the owner is immutable across reconnect.
           throw new RuntimeNodeAttachConflictException(
-            `Runtime node ${String(validated.nodeId)} is attached to session ${String(validated.sessionId)} under a different participant and cannot be reattached by another participant.`,
+            `Runtime node ${String(validated.nodeId)} is attached to session ${String(validated.sessionId)} under a different user and cannot be reattached by another user.`,
           );
         }
         // (c) Defensive: a zero-row upsert that is neither revoked nor cross-owner
@@ -605,7 +604,7 @@ export class AttachService {
    * (`capabilityupdate` amendment).
    *
    * This is the CONTROL-PLANE half of capability-update: it refreshes the
-   * `capabilities` JSONB snapshot (the discovery roster other participants read)
+   * `capabilities` JSONB snapshot (the discovery roster other users read)
    * on the node's single active attachment and, when `healthChanges` is present,
    * applies the daemon-reported capability-health transition. It is NOT the
    * durable `runtime_node.capability_updated` writer — the control plane has no
@@ -913,7 +912,7 @@ export class AttachService {
     // contract — the pinned response shape carries no ordering clause.
     const rosterProbe = await this.#querier.query<RosterRow>(
       `SELECT attachment.node_id,
-              attachment.participant_id,
+              attachment.user_id,
               attachment.state,
               presence.health_state,
               presence.last_heartbeat_at,
@@ -932,7 +931,7 @@ export class AttachService {
     // Build plain entry objects and parse the WHOLE response through the
     // contracts schema (the same parse-not-cast posture as
     // `updateCapabilities`' step 6): the parse brands `nodeId` /
-    // `participantId` / `clientVersion`, validates both health-axis enums and
+    // `userId` / `clientVersion`, validates both health-axis enums and
     // the ISO 8601 timestamps, and fails CLOSED on any corrupted stored value.
     // `client_version` is ALSO parsed per row BEFORE the response parse
     // because `#deriveReadOnly` requires the branded comparator input — the
@@ -944,7 +943,7 @@ export class AttachService {
       );
       return {
         nodeId: row.node_id,
-        participantId: row.participant_id,
+        userId: row.user_id,
         state: row.state,
         healthState: row.health_state,
         lastHeartbeatAt: row.last_heartbeat_at === null ? null : toIsoString(row.last_heartbeat_at),

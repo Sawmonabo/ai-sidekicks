@@ -1,4 +1,4 @@
-// The carrier's participant-facing acts: what attach, retry, abandon, remove, reorder,
+// The carrier's user-facing acts: what attach, retry, abandon, remove, reorder,
 // and disposal do to the record of every attachment a person has handed this session.
 //
 // THREE MODULES, THREE SUBJECTS, AND THIS ONE IS THE ACTS. The carrier's own record —
@@ -15,7 +15,7 @@
 // promise it answers with is deliberately discarded — a stream is not a render and a
 // press is not a round trip. The one thing this module awaits is nothing at all.
 //
-// NO TIMER, ANYWHERE. The carrier performs work when a participant asks it to — attach,
+// NO TIMER, ANYWHERE. The carrier performs work when a user asks it to — attach,
 // retry, abandon — and at no other moment. There is no interval, no backoff timer, and
 // no automatic re-drive: `wait-and-retry` is a sentence a person reads and a control
 // they press, because a console that retried a 429 on its own would hide the capacity
@@ -35,7 +35,7 @@ export interface AttachmentIngestClientOptions {
   readonly clock?: ConsoleClock;
 }
 
-/** Every attachment a participant has handed this carrier, in the order they chose. */
+/** Every attachment a user has handed this carrier, in the order they chose. */
 export class AttachmentIngestClient {
   readonly #ledger = new AttachmentIngestLedger();
   readonly #reclaimer: AttachmentSpoolReclaimer;
@@ -117,7 +117,7 @@ export class AttachmentIngestClient {
    * Stop sending, and ask for the spool back.
    *
    * The state moves immediately because sending stops immediately; the abort call is
-   * best-effort and its refusal changes nothing a participant needs to act on, which is
+   * best-effort and its refusal changes nothing a user needs to act on, which is
    * why the copy states the reaper rather than promising an instant reclaim.
    */
   public abandon(localId: string): void {

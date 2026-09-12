@@ -26,7 +26,7 @@ function renderToolCard(
         ...(overrides.summary === undefined ? {} : { summary: overrides.summary }),
         ...(overrides.payload === undefined ? {} : { payload: overrides.payload }),
       })}
-      participantHue={undefined}
+      actorHue={undefined}
       isSuperseded={false}
       density={overrides.density ?? "collapsed"}
       footnotes={new FootnoteRegistry()}

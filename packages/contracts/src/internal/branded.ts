@@ -73,7 +73,7 @@ export const uuidTextFormSchema: z.ZodType<string, string> = z
  * `.brand(brandName)` call preserves Zod's internal brand metadata.
  *
  * Used for the UUID-based branded IDs declared in `session.ts` (SessionId,
- * ParticipantId, ChannelId) and for every later family composed
+ * UserId, ChannelId) and for every later family composed
  * through it (RunId, ArtifactId, the repo / worktree / runtime-node ids). Every
  * one of them therefore shares ONE accept set — `RFC_9562_TEXT_FORM` above — so
  * a value that parses as one branded id parses as all of them, and widening or

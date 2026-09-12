@@ -202,7 +202,7 @@ function seed(options: SeedOptions): { readonly id: string; readonly sequence: n
       `INSERT INTO session_events
          (id, session_id, sequence, occurred_at, monotonic_ns, category, type, actor, payload,
           pii_payload, correlation_id, causation_id, version, prev_hash, row_hash,
-          daemon_signature, pii_participant_id, content_payload)
+          daemon_signature, pii_user_id, content_payload)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     )
     .run(
@@ -222,7 +222,7 @@ function seed(options: SeedOptions): { readonly id: string; readonly sequence: n
       Buffer.alloc(32),
       Buffer.alloc(32, sequence + 1),
       Buffer.alloc(64, 9),
-      "participant-abc",
+      "user-abc",
       options.contentPayload === undefined ? null : Buffer.from(options.contentPayload),
     );
   return { id, sequence };
@@ -237,7 +237,7 @@ interface StoredEventRow {
   readonly correlation_id: string | null;
   readonly causation_id: string | null;
   readonly pii_payload: Uint8Array | null;
-  readonly pii_participant_id: string | null;
+  readonly pii_user_id: string | null;
   readonly content_payload: Uint8Array | null;
   readonly prev_hash: Uint8Array;
   readonly row_hash: Uint8Array;
@@ -413,7 +413,7 @@ describe("Compactor — compaction triggers", () => {
     expect(stubbed.correlation_id).toBeNull();
     expect(stubbed.causation_id).toBeNull();
     expect(stubbed.pii_payload).toBeNull();
-    expect(stubbed.pii_participant_id).toBeNull();
+    expect(stubbed.pii_user_id).toBeNull();
 
     // The chain commitments are FROZEN — compaction rewrites the payload, and a
     // stub whose `row_hash` moved would break every anchor that already

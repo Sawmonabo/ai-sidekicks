@@ -28,7 +28,7 @@ export function scenarioNamed(id: string): ConsoleScenario {
     label: id,
     purpose: "A scenario standing in for one on the board.",
     sessionId: STAND_IN_SESSION_ID,
-    participantIdsInJoinOrder: [],
+    userIdsInJoinOrder: [],
     startedAtIso: STAND_IN_STARTED_AT_ISO,
     beats: [],
     replies: [],

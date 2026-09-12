@@ -24,7 +24,7 @@ import { RUNTIME_BINDINGS_MIGRATION_SQL } from "../../migrations/0003-runtime-bi
 import { WORKTREE_LIFECYCLE_MIGRATION_SQL } from "../../migrations/0004-worktree-lifecycle.js";
 import { DAEMON_SIGNING_KEYS_MIGRATION_SQL } from "../../migrations/0005-daemon-signing-keys.js";
 import { RUN_LIFECYCLE_TERMINAL_BACKSTOP_MIGRATION_SQL } from "../../migrations/0006-run-lifecycle-terminal-backstop-index.js";
-import { PII_PARTICIPANT_ID_MIGRATION_SQL } from "../../migrations/0007-pii-participant-id.js";
+import { PII_USER_ID_MIGRATION_SQL } from "../../migrations/0007-pii-user-id.js";
 import { PENDING_ANCHOR_UPLOADS_MIGRATION_SQL } from "../../migrations/0008-pending-anchor-uploads.js";
 import { RETENTION_CLASS_AND_STUB_SIGNATURE_MIGRATION_SQL } from "../../migrations/0009-retention-class-and-stub-signature.js";
 import { REPO_WORKSPACES_MIGRATION_SQL } from "../../migrations/0010-repo-workspaces.js";
@@ -53,10 +53,10 @@ export const FORWARD_REFERENCES_DML_ENFORCEMENT_TEST: string =
 // tables, so version-2 tables are NOT added here (their shape is pinned by
 // the separate `0002-runtime-node migration shape` describe block).
 const SESSION_CORE_TABLES: ReadonlyArray<string> = [
-  "participant_keys",
   "schema_version",
   "session_events",
   "session_snapshots",
+  "user_keys",
 ];
 
 // The full set of tables present after ALL migrations have applied (version-1
@@ -90,7 +90,6 @@ const ALL_EXPECTED_TABLES: ReadonlyArray<string> = [
   "interventions",
   "node_capabilities",
   "node_trust_state",
-  "participant_keys",
   "pending_anchor_uploads",
   "provider_account_usage_windows",
   "provider_accounts",
@@ -102,6 +101,7 @@ const ALL_EXPECTED_TABLES: ReadonlyArray<string> = [
   "session_content_keys",
   "session_events",
   "session_snapshots",
+  "user_keys",
   "workspaces",
   "worktrees",
 ];
@@ -2348,7 +2348,7 @@ describe("0008-pending-anchor-uploads migration shape", () => {
   it("has NO foreign key into session_events — a crypto-shred must not erase the witness", () => {
     // Deliberate absence, asserted so a later migration cannot add one
     // casually. The premise is ROW LIFETIME, not the shred mechanism: Path 1
-    // destroys the per-participant key and deletes no row at all (the hard
+    // destroys the per-user key and deletes no row at all (the hard
     // DELETE is Path 2, and Postgres-only). What does remove local rows is
     // compaction, which rewrites them into `audit_stub` form, and any later
     // retention pass. An FK would either block those or cascade into the
@@ -2693,7 +2693,7 @@ describe("0011-driver-capability-currency migration shape", () => {
     isolatedDb.exec(WORKTREE_LIFECYCLE_MIGRATION_SQL);
     isolatedDb.exec(DAEMON_SIGNING_KEYS_MIGRATION_SQL);
     isolatedDb.exec(RUN_LIFECYCLE_TERMINAL_BACKSTOP_MIGRATION_SQL);
-    isolatedDb.exec(PII_PARTICIPANT_ID_MIGRATION_SQL);
+    isolatedDb.exec(PII_USER_ID_MIGRATION_SQL);
     isolatedDb.exec(PENDING_ANCHOR_UPLOADS_MIGRATION_SQL);
     isolatedDb.exec(RETENTION_CLASS_AND_STUB_SIGNATURE_MIGRATION_SQL);
     isolatedDb.exec(REPO_WORKSPACES_MIGRATION_SQL);
@@ -3217,7 +3217,7 @@ describe("0012-transcript-capability-backfill migration shape", () => {
     isolatedDb.exec(WORKTREE_LIFECYCLE_MIGRATION_SQL);
     isolatedDb.exec(DAEMON_SIGNING_KEYS_MIGRATION_SQL);
     isolatedDb.exec(RUN_LIFECYCLE_TERMINAL_BACKSTOP_MIGRATION_SQL);
-    isolatedDb.exec(PII_PARTICIPANT_ID_MIGRATION_SQL);
+    isolatedDb.exec(PII_USER_ID_MIGRATION_SQL);
     isolatedDb.exec(PENDING_ANCHOR_UPLOADS_MIGRATION_SQL);
     isolatedDb.exec(RETENTION_CLASS_AND_STUB_SIGNATURE_MIGRATION_SQL);
     isolatedDb.exec(REPO_WORKSPACES_MIGRATION_SQL);
@@ -3445,7 +3445,7 @@ describe("0013-content-payload migration shape", () => {
       })),
     ).toEqual([
       // One row per SESSION — the body is session work product co-owned by every
-      // member, so there is no participant to key on.
+      // member, so there is no user to key on.
       { name: "session_id", type: "TEXT", notnull: 1, dflt_value: null, pk: 1 },
       { name: "encrypted_key_blob", type: "BLOB", notnull: 1, dflt_value: null, pk: 0 },
       // Half of the wrap's associated data, which is what forecloses replaying a
@@ -3567,7 +3567,7 @@ describe("0014-console-parity-capability-flags migration shape", () => {
     isolatedDb.exec(WORKTREE_LIFECYCLE_MIGRATION_SQL);
     isolatedDb.exec(DAEMON_SIGNING_KEYS_MIGRATION_SQL);
     isolatedDb.exec(RUN_LIFECYCLE_TERMINAL_BACKSTOP_MIGRATION_SQL);
-    isolatedDb.exec(PII_PARTICIPANT_ID_MIGRATION_SQL);
+    isolatedDb.exec(PII_USER_ID_MIGRATION_SQL);
     isolatedDb.exec(PENDING_ANCHOR_UPLOADS_MIGRATION_SQL);
     isolatedDb.exec(RETENTION_CLASS_AND_STUB_SIGNATURE_MIGRATION_SQL);
     isolatedDb.exec(REPO_WORKSPACES_MIGRATION_SQL);
@@ -3932,11 +3932,11 @@ describe("0015-queue-and-interventions migration shape", () => {
       { name: "channel_id", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
       { name: "state", type: "TEXT", notnull: 1, dflt_value: "'queued'", pk: 0 },
       { name: "priority", type: "INTEGER", notnull: 1, dflt_value: "0", pk: 0 },
-      // Plaintext NON-PII members only; a participant-authored body encrypts
+      // Plaintext NON-PII members only; a user-authored body encrypts
       // into pii_payload instead.
       { name: "payload", type: "TEXT", notnull: 1, dflt_value: "'{}'", pk: 0 },
       { name: "pii_payload", type: "BLOB", notnull: 0, dflt_value: null, pk: 0 },
-      { name: "pii_participant_id", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
+      { name: "pii_user_id", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
       // NULL on every ordinary follow-up item; stamped solely by the
       // edit-and-resend composite's admission in V1.
       { name: "target_run_id", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
@@ -3957,7 +3957,7 @@ describe("0015-queue-and-interventions migration shape", () => {
       { name: "expected_run_version", type: "INTEGER", notnull: 1, dflt_value: null, pk: 0 },
       { name: "client_idempotency_key", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
       { name: "pii_payload", type: "BLOB", notnull: 0, dflt_value: null, pk: 0 },
-      { name: "pii_participant_id", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
+      { name: "pii_user_id", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
       // NOT NULL and UNDEFAULTED together — that pairing is the fail-closed
       // property, not the NOT NULL alone.
       { name: "origin", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
@@ -4032,7 +4032,7 @@ describe("0015-queue-and-interventions migration shape", () => {
     expect(namedIndexesOf("command_receipts")).toEqual(["idx_command_receipts_run"]);
   });
 
-  it("leaves both pii_participant_id stamps unindexed", () => {
+  it("leaves both pii_user_id stamps unindexed", () => {
     // Matched between the two tables on purpose: the erasure/export selector is
     // a maintenance scan, never a hot path, and an index read once per erasure
     // would cost every write.
@@ -4042,8 +4042,8 @@ describe("0015-queue-and-interventions migration shape", () => {
           (entry) => entry.name,
         ),
       );
-    expect(indexedColumns("queue_items")).not.toContain("pii_participant_id");
-    expect(indexedColumns("interventions")).not.toContain("pii_participant_id");
+    expect(indexedColumns("queue_items")).not.toContain("pii_user_id");
+    expect(indexedColumns("interventions")).not.toContain("pii_user_id");
     // Positive control: the projection does see the columns that ARE indexed.
     expect(indexedColumns("queue_items")).toContain("session_id");
   });

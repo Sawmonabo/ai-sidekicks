@@ -66,7 +66,7 @@ export class ArtifactVisibilityUpdates {
   }
 
   /**
-   * Re-classify one artifact, because the participant pressed its toggle.
+   * Re-classify one artifact, because the user pressed its toggle.
    *
    * THE CALLER SUPPLIES THE CLASS RATHER THAN A DIRECTION. A `toggle(artifactId)`
    * would have to read the row's current class to know what to ask for, which is the

@@ -21,7 +21,7 @@ describe("useConfirmationLifecycle", () => {
     expect(discardSettlement).toHaveBeenCalledTimes(1);
   });
 
-  it("discards the standing settlement when the participant cancels", () => {
+  it("discards the standing settlement when the user cancels", () => {
     const discardSettlement = vi.fn();
     const { result } = renderHook(() => useConfirmationLifecycle(discardSettlement));
 

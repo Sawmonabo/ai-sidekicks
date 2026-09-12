@@ -1,5 +1,5 @@
 // The artifacts panel: what this session produced, whether its bytes are reachable,
-// and the acts a participant may attempt on one.
+// and the acts a user may attempt on one.
 //
 // THE ARTIFACT SURFACE'S COMPOSITION IS THIS FAMILY'S: what a surface renders, offers,
 // refuses, and folds lives in the console's code. Three things about this file are
@@ -98,7 +98,7 @@ export interface ArtifactsPanelProps {
    * payload — `includePayload` on the request, `payload` / `payloadHandle` on the
    * reply — and the artifact pane asks for one. This panel does not: it sends the
    * manifest-only shape, so a control called "fetch payload" here would be a promise
-   * the participant only finds out about by pressing it.
+   * the user only finds out about by pressing it.
    */
   readonly onReadManifest?: ((row: ArtifactManifestRow) => void) | undefined;
   /**
@@ -206,7 +206,7 @@ export function ArtifactsPanel(props: ArtifactsPanelProps): React.JSX.Element {
  * from a refresh — a refresh of one session lists the same artifacts — so the arm is
  * carried beside them and the `not-checked` frame between the two is what moves this
  * value. A refresh that lists the same rows composes the same scope and holds whatever
- * a participant had open.
+ * a user had open.
  */
 function listingScopeOf(state: ArtifactsPanelState): string {
   return state.kind === "listed"
@@ -220,7 +220,7 @@ function listingScopeOf(state: ArtifactsPanelState): string {
  * A CONFIRMATION IS AN APPROVAL OF ONE PARTICULAR THING, so it does not outlive it —
  * `repos/proposals/proposal-gate-acts/ProposalActionGroup.tsx` states the rule at length
  * in the proposals sub-module, and this register was the copy that had not taken it. A
- * participant armed the confirm on one artifact, the deck re-pointed the pane at
+ * user armed the confirm on one artifact, the deck re-pointed the pane at
  * another, and this component stayed mounted at the same tree position while its rows
  * unmounted and came back — so the row rendered again with a destructive act armed and
  * one click from firing, its consequence text having been off screen in between.

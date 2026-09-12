@@ -95,9 +95,9 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
         requestRoster();
         return;
       }
-      // CLOSING RESETS BOTH HALVES OF WHAT THE PARTICIPANT SUPPLIED, and clears the
+      // CLOSING RESETS BOTH HALVES OF WHAT THE USER SUPPLIED, and clears the
       // settlement with them: a dialog reopened to attach a second repository must not
-      // greet its participant with the first one's path, node, or success sentence.
+      // greet its user with the first one's path, node, or success sentence.
       // The roster reading is deliberately untouched — it is the same answer.
       setForm(EMPTY_ATTACH_FORM);
       clearAct();
@@ -110,7 +110,7 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
   }, []);
 
   // THE SECTION RE-READS ON THE MINT AND NOT ON THE CLOSE, because the two are
-  // different moments and the second is optional: a participant who attaches and then
+  // different moments and the second is optional: a user who attaches and then
   // reads the settlement without closing the dialog would otherwise see a section that
   // still says the session holds nothing. Keyed on the minted mount id and held in a
   // ref, so one attach asks for one read however many times this component re-renders.
@@ -216,9 +216,9 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
  *
  * A REFUSED ROSTER LEAVES THE PATH FIELD ALONE AND SAYS SO, rather than closing the
  * dialog: the path is still worth typing, the roster may answer on a retry, and a
- * dialog that vanished would take the participant's typing with it.
+ * dialog that vanished would take the user's typing with it.
  *
- * THE RETRY IS A CONTROL AND NOT A TIMER: a participant asking again is one of the
+ * THE RETRY IS A CONTROL AND NOT A TIMER: a user asking again is one of the
  * three admitted refresh reasons, and an interval behind this dialog is the polling
  * that is forbidden.
  */
@@ -258,7 +258,7 @@ function renderRoster(
           // ALREADY RESOLVED AGAINST THIS ROSTER, by `resolveAttachForm`. The sole node
           // arrives here pre-selected because there is no decision to make; two or more
           // and nothing is checked, because the path is on one of them and only the
-          // participant knows which. The fallback used to be written here, which is how
+          // user knows which. The fallback used to be written here, which is how
           // the picker and the verdict came to disagree — a checked radio the form never
           // held, over a control that would not send.
           selectedNodeId={selectedNodeId}

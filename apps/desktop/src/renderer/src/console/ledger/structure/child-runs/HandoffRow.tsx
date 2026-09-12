@@ -24,13 +24,13 @@
 // and a line drawn to an element that is not there is a line drawn to the wrong place.
 
 import { Glyph, LedgerRow, Nothing, WireFigure } from "../../../primitives/index.js";
-import { type ParticipantHueAssignment } from "../../../tokens/index.js";
+import { type ActorHueAssignment } from "../../../tokens/index.js";
 import { type HandoffEntry } from "./child-run-entries.js";
 
 export interface HandoffRowProps {
   readonly entry: HandoffEntry;
   /** The handing actor's allocated hue, or `undefined` on an unattributed row. */
-  readonly participantHue?: ParticipantHueAssignment | undefined;
+  readonly actorHue?: ActorHueAssignment | undefined;
   /** Whether a rollback later in the log put this row behind it. */
   readonly isSuperseded?: boolean | undefined;
   /**
@@ -48,10 +48,8 @@ export function HandoffRow(props: HandoffRowProps): React.JSX.Element {
   const isThreaded = entry.childRunId !== undefined && props.hasThreadTarget === true;
   return (
     <LedgerRow
-      participantHueStep={props.participantHue?.step ?? -1}
-      {...(props.participantHue === undefined
-        ? {}
-        : { ringTreatment: props.participantHue.ringTreatment })}
+      actorHueStep={props.actorHue?.step ?? -1}
+      {...(props.actorHue === undefined ? {} : { ringTreatment: props.actorHue.ringTreatment })}
       occurredAtIso={entry.timestamp}
       actorLabel={entry.fromActor ?? "Session"}
       kindLabel={entry.wireType}

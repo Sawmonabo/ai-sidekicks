@@ -26,11 +26,11 @@ function emptyLayout(): DeckLayout {
   return new DeckLayout({ restoredPaneCap: DECK_RESTORED_PANE_CAP });
 }
 
-/** A layout holding one session-scoped timeline and one participant-scoped inspector. */
+/** A layout holding one session-scoped timeline and one user-scoped inspector. */
 function twoPaneLayout(): DeckLayout {
   const layout = emptyLayout();
   layout.open({ kind: "timeline", entity: undefined });
-  layout.open({ kind: "inspector", entity: { kind: "participant", id: "participant-01" } });
+  layout.open({ kind: "inspector", entity: { kind: "user", id: "user-01" } });
   return layout;
 }
 
@@ -51,8 +51,8 @@ describe("DeckLayout — what a snapshot carries", () => {
       "inspector",
     ]);
     expect(restored.snapshot().panes[1]?.entity).toStrictEqual({
-      kind: "participant",
-      id: "participant-01",
+      kind: "user",
+      id: "user-01",
     });
     expect(restored.snapshot().focusedPaneId).toBe(second?.paneId);
     expect(restored.snapshot().density).toBe("compact");
@@ -134,7 +134,7 @@ describe("DeckLayout — what a restore refuses", () => {
       position: 5,
       kind: "inspector",
       sizePermille: 300,
-      entityId: "participant-02",
+      entityId: "user-02",
     };
 
     const report = emptyLayout().restore(snapshot);
@@ -183,7 +183,7 @@ describe("DeckLayout — what a restore refuses", () => {
       position: 5,
       kind: "inspector",
       sizePermille: 300,
-      entityKind: "participant",
+      entityKind: "user",
       entityId: "bad/id",
     };
 
@@ -209,8 +209,8 @@ describe("DeckLayout — what a restore refuses", () => {
       position: 5,
       kind: "runs",
       sizePermille: 300,
-      entityKind: "participant",
-      entityId: "participant-02",
+      entityKind: "user",
+      entityId: "user-02",
     };
 
     const report = emptyLayout().restore(snapshot);
@@ -237,7 +237,7 @@ describe("DeckLayout — what a restore refuses", () => {
     for (let index = 0; index < cap + 2; index += 1) {
       layout.open({
         kind: "inspector",
-        entity: { kind: "participant", id: `participant-${String(index)}` },
+        entity: { kind: "user", id: `user-${String(index)}` },
       });
     }
 
@@ -256,8 +256,8 @@ describe("DeckLayout — what a restore refuses", () => {
       position: 5,
       kind: "inspector",
       sizePermille: 300,
-      entityKind: "participant",
-      entityId: "participant-01",
+      entityKind: "user",
+      entityId: "user-01",
     };
 
     const restored = emptyLayout();
@@ -280,7 +280,7 @@ describe("DeckLayout — what a restore refuses", () => {
     for (let index = 0; index < cap; index += 1) {
       source.open({
         kind: "inspector",
-        entity: { kind: "participant", id: `participant-${String(index)}` },
+        entity: { kind: "user", id: `user-${String(index)}` },
       });
     }
     const snapshot = source.toSnapshot();
@@ -288,8 +288,8 @@ describe("DeckLayout — what a restore refuses", () => {
       position: 1.5,
       kind: "inspector",
       sizePermille: 300,
-      entityKind: "participant",
-      entityId: "participant-0",
+      entityKind: "user",
+      entityId: "user-0",
     };
 
     const report = new DeckLayout({ restoredPaneCap: cap }).restore(snapshot);
@@ -310,8 +310,8 @@ describe("DeckLayout — what a restore refuses", () => {
       position: 5,
       kind: "inspector",
       sizePermille: 300,
-      entityKind: "participant",
-      entityId: "participant-02",
+      entityKind: "user",
+      entityId: "user-02",
     };
 
     const report = emptyLayout().restore(snapshot);

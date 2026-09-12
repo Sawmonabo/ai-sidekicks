@@ -1,4 +1,4 @@
-// Where an attachment lands when a participant moves it, and what is said out loud
+// Where an attachment lands when a user moves it, and what is said out loud
 // when it does.
 //
 // OWN-BUILT, AND THAT IS THE ADOPTED LIBRARY'S OWN TERMS.
@@ -11,7 +11,7 @@
 // would be two orders for one list.
 //
 // POSITIONS ARE THE LEDGER'S, ZERO-BASED, AND SPOKEN ONE-BASED. `attachment-ingest-
-// ledger.ts` keeps the participant's declared order in an explicit array and moves a
+// ledger.ts` keeps the user's declared order in an explicit array and moves a
 // member inside it, so a position here is an index into that array and nothing else.
 // The announcement counts from one because that is how a person counts a list, and the
 // conversion happens once, in the sentence, rather than at each caller.
@@ -51,7 +51,7 @@ export function movedAttachmentPosition(
 }
 
 /**
- * What a participant is told after a move, through the console's one announcer.
+ * What a user is told after a move, through the console's one announcer.
  *
  * Names the attachment and both halves of the position, because a live region speaks
  * without the list in front of it: "moved" alone reports that something happened to

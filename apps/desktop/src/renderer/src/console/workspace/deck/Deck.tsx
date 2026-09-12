@@ -319,7 +319,7 @@ export function Deck(props: DeckProps): React.JSX.Element {
           kind="empty"
           placement="surface"
           title="No panes are open."
-          detail="Open one from the sidebar, or follow somebody from the cast bar."
+          detail="Open one from the sidebar, or follow somebody from the session header."
         />
       ) : (
         <Group

@@ -50,7 +50,7 @@ describe("terminal pane — the viewer the lease fold is told about", () => {
 
   it("reads this window's own take as its own, and offers the handback", async () => {
     // The scenario's first transition is a `taken`. Told that this window is the
-    // participant it named, the fold answers `held-by-you` — which is exactly what the
+    // user it named, the fold answers `held-by-you` — which is exactly what the
     // hard-coded `undefined` made unreachable.
     const region = renderPane(
       storeThrough(1),

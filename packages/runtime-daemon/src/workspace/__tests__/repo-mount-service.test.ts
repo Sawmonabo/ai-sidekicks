@@ -83,7 +83,7 @@ const NODE_ID: NodeId = "node-local" as NodeId;
 const OTHER_NODE_ID: NodeId = "node-remote" as NodeId;
 const UNKNOWN_MOUNT_ID: RepoMountId = "0190f9a1-0000-7000-8000-00000000ffff" as RepoMountId;
 
-const PARTICIPANT_ACTOR: string = "0190f9a4-0000-7000-8000-000000000001";
+const USER_ACTOR: string = "0190f9a4-0000-7000-8000-000000000001";
 const ATTACH_CORRELATION_ID: string = "0190f9a5-0000-7000-8000-000000000001";
 const DETACH_CORRELATION_ID: string = "0190f9a5-0000-7000-8000-000000000002";
 const RUN_ID: string = "0190f9a6-0000-7000-8000-000000000001";
@@ -688,12 +688,12 @@ describe("RepoMountService.attach", () => {
       sessionId: SESSION_ID,
       localPath: gitFixtures.repositoryRoot,
       nodeId: NODE_ID,
-      actor: PARTICIPANT_ACTOR,
+      actor: USER_ACTOR,
       correlationId: ATTACH_CORRELATION_ID,
     });
 
     for (const envelope of readLifecycleEnvelopes()) {
-      expect(envelope.actor).toBe(PARTICIPANT_ACTOR);
+      expect(envelope.actor).toBe(USER_ACTOR);
       expect(envelope.correlation_id).toBe(ATTACH_CORRELATION_ID);
     }
   });
@@ -1091,7 +1091,7 @@ describe("RepoMountService.detach", () => {
 
     const response = await service.detach({
       repoMountId: attached.repoMountId,
-      actor: PARTICIPANT_ACTOR,
+      actor: USER_ACTOR,
       correlationId: DETACH_CORRELATION_ID,
     });
 
@@ -1128,7 +1128,7 @@ describe("RepoMountService.detach", () => {
     // that collates them, since the follow-on events cannot name the
     // `repo.detached` event id without reading the append receipt.
     for (const envelope of readLifecycleEnvelopes().slice(3)) {
-      expect(envelope.actor).toBe(PARTICIPANT_ACTOR);
+      expect(envelope.actor).toBe(USER_ACTOR);
       expect(envelope.correlation_id).toBe(DETACH_CORRELATION_ID);
     }
     // The dependent archivals name their mount, per the cascade contract.

@@ -1,6 +1,6 @@
 // The workspace family's door.
 //
-// The family holds the SESSION WORKSPACE itself: the cast bar, the deck that holds
+// The family holds the SESSION WORKSPACE itself: the session header, the deck that holds
 // the panes the seats hand it, the auxiliary-window hand-off, and the new-session
 // draft. Those are bodies rather than seams, and they live together because the deck
 // and the seat contracts are two halves of one thing — the seats declare what may be
@@ -14,7 +14,7 @@
 // would be a chain — the structure gate names that shape and fails it — and would
 // also let a sibling reach a seat through a view family's door.
 //
-// SEVEN SUB-MODULES AND THE WORKSPACE ITSELF. `cast-bar/` is who is in the session and
+// SEVEN SUB-MODULES AND THE WORKSPACE ITSELF. `session-header/` is who is in the session and
 // what still waits on a person, with the chip press that follows an actor; `deck/` is
 // the pane board, its drag, and its rect discipline; `sidebar/` is the session's own
 // list of sections; `layout/` is how a deck and a sidebar are written down and read
@@ -41,7 +41,7 @@
 //
 // The family's stylesheets are imported HERE and nowhere else, so a surface can never
 // render a workspace element that arrived without its rules. There are four of them —
-// the shell, the cast bar, the deck, and the sidebar — each beside the modules it
+// the shell, the session header, the deck, and the sidebar — each beside the modules it
 // styles, and imported together so the family's rules stay one contiguous block in
 // the bundle's cascade.
 //
@@ -53,7 +53,7 @@
 // adds its line in the commit that imports it.
 
 import "./workspace.css";
-import "./cast-bar/cast-bar.css";
+import "./session-header/session-header.css";
 import "./deck/deck.css";
 import "./sidebar/sidebar.css";
 

@@ -11,12 +11,12 @@
 // correct name in its new home; what stayed is what any suite in this family needs.
 //
 // THE PROBE IDENTITIES AND THE SETTLE ARE THE FAMILY'S. Suites in every one of this
-// family's directories address the same session and the same participant, and every one
+// family's directories address the same session and the same user, and every one
 // of them has to let a read settle before it asserts — and each had typed the literal or
 // the helper out for itself. One value in many places is many chances to edit one of
 // them, and a suite addressed at a session its neighbours are not still passes: every
 // assertion it makes is about the value it sent. The bridge family's
-// `scripted-probe.test-support.ts` keeps a session and a participant of its own and says
+// `scripted-probe.test-support.ts` keeps a session and a user of its own and says
 // why: those are the identities a BRIDGE probe scripts, and a module below this one in
 // the console's order may not reach up here for them.
 //
@@ -54,8 +54,8 @@ export const PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
 /** The other session, for a case whose whole claim is that the scope moved off the first. */
 export const SECOND_PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3402";
 
-/** The one participant the family's scripted scenarios join a session with. */
-export const PROBE_PARTICIPANT_ID = "019b7a12-0280-79a4-8110-cca0117a0401";
+/** The one user the family's scripted scenarios join a session with. */
+export const PROBE_USER_ID = "019b7a12-0280-79a4-8110-cca0117a0401";
 
 /** The continuation token the paged cases hand back. */
 export const SECOND_PAGE_CURSOR = "definitions-page-2";

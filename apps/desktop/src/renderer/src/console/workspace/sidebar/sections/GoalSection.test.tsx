@@ -54,7 +54,7 @@ function renderSection(options: {
 }): RenderedGoalSection {
   const store = new SessionStore({ sessionId: SESSION_ID });
   if (options.events !== undefined) {
-    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
     for (const event of options.events) {
       store.apply(event);
     }
@@ -113,7 +113,7 @@ describe("GoalSection — one line, and it is the log's", () => {
     );
   });
 
-  it("keeps the whole text reachable rather than shortening the participant's own words", () => {
+  it("keeps the whole text reachable rather than shortening the user's own words", () => {
     const goal = "Ship the console, then the sidebar, then everything the sidebar opens";
     const { section } = renderSection({
       events: [goalEvent({ id: "e1", sequence: 1, kind: "session.goal_updated", text: goal })],

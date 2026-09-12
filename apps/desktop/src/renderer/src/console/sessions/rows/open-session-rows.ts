@@ -5,7 +5,7 @@
 // route-scoped store and hands the surface `undefined` for it, permanently. A list
 // built from that one store was therefore built from nothing, and every locally open
 // session was reduced to its identifier: no projected touched time, so the recency
-// ordering the design opens with had nothing to order by, and no participants, so a
+// ordering the design opens with had nothing to order by, and no users, so a
 // row carrying people rendered as a bare id. The set the surface needs is the one
 // `SessionStoreRegistry` holds, and that set has no fixed size.
 //
@@ -196,7 +196,7 @@ export class OpenSessionRowProjection {
     return store.readable.subscribe((state, previousState) => {
       if (
         state.partitions.session === previousState.partitions.session &&
-        state.partitions.participant === previousState.partitions.participant &&
+        state.partitions.user === previousState.partitions.user &&
         state.degradedCause === previousState.degradedCause
       ) {
         return;
@@ -263,18 +263,18 @@ export function useOpenSessionProjection(
 /**
  * What one open session's store can say, as list rows.
  *
- * The participants are attached only to the store's OWN session. A store projects the
+ * The users are attached only to the store's OWN session. A store projects the
  * people it has seen in the session it is for, so lending that roster to a row for
  * some session it merely heard about would attribute the wrong people to it.
  */
 function projectOneStore(store: SessionStore): readonly SessionListRow[] {
   const { partitions } = store.snapshot();
-  const participantIds = Object.keys(partitions.participant);
+  const userIds = Object.keys(partitions.user);
   return Object.values(partitions.session).map((entity) => ({
     sessionId: entity.id,
     state: entity.state,
     touchedAtIso: entity.touchedAt,
-    participantIds: entity.id === store.sessionId ? participantIds : [],
+    userIds: entity.id === store.sessionId ? userIds : [],
     // Attention is one projection for the whole destination and is stamped over the
     // merged list by the surface. Reading it per source would give one session two
     // severities and let the merge decide which a person saw.

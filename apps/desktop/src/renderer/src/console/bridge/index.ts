@@ -335,7 +335,7 @@ export {
   type AttentionTrigger,
 } from "./wire-shapes/attention-projection.js";
 // The durable intervention row the corpus registers as columns and no read returns —
-// its origin, the admitting principal on the participant arm, the queue item it
+// its origin, the admitting principal on the user arm, the queue item it
 // admitted, and the directive where the key still opens it. Published from the module
 // that declares it, never through the sub-module door. Its sibling projection — the
 // queue row's run binding — stays off this door: it is folded onto the queue feed
@@ -408,7 +408,7 @@ export type { GrowthPresenceDetail } from "./growth-values/presence.js";
 export type { SidekickDefinition } from "./wire-shapes/sidekick-definition.js";
 
 // The agent plane's reply and request shapes. Published because the agent console
-// and the cast bar RENDER them: they are declared on the substrate rather than in a
+// and the session header RENDER them: they are declared on the substrate rather than in a
 // view family — see `wire-shapes/agent-plane.ts`'s header — so the family that draws
 // a roster card reads its shape through this door like any other cross-family import.
 // They leave through the module that declares them on the same rule as the line
@@ -725,7 +725,7 @@ export type {
 export {
   readCeremonyOutcome,
   type DeviceGrantHandoff,
-  type ParticipantIdentityClaims,
+  type UserIdentityClaims,
   type WebAuthnCeremonyOutcome,
   type WebAuthnCustody,
   type WebAuthnProbeResult,

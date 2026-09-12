@@ -100,7 +100,7 @@ const OTHER_RUN_ID: string = "0190f8b3-0000-7000-8000-000000000002";
 
 // Envelope linkage fixtures. Free-form on the wire (`wireFreeFormString`), so
 // the shape is convention rather than schema — real ids, to match production.
-const PARTICIPANT_ACTOR: string = "0190f8b4-0000-7000-8000-000000000001";
+const USER_ACTOR: string = "0190f8b4-0000-7000-8000-000000000001";
 const ATTACH_CORRELATION_ID: string = "0190f8b5-0000-7000-8000-000000000001";
 
 // A pool of real UUIDs for the injected id source. A counter would fail
@@ -509,7 +509,7 @@ describe("createDefaultWorkspace", () => {
       repoMountId: GIT_MOUNT_ID,
       sessionId: SESSION_ID,
       canonicalRoot: harness.gitMountRoot,
-      actor: PARTICIPANT_ACTOR,
+      actor: USER_ACTOR,
       correlationId: ATTACH_CORRELATION_ID,
     });
     insertMount({ id: GIT_MOUNT_ID, canonicalRoot: harness.gitMountRoot });
@@ -521,10 +521,10 @@ describe("createDefaultWorkspace", () => {
     // the `repo.attached` that caused it on a rebuilt timeline.
     const envelopes = readEventEnvelopes();
     expect(envelopes).toEqual([
-      { type: "workspace.ready", actor: PARTICIPANT_ACTOR, correlation_id: ATTACH_CORRELATION_ID },
+      { type: "workspace.ready", actor: USER_ACTOR, correlation_id: ATTACH_CORRELATION_ID },
     ]);
     // The payload's own actor is reconciled from the same value, not defaulted.
-    expect(readEventPayloads("workspace.ready")[0]?.["actor"]).toBe(PARTICIPANT_ACTOR);
+    expect(readEventPayloads("workspace.ready")[0]?.["actor"]).toBe(USER_ACTOR);
   });
 
   it("refuses a canonical root that does not name one complete location", () => {

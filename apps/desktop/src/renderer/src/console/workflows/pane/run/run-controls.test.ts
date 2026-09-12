@@ -76,7 +76,7 @@ describe("the reason bound is measured on the encoding", () => {
 
 describe("the refusals this surface raises itself", () => {
   it("names the bound and never the refused value", () => {
-    const reason = "a-participant-sentence-that-must-not-be-echoed";
+    const reason = "a-user-sentence-that-must-not-be-echoed";
     const refusal = reasonPastBoundRefusal(cancelReasonBudget(reason.repeat(400)));
     expect(refusal.origin).toBe(WORKFLOW_RUN_CONTROL_ORIGIN);
     expect(refusal.code).toBe("reason-past-bound");

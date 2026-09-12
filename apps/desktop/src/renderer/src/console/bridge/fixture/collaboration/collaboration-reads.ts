@@ -10,7 +10,7 @@
 // only where "there is none" is a state a session can really be in, and none of these
 // six is:
 //
-//   • The PRESENCE DETAIL is addressed by a SUBJECT. "This participant is on no
+//   • The PRESENCE DETAIL is addressed by a SUBJECT. "This user is on no
 //     device" is a claim about a named person, and inventing it for a person nobody
 //     asked after is the invention the script-only rule exists to stop — the more so
 //     because the aggregate beside it says they are online.
@@ -61,14 +61,14 @@ export const FIXTURE_SERVED_COLLABORATION_OPERATION_IDS: readonly [
   "channelMute",
   "channelUnmute",
   "channelArchive",
-  "participantPresenceDetailRead",
+  "userPresenceDetailRead",
   "terminalControlHolderRead",
 ] = [
   "channelCreate",
   "channelMute",
   "channelUnmute",
   "channelArchive",
-  "participantPresenceDetailRead",
+  "userPresenceDetailRead",
   "terminalControlHolderRead",
 ];
 
@@ -117,11 +117,11 @@ export function fixtureCollaborationReads(
     // `channel-lifecycle.ts`'s, and it holds one identifier line across the
     // three, so they arrive here as an object rather than as three closures.
     ...channelLifecycle.operations(),
-    participantPresenceDetailRead: async (request) =>
+    userPresenceDetailRead: async (request) =>
       await answerSessionScopedRead(
         engine,
-        "participant.presenceDetail",
-        "participantPresenceDetailRead",
+        "user.presenceDetail",
+        "userPresenceDetailRead",
         request,
       ),
     terminalControlHolderRead: async (request) =>
@@ -150,7 +150,7 @@ export function fixtureCollaborationReads(
  * an omission: `GrowthChannelLifecycleRequest` is `{channelId}` and names no session,
  * so there is nothing here to check them against.
  *
- * `callerParticipantRead` next door already reads its request this way, and the
+ * `callerUserRead` next door already reads its request this way, and the
  * REFUSAL is the one difference between the two. That read's wire is unregistered on
  * this build, so it takes the unregistered refusal the live bridge takes; these six
  * are SERVED, so a wrong-session request takes the scenario's own `reply-unscripted` —

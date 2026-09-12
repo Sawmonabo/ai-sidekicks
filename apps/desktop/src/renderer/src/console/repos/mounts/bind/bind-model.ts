@@ -1,7 +1,7 @@
 // What a bind form holds, what makes it sendable, and which modes it may offer.
 //
 // PURE, AND SEPARATE FROM THE ACT FOR THAT REASON. Everything here is a function of what
-// a participant typed and what the mount-scoped capabilities read answered; nothing
+// a user typed and what the mount-scoped capabilities read answered; nothing
 // reaches a bridge or holds a lifetime.
 //
 // THE CONSOLE OFFERS WHAT THE MOUNT ADMITS AND WITHHOLDS NOTHING SILENTLY. The read
@@ -33,7 +33,7 @@ export interface BindFormState {
   /** Exactly what was typed, or empty for the mount root. Never normalised here. */
   readonly directory: string;
   /**
-   * The mode a participant PICKED, or none picked yet.
+   * The mode a user PICKED, or none picked yet.
    *
    * NEVER THE DAEMON'S DEFAULT. That default is derived per read by
    * {@link resolveBindForm} from the capabilities on screen, so a reopened dialog gets

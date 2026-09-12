@@ -40,7 +40,7 @@ export function scenarioReplying(replies: ConsoleScenario["replies"]): ConsoleSc
     label: "Step in unit",
     purpose: "One canned pause reply, so the control's settlement is observable.",
     sessionId: "session-step-in",
-    participantIdsInJoinOrder: ["participant-you"],
+    userIdsInJoinOrder: ["user-you"],
     startedAtIso: "2026-01-01T00:00:00.000Z",
     beats: [],
     replies,

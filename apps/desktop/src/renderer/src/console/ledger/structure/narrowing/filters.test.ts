@@ -22,7 +22,7 @@ import {
   jumpToEventId,
   type LedgerJumpStages,
   withToggledCategory,
-  withToggledParticipant,
+  withToggledUser,
 } from "./filters.js";
 import { generalRow, rollbackBoundaryRow, runRow } from "../timeline-rows.test-support.js";
 
@@ -52,7 +52,7 @@ function twoRunWindow(): readonly TimelineRow[] {
       category: "session_lifecycle",
       actor: "person-one",
     }),
-    // Both boundaries carry an actor the participant filters below exclude, which
+    // Both boundaries carry an actor the user filters below exclude, which
     // is what makes their admission a rule about the RUN rather than about who
     // pressed the button.
     rollbackBoundaryRow({
@@ -94,24 +94,24 @@ describe("filters — the unfiltered ledger narrows nothing", () => {
   });
 
   it("negative control: either axis alone makes it filtered", () => {
-    expect(isLedgerFiltered({ participantIds: ["agent-one"], categories: [] })).toBe(true);
-    expect(isLedgerFiltered({ participantIds: [], categories: ["run_lifecycle"] })).toBe(true);
+    expect(isLedgerFiltered({ userIds: ["agent-one"], categories: [] })).toBe(true);
+    expect(isLedgerFiltered({ userIds: [], categories: ["run_lifecycle"] })).toBe(true);
   });
 });
 
 describe("filters — the two axes", () => {
-  it("admits one participant's rows", () => {
+  it("admits one user's rows", () => {
     const visible = applyLedgerFilter(twoRunWindow(), {
-      participantIds: ["agent-one"],
+      userIds: ["agent-one"],
       categories: [],
     });
     // `a1` and `a2` on their own merits; `rb-a` by the boundary rule below.
     expect(visibleIds(visible)).toStrictEqual(["a1", "rb-a", "a2"]);
   });
 
-  it("negative control: a participant nobody in the window carries admits nothing", () => {
+  it("negative control: a user nobody in the window carries admits nothing", () => {
     const visible = applyLedgerFilter(twoRunWindow(), {
-      participantIds: ["an-agent-that-never-joined"],
+      userIds: ["an-agent-that-never-joined"],
       categories: [],
     });
     expect(visible).toStrictEqual([]);
@@ -119,7 +119,7 @@ describe("filters — the two axes", () => {
 
   it("admits one event family", () => {
     const visible = applyLedgerFilter(twoRunWindow(), {
-      participantIds: [],
+      userIds: [],
       categories: ["session_lifecycle"],
     });
     expect(visibleIds(visible)).toStrictEqual(["s1"]);
@@ -129,7 +129,7 @@ describe("filters — the two axes", () => {
     // A filter that unioned would show `s1` here, because its category matches
     // even though its actor does not.
     const visible = applyLedgerFilter(twoRunWindow(), {
-      participantIds: ["agent-one"],
+      userIds: ["agent-one"],
       categories: ["session_lifecycle"],
     });
     expect(visibleIds(visible)).toStrictEqual([]);
@@ -137,7 +137,7 @@ describe("filters — the two axes", () => {
 
   it("narrows without ever re-ordering", () => {
     const visible = applyLedgerFilter(twoRunWindow(), {
-      participantIds: ["agent-one", "agent-two"],
+      userIds: ["agent-one", "agent-two"],
       categories: [],
     });
     const sequences = visible.map((row) => row.sequence);
@@ -148,7 +148,7 @@ describe("filters — the two axes", () => {
 describe("filters — a boundary survives for a run the filter admits", () => {
   it("re-admits the rollback boundary of an admitted run, whoever pressed it", () => {
     const visible = applyLedgerFilter(twoRunWindow(), {
-      participantIds: ["agent-one"],
+      userIds: ["agent-one"],
       categories: [],
     });
     expect(visibleIds(visible)).toContain("rb-a");
@@ -159,7 +159,7 @@ describe("filters — a boundary survives for a run the filter admits", () => {
     // boundaries at all, which would leak another run's corrections into a view
     // narrowed to one agent.
     const visible = applyLedgerFilter(twoRunWindow(), {
-      participantIds: ["agent-one"],
+      userIds: ["agent-one"],
       categories: [],
     });
     expect(visibleIds(visible)).not.toContain("rb-b");
@@ -186,7 +186,7 @@ describe("filters — a boundary survives for a run the filter admits", () => {
           actor: "agent-one",
         }),
       ],
-      { participantIds: ["agent-one"], categories: [] },
+      { userIds: ["agent-one"], categories: [] },
     );
     expect(visibleIds(visible)).toStrictEqual(["rb", "a1"]);
   });
@@ -195,7 +195,7 @@ describe("filters — a boundary survives for a run the filter admits", () => {
 describe("filters — the menu is derived from the window, never from a hand-written list", () => {
   it("offers each value present, with the count that makes it a choice", () => {
     const facets = deriveLedgerFacets(twoRunWindow());
-    expect(facets.participants).toStrictEqual([
+    expect(facets.users).toStrictEqual([
       { value: "agent-one", rowCount: 2 },
       { value: "agent-two", rowCount: 1 },
       { value: "person-one", rowCount: 3 },
@@ -216,13 +216,13 @@ describe("filters — the menu is derived from the window, never from a hand-wri
   });
 
   it("negative control: an empty window offers nothing", () => {
-    expect(deriveLedgerFacets([])).toStrictEqual({ participants: [], categories: [] });
+    expect(deriveLedgerFacets([])).toStrictEqual({ users: [], categories: [] });
   });
 });
 
 describe("filters — jump by id names which narrowing is hiding the row", () => {
   const rows = twoRunWindow();
-  const narrowed = applyLedgerFilter(rows, { participantIds: ["agent-one"], categories: [] });
+  const narrowed = applyLedgerFilter(rows, { userIds: ["agent-one"], categories: [] });
 
   /**
    * The three stages, each admitting whatever it is handed.
@@ -297,34 +297,29 @@ describe("filters — jump by id names which narrowing is hiding the row", () =>
 });
 
 describe("filters — a facet press narrows, and pressing it again widens back", () => {
-  it("admits a participant, then releases the same one", () => {
-    const narrowed = withToggledParticipant(UNFILTERED_LEDGER, "agent-one");
-    expect(narrowed.participantIds).toStrictEqual(["agent-one"]);
-    expect(withToggledParticipant(narrowed, "agent-one")).toStrictEqual(UNFILTERED_LEDGER);
+  it("admits a user, then releases the same one", () => {
+    const narrowed = withToggledUser(UNFILTERED_LEDGER, "agent-one");
+    expect(narrowed.userIds).toStrictEqual(["agent-one"]);
+    expect(withToggledUser(narrowed, "agent-one")).toStrictEqual(UNFILTERED_LEDGER);
   });
 
   it("keeps the two axes independent", () => {
     const narrowed = withToggledCategory(
-      withToggledParticipant(UNFILTERED_LEDGER, "agent-one"),
+      withToggledUser(UNFILTERED_LEDGER, "agent-one"),
       "run_lifecycle",
     );
     expect(narrowed).toStrictEqual({
-      participantIds: ["agent-one"],
+      userIds: ["agent-one"],
       categories: ["run_lifecycle"],
     });
     // Negative control: releasing one axis leaves the other narrowed. A toggle that
     // rebuilt the whole value would have cleared both and reported success.
-    expect(withToggledCategory(narrowed, "run_lifecycle").participantIds).toStrictEqual([
-      "agent-one",
-    ]);
+    expect(withToggledCategory(narrowed, "run_lifecycle").userIds).toStrictEqual(["agent-one"]);
   });
 
   it("admits more than one value on an axis", () => {
-    const narrowed = withToggledParticipant(
-      withToggledParticipant(UNFILTERED_LEDGER, "agent-one"),
-      "agent-two",
-    );
-    expect(narrowed.participantIds).toStrictEqual(["agent-one", "agent-two"]);
+    const narrowed = withToggledUser(withToggledUser(UNFILTERED_LEDGER, "agent-one"), "agent-two");
+    expect(narrowed.userIds).toStrictEqual(["agent-one", "agent-two"]);
     // Both runs' rows, both runs' boundaries, and the session row left out.
     expect(applyLedgerFilter(twoRunWindow(), narrowed).map((row) => row.id)).toStrictEqual([
       "a1",

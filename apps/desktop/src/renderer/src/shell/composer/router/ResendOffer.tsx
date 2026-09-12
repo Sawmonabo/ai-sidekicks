@@ -2,11 +2,11 @@
 //
 // Split from `ComposerSendBar.tsx`, which owns the line and the act of sending,
 // while this owns the one thing that can be true after a send has settled and the
-// participant's words are still not on the wire.
+// user's words are still not on the wire.
 //
 // IT OFFERS AND NEVER RESENDS ON ITS OWN. The body it holds is the caller's, the
 // act is the caller's, and a resend that fired without a press would be this
-// surface deciding something the participant did not ask for.
+// surface deciding something the user did not ask for.
 
 /**
  * The tripwire card's one offer.

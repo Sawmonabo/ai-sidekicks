@@ -190,8 +190,8 @@ const productionFetchHandler = buildControlPlaneFetchHandler({
   attachService: productionPlaceholderAttachService,
   heartbeatService: productionPlaceholderHeartbeatService,
   anchorStore: productionPlaceholderAnchorStore,
-  resolveCurrentParticipantId: () => {
-    throw tier5DeferralError("resolveCurrentParticipantId (PASETO auth)");
+  resolveCurrentUserId: () => {
+    throw tier5DeferralError("resolveCurrentUserId (PASETO auth)");
   },
   generateSessionId: () => {
     throw tier5DeferralError("generateSessionId (UUID v7)");

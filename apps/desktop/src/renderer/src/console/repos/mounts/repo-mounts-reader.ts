@@ -406,7 +406,7 @@ export class RepoMountsReader implements ReadTriggerTarget {
       // `byCapabilitiesRead` is this read's own answer and is replaced whole. The act
       // half is not this read's to answer: a mode switch the daemon refused stays
       // refused whether or not a lifecycle event happened to trigger a read a moment
-      // later, and rebuilding one map for both erased exactly that — the participant's
+      // later, and rebuilding one map for both erased exactly that — the user's
       // failed press silently disappearing from the picker on the next repo event.
       workspaceRefusals: {
         byCapabilitiesRead,

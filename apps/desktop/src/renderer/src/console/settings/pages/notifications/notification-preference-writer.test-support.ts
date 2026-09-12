@@ -2,7 +2,7 @@
 //
 // Hoisted on second use rather than copied, per `apps/desktop/AGENTS.md`: the two
 // files hold different harnesses on purpose — one settles one record's writes, the
-// other settles two records' at once — but the participant, the writer's construction,
+// other settles two records' at once — but the user, the writer's construction,
 // and the microtask drain are the same job in both, and a second copy of the drain in
 // particular would let the two files disagree about how many passes a settled write
 // needs without either one failing.
@@ -19,7 +19,7 @@ import { NotificationPreferenceWriter } from "./notification-preference-writer.j
 import type { AttentionPreferencePort } from "./notification-preference-writer.js";
 import type { AttentionPreferenceReadOutcome } from "./attention-preference-model.js";
 
-export const PARTICIPANT_ID = "participant-ana";
+export const USER_ID = "user-ana";
 export const UPDATED_AT = "2026-01-01T10:06:00.000Z";
 
 /** What one whole-record write answers, so a harness settles the real shape. */
@@ -47,9 +47,9 @@ export function writerFor(
 ): NotificationPreferenceWriter {
   return new NotificationPreferenceWriter({
     port: store,
-    participantId: PARTICIPANT_ID,
+    userId: USER_ID,
     reReadSet: async () => {
-      const outcome = await store.attentionPreferenceRead({ participantId: PARTICIPANT_ID });
+      const outcome = await store.attentionPreferenceRead({ userId: USER_ID });
       onRecordsRead(outcome);
       return outcome;
     },

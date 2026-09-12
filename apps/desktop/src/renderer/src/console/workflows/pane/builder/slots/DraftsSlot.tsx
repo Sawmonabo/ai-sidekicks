@@ -3,7 +3,7 @@
 //
 // OWNED BY THE WORKFLOW ENGINE. A `human` phase's form configuration, a gate's
 // settings and a back-reference target are edited in the inspector, and the
-// in-progress text is participant-authored content the console holds and never
+// in-progress text is user-authored content the console holds and never
 // stores. The editor is the engine's own body; this console frames it. THE SHELL
 // DIES IN THE TASK THAT MOUNTS THE BODY, in the same PR as the mount.
 //
@@ -39,7 +39,7 @@ export interface DraftsMount {
    * This window's draft store, and never the durable one.
    *
    * Window-lifetime by construction: it holds a map and a disclosure, opens no
-   * adapter, and tells the participant once that unsent text does not survive a
+   * adapter, and tells the user once that unsent text does not survive a
    * restart. That disclosure is what makes the non-persistence a stated property
    * rather than a silent loss, so a body that renders drafts renders it too.
    */

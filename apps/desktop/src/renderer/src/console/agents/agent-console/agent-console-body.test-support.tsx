@@ -26,7 +26,7 @@ export function projectingStore(): SessionStore {
     sessionId: PROJECTION_SESSION_ID,
     projectors: RUN_LIFECYCLE_PROJECTORS,
   });
-  sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+  sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
   return sessionStore;
 }
 

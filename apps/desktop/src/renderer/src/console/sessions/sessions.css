@@ -190,7 +190,7 @@
 }
 
 .meridian-session-row__facts,
-.meridian-session-row__participants {
+.meridian-session-row__users {
   display: flex;
   align-items: center;
   flex-wrap: wrap;

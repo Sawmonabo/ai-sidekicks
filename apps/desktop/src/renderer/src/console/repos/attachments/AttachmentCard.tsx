@@ -1,4 +1,4 @@
-// One attachment, in the position the participant put it, whatever became of it.
+// One attachment, in the position the user put it, whatever became of it.
 //
 // THE ATTACHMENT SURFACE'S COMPOSITION IS THIS FAMILY'S: a surface's composition lives
 // in the console's code. Four arms, and
@@ -129,7 +129,7 @@ function attachmentLabel(reading: AttachmentReading): string {
  * The in-flight arm: the declaration, the ledger, and the two controls.
  *
  * The declaration is rendered as a wire string and labelled as declared, so a
- * participant reading a name here knows it is theirs and not the server's finding. It
+ * user reading a name here knows it is theirs and not the server's finding. It
  * is replaced wholesale by the resolved arm rather than annotated in place.
  */
 function renderIngesting(
@@ -245,7 +245,7 @@ function renderIngesting(
  * STREAM with the sentence that belongs in front of its own retry control — keyed on
  * the disposition, so it says what pressing that control will do. Where an entry has a
  * disposition, that sentence is the truer one and the table's general move is dropped;
- * a card that rendered both would tell a participant to start the upload again twice,
+ * a card that rendered both would tell a user to start the upload again twice,
  * in two sentences that drift the first time either is edited.
  *
  * A render helper rather than a component, on `ArtifactsPanel.tsx`'s rule: it holds no

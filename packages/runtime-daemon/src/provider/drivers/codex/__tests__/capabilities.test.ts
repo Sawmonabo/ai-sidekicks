@@ -344,9 +344,9 @@ describe("Codex capability refresh seam", () => {
       reading: CLI_VERSION_READING,
       probe: CODEX_PROBE.exchange,
       diagnostics: silentDiagnostics(),
-      actor: "participant-7",
+      actor: "user-7",
     });
-    expect(sink.calls[0]?.actor).toBe("participant-7");
+    expect(sink.calls[0]?.actor).toBe("user-7");
   });
 
   it("threads an EXPLICIT null actor through as null, not as an absent key", async () => {

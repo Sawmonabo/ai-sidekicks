@@ -17,7 +17,7 @@
 // remembered rule completes with no request minted at all, and a deny refuses
 // outright. That ordering is why this port has one `evaluate` method rather
 // than a `create`-then-await pair — a host that minted first would put an
-// approval request in front of a participant for every invocation their own
+// approval request in front of a user for every invocation their own
 // policy already settled.
 //
 // ---------------------------------------------------------------------------
@@ -94,12 +94,12 @@ export interface CallbackToolApprovalRequest {
  *
  * `basis` records HOW the outcome was reached, which is what makes the
  * evaluate-first rule observable rather than merely intended: a
- * `participant-*` basis is the only one on which a request was minted, so a
- * host that regressed into minting-first would show up as participant bases on
+ * `user-*` basis is the only one on which a request was minted, so a
+ * host that regressed into minting-first would show up as user bases on
  * invocations a policy already settled.
  *
  * There is deliberately no third `ask` arm. Minting the request and awaiting
- * the participant's answer belong to the pipeline that owns approval state;
+ * the user's answer belong to the pipeline that owns approval state;
  * exposing an intermediate state here would put this host in the business of
  * tracking pending approvals, which is a second record of something already
  * stores durably.
@@ -107,11 +107,11 @@ export interface CallbackToolApprovalRequest {
 export type CallbackToolApprovalOutcome =
   | {
       readonly decision: "allow";
-      readonly basis: "policy" | "remembered-rule" | "participant-grant";
+      readonly basis: "policy" | "remembered-rule" | "user-grant";
     }
   | {
       readonly decision: "deny";
-      readonly basis: "policy" | "remembered-rule" | "participant-refusal";
+      readonly basis: "policy" | "remembered-rule" | "user-refusal";
       readonly reason: string;
     };
 

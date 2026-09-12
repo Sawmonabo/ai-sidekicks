@@ -33,10 +33,10 @@ export function SessionRowFacts(props: { readonly row: PlacedSessionRow }): Reac
       {row.touchedAtIso === undefined ? null : (
         <WireFigure value={formatDateTime(row.touchedAtIso)} title={row.touchedAtIso} />
       )}
-      {row.participantIds.length === 0 ? null : (
-        <span className="meridian-session-row__participants">
-          {row.participantIds.map((participantId) => (
-            <WireFigure key={participantId} value={participantId} />
+      {row.userIds.length === 0 ? null : (
+        <span className="meridian-session-row__users">
+          {row.userIds.map((userId) => (
+            <WireFigure key={userId} value={userId} />
           ))}
         </span>
       )}

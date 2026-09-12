@@ -150,7 +150,7 @@
 /*
  * The count against its bound, above the disclosure rather than inside it.
  *
- * The bound a participant is walking toward has to be readable without opening
+ * The bound a user is walking toward has to be readable without opening
  * anything; what HAPPENS at it is the disclosure's own per-carrier row. Inside the
  * open section, so no gutter of its own — `__summary` carries the sidebar's inset
  * because the collapsed line sits outside the section's padding.

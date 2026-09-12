@@ -3,7 +3,7 @@
 // TWO of the four families reach the screen through a console-authored surface
 // rather than through a slot of their own, so this file covers the mounts those
 // surfaces call and the guard one of them carries. The two absences are cases here
-// rather than silences: the shipped participant roster drew a session's presence a
+// rather than silences: the shipped user roster drew a session's presence a
 // second time beside the collaboration family's own roster, and the shipped invite
 // acceptance prompt takes a raw token no caller in this renderer holds any more. Both
 // mounts were retired, and the published set is what says so. The guard is a CLAIM — a helper
@@ -95,7 +95,7 @@ describe("absorbed surfaces — the families a console surface mounts", () => {
   it("publishes mounts for two families, and none for the two it retired", () => {
     // The application draws a session's presence in ONE place and accepts an
     // invitation in ONE process, and this is the half of each claim a module can
-    // carry: the participant roster and the invite acceptance prompt are what the
+    // carry: the user roster and the invite acceptance prompt are what the
     // frame's slot table used to call, so either mount published again is a retired
     // surface re-entering the console through the door it left by. Every name here
     // belongs to one of the two absorbed families — the session probe, and the

@@ -100,7 +100,7 @@ type TurnSegmentFixture = WithoutPosition<CanonicalTranscriptSegment>;
 
 function turn(
   position: number,
-  role: "participant" | "assistant",
+  role: "user" | "assistant",
   segments: readonly TurnSegmentFixture[],
 ): CanonicalTranscriptTurn {
   return {
@@ -378,18 +378,15 @@ function generateTranscript(seed: number): GeneratedTranscript {
   let toolCallOrdinal = 0;
   let crossTurnPairCount = 0;
 
-  const pushTurn = (
-    role: "participant" | "assistant",
-    segments: readonly TurnSegmentFixture[],
-  ): void => {
+  const pushTurn = (role: "user" | "assistant", segments: readonly TurnSegmentFixture[]): void => {
     position += 1;
     turns.push(turn(position, role, segments));
   };
 
   const exchangeCount: number = 4 + Math.floor(random() * 6);
   for (let exchangeIndex = 0; exchangeIndex < exchangeCount; exchangeIndex += 1) {
-    pushTurn("participant", [
-      { kind: "text", text: `participant utterance ${exchangeIndex.toString()} ${PADDING}` },
+    pushTurn("user", [
+      { kind: "text", text: `user utterance ${exchangeIndex.toString()} ${PADDING}` },
     ]);
 
     const callSegments: TurnSegmentFixture[] = [];
@@ -451,9 +448,9 @@ function generateTranscript(seed: number): GeneratedTranscript {
     if (resultsInLaterTurn) {
       pushTurn("assistant", callSegments);
       if (random() < 0.5) {
-        // A participant turn BETWEEN the call and its result — the case a
+        // A user turn BETWEEN the call and its result — the case a
         // per-turn partition splits and the straddle rule does not.
-        pushTurn("participant", [
+        pushTurn("user", [
           { kind: "text", text: `interjection ${exchangeIndex.toString()} ${PADDING}` },
         ]);
       }
@@ -615,7 +612,7 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
     const turns: CanonicalTranscriptTurn[] = [];
     for (let index = 0; index < 12; index += 1) {
       turns.push(
-        turn(index + 1, index % 2 === 0 ? "participant" : "assistant", [
+        turn(index + 1, index % 2 === 0 ? "user" : "assistant", [
           { kind: "text", text: `plain exchange ${index.toString()} ${PADDING}` },
         ]),
       );
@@ -650,7 +647,7 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
     // on binding on the long plain run that follows.
     const memoProjection = new MemoProjection();
     const turns: CanonicalTranscriptTurn[] = [
-      turn(1, "participant", [{ kind: "text", text: `opening ${PADDING}` }]),
+      turn(1, "user", [{ kind: "text", text: `opening ${PADDING}` }]),
       turn(2, "assistant", [
         {
           kind: "tool_call",
@@ -669,7 +666,7 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
     ];
     for (let index = 0; index < 10; index += 1) {
       turns.push(
-        turn(index + 3, index % 2 === 0 ? "participant" : "assistant", [
+        turn(index + 3, index % 2 === 0 ? "user" : "assistant", [
           { kind: "text", text: `plain exchange ${index.toString()} ${PADDING}` },
         ]),
       );
@@ -708,12 +705,12 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
     expect(bounded.text).toContain("may not be consecutive");
   });
 
-  it("keeps a participant turn that sits between a call and its result inside the exchange", () => {
+  it("keeps a user turn that sits between a call and its result inside the exchange", () => {
     const exchanges = partitionIntoExchanges([
       turn(1, "assistant", [
         { kind: "tool_call", toolCallId: "call-1", toolName: "inspect", argumentsJson: "{}" },
       ]),
-      turn(2, "participant", [{ kind: "text", text: "hold on" }]),
+      turn(2, "user", [{ kind: "text", text: "hold on" }]),
       turn(3, "assistant", [
         {
           kind: "tool_result",
@@ -723,7 +720,7 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
           text: "done",
         },
       ]),
-      turn(4, "participant", [{ kind: "text", text: "carry on" }]),
+      turn(4, "user", [{ kind: "text", text: "carry on" }]),
     ]);
 
     expect(exchanges.map((exchange) => exchange.turns.length)).toEqual([3, 1]);
@@ -845,7 +842,7 @@ describe("memo body — portability transforms", () => {
   it("always declares that the conversation was summarized", () => {
     const memoProjection = new MemoProjection();
     const rendering: MemoRendering = memoProjection.render(
-      requestFor(projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])])),
+      requestFor(projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])])),
     );
     expect(rendering.declaredLosses).toContain("conversation_history_summarized");
   });
@@ -855,7 +852,7 @@ describe("memo body — portability transforms", () => {
     const rendering: MemoRendering = memoProjection.render(
       requestFor(
         projectionOf([
-          turn(1, "participant", [{ kind: "text", text: "what did that return?" }]),
+          turn(1, "user", [{ kind: "text", text: "what did that return?" }]),
           turn(2, "assistant", [{ kind: "text", text: "", contentUnavailable: true }]),
           turn(3, "assistant", [
             {
@@ -893,7 +890,7 @@ describe("memo body — portability transforms", () => {
     const rendering: MemoRendering = memoProjection.render(
       requestFor(
         projectionOf([
-          turn(1, "participant", [{ kind: "text", text: "what did that return?" }]),
+          turn(1, "user", [{ kind: "text", text: "what did that return?" }]),
           turn(2, "assistant", [{ kind: "text", text: "an empty list" }]),
         ]),
       ),
@@ -913,7 +910,7 @@ describe("memo delivery — once-only under a lost acknowledgment", () => {
     target.sendBehavior = "apply-then-fail";
     const coordinator = new MemoDeliveryCoordinator(target);
     const request: DeliveryDraft = requestFor(
-      projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])]),
+      projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])]),
     );
 
     const first: MemoDeliverySettlement = await deliverVia(coordinator, request);
@@ -940,7 +937,7 @@ describe("memo delivery — once-only under a lost acknowledgment", () => {
     target.sendBehavior = "apply-then-fail";
     target.reportNoTurns = true;
     const request: DeliveryDraft = requestFor(
-      projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])]),
+      projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])]),
     );
 
     await deliverVia(new MemoDeliveryCoordinator(target), request);
@@ -952,11 +949,11 @@ describe("memo delivery — once-only under a lost acknowledgment", () => {
 
   it("finds a memo delivered far back in the conversation and sends no second one", async () => {
     // The delivered memo, then a long conversation on top of it. Once-only has
-    // to survive this: the participant kept talking, the memo scrolled away, and
+    // to survive this: the user kept talking, the memo scrolled away, and
     // the caller retries after a restart with no register to consult.
     const target = new FakeTargetSession();
     const request: DeliveryDraft = requestFor(
-      projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])]),
+      projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])]),
     );
 
     const first: MemoDeliverySettlement = await deliverVia(
@@ -1001,7 +998,7 @@ describe("memo delivery — once-only under a lost acknowledgment", () => {
 
     const target = new WindowedTargetSession();
     const request: DeliveryDraft = requestFor(
-      projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])]),
+      projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])]),
     );
 
     await deliverVia(new MemoDeliveryCoordinator(target), request);
@@ -1014,7 +1011,7 @@ describe("memo delivery — once-only under a lost acknowledgment", () => {
     );
 
     // The marker is still in the conversation. The window simply cannot see it,
-    // and the participant reads the same summary twice.
+    // and the user reads the same summary twice.
     expect(retry.disposition).toBe("delivered");
     expect(target.sendAttempts).toBe(2);
     expect(target.turns.filter((turnText) => turnText.includes("continuity-ref:"))).toHaveLength(2);
@@ -1026,7 +1023,7 @@ function plainConversation(): CanonicalTranscriptProjection {
   const turns: CanonicalTranscriptTurn[] = [];
   for (let index = 0; index < 12; index += 1) {
     turns.push(
-      turn(index + 1, index % 2 === 0 ? "participant" : "assistant", [
+      turn(index + 1, index % 2 === 0 ? "user" : "assistant", [
         { kind: "text", text: `plain exchange ${index.toString()} ${PADDING}` },
       ]),
     );
@@ -1039,7 +1036,7 @@ describe("memo reconciliation — the losses reported are the DELIVERED summary'
     // The hazard: the summary the new session holds was rendered under a tight
     // budget and left older exchanges out. A later delivery under a roomier one
     // finds that summary, sends nothing — and would otherwise report the fresh
-    // render's losses, telling the participant a summary they can scroll back and
+    // render's losses, telling the user a summary they can scroll back and
     // read carries exchanges it does not.
     const target = new FakeTargetSession();
     const projection: CanonicalTranscriptProjection = plainConversation();
@@ -1194,7 +1191,7 @@ describe("memo reconciliation — the losses reported are the DELIVERED summary'
   it("sends the memo into a target whose text merely EXTENDS the marker key", async () => {
     // The consequence, through the coordinator rather than the predicate: the
     // near-miss must not settle the delivery, because settling it is how the
-    // participant's context transfer silently does not happen.
+    // user's context transfer silently does not happen.
     const target = new FakeTargetSession();
     const projection: CanonicalTranscriptProjection = plainConversation();
     target.turns.push(
@@ -1211,7 +1208,7 @@ describe("memo reconciliation — the losses reported are the DELIVERED summary'
   });
 
   it("sends the memo past a pasted foreign marker rather than settling on it", async () => {
-    // Marker text is plain prose, so a participant can paste another
+    // Marker text is plain prose, so a user can paste another
     // conversation's marker — syntactically complete, valid record and all —
     // into the target. An admission that matched ANY well-shaped key read that
     // quotation as a delivery and settled `already-delivered` over a target
@@ -1430,11 +1427,11 @@ describe("memo reconciliation — the losses reported are the DELIVERED summary'
  * marker — not because the memo will not arrive, but because it has not arrived
  * yet. Treating that one snapshot as proof of refusal is what let a retry send a
  * second memo into a conversation that was already receiving the first, leaving
- * the participant reading the same summary twice.
+ * the user reading the same summary twice.
  */
 describe("memo delivery — an ambiguous send is held unconfirmed", () => {
   const AMBIGUOUS_REQUEST: DeliveryDraft = requestFor(
-    projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])]),
+    projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])]),
   );
 
   it("does not let a retry race a slow-applying send into a second memo", async () => {
@@ -1519,7 +1516,7 @@ describe("memo delivery — an ambiguous send is held unconfirmed", () => {
   });
 
   it("sends again once the caller's barrier establishes the earlier send never landed", async () => {
-    // Holding the memo back forever would be its own failure — the participant
+    // Holding the memo back forever would be its own failure — the user
     // would silently get no summary. Resolving the old ambiguity and attempting
     // a new send are two calls, not one: the barrier's word closes the first
     // send, and the ordinary reconcile that follows opens the second.
@@ -1625,7 +1622,7 @@ describe("memo delivery — an ambiguous send is held unconfirmed", () => {
 
 describe("memo delivery — only the coordinator that established a target sends into it", () => {
   const REQUEST_DRAFT: DeliveryDraft = requestFor(
-    projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])]),
+    projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])]),
   );
 
   it("refuses to send into a target another coordinator established", async () => {
@@ -1700,7 +1697,7 @@ describe("memo delivery — only the coordinator that established a target sends
 
 describe("memo delivery — overlapping calls for one memo", () => {
   const OVERLAPPING_REQUEST: DeliveryDraft = requestFor(
-    projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])]),
+    projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])]),
   );
 
   it("sends once when two calls for one memo overlap", async () => {
@@ -1784,10 +1781,10 @@ describe("memo delivery — overlapping calls for one memo", () => {
 
 describe("memo delivery — once-only is per target, not per memo", () => {
   const FIRST_PROJECTION: CanonicalTranscriptProjection = projectionOf([
-    turn(1, "participant", [{ kind: "text", text: "hello" }]),
+    turn(1, "user", [{ kind: "text", text: "hello" }]),
   ]);
   const GROWN_PROJECTION: CanonicalTranscriptProjection = projectionOf([
-    turn(1, "participant", [{ kind: "text", text: "hello" }]),
+    turn(1, "user", [{ kind: "text", text: "hello" }]),
     turn(2, "assistant", [{ kind: "text", text: "hello to you" }]),
   ]);
 
@@ -1846,7 +1843,7 @@ describe("memo delivery — once-only is per target, not per memo", () => {
     // the admission this replaced (settle on ANY well-formed marker) let a
     // pasted transcript forge suppression of a memo that was never delivered,
     // and the false-no side costs a duplicate summary while the false-yes
-    // side costs the participant their continuity.
+    // side costs the user their continuity.
     const target = new FakeTargetSession();
     const first: MemoDeliverySettlement = await deliverVia(
       new MemoDeliveryCoordinator(target),
@@ -1931,7 +1928,7 @@ describe("memo delivery — an unreadable target", () => {
 
     const settlement: MemoDeliverySettlement = await deliverVia(
       coordinator,
-      requestFor(projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])])),
+      requestFor(projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])])),
     );
 
     expect(settlement.disposition).toBe("withheld");
@@ -1948,7 +1945,7 @@ describe("memo delivery — an unreadable target", () => {
 
     const settlement: MemoDeliverySettlement = await deliverVia(
       coordinator,
-      requestFor(projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])])),
+      requestFor(projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])])),
     );
 
     // The ambiguity is reported, never resolved by sending again.
@@ -1967,7 +1964,7 @@ describe("memo delivery — an unreadable target", () => {
     target.sendBehavior = "refuse";
     const coordinator = new MemoDeliveryCoordinator(target);
     const request: DeliveryDraft = {
-      ...requestFor(projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])])),
+      ...requestFor(projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])])),
       sendSettlementBarrier: settlementBarrierFor(target),
     };
 
@@ -1988,7 +1985,7 @@ describe("memo delivery — an unreadable target", () => {
 
     const settlement: MemoDeliverySettlement = await deliverVia(
       coordinator,
-      requestFor(projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])])),
+      requestFor(projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])])),
     );
 
     expect(settlement.disposition).toBe("unconfirmed");
@@ -2015,14 +2012,14 @@ class RecordedEventLog implements TranscriptEventReader {
 
 class RecordedContentSource implements TranscriptContentSource {
   readonly assistantTextBySequence: Map<number, string> = new Map<number, string>();
-  readonly participantTextBySequence: Map<number, string> = new Map<number, string>();
+  readonly userTextBySequence: Map<number, string> = new Map<number, string>();
 
   readAssistantText(reference: TranscriptContentReference): string | undefined {
     return this.assistantTextBySequence.get(reference.sequence);
   }
 
-  readParticipantText(reference: TranscriptContentReference): string | undefined {
-    return this.participantTextBySequence.get(reference.sequence);
+  readUserText(reference: TranscriptContentReference): string | undefined {
+    return this.userTextBySequence.get(reference.sequence);
   }
 
   readReasoningBlocks(): readonly TranscriptReasoningBlock[] {
@@ -2076,11 +2073,11 @@ function makeFoldFixture(): FoldFixture {
 }
 
 function seedConversation(fixture: FoldFixture): void {
-  // No message member on the row: the participant's words reach the fold through
+  // No message member on the row: the user's words reach the fold through
   // the content port, because the emitter routes them through the encrypted
   // envelope and the read path returns only the clear half.
-  fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
-  fixture.contentSource.participantTextBySequence.set(1, "run the tests");
+  fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "user" }));
+  fixture.contentSource.userTextBySequence.set(1, "run the tests");
   fixture.log.append(storedEvent(2, "assistant.message", { runId: RUN_ID }));
 }
 
@@ -2120,8 +2117,8 @@ describe("memo identity key — derived, never stored", () => {
     for (const event of before.log.readEvents()) {
       after.log.append(event);
     }
-    for (const [sequence, text] of before.contentSource.participantTextBySequence) {
-      after.contentSource.participantTextBySequence.set(sequence, text);
+    for (const [sequence, text] of before.contentSource.userTextBySequence) {
+      after.contentSource.userTextBySequence.set(sequence, text);
     }
     for (const [sequence, text] of before.contentSource.assistantTextBySequence) {
       after.contentSource.assistantTextBySequence.set(sequence, text);
@@ -2142,10 +2139,8 @@ describe("memo identity key — derived, never stored", () => {
       sessionId: SESSION_ID,
       runId: RUN_ID,
     });
-    fixture.log.append(
-      storedEvent(3, "user.message", { runId: OTHER_RUN_ID, actor: "participant" }),
-    );
-    fixture.contentSource.participantTextBySequence.set(3, "unrelated");
+    fixture.log.append(storedEvent(3, "user.message", { runId: OTHER_RUN_ID, actor: "user" }));
+    fixture.contentSource.userTextBySequence.set(3, "unrelated");
     const after: CanonicalTranscriptProjection = fixture.fold.build({
       sessionId: SESSION_ID,
       runId: RUN_ID,
@@ -2164,10 +2159,10 @@ describe("memo identity key — derived, never stored", () => {
       TARGET,
     );
 
-    fixture.log.append(storedEvent(3, "user.message", { runId: RUN_ID, actor: "participant" }));
+    fixture.log.append(storedEvent(3, "user.message", { runId: RUN_ID, actor: "user" }));
     // Seeded, so the key moves because the CONTENT changed — an unseeded row
     // would move it too, on an unavailability marker rather than on new words.
-    fixture.contentSource.participantTextBySequence.set(3, "and now deploy");
+    fixture.contentSource.userTextBySequence.set(3, "and now deploy");
     const after: string = deriveMemoIdentityKey(
       fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
       TARGET,
@@ -2201,7 +2196,7 @@ describe("memo identity key — derived, never stored", () => {
     enclosureDisclosure: "private" | "unknown" | undefined,
   ): CanonicalTranscriptProjection {
     return projectionOf([
-      turn(1, "participant", [{ kind: "text", text: "run the tests" }]),
+      turn(1, "user", [{ kind: "text", text: "run the tests" }]),
       turn(2, "assistant", [
         { kind: "tool_call", toolCallId: "call-1", toolName: "bash", argumentsJson: "{}" },
         {
@@ -2268,12 +2263,12 @@ describe("memo identity key — derived, never stored", () => {
 
   it("serializes fields unambiguously — text carrying a delimiter does not collide", () => {
     const left: CanonicalTranscriptProjection = projectionOf([
-      turn(1, "participant", [{ kind: "text", text: 'a"b' }]),
-      turn(2, "participant", [{ kind: "text", text: "c" }]),
+      turn(1, "user", [{ kind: "text", text: 'a"b' }]),
+      turn(2, "user", [{ kind: "text", text: "c" }]),
     ]);
     const right: CanonicalTranscriptProjection = projectionOf([
-      turn(1, "participant", [{ kind: "text", text: "a" }]),
-      turn(2, "participant", [{ kind: "text", text: 'b"c' }]),
+      turn(1, "user", [{ kind: "text", text: "a" }]),
+      turn(2, "user", [{ kind: "text", text: 'b"c' }]),
     ]);
 
     expect(deriveMemoIdentityKey(left, TARGET)).not.toBe(deriveMemoIdentityKey(right, TARGET));
@@ -2288,7 +2283,7 @@ describe("memo delivery — nothing durable is written", () => {
   it("touches only the read and the send on the target, across all four delivery paths", async () => {
     const observedMemberNames: string[] = [];
     const request: DeliveryDraft = requestFor(
-      projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])]),
+      projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])]),
     );
 
     // delivered
@@ -2383,7 +2378,7 @@ describe("memo frame — the key is carried as visible characters", () => {
 
     const frame: MemoOutboundFrame | undefined = sentFrames[0];
     // A memo is the daemon narrating a prior conversation — neither the
-    // participant's own text nor a driver command.
+    // user's own text nor a driver command.
     expect(frame?.frame.origin).toBe("system_narration");
     expect(frame?.frame.tripwireExempt).toBe(false);
     // Only the writer mints one, so the memo cannot reach the provider around
@@ -2447,7 +2442,7 @@ describe("reconstitution routing — the memo is the caller's fallback", () => {
       { outcome: "applied", declaredLosses: ["provider_private_reasoning"] },
       addressedTo(
         coordinator,
-        requestFor(projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])])),
+        requestFor(projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])])),
       ),
     );
 
@@ -2471,7 +2466,7 @@ describe("reconstitution routing — the memo is the caller's fallback", () => {
         { outcome },
         addressedTo(
           coordinator,
-          requestFor(projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])])),
+          requestFor(projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])])),
         ),
       );
 
@@ -2505,7 +2500,7 @@ describe("reconstitution routing — the memo is the caller's fallback", () => {
         { outcome: "applied", declaredLosses: ["conversation_history_summarized"] },
         addressedTo(
           coordinator,
-          requestFor(projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])])),
+          requestFor(projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])])),
         ),
       ),
     ).rejects.toBeInstanceOf(ContradictoryReplayDispositionError);
@@ -2531,7 +2526,7 @@ describe("reconstitution routing — the memo is the caller's fallback", () => {
       },
       addressedTo(
         coordinator,
-        requestFor(projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])])),
+        requestFor(projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])])),
       ),
     );
 
@@ -2552,7 +2547,7 @@ describe("reconstitution routing — the memo is the caller's fallback", () => {
 
 async function collectMemoSettlements(): Promise<MemoDeliverySettlement[]> {
   const request: DeliveryDraft = requestFor(
-    projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])]),
+    projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])]),
   );
 
   const deliveredTarget = new FakeTargetSession();
@@ -2644,7 +2639,7 @@ describe("settlement disclosure — a degraded settlement never reads like an ap
       },
     });
 
-    // "In full" beside a list of what was dropped tells the participant two
+    // "In full" beside a list of what was dropped tells the user two
     // contradictory things in one sentence. The claim is reserved for the case
     // that earns it, and the omissions are named on the case that does not.
     expect(disclosure).not.toContain("in full");
@@ -2681,7 +2676,7 @@ describe("settlement disclosure — a degraded settlement never reads like an ap
         MemoDeliveryNotEstablishedError,
       );
       // The disposition rides out on the failure rather than being discarded
-      // with it: a caller that must tell the participant what happened has the
+      // with it: a caller that must tell the user what happened has the
       // settlement, and the reason, in hand.
       try {
         memoSettlementAsReplayResult(unestablished);
@@ -2698,10 +2693,10 @@ describe("settlement disclosure — a degraded settlement never reads like an ap
     expect(withheld.withheldReason).toBe("target-unreadable");
   });
 
-  it("still reports an unlanded memo to the participant rather than erasing it", async () => {
+  it("still reports an unlanded memo to the user rather than erasing it", async () => {
     // The refusal above is a boundary-result refusal, not a silence. Routing
     // still SETTLES: a summary that did not reach the new session is exactly
-    // what the participant needs told, and an exception thrown out of the
+    // what the user needs told, and an exception thrown out of the
     // routing seam would take the disclosure with it.
     const target = new FakeTargetSession();
     target.readOutcomes.push("fail");
@@ -2712,7 +2707,7 @@ describe("settlement disclosure — a degraded settlement never reads like an ap
       { outcome: "unavailable" },
       addressedTo(
         coordinator,
-        requestFor(projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])])),
+        requestFor(projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])])),
       ),
     );
 
@@ -2753,7 +2748,7 @@ describe("memo floor — a result whose enclosure cannot be resolved is withheld
    */
   function foldUnreadableEnclosure(): CanonicalTranscriptProjection {
     const log = new RecordedEventLog();
-    log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
+    log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "user" }));
     log.append(storedEvent(2, "assistant.thinking_update", { runId: RUN_ID }));
     log.append(
       storedEvent(3, "tool.invoked", {
@@ -2766,7 +2761,7 @@ describe("memo floor — a result whose enclosure cannot be resolved is withheld
 
     const contentSource: TranscriptContentSource = {
       readAssistantText: (): string | undefined => undefined,
-      readParticipantText: (reference: TranscriptContentReference): string | undefined =>
+      readUserText: (reference: TranscriptContentReference): string | undefined =>
         reference.sequence === 1 ? "run the tests" : undefined,
       // ABSENT for the thinking row, which is the port's way of saying the
       // blocks could not be read.
@@ -2809,14 +2804,14 @@ describe("memo floor — a result whose enclosure cannot be resolved is withheld
     // The settle's marker for an id-less legacy answer withheld inside a
     // private block. Beside a real sibling so the turn survives the strip.
     const withMarker: CanonicalTranscriptProjection = projectionOf([
-      turn(1, "participant", [{ kind: "text", text: "run the tests" }]),
+      turn(1, "user", [{ kind: "text", text: "run the tests" }]),
       turn(2, "assistant", [
         { kind: "text", text: "", withheldEnclosure: "private" },
         { kind: "text", text: "all green" },
       ]),
     ]);
     const withoutMarker: CanonicalTranscriptProjection = projectionOf([
-      turn(1, "participant", [{ kind: "text", text: "run the tests" }]),
+      turn(1, "user", [{ kind: "text", text: "run the tests" }]),
       turn(2, "assistant", [{ kind: "text", text: "all green" }]),
     ]);
 

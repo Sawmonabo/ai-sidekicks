@@ -14,7 +14,7 @@
 // that settlement, so the memory-only consequence renders at the moment a person can
 // still decide differently, which is the only moment it is worth rendering.
 //
-// ENROLMENT IS SCRIPTED AS A REFUSAL, and deliberately so: a participant dismissing
+// ENROLMENT IS SCRIPTED AS A REFUSAL, and deliberately so: a user dismissing
 // the platform dialog has answered the question, and the answer is no. It is the one
 // arm that must never fall through to the browser, so it is the one worth pinning.
 //
@@ -29,7 +29,7 @@ import type { ConsoleScenario } from "./runtime/index.js";
 export const ONBOARDING_SCENARIO_ID = "onboarding";
 
 const SESSION_ID = "019b78c9-0a80-75e5-8510-ada11a5a3301";
-const PARTICIPANT_YOU = "019b78c9-0a80-79a4-8110-cca0117a3301";
+const USER_YOU = "019b78c9-0a80-79a4-8110-cca0117a3301";
 const CODEX_ACCOUNT_ID = "019b78c9-0a80-7c31-8110-cca0117a3302";
 const CLAUDE_ACCOUNT_ID = "019b78c9-0a80-7c31-8110-cca0117a3303";
 
@@ -39,8 +39,8 @@ export const ONBOARDING_SCENARIO: ConsoleScenario = {
   purpose:
     "The two surfaces a person meets before any work: the passkey ceremony falling back to a browser hand-off that finishes memory-only, and the first-run walkthrough part-done with one provider ready and one signed out.",
   sessionId: SESSION_ID,
-  participantIdsInJoinOrder: [PARTICIPANT_YOU],
-  viewingParticipantId: PARTICIPANT_YOU,
+  userIdsInJoinOrder: [USER_YOU],
+  viewingUserId: USER_YOU,
   signInCeremony: {
     assertions: [
       {
@@ -65,7 +65,7 @@ export const ONBOARDING_SCENARIO: ConsoleScenario = {
         sequence: 1,
         kind: "session.created",
         occurredAt: "2026-01-01T09:00:00.000Z",
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
       },
     },

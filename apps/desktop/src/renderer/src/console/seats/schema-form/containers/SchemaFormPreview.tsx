@@ -12,14 +12,14 @@
 // revision to carry. A greyed Submit would be a control that could never work.
 //
 // AND WHY IT IS STILL LIVE. The fields are real controls over a real schema, so an author
-// typing into them learns exactly what a participant will meet — including the raw editor,
+// typing into them learns exactly what a user will meet — including the raw editor,
 // which is what a schema outside the drawn set actually opens as. A picture of a form
 // would answer the same question worse and would go stale against the mapper.
 //
 // WHICH IS WHY IT REFUSES WHERE THE RUN'S FORM REFUSES. A root asking for a single value
 // rather than named fields is a schema no submission can carry (`schema-root-shape.ts`),
 // so the run's form offers no act for it — and a preview that drew an editor there would
-// tell the author their phase is answerable when the participant will be told it is not.
+// tell the author their phase is answerable when the user will be told it is not.
 // The author is the one person who can repair it, so this is where the sentence is worth
 // the most.
 //

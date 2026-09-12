@@ -98,7 +98,7 @@ const SESSION_ID: SessionId = "0190fa10-0000-7000-8000-000000000001" as SessionI
 const OTHER_SESSION_ID: SessionId = "0190fa10-0000-7000-8000-000000000002" as SessionId;
 const NODE_ID: NodeId = "node-local" as NodeId;
 
-const PARTICIPANT_ACTOR: string = "0190fa14-0000-7000-8000-000000000001";
+const USER_ACTOR: string = "0190fa14-0000-7000-8000-000000000001";
 const RUN_ID: string = "0190fa16-0000-7000-8000-000000000001";
 
 /**
@@ -889,7 +889,7 @@ describe("the full-lifecycle event sequence", () => {
       sessionId: SESSION_ID,
       localPath: fixtures.nestedDirectory,
       nodeId: NODE_ID,
-      actor: PARTICIPANT_ACTOR,
+      actor: USER_ACTOR,
     });
     // A SECOND mount, untouched by everything below: the detach cascade is
     // scoped to one mount, and a cascade that archived the session's whole
@@ -995,7 +995,7 @@ describe("the full-lifecycle event sequence", () => {
       readLifecycleEnvelopes()
         .slice(0, 4)
         .map((envelope) => envelope.actor),
-    ).toEqual([PARTICIPANT_ACTOR, PARTICIPANT_ACTOR, null, null]);
+    ).toEqual([USER_ACTOR, USER_ACTOR, null, null]);
 
     // Each cascaded archival names its workspace AND its mount, once.
     const archivedPayloads = readPayloadsOfType("workspace.archived");

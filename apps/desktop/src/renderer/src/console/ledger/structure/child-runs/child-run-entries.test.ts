@@ -159,7 +159,7 @@ describe("handoff entries — the four members, each read as itself", () => {
         runId: "run-a",
         position: 1,
         payload: {
-          fromActor: "participant-ana",
+          fromActor: "user-ana",
           toActor: "agent-reviewer",
           reason: "review requested",
           channelId: "channel-main",
@@ -168,7 +168,7 @@ describe("handoff entries — the four members, each read as itself", () => {
     ]);
     expect(entries[0]).toMatchObject({
       wireType: "agent.attached",
-      fromActor: "participant-ana",
+      fromActor: "user-ana",
       toActor: "agent-reviewer",
       reason: "review requested",
       channelId: "channel-main",
@@ -200,7 +200,7 @@ describe("handoff entries — the four members, each read as itself", () => {
           type: "user.message",
           runId: "run-a",
           position: 1,
-          payload: { fromActor: "participant-ana", toActor: "agent-reviewer" },
+          payload: { fromActor: "user-ana", toActor: "agent-reviewer" },
         }),
       ]),
     ).toEqual([]);

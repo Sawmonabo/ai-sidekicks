@@ -44,7 +44,7 @@ const WHOLE_NON_NEGATIVE_INTEGER = /^\d+$/u;
  * Trims first — surrounding whitespace is a typing artefact and not a claim about
  * the value — and then holds the remainder to the registered grammar in full. The
  * refused value is deliberately never carried out on the reading: a refusal renders
- * it, and it is participant input.
+ * it, and it is user input.
  */
 export function parseRewindPosition(typed: string): RewindPositionReading {
   const trimmed = typed.trim();

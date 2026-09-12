@@ -112,7 +112,7 @@ function composerSessionStore(throughKind: string): SessionStore {
     sessionId: COMPOSER_SCENARIO.sessionId,
     projectors: COMPOSED_CONSOLE_PROJECTORS,
   });
-  store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+  store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
   const lastIndex = COMPOSER_SCENARIO.beats.findLastIndex(
     (beat) => beat.event.kind === throughKind,
   );
@@ -385,7 +385,7 @@ function scenarioSeededStore(scenario: ConsoleScenario): SessionStore {
   store.initialise({
     cursor: Math.min(...sequences) - 1,
     entities: [],
-    participantJoinLog: [...scenario.participantIdsInJoinOrder],
+    userJoinLog: [...scenario.userIdsInJoinOrder],
   });
   store.applyBatch(scenario.beats.map((beat) => beat.event as ConsoleSessionEvent));
   return store;

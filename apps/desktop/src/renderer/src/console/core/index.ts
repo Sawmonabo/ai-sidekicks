@@ -63,7 +63,7 @@ export { ForwardingConsoleClock } from "./forwarding-clock.js";
 // inside `core/` or in a suite that reaches the declaring module: the encoder stride,
 // the restore list's visible-row cap, the terminal budget's measurement width, and the
 // tripwire report cap. A door line no production importer reaches is a dead export the
-// barrel census fails. The cast bar's chip cap has left that list — the bar is built
+// barrel census fails. The session header's chip cap has left that list — the bar is built
 // and reads it through this door.
 export { RESOLVED_PROSE_INLINE_CAP, TOOL_ALLOWLIST_NAMED_CAP } from "./constants/agents-caps.js";
 export { BROAD_ALLOW_LIST_THRESHOLD } from "./constants/approvals-caps.js";
@@ -286,7 +286,7 @@ export { refusalRemedyFor } from "./refusal-remedies.js";
 // other, so the floor is the only home both can take it from.
 export { structuralKey } from "./structural-key.js";
 // Which two members name one provider ask. At the floor because its readers are two
-// sibling VIEW families — the ledger's ask card and the workspace's cast bar — so
+// sibling VIEW families — the ledger's ask card and the workspace's session header — so
 // neither may reach the other, and an ask filed under two spellings of its identity is
 // an answer landing on the wrong run's card.
 export { driverAskIdentitySegments } from "./driver-ask-identity.js";

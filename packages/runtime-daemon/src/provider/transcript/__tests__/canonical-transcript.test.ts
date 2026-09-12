@@ -105,7 +105,7 @@ class RecordedEventLog implements TranscriptEventReader {
  */
 class RecordedContentSource implements TranscriptContentSource {
   readonly assistantTextBySequence: Map<number, string> = new Map<number, string>();
-  readonly participantTextBySequence: Map<number, string> = new Map<number, string>();
+  readonly userTextBySequence: Map<number, string> = new Map<number, string>();
   readonly reasoningBlocksBySequence: Map<number, readonly TranscriptReasoningBlock[]> = new Map<
     number,
     readonly TranscriptReasoningBlock[]
@@ -120,8 +120,8 @@ class RecordedContentSource implements TranscriptContentSource {
     return this.assistantTextBySequence.get(reference.sequence);
   }
 
-  readParticipantText(reference: TranscriptContentReference): string | undefined {
-    return this.participantTextBySequence.get(reference.sequence);
+  readUserText(reference: TranscriptContentReference): string | undefined {
+    return this.userTextBySequence.get(reference.sequence);
   }
 
   /**
@@ -159,16 +159,16 @@ function makeFixture(): TranscriptFixture {
 }
 
 /**
- * One participant turn, one assistant turn carrying a private reasoning block
+ * One user turn, one assistant turn carrying a private reasoning block
  * whose tool result was emitted INSIDE it, and the tool call that result answers.
  * This is the shape both the strip and the pairing repair are specified against.
  */
 function seedInterruptedToolFixture(fixture: TranscriptFixture): void {
-  // The participant row carries NO message member, matching the shape the read
+  // The user row carries NO message member, matching the shape the read
   // path actually hands back: the emitter routes that text through the encrypted
   // envelope, so the words arrive through the content port like every other body.
-  fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
-  fixture.contentSource.participantTextBySequence.set(1, "run the tests");
+  fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "user" }));
+  fixture.contentSource.userTextBySequence.set(1, "run the tests");
   fixture.log.append(storedEvent(2, "assistant.thinking_update", { runId: RUN_ID }));
   fixture.contentSource.reasoningBlocksBySequence.set(2, [
     {
@@ -200,13 +200,13 @@ function segmentsOf(frames: readonly RenderedTranscriptFrame[]): CanonicalTransc
 // --------------------------------------------------------------------------
 
 describe("canonical transcript fold — scope and ordering", () => {
-  it("orders turns by the log and separates participant turns from assistant turns", () => {
+  it("orders turns by the log and separates user turns from assistant turns", () => {
     const fixture = makeFixture();
     seedInterruptedToolFixture(fixture);
 
     const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
 
-    expect(projection.turns.map((turn) => turn.role)).toEqual(["participant", "assistant"]);
+    expect(projection.turns.map((turn) => turn.role)).toEqual(["user", "assistant"]);
     expect(projection.turns.map((turn) => turn.position)).toEqual([1, 2]);
     expect(projection.turns[0]?.segments).toEqual([
       { kind: "text", position: 1, text: "run the tests" },
@@ -219,42 +219,42 @@ describe("canonical transcript fold — scope and ordering", () => {
     ]);
   });
 
-  it("reads a participant turn through the content port, not off the row's clear payload", () => {
+  it("reads a user turn through the content port, not off the row's clear payload", () => {
     const fixture = makeFixture();
     // The shape the read path actually returns: no message member anywhere on
     // the clear payload, because the emitter routed those words through the
     // encrypted envelope. A fold that read `payload.message` would render an
-    // unavailable turn here and every real participant turn would vanish.
-    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
-    fixture.contentSource.participantTextBySequence.set(1, "ship it");
+    // unavailable turn here and every real user turn would vanish.
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "user" }));
+    fixture.contentSource.userTextBySequence.set(1, "ship it");
 
     const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
 
     expect(projection.turns).toHaveLength(1);
-    expect(projection.turns[0]?.role).toBe("participant");
+    expect(projection.turns[0]?.role).toBe("user");
     expect(projection.turns[0]?.segments).toEqual([{ kind: "text", position: 1, text: "ship it" }]);
     expect(
       new TranscriptTransformPipeline().exportTranscript(projection, "unbounded").declaredLosses,
     ).toEqual([]);
   });
 
-  it("carries an unreadable participant turn with an empty body and declares the loss", () => {
+  it("carries an unreadable user turn with an empty body and declares the loss", () => {
     const fixture = makeFixture();
     // Deliberately NOT seeded: the port answers "unavailable" for the person's
     // own words. They are not dropped — a dropped turn is indistinguishable from
     // a turn that never happened, and nothing would then be declared over it.
-    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "user" }));
     fixture.log.append(storedEvent(2, "assistant.message", { runId: RUN_ID }));
     fixture.contentSource.assistantTextBySequence.set(2, "on it");
 
     const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
 
-    expect(projection.turns.map((turn) => turn.role)).toEqual(["participant", "assistant"]);
+    expect(projection.turns.map((turn) => turn.role)).toEqual(["user", "assistant"]);
     expect(projection.turns[0]?.position).toBe(1);
     expect(projection.turns[0]?.segments).toEqual([
       { kind: "text", position: 1, text: "", contentUnavailable: true },
     ]);
-    // The assistant half is intact, so the loss below is the participant's alone.
+    // The assistant half is intact, so the loss below is the user's alone.
     expect(projection.turns[1]?.segments).toEqual([{ kind: "text", position: 2, text: "on it" }]);
 
     const exported = new TranscriptTransformPipeline().exportTranscript(projection, "unbounded");
@@ -264,15 +264,13 @@ describe("canonical transcript fold — scope and ordering", () => {
 
   it("keeps another run's rows out of this run's transcript", () => {
     const fixture = makeFixture();
-    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
-    fixture.contentSource.participantTextBySequence.set(1, "mine");
-    fixture.log.append(
-      storedEvent(2, "user.message", { runId: OTHER_RUN_ID, actor: "participant" }),
-    );
-    fixture.contentSource.participantTextBySequence.set(2, "someone else's");
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "user" }));
+    fixture.contentSource.userTextBySequence.set(1, "mine");
+    fixture.log.append(storedEvent(2, "user.message", { runId: OTHER_RUN_ID, actor: "user" }));
+    fixture.contentSource.userTextBySequence.set(2, "someone else's");
     // A row naming NO run cannot be proven to belong to this one, so it is out.
-    fixture.log.append(storedEvent(3, "user.message", { actor: "participant" }));
-    fixture.contentSource.participantTextBySequence.set(3, "unscoped");
+    fixture.log.append(storedEvent(3, "user.message", { actor: "user" }));
+    fixture.contentSource.userTextBySequence.set(3, "unscoped");
 
     const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
 
@@ -294,11 +292,11 @@ describe("canonical transcript fold — scope and ordering", () => {
     expect(projection.turns.map((turn) => turn.position)).toEqual([1, 3]);
   });
 
-  it("splits assistant turns across a readable-but-empty participant row", () => {
+  it("splits assistant turns across a readable-but-empty user row", () => {
     const fixture = makeFixture();
     // Exchange 1: a tool call whose result names an enclosing block that lives
     // in NO block of its own exchange. Exchange 2 carries a private block with
-    // that same id — block ids are exchange-scoped, so if the empty participant
+    // that same id — block ids are exchange-scoped, so if the empty user
     // row between them failed to split the turns, exchange 2's block would
     // wrongly stamp exchange 1's result withheld.
     fixture.log.append(
@@ -310,10 +308,10 @@ describe("canonical transcript fold — scope and ordering", () => {
       text: "probe output",
       enclosingReasoningBlockId: "block-reused",
     });
-    // The participant said nothing readable — a zero-length body, not an
+    // The user said nothing readable — a zero-length body, not an
     // unreadable one — but it is still a role boundary.
-    fixture.log.append(storedEvent(3, "user.message", { runId: RUN_ID, actor: "participant" }));
-    fixture.contentSource.participantTextBySequence.set(3, "");
+    fixture.log.append(storedEvent(3, "user.message", { runId: RUN_ID, actor: "user" }));
+    fixture.contentSource.userTextBySequence.set(3, "");
     fixture.log.append(storedEvent(4, "assistant.thinking_update", { runId: RUN_ID }));
     fixture.contentSource.reasoningBlocksBySequence.set(4, [
       {
@@ -362,16 +360,16 @@ describe("canonical transcript fold — scope and ordering", () => {
 
   it("treats a readable-but-empty assistant row as a boundary symmetrically", () => {
     const fixture = makeFixture();
-    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
-    fixture.contentSource.participantTextBySequence.set(1, "first ask");
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "user" }));
+    fixture.contentSource.userTextBySequence.set(1, "first ask");
     fixture.log.append(storedEvent(2, "assistant.message", { runId: RUN_ID }));
     fixture.contentSource.assistantTextBySequence.set(2, "");
-    fixture.log.append(storedEvent(3, "user.message", { runId: RUN_ID, actor: "participant" }));
-    fixture.contentSource.participantTextBySequence.set(3, "second ask");
+    fixture.log.append(storedEvent(3, "user.message", { runId: RUN_ID, actor: "user" }));
+    fixture.contentSource.userTextBySequence.set(3, "second ask");
 
     const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
 
-    expect(projection.turns.map((turn) => turn.role)).toEqual(["participant", "participant"]);
+    expect(projection.turns.map((turn) => turn.role)).toEqual(["user", "user"]);
     expect(projection.turns[0]?.segments).toEqual([
       { kind: "text", position: 1, text: "first ask" },
     ]);
@@ -460,12 +458,12 @@ describe("canonical transcript fold — a projection, never a store", () => {
     // rows, so a cached projection cannot look current merely because this run
     // was quiet.
     const fixture = makeFixture();
-    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
-    fixture.contentSource.participantTextBySequence.set(1, "hello");
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "user" }));
+    fixture.contentSource.userTextBySequence.set(1, "hello");
 
     const before = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
     fixture.log.append(storedEvent(2, "user.message", { runId: OTHER_RUN_ID }));
-    fixture.contentSource.participantTextBySequence.set(2, "elsewhere");
+    fixture.contentSource.userTextBySequence.set(2, "elsewhere");
     const after = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
 
     expect(after.turns).toEqual(before.turns);
@@ -704,8 +702,8 @@ describe("transform pipeline — the ordered contract", () => {
 
   it("declares no loss for a transcript that lost nothing", () => {
     const fixture = makeFixture();
-    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
-    fixture.contentSource.participantTextBySequence.set(1, "hello");
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "user" }));
+    fixture.contentSource.userTextBySequence.set(1, "hello");
     fixture.log.append(storedEvent(2, "assistant.message", { runId: RUN_ID }));
     fixture.contentSource.assistantTextBySequence.set(2, "hi");
     const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
@@ -717,11 +715,11 @@ describe("transform pipeline — the ordered contract", () => {
 
   it("keeps a turn whose body was unreadable and declares the loss over it", () => {
     const fixture = makeFixture();
-    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "user" }));
     // Seeded, so exactly ONE turn in this projection is unreadable. Leaving the
-    // participant row unseeded too would let this test pass while proving
+    // user row unseeded too would let this test pass while proving
     // something other than what its name claims.
-    fixture.contentSource.participantTextBySequence.set(1, "hello");
+    fixture.contentSource.userTextBySequence.set(1, "hello");
     // Deliberately NOT seeded: the content source answers "unavailable".
     fixture.log.append(storedEvent(2, "assistant.message", { runId: RUN_ID }));
     const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
@@ -812,7 +810,7 @@ describe("transform pipeline — the ordered contract", () => {
     }
   });
 
-  it("classifies a replayed participant turn as participant text and leaves seeded history unclassified", () => {
+  it("classifies a replayed user turn as user text and leaves seeded history unclassified", () => {
     const fixture = makeFixture();
     seedInterruptedToolFixture(fixture);
     const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
@@ -820,7 +818,7 @@ describe("transform pipeline — the ordered contract", () => {
     const frames = new TranscriptTransformPipeline().exportTranscript(projection, "unbounded")
       .frames as readonly RenderedTranscriptFrame[];
 
-    expect(frames.map((frame) => frame.origin)).toEqual(["participant_text", undefined]);
+    expect(frames.map((frame) => frame.origin)).toEqual(["human_text", undefined]);
   });
 });
 
@@ -1298,15 +1296,15 @@ describe("transform pipeline — pairing is one-to-one, on identifiers that are 
 
 /**
  * Four turns, alternating roles so each event lands in a turn of its own:
- * positions 1 and 3 are the participant's, 2 and 4 the assistant's.
+ * positions 1 and 3 are the user's, 2 and 4 the assistant's.
  */
 function seedFourTurnFixture(fixture: TranscriptFixture): void {
-  fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
-  fixture.contentSource.participantTextBySequence.set(1, "first question");
+  fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "user" }));
+  fixture.contentSource.userTextBySequence.set(1, "first question");
   fixture.log.append(storedEvent(2, "assistant.message", { runId: RUN_ID }));
   fixture.contentSource.assistantTextBySequence.set(2, "first answer");
-  fixture.log.append(storedEvent(3, "user.message", { runId: RUN_ID, actor: "participant" }));
-  fixture.contentSource.participantTextBySequence.set(3, "second question");
+  fixture.log.append(storedEvent(3, "user.message", { runId: RUN_ID, actor: "user" }));
+  fixture.contentSource.userTextBySequence.set(3, "second question");
   fixture.log.append(storedEvent(4, "assistant.message", { runId: RUN_ID }));
   fixture.contentSource.assistantTextBySequence.set(4, "second answer");
 }
@@ -1372,8 +1370,8 @@ describe("transform pipeline — a bounded export carries only what the bound ad
 
   it("declares losses over the admitted turns only", () => {
     const fixture = makeFixture();
-    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
-    fixture.contentSource.participantTextBySequence.set(1, "what changed");
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "user" }));
+    fixture.contentSource.userTextBySequence.set(1, "what changed");
     // The unreadable body sits PAST the bound. A bounded export that declared it
     // would be reporting a loss over content it did not carry.
     fixture.log.append(storedEvent(2, "assistant.message", { runId: RUN_ID }));
@@ -1458,8 +1456,8 @@ describe("transform pipeline — a bounded export carries only what the bound ad
 
   it("bounds a projection exactly as folding to the same position would have", () => {
     const fixture = makeFixture();
-    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
-    fixture.contentSource.participantTextBySequence.set(1, "run the tests");
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "user" }));
+    fixture.contentSource.userTextBySequence.set(1, "run the tests");
     fixture.log.append(storedEvent(2, "assistant.thinking_update", { runId: RUN_ID }));
     fixture.contentSource.reasoningBlocksBySequence.set(2, [
       {
@@ -1505,8 +1503,8 @@ describe("transform pipeline — a bounded export carries only what the bound ad
     // condemns it is outside — so a fold that stopped at the bound never meets
     // the row that withholds, and the body ships.
     const fixture = makeFixture();
-    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
-    fixture.contentSource.participantTextBySequence.set(1, "run the tests");
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "user" }));
+    fixture.contentSource.userTextBySequence.set(1, "run the tests");
     fixture.log.append(
       storedEvent(2, "tool.invoked", {
         runId: RUN_ID,
@@ -1559,8 +1557,8 @@ describe("transform pipeline — a bounded export carries only what the bound ad
     // the over-bound answer does not come BACK across on the strength of an
     // in-bound block. The two orderings together fence the fix on both sides.
     const fixture = makeFixture();
-    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
-    fixture.contentSource.participantTextBySequence.set(1, "run the tests");
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "user" }));
+    fixture.contentSource.userTextBySequence.set(1, "run the tests");
     fixture.log.append(storedEvent(2, "assistant.thinking_update", { runId: RUN_ID }));
     fixture.contentSource.reasoningBlocksBySequence.set(2, [
       {
@@ -1905,7 +1903,7 @@ describe("canonical transcript fold — a tool row naming no call identifier", (
   it("carries an unkeyed answer the provider emitted inside a summary block", () => {
     const fixture = makeFixture();
     // The private case's twin, and the whole point of resolving enclosure rather
-    // than treating it as decisive: a summary block is history the participant
+    // than treating it as decisive: a summary block is history the user
     // already read, so the answer inside it is portable content. Withholding it
     // would drop the body AND declare a loss that did not happen.
     fixture.log.append(storedEvent(1, "assistant.thinking_update", { runId: RUN_ID }));
@@ -1999,7 +1997,7 @@ describe("canonical transcript fold — a tool row naming no call identifier", (
     const fixture = makeFixture();
     // No blocks seeded: this row's reasoning is UNREADABLE, not absent. A
     // summary block would have been flattened and kept under no declared loss,
-    // so answering the empty list here would carry participant-visible history
+    // so answering the empty list here would carry user-visible history
     // out of the export in silence.
     fixture.log.append(storedEvent(1, "assistant.thinking_update", { runId: RUN_ID }));
 
@@ -2094,8 +2092,8 @@ describe("transform pipeline — a result whose enclosure cannot be resolved is 
    * port's absent answer means.
    */
   function seedUnreadableEnclosureFixture(fixture: TranscriptFixture): void {
-    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
-    fixture.contentSource.participantTextBySequence.set(1, "run the tests");
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "user" }));
+    fixture.contentSource.userTextBySequence.set(1, "run the tests");
     // Seeded into the log, deliberately NOT into the content source.
     fixture.log.append(storedEvent(2, "assistant.thinking_update", { runId: RUN_ID }));
     fixture.log.append(
@@ -2169,8 +2167,8 @@ describe("transform pipeline — a result whose enclosure cannot be resolved is 
    * own turn close exists to handle — with a bound falling between the two.
    */
   function seedLateBlockFixture(fixture: TranscriptFixture): void {
-    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
-    fixture.contentSource.participantTextBySequence.set(1, "run the tests");
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "user" }));
+    fixture.contentSource.userTextBySequence.set(1, "run the tests");
     fixture.log.append(
       storedEvent(2, "tool.invoked", {
         runId: RUN_ID,
@@ -2249,8 +2247,8 @@ describe("transform pipeline — a result whose enclosure cannot be resolved is 
     // summary block is portable, and its enclosed output is portable with it.
     // Only a withholding resolution needs a carrier that outlives the bound.
     const fixture = makeFixture();
-    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
-    fixture.contentSource.participantTextBySequence.set(1, "run the tests");
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "user" }));
+    fixture.contentSource.userTextBySequence.set(1, "run the tests");
     fixture.log.append(
       storedEvent(2, "tool.invoked", {
         runId: RUN_ID,
@@ -2297,8 +2295,8 @@ describe("transform pipeline — a result whose enclosure cannot be resolved is 
         text: "internal deliberation",
       },
     ]);
-    fixture.log.append(storedEvent(2, "user.message", { runId: RUN_ID, actor: "participant" }));
-    fixture.contentSource.participantTextBySequence.set(2, "and the tests?");
+    fixture.log.append(storedEvent(2, "user.message", { runId: RUN_ID, actor: "user" }));
+    fixture.contentSource.userTextBySequence.set(2, "and the tests?");
     fixture.log.append(
       storedEvent(3, "tool.invoked", {
         runId: RUN_ID,
@@ -2333,8 +2331,8 @@ describe("transform pipeline — a result whose enclosure cannot be resolved is 
    * leaves the fold looking portable.
    */
   function seedDisagreeingDuplicateBlockFixture(fixture: TranscriptFixture): void {
-    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
-    fixture.contentSource.participantTextBySequence.set(1, "run the tests");
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "user" }));
+    fixture.contentSource.userTextBySequence.set(1, "run the tests");
     fixture.log.append(
       storedEvent(2, "tool.invoked", {
         runId: RUN_ID,
@@ -2427,8 +2425,8 @@ describe("transform pipeline — a result whose enclosure cannot be resolved is 
     // citation identically, so there is nothing to fail over. Withholding here
     // would drop portable content on the strength of a duplicate id alone.
     const fixture = makeFixture();
-    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
-    fixture.contentSource.participantTextBySequence.set(1, "run the tests");
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "user" }));
+    fixture.contentSource.userTextBySequence.set(1, "run the tests");
     fixture.log.append(
       storedEvent(2, "tool.invoked", {
         runId: RUN_ID,

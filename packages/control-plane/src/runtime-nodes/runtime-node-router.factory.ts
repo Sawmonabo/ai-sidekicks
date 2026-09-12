@@ -48,7 +48,7 @@ import {
   RuntimeNodeRosterResponseSchema,
   type RuntimeNodeAttachRequest,
   type RuntimeNodeAttachResponse,
-  type ParticipantId,
+  type UserId,
   type RuntimeNodeCapabilityUpdateRequest,
   type RuntimeNodeCapabilityUpdateResponse,
   type RuntimeNodeDetachRequest,
@@ -77,23 +77,23 @@ import { HeartbeatService } from "./heartbeat-service.js";
 // roster; `heartbeatService` backs heartbeat.
 //
 // AUTH POSTURE (Tier 1 structural parity with `session.join`):
-//   The `attach` procedure resolves the acting participant from `ctx` via
-//   `resolveCurrentParticipantId` and REFUSES (tRPC `UNAUTHORIZED`) an attach
-//   claimed on behalf of a different participant — it does not trust the
-//   caller-supplied `input.participantId` as the sole authority. This mirrors
+//   The `attach` procedure resolves the acting user from `ctx` via
+//   `resolveCurrentUserId` and REFUSES (tRPC `UNAUTHORIZED`) an attach
+//   claimed on behalf of a different user — it does not trust the
+//   caller-supplied `input.userId` as the sole authority. This mirrors
 //   `session.join`'s self-check (session-router.factory.ts), which resolves the
-//   current participant from `ctx` and rejects non-self joins.
+//   current user from `ctx` and rejects non-self joins.
 //
 //   DEFERRED to Tier 5 (the same track session.join defers its authorization to):
 //     - Full active-session-membership verification — that the acting
-//       participant is a member of `input.sessionId` ("a participant with
+//       user is a member of `input.sessionId` ("a user with
 //       active session membership"). session.join likewise self-checks now and
 //       defers its membership/invite authorization to Tier 5.
 //     - Node-ownership verification for the `nodeId`-only procedures: heartbeat /
-//       capabilityupdate / detach carry NO participant, so authorizing them means
+//       capabilityupdate / detach carry NO user, so authorizing them means
 //       resolving the node's owner and checking the authenticated caller owns it.
 //   A membership/ownership check keyed on an unauthenticated caller is theater
-//   until PASETO auth exists — the production `resolveCurrentParticipantId`
+//   until PASETO auth exists — the production `resolveCurrentUserId`
 //   currently throws `tier5DeferralError` (host.ts), so the gates intercept all
 //   prod traffic before any such check could run. Tier 5 wires PASETO-derived
 //   auth.
@@ -101,12 +101,12 @@ export interface RuntimeNodeRouterDeps {
   readonly attachService: AttachService;
   readonly heartbeatService: HeartbeatService;
   /**
-   * Tier 1 stub principal resolver — returns the participantId the acting
+   * Tier 1 stub principal resolver — returns the userId the acting
    * caller resolves to (same type + role as `SessionRouterDeps`). The `attach`
-   * procedure self-checks `input.participantId` against this. Tier 5 wires
+   * procedure self-checks `input.userId` against this. Tier 5 wires
    * PASETO ctx-derived auth.
    */
-  readonly resolveCurrentParticipantId: (ctx: SessionRouterContext) => ParticipantId;
+  readonly resolveCurrentUserId: (ctx: SessionRouterContext) => UserId;
 }
 
 // Each procedure carries its concrete request/output type from
@@ -169,18 +169,18 @@ export function createRuntimeNodeRouter(deps: RuntimeNodeRouterDeps): RuntimeNod
         .output(RuntimeNodeAttachResponseSchema)
         .mutation(async ({ input, ctx }) => {
           // Self-check (Tier 1 parity with session.join): resolve the acting
-          // participant from `ctx` and refuse an attach claimed on behalf of a
-          // different participant. We do NOT trust caller-supplied
-          // `input.participantId` as the sole authority. Plain `TRPCError`
+          // user from `ctx` and refuse an attach claimed on behalf of a
+          // different user. We do NOT trust caller-supplied
+          // `input.userId` as the sole authority. Plain `TRPCError`
           // (UNAUTHORIZED) — no `aisError` envelope, same as session.join.
           // Full membership/node-ownership authorization is Tier-5-deferred
           // (see RuntimeNodeRouterDeps doc above).
-          const current = deps.resolveCurrentParticipantId(ctx);
-          if (input.participantId !== current) {
+          const current = deps.resolveCurrentUserId(ctx);
+          if (input.userId !== current) {
             throw new TRPCError({
               code: "UNAUTHORIZED",
               message:
-                "auth.not_authorized: a node may be attached only on behalf of the current participant",
+                "auth.not_authorized: a node may be attached only on behalf of the current user",
             });
           }
           // Both attach refusals map to HTTP 409 / tRPC `CONFLICT`. Preserve the

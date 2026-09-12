@@ -41,11 +41,11 @@ export interface LedgerFilterState {
  *
  * THE FACETS COME OFF THE UNFURLED, UNFILTERED PROJECTION, and each half of that is
  * load-bearing. Unfiltered, because derived from the narrowed rows instead,
- * admitting one participant would collapse the offer to that participant and there
+ * admitting one user would collapse the offer to that user and there
  * would be no chip left to press to get back — a control that removes itself the
  * first time it is used. Unfurled, because a closed terminal chapter is one receipt
  * in the folded window: counted there, a finished run's messages, tool calls and
- * participants offer no chip at all, and the families they belong to are missing
+ * users offer no chip at all, and the families they belong to are missing
  * from the bar entirely for as long as nobody hand-expands the chapter.
  */
 export function useLedgerFilter(ledgerWindow: LedgerWindowModel): LedgerFilterState {

@@ -484,7 +484,7 @@ export function buildInterruptParams(): ApplyInterventionParams {
     targetRunId: TEST_RUN_ID,
     expectedRunVersion: 3,
     clientIdempotencyKey: "3f1d2b4c-0000-4000-8000-000000000002",
-    payload: { reason: "participant pressed stop" },
+    payload: { reason: "user pressed stop" },
   };
 }
 
@@ -494,7 +494,7 @@ export function buildCancelParams(): ApplyInterventionParams {
     targetRunId: TEST_RUN_ID,
     expectedRunVersion: 3,
     clientIdempotencyKey: "3f1d2b4c-0000-4000-8000-000000000003",
-    payload: { reason: "participant cancelled the run" },
+    payload: { reason: "user cancelled the run" },
   };
 }
 

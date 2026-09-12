@@ -67,7 +67,7 @@ export interface DiffFileListReading {
  * A CLOSED TWO-ARM ANSWER RATHER THAN AN INDEX WITH A FALLBACK. A narrowing the filter
  * hides has no row, and answering row zero for it made the list say the opposite of
  * what the pane was doing: "All files" took `aria-current` while the renderer went on
- * showing the one hidden file. The narrowing is the participant's own choice and the
+ * showing the one hidden file. The narrowing is the user's own choice and the
  * filter is a way of looking at the list, so the choice STANDS and the list reports
  * that it has no row to point at — which is a state, not a value, and so is a member
  * of this union rather than a number outside the index space (`-1` is a number every

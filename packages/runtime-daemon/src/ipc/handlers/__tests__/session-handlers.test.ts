@@ -128,7 +128,7 @@ import { passthroughSchema } from "../../__tests__/__fixtures__/zod-schemas.js";
 // otherwise meaningless.
 
 const TEST_SESSION_ID = "550e8400-e29b-41d4-a716-446655440000" as SessionId;
-const TEST_PARTICIPANT_ID = "660e8400-e29b-41d4-a716-446655440001";
+const TEST_USER_ID = "660e8400-e29b-41d4-a716-446655440001";
 // Additional ID for the session-read fixtures. The value is a static
 // literal chosen for human-readable test failure output; its byte values
 // are otherwise meaningless beyond passing the schema's branded-UUID parse.
@@ -169,7 +169,7 @@ function buildSessionCreatedEvent(): SessionEvent {
     occurredAt: "2026-01-22T19:14:35.000Z",
     category: "session_lifecycle",
     type: "session.created",
-    actor: TEST_PARTICIPANT_ID,
+    actor: TEST_USER_ID,
     version: "1.0" as SessionEvent["version"],
     payload: {
       sessionId: TEST_SESSION_ID,

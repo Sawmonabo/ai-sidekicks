@@ -36,14 +36,14 @@
 // SQL server time (`now() - interval 'N seconds'`) — no fake JS timers, so
 // ingest's `now()` and the sweep's `now()` share the database clock. NOTE:
 // `runtime_node_presence` has NO foreign keys (`node_id` is a bare TEXT PRIMARY
-// KEY), so presence rows are inserted directly with no sessions/participants
+// KEY), so presence rows are inserted directly with no sessions/users
 // seeding — only the no-cross-table-write test seeds an attachment (which DOES
 // have FKs) to prove the boundary behaviorally.
 
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { NodeId, ParticipantId, SessionId } from "@ai-sidekicks/contracts";
+import type { NodeId, UserId, SessionId } from "@ai-sidekicks/contracts";
 
 import { applyMigrations, type Querier } from "../../sessions/migration-runner.js";
 import {
@@ -54,7 +54,7 @@ import {
 
 // ----------------------------------------------------------------------------
 // Test fixtures. `NODE_ID` is a daemon-minted opaque TEXT scalar (NOT a UUID);
-// the session/participant ids (used only by the no-cross-table-write test's
+// the session/user ids (used only by the no-cross-table-write test's
 // attachment seeding, which has FKs) are UUID v7-shaped.
 // ----------------------------------------------------------------------------
 
@@ -63,7 +63,7 @@ const NODE_ID: NodeId = "node-alpha-01" as NodeId;
 // `.map` over multiple RETURNING rows and the per-row CASE are exercised.
 const NODE_ID_BETA: NodeId = "node-beta-02" as NodeId;
 const SESSION_ID: SessionId = "01970000-0000-7000-8000-0000000e0001" as SessionId;
-const PARTICIPANT_ID: ParticipantId = "01970000-0000-7000-8000-0000000f0001" as ParticipantId;
+const USER_ID: UserId = "01970000-0000-7000-8000-0000000f0001" as UserId;
 
 // ----------------------------------------------------------------------------
 // PGlite -> Querier adapter (local copy — mirrors attach-service.test.ts `wrap`
@@ -406,19 +406,19 @@ describe("HeartbeatService — sweep idempotency + write boundary", () => {
   });
 
   it("writes ONLY runtime_node_presence — a co-resident attachment row is byte-for-byte unchanged after a sweep", async () => {
-    // Seed a full attachment row (it has FKs, so seed its session + participant)
+    // Seed a full attachment row (it has FKs, so seed its session + user)
     // alongside a stale presence row. The sweep must demote presence WITHOUT
     // touching the attachment-slot axis (the two axes are disjoint). Proven
     // behaviorally (the boundary holds at runtime), not by inspecting the SQL
     // string.
-    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [PARTICIPANT_ID]);
+    await ctx.querier.query("INSERT INTO users (id) VALUES ($1)", [USER_ID]);
     await ctx.querier.query(
       "INSERT INTO sessions (id, owner_user_id, state) VALUES ($1, $2, 'active')",
-      [SESSION_ID, PARTICIPANT_ID],
+      [SESSION_ID, USER_ID],
     );
     const attachmentBefore = await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       state: "online",
     });
@@ -452,13 +452,13 @@ async function countPresence(querier: Querier): Promise<number> {
 // columns for the byte-identity comparison the no-cross-table-write test makes.
 async function seedAttachment(
   querier: Querier,
-  args: { sessionId: SessionId; participantId: ParticipantId; nodeId: NodeId; state: string },
+  args: { sessionId: SessionId; userId: UserId; nodeId: NodeId; state: string },
 ): Promise<{ id: string; state: string; attached_at: string } | undefined> {
   await querier.query(
     `INSERT INTO runtime_node_attachments
-       (session_id, participant_id, node_id, capabilities, client_version, state)
+       (session_id, user_id, node_id, capabilities, client_version, state)
      VALUES ($1, $2, $3, $4, $5, $6)`,
-    [args.sessionId, args.participantId, args.nodeId, {}, "1.0", args.state],
+    [args.sessionId, args.userId, args.nodeId, {}, "1.0", args.state],
   );
   return readAttachment(querier, args.nodeId, args.sessionId);
 }

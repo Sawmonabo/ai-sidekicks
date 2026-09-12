@@ -20,10 +20,8 @@ import { type TimelineRowSlotProps } from "../../seats/index.js";
 export function ReceiptRow(props: TimelineRowSlotProps): React.JSX.Element {
   return (
     <LedgerRow
-      participantHueStep={props.participantHue?.step ?? -1}
-      {...(props.participantHue === undefined
-        ? {}
-        : { ringTreatment: props.participantHue.ringTreatment })}
+      actorHueStep={props.actorHue?.step ?? -1}
+      {...(props.actorHue === undefined ? {} : { ringTreatment: props.actorHue.ringTreatment })}
       occurredAtIso={props.row.timestamp}
       actorLabel={props.row.actor ?? "Session"}
       kindLabel={props.row.type}

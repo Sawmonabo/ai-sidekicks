@@ -84,10 +84,10 @@ export function ServedReceipt(props: { readonly receipt: CostReceipt }): ReactNo
         caption="Spend nobody asked for — a sweep, an idle settlement, a recovery turn — is the machine's own and says so, rather than arriving as a party with no name."
         columns={CAUSED_BY_COLUMNS}
         rows={receipt.causedBy}
-        keyOf={(row) => (row.party.kind === "system" ? "system" : row.party.participantId)}
+        keyOf={(row) => (row.party.kind === "system" ? "system" : row.party.userId)}
         accountsForFigure={verdicts.causedBy}
         emptyTitle="No spend has been attributed to anyone in this session."
-        emptyDetail="A row appears here for each participant whose turn caused spend, and one for the machine itself."
+        emptyDetail="A row appears here for each user whose turn caused spend, and one for the machine itself."
       />
 
       <PartitionSection

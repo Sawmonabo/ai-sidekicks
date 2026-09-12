@@ -22,7 +22,7 @@ export interface ArtifactGrowthSignatures {
   // admit it under the signature-exempt branch and is refused. A leading-byte signature
   // determines nothing for `application/json` or `text/markdown`, so an ordinary text
   // attachment is exactly the case that needs the declaration forwarded. Absent is a
-  // first-class state, so the member is OMITTED when the participant's file declared
+  // first-class state, so the member is OMITTED when the user's file declared
   // nothing — never sent as an empty string, which would be a declaration of nothing
   // rather than the absence the contract names.
   //

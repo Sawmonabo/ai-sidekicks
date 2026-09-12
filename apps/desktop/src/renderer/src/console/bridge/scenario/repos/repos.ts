@@ -62,7 +62,7 @@ import {
   GIT_WORKSPACE_ID,
   IMPLEMENTER_RUN_ID,
   IMPLEMENTER_WORKTREE_ID,
-  PARTICIPANT_YOU,
+  USER_YOU,
   PINNED_ATTACHMENT_ID,
   PLAIN_MOUNT_ID,
   PLAIN_WORKSPACE_ID,
@@ -78,14 +78,14 @@ export { REPOS_WORKTREE_STATUS_REPLY } from "./repos-replies.js";
 export const REPOS_SCENARIO_ID = "repos";
 
 /**
- * The scenario's viewing participant, and the session it views.
+ * The scenario's viewing user, and the session it views.
  *
  * Exported because the family's own component fixtures name a producer and a
  * session, and two spellings of one identity is how a fixture and the scenario it
  * is meant to represent come apart — the failure the seats merge fixed in this file
  * and left standing in those. A test reads the constant; nothing at runtime does.
  */
-export const REPOS_VIEWING_PARTICIPANT_ID: string = PARTICIPANT_YOU;
+export const REPOS_VIEWING_USER_ID: string = USER_YOU;
 
 /** The session every row in this scenario belongs to. Same reason as above. */
 export const REPOS_SESSION_ID: string = SESSION_ID;
@@ -110,18 +110,18 @@ export const REPOS_SCENARIO: ConsoleScenario = {
   purpose:
     "A healthy git checkout, an unreachable plain directory, and a checkout that is no longer the repository it was attached as, an execution root per agent, a proposal waiting at the gate, a run rewound after it published, and three attachments whose payloads stand in three different places.",
   sessionId: SESSION_ID,
-  participantIdsInJoinOrder: [PARTICIPANT_YOU, AGENT_IMPLEMENTER, AGENT_REVIEWER],
+  userIdsInJoinOrder: [USER_YOU, AGENT_IMPLEMENTER, AGENT_REVIEWER],
   // Which of the three this window is. Stated rather than inferred from the head of
   // the join order — that entry is whoever opened the session, on whichever machine.
   // The fixture's caller-identity read answers from this field and from nothing else.
-  viewingParticipantId: PARTICIPANT_YOU,
+  viewingUserId: USER_YOU,
   startedAtIso: REPOS_SCENARIO_STARTED_AT_ISO,
   beats: [
     reposBeat({
       atMs: 0,
       sequence: 1,
       kind: "session.created",
-      actorId: PARTICIPANT_YOU,
+      actorId: USER_YOU,
       // The registered shape, verbatim: the new session's id plus the resolved
       // config and metadata, both open records the corpus names no key inside. A
       // title is not on this wire.
@@ -133,7 +133,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
         sequence: FIRST_AGENT_SEQUENCE + agentIndex,
         kind: "agent.attached",
         // The person who attached the agent, not the agent.
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         // The full persona plus the daemon-resolved state, so the `agents` projection
         // rebuilds from the log alone; `name` is the member — `displayName` is not on
         // this wire.
@@ -144,7 +144,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
           driverName: agent.driverName,
           modelId: agent.modelId,
           state: "ready",
-          actor: PARTICIPANT_YOU,
+          actor: USER_YOU,
         },
       }),
     ),
@@ -152,7 +152,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
       atMs: 200,
       sequence: 4,
       kind: "repo.attached",
-      actorId: PARTICIPANT_YOU,
+      actorId: USER_YOU,
       payload: { sessionId: SESSION_ID, repoMountId: GIT_MOUNT_ID, state: "attached" },
     }),
     // One workspace immediately after a successful attach, which is what
@@ -161,7 +161,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
       atMs: 260,
       sequence: 5,
       kind: "workspace.ready",
-      actorId: PARTICIPANT_YOU,
+      actorId: USER_YOU,
       payload: {
         sessionId: SESSION_ID,
         repoMountId: GIT_MOUNT_ID,
@@ -173,14 +173,14 @@ export const REPOS_SCENARIO: ConsoleScenario = {
       atMs: 420,
       sequence: 6,
       kind: "repo.attached",
-      actorId: PARTICIPANT_YOU,
+      actorId: USER_YOU,
       payload: { sessionId: SESSION_ID, repoMountId: PLAIN_MOUNT_ID, state: "attached" },
     }),
     reposBeat({
       atMs: 480,
       sequence: 7,
       kind: "workspace.ready",
-      actorId: PARTICIPANT_YOU,
+      actorId: USER_YOU,
       payload: {
         sessionId: SESSION_ID,
         repoMountId: PLAIN_MOUNT_ID,
@@ -196,7 +196,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
         atMs: 620 + agentIndex * 140,
         sequence: FIRST_WORKTREE_SEQUENCE + agentIndex * 2,
         kind: "worktree.created",
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         payload: {
           sessionId: SESSION_ID,
           repoMountId: GIT_MOUNT_ID,
@@ -209,7 +209,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
         atMs: 700 + agentIndex * 140,
         sequence: FIRST_WORKTREE_SEQUENCE + agentIndex * 2 + 1,
         kind: "worktree.ready",
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         payload: {
           sessionId: SESSION_ID,
           repoMountId: GIT_MOUNT_ID,
@@ -223,7 +223,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
       atMs: 900,
       sequence: 12,
       kind: "run.queued",
-      actorId: PARTICIPANT_YOU,
+      actorId: USER_YOU,
       // A run-lifecycle payload is a STATE TRANSITION carrying the progression
       // counter, not a bare id. `previousState` is absent here and only here: a
       // queued run is being born, and no document names a value for the state it
@@ -237,7 +237,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
       },
     }),
     // No actor from here to `run.running`. The daemon moves a run from `queued` to
-    // `starting`; a participant id would attribute a system transition to a person.
+    // `starting`; a user id would attribute a system transition to a person.
     reposBeat({
       atMs: 960,
       sequence: 13,
@@ -314,7 +314,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
         atMs: attachment.atMs,
         sequence: FIRST_ATTACHMENT_SEQUENCE + attachmentIndex,
         kind: "artifact.published",
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         payload: {
           sessionId: SESSION_ID,
           artifactId: attachment.artifactId,
@@ -351,7 +351,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
       atMs: 1800,
       sequence: 21,
       kind: "run.rolled_back",
-      actorId: PARTICIPANT_YOU,
+      actorId: USER_YOU,
       payload: {
         sessionId: SESSION_ID,
         runId: IMPLEMENTER_RUN_ID,

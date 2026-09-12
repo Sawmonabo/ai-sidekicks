@@ -9,7 +9,7 @@
 import {
   REPOS_IMPLEMENTER_RUN_ID,
   REPOS_SESSION_ID,
-  REPOS_VIEWING_PARTICIPANT_ID,
+  REPOS_VIEWING_USER_ID,
 } from "../../bridge/scenario/repos/repos.js";
 import type { GrowthArtifactSummary } from "../../bridge/index.js";
 import type { ArtifactManifestRow } from "./artifact-model.js";
@@ -20,7 +20,7 @@ export function artifactRow(overrides: Partial<ArtifactManifestRow> = {}): Artif
     id: "artifact-01",
     sessionId: REPOS_SESSION_ID,
     runId: REPOS_IMPLEMENTER_RUN_ID,
-    createdBy: REPOS_VIEWING_PARTICIPANT_ID,
+    createdBy: REPOS_VIEWING_USER_ID,
     artifactType: "file",
     digest: "sha256:3b1f0c",
     size: 4096,
@@ -53,7 +53,7 @@ export function artifactSummary(
     artifactId: "artifact-01",
     sessionId: REPOS_SESSION_ID,
     runId: REPOS_IMPLEMENTER_RUN_ID,
-    createdBy: REPOS_VIEWING_PARTICIPANT_ID,
+    createdBy: REPOS_VIEWING_USER_ID,
     artifactType: "file",
     digest: "sha256:3b1f0c",
     size: 4096,

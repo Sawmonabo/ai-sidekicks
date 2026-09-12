@@ -22,7 +22,7 @@
 // is preserved through the procedure call.
 
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { type ParticipantId, type SessionId } from "@ai-sidekicks/contracts";
+import { type UserId, type SessionId } from "@ai-sidekicks/contracts";
 import { TRPCError } from "@trpc/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { applyMigrations, type Querier } from "../migration-runner.js";
@@ -75,16 +75,15 @@ function isPGlite(handle: PGlite | Transaction): handle is PGlite {
 // Test fixtures
 // ---------------------------------------------------------------------------
 //
-// Two participant ids — OWNER (the "current user" Tier 1 stub returns) and
-// SECOND (a different participant used to model cross-participant joins).
+// Two user ids — OWNER (the "current user" Tier 1 stub returns) and
+// SECOND (a different user used to model cross-user joins).
 // Both ids are RFC-9562-conformant UUID v7 fixtures (the schema accepts any
 // RFC 9562 UUID; daemon-minted ids are out of scope for the router tests).
 // SESSION_ID is the daemon-supplied UUID v7 that the stub `generateSessionId`
 // returns; tests that need a not-found id use UNKNOWN_SESSION_ID.
 
-const OWNER_PARTICIPANT_ID: ParticipantId = "01970000-0000-7000-8000-00000000c001" as ParticipantId;
-const SECOND_PARTICIPANT_ID: ParticipantId =
-  "01970000-0000-7000-8000-00000000c002" as ParticipantId;
+const OWNER_USER_ID: UserId = "01970000-0000-7000-8000-00000000c001" as UserId;
+const SECOND_USER_ID: UserId = "01970000-0000-7000-8000-00000000c002" as UserId;
 const SESSION_ID: SessionId = "01970000-0000-7000-8000-00000000d001" as SessionId;
 const UNKNOWN_SESSION_ID: SessionId = "01970000-0000-7000-8000-00000000d999" as SessionId;
 
@@ -99,14 +98,11 @@ async function buildHarness() {
   await applyMigrations(querier);
   // Seed both users — the owner FK on `sessions` requires the row to exist
   // before any directory-service call references it.
-  await querier.query("INSERT INTO participants (id) VALUES ($1), ($2)", [
-    OWNER_PARTICIPANT_ID,
-    SECOND_PARTICIPANT_ID,
-  ]);
+  await querier.query("INSERT INTO users (id) VALUES ($1), ($2)", [OWNER_USER_ID, SECOND_USER_ID]);
 
   const deps: SessionRouterDeps = {
     directoryService: new SessionDirectoryService(querier),
-    resolveCurrentParticipantId: () => OWNER_PARTICIPANT_ID,
+    resolveCurrentUserId: () => OWNER_USER_ID,
     generateSessionId: () => SESSION_ID,
     eventStreamProvider: async function* () {
       // These cases do not subscribe; the SSE suite covers that path.
@@ -150,7 +146,7 @@ describe("session.create — end-to-end tRPC roundtrip via pglite", () => {
       "SELECT owner_user_id FROM sessions WHERE id = $1",
       [SESSION_ID],
     );
-    expect(ownerProbe.rows[0]?.owner_user_id).toBe(OWNER_PARTICIPANT_ID);
+    expect(ownerProbe.rows[0]?.owner_user_id).toBe(OWNER_USER_ID);
   });
 
   it("is idempotent across repeated calls — second create returns the first row", async () => {

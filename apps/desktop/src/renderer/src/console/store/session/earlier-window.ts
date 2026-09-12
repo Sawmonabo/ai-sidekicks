@@ -33,7 +33,7 @@
 // current state with the state it was in before the window opened. The log grows; the
 // projection of the present does not move.
 
-import { ParticipantHueAllocator } from "../../tokens/index.js";
+import { ActorHueAllocator } from "../../tokens/index.js";
 import type { ConsoleSessionEvent } from "../entities/index.js";
 import { OutstandingAskJournal } from "./outstanding-asks/index.js";
 import { isReconcilableSequence, orderBatchBySequence } from "./sequence-reconciler.js";
@@ -60,7 +60,7 @@ export interface EarlierWindowMerge {
 /** Everything the state-level fold below advances beside the state it answers with. */
 export interface EarlierWindowCollaborators {
   readonly sessionId: string;
-  readonly hueAllocator: ParticipantHueAllocator;
+  readonly hueAllocator: ActorHueAllocator;
   /** The ledger of what is still waiting on a person. Recovered rows advance it too. */
   readonly outstandingAsks: OutstandingAskJournal;
   readonly timelineCap: number | undefined;

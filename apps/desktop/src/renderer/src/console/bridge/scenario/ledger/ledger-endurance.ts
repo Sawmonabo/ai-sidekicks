@@ -51,8 +51,8 @@ const SESSION_ID = `${ENDURANCE_ID_PREFIX}-75e5-8510-ada11a5a47a5`;
  * session's. `scriptLedgerBeats` completes it with the beat's position.
  */
 const EVENT_ID_STEM = `${ENDURANCE_ID_PREFIX}-7ea1-8110-e5e0d115`;
-const PARTICIPANT_YOU = `${ENDURANCE_ID_PREFIX}-79a4-8110-cca0117a0490`;
-const PARTICIPANT_PRIYA = `${ENDURANCE_ID_PREFIX}-79a4-8120-cca0117a04a0`;
+const USER_YOU = `${ENDURANCE_ID_PREFIX}-79a4-8110-cca0117a0490`;
+const USER_PRIYA = `${ENDURANCE_ID_PREFIX}-79a4-8120-cca0117a04a0`;
 /**
  * The base instant, minted from its fields rather than read back out of a string.
  *
@@ -149,7 +149,7 @@ export function createLedgerEnduranceScenario(
   entries.push(
     ...ledgerOpeningEntries({
       sessionId: SESSION_ID,
-      openedBy: PARTICIPANT_YOU,
+      openedBy: USER_YOU,
       cast: ENDURANCE_AGENTS.map((agent, agentIndex) => ({
         ...agent,
         // One beat precedes the cast — the room itself — so the first agent lands on
@@ -166,8 +166,8 @@ export function createLedgerEnduranceScenario(
       throw new RangeError("the endurance cast is empty, so no run can be attributed.");
     }
     // The two people take turns opening runs, so attribution alternates rather than
-    // giving one participant every chapter in a ten-thousand-row session.
-    const opener = runIndex % 2 === 0 ? PARTICIPANT_YOU : PARTICIPANT_PRIYA;
+    // giving one user every chapter in a ten-thousand-row session.
+    const opener = runIndex % 2 === 0 ? USER_YOU : USER_PRIYA;
     entries.push(
       runTransitionEntry({
         atMs: at(),
@@ -220,12 +220,8 @@ export function createLedgerEnduranceScenario(
     label: "Endurance",
     purpose: `A generated session of ${String(options.rowCount)} rows across ${String(runCount)} run chapters, for the tiers that measure the ledger at scale.`,
     sessionId: SESSION_ID,
-    participantIdsInJoinOrder: [
-      PARTICIPANT_YOU,
-      PARTICIPANT_PRIYA,
-      ...ENDURANCE_AGENTS.map((agent) => agent.agentId),
-    ],
-    viewingParticipantId: PARTICIPANT_YOU,
+    userIdsInJoinOrder: [USER_YOU, USER_PRIYA, ...ENDURANCE_AGENTS.map((agent) => agent.agentId)],
+    viewingUserId: USER_YOU,
     startedAtIso: STARTED_AT_ISO,
     beats: scriptLedgerBeats({
       sessionId: SESSION_ID,

@@ -77,12 +77,12 @@ export const GROWTH_OPERATION_SUMMARIES: Readonly<Record<GrowthOperationId, stri
   browserSiteDataClear:
     "clear one session's stored site data, after its browser panes have been closed",
   terminalSubscribeOutput: "terminal output stream for a shared terminal session",
-  terminalWrite: "write participant keystrokes, subject to the write lease",
+  terminalWrite: "write user keystrokes, subject to the write lease",
   terminalResize: "report the pane's column and row count",
   terminalAcquireWriteLease: "take the shared-terminal write lease",
   terminalReleaseWriteLease: "give the write lease back",
   terminalControlHolderRead:
-    "read which participant holds this session's one shared-terminal write lease, so the holder can be marked wherever presence renders rather than only inside the pane",
+    "read which user holds this session's one shared-terminal write lease, so the holder can be marked wherever presence renders rather than only inside the pane",
   devServerProbe: "probe whether a local dev server is listening, for the browser pane's chip",
   // sessions.ts
   sessionRename: "rename a session",
@@ -106,9 +106,9 @@ export const GROWTH_OPERATION_SUMMARIES: Readonly<Record<GrowthOperationId, stri
   onboardingStepSkip: "record a skipped first-run step",
   onboardingComplete: "finish first-run setup",
   onboardingPresentChoice:
-    "put the relay choice in front of the participant from the main process, so the self-host admin token is typed where the renderer cannot read it and only an opaque handle comes back",
+    "put the relay choice in front of the user from the main process, so the self-host admin token is typed where the renderer cannot read it and only an opaque handle comes back",
   onboardingTelemetryPrompt:
-    "put the telemetry question in front of the participant as its own step, after the relay choice resolves and never bundled into it",
+    "put the telemetry question in front of the user as its own step, after the relay choice resolves and never bundled into it",
   shellConfigRead: "read the shell-level preferences",
   shellConfigWrite: "set one shell-level preference",
   healthSubscribe: "node health for the strip and the park banner",
@@ -151,7 +151,7 @@ export const GROWTH_OPERATION_SUMMARIES: Readonly<Record<GrowthOperationId, stri
   attentionProjectionRead:
     "read a session's actionable and informational attention, run-scoped items and the session aggregate together, over the daemon JSON-RPC transport",
   attentionPreferenceRead:
-    "read the participant's global notification preferences, over the control-plane transport",
+    "read the user's global notification preferences, over the control-plane transport",
   attentionPreferenceUpdate:
     "set one global notification preference, over the control-plane transport",
   // workflows.ts
@@ -183,15 +183,15 @@ export const GROWTH_OPERATION_SUMMARIES: Readonly<Record<GrowthOperationId, stri
   workflowDefinitionCreate:
     "submit a definition body — the one write all five authoring acts ride, whose target scope and not whose gesture is what the daemon's operator-scope authorization keys on",
   // identity.ts
-  callerParticipantRead:
-    "read which of a session's participants this window is, so a members surface can address the sender and an approvals control can resolve the caller's own role rather than treating an unread one as read-only",
+  callerUserRead:
+    "read which of a session's users this window is, so a members surface can address the sender and an approvals control can resolve the caller's own role rather than treating an unread one as read-only",
   callbackToolRegistryRead:
     "read the callback tools registered into a session, so the approvals pane can name what an agent may call rather than only what it has already been seen calling",
-  participantPresenceDetailRead:
-    "read one participant's per-device presence fan-out, which is the detail the roster's density rule promises one hover away and which no registered reply carries today",
+  userPresenceDetailRead:
+    "read one user's per-device presence fan-out, which is the detail the roster's density rule promises one hover away and which no registered reply carries today",
   // agents.ts
   agentList:
-    "read every agent attached to one session, with its effective provider binding and any switch the daemon has accepted and not yet applied — the roster a cast bar and an agent console both render",
+    "read every agent attached to one session, with its effective provider binding and any switch the daemon has accepted and not yet applied — the roster a session header and an agent console both render",
   agentAttach:
     "put a configured sidekick into a session, by definition reference or inline, and echo back the configuration the attach resolved to — zero-residue on refusal, so nothing is pre-created and nothing is cleaned up",
   agentConfigUpdate:
@@ -268,7 +268,7 @@ export const GROWTH_OPERATION_SUMMARIES: Readonly<Record<GrowthOperationId, stri
     "read the session's live activity state — which runs are working where — so the indicators beside a channel have a producer at all",
   // run-records.ts
   runRecordInterventionHistoryRead:
-    "read every durable intervention raised against one run — its origin discriminator, the admitting principal on the participant arm, the queue item it admitted, and the decrypted directive where the authoring participant's key still opens it",
+    "read every durable intervention raised against one run — its origin discriminator, the admitting principal on the user arm, the queue item it admitted, and the decrypted directive where the authoring user's key still opens it",
   runRecordQueueRunBindingRead:
     "read the run each queued item in a session is bound to, the projection of `queue_items.target_run_id` that the registered `QueueItemSummary` carries no member for",
 };

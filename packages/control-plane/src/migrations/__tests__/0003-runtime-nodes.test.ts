@@ -31,7 +31,7 @@
 //        different `session_id` both succeed (proving the `WHERE state IN
 //        (...)` clause is present and load-bearing).
 //   P8 — `runtime_node_presence` PRIMARY KEY on `node_id` rejects a duplicate.
-//   P9 — `session_id` FK and `participant_id` FK on `runtime_node_attachments`
+//   P9 — `session_id` FK and `user_id` FK on `runtime_node_attachments`
 //        are enforced (FK violation surfaces a Postgres `23503`).
 //   P10 — `applyMigrations` called on an already-fully-migrated handle (v1
 //        bootstrapped via `beforeEach` direct-exec, v3 applied via
@@ -109,10 +109,10 @@ import { applyMigrations, type Querier } from "../../sessions/migration-runner.j
 
 const SESSION_ID = "01970000-0000-7000-8000-00000000a001";
 const SESSION_ID_2 = "01970000-0000-7000-8000-00000000a002";
-const PARTICIPANT_ID = "01970000-0000-7000-8000-00000000b001";
-// The user who owns the seeded sessions. Distinct from `PARTICIPANT_ID` so the
-// "no matching participants(id) row" FK test can seed a session without also
-// seeding the participant its attachment row references.
+const USER_ID = "01970000-0000-7000-8000-00000000b001";
+// The user who owns the seeded sessions. Distinct from `USER_ID` so the
+// "no matching users(id) row" FK test can seed a session without also
+// seeding the user its attachment row references.
 const SESSION_OWNER_ID = "01970000-0000-7000-8000-00000000b0ff";
 
 // ----------------------------------------------------------------------------
@@ -212,22 +212,22 @@ async function applyRuntimeNodesMigration(querier: Querier): Promise<void> {
 }
 
 // Local helper — seed the FK ancestors required by `runtime_node_attachments`:
-// participants(participant_id) and sessions(session_id / session_id_2). The
+// users(user_id) and sessions(session_id / session_id_2). The
 // happy-path inserts in P4/P6/P7 need these to exist before any positive-path
 // INSERT lands. P9 deliberately omits each side to exercise the FK enforcement.
 // Two session ids are seeded so the partial-active reject (P7) can use a second
 // session id that does NOT collide on the composite `(node_id, session_id)`
 // key.
-async function seedSessionAndParticipant(
+async function seedSessionAndUser(
   querier: Querier,
-  options: { withSession?: boolean; withParticipant?: boolean } = {},
+  options: { withSession?: boolean; withUser?: boolean } = {},
 ): Promise<void> {
-  const { withSession = true, withParticipant = true } = options;
-  if (withParticipant) {
-    await querier.query("INSERT INTO participants (id) VALUES ($1)", [PARTICIPANT_ID]);
+  const { withSession = true, withUser = true } = options;
+  if (withUser) {
+    await querier.query("INSERT INTO users (id) VALUES ($1)", [USER_ID]);
   }
   if (withSession) {
-    await querier.query("INSERT INTO participants (id) VALUES ($1)", [SESSION_OWNER_ID]);
+    await querier.query("INSERT INTO users (id) VALUES ($1)", [SESSION_OWNER_ID]);
     await querier.query("INSERT INTO sessions (id, owner_user_id) VALUES ($1, $3), ($2, $3)", [
       SESSION_ID,
       SESSION_ID_2,
@@ -311,9 +311,9 @@ describe("0003-runtime-nodes migration (P3 — exact column set)", () => {
     "client_version",
     "id",
     "node_id",
-    "participant_id",
     "session_id",
     "state",
+    "user_id",
   ] as const;
   const EXPECTED_PRESENCE_COLUMNS = ["health_state", "last_heartbeat_at", "node_id"] as const;
 
@@ -355,7 +355,7 @@ describe("0003-runtime-nodes migration (P4 — state CHECK pins {registering, on
 
   beforeEach(async () => {
     await applyRuntimeNodesMigration(ctx.querier);
-    await seedSessionAndParticipant(ctx.querier);
+    await seedSessionAndUser(ctx.querier);
   });
 
   for (const [index, state] of VALID_STATES.entries()) {
@@ -363,9 +363,9 @@ describe("0003-runtime-nodes migration (P4 — state CHECK pins {registering, on
       await expect(
         ctx.querier.query(
           `INSERT INTO runtime_node_attachments
-             (session_id, participant_id, node_id, client_version, state)
+             (session_id, user_id, node_id, client_version, state)
            VALUES ($1, $2, $3, $4, $5)`,
-          [SESSION_ID, PARTICIPANT_ID, `node-p4-${index}`, "1.0", state],
+          [SESSION_ID, USER_ID, `node-p4-${index}`, "1.0", state],
         ),
       ).resolves.toBeDefined();
     });
@@ -378,9 +378,9 @@ describe("0003-runtime-nodes migration (P4 — state CHECK pins {registering, on
     await expect(
       ctx.querier.query(
         `INSERT INTO runtime_node_attachments
-           (session_id, participant_id, node_id, client_version, state)
+           (session_id, user_id, node_id, client_version, state)
          VALUES ($1, $2, $3, $4, 'bogus')`,
-        [SESSION_ID, PARTICIPANT_ID, "node-p4-bogus", "1.0"],
+        [SESSION_ID, USER_ID, "node-p4-bogus", "1.0"],
       ),
     ).rejects.toThrow(/check|constraint|23514/i);
   });
@@ -431,7 +431,7 @@ describe("0003-runtime-nodes migration (P5 — health_state CHECK pins {online, 
 describe("0003-runtime-nodes migration (P6 — composite UNIQUE (node_id, session_id))", () => {
   beforeEach(async () => {
     await applyRuntimeNodesMigration(ctx.querier);
-    await seedSessionAndParticipant(ctx.querier);
+    await seedSessionAndUser(ctx.querier);
   });
 
   it("rejects a second row with the same (node_id, session_id) (UNIQUE violation)", async () => {
@@ -444,18 +444,18 @@ describe("0003-runtime-nodes migration (P6 — composite UNIQUE (node_id, sessio
     await expect(
       ctx.querier.query(
         `INSERT INTO runtime_node_attachments
-           (session_id, participant_id, node_id, client_version, state)
+           (session_id, user_id, node_id, client_version, state)
          VALUES ($1, $2, $3, $4, 'offline')`,
-        [SESSION_ID, PARTICIPANT_ID, "node-p6-composite", "1.0"],
+        [SESSION_ID, USER_ID, "node-p6-composite", "1.0"],
       ),
     ).resolves.toBeDefined();
 
     await expect(
       ctx.querier.query(
         `INSERT INTO runtime_node_attachments
-           (session_id, participant_id, node_id, client_version, state)
+           (session_id, user_id, node_id, client_version, state)
          VALUES ($1, $2, $3, $4, 'offline')`,
-        [SESSION_ID, PARTICIPANT_ID, "node-p6-composite", "1.0"],
+        [SESSION_ID, USER_ID, "node-p6-composite", "1.0"],
       ),
     ).rejects.toThrow(/unique|duplicate key|23505/i);
   });
@@ -468,7 +468,7 @@ describe("0003-runtime-nodes migration (P6 — composite UNIQUE (node_id, sessio
 describe("0003-runtime-nodes migration (P7 — partial-active UNIQUE enforces single-active-session)", () => {
   beforeEach(async () => {
     await applyRuntimeNodesMigration(ctx.querier);
-    await seedSessionAndParticipant(ctx.querier);
+    await seedSessionAndUser(ctx.querier);
   });
 
   it("rejects two ACTIVE rows for the same node across different sessions (partial-active fires)", async () => {
@@ -480,18 +480,18 @@ describe("0003-runtime-nodes migration (P7 — partial-active UNIQUE enforces si
     await expect(
       ctx.querier.query(
         `INSERT INTO runtime_node_attachments
-           (session_id, participant_id, node_id, client_version)
+           (session_id, user_id, node_id, client_version)
          VALUES ($1, $2, $3, $4)`,
-        [SESSION_ID, PARTICIPANT_ID, "node-p7-active", "1.0"],
+        [SESSION_ID, USER_ID, "node-p7-active", "1.0"],
       ),
     ).resolves.toBeDefined();
 
     await expect(
       ctx.querier.query(
         `INSERT INTO runtime_node_attachments
-           (session_id, participant_id, node_id, client_version)
+           (session_id, user_id, node_id, client_version)
          VALUES ($1, $2, $3, $4)`,
-        [SESSION_ID_2, PARTICIPANT_ID, "node-p7-active", "1.0"],
+        [SESSION_ID_2, USER_ID, "node-p7-active", "1.0"],
       ),
     ).rejects.toThrow(/unique|duplicate key|23505/i);
   });
@@ -507,18 +507,18 @@ describe("0003-runtime-nodes migration (P7 — partial-active UNIQUE enforces si
     await expect(
       ctx.querier.query(
         `INSERT INTO runtime_node_attachments
-           (session_id, participant_id, node_id, client_version, state)
+           (session_id, user_id, node_id, client_version, state)
          VALUES ($1, $2, $3, $4, 'offline')`,
-        [SESSION_ID, PARTICIPANT_ID, "node-p7-mixed", "1.0"],
+        [SESSION_ID, USER_ID, "node-p7-mixed", "1.0"],
       ),
     ).resolves.toBeDefined();
 
     await expect(
       ctx.querier.query(
         `INSERT INTO runtime_node_attachments
-           (session_id, participant_id, node_id, client_version, state)
+           (session_id, user_id, node_id, client_version, state)
          VALUES ($1, $2, $3, $4, 'online')`,
-        [SESSION_ID_2, PARTICIPANT_ID, "node-p7-mixed", "1.0"],
+        [SESSION_ID_2, USER_ID, "node-p7-mixed", "1.0"],
       ),
     ).resolves.toBeDefined();
   });
@@ -553,7 +553,7 @@ describe("0003-runtime-nodes migration (P8 — runtime_node_presence PK on node_
 });
 
 // ----------------------------------------------------------------------------
-// P9 — FK constraints on session_id + participant_id are enforced
+// P9 — FK constraints on session_id + user_id are enforced
 // ----------------------------------------------------------------------------
 
 describe("0003-runtime-nodes migration (P9 — FK constraints enforced)", () => {
@@ -562,30 +562,30 @@ describe("0003-runtime-nodes migration (P9 — FK constraints enforced)", () => 
   });
 
   it("rejects an INSERT whose session_id has no matching sessions(id) row (FK violation)", async () => {
-    // Seed participant but NOT session so the failure mode is unambiguously the
+    // Seed user but NOT session so the failure mode is unambiguously the
     // session_id FK. Postgres FK violations surface with SQLSTATE `23503`;
     // assert on substring or code for portability across PGlite/pg driver
     // error shapes.
-    await seedSessionAndParticipant(ctx.querier, { withSession: false, withParticipant: true });
+    await seedSessionAndUser(ctx.querier, { withSession: false, withUser: true });
     await expect(
       ctx.querier.query(
         `INSERT INTO runtime_node_attachments
-           (session_id, participant_id, node_id, client_version)
+           (session_id, user_id, node_id, client_version)
          VALUES ($1, $2, $3, $4)`,
-        [SESSION_ID, PARTICIPANT_ID, "node-p9-no-session", "1.0"],
+        [SESSION_ID, USER_ID, "node-p9-no-session", "1.0"],
       ),
     ).rejects.toThrow(/foreign key|23503/i);
   });
 
-  it("rejects an INSERT whose participant_id has no matching participants(id) row (FK violation)", async () => {
+  it("rejects an INSERT whose user_id has no matching users(id) row (FK violation)", async () => {
     // Mirror of the previous test, swapping which FK side is missing.
-    await seedSessionAndParticipant(ctx.querier, { withSession: true, withParticipant: false });
+    await seedSessionAndUser(ctx.querier, { withSession: true, withUser: false });
     await expect(
       ctx.querier.query(
         `INSERT INTO runtime_node_attachments
-           (session_id, participant_id, node_id, client_version)
+           (session_id, user_id, node_id, client_version)
          VALUES ($1, $2, $3, $4)`,
-        [SESSION_ID, PARTICIPANT_ID, "node-p9-no-participant", "1.0"],
+        [SESSION_ID, USER_ID, "node-p9-no-user", "1.0"],
       ),
     ).rejects.toThrow(/foreign key|23503/i);
   });

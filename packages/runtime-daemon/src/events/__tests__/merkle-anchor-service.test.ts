@@ -123,7 +123,7 @@ function seedEvents(count: number, sessionId: SessionId = SESSION): void {
     `INSERT INTO session_events
        (id, session_id, sequence, occurred_at, monotonic_ns, category, type, actor, payload,
         pii_payload, correlation_id, causation_id, version, prev_hash, row_hash,
-        daemon_signature, pii_participant_id)
+        daemon_signature, pii_user_id)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   const insertMany = database.transaction((total: number) => {

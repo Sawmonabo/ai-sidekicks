@@ -1749,7 +1749,7 @@ describe("composeResumeSessionParams (R4)", () => {
   });
 
   it("stores the REQUESTED level and never a provider observation", () => {
-    // `cooldown` is a state the Claude surface REPORTS and that no participant
+    // `cooldown` is a state the Claude surface REPORTS and that no user
     // may request — it is a rate-limit condition, not a setting. It reaches the
     // daemon on the binding-held `ProviderOutputSpeedState`, which is discarded
     // with the session. If it could ever reach this column, a restart would

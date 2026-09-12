@@ -12,9 +12,9 @@
  * One finished run, on one line, with the disclosure that opens it.
  *
  * The 2 px inline-start edge is the same attribution edge a ledger row wears, set
- * from the participant wheel by the component so a chapter and the rows inside it
+ * from the user wheel by the component so a chapter and the rows inside it
  * are coloured by one allocation. The fallback is the neutral border, which is what
- * an unattributed chapter takes — never a participant hue nobody was allocated.
+ * an unattributed chapter takes — never a user hue nobody was allocated.
  */
 
 .meridian-chapter-header {

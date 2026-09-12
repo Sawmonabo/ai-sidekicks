@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { REPOS_VIEWING_PARTICIPANT_ID } from "../../bridge/scenario/repos/repos.js";
+import { REPOS_VIEWING_USER_ID } from "../../bridge/scenario/repos/repos.js";
 import { GROWTH_ARTIFACT_TYPES } from "../../bridge/index.js";
 import { artifactRow, artifactSummary } from "./artifacts.test-support.js";
 import * as artifactModel from "./artifact-model.js";
@@ -138,8 +138,8 @@ describe("artifact-copy — absences that are facts", () => {
   });
 
   it("negative control: a present producer is rendered and not replaced", () => {
-    expect(artifactProducerLabel(artifactRow({ createdBy: REPOS_VIEWING_PARTICIPANT_ID }))).toBe(
-      REPOS_VIEWING_PARTICIPANT_ID,
+    expect(artifactProducerLabel(artifactRow({ createdBy: REPOS_VIEWING_USER_ID }))).toBe(
+      REPOS_VIEWING_USER_ID,
     );
   });
 
@@ -163,7 +163,7 @@ describe("artifact-copy — absences that are facts", () => {
 });
 
 describe("artifact-copy — the degraded sentences say what the design says", () => {
-  it("blames the publisher being offline, not a cap the participant cannot see", () => {
+  it("blames the publisher being offline, not a cap the user cannot see", () => {
     expect(ARTIFACT_REPLICATION_PRESENTATION.over_cap.meaning).toBe(
       "Unavailable while the publisher is offline.",
     );
@@ -295,7 +295,7 @@ describe("artifact manifest row — free-form maps a daemon can send and JSON ca
   it("draws a row with no provenance when the member itself is not there", () => {
     // `Object.entries` THROWS on `null` and on `undefined`, and the member is typed
     // present rather than proven present — so a summary that arrived without it took
-    // the whole list read down through `.map`, and the participant lost every OTHER
+    // the whole list read down through `.map`, and the user lost every OTHER
     // row to one row's missing provenance. A row with nothing to show shows nothing.
     expect(rowWithMetadata(null).metadata).toStrictEqual({});
     expect(rowWithMetadata(undefined).metadata).toStrictEqual({});

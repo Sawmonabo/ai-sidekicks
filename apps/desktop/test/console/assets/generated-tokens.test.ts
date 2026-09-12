@@ -27,11 +27,11 @@ import { BOUNDED_ENUMERATION_MAX_ROWS } from "../../../src/renderer/src/console/
 import { ENUMERATION_ROW_HEIGHT_REM } from "../../../src/renderer/src/console/tokens/palette.js";
 import {
   BOUNDED_ENUMERATION_HEIGHT_REM,
-  PARTICIPANT_HUES,
+  ACTOR_HUES,
   SCHEME_COLOR_TOKENS,
   formatOklch,
   generateMeridianCss,
-  participantHueTokenName,
+  actorHueTokenName,
   tokenVariableName,
 } from "../../../src/renderer/src/console/tokens/index.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
@@ -127,8 +127,8 @@ describe("assets — the generated token sheet", () => {
         ).toBe(true);
       }
     }
-    PARTICIPANT_HUES.forEach((hue, step) => {
-      const variableName = tokenVariableName(participantHueTokenName(step));
+    ACTOR_HUES.forEach((hue, step) => {
+      const variableName = tokenVariableName(actorHueTokenName(step));
       expect(css).toContain(`${variableName}: ${formatOklch(hue)};`);
     });
   });
@@ -220,7 +220,7 @@ describe("assets — the generated token sheet", () => {
   it("declares no font feature anywhere in the sheet", () => {
     // `font-feature-settings` INHERITS, so a declaration on `body` reaches every
     // descendant — which put the slashed zero rule 4 reserves as the mark of a wire
-    // figure onto every participant name, repo path, and branch name in the console.
+    // figure onto every user name, repo path, and branch name in the console.
     // The features ride the mono `@font-face` descriptors in
     // `frame/bindings/typeface.ts` instead, where they are scoped to the face by
     // construction rather than by a selector this sheet could never narrow again:

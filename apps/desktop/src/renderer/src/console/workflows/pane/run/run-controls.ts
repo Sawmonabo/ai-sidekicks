@@ -183,7 +183,7 @@ export function cancelReasonBudget(reason: string): CancelReasonBudget {
 /**
  * The refusal a reason past the bound earns.
  *
- * Names the bound and never the value: the reason is participant content, and
+ * Names the bound and never the value: the reason is user content, and
  * `core/refusal.ts` fixes `detail` as one actionable sentence that is never the
  * refused value itself.
  */

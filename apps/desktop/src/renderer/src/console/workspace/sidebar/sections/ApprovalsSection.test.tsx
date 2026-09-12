@@ -57,7 +57,7 @@ function renderSection(options: {
 }): RenderedSection {
   const store = new SessionStore({ sessionId: SESSION_ID });
   if (options.approvals !== undefined) {
-    store.initialise({ cursor: 0, entities: options.approvals, participantJoinLog: [] });
+    store.initialise({ cursor: 0, entities: options.approvals, userJoinLog: [] });
   }
   if (options.degraded === true) {
     store.markDegraded("read-failed");

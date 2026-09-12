@@ -47,7 +47,7 @@
 //      context (`browser/pane/chrome/chrome.css`, the `--unnamed` rule, which
 //      inherits mono from `.meridian-browser-tabs__context` above it). Everything
 //      else is SANS: all three diff italics set the sans family explicitly and say
-//      so, and the markdown, cast-bar, pane-chrome, and remaining chrome rules
+//      so, and the markdown, session-header, pane-chrome, and remaining chrome rules
 //      resolve to the body's sans stack. A family that declared only its upright
 //      face would not lose those runs: the browser would SLANT the outlines and paint a
 //      faux italic, a shear of the wrong drawing rather than the italic the
@@ -90,7 +90,7 @@
 //      property of IBM Plex Mono and reaches nothing a mono rule does not select.
 //      It was declared on `body` first, and that could not hold the scoping:
 //      `font-feature-settings` INHERITS, so one root declaration put a slashed zero
-//      on every participant name, repo path, and branch name in the console —
+//      on every user name, repo path, and branch name in the console —
 //      spending the design's own mark for a wire figure on prose — and CSS Fonts 4
 //      gives the property precedence over the features `font-variant-*` computes,
 //      so once it was on the root no descendant could narrow the feature again. As

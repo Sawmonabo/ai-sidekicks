@@ -9,7 +9,7 @@
 // explicit annotations and the linter's `input: unknown` auto-fix erases
 // per-procedure input typing.
 
-import type { ParticipantId, SessionId } from "@ai-sidekicks/contracts";
+import type { UserId, SessionId } from "@ai-sidekicks/contracts";
 import type { SessionDirectoryService } from "./session-directory-service.js";
 import type { SessionEventStreamProvider } from "./session-subscribe-sse.js";
 import type { SessionRouterContext } from "./trpc.js";
@@ -23,10 +23,10 @@ import type { SessionRouterContext } from "./trpc.js";
 export interface SessionRouterDeps {
   readonly directoryService: SessionDirectoryService;
   /**
-   * Stub principal resolver — returns the participantId to attribute an action
+   * Stub principal resolver — returns the userId to attribute an action
    * to. Production wiring resolves this from the authenticated caller.
    */
-  readonly resolveCurrentParticipantId: (ctx: SessionRouterContext) => ParticipantId;
+  readonly resolveCurrentUserId: (ctx: SessionRouterContext) => UserId;
   /**
    * Stub session-id generator. Production wiring canonicalizes to UUID v7.
    */

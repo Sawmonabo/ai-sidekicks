@@ -315,7 +315,7 @@ describe("the expansion draws the child run's own work", () => {
 // The entries a child run's expansion returns are the child's rows, and the outer
 // ledger's terminal map holds only the parent window's. Rendered under that map a
 // child's request found no terminal, kept offering its answer controls, and let a
-// participant re-answer an ask the log had already settled — so the page provides its
+// user re-answer an ask the log had already settled — so the page provides its
 // own fold, over its own entries.
 //
 // The probe is a seat filler and not a stand-in: it reads the REAL reader and the REAL

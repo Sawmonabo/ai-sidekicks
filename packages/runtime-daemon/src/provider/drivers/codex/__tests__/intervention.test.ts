@@ -155,10 +155,10 @@ describe("CodexInterventionDispatcher native routing", () => {
       content: "focus on the failing test",
       expectedTurnId: "turn-01",
       clientIdempotencyKey: "idem-1",
-      // A steer directive is participant text, declared rather than defaulted:
+      // A steer directive is user text, declared rather than defaulted:
       // the absent-origin default neutralizes identically but would report
       // `origin=unknown` on a trip, which is a worse answer than the true one.
-      frameOrigin: "participant_text",
+      frameOrigin: "human_text",
     });
     expect(result).toEqual({ status: "applied" });
   });
@@ -189,7 +189,7 @@ describe("CodexInterventionDispatcher native routing", () => {
       content: "stop guessing",
       expectedTurnId: undefined,
       clientIdempotencyKey: "idem-1",
-      frameOrigin: "participant_text",
+      frameOrigin: "human_text",
     });
   });
 
@@ -384,7 +384,7 @@ describe("CodexInterventionDispatcher ambiguous steer acknowledgement (P3-1)", (
     const result = await harness.dispatcher.applyIntervention(steerParams());
 
     // The provider accepted SOMETHING; that is not evidence it accepted this. A
-    // silent `applied` here would report a participant's directive as delivered
+    // silent `applied` here would report a user's directive as delivered
     // to a turn that never saw it.
     expect(result).toEqual({
       status: "degraded",

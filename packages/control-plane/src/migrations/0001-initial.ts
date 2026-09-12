@@ -25,9 +25,9 @@
 // Two control-plane tables plus the schema-version anchor consumed by the
 // migration runner:
 //
-//   * participants   — minimal identity anchor (id, created_at). Created
+//   * users   — minimal identity anchor (id, created_at). Created
 //                      FIRST so `sessions.owner_user_id` can declare its FK
-//                      REFERENCES participants(id) at CREATE-time. Later
+//                      REFERENCES users(id) at CREATE-time. Later
 //                      migrations add the profile columns.
 //   * sessions       — session metadata, including the owning user and the
 //                      forward-declared `min_client_version` floor. The
@@ -39,7 +39,7 @@
 // land with the flow that needs them):
 //   * sessions.min_client_version — the attach flow owns the floor check and
 //     the below-floor rejection. This migration writes NULL by default.
-//   * participants identity columns (display_name, identity_ref, metadata)
+//   * users identity columns (display_name, identity_ref, metadata)
 //     and the identity_mappings side table — added later via additive
 //     ALTERs; the anchor row shape (id, created_at) is what ships now so FK
 //     constraints resolve at CREATE-time.
@@ -78,15 +78,15 @@ export const INITIAL_MIGRATION_SQL: string = `
 -- Extended later by the identity/profile columns via additive ALTER TABLE.
 --
 -- Created BEFORE sessions so the FK constraint in
--- sessions.owner_user_id REFERENCES participants(id) resolves at CREATE-time.
-CREATE TABLE participants (
+-- sessions.owner_user_id REFERENCES users(id) resolves at CREATE-time.
+CREATE TABLE users (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE sessions (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  owner_user_id   UUID NOT NULL REFERENCES participants(id),
+  owner_user_id   UUID NOT NULL REFERENCES users(id),
                                                  -- The single user who owns this session. No DEFAULT:
                                                  -- an insert that omits the owner fails closed at the
                                                  -- database rather than materializing an ownerless
@@ -107,7 +107,7 @@ CREATE TABLE sessions (
 CREATE INDEX idx_sessions_state ON sessions(state);
 
 -- An unindexed FK column forces a sequential scan of sessions on every
--- parent-row mutation in participants, which the erasure flow performs.
+-- parent-row mutation in users, which the erasure flow performs.
 CREATE INDEX idx_sessions_owner_user ON sessions(owner_user_id);
 
 -- Schema-version anchor consumed by migration-runner.ts.

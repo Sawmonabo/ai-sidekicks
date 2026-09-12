@@ -159,7 +159,7 @@ export type ProposalGateSubject =
  * DIFFERENT kind of root: `worktree` a dedicated checkout with a record of its own,
  * `branch` the mount's own checkout with no record at all, and `ephemeral clone` a
  * clone row anchored to a workspace. A gate built only from worktree records therefore
- * reached one of the three, and participants in the other two had no way to read a
+ * reached one of the three, and users in the other two had no way to read a
  * branch context, prepare a proposal, or ask for a reviewed act.
  *
  * TYPED FROM THE UNION'S OWN DISCRIMINANT rather than declared a second time: the

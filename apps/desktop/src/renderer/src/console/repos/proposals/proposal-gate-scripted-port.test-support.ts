@@ -29,7 +29,7 @@ import {
   GIT_MOUNT_ID,
   GIT_WORKSPACE_ID,
   IMPLEMENTER_WORKTREE_ID,
-  PARTICIPANT_YOU,
+  USER_YOU,
 } from "../../bridge/scenario/repos/repos-fixture-data.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
@@ -129,9 +129,9 @@ export const ACCEPTED_ACTION: GrowthPortAnswer<"gitActionExecute"> = {
 };
 
 /** The identity the caller read answers with, so an act carries the fixture's causation. */
-export const SERVED_CALLER_PARTICIPANT: GrowthPortAnswer<"callerParticipantRead"> = {
+export const SERVED_CALLER_USER: GrowthPortAnswer<"callerUserRead"> = {
   status: "served",
-  value: { participantId: PARTICIPANT_YOU },
+  value: { userId: USER_YOU },
 };
 
 /** What each of the four growth operations answers, for one case. */
@@ -148,7 +148,7 @@ export interface PortScript {
    * went missing for a reason the case never stated. A case that wants the unread arm
    * scripts a refusal here deliberately.
    */
-  readonly callerParticipant?: unknown;
+  readonly callerUser?: unknown;
 }
 
 /** A bridge that keeps every git-action request it was sent, in the order they went. */
@@ -269,7 +269,7 @@ export function bridgeWithMovingAnswers(prepare: unknown = SERVED_PREPARATION): 
       branchContext: () => branchContext,
       prepare: () => prepare,
       gitAction: () => gitAction,
-      callerParticipant: () => SERVED_CALLER_PARTICIPANT,
+      callerUser: () => SERVED_CALLER_USER,
     }),
     serveContext: (answer: unknown) => {
       branchContext = answer;
@@ -283,7 +283,7 @@ export function bridgeWithMovingAnswers(prepare: unknown = SERVED_PREPARATION): 
 /** A store with a base state, which is what makes a later frame a frame and not history. */
 export function initialisedStore(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: REPOS_SCENARIO.sessionId });
-  sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+  sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
   return sessionStore;
 }
 
@@ -349,7 +349,7 @@ interface PortSuppliers {
   readonly branchContext: () => unknown;
   readonly prepare: () => unknown;
   readonly gitAction: (request: unknown) => unknown;
-  readonly callerParticipant: () => unknown;
+  readonly callerUser: () => unknown;
 }
 
 /**
@@ -376,7 +376,7 @@ function gateBridge(suppliers: PortSuppliers): ConsoleBridge {
     gitflowBranchContextRead: async () => scriptedAnswer(suppliers.branchContext()),
     gitflowPrPrepare: async () => scriptedAnswer(suppliers.prepare()),
     gitActionExecute: async (request: unknown) => scriptedAnswer(suppliers.gitAction(request)),
-    callerParticipantRead: async () => scriptedAnswer(suppliers.callerParticipant()),
+    callerUserRead: async () => scriptedAnswer(suppliers.callerUser()),
   } as Partial<GrowthPort>;
   return fixtureBridgeWithGrowth(REPOS_SCENARIO, scriptedPort);
 }
@@ -394,6 +394,6 @@ function suppliersFor(script: PortScript): PortSuppliers {
     branchContext: () => script.branchContext,
     prepare: () => script.prepare ?? growthUnavailable("gitflowPrPrepare"),
     gitAction: () => script.gitAction ?? growthUnavailable("gitActionExecute"),
-    callerParticipant: () => script.callerParticipant ?? SERVED_CALLER_PARTICIPANT,
+    callerUser: () => script.callerUser ?? SERVED_CALLER_USER,
   };
 }

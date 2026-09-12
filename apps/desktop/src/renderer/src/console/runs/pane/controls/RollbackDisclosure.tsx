@@ -6,7 +6,7 @@
 // the settlement is a
 // sentence and a disposition chip, the daemon's positions sit beside it as wire
 // figures, and each enumeration is a `<details>` whose summary carries its own
-// count — including when that count is zero, which is a fact the participant needs
+// count — including when that count is zero, which is a fact the user needs
 // rather than a row to omit.
 //
 // THE FILE HALF IS DELEGATED AND NOT RE-DRAWN. This component owns what the rewind

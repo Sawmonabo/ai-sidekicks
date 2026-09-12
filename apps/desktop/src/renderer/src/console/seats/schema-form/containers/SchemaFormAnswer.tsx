@@ -25,7 +25,7 @@
 // WHAT IT DOES NOT DECIDE. Whether the answer may be sent. The schema's verdict is
 // rendered — every issue, on every control, on every keystroke — and the control is
 // still offered, because requiredness is the schema's reading of the answer and
-// admissibility is the daemon's reading of the participant, the phase and the
+// admissibility is the daemon's reading of the user, the phase and the
 // revision. A submit disabled on a validation report would be this form refusing on
 // behalf of an authority it cannot see the inputs to, and an operator with no way to
 // find out what the daemon would actually have said.

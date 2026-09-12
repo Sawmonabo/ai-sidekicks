@@ -49,12 +49,12 @@ export function ControlHolderBlock(props: {
     >
       <h3 className="meridian-settings-page__block-title">Terminal control</h3>
       <p className="meridian-settings-page__aside">
-        One participant at a time may write into the session&rsquo;s shared shell. Who that is reads
-        the same as it does for every other member — the lease is the daemon&rsquo;s to grant and
-        this page only reports it.
+        One user at a time may write into the session&rsquo;s shared shell. Who that is reads the
+        same as it does for every other member — the lease is the daemon&rsquo;s to grant and this
+        page only reports it.
       </p>
       {reading.kind === "held" && sessionStore !== undefined ? (
-        <HeldControlHolderLine participantId={reading.participantId} sessionStore={sessionStore} />
+        <HeldControlHolderLine userId={reading.userId} sessionStore={sessionStore} />
       ) : (
         <ControlHolderLine reading={reading} hueAssignment={undefined} />
       )}

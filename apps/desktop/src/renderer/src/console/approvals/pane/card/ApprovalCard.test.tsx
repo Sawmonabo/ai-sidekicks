@@ -205,12 +205,12 @@ describe("the resolved quad", () => {
         state: "approved",
         resolvedAt: "2026-01-01T13:30:00.420Z",
         decision: "approved",
-        approverId: "participant-you",
+        approverId: "user-you",
         effectiveScope: "run",
       }),
     );
     expect(screen.getByText("2026-01-01T13:30:00.420Z")).not.toBeNull();
-    expect(screen.getByText("participant-you")).not.toBeNull();
+    expect(screen.getByText("user-you")).not.toBeNull();
   });
 
   it("says the record is incomplete rather than rendering it as whole", () => {
@@ -310,7 +310,7 @@ describe("a remembered scope on a resolved record", () => {
         state: "approved",
         resolvedAt: "2026-01-01T13:30:00.420Z",
         decision: "approved",
-        approverId: "participant-you",
+        approverId: "user-you",
         effectiveScope: "session",
         rememberedScope: { kind: "run", pattern: "packages/contracts/**" },
       }),
@@ -325,7 +325,7 @@ describe("a remembered scope on a resolved record", () => {
         state: "approved",
         resolvedAt: "2026-01-01T13:30:00.420Z",
         decision: "approved",
-        approverId: "participant-you",
+        approverId: "user-you",
         effectiveScope: "session",
         rememberedScope: { kind: "session" },
       }),

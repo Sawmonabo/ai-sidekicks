@@ -987,14 +987,7 @@ describe("ReasoningSurfaceReadResponse availability", () => {
     // read to someone, which is exactly the second source of identity truth
     // the authenticated-principal model forbids. Every plausible spelling is
     // covered, because the failure mode is a producer guessing a name.
-    for (const member of [
-      "principalId",
-      "principal",
-      "actor",
-      "participantId",
-      "sub",
-      "callerId",
-    ]) {
+    for (const member of ["principalId", "principal", "actor", "userId", "sub", "callerId"]) {
       expect(
         ReasoningSurfaceReadRequestSchema.safeParse({ runId: RUN_ID, [member]: "p-1" }).success,
       ).toBe(false);

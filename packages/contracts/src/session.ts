@@ -9,7 +9,7 @@
 // accept both, so we deliberately do NOT pin to `z.uuidv7()`.
 //
 // Branded types (`SessionId`, `ChannelId`, …) provide compile-time nominal
-// typing — they prevent accidentally passing a `ParticipantId` where a
+// typing — they prevent accidentally passing a `UserId` where a
 // `SessionId` was expected, even though both are strings at runtime.
 import { z } from "zod";
 
@@ -44,9 +44,8 @@ export type SessionId = string & { readonly __brand: "SessionId" };
 export const SessionIdSchema: z.ZodType<SessionId, SessionId> =
   brandedUuidIdSchema<SessionId>("SessionId");
 
-export type ParticipantId = string & { readonly __brand: "ParticipantId" };
-export const ParticipantIdSchema: z.ZodType<ParticipantId, ParticipantId> =
-  brandedUuidIdSchema<ParticipantId>("ParticipantId");
+export type UserId = string & { readonly __brand: "UserId" };
+export const UserIdSchema: z.ZodType<UserId, UserId> = brandedUuidIdSchema<UserId>("UserId");
 
 export type ChannelId = string & { readonly __brand: "ChannelId" };
 export const ChannelIdSchema: z.ZodType<ChannelId, ChannelId> =

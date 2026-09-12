@@ -165,7 +165,7 @@ export type RenderedFrameOrigin = OutboundFrameOrigin;
  * One provider-neutral outbound frame. Drivers map these into their own target
  * shapes; the pipeline owns ordering, identity, and loss, not wire encoding.
  *
- * `origin` is present for a replayed PARTICIPANT turn, which the spec classifies
+ * `origin` is present for a replayed USER turn, which the spec classifies
  * explicitly. It is deliberately ABSENT for prior assistant and tool turns: the
  * discriminator classifies turns on the provider's text-input channel, seeded
  * history is not one, and the discriminator's own fail-closed arm already rules
@@ -329,7 +329,7 @@ export const stripNonPortableContent: TranscriptPipelineStep = (state) => {
   //
   // The turn is the right occurrence boundary because it is where enclosure is
   // real: the fold coalesces consecutive assistant rows into one turn and closes
-  // that turn at a turn marker or a participant message, either of which means
+  // that turn at a turn marker or a user message, either of which means
   // the provider exchange ended. A block cited across that boundary was not
   // carrying the result. Such a result therefore survives as provider output,
   // while the private block itself is stripped regardless of turn — reasoning
@@ -681,8 +681,8 @@ export const renderTargetFrames: TranscriptPipelineStep = (state) => {
       }
       return segment;
     });
-    return turn.role === "participant"
-      ? { position: turn.position, role: turn.role, origin: "participant_text", segments }
+    return turn.role === "user"
+      ? { position: turn.position, role: turn.role, origin: "human_text", segments }
       : { position: turn.position, role: turn.role, segments };
   });
 

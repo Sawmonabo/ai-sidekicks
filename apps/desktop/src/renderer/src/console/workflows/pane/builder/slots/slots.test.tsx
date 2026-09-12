@@ -118,7 +118,7 @@ describe("a filled builder slot receives exactly what the mount promised", () =>
     const body = vi.fn((_mount: DraftsMount) => <p>inspector body</p>);
     render(<DraftsSlot workflowDefinitionId={DEFINITION_ID} draftStore={draftStore} body={body} />);
     // The durable store is absent by design and not by omission: a draft that
-    // survived a restart would be participant prose in a durable home.
+    // survived a restart would be user prose in a durable home.
     expect(body.mock.calls[0]?.[0]?.draftStore).toBe(draftStore);
     expect(body.mock.calls[0]?.[0]).toStrictEqual({
       workflowDefinitionId: DEFINITION_ID,

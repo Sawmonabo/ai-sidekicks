@@ -317,7 +317,7 @@ const GOLDEN_ENVELOPE: EventEnvelope = {
   occurredAt: "2026-03-04T05:06:07.008Z",
   category: "audit_integrity",
   type: "audit.chain_verified",
-  actor: "participant-7f3a",
+  actor: "user-7f3a",
   payload: {
     zebra: "sorts-last",
     alpha: "sorts-first",
@@ -338,7 +338,7 @@ const GOLDEN_ENVELOPE: EventEnvelope = {
 // refactors and dependency bumps — the property that keeps every `row_hash`
 // already on disk verifiable.
 const GOLDEN_ENVELOPE_CANONICAL_TEXT =
-  '{"actor":"participant-7f3a","category":"audit_integrity","causationId":"causation-4b1d",' +
+  '{"actor":"user-7f3a","category":"audit_integrity","causationId":"causation-4b1d",' +
   '"correlationId":"correlation-9c2e","id":"01960b3c-e1d0-7a41-b2c9-5f8e37d6a204",' +
   '"occurredAt":"2026-03-04T05:06:07.008Z","payload":{"alpha":"sorts-first",' +
   '"nested":{"B":"upper-b","a":"lower-a","é":"e-acute"},"ratio":333333333.3333332,' +
@@ -347,30 +347,29 @@ const GOLDEN_ENVELOPE_CANONICAL_TEXT =
   '"version":"1.0"}';
 
 const GOLDEN_ENVELOPE_CANONICAL_BYTES = `
-  7b 22 61 63 74 6f 72 22 3a 22 70 61 72 74 69 63 69 70 61 6e
-  74 2d 37 66 33 61 22 2c 22 63 61 74 65 67 6f 72 79 22 3a 22
-  61 75 64 69 74 5f 69 6e 74 65 67 72 69 74 79 22 2c 22 63 61
-  75 73 61 74 69 6f 6e 49 64 22 3a 22 63 61 75 73 61 74 69 6f
-  6e 2d 34 62 31 64 22 2c 22 63 6f 72 72 65 6c 61 74 69 6f 6e
-  49 64 22 3a 22 63 6f 72 72 65 6c 61 74 69 6f 6e 2d 39 63 32
-  65 22 2c 22 69 64 22 3a 22 30 31 39 36 30 62 33 63 2d 65 31
-  64 30 2d 37 61 34 31 2d 62 32 63 39 2d 35 66 38 65 33 37 64
-  36 61 32 30 34 22 2c 22 6f 63 63 75 72 72 65 64 41 74 22 3a
-  22 32 30 32 36 2d 30 33 2d 30 34 54 30 35 3a 30 36 3a 30 37
-  2e 30 30 38 5a 22 2c 22 70 61 79 6c 6f 61 64 22 3a 7b 22 61
-  6c 70 68 61 22 3a 22 73 6f 72 74 73 2d 66 69 72 73 74 22 2c
-  22 6e 65 73 74 65 64 22 3a 7b 22 42 22 3a 22 75 70 70 65 72
-  2d 62 22 2c 22 61 22 3a 22 6c 6f 77 65 72 2d 61 22 2c 22 c3
-  a9 22 3a 22 65 2d 61 63 75 74 65 22 7d 2c 22 72 61 74 69 6f
-  22 3a 33 33 33 33 33 33 33 33 33 2e 33 33 33 33 33 33 32 2c
-  22 7a 65 62 72 61 22 3a 22 73 6f 72 74 73 2d 6c 61 73 74 22
-  7d 2c 22 73 65 71 75 65 6e 63 65 22 3a 39 30 30 37 31 39 39
-  32 35 34 37 34 30 39 39 31 2c 22 73 65 73 73 69 6f 6e 49 64
-  22 3a 22 30 31 39 32 66 33 61 34 2d 35 62 36 63 2d 37 64 38
-  65 2d 39 66 30 31 2d 32 33 34 35 36 37 38 39 30 61 62 63 22
-  2c 22 74 79 70 65 22 3a 22 61 75 64 69 74 2e 63 68 61 69 6e
-  5f 76 65 72 69 66 69 65 64 22 2c 22 76 65 72 73 69 6f 6e 22
-  3a 22 31 2e 30 22 7d
+  7b 22 61 63 74 6f 72 22 3a 22 75 73 65 72 2d 37 66 33 61 22
+  2c 22 63 61 74 65 67 6f 72 79 22 3a 22 61 75 64 69 74 5f 69
+  6e 74 65 67 72 69 74 79 22 2c 22 63 61 75 73 61 74 69 6f 6e
+  49 64 22 3a 22 63 61 75 73 61 74 69 6f 6e 2d 34 62 31 64 22
+  2c 22 63 6f 72 72 65 6c 61 74 69 6f 6e 49 64 22 3a 22 63 6f
+  72 72 65 6c 61 74 69 6f 6e 2d 39 63 32 65 22 2c 22 69 64 22
+  3a 22 30 31 39 36 30 62 33 63 2d 65 31 64 30 2d 37 61 34 31
+  2d 62 32 63 39 2d 35 66 38 65 33 37 64 36 61 32 30 34 22 2c
+  22 6f 63 63 75 72 72 65 64 41 74 22 3a 22 32 30 32 36 2d 30
+  33 2d 30 34 54 30 35 3a 30 36 3a 30 37 2e 30 30 38 5a 22 2c
+  22 70 61 79 6c 6f 61 64 22 3a 7b 22 61 6c 70 68 61 22 3a 22
+  73 6f 72 74 73 2d 66 69 72 73 74 22 2c 22 6e 65 73 74 65 64
+  22 3a 7b 22 42 22 3a 22 75 70 70 65 72 2d 62 22 2c 22 61 22
+  3a 22 6c 6f 77 65 72 2d 61 22 2c 22 c3 a9 22 3a 22 65 2d 61
+  63 75 74 65 22 7d 2c 22 72 61 74 69 6f 22 3a 33 33 33 33 33
+  33 33 33 33 2e 33 33 33 33 33 33 32 2c 22 7a 65 62 72 61 22
+  3a 22 73 6f 72 74 73 2d 6c 61 73 74 22 7d 2c 22 73 65 71 75
+  65 6e 63 65 22 3a 39 30 30 37 31 39 39 32 35 34 37 34 30 39
+  39 31 2c 22 73 65 73 73 69 6f 6e 49 64 22 3a 22 30 31 39 32
+  66 33 61 34 2d 35 62 36 63 2d 37 64 38 65 2d 39 66 30 31 2d
+  32 33 34 35 36 37 38 39 30 61 62 63 22 2c 22 74 79 70 65 22
+  3a 22 61 75 64 69 74 2e 63 68 61 69 6e 5f 76 65 72 69 66 69
+  65 64 22 2c 22 76 65 72 73 69 6f 6e 22 3a 22 31 2e 30 22 7d
 `;
 
 describe("canonicalizeEvent — the canonical eleven-member envelope", () => {
@@ -804,7 +803,7 @@ describe("canonicalizeEvent — inherits the well-formedness refusal, no second 
   // can carry an ill-formed string in: a canonical member, and the open payload.
   it("refuses a lone surrogate in a canonical member (actor)", () => {
     const message = captureThrownMessage(() =>
-      canonicalizeEvent({ ...GOLDEN_ENVELOPE, actor: `participant-${LONE_HIGH_SURROGATE}` }),
+      canonicalizeEvent({ ...GOLDEN_ENVELOPE, actor: `user-${LONE_HIGH_SURROGATE}` }),
     );
     expect(message).toMatch(LONE_SURROGATE_REFUSAL);
   });

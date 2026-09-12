@@ -39,7 +39,7 @@ function rowAt(sequence: number): TimelineRow {
     sessionId: SESSION_ID as SessionId,
     sequence,
     category: "presence",
-    type: "participant.joined",
+    type: "user.joined",
     summary: `row ${String(sequence)}`,
     timestamp: "2026-01-01T11:00:00.000Z",
     payload: {},
@@ -76,7 +76,7 @@ function pagingScenario(): ConsoleScenario {
     label: "Backward paging",
     purpose: "Serves four windows of one session's log, keyed by the position asked from.",
     sessionId: SESSION_ID,
-    participantIdsInJoinOrder: [],
+    userIdsInJoinOrder: [],
     beats: [],
     replies: [{ call: "timeline.read", resultFor: pageForRequest }],
     startedAtIso: "2026-01-01T10:05:00.000Z",
@@ -104,7 +104,7 @@ function openStore(options: { readonly readFromCursor?: string } = {}): SessionS
   store.initialise({
     cursor: 41,
     entities: [],
-    participantJoinLog: [],
+    userJoinLog: [],
     timeline: [40, 41].map((sequence) => eventOfKind(SESSION_ID, "run.started", sequence)),
     ...(options.readFromCursor === undefined ? {} : { readFromCursor: options.readFromCursor }),
   });
@@ -202,7 +202,7 @@ describe("LedgerEarlierWindowReader — three windows, two presses, and then not
     store.initialise({
       cursor: 45,
       entities: [],
-      participantJoinLog: [],
+      userJoinLog: [],
       timeline: [44, 45].map((sequence) => eventOfKind(SESSION_ID, "run.started", sequence)),
       readFromCursor: WINDOW_HEAD_CURSOR,
     });
@@ -218,7 +218,7 @@ function refreshWindowHigherUp(store: SessionStore): void {
   store.initialise({
     cursor: 61,
     entities: [],
-    participantJoinLog: [],
+    userJoinLog: [],
     timeline: [60, 61].map((sequence) => eventOfKind(SESSION_ID, "run.started", sequence)),
     readFromCursor: LATER_WINDOW_HEAD_CURSOR,
   });

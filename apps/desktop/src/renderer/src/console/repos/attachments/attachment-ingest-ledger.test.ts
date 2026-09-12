@@ -38,7 +38,7 @@ function moveTo(entry: AttachmentIngestEntry, state: AttachmentIngestEntry["stat
 }
 
 describe("ingest ledger — declared order is the record", () => {
-  it("round-trips a participant's reordering, which the reference must preserve", () => {
+  it("round-trips a user's reordering, which the reference must preserve", () => {
     const ledger = ledgerHolding("first", "second");
     ledger.reorder("second", 0);
     expect(declaredOrderOf(ledger)).toStrictEqual(["second", "first"]);

@@ -62,7 +62,7 @@
 //     admission path it represents, and an unstamped insert fails at the
 //     database rather than silently becoming a system-origin row.
 //
-// Neither `queue_items.pii_participant_id` nor `interventions.pii_participant_id`
+// Neither `queue_items.pii_user_id` nor `interventions.pii_user_id`
 // is indexed. That is deliberate and matched between the two tables: Path-1
 // erasure/export selector is a maintenance scan, never a hot path, and an index
 // on a column read once per erasure would cost every write.
@@ -82,26 +82,26 @@ CREATE TABLE queue_items (
                   CHECK(state IN ('queued', 'admitted', 'superseded', 'canceled', 'expired')),
   priority        INTEGER NOT NULL DEFAULT 0, -- higher = more urgent
   payload         TEXT NOT NULL DEFAULT '{}', -- JSON: NON-PII members only -- context, metadata, and the
-                                              -- non-PII identifiers. A participant-authored send's body
+                                              -- non-PII identifiers. A user-authored send's body
                                               -- never rides this column (it encrypts into pii_payload).
                                               -- Orchestration-authored content (a workflow phase input, an
                                               -- orchestrated child-run prompt) is session work product,
-                                              -- not participant PII, and stays here in plaintext with both
-                                              -- PII columns NULL -- the system arm has no participant DEK
+                                              -- not user PII, and stays here in plaintext with both
+                                              -- PII columns NULL -- the system arm has no user DEK
                                               -- to encrypt under. Every drain-selection field is its own
                                               -- column (state, priority, target_run_id, channel_id,
                                               -- session_id), so the split costs no queryability.
-  pii_payload     BLOB,                       -- encrypted per-participant AES-256-GCM via the
-                                              -- PiiEncryptor: the participant-authored send body.
+  pii_payload     BLOB,                       -- encrypted per-user AES-256-GCM via the
+                                              -- PiiEncryptor: the user-authored send body.
                                               -- Same-key parity with session_events.pii_payload and
                                               -- interventions.pii_payload, so one Path-1 key
                                               -- deletion shreds every copy of the same send
                                               -- identically. NULL on rows carrying no
-                                              -- participant-authored body.
-  pii_participant_id TEXT,                    -- PII owner stamp: the authoring participant whose key
+                                              -- user-authored body.
+  pii_user_id TEXT,                    -- PII owner stamp: the authoring user whose key
                                               -- encrypts pii_payload -- the erasure/export selector this
                                               -- table otherwise lacks entirely (no other column names a
-                                              -- participant, so without it the GDPR fan-out cannot address
+                                              -- user, so without it the GDPR fan-out cannot address
                                               -- these rows); NULL on rows carrying no PII leg
   target_run_id   TEXT,                       -- run-bound admission arm: NULL on ordinary follow-up items
                                               -- (admission converts them into a new run); stamped solely
@@ -109,7 +109,7 @@ CREATE TABLE queue_items (
                                               -- item delivers into its bound run as its next provider
                                               -- send on run.resume, never converting into a new run
   admitting_intervention_id TEXT,             -- row-anchored linkage to the interventions row whose
-                                              -- admission created this item: NULL on ordinary participant
+                                              -- admission created this item: NULL on ordinary user
                                               -- sends, stamped beside target_run_id in the composite's
                                               -- single durable transaction
   created_at      TEXT NOT NULL,
@@ -119,7 +119,7 @@ CREATE TABLE queue_items (
 CREATE INDEX idx_queue_items_session_state ON queue_items(session_id, state);
 CREATE INDEX idx_queue_items_target_run ON queue_items(target_run_id) WHERE target_run_id IS NOT NULL;
 CREATE INDEX idx_queue_items_channel ON queue_items(channel_id) WHERE channel_id IS NOT NULL;
--- No index on pii_participant_id, matching the interventions.pii_participant_id sibling: Path-1
+-- No index on pii_user_id, matching the interventions.pii_user_id sibling: Path-1
 -- erasure/export selector is a V1.1 maintenance scan, never a hot path, and both tables carry the
 -- stamp unindexed for the same reason.
 
@@ -135,11 +135,11 @@ CREATE TABLE interventions (
                          CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired')),
   payload                TEXT NOT NULL DEFAULT '{}', -- JSON: type-specific NON-PII fields only -- neither a rollback's replacementSend body nor a steer's directive text rides this column (both encrypt into pii_payload)
   expected_run_version   INTEGER NOT NULL,           -- MANDATORY fail-closed comparand
-  client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (participant client or daemon system-origination); replay-or-conflict intervention dedupe
-  pii_payload            BLOB,                       -- encrypted per-participant AES-256-GCM via the PiiEncryptor: the participant-authored intervention body -- the rollback replacementSend body and the steer directive text; same-key parity with session_events.pii_payload, so Path-1 key deletion shreds every copy identically; NULLed by the daemon retention pass past the 90-day full-retention bound (no digest binding attaches, unlike session_events)
-  pii_participant_id     TEXT,                       -- PII owner stamp: the requesting participant whose key encrypts pii_payload; NULL on rows carrying no PII leg
-  origin                 TEXT NOT NULL               -- daemon-resolved admission-path discriminator: 'participant' for a request admitted over an identity-carrying transport, 'system' for the in-process orchestration entrypoint below the wire authz boundary. NO DEFAULT by design -- a default would fail OPEN for the system path, so every insert site declares
-                         CHECK(origin IN ('participant', 'system')),
+  client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (user client or daemon system-origination); replay-or-conflict intervention dedupe
+  pii_payload            BLOB,                       -- encrypted per-user AES-256-GCM via the PiiEncryptor: the user-authored intervention body -- the rollback replacementSend body and the steer directive text; same-key parity with session_events.pii_payload, so Path-1 key deletion shreds every copy identically; NULLed by the daemon retention pass past the 90-day full-retention bound (no digest binding attaches, unlike session_events)
+  pii_user_id     TEXT,                       -- PII owner stamp: the requesting user whose key encrypts pii_payload; NULL on rows carrying no PII leg
+  origin                 TEXT NOT NULL               -- daemon-resolved admission-path discriminator: 'user' for a request admitted over an identity-carrying transport, 'system' for the in-process orchestration entrypoint below the wire authz boundary. NO DEFAULT by design -- a default would fail OPEN for the system path, so every insert site declares
+                         CHECK(origin IN ('user', 'system')),
   result                 TEXT,                       -- JSON: outcome details
   rejection_reason       TEXT,                       -- machine-readable rejected cause (driver.capability_unsupported foremost) -- replay-durable: the wire contract forbids result on rejected, so an idempotent replay reconstructs rejectionReason from this column
   created_at             TEXT NOT NULL,

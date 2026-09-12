@@ -24,7 +24,7 @@
 //     narrowest one. The row's "MathML output first" is the instruction, and taking
 //     `htmlAndMathml` would double the markup for a visual result MathML already gives.
 //   • **`strict: false`** so a formula with a warning renders rather than refusing; a
-//     participant's mistake in a formula is not the console's error to raise.
+//     user's mistake in a formula is not the console's error to raise.
 //   • **Settled blocks only.** `markdown-rules.ts` defers math until the block settles,
 //     so this component never sees a prefix. Half a formula is not a formula, and KaTeX
 //     asked to render one throws or renders something the next frame contradicts.

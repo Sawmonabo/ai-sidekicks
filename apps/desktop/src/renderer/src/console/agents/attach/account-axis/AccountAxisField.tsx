@@ -103,10 +103,10 @@ export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Elemen
   const advisoryChoice = advisoryChoiceIn(reading, pinnedAccountId);
   const unresolvedDefaultAdvisory = unresolvedDefaultAdvisoryIn(reading, pinnedAccountId);
   // The REASON is this call site's and never inferred downstream: a person pressing
-  // "Try again" is a participant request, and stamping it as anything else would
+  // "Try again" is a user request, and stamping it as anything else would
   // report an act somebody performed as a window event nobody did.
   const reopenRegistry = useCallback((): void => {
-    refreshRegistry("participant-request");
+    refreshRegistry("user-request");
   }, [refreshRegistry]);
 
   // THE FIELD NAMES ITS OWN CONTROL, EXPLICITLY. This field's root is a `div` rather

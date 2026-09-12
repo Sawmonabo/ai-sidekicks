@@ -105,7 +105,7 @@ describe("callDaemon — a reply the contract does not admit is a refusal", () =
   it("never puts the refused VALUE in the sentence a person reads", async () => {
     // Rule 9's non-negotiable half, and the reason this module composes its own
     // sentence instead of rendering the validator's: a rejected member can be a
-    // participant's words, a repo path, or an invite token, and the validator
+    // user's words, a repo path, or an invite token, and the validator
     // interpolates it. Both per-family parsers this replaces stringified the error
     // straight into the detail.
     const { bridge } = bridgeAnswering(async () => servedPresenceReply(OFF_CONTRACT));

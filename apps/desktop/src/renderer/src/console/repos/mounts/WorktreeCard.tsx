@@ -80,7 +80,7 @@ export function WorktreeCard(props: WorktreeCardProps): React.JSX.Element {
         {/*
           The branch is the card's name. Mono and verbatim, suffix included: a
           daemon-derived name that took an ordinal suffix is displayed as it was
-          sent, and nothing here re-suffixes a participant's own.
+          sent, and nothing here re-suffixes a user's own.
         */}
         <h4 className="meridian-root-card__title" id={headingId}>
           <WireFigure value={record.branchName} />

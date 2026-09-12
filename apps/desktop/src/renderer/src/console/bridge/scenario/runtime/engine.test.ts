@@ -45,7 +45,7 @@ function scenarioWithBeatsDueAt(dueMilliseconds: readonly number[]): ConsoleScen
     label: "Beat order",
     purpose: "Drives the engine's due-prefix rule with a script written in one exact order.",
     sessionId: SESSION_ID,
-    participantIdsInJoinOrder: [],
+    userIdsInJoinOrder: [],
     startedAtIso: "2026-01-01T00:00:00.000Z",
     replies: [],
     beats: dueMilliseconds.map((atMs, beatIndex) => ({
@@ -167,7 +167,7 @@ describe("ScenarioEngine — a whole-session subscription that attaches late", (
    */
   function storeAtBaseState(scenario: ConsoleScenario): SessionStore {
     const store = new SessionStore({ sessionId: scenario.sessionId });
-    store.initialise({ cursor: BASE_STATE_CURSOR, entities: [], participantJoinLog: [] });
+    store.initialise({ cursor: BASE_STATE_CURSOR, entities: [], userJoinLog: [] });
     return store;
   }
 

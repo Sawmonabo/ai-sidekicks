@@ -30,7 +30,7 @@ const SESSION_ID = "019b7a33-3300-75e5-8510-ada11a5a55a5";
 /** A session whose snapshot has landed, which is what makes a repair observable. */
 function initialisedStore(): SessionStore {
   const store = new SessionStore({ sessionId: SESSION_ID });
-  store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+  store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
   return store;
 }
 
@@ -76,7 +76,7 @@ describe("the queue reading re-reads on a repair", () => {
     expect(queueListCallCount(under)).toBe(1);
 
     act(() => {
-      sessionStore.initialise({ cursor: 4, entities: [], participantJoinLog: [] });
+      sessionStore.initialise({ cursor: 4, entities: [], userJoinLog: [] });
     });
     await settleScheduledRead(under.bridge);
     expect(queueListCallCount(under)).toBe(2);

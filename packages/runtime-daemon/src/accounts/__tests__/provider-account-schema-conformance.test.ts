@@ -264,7 +264,7 @@ describe("provider-account contract <-> DDL conformance", () => {
     /** Columns the account record deliberately does not project, and why. */
     const COLUMNS_WITH_NO_ACCOUNT_MEMBER: Readonly<Record<string, string>> = {
       credential_home_path:
-        "the home reaches an operator only through the readiness remedy's sign-in arm; on every surface a session participant can reach, this names a column and nothing else",
+        "the home reaches an operator only through the readiness remedy's sign-in arm; on every surface a session user can reach, this names a column and nothing else",
       last_refresh_observed_at:
         "an input to the re-login estimate; the wire carries the estimate, not its inputs",
       removal_intent:

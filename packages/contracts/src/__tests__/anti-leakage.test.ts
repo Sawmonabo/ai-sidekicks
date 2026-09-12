@@ -125,12 +125,12 @@ const buildValidChannelListRequest = () => ({
 
 // Minimum-valid PER-ELEMENT shape. `name` is optional (the bootstrap default
 // channel may be unnamed); omitting it keeps the .strict() reject-extra-key
-// test focused on the REQUIRED base shape. `participantCount: 0` is the
+// test focused on the REQUIRED base shape. `userCount: 0` is the
 // canonical empty-channel value.
 const buildValidChannelListResponseChannel = () => ({
   id: CHANNEL_ID,
   state: "active" as ChannelState,
-  participantCount: 0,
+  userCount: 0,
 });
 
 const buildValidChannelListResponse = () => ({
@@ -139,7 +139,7 @@ const buildValidChannelListResponse = () => ({
       id: CHANNEL_ID,
       name: "general",
       state: "active" as ChannelState,
-      participantCount: 3,
+      userCount: 3,
     },
   ],
 });

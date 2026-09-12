@@ -49,8 +49,8 @@ const OWNER = "collaboration-settings-data";
 const PURGE_AUDIT_EVENT_KINDS: readonly SessionEventType[] = [
   "session.purge_requested",
   "session.purged",
-  "participant.purge_requested",
-  "participant.purged",
+  "user.purge_requested",
+  "user.purged",
 ];
 
 export function DataErasurePage(): ReactNode {

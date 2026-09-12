@@ -154,7 +154,7 @@ describe("the switch draft — the capability gate on what reaches the wire", ()
 });
 
 describe("the switch draft — a binding that moves under it", () => {
-  /** The same agent after another participant moved its effort to the drafted value. */
+  /** The same agent after another user moved its effort to the drafted value. */
   const CAUGHT_UP = bindingSnapshotOf({
     ...ON_SHARED_MODEL,
     config: { ...ON_SHARED_MODEL.config, effort: "low" },
@@ -167,7 +167,7 @@ describe("the switch draft — a binding that moves under it", () => {
     expect(rebasedAxes(held({ effort: "low" }), CAUGHT_UP)).toEqual({});
   });
 
-  it("keeps an axis the participant is still editing", () => {
+  it("keeps an axis the user is still editing", () => {
     expect(rebasedAxes(held({ effort: "low", providerAccountId: "account-2" }), CAUGHT_UP)).toEqual(
       {
         providerAccountId: "account-2",
@@ -178,7 +178,7 @@ describe("the switch draft — a binding that moves under it", () => {
   it("negative control: a binding equal to the stamp leaves the draft alone", () => {
     // Compared by VALUE and not by identity: the roster answers with a fresh object
     // on every read, and a draft cleared by a refresh that changed nothing would lose
-    // the participant's work for no act of theirs.
+    // the user's work for no act of theirs.
     const restated = bindingSnapshotOf({ ...ON_SHARED_MODEL });
     expect(rebasedAxes(held({ effort: "low" }), restated)).toEqual({ effort: "low" });
   });

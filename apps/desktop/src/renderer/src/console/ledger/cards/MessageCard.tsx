@@ -1,4 +1,4 @@
-// The message card — a participant's words, an agent's reply, and an agent's reasoning.
+// The message card — a user's words, an agent's reply, and an agent's reasoning.
 //
 // Three of `card-family.ts`'s five families live here and share one layout: the body is
 // open, the attribution edge carries the author's hue, and the row's affordances are
@@ -14,11 +14,11 @@
 //   • A LIVE assistant body arrives as `liveText`, published by the reveal engine and
 //     handed down by the viewport. It takes precedence, because a turn still streaming
 //     has no stored body yet.
-//   • A PARTICIPANT body arrives as the row's own `summary`, and that is the whole of
+//   • A USER body arrives as the row's own `summary`, and that is the whole of
 //     what the wire carries. `user.message` is a registered event type with NO payload
-//     variant: a participant's words are sealed in the per-participant encrypted column
+//     variant: a user's words are sealed in the per-user encrypted column
 //     and the hydrated content projection covers the machine-authored one. There is no
-//     timeline carrier for participant text and no growth-slate row for one, so the card
+//     timeline carrier for user text and no growth-slate row for one, so the card
 //     renders what exists rather than reaching for what does not — and never captions
 //     the summary as if it were the message.
 //
@@ -49,7 +49,7 @@ import type { LedgerCardProps } from "./card-props.js";
 import { InlineCards } from "./InlineCards.js";
 import { MachineBody } from "./bodies/index.js";
 import { MessageReceipt } from "./MessageReceipt.js";
-import { ParticipantBody } from "./bodies/index.js";
+import { UserBody } from "./bodies/index.js";
 import { projectedPayload, readWireCount } from "./wire-payload.js";
 
 /**
@@ -63,7 +63,7 @@ import { projectedPayload, readWireCount } from "./wire-payload.js";
 export const EDIT_AFFORDANCE_SLOT: OwnerSlotContract = {
   owningTask: "the rewind-and-resend edit affordance",
   mountObligation:
-    "the hover-revealed footer of a participant message row, given the row and its eligibility",
+    "the hover-revealed footer of a user message row, given the row and its eligibility",
   deleteShellIn:
     "the change that mounts the affordance — there is no shell to delete, only an empty slot to fill",
 };
@@ -98,7 +98,7 @@ export interface MessageCardProps extends LedgerCardProps {
 
 export function MessageCard(props: MessageCardProps): React.JSX.Element {
   const family = classifyCardFamily(props.row);
-  const isParticipant = family.family === "participant-message";
+  const isUser = family.family === "user-message";
   const payload = projectedPayload(props.row);
   // Read once for both readers below: the body's renderer and the receipt's own line.
   const assistantMediaType = readWireString(payload["contentType"]);
@@ -106,23 +106,21 @@ export function MessageCard(props: MessageCardProps): React.JSX.Element {
   return (
     <LedgerRowGroup groupLabel="a message row">
       <LedgerRow
-        participantHueStep={props.participantHue?.step ?? -1}
-        {...(props.participantHue === undefined
-          ? {}
-          : { ringTreatment: props.participantHue.ringTreatment })}
+        actorHueStep={props.actorHue?.step ?? -1}
+        {...(props.actorHue === undefined ? {} : { ringTreatment: props.actorHue.ringTreatment })}
         occurredAtIso={props.row.timestamp}
         actorLabel={props.row.actor ?? family.label}
         kindLabel={props.row.type}
         isSuperseded={props.isSuperseded}
-        footer={isParticipant ? renderEditAffordance(props.editAffordance) : undefined}
+        footer={isUser ? renderEditAffordance(props.editAffordance) : undefined}
       >
         <div className={`meridian-message-card meridian-message-card--${family.family}`}>
           <span className="meridian-message-card__family">
             <Glyph name={family.glyph} title={family.label} />
             {family.label}
           </span>
-          {isParticipant ? (
-            <ParticipantBody row={props.row} footnotes={props.footnotes} />
+          {isUser ? (
+            <UserBody row={props.row} footnotes={props.footnotes} />
           ) : family.family === "assistant-reasoning" ? (
             props.reasoningSurface
           ) : (
@@ -140,7 +138,7 @@ export function MessageCard(props: MessageCardProps): React.JSX.Element {
             />
           )}
           <InlineCards cards={props.inlineCards ?? []} />
-          {isParticipant ||
+          {isUser ||
           family.family === "assistant-reasoning" ||
           props.liveText !== undefined ? null : (
             <MessageReceipt
@@ -159,7 +157,7 @@ export function MessageCard(props: MessageCardProps): React.JSX.Element {
  *
  * RESERVED, NOT STUBBED — and the empty answer here is silence rather than a named
  * absence, which is the opposite of what a surface-sized slot does. A named absence in
- * every participant row's footer would repeat one sentence about unbuilt work down the
+ * every user row's footer would repeat one sentence about unbuilt work down the
  * whole length of a session's log, which is noise where a mounted surface's absence is
  * information. The declaration above is where the three facts live.
  */

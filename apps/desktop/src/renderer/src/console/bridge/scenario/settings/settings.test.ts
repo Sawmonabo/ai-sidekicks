@@ -133,9 +133,9 @@ describe("the settings scenario", () => {
   });
 
   it("states a viewer the session actually joins", () => {
-    const { viewingParticipantId, participantIdsInJoinOrder } = SETTINGS_SCENARIO;
-    expect(viewingParticipantId).toBeDefined();
-    expect(participantIdsInJoinOrder).toContain(viewingParticipantId);
+    const { viewingUserId, userIdsInJoinOrder } = SETTINGS_SCENARIO;
+    expect(viewingUserId).toBeDefined();
+    expect(userIdsInJoinOrder).toContain(viewingUserId);
   });
 
   it("reads a transition only from a payload that carries both members", () => {

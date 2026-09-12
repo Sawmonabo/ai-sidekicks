@@ -31,7 +31,7 @@ import {
 } from "../event.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
-const PARTICIPANT_ID = "660e8400-e29b-41d4-a716-446655440001";
+const USER_ID = "660e8400-e29b-41d4-a716-446655440001";
 const CHANNEL_ID = "880e8400-e29b-41d4-a716-446655440003";
 const RUN_ID = "990e8400-e29b-41d4-a716-446655440004";
 const VERSION = "1.0";
@@ -66,7 +66,7 @@ const buildSessionCreated = () => ({
   occurredAt: "2026-01-22T19:14:35.000Z",
   category: "session_lifecycle" as const,
   type: "session.created" as const,
-  actor: PARTICIPANT_ID,
+  actor: USER_ID,
   version: VERSION,
   payload: {
     sessionId: SESSION_ID,

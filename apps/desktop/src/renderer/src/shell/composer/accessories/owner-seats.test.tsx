@@ -13,7 +13,7 @@
 // The three claims: the shell renders while nobody has filled the seat, the mounted
 // body replaces it when someone has, and no member of any contract reaches the DOM.
 // The last one is the one that rots silently — every member is developer-facing
-// prose naming governance work, and the repository keeps that off a participant's
+// prose naming governance work, and the repository keeps that off a user's
 // screen — so it is asserted on rendered TEXT, which is what a future edit that
 // rendered one would trip over.
 //
@@ -59,7 +59,7 @@ const SEAT_SCENARIO: ConsoleScenario = {
   label: "Seat unit",
   purpose: "A bridge for the compaction seat's mount; no beat and no reply are needed.",
   sessionId: SESSION_ID,
-  participantIdsInJoinOrder: ["participant-you"],
+  userIdsInJoinOrder: ["user-you"],
   startedAtIso: "2026-01-01T00:00:00.000Z",
   beats: [],
   replies: [],

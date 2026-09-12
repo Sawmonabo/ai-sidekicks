@@ -296,7 +296,7 @@ describe("MountCard — the drifted mount and its one control", () => {
         health: { status: "identity_mismatch", checkedAt: "2026-01-01T00:00:00Z" },
       }),
     });
-    // The card states the consequence before the confirm does, because a participant
+    // The card states the consequence before the confirm does, because a user
     // reads the card before they press anything.
     expect(getByText(/mints a new mount/)).toBeDefined();
   });

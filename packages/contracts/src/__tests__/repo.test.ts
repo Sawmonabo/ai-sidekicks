@@ -89,7 +89,7 @@ const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const REPO_MOUNT_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10";
 const WORKSPACE_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f11";
 const WORKTREE_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f12";
-const PARTICIPANT_ID = "660e8400-e29b-41d4-a716-446655440001";
+const USER_ID = "660e8400-e29b-41d4-a716-446655440001";
 const CHECKED_AT = "2026-07-24T19:14:35.000Z";
 const VERSION = "1.0";
 
@@ -287,7 +287,7 @@ const buildMountPayload = () => ({
   sessionId: SESSION_ID,
   repoMountId: REPO_MOUNT_ID,
   state: "attached" as const,
-  actor: PARTICIPANT_ID,
+  actor: USER_ID,
 });
 
 const buildWorkspacePayload = () => ({
@@ -321,7 +321,7 @@ describe("RepoWorkspaceLifecyclePayloadSchema (Workspace, and Worktree Lifecycle
         workspaceId: WORKSPACE_ID,
         worktreeId: WORKTREE_ID,
         state: "archived",
-        actor: PARTICIPANT_ID,
+        actor: USER_ID,
       }).success,
     ).toBe(true);
   });
@@ -568,7 +568,7 @@ describe("buildRepoWorkspaceLifecyclePayloadSchema (a parameter, not a third uni
         workspaceId: WORKSPACE_ID,
         worktreeId: WORKTREE_ID,
         state: "merged",
-        actor: PARTICIPANT_ID,
+        actor: USER_ID,
       }).success,
     ).toBe(true);
     // `sessionId` still required, still a UUID; `actor` still capped.
@@ -649,7 +649,7 @@ const buildRepoEvent = (eventType: string, state: string) => ({
   occurredAt: "2026-07-24T19:14:35.000Z",
   category: "session_lifecycle" as const,
   type: eventType,
-  actor: PARTICIPANT_ID,
+  actor: USER_ID,
   version: VERSION,
   payload: {
     sessionId: SESSION_ID,

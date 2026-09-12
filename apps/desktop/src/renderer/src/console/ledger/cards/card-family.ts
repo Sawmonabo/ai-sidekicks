@@ -40,7 +40,7 @@ import type { GlyphName } from "../../tokens/index.js";
  * a descriptor that does not exist.
  */
 export const CARD_FAMILIES = [
-  "participant-message",
+  "user-message",
   "assistant-message",
   "assistant-reasoning",
   "tool-activity",
@@ -79,8 +79,8 @@ export interface CardFamilyDescriptor {
  * before it can reach a card that renders it without an icon.
  */
 const CARD_FAMILY_DESCRIPTORS: Readonly<Record<CardFamily, CardFamilyDescriptor>> = {
-  "participant-message": {
-    family: "participant-message",
+  "user-message": {
+    family: "user-message",
     glyph: "member",
     label: "Message",
     layout: "body-open",
@@ -119,7 +119,7 @@ const CARD_FAMILY_DESCRIPTORS: Readonly<Record<CardFamily, CardFamilyDescriptor>
  * fall-through below is the honest answer for a type this table has not been taught.
  */
 const FAMILY_BY_EVENT_TYPE: ReadonlyMap<string, CardFamily> = new Map([
-  ["user.message", "participant-message"],
+  ["user.message", "user-message"],
   ["assistant.message", "assistant-message"],
   ["assistant.thinking_update", "assistant-reasoning"],
   ["tool.invoked", "tool-activity"],

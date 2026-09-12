@@ -84,7 +84,7 @@ export function renderTimelinePane(props: TimelinePaneProps): HTMLElement {
  */
 export function openSessionStoreWithPaneLog(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: TIMELINE_PANE_SESSION_ID });
-  sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
+  sessionStore.initialise({ cursor: -1, entities: [], userJoinLog: [] });
   sessionStore.applyBatch([
     {
       id: "event-0",

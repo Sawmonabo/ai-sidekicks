@@ -25,7 +25,7 @@ function rule(overrides: Partial<RememberedRule> = {}): RememberedRule {
   return {
     ruleId: FIRST_RULE,
     sessionId: "session-one",
-    participantId: "participant-you",
+    userId: "user-you",
     nodeId: "node-local",
     category: "file_write",
     scope: { kind: "session" },

@@ -182,10 +182,10 @@ describe("the runs scenario feeds both run subscriptions", () => {
   });
 });
 
-describe("every scenario states which participant this window is", () => {
+describe("every scenario states which user this window is", () => {
   it.each(FAMILY_SCENARIOS)("$id names a viewer inside its own roster", (scenario) => {
-    expect(scenario.viewingParticipantId).toBeDefined();
-    expect(scenario.participantIdsInJoinOrder).toContain(scenario.viewingParticipantId);
+    expect(scenario.viewingUserId).toBeDefined();
+    expect(scenario.userIdsInJoinOrder).toContain(scenario.viewingUserId);
   });
 
   it("negative control: the caller-identity read refuses when none is stated", async () => {
@@ -199,24 +199,24 @@ describe("every scenario states which participant this window is", () => {
       label: COMPOSER_SCENARIO.label,
       purpose: COMPOSER_SCENARIO.purpose,
       sessionId: COMPOSER_SCENARIO.sessionId,
-      participantIdsInJoinOrder: COMPOSER_SCENARIO.participantIdsInJoinOrder,
+      userIdsInJoinOrder: COMPOSER_SCENARIO.userIdsInJoinOrder,
       beats: COMPOSER_SCENARIO.beats,
       replies: COMPOSER_SCENARIO.replies,
       startedAtIso: COMPOSER_SCENARIO.startedAtIso,
     };
     const port = createFixtureBridge({ scenario: withoutViewer }).growth;
-    const outcome = await port.callerParticipantRead({ sessionId: COMPOSER_SCENARIO.sessionId });
+    const outcome = await port.callerUserRead({ sessionId: COMPOSER_SCENARIO.sessionId });
 
     expect(outcome.status).toBe("unavailable");
   });
 
   it("answers the caller-identity read when one is stated", async () => {
     const port = createFixtureBridge({ scenario: COMPOSER_SCENARIO }).growth;
-    const outcome = await port.callerParticipantRead({ sessionId: COMPOSER_SCENARIO.sessionId });
+    const outcome = await port.callerUserRead({ sessionId: COMPOSER_SCENARIO.sessionId });
 
     expect(outcome.status).toBe("served");
-    expect(outcome.status === "served" ? outcome.value.participantId : undefined).toBe(
-      COMPOSER_SCENARIO.viewingParticipantId,
+    expect(outcome.status === "served" ? outcome.value.userId : undefined).toBe(
+      COMPOSER_SCENARIO.viewingUserId,
     );
   });
 });

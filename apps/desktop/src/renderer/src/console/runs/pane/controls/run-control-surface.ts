@@ -10,7 +10,7 @@
 // AND THE LATCH ANSWERS. `dispatch` used to return `void` and drop a latched call
 // silently, which is right for a control the row disables — the person pressed it
 // twice — and wrong for a form that records a pending baseline of its own before
-// calling. A participant could cancel a form with its request still in flight,
+// calling. A user could cancel a form with its request still in flight,
 // reopen the same run and control, type a new body, and confirm: the form marked
 // itself pending, the surface dropped the call, and the OLD request's settlement
 // then differed from the new form's baseline and was read as the new body's — an
@@ -53,7 +53,7 @@
 //
 // THE RECORD IS THIS WINDOW'S OWN. The Runs View renders the durable intervention
 // history, including the attempts that failed, with the `origin` discriminator and the
-// admitting principal on the participant arm. Those live on the `interventions` table
+// admitting principal on the user arm. Those live on the `interventions` table
 // and no registered wire reads them, so what this surface can honestly hold is what it
 // dispatched and what came back — every field of it daemon-supplied. The surface that
 // renders it says so rather than passing a partial record off as the whole one.

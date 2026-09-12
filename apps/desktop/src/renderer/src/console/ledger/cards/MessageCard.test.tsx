@@ -37,7 +37,7 @@ function renderMessageCard(
         ...(overrides.summary === undefined ? {} : { summary: overrides.summary }),
         ...(overrides.payload === undefined ? {} : { payload: overrides.payload }),
       })}
-      participantHue={undefined}
+      actorHue={undefined}
       isSuperseded={false}
       density="expanded"
       footnotes={new FootnoteRegistry()}
@@ -52,9 +52,9 @@ function renderMessageCard(
 }
 
 describe("which body a message renders", () => {
-  it("renders a participant's row through the row's own summary", () => {
-    // The whole of what the wire carries for a participant: their words are sealed in
-    // the per-participant encrypted column and reach no timeline row.
+  it("renders a user's row through the row's own summary", () => {
+    // The whole of what the wire carries for a user: their words are sealed in
+    // the per-user encrypted column and reach no timeline row.
     const container = renderMessageCard({
       type: "user.message",
       summary: "please run the tests",
@@ -76,14 +76,14 @@ describe("which body a message renders", () => {
     expect(container.querySelector(".meridian-nothing--not-checked")).toBeNull();
   });
 
-  it("negative control: a participant row never renders the machine-body absence", () => {
+  it("negative control: a user row never renders the machine-body absence", () => {
     // Without this, a card that routed every family through `MachineBody` would put
     // "this body has not been read" under every message a person typed.
     const container = renderMessageCard({ type: "user.message", summary: "hello" });
     expect(container.querySelector(".meridian-nothing--not-checked")).toBeNull();
   });
 
-  it("says so when a participant row carries no summary at all", () => {
+  it("says so when a user row carries no summary at all", () => {
     const container = renderMessageCard({ type: "user.message", summary: "" });
     expect(container.textContent).toContain("no summary");
   });
@@ -99,10 +99,10 @@ describe("the three families this card serves", () => {
   });
 
   it("negative control: the family modifier is not one constant string", () => {
-    const participant = renderMessageCard({ type: "user.message" });
+    const user = renderMessageCard({ type: "user.message" });
     const assistant = renderMessageCard({ type: "assistant.message" });
-    expect(participant.querySelector(".meridian-message-card--participant-message")).not.toBeNull();
-    expect(assistant.querySelector(".meridian-message-card--participant-message")).toBeNull();
+    expect(user.querySelector(".meridian-message-card--user-message")).not.toBeNull();
+    expect(assistant.querySelector(".meridian-message-card--user-message")).toBeNull();
   });
 });
 
@@ -124,7 +124,7 @@ describe("the edit affordance slot", () => {
   });
 
   it("offers no slot on a machine row", () => {
-    // The affordance edits a participant's own boundary; a reply has none to edit.
+    // The affordance edits a user's own boundary; a reply has none to edit.
     const container = renderMessageCard({
       type: "assistant.message",
       editAffordance: {

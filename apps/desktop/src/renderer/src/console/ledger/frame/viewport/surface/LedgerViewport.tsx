@@ -53,7 +53,7 @@ export interface LedgerViewportProps {
    *
    * TAKEN rather than minted. `useLedgerViewport` builds a controller, a scroll
    * chokepoint, a reading anchor, and a virtualizer, and a viewport that minted its
-   * own would give the surrounding surface a SECOND set: the cast bar's follow seat
+   * own would give the surrounding surface a SECOND set: the session header's follow seat
    * would report a state nobody is scrolling, and `jumpToRow` would scroll a virtualizer
    * with no element under it. One binding per ledger is the whole invariant, and
    * requiring it as a prop is what makes a second one unrepresentable rather than

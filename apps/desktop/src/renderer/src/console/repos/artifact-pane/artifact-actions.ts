@@ -60,7 +60,7 @@
 // reader's to move — so both continuations passed the supersession check and whichever
 // reply the bridge delivered LAST decided what the row says. Two reads of one manifest
 // can settle in either order, so that is the older answer overwriting the newer one,
-// silently, on a row the participant pressed twice precisely because they wanted the
+// silently, on a row the user pressed twice precisely because they wanted the
 // fresher reading. The round is therefore taken AT ISSUE from `store/generation-latch.
 // ts`, KEYED BY ARTIFACT ID because two rows re-reading are two independent calls that
 // cannot collide — and the reading names the rows whose reads are outstanding, which is
@@ -240,7 +240,7 @@ export class ArtifactPaneActions {
   }
 
   /**
-   * Delete one artifact, after the participant confirmed the consequence.
+   * Delete one artifact, after the user confirmed the consequence.
    *
    * A SERVED DELETE ESTABLISHES THREE FACTS, AND ALL THREE ARE READ. The reply is a
    * `GrowthArtifactDeleteReceipt` — `payloadDisposition`, `rePublishForeclosed`, and
@@ -249,7 +249,7 @@ export class ArtifactPaneActions {
    * panel's receipt strip permanently unsupplied and its announcement saying the
    * reply carried no disposition. It carries one. The receipt goes onto the reading,
    * where the panel draws it and the pane announces it; the row goes off the list,
-   * because leaving it would let a participant keep acting on a manifest the daemon
+   * because leaving it would let a user keep acting on a manifest the daemon
    * has already destroyed; and the list is read again.
    *
    * The re-read is `terminal-event` because that is what it is: an act completed
@@ -257,7 +257,7 @@ export class ArtifactPaneActions {
    * `repos/mounts/repo-mounts-reader.ts` gives its post-mutation re-read.
    *
    * A SERVED DELETE NEVER RETURNS WITHOUT RECONCILING, WHICH IS WHY DISPOSAL AND
-   * SUPERSESSION ARE ASKED SEPARATELY HERE. A participant who confirms Delete and then
+   * SUPERSESSION ARE ASKED SEPARATELY HERE. A user who confirms Delete and then
    * presses "Read again" bumps the refresh stamp, and the list read that press starts
    * can easily have observed the artifact BEFORE the daemon destroyed it — so
    * returning early on the moved stamp left the destroyed manifest on screen,

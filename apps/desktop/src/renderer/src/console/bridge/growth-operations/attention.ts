@@ -1,5 +1,5 @@
 // The attention plane's ledger rows: a session's attention projection, and the
-// per-participant preferences that shape what lands in it.
+// per-user preferences that shape what lands in it.
 //
 // One plane of `GROWTH_OPERATIONS`, composed into it by `index.ts`.
 

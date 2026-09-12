@@ -221,7 +221,7 @@ describe("the projection names the entry it was read from", () => {
   });
 
   it("moves the revision when the goal is re-set to the text it already had", () => {
-    // A participant setting the same words again is still an act, and a consumer
+    // A user setting the same words again is still an act, and a consumer
     // told nothing changed would go on showing whatever it had open. This is the
     // case a text comparison gets wrong and an identity does not.
     const first = foldSessionGoal([goalUpdate(1, "ship it")]);

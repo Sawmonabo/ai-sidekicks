@@ -489,7 +489,7 @@ describe("ClaudeSessionLifecycle.startRun", () => {
     // position 0 gets the terminal's real classification and every later frame
     // under the key is ruled unrecognized, which trips. A duplicate dispatch
     // admitted here would therefore quarantine the session over the duplicate,
-    // not over a swallowed participant.
+    // not over a swallowed user.
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
     harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
@@ -3344,7 +3344,7 @@ describe("ClaudeSessionLifecycle definitely-unsent dispatch retry", () => {
 
     expect(channel.sendUserTextAttempts).toBe(2);
     // ONE frame on the wire, not two: the first rung's bytes never left, so the
-    // participant's text is delivered exactly once.
+    // user's text is delivered exactly once.
     expect(channel.sentWireTexts).toStrictEqual(["please summarize the thread"]);
     expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeDefined();
   });
@@ -3916,7 +3916,7 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
   it("withdraws only its OWN wait — a concurrent caller still settles on the evidence", async () => {
     // Settlement is per-key because one provider compaction is one compaction;
     // withdrawal is per-waiter. A caller whose write failed must not settle a
-    // participant who asked independently and whose compaction is still running.
+    // user who asked independently and whose compaction is still running.
     const scheduler = makeManualCompactionScheduler();
     const harness = buildHarness({ compactionWaitScheduler: scheduler.schedule });
     await harness.lifecycle.createSession(buildCreateSessionParams());
@@ -4157,7 +4157,7 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
     });
 
     // The SURVIVORS are the whole point: one unusable name must not empty a
-    // participant's palette, so the drop is per-entry rather than per-set.
+    // user's palette, so the drop is per-entry rather than per-set.
     expect(result.bindings[0]?.entries.map((entry) => entry.name)).toStrictEqual([
       "clear",
       "pdf-processing",
@@ -4556,7 +4556,7 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
 
   it("REFUSES the enumeration when a STALE registry names a different account", async () => {
     // The second defect, and the one a `null` stamp cannot express: a registry
-    // that has moved on since admission would route this participant's palette
+    // that has moved on since admission would route this user's palette
     // onto an account this process never authenticated as. Neither candidate is
     // stamped — publishing the record's would assert an identity the daemon's own
     // registry contradicts, and publishing the registry's would launder the
@@ -4827,7 +4827,7 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
 describe("ClaudeSessionLifecycle.observedOutputSpeedFor — absent until observed", () => {
   it("has NO observation before the handshake arrives and one after", async () => {
     // Neither establishment path may block for this or spend a synthetic turn to
-    // provoke it, so it is absent until the participant's own work produces the
+    // provoke it, so it is absent until the user's own work produces the
     // declaring exchange.
     const harness = buildHarness();
     const handle = await harness.lifecycle.createSession(buildCreateSessionParams());
@@ -4949,14 +4949,14 @@ describe("ClaudeSessionLifecycle.replayTranscript", () => {
 
   const TARGET = { providerSessionId: "claude-session-77", resumeHandle: "claude-session-77" };
 
-  function frame(position: number, role: "participant" | "assistant", text: string): unknown {
+  function frame(position: number, role: "user" | "assistant", text: string): unknown {
     return { position, role, segments: [{ kind: "text", position, text }] };
   }
 
   const TRANSCRIPT: readonly unknown[] = [
-    frame(1, "participant", "summarize the fold"),
+    frame(1, "user", "summarize the fold"),
     frame(2, "assistant", "identity map, strip, repair, render"),
-    frame(3, "participant", "and the order?"),
+    frame(3, "user", "and the order?"),
     frame(4, "assistant", "the order is the contract"),
   ];
 
@@ -5128,7 +5128,7 @@ describe("ClaudeSessionLifecycle.replayTranscript", () => {
   // The replay-target lifecycle, asserted ACROSS BOTH TARGETS: the abandoned
   // one holds native frames and never receives a memo, the replacement holds the
   // memo and never receives native frames, and no surviving session holds both —
-  // which is the property that keeps a participant from reading the same
+  // which is the property that keeps a user from reading the same
   // exchanges twice, once truncated.
   it("abandons a target refused mid-seeding; the memo lands in a FRESH target", async () => {
     const double = seedingDouble({ answers: SEEDED_BODIES, refuseAtPosition: 3 });
@@ -5166,7 +5166,7 @@ describe("ClaudeSessionLifecycle.replayTranscript", () => {
           turns: [
             {
               position: 1,
-              role: "participant",
+              role: "user",
               segments: [{ kind: "text", position: 1, text: "summarize the fold" }],
             },
           ],
@@ -5218,7 +5218,7 @@ describe("ClaudeSessionLifecycle.replayTranscript", () => {
     expect(double.seededPositions.filter((position) => position === 1)).toHaveLength(1);
     expect(double.seededPositions).toStrictEqual([1]);
 
-    // And the settlement the participant is owed is the memo floor's, carrying
+    // And the settlement the user is owed is the memo floor's, carrying
     // its declared loss — never a silently applied replay.
     const coordinator = new MemoDeliveryCoordinator({
       readTurnsForMarkerReconciliation: () => Promise.resolve([]),
@@ -5234,7 +5234,7 @@ describe("ClaudeSessionLifecycle.replayTranscript", () => {
           turns: [
             {
               position: 1,
-              role: "participant",
+              role: "user",
               segments: [{ kind: "text", position: 1, text: "summarize the fold" }],
             },
           ],
@@ -5258,7 +5258,7 @@ describe("ClaudeSessionLifecycle.replayTranscript", () => {
       harness.lifecycle.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
     ).rejects.toThrow(/abandoned and must not be reused/);
 
-    // A retry would duplicate frame 2 in a conversation a participant reads, and
+    // A retry would duplicate frame 2 in a conversation a user reads, and
     // nothing downstream could tell the duplicate from a repeated turn.
     await expect(
       harness.lifecycle.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
@@ -5283,7 +5283,7 @@ describe("ClaudeSessionLifecycle.replayTranscript", () => {
       harnessWithSurface(double).lifecycle.replayTranscript({
         target: TARGET,
         frames: [
-          frame(1, "participant", "kept"),
+          frame(1, "user", "kept"),
           { position: 2, role: "assistant", segments: [{ kind: "hologram", position: 2 }] },
         ],
       }),
@@ -5335,7 +5335,7 @@ describe("ClaudeSessionLifecycle.replayTranscript", () => {
         turns: [
           {
             position: 1,
-            role: "participant",
+            role: "user",
             segments: [{ kind: "text", position: 1, text: "summarize the fold" }],
           },
           {
@@ -5360,7 +5360,7 @@ describe("ClaudeSessionLifecycle.replayTranscript", () => {
     const reported = memoSettlementAsReplayResult(settlement.memo);
     expect(reported.status).toBe("degraded");
     // The schema requires it on a `degraded` result, and it is what tells a
-    // participant the conversation they are looking at was summarized.
+    // user the conversation they are looking at was summarized.
     expect(reported.declaredLosses).toContain("conversation_history_summarized");
     expect(deliveredTurns).toHaveLength(1);
   });

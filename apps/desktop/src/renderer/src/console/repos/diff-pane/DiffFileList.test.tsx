@@ -153,7 +153,7 @@ describe("diff file list — a narrowing this filter hides", () => {
     expect(container.textContent).toContain(HIDDEN_SELECTION_COPY);
   });
 
-  it("keeps the narrowing the participant chose rather than clearing it", () => {
+  it("keeps the narrowing the user chose rather than clearing it", () => {
     // The filter is a way of looking at the list; the narrowing is a choice. Clearing
     // it here would change what the pane renders as a side effect of typing.
     const { onSelectFilePath } = renderWithHiddenNarrowing();
@@ -191,7 +191,7 @@ describe("diff file list — a narrowing this filter hides", () => {
 });
 
 describe("diff file list — the filter belongs to the change set it filters", () => {
-  /** The filter input's current text, which is what a participant is looking at. */
+  /** The filter input's current text, which is what a user is looking at. */
   function filterInputText(container: HTMLElement): string {
     return (
       container.querySelector<HTMLInputElement>(".meridian-diff-files__filter-input")?.value ?? ""
@@ -227,7 +227,7 @@ describe("diff file list — the filter belongs to the change set it filters", (
 
   it("negative control: a re-render at the same change set keeps what was typed", () => {
     // Without this the case above would pass against a filter cleared on every render,
-    // which would erase a participant's narrowing on any unrelated pane update — and a
+    // which would erase a user's narrowing on any unrelated pane update — and a
     // deck composes a fresh props object on each of its own renders.
     const { container, rerender } = render(
       <DiffFileList

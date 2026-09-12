@@ -15,7 +15,7 @@ function rule(overrides: Partial<RememberedRule> = {}): RememberedRule {
   return {
     ruleId: "rule-01",
     sessionId: "session-one",
-    participantId: "participant-you",
+    userId: "user-you",
     nodeId: "node-local",
     category: "file_write",
     scope: { kind: "session" },
@@ -98,7 +98,7 @@ describe("only the confirming click mutates", () => {
 describe("the grant's own facts", () => {
   it("names the grantor, the node, and the boundary the pattern covers", () => {
     renderGrants([rule({ scope: { kind: "run", pattern: "src/**" }, runId: "run-7" })]);
-    expect(screen.getByText("participant-you")).not.toBeNull();
+    expect(screen.getByText("user-you")).not.toBeNull();
     expect(screen.getByText("node-local")).not.toBeNull();
     expect(screen.getByText("src/**")).not.toBeNull();
     expect(screen.getByText("run-7")).not.toBeNull();

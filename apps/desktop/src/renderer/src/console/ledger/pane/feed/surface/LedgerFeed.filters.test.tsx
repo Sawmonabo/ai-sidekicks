@@ -9,7 +9,7 @@
 // THE BOUNDARY RULE IS THE ONE THAT MUST NOT REGRESS. A narrowing that kept a run's
 // rows and dropped the rollback boundary between them would render a history that
 // had been corrected as though it never was. Its fixture gives the boundary a
-// different actor from the run, so admitting the run's participant admits the
+// different actor from the run, so admitting the run's user admits the
 // boundary only through the rule.
 
 import { fireEvent } from "@testing-library/react";
@@ -61,7 +61,7 @@ function seatRowCount(feed: HTMLElement): number {
 }
 
 describe("the ledger's facet bar — a press narrows the feed", () => {
-  it("narrows to one participant's rows", () => {
+  it("narrows to one user's rows", () => {
     withLaidOutViewport();
     const feed = renderFeed(openSessionStoreWithFilterableLog());
     const unfilteredRowCount = seatRowCount(feed);
@@ -79,7 +79,7 @@ describe("the ledger's facet bar — a press narrows the feed", () => {
 
     fireEvent.click(facetChip(feed, EARLY_JOINER));
 
-    // The boundary's own actor is the OTHER participant, so it is here only because
+    // The boundary's own actor is the OTHER user, so it is here only because
     // the filter re-admitted it for the run whose rows it admitted.
     expect(feed.querySelector(".meridian-seam-row")).not.toBeNull();
   });

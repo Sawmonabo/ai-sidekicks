@@ -120,7 +120,7 @@ export class ApprovalsReader implements ReadTriggerTarget {
    *
    * BOTH FAMILIES, because both reads refresh together: a remembered rule is minted
    * by resolving an approval, so a grant moment and a decision moment are the same
-   * participant action seen from two sides. A lookup rather than two `includes`
+   * user action seen from two sides. A lookup rather than two `includes`
    * scans, and declared HERE rather than at the surface that mounts the reader —
    * which events change this answer is a property of the question.
    */

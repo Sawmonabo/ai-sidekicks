@@ -297,9 +297,9 @@ export interface EmitWorktreeEventInput {
   // up, in the execution-root orchestrator — so a required field here would be
   // unsatisfiable by this seam's first producer.
   readonly workspaceId?: string;
-  // Envelope free-form actor (`participant_id | agent_id | null`). Optional;
+  // Envelope free-form actor (`user_id | agent_id | null`). Optional;
   // defaults to `null` (system actor). This seam encodes no actor policy — the
-  // producers decide whether a transition is participant-, agent-, or
+  // producers decide whether a transition is user-, agent-, or
   // system-driven.
   readonly actor?: string | null;
   // Optional envelope linkage fields, for tying an emission back to the

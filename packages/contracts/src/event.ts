@@ -87,11 +87,11 @@ import {
 import {
   CHANNEL_NAME_MAX_LEN,
   ChannelIdSchema,
-  ParticipantIdSchema,
+  UserIdSchema,
   SessionIdSchema,
   wireFreeFormString,
   type ChannelId,
-  type ParticipantId,
+  type UserId,
   type SessionId,
 } from "./session.js";
 // Dependency-free leaf (imports nothing at all), so this edge can close no
@@ -135,7 +135,7 @@ export type EventCategory =
   | "usage_telemetry"
   | "runtime_node_lifecycle"
   | "recovery_events"
-  | "participant_lifecycle"
+  | "user_lifecycle"
   | "audit_integrity"
   | "security_events"
   | "event_maintenance"
@@ -156,7 +156,7 @@ export const EventCategorySchema: z.ZodType<EventCategory> = z.enum([
   "usage_telemetry",
   "runtime_node_lifecycle",
   "recovery_events",
-  "participant_lifecycle",
+  "user_lifecycle",
   "audit_integrity",
   "security_events",
   "event_maintenance",
@@ -549,7 +549,7 @@ const buildCommonShape = () => ({
   // CANONICAL form for the integrity protocol (Z-suffixed UTC, ms precision) is enforced
   // at hashing time by the normalization step, NOT at the wire layer here.
   occurredAt: z.iso.datetime({ offset: true }),
-  // `actor` is a participant_id, agent_id, or null/absent for system-emitted events ("or
+  // `actor` is a user_id, agent_id, or null/absent for system-emitted events ("or
   // null for system"). The helper rejects empty/whitespace-only/NUL strings — a system
   // event must use `null` or omit the key, NOT send an empty string. `.nullable()` is
   // composed AFTER the helper so the inner string checks only run on string values (Zod
@@ -875,7 +875,7 @@ export function withEpochStamp<
 /**
  * The payload key carrying the BLAKE3 digest of the stored
  * `session_events.pii_payload` ciphertext — the commitment that binds the
- * sealed participant partition to the row's signature without carrying the
+ * sealed user partition to the row's signature without carrying the
  * plaintext into the signed bytes.
  *
  * SNAKE_CASE beside camelCase neighbours, deliberately: spells both members of
@@ -901,16 +901,16 @@ export function withEpochStamp<
 export const PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY = "pii_ciphertext_digest" as const;
 
 /**
- * The payload key carrying the participant whose content key sealed the
+ * The payload key carrying the user whose content key sealed the
  * `pii_payload` ciphertext — the owner stamp requires BESIDE the digest, so
  * the signature binds the row's PII owner as well as its bytes. Once a Path 1
  * key destruction makes the retained ciphertext permanently un-attributable,
  * this stamp is the sole surviving evidence of whose data the row held.
  */
-export const PII_PARTICIPANT_ID_PAYLOAD_KEY = "pii_participant_id" as const;
+export const PII_USER_ID_PAYLOAD_KEY = "pii_user_id" as const;
 
 /**
- * The two codec-owned indirection members a row carrying a participant PII
+ * The two codec-owned indirection members a row carrying a user PII
  * partition embeds in its payload. Both are OPTIONAL: the pair is present
  * exactly when `session_events.pii_payload` is non-NULL, which the vast
  * majority of rows of every registered type never are.
@@ -924,7 +924,7 @@ export const PII_PARTICIPANT_ID_PAYLOAD_KEY = "pii_participant_id" as const;
  * between digest and stamp is already adjudicated — and adjudicated where it
  * can actually be checked — by the read-side `pii_owner_stamp_unbound`
  * verification mode names for exactly this purpose: it holds the signed claim
- * against the durable `session_events.pii_participant_id` column, a comparison
+ * against the durable `session_events.pii_user_id` column, a comparison
  * no parse-time check can make because the column is not in the parsed object.
  * Encoding the pairing here as well would make this schema a second source of
  * truth for a binding the corpus has already assigned.
@@ -943,8 +943,8 @@ export const PII_PARTICIPANT_ID_PAYLOAD_KEY = "pii_participant_id" as const;
 export type PiiIndirectionDescriptor = {
   /** BLAKE3 over the STORED `pii_payload` ciphertext bytes. */
   pii_ciphertext_digest?: string | undefined;
-  /** The participant whose content key sealed that ciphertext. */
-  pii_participant_id?: string | undefined;
+  /** The user whose content key sealed that ciphertext. */
+  pii_user_id?: string | undefined;
 };
 
 // The shared shape factory — `buildMachineContentDescriptorShape()`'s principle
@@ -956,8 +956,8 @@ export type PiiIndirectionDescriptor = {
 // above are the single source of the strings that the schema, the codec, the
 // migration, and the verifier all index this payload by.
 //
-// `pii_participant_id` is a BOUNDED FREE-FORM STRING and deliberately NOT
-// `ParticipantIdSchema`. That schema is `brandedUuidIdSchema`, so it would
+// `pii_user_id` is a BOUNDED FREE-FORM STRING and deliberately NOT
+// `UserIdSchema`. That schema is `brandedUuidIdSchema`, so it would
 // refuse every stamp that is not a canonical UUID — while the codec that embeds
 // this member types the value as a plain `string` on a documented narrowing
 // (`pii-indirection.ts`: "nothing on this path mints that brand, and its schema
@@ -970,9 +970,9 @@ const buildPiiIndirectionDescriptorShape = () => ({
     EVENT_FIELD_MAX_LEN,
     "pii partition pii_ciphertext_digest",
   ).optional(),
-  [PII_PARTICIPANT_ID_PAYLOAD_KEY]: wireFreeFormString(
+  [PII_USER_ID_PAYLOAD_KEY]: wireFreeFormString(
     EVENT_FIELD_MAX_LEN,
-    "pii partition pii_participant_id",
+    "pii partition pii_user_id",
   ).optional(),
 });
 
@@ -1977,11 +1977,11 @@ export const EventCompactedPayloadSchema: z.ZodType<EventCompactedPayload> = z
   .strict();
 
 /**
- * `event.shredded` — a crypto-shred cleared a participant's PII across the
+ * `event.shredded` — a crypto-shred cleared a user's PII across the
  * affected sessions (owns the fan-out mechanism).
  *
  * `affectedSessionIds` takes NO cardinality floor: an idempotent re-run, or a
- * purge of a participant whose rows carried no PII, legitimately affects zero
+ * purge of a user whose rows carried no PII, legitimately affects zero
  * sessions, and the row is still the audit record of the operation. (Contrast
  * `key_reuse_detected.observedIdentities` above, whose floor the spec's own
  * "more than one identity" wording entails.)
@@ -1990,7 +1990,7 @@ export type EventShreddedPayload = {
   nodeId: NodeId;
   operationId: string;
   occurredAt: string;
-  participantId: ParticipantId;
+  userId: UserId;
   affectedSessionIds: SessionId[];
   piiPayloadsCleared: number;
   shredReason: "gdpr_article_17" | "retention_policy" | "admin_action";
@@ -1998,7 +1998,7 @@ export type EventShreddedPayload = {
 export const EventShreddedPayloadSchema: z.ZodType<EventShreddedPayload> = z
   .object({
     ...buildEventMaintenanceBaseShape(),
-    participantId: ParticipantIdSchema,
+    userId: UserIdSchema,
     affectedSessionIds: z.array(SessionIdSchema),
     piiPayloadsCleared: z.number().int().nonnegative(),
     shredReason: z.enum(["gdpr_article_17", "retention_policy", "admin_action"]),
@@ -3074,11 +3074,11 @@ export type SessionEventType =
   | "recovery.attempted"
   | "recovery.succeeded"
   | "recovery.failed"
-  | "participant.exported"
-  | "participant.purge_requested"
-  | "participant.purged"
-  | "participant.tokens_revoked_all"
-  | "participant.device_reset"
+  | "user.exported"
+  | "user.purge_requested"
+  | "user.purged"
+  | "user.tokens_revoked_all"
+  | "user.device_reset"
   // Flat underscore names (no dot namespace), verbatim from the
   // spec.
   | "audit_integrity_verified"
@@ -3334,12 +3334,12 @@ export const RECOVERY_EVENTS_EVENT_TYPES: readonly SessionEventType[] = [
   "recovery.failed",
 ] as const;
 
-export const PARTICIPANT_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
-  "participant.exported",
-  "participant.purge_requested",
-  "participant.purged",
-  "participant.tokens_revoked_all",
-  "participant.device_reset",
+export const USER_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
+  "user.exported",
+  "user.purge_requested",
+  "user.purged",
+  "user.tokens_revoked_all",
+  "user.device_reset",
 ] as const;
 
 export const AUDIT_INTEGRITY_EVENT_TYPES: readonly SessionEventType[] = [
@@ -3532,12 +3532,12 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "recovery.attempted": "recovery_events",
   "recovery.succeeded": "recovery_events",
   "recovery.failed": "recovery_events",
-  // participant_lifecycle (5)
-  "participant.exported": "participant_lifecycle",
-  "participant.purge_requested": "participant_lifecycle",
-  "participant.purged": "participant_lifecycle",
-  "participant.tokens_revoked_all": "participant_lifecycle",
-  "participant.device_reset": "participant_lifecycle",
+  // user_lifecycle (5)
+  "user.exported": "user_lifecycle",
+  "user.purge_requested": "user_lifecycle",
+  "user.purged": "user_lifecycle",
+  "user.tokens_revoked_all": "user_lifecycle",
+  "user.device_reset": "user_lifecycle",
   // audit_integrity (3)
   audit_integrity_verified: "audit_integrity",
   audit_integrity_failed: "audit_integrity",

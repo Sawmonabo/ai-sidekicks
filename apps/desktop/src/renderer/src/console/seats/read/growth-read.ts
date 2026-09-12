@@ -12,7 +12,7 @@
 // the store's subject-scoped holder, and the refusal reader beside it.
 //
 // SURFACES LEAVE THIS SEAT WHEN THEIR ANSWER STARTS MOVING, which is why the list
-// above is not a closed one: the terminal-control holder and a participant's device
+// above is not a closed one: the terminal-control holder and a user's device
 // fan-out were both held here and both moved to `push-driven-read.ts` once it was
 // established that what they read changes while somebody is looking at it. A read
 // belongs here while its answer is standing, and there once it is not.

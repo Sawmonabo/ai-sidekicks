@@ -497,7 +497,7 @@ describe("InterventionRequestPayload", () => {
     });
 
     it("refuses an attachment member on replacementSend", () => {
-      // No attachment member in V1: the leg replaces a participant message body
+      // No attachment member in V1: the leg replaces a user message body
       // and nothing else, so an unregistered field must fail closed rather than
       // be silently dropped.
       expect(() =>
@@ -788,7 +788,7 @@ describe("InterventionRequestResponse", () => {
     const guards = [
       "no-active-turn",
       "no-pending-send",
-      "participant-authored-target",
+      "user-authored-target",
       "resumable-target",
     ] as const;
 
@@ -957,7 +957,7 @@ describe("RunStateChangeEvent", () => {
       recoveryCondition: "reauth-required",
       recoverySpanClassification: "irreversible",
       healthSignal: "stuck-suspected",
-      providerFailureDetail: "driver.text_neutralization_failed origin=participant_text",
+      providerFailureDetail: "driver.text_neutralization_failed origin=human_text",
       completionKind: "turn",
       intendedClose: true,
       executionPosture: { networkAccess: "none", writableRoots: ["/w"], mode: "trusted" },

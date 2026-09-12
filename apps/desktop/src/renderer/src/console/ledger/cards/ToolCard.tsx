@@ -91,10 +91,8 @@ export function ToolCard(props: ToolCardProps): React.JSX.Element {
   return (
     <LedgerRowGroup groupLabel="a tool row">
       <LedgerRow
-        participantHueStep={hueStepOf(props)}
-        {...(props.participantHue === undefined
-          ? {}
-          : { ringTreatment: props.participantHue.ringTreatment })}
+        actorHueStep={hueStepOf(props)}
+        {...(props.actorHue === undefined ? {} : { ringTreatment: props.actorHue.ringTreatment })}
         occurredAtIso={props.row.timestamp}
         actorLabel={props.row.actor ?? family.label}
         kindLabel={props.row.type}
@@ -185,6 +183,6 @@ export function clampSummary(summary: string): string {
  * outside the wheel as unattributed and falls back to the neutral control boundary. That
  * is the fail-closed answer, and it is the primitive's rule rather than a second one.
  */
-function hueStepOf(props: Pick<ToolCardProps, "participantHue">): number {
-  return props.participantHue?.step ?? -1;
+function hueStepOf(props: Pick<ToolCardProps, "actorHue">): number {
+  return props.actorHue?.step ?? -1;
 }

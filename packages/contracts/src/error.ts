@@ -8,7 +8,7 @@
 //    details: {resource, limit, current}}
 //
 // `details.resource` is the human-readable name of the limit that tripped
-// (e.g. "participants per session"); `limit` is the configured ceiling and
+// (e.g. "users per session"); `limit` is the configured ceiling and
 // `current` is the count that triggered the rejection. All three are
 // REQUIRED — the daemon and control-plane both populate them, and the
 // SDK's retry/backoff logic relies on `current >= limit` invariants
@@ -193,7 +193,7 @@ export const VERSION_STRING_MAX_LEN = 64;
 export const VERSION_UPGRADE_PATH_MAX_LEN = 512;
 
 // `daemon.pii_split_bypass` `details.fieldPath` cap. The value is a payload
-// KEY PATH (e.g. `payload.pii_participant_id`), never a payload VALUE — the
+// KEY PATH (e.g. `payload.pii_user_id`), never a payload VALUE — the
 // whole point of naming the path is to identify the offending field without
 // echoing PII back onto the wire. Real key paths are short; 256 leaves room
 // for a nested path while denying a malicious producer unbounded space in a
@@ -211,7 +211,7 @@ export interface ResourceLimitExceededDetails {
 }
 export const ResourceLimitExceededDetailsSchema: z.ZodType<ResourceLimitExceededDetails> = z
   .object({
-    // Free-form resource label (e.g. "participants per session", "agents per
+    // Free-form resource label (e.g. "users per session", "agents per
     // session"). The `wireFreeFormString` helper applies the length cap
     // (128) AND the whitespace-only / NUL-byte rejection — same
     // trust-boundary rationale as `EventEnvelope.id` and `identityHandle`
@@ -450,7 +450,7 @@ export const DaemonIngestHaltedDetailsSchema: z.ZodType<DaemonIngestHaltedDetail
 // The DETAIL CARRIER for the append path's PII-split-bypass refusal. Same
 // parse-at-throw-site discipline as the halt detail above.
 //
-// `fieldPath` is a payload KEY PATH — `payload.pii_participant_id`, say — and
+// `fieldPath` is a payload KEY PATH — `payload.pii_user_id`, say — and
 // NEVER the offending field's VALUE. That distinction is the entire security
 // property of this error: the write was refused precisely BECAUSE it carried
 // unencrypted PII outside the `pii-indirection.ts` split, so echoing the value

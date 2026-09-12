@@ -79,7 +79,7 @@ export class SignInCeremony {
   }
 
   /**
-   * Enrol a credential for a participant this install is already signed in as.
+   * Enrol a credential for a user this install is already signed in as.
    *
    * `createCredential` is the shipped stub's registration method and the one
    * `register()` replaces. The credential flow makes the enrolment path the

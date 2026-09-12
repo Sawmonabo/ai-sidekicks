@@ -2,7 +2,7 @@
 // the ledger entry the stream is about.
 //
 // SPLIT FROM `attachment-ingest-machine.ts` ON THE SEAM BETWEEN AN ACT AND A WIRE. That
-// module owns what a participant's act does to the carrier's record — attach, retry,
+// module owns what a user's act does to the carrier's record — attach, retry,
 // abandon, remove, reorder — a set of synchronous decisions over the ledger. This one
 // owns what happens on the wire afterwards, and hands the middle leg to
 // `attachment-ingest-chunks.ts`, which is a loop rather than a call. Three subjects,
@@ -35,7 +35,7 @@
 // `answerOrRefusal`, and `drive` carries a last catch of its own, because a rejection
 // past those is a defect in this console rather than an answer from anywhere.
 //
-// A PARTICIPANT CAN ACT WHILE A CALL IS IN FLIGHT, so every continuation re-reads the
+// A USER CAN ACT WHILE A CALL IS IN FLIGHT, so every continuation re-reads the
 // ledger after its await and proceeds only if the entry still stands where it stood.
 // Abandonment makes this load-bearing: an upload stopped while Init was in flight would
 // otherwise be resumed by the continuation writing its captured entry back. A stale
@@ -43,7 +43,7 @@
 // daemon opened underneath it, which nobody else can: that ingest id reached no ledger
 // entry, so `abandon` never saw it.
 //
-// NO TIMER, ANYWHERE. Work happens when a participant asks for it and at no other
+// NO TIMER, ANYWHERE. Work happens when a user asks for it and at no other
 // moment. There is no interval, no backoff timer, and no automatic re-drive:
 // `wait-and-retry` is a sentence a person reads and a control they press, because a
 // console that retried a 429 on its own would hide the capacity problem it exists to

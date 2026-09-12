@@ -39,7 +39,7 @@ import { ATTACHMENT_ALLOWLIST_DEFAULT } from "./attachment-policy.js";
  *
  * `source` is rendered rather than inferred. An operator override REPLACES the default
  * wholesale, so a hint that could not say which of the two it is showing would be a hint
- * a participant cannot
+ * a user cannot
  * trust against a deployment they cannot see.
  */
 export interface AttachmentAllowlistReading {

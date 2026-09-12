@@ -256,7 +256,7 @@ export function createRefusingGrowthPort(): GrowthPort {
     gitflowPrPrepare: async () => growthUnavailable("gitflowPrPrepare"),
     workspaceExecutionContextRead: async () => growthUnavailable("workspaceExecutionContextRead"),
     // identity, and the callback-tool registry read
-    callerParticipantRead: async () => growthUnavailable("callerParticipantRead"),
+    callerUserRead: async () => growthUnavailable("callerUserRead"),
     callbackToolRegistryRead: async () => growthUnavailable("callbackToolRegistryRead"),
     // sidekick
     agentList: async () => growthUnavailable("agentList"),
@@ -278,7 +278,7 @@ export function createRefusingGrowthPort(): GrowthPort {
     channelMute: async () => growthUnavailable("channelMute"),
     channelUnmute: async () => growthUnavailable("channelUnmute"),
     channelArchive: async () => growthUnavailable("channelArchive"),
-    participantPresenceDetailRead: async () => growthUnavailable("participantPresenceDetailRead"),
+    userPresenceDetailRead: async () => growthUnavailable("userPresenceDetailRead"),
     terminalControlHolderRead: async () => growthUnavailable("terminalControlHolderRead"),
     // presence — the run-keyed Awareness activity field
     presenceActivityRead: async () => growthUnavailable("presenceActivityRead"),

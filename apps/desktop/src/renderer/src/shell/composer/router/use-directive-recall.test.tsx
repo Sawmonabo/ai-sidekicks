@@ -33,7 +33,7 @@ describe("ComposerSendBar — directive history does not cross an addressing bou
 
   it("recalls nothing under an address the message was not sent from", async () => {
     // The defect: one history for the life of the mounted bar meant ArrowUp under the
-    // second agent copied participant-authored text sent to the first into its line.
+    // second agent copied user-authored text sent to the first into its line.
     const bar = mountAddressable(bridgeAnswering(answerSteer).bridge);
     fireEvent.change(bar.line(), { target: { value: "written for Ada" } });
     await act(async () => {

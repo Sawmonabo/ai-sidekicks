@@ -9,7 +9,7 @@
 // THE MEANING CASES EACH ASSERT ONE FACT THE DAEMON LEAVES OUT — the third enforcement
 // point, the survivors, the quarantine, the content-versus-type verdict — because a
 // table that merely carried four `meaning` strings would satisfy a presence assertion
-// while saying nothing a participant could act on. They came in with the attachment
+// while saying nothing a user could act on. They came in with the attachment
 // family's own table when it folded into this one.
 
 import { describe, expect, it } from "vitest";
@@ -79,7 +79,7 @@ describe("artifactRefusalRecovery — the size refusal's three enforcement point
 
 describe("artifactRefusalRecovery — the meanings the daemon's sentence leaves out", () => {
   it("names the reservation bound on the size refusal, and the deployment cap beside it", () => {
-    // The frame and the deployment bound are the two a participant expects. The
+    // The frame and the deployment bound are the two a user expects. The
     // declaration-as-reservation is the one that refuses a chunk far below the cap.
     const recovery = artifactRefusalRecovery(TOO_LARGE_CODE);
     expect(recovery?.meaning).toContain("ingest cap");
@@ -117,7 +117,7 @@ describe("artifactRefusalRecovery — the meanings the daemon's sentence leaves 
 });
 
 describe("artifactRefusalRecovery — the missing key is not an auth failure", () => {
-  it("routes the participant to a publisher re-publish and says the sign-in is fine", () => {
+  it("routes the user to a publisher re-publish and says the sign-in is fine", () => {
     const recovery = artifactRefusalRecovery("artifact.no_access_key");
     expect(recovery?.nextMove).toContain("re-publishing");
     expect(recovery?.nextMove).toContain("nothing is wrong with your sign-in");

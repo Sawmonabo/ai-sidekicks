@@ -85,7 +85,7 @@ const REPO_MOUNT_ID: string = "0190f8a1-1c3d-7e6a-8f21-2c7d6b4e9a10";
 const WORKSPACE_ID: string = "0190f8a2-2d4e-7f7b-9a32-3d8e7c5f0b21";
 // `actor` is the free-form envelope actor string (a bounded audit scalar), NOT
 // a branded id — any bounded non-blank string is valid.
-const PARTICIPANT_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
+const USER_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
 
 // The integrity-column widths the `session_events` CHECK constraints enforce.
 // The emitter never writes them; the arm below asserts the append path
@@ -303,14 +303,14 @@ describe("WorkspaceEventEmitter — per-event emission", () => {
     await makeEmitter().emitRepoAttached({
       sessionId: SESSION_ID,
       repoMountId: REPO_MOUNT_ID,
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
     });
 
     expectPersistedPayload(readSingleRow("repo.attached"), {
       sessionId: SESSION_ID,
       repoMountId: REPO_MOUNT_ID,
       state: "attached",
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
     });
   });
 
@@ -318,14 +318,14 @@ describe("WorkspaceEventEmitter — per-event emission", () => {
     await makeEmitter().emitRepoDetached({
       sessionId: SESSION_ID,
       repoMountId: REPO_MOUNT_ID,
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
     });
 
     expectPersistedPayload(readSingleRow("repo.detached"), {
       sessionId: SESSION_ID,
       repoMountId: REPO_MOUNT_ID,
       state: "detached",
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
     });
   });
 
@@ -340,7 +340,7 @@ describe("WorkspaceEventEmitter — per-event emission", () => {
       workspaceId: WORKSPACE_ID,
       state: "provisioning",
       // A system-driven transition: absent input actor narrows to null, the
-      // wire form for "no participant or agent did this".
+      // wire form for "no user or agent did this".
       actor: null,
     });
   });
@@ -377,14 +377,14 @@ describe("WorkspaceEventEmitter — per-event emission", () => {
     await makeEmitter().emitWorkspaceArchived({
       sessionId: SESSION_ID,
       workspaceId: WORKSPACE_ID,
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
     });
 
     expectPersistedPayload(readSingleRow("workspace.archived"), {
       sessionId: SESSION_ID,
       workspaceId: WORKSPACE_ID,
       state: "archived",
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
     });
   });
 
@@ -491,7 +491,7 @@ describe("WorkspaceEventEmitter — envelope/payload reconciliation", () => {
     await makeEmitter().emitRepoAttached({
       sessionId: SESSION_ID,
       repoMountId: REPO_MOUNT_ID,
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
     });
 
     const row: LifecycleRow = readSingleRow("repo.attached");
@@ -499,8 +499,8 @@ describe("WorkspaceEventEmitter — envelope/payload reconciliation", () => {
     // The row's own actor column IS the payload's actor, and the row lives
     // under the session the payload names — a caller has no second input with
     // which to make the two disagree.
-    expect(row.actor).toBe(PARTICIPANT_ID);
-    expect(persisted["actor"]).toBe(PARTICIPANT_ID);
+    expect(row.actor).toBe(USER_ID);
+    expect(persisted["actor"]).toBe(USER_ID);
     expect(persisted["sessionId"]).toBe(SESSION_ID);
   });
 
@@ -554,7 +554,7 @@ describe("WorkspaceEventEmitter — envelope/payload reconciliation", () => {
       sessionId: SESSION_ID,
       workspaceId: WORKSPACE_ID,
       repoMountId: REPO_MOUNT_ID,
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
     });
 
     expectPersistedPayload(readSingleRow("workspace.archived"), {
@@ -562,7 +562,7 @@ describe("WorkspaceEventEmitter — envelope/payload reconciliation", () => {
       workspaceId: WORKSPACE_ID,
       repoMountId: REPO_MOUNT_ID,
       state: "archived",
-      actor: PARTICIPANT_ID,
+      actor: USER_ID,
     });
   });
 

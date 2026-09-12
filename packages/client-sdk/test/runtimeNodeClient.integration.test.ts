@@ -9,7 +9,7 @@
 //
 // Spec coverage — the named acceptance criteria:
 //   * I1 — live attach to an already-active session leaves session identity
-//          unchanged ("A participant can attach a local runtime node to an already active
+//          unchanged ("A user can attach a local runtime node to an already active
 //          session": attach "must not require session recreation").
 //   * I2 — a capability-degraded node stays visible and distinguishable from a
 //          healthy online node through the client-observable `NodeState` (capability-validation
@@ -68,7 +68,7 @@ import {
   type JsonRpcRequest,
   type JsonRpcResponseEnvelope,
   type NodeId,
-  type ParticipantId,
+  type UserId,
   RUNTIME_NODE_CAPABILITY_UPDATE_CONFLICT_CODE,
   type SessionId,
   VERSION_FLOOR_EXCEEDED_CODE,
@@ -92,7 +92,7 @@ import type { ClientTransport } from "../src/transport/types.js";
 // ---------------------------------------------------------------------------
 
 const SESSION_ID: SessionId = "01970000-0000-7000-8000-00000000d001" as SessionId;
-const PARTICIPANT_ID: ParticipantId = "01970000-0000-7000-8000-00000000d101" as ParticipantId;
+const USER_ID: UserId = "01970000-0000-7000-8000-00000000d101" as UserId;
 const NODE_ID: NodeId = "node-alpha-01" as NodeId;
 const CLIENT_VERSION: EventEnvelopeVersion = "1.4" as EventEnvelopeVersion;
 
@@ -201,12 +201,12 @@ function isPGlite(handle: PGlite | Transaction): handle is PGlite {
 
 // ---------------------------------------------------------------------------
 // Seed helpers — direct INSERTs (NOT through the SDK; the SDK has no session-
-// create surface). Mirrors attach-service.test.ts's `seedParticipant` /
+// create surface). Mirrors attach-service.test.ts's `seedUser` /
 // `seedSession`.
 // ---------------------------------------------------------------------------
 
-async function seedParticipant(querier: Querier, participantId: ParticipantId): Promise<void> {
-  await querier.query("INSERT INTO participants (id) VALUES ($1)", [participantId]);
+async function seedUser(querier: Querier, userId: UserId): Promise<void> {
+  await querier.query("INSERT INTO users (id) VALUES ($1)", [userId]);
 }
 
 // Seed an ACTIVE session with a CONFIGURABLE `min_client_version` floor. The
@@ -221,19 +221,17 @@ async function seedSession(
 ): Promise<void> {
   // The owning user must exist before the session's owner FK can resolve, and
   // some tests seed several sessions, so the insert is conflict-tolerant.
-  await querier.query("INSERT INTO participants (id) VALUES ($1) ON CONFLICT DO NOTHING", [
-    PARTICIPANT_ID,
-  ]);
+  await querier.query("INSERT INTO users (id) VALUES ($1) ON CONFLICT DO NOTHING", [USER_ID]);
   if (minClientVersion === undefined) {
     await querier.query(
       "INSERT INTO sessions (id, owner_user_id, state) VALUES ($1, $2, 'active')",
-      [sessionId, PARTICIPANT_ID],
+      [sessionId, USER_ID],
     );
     return;
   }
   await querier.query(
     "INSERT INTO sessions (id, owner_user_id, state, min_client_version) VALUES ($1, $2, 'active', $3)",
-    [sessionId, PARTICIPANT_ID, minClientVersion],
+    [sessionId, USER_ID, minClientVersion],
   );
 }
 
@@ -313,14 +311,14 @@ async function readPresenceRow(
 // `runtimenode.attach` / `heartbeat` / `capabilityupdate` / `detach` /
 // `roster` never resolve a session-create / subscribe procedure.
 //
-// `resolveCurrentParticipantId` is REAL (returns the seeded participant): the
-// attach procedure self-checks `input.participantId !== resolveCurrentParticipantId(ctx)`
+// `resolveCurrentUserId` is REAL (returns the seeded user): the
+// attach procedure self-checks `input.userId !== resolveCurrentUserId(ctx)`
 // and throws `UNAUTHORIZED` on mismatch (the attach self-check inside
 // `packages/control-plane/src/runtime-nodes/runtime-node-router.factory.ts#createRuntimeNodeRouter`),
 // so a throwing stub would short-circuit attach BEFORE it reaches
 // `AttachService`.
 // This mirrors host-runtime-node.test.ts's `makePassThroughDeps` wiring
-// (currentParticipantId === the seeded PARTICIPANT_ID).
+// (currentUserId === the seeded USER_ID).
 //
 // The SAME `querier` instance backs both services AND the direct `SELECT * FROM
 // sessions` assertions, so state persists across attach/heartbeat/capabilityUpdate
@@ -342,15 +340,12 @@ const throwingQuerier: Querier = {
 };
 
 // Build `ControlPlaneDeps` whose runtime-node services run over the REAL PGlite
-// `querier` and whose `resolveCurrentParticipantId` returns the seeded
-// participant. The directory service + session-id/identity callbacks + event
+// `querier` and whose `resolveCurrentUserId` returns the seeded
+// user. The directory service + session-id/identity callbacks + event
 // stream provider are never reached by the runtime-node procedures, so they take
-// the throwing posture (matching `buildSubscribeOnlyDeps`). `currentParticipantId`
-// defaults to the fixture `PARTICIPANT_ID` can pass an explicit value.
-function buildRuntimeNodeDeps(
-  querier: Querier,
-  currentParticipantId: ParticipantId = PARTICIPANT_ID,
-): ControlPlaneDeps {
+// the throwing posture (matching `buildSubscribeOnlyDeps`). `currentUserId`
+// defaults to the fixture `USER_ID` can pass an explicit value.
+function buildRuntimeNodeDeps(querier: Querier, currentUserId: UserId = USER_ID): ControlPlaneDeps {
   return {
     // Session CRUD is never reached on the runtime-node path — back it with the
     // throwing Querier (the nominally-typed class cannot be satisfied by a
@@ -368,9 +363,9 @@ function buildRuntimeNodeDeps(
     // over the same PGlite querier, parallel to the services above; no test
     // here drives `eventanchor.upload`.
     anchorStore: new EventLogAnchorStore(querier),
-    // REAL — the attach self-check compares this against `request.participantId`
-    // and throws UNAUTHORIZED on mismatch, so it MUST equal the seeded participant.
-    resolveCurrentParticipantId: (): ParticipantId => currentParticipantId,
+    // REAL — the attach self-check compares this against `request.userId`
+    // and throws UNAUTHORIZED on mismatch, so it MUST equal the seeded user.
+    resolveCurrentUserId: (): UserId => currentUserId,
     // Never reached on the runtime-node path (session-create only).
     generateSessionId: (): SessionId => {
       throw NEVER_REACHED("generateSessionId");
@@ -500,11 +495,11 @@ afterEach(async () => {
 // ---------------------------------------------------------------------------
 
 describe("I1 / — live attach leaves session identity unchanged", () => {
-  it("control-plane transport: a joined participant attaches a node; the sessions row is byte-identical and no second session is materialized", async () => {
-    // Seed the already-active session (NULL floor), the participant, and an
+  it("control-plane transport: a joined user attaches a node; the sessions row is byte-identical and no second session is materialized", async () => {
+    // Seed the already-active session (NULL floor), the user, and an
     // active membership (the "has joined a live session" precondition). Direct
     // INSERTs — the SDK has no session-create surface.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
 
     // Capture the session identity BEFORE attach: the whole row (byte-identity
@@ -519,7 +514,7 @@ describe("I1 / — live attach leaves session identity unchanged", () => {
     const sdk = buildControlPlaneRuntimeNodeClient(buildRuntimeNodeDeps(ctx.querier));
     const response = await sdk.attach({
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       clientVersion: CLIENT_VERSION,
       capabilities: CAPABILITIES,
@@ -581,9 +576,9 @@ describe("I1 / — live attach leaves session identity unchanged", () => {
 describe("I2 / — degraded node remains distinguishable", () => {
   it("control-plane transport: a capability-degraded node stays visible and distinguishable from a healthy online node in the same session", async () => {
     // Seed the live session (NULL floor — version gating is the axis, not
-    // I2's), the participant, and an active membership. Direct INSERTs — the
+    // I2's), the user, and an active membership. Direct INSERTs — the
     // SDK has no session-create surface.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
 
     const sdk = buildControlPlaneRuntimeNodeClient(buildRuntimeNodeDeps(ctx.querier));
@@ -595,7 +590,7 @@ describe("I2 / — degraded node remains distinguishable", () => {
     // the control plane never performs).
     const degradedSubjectAttach = await sdk.attach({
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: DEGRADED_NODE_ID,
       clientVersion: CLIENT_VERSION,
       capabilities: CAPABILITIES,
@@ -603,7 +598,7 @@ describe("I2 / — degraded node remains distinguishable", () => {
     });
     const healthyContrastAttach = await sdk.attach({
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: HEALTHY_NODE_ID,
       clientVersion: CLIENT_VERSION,
       capabilities: CAPABILITIES,
@@ -678,13 +673,13 @@ describe("I2 / — degraded node remains distinguishable", () => {
   });
 
   it("control-plane transport: heartbeat resolves null and lands the presence row; the liveness axis stays independent of the capability axis", async () => {
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
 
     const sdk = buildControlPlaneRuntimeNodeClient(buildRuntimeNodeDeps(ctx.querier));
     const attachResponse = await sdk.attach({
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: DEGRADED_NODE_ID,
       clientVersion: CLIENT_VERSION,
       capabilities: CAPABILITIES,
@@ -748,7 +743,7 @@ describe("I2 / — degraded node remains distinguishable", () => {
 // Its load-bearing property: a below-floor daemon MUST be admitted in
 // read-only state and remain joined; any subsequent version-sensitive domain
 // write MUST return typed `VERSION_FLOOR_EXCEEDED`; ejection MUST NOT be the
-// response to a floor mismatch. Ejection would break — a participant on a
+// response to a floor mismatch. Ejection would break — a user on a
 // slightly-old daemon would lose ALL session visibility, not just write
 // capability.
 //
@@ -776,7 +771,7 @@ describe("I3 / — mixed-version attach: below-floor admitted read-only, write r
     // `CLIENT_VERSION` ("1.4") itself, so the at-floor daemon attaches EQUAL
     // to the floor and the below-floor daemon ("1.3") sits one MINOR below it
     // (see the I3 fixture block).
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID, CLIENT_VERSION);
 
     const sdk = buildControlPlaneRuntimeNodeClient(buildRuntimeNodeDeps(ctx.querier));
@@ -786,7 +781,7 @@ describe("I3 / — mixed-version attach: below-floor admitted read-only, write r
     // strictly-below — attach-service.ts `#deriveReadOnly`).
     const atFloorAttach = await sdk.attach({
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: AT_FLOOR_NODE_ID,
       clientVersion: CLIENT_VERSION,
       capabilities: CAPABILITIES,
@@ -805,7 +800,7 @@ describe("I3 / — mixed-version attach: below-floor admitted read-only, write r
     // flag riding alongside.
     const belowFloorAttach = await sdk.attach({
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: BELOW_FLOOR_NODE_ID,
       clientVersion: BELOW_FLOOR_CLIENT_VERSION,
       capabilities: CAPABILITIES,
@@ -916,13 +911,13 @@ describe("Detach lifecycle / — detach retires both axes; late writes refused; 
   it("control-plane transport: detach resolves null and flips slot + presence to offline; a late capability write is refused typed; a second detach is an idempotent no-op", async () => {
     // Seed the live session (NULL floor — version gating is I3's axis) and
     // attach the subject node. Direct INSERTs, as in I1/I2/I3.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
 
     const sdk = buildControlPlaneRuntimeNodeClient(buildRuntimeNodeDeps(ctx.querier));
     const attachResponse = await sdk.attach({
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: DETACH_NODE_ID,
       clientVersion: CLIENT_VERSION,
       capabilities: CAPABILITIES,
@@ -1026,7 +1021,7 @@ describe("Roster read / — the control-plane roster query projects both axes pe
     // session that exists purely as the isolation foil. Direct INSERTs, as in
     // I1-I3; memberships seeded for scenario faithfulness (the attach path
     // never reads them).
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID, CLIENT_VERSION);
     await seedSession(ctx.querier, OTHER_SESSION_ID);
 
@@ -1042,7 +1037,7 @@ describe("Roster read / — the control-plane roster query projects both axes pe
     // node to the SECOND session.
     const atFloorAttach = await sdk.attach({
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: ROSTER_AT_FLOOR_NODE_ID,
       clientVersion: CLIENT_VERSION,
       capabilities: CAPABILITIES,
@@ -1050,7 +1045,7 @@ describe("Roster read / — the control-plane roster query projects both axes pe
     });
     const belowFloorAttach = await sdk.attach({
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: ROSTER_BELOW_FLOOR_NODE_ID,
       clientVersion: BELOW_FLOOR_CLIENT_VERSION,
       capabilities: CAPABILITIES,
@@ -1058,7 +1053,7 @@ describe("Roster read / — the control-plane roster query projects both axes pe
     });
     await sdk.attach({
       sessionId: OTHER_SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: ROSTER_ISOLATED_NODE_ID,
       clientVersion: CLIENT_VERSION,
       capabilities: CAPABILITIES,
@@ -1090,7 +1085,7 @@ describe("Roster read / — the control-plane roster query projects both axes pe
     // response's own timestamp (same stored column, same ISO normalization).
     expect(entriesByNodeId.get(ROSTER_AT_FLOOR_NODE_ID)).toEqual({
       nodeId: ROSTER_AT_FLOOR_NODE_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       state: "registering",
       healthState: null,
       lastHeartbeatAt: null,
@@ -1106,7 +1101,7 @@ describe("Roster read / — the control-plane roster query projects both axes pe
     // against the "1.4" floor, orthogonal to `state`.
     expect(entriesByNodeId.get(ROSTER_BELOW_FLOOR_NODE_ID)).toEqual({
       nodeId: ROSTER_BELOW_FLOOR_NODE_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       state: "registering",
       healthState: "online",
       lastHeartbeatAt: expect.any(String),
@@ -1129,7 +1124,7 @@ describe("Roster read / — the control-plane roster query projects both axes pe
   });
 
   it("control-plane transport: a capability-degraded node with fresh heartbeats stays visible and distinguishable from a healthy online node in the roster", async () => {
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
 
     const sdk = buildControlPlaneRuntimeNodeClient(buildRuntimeNodeDeps(ctx.querier));
@@ -1141,7 +1136,7 @@ describe("Roster read / — the control-plane roster query projects both axes pe
     // registering -> online self-report is refusal, as in I2).
     await sdk.attach({
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: ROSTER_DEGRADED_NODE_ID,
       clientVersion: CLIENT_VERSION,
       capabilities: CAPABILITIES,
@@ -1149,7 +1144,7 @@ describe("Roster read / — the control-plane roster query projects both axes pe
     });
     await sdk.attach({
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: ROSTER_HEALTHY_NODE_ID,
       clientVersion: CLIENT_VERSION,
       capabilities: CAPABILITIES,
@@ -1242,13 +1237,13 @@ describe("Roster read / — the control-plane roster query projects both axes pe
   });
 
   it("control-plane transport: a corrupted stored client_version surfaces as a typed RuntimeNodeControlPlaneError via the untyped INTERNAL_SERVER_ERROR fallback branch", async () => {
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
 
     const sdk = buildControlPlaneRuntimeNodeClient(buildRuntimeNodeDeps(ctx.querier));
     await sdk.attach({
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: ROSTER_CORRUPTED_NODE_ID,
       clientVersion: CLIENT_VERSION,
       capabilities: CAPABILITIES,
@@ -1335,7 +1330,7 @@ describe("Daemon transport breadth — createDaemonRuntimeNodeClient wraps JsonR
 
     const response = await sdk.attach({
       sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
+      userId: USER_ID,
       nodeId: NODE_ID,
       clientVersion: CLIENT_VERSION,
       capabilities: CAPABILITIES,

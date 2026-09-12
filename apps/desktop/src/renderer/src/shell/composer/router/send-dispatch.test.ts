@@ -20,7 +20,7 @@ import {
 describe("ComposerSendRouter — a fulfilled intervention is not a successful send", () => {
   it("keeps the message for a steer the run rejected, and renders the daemon's cause", async () => {
     // The finding: fulfilment was treated as success, so a normally rejected steer
-    // cleared the participant's draft as if it had landed. The draft is the send
+    // cleared the user's draft as if it had landed. The draft is the send
     // bar's to clear and it clears on `sent` alone, so a refusal here is what keeps
     // the words in the line.
     const call = vi
@@ -68,7 +68,7 @@ describe("ComposerSendRouter — a fulfilled intervention is not a successful se
 
   it("keeps the message where the answer did not parse as the registered response", async () => {
     // The call was answered and the answer is unreadable, so the console cannot
-    // confirm the steer reached the run. Losing the participant's words to that
+    // confirm the steer reached the run. Losing the user's words to that
     // ambiguity is worse than letting them decide to send again.
     //
     // The code is the DOOR's, not this router's. `callDaemon` parses every reply
@@ -89,7 +89,7 @@ describe("ComposerSendRouter — a fulfilled queue-create is not a successful se
     // The finding: the new-turn path returned an unconditional success, so a reply
     // outside `QueueItemCreateResponse` — a protocol-version mismatch is the case
     // that produces one — was reported as sent and the controller cleared the
-    // participant's draft with no readable queue-item confirmation behind it.
+    // user's draft with no readable queue-item confirmation behind it.
     const call = vi.fn().mockResolvedValue({ queued: true });
     const outcome = await routerWith(call).send("ship the fix", CHANNEL_TARGET);
 
@@ -99,7 +99,7 @@ describe("ComposerSendRouter — a fulfilled queue-create is not a successful se
     // carried, so what refused is the one parse every console call goes through, and
     // the refusal names that seam rather than whichever surface happened to call.
     expect(outcome.status === "refused" && outcome.refusal.origin).toBe("daemon-call");
-    // The half the participant acts on is the surface's, not the refusal's: a refused
+    // The half the user acts on is the surface's, not the refusal's: a refused
     // send never clears the draft, which `ComposerSendBar.test.tsx` holds directly.
     expect(outcome.status === "refused" && outcome.refusal.detail).toContain("run.queueCreate");
   });

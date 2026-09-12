@@ -2,7 +2,7 @@
 //
 // Provider-bound text neutrality: a send whose first word is command-shaped for the
 // bound provider is neutralized at the driver boundary IN TRANSPORT ONLY — the
-// participant's text is never changed in the ledger. When the guard trips, the driver
+// user's text is never changed in the ledger. When the guard trips, the driver
 // fails the run rather than recording the provider's zero-turn success, and the
 // terminal carries the reason.
 //
@@ -42,13 +42,9 @@ const ORIGIN_KEY = "origin=";
  * Closed at three because the form itself is closed at three, and `unknown` is one
  * of them rather than the absence of one — a driver that could not attribute the
  * text says so, and the surface renders that as a different fact from a driver that
- * attributed it to the participant.
+ * attributed it to the user.
  */
-export const TEXT_NEUTRALIZATION_ORIGINS = [
-  "participant_text",
-  "system_narration",
-  "unknown",
-] as const;
+export const TEXT_NEUTRALIZATION_ORIGINS = ["human_text", "system_narration", "unknown"] as const;
 
 /** One origin arm. Derived from the enumeration, never restated. */
 export type TextNeutralizationOrigin = (typeof TEXT_NEUTRALIZATION_ORIGINS)[number];

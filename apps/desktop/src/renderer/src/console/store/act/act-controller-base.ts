@@ -135,7 +135,7 @@ export abstract class ActSurfaceController<TValue, TSettlement extends ActSettle
    *
    * ITS OWN CALL RATHER THAN A SIDE EFFECT OF CLOSING, because the two are different
    * moments: a settlement is read after the call settles and the surface is still open,
-   * and a participant who comes back to act a second time must not meet the first
+   * and a user who comes back to act a second time must not meet the first
    * one's sentence.
    */
   public clearAct(): void {
@@ -179,7 +179,7 @@ export abstract class ActSurfaceController<TValue, TSettlement extends ActSettle
     this.#acts.withdraw();
   }
 
-  /** Ask again after a refused read. The participant-driven one of the four reasons. */
+  /** Ask again after a refused read. The user-driven one of the four reasons. */
   protected retryPrerequisite(): void {
     this.#acts.retryRead();
   }

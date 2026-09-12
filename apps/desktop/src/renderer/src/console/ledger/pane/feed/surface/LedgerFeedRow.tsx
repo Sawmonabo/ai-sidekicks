@@ -27,7 +27,7 @@
 //
 //   • `row` — held across projections by `ledger-window.ts`'s retention table. Without
 //     that this memo would compare a fresh object every event and never hold.
-//   • `participantHue` — the store's own assignment object, read and never minted.
+//   • `actorHue` — the store's own assignment object, read and never minted.
 //   • `isSuperseded` and `density` — a boolean and a two-value union.
 //   • `chapterRunId` — a string or `undefined`, resolved by the lookup below rather
 //     than by the card. The WINDOW is what answers whether this row's run has a
@@ -72,14 +72,14 @@ import {
   type TimelineRowSlotProps,
 } from "../../../../seats/index.js";
 import { TimelineRowFooter } from "./TimelineRowFooter.js";
-import { type ParticipantHueAssignment } from "../../../../tokens/index.js";
+import { type ActorHueAssignment } from "../../../../tokens/index.js";
 import { type LedgerWindowModel } from "../../window/index.js";
 
 /** Everything the dispatch below reads. Each member is stable except the window. */
 export interface LedgerRowRendererOptions {
   readonly ledgerWindow: LedgerWindowModel;
   readonly openedTerminalRunIds: ReadonlySet<string>;
-  readonly hueForActor: (participantId: string) => ParticipantHueAssignment | undefined;
+  readonly hueForActor: (userId: string) => ActorHueAssignment | undefined;
   readonly toggleChapter: (chapter: LedgerChapter) => void;
   readonly rowLease: (rowKey: string) => LedgerRowLease | undefined;
   /** The seat's renderer. STABLE across renders, or the memo below moves with it. */
@@ -134,9 +134,7 @@ export function useLedgerRowRenderer(options: LedgerRowRendererOptions): LedgerR
           <ChapterHeader
             chapter={chapter}
             isOpen={openedTerminalRunIds.has(chapter.runId)}
-            participantHue={
-              chapter.actorId === undefined ? undefined : hueForActor(chapter.actorId)
-            }
+            actorHue={chapter.actorId === undefined ? undefined : hueForActor(chapter.actorId)}
             onToggle={toggleChapter}
           />
         );
@@ -165,8 +163,7 @@ export function useLedgerRowRenderer(options: LedgerRowRendererOptions): LedgerR
           <Nothing kind="not-loaded" placement="inline" title="This entry is no longer loaded." />
         );
       }
-      const participantHue =
-        projected.actor === undefined ? undefined : hueForActor(projected.actor);
+      const actorHue = projected.actor === undefined ? undefined : hueForActor(projected.actor);
       const isSuperseded = ledgerWindow.supersededRowIds.has(projected.id);
       // A SEAM IS THE LEDGER'S OWN ROW, so it is drawn before the seat is asked.
       // The seat fills with whichever renderer owns a session's row BODIES, and a
@@ -176,7 +173,7 @@ export function useLedgerRowRenderer(options: LedgerRowRendererOptions): LedgerR
       // position, the continuity, the losses, the reason and the blocked-on state.
       const seam = ledgerWindow.seamByRowId.get(projected.id);
       if (seam !== undefined) {
-        return <SeamRow seam={seam} participantHue={participantHue} isSuperseded={isSuperseded} />;
+        return <SeamRow seam={seam} actorHue={actorHue} isSuperseded={isSuperseded} />;
       }
       // A CHILD RUN AND A HANDOFF ARE THE LEDGER'S OWN ROWS TOO, drawn before the
       // seat is asked and for the seam's reason: both are structure over the log
@@ -190,7 +187,7 @@ export function useLedgerRowRenderer(options: LedgerRowRendererOptions): LedgerR
           <ChildRunSummaryRow
             entry={childRunEntry}
             wireType={projected.type}
-            participantHue={participantHue}
+            actorHue={actorHue}
             isSuperseded={isSuperseded}
             expansion={childRunDisclosure.expansionFor(childRunEntry.summary.runId)}
             onToggleExpansion={childRunDisclosure.toggle}
@@ -208,7 +205,7 @@ export function useLedgerRowRenderer(options: LedgerRowRendererOptions): LedgerR
         return (
           <HandoffRow
             entry={handoffEntry}
-            participantHue={participantHue}
+            actorHue={actorHue}
             isSuperseded={isSuperseded}
             // The thread reaches a CHAPTER, so it is drawn only where the child run
             // has one in this window. A chapter the fold has not produced is a
@@ -229,7 +226,7 @@ export function useLedgerRowRenderer(options: LedgerRowRendererOptions): LedgerR
       return (
         <LedgerFeedRow
           row={projected}
-          participantHue={participantHue}
+          actorHue={actorHue}
           isSuperseded={isSuperseded}
           // THE LEASE OVERLAYS THE LIST, and the list is the fallback rather than the
           // other way round: a row nobody has touched holds no lease and follows the
@@ -301,7 +298,7 @@ const NO_ROW_PATH_REFERENCE: FilePathRef | undefined = undefined;
  *
  * THE MENU IS A SIBLING OF THE FOOTER AND NOT INSIDE IT, and the two are different
  * offers about different things. The footer is one seat another plan fills with the
- * affordance that corrects what a participant SENT, and it is offered on participant
+ * affordance that corrects what a user SENT, and it is offered on user
  * message rows alone; the menu is this family's own, offered on every row, and it
  * carries the offers the row vocabulary states — open, close, copy the id, copy the
  * body, jump to the run chapter, reveal the file. Folding either
@@ -319,7 +316,7 @@ const LedgerFeedRow = memo(
     <>
       {props.renderTimelineRow({
         row: props.row,
-        participantHue: props.participantHue,
+        actorHue: props.actorHue,
         isSuperseded: props.isSuperseded,
         density: props.density,
       })}

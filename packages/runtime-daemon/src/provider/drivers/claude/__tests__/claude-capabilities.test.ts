@@ -162,7 +162,7 @@ describe("Claude capability declaration — explicit and total", () => {
 
   it("publishes the SETTABLE output-speed levels, which are not the reportable ones", () => {
     // The distinction is load-bearing and is exactly what this pins. The pinned
-    // provider REPORTS `on`, `cooldown`, and `off`; what a participant may
+    // provider REPORTS `on`, `cooldown`, and `off`; what a user may
     // REQUEST is `off` and `on`, because a cooldown is a state the provider
     // enters on its own and no caller can ask for. `outputSpeedLevels` bounds
     // the request side only — a driver that published `cooldown` here would be
@@ -602,7 +602,7 @@ describe("Claude model catalog", () => {
     // The alias `value`s never become ids. A same-agent provider switch
     // validates its model against this list, so admitting
     // `sonnet` or `default` here is a switch target that can move underneath
-    // the participant who chose it.
+    // the user who chose it.
     for (const aliasValue of ["default", "opus[1m]", "sonnet", "haiku"]) {
       expect(models.map((model) => model.id)).not.toContain(aliasValue);
     }

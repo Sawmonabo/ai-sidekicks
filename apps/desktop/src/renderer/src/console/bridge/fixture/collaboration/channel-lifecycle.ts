@@ -44,10 +44,10 @@
 // stays here is the half that ACTS.
 //
 // THE ONE FACT THE LOG CANNOT CARRY IS A CONSTANT. `channel.created` is registered as
-// exactly `{channelId, name?}` while `ChannelListResponseChannel.participantCount` is
+// exactly `{channelId, name?}` while `ChannelListResponseChannel.userCount` is
 // required, so a walk over the log establishes that a channel exists and can fill in no
 // count for it. One person drives this runtime, so the count is
-// {@link CREATED_CHANNEL_PARTICIPANT_COUNT} — a number both sides read from one home,
+// {@link CREATED_CHANNEL_USER_COUNT} — a number both sides read from one home,
 // never a per-channel register whose every entry would be that same number.
 
 import { answerScriptOnly } from "../growth/scripted-answer.js";
@@ -85,12 +85,12 @@ export const CHANNEL_CREATED_EVENT_KIND = "channel.created";
 /**
  * How many people a channel this fixture answers for holds.
  *
- * `ChannelListResponseChannel.participantCount` is a required member, so a created row
+ * `ChannelListResponseChannel.userCount` is a required member, so a created row
  * has to carry a number; one person drives this runtime, and no surface renders the
  * figure. Named rather than written twice, because the directory fold that fills it in
  * is a module away from the act that produces the channel.
  */
-export const CREATED_CHANNEL_PARTICIPANT_COUNT = 1;
+export const CREATED_CHANNEL_USER_COUNT = 1;
 
 /**
  * The identifier prefix an appended channel frame wears.
@@ -144,7 +144,7 @@ export class FixtureChannelLifecycle {
     );
     if (outcome.status === "served") {
       // The registered `{channelId, name?}` and nothing beside it — the state and the
-      // participant count reach a reader from `channel.list`, never from the creation
+      // user count reach a reader from `channel.list`, never from the creation
       // event, and an unnamed channel OMITS the member rather than carrying it
       // undefined, because `name?` is an absent member on this wire and never a
       // present empty one. Both are the statement a hand-written beat makes about
@@ -183,20 +183,20 @@ export class FixtureChannelLifecycle {
    * their frames from one counter and none of them can reuse a position — which
    * `store/session/sequence-reconciler.ts` would drop as a duplicate. The actor is the
    * scenario's own viewer where it declares one and absent otherwise, which the
-   * envelope composer renders as the system arm rather than as a participant this
+   * envelope composer renders as the system arm rather than as a user this
    * fixture chose. The PAYLOAD is the caller's, because the four kinds do not share
    * one: a transition names the session and the channel, a creation names the channel
    * and what it was called.
    */
   #appendFrame(eventKind: string, payload: Readonly<Record<string, unknown>>): void {
-    const { sessionId, viewingParticipantId } = this.#engine.scenario;
+    const { sessionId, viewingUserId } = this.#engine.scenario;
     this.#appendedFrameCount += 1;
     this.#engine.appendEvent({
       id: `${APPENDED_CHANNEL_EVENT_ID_PREFIX}${String(this.#appendedFrameCount).padStart(12, "0")}`,
       sessionId,
       kind: eventKind,
       occurredAt: new Date(this.#engine.clock.now()).toISOString(),
-      ...(viewingParticipantId === undefined ? {} : { actorId: viewingParticipantId }),
+      ...(viewingUserId === undefined ? {} : { actorId: viewingUserId }),
       payload,
     });
   }

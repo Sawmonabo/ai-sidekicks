@@ -104,7 +104,7 @@ describe("useSessionReadTriggers — the React wiring consults the same predicat
   /** A store the wiring reads transitions off — initialised, as the trigger set requires. */
   function initialisedStore(): SessionStore {
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-    sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
     return sessionStore;
   }
 

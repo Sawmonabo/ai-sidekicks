@@ -2,7 +2,7 @@
 //
 // The durable store holds UI state only — a closed value-class enumeration the
 // persistence layer's schema encodes, and a write outside it (message text, form
-// values, paths, code, names, anything participant- or machine-authored) is a
+// values, paths, code, names, anything user- or machine-authored) is a
 // tripwire failure at the store's write chokepoint.
 //
 // The hard part is mechanical: how does a chokepoint tell an expansion set from a
@@ -30,7 +30,7 @@
 // grammar settles record ADDRESSES, which have no class and so no shape.
 //
 // Drafts are absent from this enumeration on purpose. Composer text, form values,
-// paths, and code a participant typed and did not send are participant-authored
+// paths, and code a user typed and did not send are user-authored
 // content, and the only durable homes such content has are the daemon's encrypted,
 // PII-mapped stores. A draft lives in its window's memory for that window's lifetime
 // — see `draft-store.ts`.
@@ -99,12 +99,12 @@ function invalid(detail: string): PersistenceRefusal {
   return refusePersistence("value-shape-invalid", detail);
 }
 
-// The rule the detail states: participant- and machine-authored content has no
+// The rule the detail states: user- and machine-authored content has no
 // durable home in the renderer.
 function notIdentifier(where: string, value: string): PersistenceRefusal {
   return refusePersistence(
     "value-not-identifier-shaped",
-    `${where} holds a string that is not identifier-shaped (${String(value.length)} chars). UI state carries identifiers; participant- and machine-authored content has no durable home in the renderer.`,
+    `${where} holds a string that is not identifier-shaped (${String(value.length)} chars). UI state carries identifiers; user- and machine-authored content has no durable home in the renderer.`,
   );
 }
 

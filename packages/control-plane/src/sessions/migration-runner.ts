@@ -28,7 +28,7 @@
 // daemons sharing the control-plane database) racing the migration check
 // from a fresh database. Two racers that both pass an unguarded outer
 // probe both proceed into the transaction; one runner's `CREATE TABLE
-// participants` then fails with `42P07 relation already exists`, crashing
+// users` then fails with `42P07 relation already exists`, crashing
 // startup. That is bad UX for an "idempotent" entry point.
 //
 // Defense: the canonical Postgres "lock-and-re-probe" pattern around an
@@ -175,7 +175,7 @@ export interface Querier {
  *
  * Without the inside-transaction lock + re-probe, two concurrent calls on
  * a fresh database would both observe "not applied" at the outer probe,
- * both open transactions, and both run `CREATE TABLE participants` — the
+ * both open transactions, and both run `CREATE TABLE users` — the
  * second `CREATE` would crash with `42P07 relation already exists`,
  * surfacing the concurrent boot as a startup failure rather than the
  * idempotent no-op the API contract promises.

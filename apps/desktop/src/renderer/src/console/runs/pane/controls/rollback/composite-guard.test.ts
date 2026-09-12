@@ -32,7 +32,7 @@ import { compositeGuardReading } from "./composite-guard.js";
 const GUARD_COVERAGE: Readonly<Record<RollbackCompositeRejectionGuard, true>> = {
   "no-active-turn": true,
   "no-pending-send": true,
-  "participant-authored-target": true,
+  "user-authored-target": true,
   "resumable-target": true,
 };
 

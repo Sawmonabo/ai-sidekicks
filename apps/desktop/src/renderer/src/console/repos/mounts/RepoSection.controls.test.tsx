@@ -54,7 +54,7 @@ describe("RepoSection — a clone root is a writable root, so it carries a gate"
   const GATE_SELECTOR = "details.meridian-root-gate";
 
   it("mounts one gate per clone, inside the clone's own row", async () => {
-    // Before this the clone list drew bare cards, so a participant running in the
+    // Before this the clone list drew bare cards, so a user running in the
     // ephemeral clone mode had no way to read a branch context, prepare a proposal,
     // or ask for a reviewed act at all.
     const section = renderSection(REPOS_SCENARIO);

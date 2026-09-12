@@ -180,7 +180,7 @@ describe("CallbackToolHost — the allow round-trip (leg 3)", () => {
     expect(harness.activityRecords[0]?.approvalBasis).toBe("policy");
   });
 
-  it("records a remembered-rule allow as its own basis, never as a participant grant", async () => {
+  it("records a remembered-rule allow as its own basis, never as a user grant", async () => {
     const harness = buildHarness({ outcome: { decision: "allow", basis: "remembered-rule" } });
     harness.host.resolveSpawnRegistry({
       sessionId: TEST_SESSION_ID,

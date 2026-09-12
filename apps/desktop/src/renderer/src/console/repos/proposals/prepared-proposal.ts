@@ -3,7 +3,7 @@
 //
 // THIS SURFACE'S JOB, stated here because a surface's composition lives in the
 // console's code: show exactly
-// what will be sent to the git host, and let a participant approve it before anything
+// what will be sent to the git host, and let a user approve it before anything
 // leaves the machine. Four of those words are decisions the gate must not make twice,
 // and they live in four modules beside each other rather than in one: this file owns
 // what a prepared proposal carries and how its untyped blob becomes display data;

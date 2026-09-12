@@ -23,7 +23,7 @@ import type {
 } from "./attention-preference-model.js";
 import { AttentionPreferenceRead } from "./attention-preference-read.js";
 
-const PARTICIPANT_ID = "participant-ana";
+const USER_ID = "user-ana";
 
 const SCENARIO = unscriptedScenario("notifications-preference-read-test");
 
@@ -65,7 +65,7 @@ function bridgeHoldingItsReads(): {
 }
 
 function readingOver(bridge: ConsoleBridge, clock: ManualClock): AttentionPreferenceRead {
-  return new AttentionPreferenceRead({ bridge, participantId: PARTICIPANT_ID, clock });
+  return new AttentionPreferenceRead({ bridge, userId: USER_ID, clock });
 }
 
 /** The stored member the section would render from the reading as it stands. */
@@ -242,15 +242,15 @@ describe("the attention preference read — what in flight means", () => {
 });
 
 describe("the attention preference read — what it refuses to do", () => {
-  it("asks nothing before a participant has been resolved", async () => {
+  it("asks nothing before a user has been resolved", async () => {
     const { bridge, held, clock } = bridgeHoldingItsReads();
-    const read = new AttentionPreferenceRead({ bridge, participantId: undefined, clock });
+    const read = new AttentionPreferenceRead({ bridge, userId: undefined, clock });
 
     read.requestRead("subscribe");
     clock.advance(REFRESH_MAX_WAIT_MS);
     await drain();
 
-    // A set read under a guessed participant puts one person's answers on another
+    // A set read under a guessed user puts one person's answers on another
     // person's screen; the reading fails closed rather than composing one.
     expect(held).toHaveLength(0);
     expect(read.snapshot().isReadInFlight).toBe(false);

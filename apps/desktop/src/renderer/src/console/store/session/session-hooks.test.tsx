@@ -117,7 +117,7 @@ describe("useSessionEntity — a row re-renders for its own entity and no other"
         { kind: "run", id: "run-1", state: "queued" },
         { kind: "run", id: "run-2", state: "queued" },
       ],
-      participantJoinLog: [],
+      userJoinLog: [],
     });
     const tally = new RenderTally();
 
@@ -160,7 +160,7 @@ describe("useSessionEntity — a row re-renders for its own entity and no other"
     store.initialise({
       cursor: 0,
       entities: [{ kind: "run", id: "run-1", state: "queued" }],
-      participantJoinLog: [],
+      userJoinLog: [],
     });
     const tally = new RenderTally();
 
@@ -198,7 +198,7 @@ describe("useSessionEntity — a row re-renders for its own entity and no other"
       applyCoalesceMs: 0,
     });
     const store = registry.open("session-1");
-    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
     const tally = new RenderTally();
 
     const view = render(<RunRow store={store} runId="run-1" tally={tally} />);
@@ -233,7 +233,7 @@ describe("useSessionInitialised / useSessionStore — the store's own facts", ()
     expect(view.getByTestId("header").textContent).toBe("loading:-1");
 
     act(() => {
-      store.initialise({ cursor: 4, entities: [], participantJoinLog: [] });
+      store.initialise({ cursor: 4, entities: [], userJoinLog: [] });
     });
 
     expect(view.getByTestId("header").textContent).toBe("ready:4");

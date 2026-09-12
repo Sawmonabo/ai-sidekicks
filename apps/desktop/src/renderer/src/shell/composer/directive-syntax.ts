@@ -14,7 +14,7 @@
 //
 // A DIRECTIVE OPENS ITS LINE, AND THE TRIGGER IS THE FIRST CHARACTER. The reading
 // used to `trimStart()` first, so an indented line still named a command. It cannot
-// any more, because the send router now hands this module the participant's text
+// any more, because the send router now hands this module the user's text
 // UNTOUCHED — trimming is a test there and never a transform — and a grammar that
 // skipped leading whitespace would claim pasted code whose first non-blank character
 // happens to be a slash. Indented text beginning with a slash is prose; a command

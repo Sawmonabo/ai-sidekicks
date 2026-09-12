@@ -21,7 +21,7 @@
 // a scenario cannot teach the pane a row shape the surface will not accept later.
 //
 // A scenario that scripts none of them refuses rather than serving an empty
-// projection, which is the `callerParticipantRead` disposition and not the branch
+// projection, which is the `callerUserRead` disposition and not the branch
 // read's: an empty approvals list is a claim that nothing is waiting on a decision,
 // and a scenario that models no approvals has not made it.
 //

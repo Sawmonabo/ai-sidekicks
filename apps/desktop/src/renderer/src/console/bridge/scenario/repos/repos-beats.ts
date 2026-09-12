@@ -15,7 +15,7 @@
 //
 // It is also what keeps a wire rename cheap. `actorId` is the envelope's member and
 // appears exactly once below, so a rename of it edits one line rather than one line
-// per beat — which is what the rename from `actorParticipantId` cost.
+// per beat — which is what the rename from `actorUserId` cost.
 //
 // AND IT IS WHERE THE EVENT'S OWN ID COMES FROM. The canonical envelope names the row
 // as well as its position, so every beat carries one; deriving it from `sequence`
@@ -70,9 +70,9 @@ export interface ReposBeatScript {
   /** The registered event type, wire-verbatim. */
   readonly kind: string;
   /**
-   * The participant the event is attributed to.
+   * The user the event is attributed to.
    *
-   * Omitted where the DAEMON made the move — a participant id on a system transition
+   * Omitted where the DAEMON made the move — a user id on a system transition
    * would attribute the daemon's decision to a person.
    */
   readonly actorId?: string;

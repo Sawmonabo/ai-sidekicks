@@ -1,7 +1,7 @@
 // The machines this session's repositories could be attached on.
 //
 // SCRIPTED BECAUSE THE ATTACH DIALOG READS IT. `repo.attach` names the node that holds
-// the path, and the only way a participant can name one is by picking it off
+// the path, and the only way a user can name one is by picking it off
 // `runtimenode.roster` — so a repos scenario with no roster leaves the picker showing a
 // refusal and the dialog unreachable past its first field.
 //
@@ -21,14 +21,14 @@
 import type {
   EventEnvelopeVersion,
   NodeId,
-  ParticipantId,
+  UserId,
   RuntimeNodeRosterEntry,
 } from "@ai-sidekicks/contracts";
 
 import type { ScenarioRuntimeNodeRosterFrame } from "../runtime/index.js";
 
 import { secondsBeforeStart } from "./repos-beats.js";
-import { NODE_ID, PARTICIPANT_YOU } from "./repos-fixture-data.js";
+import { NODE_ID, USER_YOU } from "./repos-fixture-data.js";
 
 /** The second machine, offered and offline. Not a UUID: `NodeId` is a bounded string. */
 const BUILD_NODE_ID = "node-build-box" as NodeId;
@@ -36,8 +36,8 @@ const BUILD_NODE_ID = "node-build-box" as NodeId;
 /** This scenario's own node, branded where the roster wants it. */
 const REPOS_NODE_ID = NODE_ID as NodeId;
 
-/** Who owns both machines. One participant in this scenario, so one owner. */
-const ROSTER_OWNER = PARTICIPANT_YOU as ParticipantId;
+/** Who owns both machines. One user in this scenario, so one owner. */
+const ROSTER_OWNER = USER_YOU as UserId;
 
 /**
  * The MAJOR.MINOR wire-contract version each daemon reported at attach.
@@ -51,7 +51,7 @@ const CLIENT_VERSION = "1.4" as EventEnvelopeVersion;
 const REPOS_NODES: readonly RuntimeNodeRosterEntry[] = [
   {
     nodeId: REPOS_NODE_ID,
-    participantId: ROSTER_OWNER,
+    userId: ROSTER_OWNER,
     state: "online",
     healthState: "online",
     lastHeartbeatAt: secondsBeforeStart(4),
@@ -62,7 +62,7 @@ const REPOS_NODES: readonly RuntimeNodeRosterEntry[] = [
   },
   {
     nodeId: BUILD_NODE_ID,
-    participantId: ROSTER_OWNER,
+    userId: ROSTER_OWNER,
     // THE TWO AXES DISAGREE HERE ON PURPOSE. The slot says the machine has gone and the
     // sweep's last reading still says it was degraded rather than absent; the picker
     // discloses both rather than reconciling them, which is what the wire does too.

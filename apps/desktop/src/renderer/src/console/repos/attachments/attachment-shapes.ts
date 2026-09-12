@@ -30,7 +30,7 @@
 // document carries one for this surface:
 //   • No payload bytes, in any field. An attachment REFERENCE is a typed, ordered list
 //     of artifact ids and never bytes, and no shape here carries a manifest's content.
-//     The source below holds the participant's own `Blob` — a handle the browser owns,
+//     The source below holds the user's own `Blob` — a handle the browser owns,
 //     which the ingest client reads one bounded slice at a time — because a stream with
 //     no byte source can only describe a file it never sends. A handle is not a copy:
 //     nothing in this module reads it, and no field anywhere holds a whole payload.
@@ -54,8 +54,8 @@ import type { IngestRefusalDisposition, UnresolvedAttachmentCause } from "./atta
  * Where one attachment's ingest stands. Closed.
  *
  * `abandoned` is its own member and not a flavour of `refused`: nobody refused it, the
- * participant stopped sending and the daemon's reaper claims the spool. Rendering the
- * two the same way would tell a participant their cancellation was an error.
+ * user stopped sending and the daemon's reaper claims the spool. Rendering the
+ * two the same way would tell a user their cancellation was an error.
  */
 export const ATTACHMENT_INGEST_STATES = [
   "declared",
@@ -71,7 +71,7 @@ export type AttachmentIngestState = (typeof ATTACHMENT_INGEST_STATES)[number];
 // --- The shapes a card renders -------------------------------------------
 
 /**
- * What a participant SAID this attachment is, before the daemon read a byte of it.
+ * What a user SAID this attachment is, before the daemon read a byte of it.
  *
  * METADATA ONLY, AND THAT IS THE POINT. It carries no payload member at all, which is
  * what makes it the shape a finished entry can keep: a `Blob` here would put the bytes
@@ -96,7 +96,7 @@ export interface AttachmentDeclaration {
   readonly declaredMediaType?: string | undefined;
 }
 
-/** What a participant handed over: the declaration, and the bytes it describes. */
+/** What a user handed over: the declaration, and the bytes it describes. */
 export interface AttachmentSource {
   readonly declared: AttachmentDeclaration;
   /**
@@ -126,7 +126,7 @@ export interface AttachmentDerivedTruth {
 }
 
 /**
- * Mint one source from the payload a participant chose.
+ * Mint one source from the payload a user chose.
  *
  * The only way to make an `AttachmentSource`, so the declared length and the bytes
  * cannot come from two places. The declared size is advisory to the daemon, which
@@ -186,7 +186,7 @@ export interface AttachmentIngestRecord {
   readonly lastProgressAtMilliseconds: number | undefined;
 }
 
-/** An entry that can still send, so it holds the participant's bytes. */
+/** An entry that can still send, so it holds the user's bytes. */
 export interface SendingAttachmentIngestEntry extends AttachmentIngestRecord {
   readonly state: SendingAttachmentIngestState;
   readonly declared: AttachmentDeclaration;
@@ -203,7 +203,7 @@ export interface SettledAttachmentIngestEntry extends AttachmentIngestRecord {
 /**
  * One attachment's ingest, as the client publishes it and a card renders it.
  *
- * A UNION OVER ITS OWN STATE, and the exact rule is: an entry holds the participant's
+ * A UNION OVER ITS OWN STATE, and the exact rule is: an entry holds the user's
  * `Blob` while — and only while — a send is still possible from where it stands. A
  * `complete` entry has minted its artifact and an `abandoned` one has stopped for good,
  * so neither can send and neither has anywhere to put a payload. Both arms carry the

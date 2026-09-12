@@ -5,7 +5,7 @@
 // into testing two different shapes of the same thing.
 //
 // TWO FACTORIES AND NOT ONE WITH A CAST. The entry union splits on whether a send is
-// still possible from where the entry stands — the sending arm holds the participant's
+// still possible from where the entry stands — the sending arm holds the user's
 // bytes and the settled arm has nowhere to put them — so a single factory could only
 // satisfy both by asserting past that split, which would let a case build an entry the
 // carrier can never publish. The split is taken STRUCTURALLY off the union rather than

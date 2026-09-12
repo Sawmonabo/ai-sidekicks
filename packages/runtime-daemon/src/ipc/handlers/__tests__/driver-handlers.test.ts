@@ -40,7 +40,7 @@ import type {
   GetCapabilitiesResult,
   HandlerContext,
   JsonRpcNotification,
-  ParticipantId,
+  UserId,
   ProviderCommandBindingGroup,
   ProviderDriver,
   RunId,
@@ -92,7 +92,7 @@ import {
 // ----------------------------------------------------------------------------
 
 const TEST_SESSION_ID = "550e8400-e29b-41d4-a716-446655440000" as SessionId;
-const TEST_ACTOR_ID = "660e8400-e29b-41d4-a716-446655440001" as ParticipantId;
+const TEST_ACTOR_ID = "660e8400-e29b-41d4-a716-446655440001" as UserId;
 const TEST_RUN_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301" as RunId;
 const TEST_IDEMPOTENCY_KEY = "00000000-0000-4000-8000-00000000000a";
 const NO_TRANSPORT: HandlerContext = {};

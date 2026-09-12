@@ -1,4 +1,4 @@
-// PR #145 — third Collaboration Control Plane Postgres migration (inlined SQL).
+// PR #145 — third Control Plane Postgres migration (inlined SQL).
 // Adds the `runtime_node_attachments` and `runtime_node_presence` tables.
 //
 // SQL is inlined as a TypeScript string constant rather than loaded from a
@@ -29,7 +29,7 @@
 // canonical schema):
 //
 //   * runtime_node_attachments — durable runtime-node attach records for
-//                       FK references `sessions(id)` and `participants(id)` — BOTH ship in v1
+//                       FK references `sessions(id)` and `users(id)` — BOTH ship in v1
 //                       (`0001-initial`), so both FKs resolve at this migration's CREATE-time.
 //   * runtime_node_presence — per-node heartbeat/health coordination record
 //                       (`node_id` PRIMARY KEY; no FK).
@@ -85,7 +85,7 @@ export const RUNTIME_NODES_MIGRATION_SQL: string = `
 CREATE TABLE runtime_node_attachments (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   session_id      UUID NOT NULL REFERENCES sessions(id),
-  participant_id  UUID NOT NULL REFERENCES participants(id),
+  user_id  UUID NOT NULL REFERENCES users(id),
   node_id         TEXT NOT NULL,                 -- daemon-assigned node identifier
   capabilities    JSONB NOT NULL DEFAULT '{}',   -- declared capabilities
   client_version  TEXT NOT NULL,                 -- daemon semver "MAJOR.MINOR" at attach; floor-compared vs sessions.min_client_version — makes the read-only verdict auditable + roster-displayable
@@ -95,7 +95,7 @@ CREATE TABLE runtime_node_attachments (
 );
 
 CREATE INDEX idx_node_attachments_session ON runtime_node_attachments(session_id);
-CREATE INDEX idx_node_attachments_participant ON runtime_node_attachments(participant_id);
+CREATE INDEX idx_node_attachments_user ON runtime_node_attachments(user_id);
 CREATE UNIQUE INDEX idx_node_attachments_node ON runtime_node_attachments(node_id, session_id);
 -- One-active-session enforcement ("one active session at a time in v1"): a node has at most one
 -- attachment in an active state across all sessions. The partial UNIQUE constrains only

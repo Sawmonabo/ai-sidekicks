@@ -102,14 +102,14 @@ type ScopedEntityRef<TEntityKind extends ConsoleEntityKind> = ConsoleEntityRef &
  *
  * The design track: a repo, workspace, worktree, or member entity is a card in its
  * sidebar section and opens as an `inspector` pane keyed by its entity kind, its
- * changes opening the `diff` pane. All four are here — `participant` is that
+ * changes opening the `diff` pane. All four are here — `user` is that
  * sentence's member — now that the console's entity vocabulary names repo.
  *
  * ONE LIST FOR BOTH PANE KINDS, because it is one enumerated subject with two
  * clauses hanging off it. Named for the card rather than for either pane, so neither
  * row reads as the owner of a set they share.
  */
-type SidebarCardEntityKind = "participant" | "workspace" | "worktree" | "repo";
+type SidebarCardEntityKind = "user" | "workspace" | "worktree" | "repo";
 
 /**
  * Every entity kind, decided. The exhaustiveness check, and the union's proof.
@@ -125,7 +125,7 @@ type SidebarCardEntityKind = "participant" | "workspace" | "worktree" | "repo";
  */
 const SIDEBAR_CARD_ADMITS_ENTITY_KIND = {
   session: false,
-  participant: true,
+  user: true,
   channel: false,
   run: false,
   agent: false,

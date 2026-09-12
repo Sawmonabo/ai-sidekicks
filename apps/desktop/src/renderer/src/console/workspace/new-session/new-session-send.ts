@@ -275,7 +275,7 @@ async function queueFirstTurn(
     return { queued: true, refusal: undefined };
   }
   // Blankness is decided by trimming and the text is never trimmed: what reaches the
-  // wire is the participant's own bytes, so a first turn that opens with indented code
+  // wire is the user's own bytes, so a first turn that opens with indented code
   // keeps its shape. `send-router.ts` states the same rule for the composer's path.
   if (request.firstTurn.trim().length === 0) {
     return {

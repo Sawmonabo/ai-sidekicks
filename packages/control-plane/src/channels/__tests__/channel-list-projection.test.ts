@@ -17,7 +17,7 @@
 //     `ChannelListResponseSchema`.
 //   * Determinism: the same `sessionId` yields a byte-identical channel `id`
 //     across two separate `list()` calls (the projection holds no state).
-//   * participantCount: the owner alone, on every session.
+//   * userCount: the owner alone, on every session.
 //   * Absent session: a `sessionId` with no row returns `null` — mirroring
 //     `readSession`'s null-on-absent convention exactly.
 //
@@ -36,7 +36,7 @@ import {
   ChannelListResponseSchema,
   deriveMainChannelId,
   type ChannelListResponse,
-  type ParticipantId,
+  type UserId,
   type SessionId,
 } from "@ai-sidekicks/contracts";
 
@@ -51,9 +51,8 @@ import { applyMigrations, type Querier } from "../../sessions/migration-runner.j
 
 const SESSION_ID: SessionId = "01970000-0000-7000-8000-0000000d4001" as SessionId;
 const ABSENT_SESSION_ID: SessionId = "01970000-0000-7000-8000-0000000d4099" as SessionId;
-const OWNER_PARTICIPANT_ID: ParticipantId = "01970000-0000-7000-8000-0000000d4b01" as ParticipantId;
-const SECOND_PARTICIPANT_ID: ParticipantId =
-  "01970000-0000-7000-8000-0000000d4b02" as ParticipantId;
+const OWNER_USER_ID: UserId = "01970000-0000-7000-8000-0000000d4b01" as UserId;
+const SECOND_USER_ID: UserId = "01970000-0000-7000-8000-0000000d4b02" as UserId;
 
 // RFC 9562 section 4: a canonical UUID string. The projection's derived id is a
 // version-8 (custom/deterministic) UUID; this regex pins the 8-4-4-4-12 hex
@@ -138,30 +137,30 @@ beforeEach(async () => {
   };
 });
 
-// Seed an identity-anchor row in `participants`. `sessions` declares
-// `owner_user_id UUID NOT NULL REFERENCES participants(id)`, a non-deferrable
-// FK, so a session's owner MUST pre-exist in `participants` — the same seeding
+// Seed an identity-anchor row in `users`. `sessions` declares
+// `owner_user_id UUID NOT NULL REFERENCES users(id)`, a non-deferrable
+// FK, so a session's owner MUST pre-exist in `users` — the same seeding
 // the directory-service suite does before every createSession. Real user
 // registration lives elsewhere; tests insert the bare id anchor directly.
 // `ON CONFLICT (id) DO NOTHING` keeps the helper idempotent so a user can be
 // seeded once and reused across helpers within a test.
-async function seedParticipant(participantId: ParticipantId): Promise<void> {
-  await ctx.querier.query("INSERT INTO participants (id) VALUES ($1) ON CONFLICT (id) DO NOTHING", [
-    participantId,
+async function seedUser(userId: UserId): Promise<void> {
+  await ctx.querier.query("INSERT INTO users (id) VALUES ($1) ON CONFLICT (id) DO NOTHING", [
+    userId,
   ]);
 }
 
 // Seed a session via the real create path, so the projection runs against rows
 // shaped exactly as production writes them. The owner anchor is seeded first to
 // satisfy the session's owner FK.
-async function createSession(sessionId: SessionId, ownerId: ParticipantId): Promise<void> {
-  await seedParticipant(ownerId);
-  await ctx.directory.createSession({ sessionId, ownerParticipantId: ownerId });
+async function createSession(sessionId: SessionId, ownerId: UserId): Promise<void> {
+  await seedUser(ownerId);
+  await ctx.directory.createSession({ sessionId, ownerUserId: ownerId });
 }
 
 describe("ChannelListProjection.list", () => {
   it("returns the bootstrap main channel projected for an existing session", async () => {
-    await createSession(SESSION_ID, OWNER_PARTICIPANT_ID);
+    await createSession(SESSION_ID, OWNER_USER_ID);
 
     const result = await ctx.projection.list({ sessionId: SESSION_ID });
 
@@ -187,13 +186,13 @@ describe("ChannelListProjection.list", () => {
     // below).
     expect(mainChannel.id).toMatch(UUID_V8_RE);
     // Owner-only session → exactly one active member.
-    expect(mainChannel.participantCount).toBe(1);
+    expect(mainChannel.userCount).toBe(1);
   });
 
   it("projects the default channel the moment the session exists", async () => {
     // The projection must be non-empty as soon as the session row lands — the
     // bootstrap channel is NOT gated behind any channel-creation step.
-    await createSession(SESSION_ID, OWNER_PARTICIPANT_ID);
+    await createSession(SESSION_ID, OWNER_USER_ID);
 
     const result = await ctx.projection.list({ sessionId: SESSION_ID });
 
@@ -203,7 +202,7 @@ describe("ChannelListProjection.list", () => {
   });
 
   it("round-trips the response cleanly through ChannelListResponseSchema", async () => {
-    await createSession(SESSION_ID, OWNER_PARTICIPANT_ID);
+    await createSession(SESSION_ID, OWNER_USER_ID);
 
     const result = await ctx.projection.list({ sessionId: SESSION_ID });
 
@@ -212,13 +211,13 @@ describe("ChannelListProjection.list", () => {
     expect(result).not.toBeNull();
     // `.parse` throws on any drift — proves the projected shape matches the
     // canonical wire contract (strict object, optional `name` present,
-    // non-negative-integer `participantCount`, branded ids).
+    // non-negative-integer `userCount`, branded ids).
     const parsed: ChannelListResponse = ChannelListResponseSchema.parse(result!);
     expect(parsed.channels).toHaveLength(1);
   });
 
   it("derives a deterministic id — same sessionId yields a byte-identical id across calls", async () => {
-    await createSession(SESSION_ID, OWNER_PARTICIPANT_ID);
+    await createSession(SESSION_ID, OWNER_USER_ID);
 
     const first = await ctx.projection.list({ sessionId: SESSION_ID });
     const second = await ctx.projection.list({ sessionId: SESSION_ID });
@@ -232,8 +231,8 @@ describe("ChannelListProjection.list", () => {
     // A second session must not collide with the first on the synthesized
     // channel id — the derivation mixes the sessionId into the hash input.
     const OTHER_SESSION_ID: SessionId = "01970000-0000-7000-8000-0000000d4002" as SessionId;
-    await createSession(SESSION_ID, OWNER_PARTICIPANT_ID);
-    await createSession(OTHER_SESSION_ID, OWNER_PARTICIPANT_ID);
+    await createSession(SESSION_ID, OWNER_USER_ID);
+    await createSession(OTHER_SESSION_ID, OWNER_USER_ID);
 
     const first = await ctx.projection.list({ sessionId: SESSION_ID });
     const other = await ctx.projection.list({ sessionId: OTHER_SESSION_ID });
@@ -241,21 +240,21 @@ describe("ChannelListProjection.list", () => {
     expect(first!.channels[0]!.id).not.toBe(other!.channels[0]!.id);
   });
 
-  it("participantCount is the owner alone, for every session", async () => {
+  it("userCount is the owner alone, for every session", async () => {
     // One user owns a session and no other person is ever on it, so the count
     // of people in the channel is 1 on every session and cannot be moved by
     // anything the projection reads. A regression that reintroduced a count
     // query — over a table that no longer exists — would fail here rather than
     // silently reporting 0.
     const OTHER_SESSION_ID: SessionId = "01970000-0000-7000-8000-0000000d4003" as SessionId;
-    await createSession(SESSION_ID, OWNER_PARTICIPANT_ID);
-    await createSession(OTHER_SESSION_ID, SECOND_PARTICIPANT_ID);
+    await createSession(SESSION_ID, OWNER_USER_ID);
+    await createSession(OTHER_SESSION_ID, SECOND_USER_ID);
 
     const first = await ctx.projection.list({ sessionId: SESSION_ID });
     const other = await ctx.projection.list({ sessionId: OTHER_SESSION_ID });
 
-    expect(first!.channels[0]!.participantCount).toBe(1);
-    expect(other!.channels[0]!.participantCount).toBe(1);
+    expect(first!.channels[0]!.userCount).toBe(1);
+    expect(other!.channels[0]!.userCount).toBe(1);
   });
 
   it("returns null for a session that does not exist (mirrors readSession's null-on-absent)", async () => {

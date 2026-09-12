@@ -30,10 +30,10 @@ import {
 } from "./event-core.js";
 import { NodeIdSchema, type NodeId } from "./node-id.js";
 import {
-  ParticipantIdSchema,
+  UserIdSchema,
   SessionIdSchema,
   wireFreeFormString,
-  type ParticipantId,
+  type UserId,
   type SessionId,
 } from "./session.js";
 
@@ -117,7 +117,7 @@ export const RuntimeNodeHealthStateSchema: z.ZodType<RuntimeNodeHealthState> = z
 
 export interface RuntimeNodeAttachRequest {
   sessionId: SessionId;
-  participantId: ParticipantId;
+  userId: UserId;
   nodeId: NodeId;
   clientVersion: EventEnvelopeVersion;
   capabilities: Record<string, unknown>;
@@ -149,7 +149,7 @@ export const RuntimeNodeAttachRequestSchema: z.ZodType<
 > = z
   .object({
     sessionId: SessionIdSchema,
-    participantId: ParticipantIdSchema,
+    userId: UserIdSchema,
     nodeId: NodeIdSchema,
     clientVersion: EventEnvelopeVersionSchema,
     // Zod v4 two-arg `z.record(keySchema, valueSchema)` — the one-arg v3 form
@@ -518,7 +518,7 @@ export const RuntimeNodeRosterRequestSchema: z.ZodType<
 
 export interface RuntimeNodeRosterEntry {
   nodeId: NodeId;
-  participantId: ParticipantId;
+  userId: UserId;
   state: NodeState;
   healthState: "online" | "degraded" | "offline" | null;
   lastHeartbeatAt: string | null;
@@ -531,13 +531,13 @@ export interface RuntimeNodeRosterEntry {
 // response side), never a tRPC input surface, so it follows the file's
 // single-T house style (`RuntimeNodeAttachResponseSchema` above) and needs
 // no cast even though it composes the branded `NodeIdSchema` /
-// `ParticipantIdSchema` / `EventEnvelopeVersionSchema` — single-T members only
+// `UserIdSchema` / `EventEnvelopeVersionSchema` — single-T members only
 // poison input inference on the REQUEST side (the
 // `RuntimeNodeCapabilityUpdateResponseSchema` contrast note above).
 export const RuntimeNodeRosterEntrySchema: z.ZodType<RuntimeNodeRosterEntry> = z
   .object({
     nodeId: NodeIdSchema,
-    participantId: ParticipantIdSchema,
+    userId: UserIdSchema,
     // SLOT axis — all five `NodeState` values verbatim (registering|online|
     // degraded|offline|revoked): the roster is a FAITHFUL projection of every
     // `runtime_node_attachments` row for the session, no server-side hiding — needs
@@ -598,7 +598,7 @@ export interface RuntimeNodeRosterResponse {
   // `lastHeartbeatAt` ride VERBATIM in this same response, so the payload never
   // contradicts itself and the `offline` verdict behind a suppression stays
   // visible on the node rows.
-  controlHolder: ParticipantId | null;
+  controlHolder: UserId | null;
 }
 // Single-T `z.ZodType<T>` — non-input projection (see the entry schema above);
 // `z.array(...)` over a single-T element matches
@@ -614,10 +614,10 @@ export const RuntimeNodeRosterResponseSchema: z.ZodType<RuntimeNodeRosterRespons
     // that has not been taught to project the lease at all, and a client cannot
     // tell "nobody holds it" from "nobody asked" out of an absent member; a
     // present `null` says the projection ran and advertised no live holder.
-    // The value is the branded `ParticipantId`, so a corrupted stored holder
+    // The value is the branded `UserId`, so a corrupted stored holder
     // fails closed at the read boundary rather than reaching a surface that
     // would render it as an identity.
-    controlHolder: ParticipantIdSchema.nullable(),
+    controlHolder: UserIdSchema.nullable(),
   })
   .strict();
 
@@ -786,12 +786,12 @@ export const RUNTIME_NODE_CAPABILITY_KEY_MAX_LEN = 128;
 // payload shared by every `runtime_node.*` LIFECYCLE event. `sessionId` is `.optional()`
 // per the `sessionId?` base: the daemon always populates it for `runtime_node.*` events
 // ("carry the session_id of the attachment they describe"), but the SCHEMA mirrors the
-// spec's optional base. `actor` is the EventEnvelope free-form actor (`participant_id |
+// spec's optional base. `actor` is the EventEnvelope free-form actor (`user_id |
 // agent_id | null` per the actor field), realized with
 // `wireFreeFormString(...).nullable().optional()` — the SAME wire field as
 // `EventEnvelope.actor` (event.ts's `buildCommonShape()`), so it reuses the shared
 // `EVENT_FIELD_MAX_LEN` cap (a wire field above the 2-consumer hoist bar), NOT a branded
-// `ParticipantId`.
+// `UserId`.
 const buildRuntimeNodeLifecycleBaseShape = () => ({
   sessionId: SessionIdSchema.optional(),
   nodeId: NodeIdSchema,

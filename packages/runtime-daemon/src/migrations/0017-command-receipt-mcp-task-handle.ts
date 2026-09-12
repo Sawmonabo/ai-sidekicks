@@ -8,7 +8,7 @@
 // `import.meta.url` inconsistently).
 //
 // The column below is transcribed from the canonical `command_receipts` block —
-// the same convention `0007-pii-participant-id.ts` states, and the same direction
+// the same convention `0007-pii-user-id.ts` states, and the same direction
 // of authority: the schema doc defines the column, this file applies it. Change
 // the doc first, then mirror it here. The doc block is a FOUR-plan composite
 // (CREATEs the shell and each EXTEND from their own migration), so the block's

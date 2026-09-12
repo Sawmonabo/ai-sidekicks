@@ -4,7 +4,7 @@
 // across five categories — and the run pane read its snapshot ONCE, re-reading only
 // when an operator at this keyboard performed a control and the daemon served it. Every
 // other way a run moves reached nothing: the engine advancing a phase, a park arming a
-// resume, a second window's cancel, another participant's gate resolution. The pane
+// resume, a second window's cancel, another user's gate resolution. The pane
 // showed a stale run indefinitely and nothing on screen said so.
 //
 // AND IT IS NOT A POLL. The console's read policy puts reads on subscribe, on window

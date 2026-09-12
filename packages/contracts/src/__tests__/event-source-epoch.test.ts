@@ -75,7 +75,7 @@ import {
   EventEnvelopeSchema,
   ORIGIN_POSITION_STUB_KEY,
   PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
-  PII_PARTICIPANT_ID_PAYLOAD_KEY,
+  PII_USER_ID_PAYLOAD_KEY,
   SESSION_EVENT_CATEGORY_BY_TYPE,
   SESSION_EVENT_TYPES,
   SessionEventSchema,
@@ -700,8 +700,8 @@ const readBranchFacts = (union: unknown): BranchFacts[] =>
     // The PII indirection pair aggregates with the same `some` direction and
     // for the same reason: any arm carrying a key makes the branch carry it,
     // which is the conservative reading for the must-NOT-admit rule.
-    const piiKeys = [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY, PII_PARTICIPANT_ID_PAYLOAD_KEY].filter(
-      (key) => arms.some((arm) => Object.hasOwn(arm.shape, key)),
+    const piiKeys = [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY, PII_USER_ID_PAYLOAD_KEY].filter((key) =>
+      arms.some((arm) => Object.hasOwn(arm.shape, key)),
     );
     return {
       type: branch.shape.type.def.values[0] ?? "(no discriminator literal)",
@@ -957,14 +957,14 @@ describe("wrap-admission ratchet over the live SessionEventSchema union", () => 
 // though its name says `source-epoch`.
 //
 // Requires a row whose `pii_payload` column is non-NULL to embed BOTH
-// `pii_ciphertext_digest` and `pii_participant_id` in `payload`. The sealing
+// `pii_ciphertext_digest` and `pii_user_id` in `payload`. The sealing
 // codec does exactly that and then signs the composed row, so a registered
 // variant that did not admit the pair would reject the very row the daemon
 // signed — a permanently unparseable authoritative event, refused only AFTER
 // the encrypt. Admission is scoped by CATEGORY and by nothing else, because
 // that is the only axis the codec's own refusal is keyed on.
 
-// The two categories holds free of participant PII: never compacted, never
+// The two categories holds free of user PII: never compacted, never
 // crypto-shredded, `pii_payload` NULL by construction, and refused BY NAME in
 // the codec before it encrypts anything. Spelled here rather than imported,
 // on the `STAMP_ADMITTING_CATEGORIES` precedent above: this is the RULE the
@@ -1054,7 +1054,7 @@ describe("PII-indirection admission ratchet over the live SessionEventSchema uni
             category: z.literal("event_maintenance"),
             payload: runScopedPayloadSchema.extend({
               [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: z.string().optional(),
-              [PII_PARTICIPANT_ID_PAYLOAD_KEY]: z.string().optional(),
+              [PII_USER_ID_PAYLOAD_KEY]: z.string().optional(),
             }),
           })
           .strict(),
@@ -1070,7 +1070,7 @@ describe("PII-indirection admission ratchet over the live SessionEventSchema uni
             category: z.literal("assistant_output"),
             payload: strippingPayloadSchema.extend({
               [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: z.string().optional(),
-              [PII_PARTICIPANT_ID_PAYLOAD_KEY]: z.string().optional(),
+              [PII_USER_ID_PAYLOAD_KEY]: z.string().optional(),
             }),
           })
           .strict(),
@@ -1093,7 +1093,7 @@ describe("PII-indirection admission ratchet over the live SessionEventSchema uni
           category: z.literal("assistant_output"),
           payload: runScopedPayloadSchema.extend({
             [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: z.string().optional(),
-            [PII_PARTICIPANT_ID_PAYLOAD_KEY]: z.string().optional(),
+            [PII_USER_ID_PAYLOAD_KEY]: z.string().optional(),
           }),
         })
         .strict(),
@@ -1144,7 +1144,7 @@ describe("a sealed row's PII indirection pair parses through its own strict vari
   const PII_PAIR = {
     [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]:
       "3f79bb7b435b05321651daefd374cdc681dc06faa65e374e38337b88ca046dea",
-    [PII_PARTICIPANT_ID_PAYLOAD_KEY]: "990e8400-e29b-41d4-a716-446655440009",
+    [PII_USER_ID_PAYLOAD_KEY]: "990e8400-e29b-41d4-a716-446655440009",
   };
 
   it("accepts a row carrying BOTH members, verbatim", () => {
@@ -1152,24 +1152,24 @@ describe("a sealed row's PII indirection pair parses through its own strict vari
     expect(payload[PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]).toBe(
       PII_PAIR[PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY],
     );
-    expect(payload[PII_PARTICIPANT_ID_PAYLOAD_KEY]).toBe(PII_PAIR[PII_PARTICIPANT_ID_PAYLOAD_KEY]);
+    expect(payload[PII_USER_ID_PAYLOAD_KEY]).toBe(PII_PAIR[PII_USER_ID_PAYLOAD_KEY]);
   });
 
   it("accepts a NON-UUID owner stamp, which is what the codec actually embeds", () => {
     // The stamp is a bounded free-form string and deliberately NOT
-    // `ParticipantIdSchema`: the codec types the value a plain `string` because
+    // `UserIdSchema`: the codec types the value a plain `string` because
     // nothing on that path mints the brand. A variant demanding a canonical
     // UUID here would refuse rows the append path legally signs.
     const payload = parseAssistantMessagePayload(
-      buildAssistantMessageRow({ ...PII_PAIR, [PII_PARTICIPANT_ID_PAYLOAD_KEY]: "local-holder-7" }),
+      buildAssistantMessageRow({ ...PII_PAIR, [PII_USER_ID_PAYLOAD_KEY]: "local-holder-7" }),
     );
-    expect(payload[PII_PARTICIPANT_ID_PAYLOAD_KEY]).toBe("local-holder-7");
+    expect(payload[PII_USER_ID_PAYLOAD_KEY]).toBe("local-holder-7");
   });
 
   it("accepts a row carrying NEITHER member (the pair stays optional)", () => {
     const payload = parseAssistantMessagePayload(buildAssistantMessageRow({}));
     expect(payload[PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]).toBeUndefined();
-    expect(payload[PII_PARTICIPANT_ID_PAYLOAD_KEY]).toBeUndefined();
+    expect(payload[PII_USER_ID_PAYLOAD_KEY]).toBeUndefined();
   });
 
   it("REJECTS the pair on a refused-category row (event.shredded)", () => {
@@ -1180,7 +1180,7 @@ describe("a sealed row's PII indirection pair parses through its own strict vari
       nodeId: "990e8400-e29b-41d4-a716-446655440011",
       operationId: "shred-pass-0007",
       occurredAt: "2026-08-30T11:02:04.000Z",
-      participantId: "990e8400-e29b-41d4-a716-446655440012",
+      userId: "990e8400-e29b-41d4-a716-446655440012",
       affectedSessionIds: [SESSION_ID],
       piiPayloadsCleared: 3,
       shredReason: "gdpr_article_17" as const,

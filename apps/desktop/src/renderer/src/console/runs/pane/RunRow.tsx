@@ -56,7 +56,7 @@ import { StatusHistory } from "./StatusHistory.js";
 /**
  * The hue step a run row's attribution edge takes.
  *
- * `RunStateChangeEvent` carries no participant and no agent member, so there is
+ * `RunStateChangeEvent` carries no user and no agent member, so there is
  * nobody to attribute a run to — and `LedgerRow` treats a step outside the wheel as
  * unattributed and takes the neutral boundary rather than borrowing a hue. `-1` is
  * how this row states that, and it is deliberately not `0`, which would attribute
@@ -115,7 +115,7 @@ export function RunRow(props: RunRowProps): React.JSX.Element {
 
   return (
     <LedgerRow
-      participantHueStep={UNATTRIBUTED_HUE_STEP}
+      actorHueStep={UNATTRIBUTED_HUE_STEP}
       occurredAtIso={run.updatedAtIso}
       actorLabel={run.runId}
       kindLabel={run.state}

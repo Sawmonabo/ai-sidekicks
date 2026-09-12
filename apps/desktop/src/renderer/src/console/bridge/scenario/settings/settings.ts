@@ -49,7 +49,7 @@
 //
 // WHY THE NODE IDENTIFIERS ARE NOT UUIDs. `NodeIdSchema` is a bounded branded STRING
 // and not a UUID (`packages/contracts/src/node-id.ts`), unlike every session,
-// participant, membership, and agent id in these scenarios. So the readable names
+// user, membership, and agent id in these scenarios. So the readable names
 // below are what the strict layer actually accepts, and spelling them as UUIDs would
 // misreport the one identifier on this wire that is not one.
 //
@@ -80,7 +80,7 @@ import {
 } from "./diagnostics-plane.js";
 import { SETTINGS_MCP_PLANE_REPLIES } from "./mcp-plane.js";
 import {
-  PARTICIPANT_YOU,
+  USER_YOU,
   RUNTIME_NODES,
   RUNTIME_NODE_ROSTER_FRAMES,
   SESSION_ID,
@@ -98,12 +98,12 @@ export const SETTINGS_SCENARIO: ConsoleScenario = {
   purpose:
     "One quiet session so the rail is reachable, two runtime nodes of which one falls into the degraded band, and the three unbound settings planes answered through the growth port: node diagnostics, the provider-account registry with its sign-in handoff, and the MCP governance inventory.",
   sessionId: SESSION_ID,
-  participantIdsInJoinOrder: [PARTICIPANT_YOU],
-  // The only participant, and stated rather than inferred all the same: a
+  userIdsInJoinOrder: [USER_YOU],
+  // The only user, and stated rather than inferred all the same: a
   // single-member roster makes the head of the join order coincide with the viewer,
   // and a surface that read the coincidence as the rule would be wrong everywhere
   // else.
-  viewingParticipantId: PARTICIPANT_YOU,
+  viewingUserId: USER_YOU,
   startedAtIso: "2026-01-01T08:00:00.000Z",
   runtimeNodeRoster: RUNTIME_NODE_ROSTER_FRAMES,
   // The declaration the attach control reviews, supplied by the deck because
@@ -133,7 +133,7 @@ export const SETTINGS_SCENARIO: ConsoleScenario = {
         sequence: 1,
         kind: "session.created",
         occurredAt: occurredAt(0),
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
       },
     },
@@ -145,9 +145,9 @@ export const SETTINGS_SCENARIO: ConsoleScenario = {
         sequence: 2 + nodeIndex,
         kind: "runtime_node.registered",
         occurredAt: occurredAt(node.registeredAtMs),
-        // The node's owning participant acted; the daemon did not decide to admit a
+        // The node's owning user acted; the daemon did not decide to admit a
         // machine on its own.
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         // The registered shape, verbatim: the lifecycle base plus the three members
         // registration adds. `newState` is `registering` and there is no
         // `previousState`, because a node being admitted has no state it came from.
@@ -169,7 +169,7 @@ export const SETTINGS_SCENARIO: ConsoleScenario = {
         sequence: 4 + nodeIndex,
         kind: "runtime_node.capability_declared",
         occurredAt: occurredAt(node.registeredAtMs + 20),
-        actorId: PARTICIPANT_YOU,
+        actorId: USER_YOU,
         // The REDUCED base — no `previousState` / `newState` at all. A capability
         // declaration is not a node-state transition, and the registered shape says
         // so by leaving both members off.
@@ -190,7 +190,7 @@ export const SETTINGS_SCENARIO: ConsoleScenario = {
         kind: "runtime_node.online",
         occurredAt: occurredAt(node.onlineAtMs),
         // No actor. The daemon moves a node online once its capability declaration
-        // has been accepted, and naming a participant would attribute a system
+        // has been accepted, and naming a user would attribute a system
         // transition to a person.
         payload: {
           sessionId: SESSION_ID,

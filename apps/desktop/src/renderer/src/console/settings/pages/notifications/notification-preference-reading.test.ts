@@ -26,7 +26,7 @@ function jsonRpcRejection(): Error {
   rejection.name = "JsonRpcRemoteError";
   Object.assign(rejection, {
     code: -32603,
-    data: { type: "participant.permission_denied", fields: { retryAfter: 30 } },
+    data: { type: "user.permission_denied", fields: { retryAfter: 30 } },
   });
   return rejection;
 }
@@ -35,7 +35,7 @@ describe("a refused preference write", () => {
   it("renders the daemon's own registered code, not the error class name", () => {
     const refusal = rejectionRefusal(jsonRpcRejection());
 
-    expect(refusal.code).toBe("participant.permission_denied");
+    expect(refusal.code).toBe("user.permission_denied");
     expect(refusal.origin).toBe(NOTIFICATION_PREFERENCE_REFUSAL_ORIGIN);
     expect(refusal.detail).toBe("You may not change this session's preferences.");
   });

@@ -1,6 +1,6 @@
 // What this page shows for a trigger the daemon holds no record for.
 //
-// THE PAGE USED TO SHOW A SENTENCE AND NO CONTROLS. A participant with nothing stored
+// THE PAGE USED TO SHOW A SENTENCE AND NO CONTROLS. A user with nothing stored
 // read "the daemon holds no preference for you yet" and had no way to make one — which
 // inverts the surface: the empty state is exactly the state a person arrives in, and
 // the one where they most need a switch. So the empty arm now draws every preference

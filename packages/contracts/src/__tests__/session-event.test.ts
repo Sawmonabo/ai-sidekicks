@@ -81,7 +81,7 @@ import {
   MCP_GOVERNANCE_EVENT_TYPES,
   PRESENCE_EVENT_TYPES,
   ONBOARDING_LIFECYCLE_EVENT_TYPES,
-  PARTICIPANT_LIFECYCLE_EVENT_TYPES,
+  USER_LIFECYCLE_EVENT_TYPES,
   POLICY_EVENTS_EVENT_TYPES,
   RECOVERY_EVENTS_EVENT_TYPES,
   RUN_LIFECYCLE_EVENT_TYPES,
@@ -136,7 +136,7 @@ import {
 import { CHANNEL_NAME_MAX_LEN } from "../session.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
-const PARTICIPANT_ID = "660e8400-e29b-41d4-a716-446655440001";
+const USER_ID = "660e8400-e29b-41d4-a716-446655440001";
 const CHANNEL_ID = "880e8400-e29b-41d4-a716-446655440003";
 const VERSION = "1.0";
 
@@ -147,7 +147,7 @@ const buildSessionCreated = () => ({
   occurredAt: "2026-01-22T19:14:35.000Z",
   category: "session_lifecycle" as const,
   type: "session.created" as const,
-  actor: PARTICIPANT_ID,
+  actor: USER_ID,
   version: VERSION,
   payload: {
     sessionId: SESSION_ID,
@@ -363,7 +363,7 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
       "usage_telemetry",
       "runtime_node_lifecycle",
       "recovery_events",
-      "participant_lifecycle",
+      "user_lifecycle",
       "audit_integrity",
       "security_events",
       "event_maintenance",
@@ -690,7 +690,7 @@ const CENSUS_BASELINE: ReadonlyArray<
   ["usage_telemetry", USAGE_TELEMETRY_EVENT_TYPES, 8],
   ["runtime_node_lifecycle", RUNTIME_NODE_LIFECYCLE_EVENT_TYPES, 9],
   ["recovery_events", RECOVERY_EVENTS_EVENT_TYPES, 3],
-  ["participant_lifecycle", PARTICIPANT_LIFECYCLE_EVENT_TYPES, 5],
+  ["user_lifecycle", USER_LIFECYCLE_EVENT_TYPES, 5],
   ["audit_integrity", AUDIT_INTEGRITY_EVENT_TYPES, 3],
   ["security_events", SECURITY_EVENTS_EVENT_TYPES, 4],
   ["event_maintenance", EVENT_MAINTENANCE_EVENT_TYPES, 3],
@@ -1583,7 +1583,7 @@ const buildEventShredded = () => ({
     nodeId: NODE_ID,
     operationId: "shred-2026-01-22-01",
     occurredAt: "2026-01-22T19:14:41.000Z",
-    participantId: PARTICIPANT_ID,
+    userId: USER_ID,
     affectedSessionIds: [SESSION_ID, OTHER_SESSION_ID],
     piiPayloadsCleared: 27,
     shredReason: "gdpr_article_17",
@@ -2410,14 +2410,14 @@ const buildRuntimeNodeOffline = () => ({
   occurredAt: "2026-02-01T10:05:00.000Z",
   category: "runtime_node_lifecycle" as const,
   type: "runtime_node.offline" as const,
-  actor: PARTICIPANT_ID,
+  actor: USER_ID,
   version: VERSION,
   payload: {
     sessionId: SESSION_ID,
     nodeId: RUNTIME_NODE_ID,
     previousState: "online",
     newState: "offline",
-    actor: PARTICIPANT_ID,
+    actor: USER_ID,
     lastHeartbeatAt: "2026-02-01T10:04:59.000Z",
     reason: "explicit_shutdown",
   },

@@ -15,7 +15,7 @@
 //     pglite-backed) `Querier`. Used and by the router happy-path
 //     tests..T6.
 
-import type { ParticipantId, SessionId } from "@ai-sidekicks/contracts";
+import type { UserId, SessionId } from "@ai-sidekicks/contracts";
 import { EventLogAnchorStore } from "../../event-anchors/anchor-store.js";
 import { AttachService } from "../../runtime-nodes/attach-service.js";
 import { HeartbeatService } from "../../runtime-nodes/heartbeat-service.js";
@@ -54,8 +54,8 @@ export function makeRefusalAssertingDeps(): ControlPlaneDeps {
     // the throwing querier and throws only on use, so a refusal test that
     // (incorrectly) reaches `eventanchor.upload` fails loudly.
     anchorStore: new EventLogAnchorStore(throwingQuerier),
-    resolveCurrentParticipantId: () => {
-      throw REFUSAL_VIOLATION("resolveCurrentParticipantId");
+    resolveCurrentUserId: () => {
+      throw REFUSAL_VIOLATION("resolveCurrentUserId");
     },
     generateSessionId: () => {
       throw REFUSAL_VIOLATION("generateSessionId");
@@ -68,7 +68,7 @@ export function makeRefusalAssertingDeps(): ControlPlaneDeps {
 
 export interface PassThroughDepsConfig {
   readonly querier: Querier;
-  readonly currentParticipantId: ParticipantId;
+  readonly currentUserId: UserId;
   readonly nextSessionId: SessionId;
   readonly eventStreamProvider?: SessionRouterDeps["eventStreamProvider"];
 }
@@ -83,7 +83,7 @@ export function makePassThroughDeps(config: PassThroughDepsConfig): ControlPlane
     // Real anchor store over the caller-supplied (pglite-backed) Querier,
     // parallel to `directoryService` above.
     anchorStore: new EventLogAnchorStore(config.querier),
-    resolveCurrentParticipantId: () => config.currentParticipantId,
+    resolveCurrentUserId: () => config.currentUserId,
     generateSessionId: () => config.nextSessionId,
     // Default: no events. T7-T9 override with synthetic streams.
     eventStreamProvider:

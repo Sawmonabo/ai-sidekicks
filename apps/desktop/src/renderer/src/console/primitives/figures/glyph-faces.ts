@@ -9,7 +9,7 @@
 // fails the typecheck rather than rendering nothing at runtime.
 //
 // THE RULE THAT DECIDED EACH ROW, stated once so the rows can be one line each. The
-// design language's layout grammar reserves our own faces for participants, runs, and
+// design language's layout grammar reserves our own faces for users, runs, and
 // provenance kinds; `tokens/glyphs.ts` rule 2 fixes the vocabulary of parts the rest of
 // the family is drawn from. So a name takes the Tabler face when Tabler publishes the
 // same picture out of those parts, and stays signature when the governing text reserves
@@ -38,7 +38,7 @@ import WorkspaceFace from "~icons/signature/workspace";
 import SettingsFace from "~icons/tabler/adjustments-horizontal";
 
 // --- Entity and pane kinds — the breadcrumb's kind glyph.
-// A participant, which the governing text reserves; the hexagon reads against `member`'s circle only if both are ours.
+// A user, which the governing text reserves; the hexagon reads against `member`'s circle only if both are ours.
 import AgentFace from "~icons/signature/agent";
 // Runs are reserved by the governing text, and Tabler's `activity` is near-identical — which is why the pairing must be from one hand.
 import RunFace from "~icons/signature/run";
@@ -64,7 +64,7 @@ import WorkflowFace from "~icons/signature/workflow";
 import InspectorFace from "~icons/signature/inspector";
 // A provenance kind; Tabler's `git-compare` and `file-diff` are different pictures.
 import DiffFace from "~icons/signature/diff";
-// A participant, reserved by the governing text and paired with `agent`.
+// A user, reserved by the governing text and paired with `agent`.
 import MemberFace from "~icons/signature/member";
 // Two rings and a centre dot; Tabler's `target` draws three rings, which is a different picture.
 import GoalFace from "~icons/signature/goal";

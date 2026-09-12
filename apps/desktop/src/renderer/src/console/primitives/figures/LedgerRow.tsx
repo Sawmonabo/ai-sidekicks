@@ -8,13 +8,13 @@
 // Three decisions this component makes, each of which the design forces:
 //
 //   • **The edge is 2 px and it is an edge, not a tint.** A background tint on the
-//     row would put the participant hue behind body text, which rule 3 forbids in
-//     terms ("the twelve participant hues … are never used as text") and which would
+//     row would put the user hue behind body text, which rule 3 forbids in
+//     terms ("the twelve user hues … are never used as text") and which would
 //     also cost every row a contrast argument. A 2 px edge carries identity at a
 //     glance without ever sitting behind a glyph. The width is the palette's
 //     `--meridian-attribution-edge`, so rule 1's number lives in one place.
 //   • **The ring treatment varies the edge along its LENGTH, not its width.** Past
-//     twelve participants the wheel wraps and `ParticipantRingTreatment` is what
+//     twelve users the wheel wraps and `ActorRingTreatment` is what
 //     keeps two people on one hue distinguishable. A 2 px strip has no room for a
 //     `double` border-style — CSS would collapse it to a solid hairline — so the
 //     four treatments are expressed as four fill patterns down the edge: continuous,
@@ -33,9 +33,9 @@
 
 import { useId, useMemo } from "react";
 import {
-  PARTICIPANT_HUE_STEPS,
-  type ParticipantRingTreatment,
-  participantHueTokenName,
+  ACTOR_HUE_STEPS,
+  type ActorRingTreatment,
+  actorHueTokenName,
   tokenReference,
 } from "../../tokens/index.js";
 import { WireFigure } from "./WireFigure.js";
@@ -43,9 +43,9 @@ import { formatClockTime } from "./wire-figures.js";
 
 export interface LedgerRowProps {
   /** Wheel step, 0 to 11 — drives the 2 px attribution edge. */
-  readonly participantHueStep: number;
+  readonly actorHueStep: number;
   /** How a wrapped step is told apart from the step it repeats. */
-  readonly ringTreatment?: ParticipantRingTreatment;
+  readonly ringTreatment?: ActorRingTreatment;
   readonly occurredAtIso: string;
   readonly actorLabel: string;
   /** A wire-true event kind. Rendered mono and verbatim. */
@@ -81,16 +81,16 @@ export function LedgerRow(props: LedgerRowProps): React.JSX.Element {
   );
 
   // Fail-closed projection: a step outside the wheel is not clamped into someone
-  // else's colour, because that would attribute a row to the wrong participant.
+  // else's colour, because that would attribute a row to the wrong user.
   // The edge falls back to the neutral control boundary and the row says, in its
   // class, that it carries no attribution.
   const isAttributed =
-    Number.isInteger(props.participantHueStep) &&
-    props.participantHueStep >= 0 &&
-    props.participantHueStep < PARTICIPANT_HUE_STEPS;
+    Number.isInteger(props.actorHueStep) &&
+    props.actorHueStep >= 0 &&
+    props.actorHueStep < ACTOR_HUE_STEPS;
   const edgeStyle: AttributionEdgeStyle = {
     "--meridian-row-hue": isAttributed
-      ? tokenReference(participantHueTokenName(props.participantHueStep))
+      ? tokenReference(actorHueTokenName(props.actorHueStep))
       : tokenReference("edge-strong"),
   };
 
@@ -130,7 +130,7 @@ export function LedgerRow(props: LedgerRowProps): React.JSX.Element {
   );
 }
 
-/** Carries the row's participant hue into the edge's fill patterns. */
+/** Carries the row's user hue into the edge's fill patterns. */
 interface AttributionEdgeStyle extends React.CSSProperties {
   readonly "--meridian-row-hue": string;
 }

@@ -349,7 +349,7 @@ describe("a stamped posture, from the payload to the surface that reads it", () 
       sessionId: SYNTHETIC_SESSION_ID,
       projectors: RUN_LIFECYCLE_PROJECTORS,
     });
-    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
     store.applyBatch([
       runEvent("run.running", {
         runId: STAMPED_RUN_ID,
@@ -378,7 +378,7 @@ describe("a stamped posture, from the payload to the surface that reads it", () 
       sessionId: SYNTHETIC_SESSION_ID,
       projectors: RUN_LIFECYCLE_PROJECTORS,
     });
-    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
     store.applyBatch([runEvent("run.running", { runId: STAMPED_RUN_ID, newState: "running" })]);
 
     const run = store.snapshot().partitions.run[STAMPED_RUN_ID];

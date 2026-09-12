@@ -59,7 +59,7 @@ describe("the timeline row footer seat", () => {
     }).not.toThrow();
   });
 
-  it("offers the footer on a participant message and on nothing else", () => {
+  it("offers the footer on a user message and on nothing else", () => {
     expect(rowTakesFooter(generalRowOfType("user.message"))).toBe(true);
     // The negative control: the predicate reads the row's own type rather than
     // answering true for whatever it is handed.

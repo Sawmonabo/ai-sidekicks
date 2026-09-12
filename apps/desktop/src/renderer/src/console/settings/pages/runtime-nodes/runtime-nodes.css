@@ -192,7 +192,7 @@
 /* --- Who holds the shared shell ----------------------------------------- */
 
 /* The holder's identity is drawn as a MARK and never as coloured text — rule 2 puts
- * the participant hue on a mark, and rule 3 keeps the one accent for the interactive
+ * the user hue on a mark, and rule 3 keeps the one accent for the interactive
  * thing, of which this block has none. The mark is 2 px, which is rule 1's
  * attribution width carried onto an element that is not a row edge.
  *

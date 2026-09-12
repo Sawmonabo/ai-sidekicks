@@ -65,7 +65,7 @@ import { EventLogAnchorStore, UnknownAnchorSessionError } from "./anchor-store.j
  * the REAL class with a throwing `Querier` — a structural stub cannot satisfy
  * the type without an `as unknown as` double-cast that would mask future drift.
  *
- * This procedure carries no participant-identity check, and that is a Tier-5
+ * This procedure carries no user-identity check, and that is a Tier-5
  * deferral with a specific shape rather than an oversight. That check needs
  * the token verification lands at Tier 5 (the daemon side of the same seam is
  * the `DaemonCredentialProvider`, which currently refuses every mint). Until

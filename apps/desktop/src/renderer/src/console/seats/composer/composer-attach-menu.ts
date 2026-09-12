@@ -56,7 +56,7 @@ export interface ComposerAttachMenuContext {
  * supported; no registered operation hands a conversation a reference to anything else.
  * So a family that wants to attach something puts its bytes through the ingest pipeline
  * first and hands back what that pipeline minted — which is what `repos/attachments/`
- * does for a file a participant chose, and what the browser's capture does for a page.
+ * does for a file a user chose, and what the browser's capture does for a page.
  *
  * The two figures beside the id are the pipeline's own answer rather than a second
  * reading of the artifact: a composer row can state what it is carrying and how big it

@@ -98,7 +98,7 @@ describe("the terminal scenario ends held, then loses its host", () => {
   function holderAfter(beats: readonly ScenarioBeat[]): unknown {
     return beats
       .filter((beat) => beat.event.kind === "pty.control_changed")
-      .map((beat) => beat.event.payload?.["holderParticipantId"])
+      .map((beat) => beat.event.payload?.["holderUserId"])
       .at(-1);
   }
 
@@ -135,9 +135,7 @@ describe("the terminal scenario ends held, then loses its host", () => {
     // script that ended on a plain release would drop the host under a lease nobody
     // held — and the degraded state, which is the frame `runToCompletion()` pins,
     // would have no holder to take away.
-    expect(holderAfter(TERMINAL_SCENARIO.beats)).toBe(
-      TERMINAL_SCENARIO.participantIdsInJoinOrder[0],
-    );
+    expect(holderAfter(TERMINAL_SCENARIO.beats)).toBe(TERMINAL_SCENARIO.userIdsInJoinOrder[0]);
   });
 
   it("would notice a script that ended free", () => {

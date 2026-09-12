@@ -99,7 +99,7 @@ export interface ArtifactManifestRow {
   readonly sessionId: string;
   /** The run that produced it, when a run did. */
   readonly runId?: string | undefined;
-  /** The participant that produced it. ABSENT means the daemon itself — a producer, not a gap. */
+  /** The user that produced it. ABSENT means the daemon itself — a producer, not a gap. */
   readonly createdBy?: string | undefined;
   readonly artifactType: ArtifactType;
   readonly digest: string;
@@ -171,7 +171,7 @@ export function filterArtifactRows(
  *
  * Total rather than sparse so the filter can render every type it offers, including
  * the ones at zero: a filter that hid its empty options would make the six-type
- * vocabulary invisible exactly when a participant is looking for something that is
+ * vocabulary invisible exactly when a user is looking for something that is
  * not there.
  */
 export function artifactTypeCounts(

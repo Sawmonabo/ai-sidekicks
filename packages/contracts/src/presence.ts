@@ -201,7 +201,7 @@ export const PresenceUpdateSchema: z.ZodType<PresenceUpdate, PresenceUpdate> = z
 //                 lastSeen}>}`
 //
 // The reply enumerates the one user's DEVICES bound to the session. There is
-// no participant axis: every device belongs to the same user.
+// no user axis: every device belongs to the same user.
 //
 // `lastSeen` follows the same ISO 8601 wire convention as `lastActivityAt`
 // on `PresenceHeartbeat.metadata` (RFC 3339 section 5.6 — accepts Z-suffixed UTC

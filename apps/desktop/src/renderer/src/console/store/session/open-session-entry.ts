@@ -29,7 +29,7 @@
 //
 // THE RESUME RULE LANDS BESIDE THAT REPAIR, and for the same reason. Every read this
 // entry performs answers with the log's own positions, and the resume rule is the
-// CONSUMER's to obey: read up from where this participant was last acknowledged rather
+// CONSUMER's to obey: read up from where this user was last acknowledged rather
 // than from the bottom of the window every time. `timeline-resume.ts` decides — and
 // says there which arms are real and why there is no lost-event one — and this entry
 // is what ACTS on the decision, which is the half that was missing. The decision was

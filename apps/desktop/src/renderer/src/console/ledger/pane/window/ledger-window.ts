@@ -17,11 +17,11 @@
 // THE THREE THINGS THE LIST DECIDES AND A ROW NEVER KNOWS, which is the timeline row
 // seat's own contract:
 //
-//   • `participantHue` — allocated over a join order, and NOT here. The session
+//   • `actorHue` — allocated over a join order, and NOT here. The session
 //     store owns the wheel (`SessionStore.hueAllocator`): it admits the read's
-//     participant join log first and then every actor the log attributes a row to,
+//     user join log first and then every actor the log attributes a row to,
 //     which is the order rule 2 fixes. A second allocator over first-event
-//     appearance was the same algorithm over a different order, so a participant
+//     appearance was the same algorithm over a different order, so a user
 //     who joined early and spoke late wore one hue on their cast chip and another
 //     on their rows — which defeats hue as an identity channel exactly where it is
 //     supposed to work. The feed reads the store's assignment at the row it draws.
@@ -269,7 +269,7 @@ export function deriveLedgerWindow(
  *
  * EVERY MEMBER ROW IS IN THE RESULT, including the ones a closed chapter will fold
  * away. This is the window a narrowing is applied to, so a facet count and a
- * narrowing both see a finished run's messages, tools and participants rather than
+ * narrowing both see a finished run's messages, tools and users rather than
  * only the receipt its fold would have left.
  *
  * A NAMED CHANNEL IS THE EXCEPTION, and it is not a narrowing of this window but

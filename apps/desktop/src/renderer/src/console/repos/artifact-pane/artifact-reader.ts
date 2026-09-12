@@ -78,15 +78,15 @@ export class ArtifactPaneReader extends ArtifactReadSchedule {
   }
 
   /**
-   * Read again, because a participant asked. The only other reason there is.
+   * Read again, because a user asked. The only other reason there is.
    *
    * Routed through the schedule rather than performed here, so a second press inside
    * the coalescing window costs no second read pair and a press made while a read is
    * outstanding becomes the NEXT read rather than a parallel one.
    *
-   * THE REASON IS `participant-request`, WHICH THE SET NOW NAMES. `RefreshReason`
+   * THE REASON IS `user-request`, WHICH THE SET NOW NAMES. `RefreshReason`
    * (`store/read/refresh-scheduler.ts`) is a closed SIX-member set — subscribe, window-focus,
-   * reconnect, terminal-event, gap-repull, participant-request — and the last of
+   * reconnect, terminal-event, gap-repull, user-request — and the last of
    * those is exactly this press. This call used to request `subscribe`, because at
    * the time the set had five members and none of them was true: `subscribe` was the
    * one whose meaning was not FALSE, since the press asks for the same whole-pane
@@ -96,7 +96,7 @@ export class ArtifactPaneReader extends ArtifactReadSchedule {
    * that never opened, which is the fabricated reason that module's own doc forbids.
    */
   public refresh(): void {
-    this.requestRead("participant-request");
+    this.requestRead("user-request");
   }
 
   /**
@@ -115,7 +115,7 @@ export class ArtifactPaneReader extends ArtifactReadSchedule {
     return this.#actions.fetchPayload(artifactId);
   }
 
-  /** Delete one artifact, after the participant confirmed the consequence. */
+  /** Delete one artifact, after the user confirmed the consequence. */
   public async deleteArtifact(artifactId: string): Promise<ArtifactDeleteOutcome> {
     return this.#actions.deleteArtifact(artifactId);
   }

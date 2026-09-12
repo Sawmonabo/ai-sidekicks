@@ -31,7 +31,7 @@ import {
 /**
  * A second act pressed while one is unanswered.
  *
- * Names the act the gate is actually waiting on, not the one pressed: a participant
+ * Names the act the gate is actually waiting on, not the one pressed: a user
  * told "something is in flight" cannot tell what.
  */
 export function actionInFlightRefusal(pending: ProposalAction): ConsoleRefusal {
@@ -82,7 +82,7 @@ export function actionNotAcceptedRefusal(
 /**
  * A preparation the daemon served in a state this console has no reading for.
  *
- * The received word is carried verbatim and quoted, because the participant's next
+ * The received word is carried verbatim and quoted, because the user's next
  * question is which state came back — and paraphrasing it would be the console
  * describing a value it did not author. Nothing was sent: preparation is the step
  * before any remote mutation, so the honest sentence says the proposal was not held

@@ -28,7 +28,7 @@
 // THE VOCABULARY, RE-DERIVED FROM WHAT A READ CAN ACTUALLY SAY
 //
 //   • `resume` — the reply carried an `acknowledged` position. That is where this
-//     participant has been read up to, so the next read starts there.
+//     user has been read up to, so the next read starts there.
 //   • `restart` — it carried none. Nothing has been acknowledged, so the beginning of
 //     the window IS the resume position and no cursor is submitted. This is a first
 //     read and it is the ordinary case; it is NOT a refusal, and rendering it as one

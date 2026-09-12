@@ -4,7 +4,7 @@
 // WHAT THE GATE DRAWS BEFORE ANY PRESS is `ProposalGate.test.tsx` — the absences, the
 // two branch names, the status trichotomies, and the prepared proposal. Every case
 // here is about a control: whether it is there, whether it is reachable, and what the
-// participant is told when it is not.
+// user is told when it is not.
 //
 // OFFERED, NEVER PROJECTED. The gate renders the acts the daemon's own reading admits
 // and refuses to infer a fourth from the three it has, which is the claim the first
@@ -144,7 +144,7 @@ describe("ProposalGate — a draft proposal is drawn and cannot be sent", () => 
     // The payload is on screen — this is not the no-proposal arm.
     expect(container.textContent).toContain("Wire the rate limiter");
     expect(actionGroup.queryByRole("button", { name: "Push" })).toBeNull();
-    // The absence has a reason rather than being a control a participant hunts for.
+    // The absence has a reason rather than being a control a user hunts for.
     expect(container.textContent).toContain(PROPOSAL_NOT_SENDABLE_COPY);
   });
 
@@ -245,7 +245,7 @@ describe("ProposalGate — the incompatible checkout is a blocking choice", () =
 });
 
 describe("ProposalGate — hosting unavailable is a feature, not an error page", () => {
-  it("still produces the summary and names the bundle a participant acts on by hand", () => {
+  it("still produces the summary and names the bundle a user acts on by hand", () => {
     const { container } = render(
       <ProposalGate
         state={{
@@ -326,7 +326,7 @@ describe("ProposalGate — a confirmation belongs to what it was opened over", (
     // Without this the two cases above would pass against a gate that closed the
     // confirmation on every render — and this gate re-reads on focus, on a reconnect,
     // and on every repo frame the daemon sends, so the confirm would close under a
-    // participant part way through reading it.
+    // user part way through reading it.
     const { container, rerender } = openPushConfirmation();
 
     rerender(

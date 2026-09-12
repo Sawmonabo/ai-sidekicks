@@ -137,7 +137,7 @@ export function paneContext(
  */
 export function initialisedSessionStore(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: WORKFLOWS_PARKED_RUN.sessionId });
-  sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+  sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
   return sessionStore;
 }
 

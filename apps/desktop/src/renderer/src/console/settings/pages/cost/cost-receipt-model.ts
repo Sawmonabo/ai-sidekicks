@@ -22,7 +22,7 @@
 // WHERE THE CENTS FORMATTER WENT
 //
 // `formatCentsAsCurrency` was declared here while this page was its only reader. The
-// session cast bar renders the same committed figure from the same accountant, and
+// session session header renders the same committed figure from the same accountant, and
 // `workspace/` and `settings/` are sibling view families that may not import each
 // other — so the adapter is hoisted to `console/primitives/figures/wire-figures.ts`,
 // which `apps/desktop/AGENTS.md` already makes the one module that formats a wire

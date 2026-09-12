@@ -9,7 +9,7 @@
 // APPROVE AND REJECT CARRY WHAT THE CARD CARRIES AND NOTHING MORE. The request is
 // `{ approvalRequestId, decision, effectiveScope: record.requestedScope }`, which
 // is the card's own payload with the remembered-rule member deliberately absent:
-// a remembered grant is a policy the participant has to SEE before it is minted,
+// a remembered grant is a policy the user has to SEE before it is minted,
 // and a palette row shows no policy. The scope is the requested one, never wider.
 //
 // WHY THERE IS NO "SET THE GOAL" ROW. Setting a goal needs text, and a palette row

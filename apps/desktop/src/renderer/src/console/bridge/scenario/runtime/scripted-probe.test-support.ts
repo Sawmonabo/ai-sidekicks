@@ -2,7 +2,7 @@
 //
 // `read-settlement.test.ts` and `fixture/growth/scripted-answer.test.ts` each stand a
 // scenario up that scripts replies and plays no beats, and each was declaring the
-// same session and participant pair to do it. Two literals of the same value is how
+// same session and user pair to do it. Two literals of the same value is how
 // one suite's scenario ends up addressed at a session the other's is not, with
 // nothing reporting that the two probes stopped probing the same thing.
 //
@@ -18,5 +18,5 @@
 /** The session every scripted-reply probe in this family addresses. */
 export const PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
 
-/** The one participant those probes' scenarios join with. */
-export const PROBE_PARTICIPANT_ID = "019b7a12-0280-79a4-8110-cca0117a0401";
+/** The one user those probes' scenarios join with. */
+export const PROBE_USER_ID = "019b7a12-0280-79a4-8110-cca0117a0401";

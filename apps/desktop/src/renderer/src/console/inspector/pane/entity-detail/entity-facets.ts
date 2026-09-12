@@ -164,7 +164,7 @@ export function expiryFacet(label: string, value: unknown, memberName: string): 
 }
 
 /**
- * How many entities of one kind this session attributes to a participant.
+ * How many entities of one kind this session attributes to a user.
  *
  * Over `ConsoleEntity.attributedTo`, which the store TYPES — so this is a read of
  * the projection rather than a guess at a body member, and it is the one relation
@@ -172,9 +172,9 @@ export function expiryFacet(label: string, value: unknown, memberName: string): 
  */
 export function countAttributedTo(
   entities: Readonly<Record<string, ConsoleEntity>>,
-  participantId: string,
+  userId: string,
 ): number {
-  return Object.values(entities).filter((entity) => entity.attributedTo === participantId).length;
+  return Object.values(entities).filter((entity) => entity.attributedTo === userId).length;
 }
 
 /**

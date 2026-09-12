@@ -135,7 +135,7 @@ describe("the binding latch admits one round per subject", () => {
     // `switch` is OPTIONAL on the reply — absent on a pure rename or rebind — and a
     // holder that published only the member collapsed that reply into the same
     // `undefined` a round nobody had submitted wears. So the form said nothing, the
-    // binding re-read never fired, and the participant's press had no answer.
+    // binding re-read never fired, and the user's press had no answer.
     const { bridge, updates } = bridgeAnswering({ status: "served", value: {} });
     const rendered = renderHook(() => useAgentBindingSwitch(bridge, SESSION_ID, AGENT_ID));
 

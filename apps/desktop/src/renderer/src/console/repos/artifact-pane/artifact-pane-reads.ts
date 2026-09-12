@@ -77,14 +77,14 @@ export async function readArtifactList(
  * THE REFUSAL IS A DESIGNED ARM OF THIS READING AND NOT A FAILURE OF IT. A
  * deployment that does not serve its bounds is the ordinary case on this build —
  * the wire is unregistered — so the hint falls back to what the console ships and
- * says which of the two a participant is looking at. Reading the refusal off the
+ * says which of the two a user is looking at. Reading the refusal off the
  * reply's own shape is what keeps it on that arm: read as served, it took the
  * whole pane read down with a `TypeError` and reported the console as broken.
  *
  * A REJECTED CALL LANDS ON THE SAME ARM, for the same reason and by the same door:
  * a deployment whose bounds read is refused and one whose bounds read never came
  * back are both deployments this pane has no bounds from, and both are cases where
- * the shipped defaults are what a participant is looking at.
+ * the shipped defaults are what a user is looking at.
  */
 export async function readArtifactAllowlist(
   bridge: ConsoleBridge,
@@ -98,7 +98,7 @@ export async function readArtifactAllowlist(
   }
   if (!carriesBounds(answer.value)) {
     // The shipped defaults with the reason beside them, which is what every other
-    // unusable bounds answer lands on: a participant is still told which of the two
+    // unusable bounds answer lands on: a user is still told which of the two
     // lists they are looking at, and why.
     return {
       ...SHIPPED_DEFAULT_ALLOWLIST,

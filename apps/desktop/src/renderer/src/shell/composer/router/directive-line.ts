@@ -3,7 +3,7 @@
 // The line has two jobs beyond holding text. It is ADDRESSED — the placeholder names
 // the target, so a person reading nothing else still knows where their sentence is
 // going — and it is WALKABLE: ArrowUp and ArrowDown at the edge offsets recall this
-// participant's sent messages, guarded so that a walk never destroys an unsent draft.
+// user's sent messages, guarded so that a walk never destroys an unsent draft.
 //
 // The recall is stateful, so it is a class with private fields. The two derivations
 // are pure, so they are functions: the placeholder is a projection of the target and
@@ -91,7 +91,7 @@ export function caretAtEnd(caret: DirectiveCaret): boolean {
 }
 
 /**
- * This participant's sent messages, walkable, draft-guarded.
+ * This user's sent messages, walkable, draft-guarded.
  *
  * The guard is the whole design: the text a person had typed before they started
  * walking is STASHED on the first recall and restored when they walk back past the
@@ -101,7 +101,7 @@ export function caretAtEnd(caret: DirectiveCaret): boolean {
  *
  * The list is bounded at `COMPOSER_HISTORY_RECALL_CAP` and holds only what this
  * window has seen this session. It is renderer-local and never persisted:
- * `console/persistence/draft-store.ts` states why participant-authored text does not
+ * `console/persistence/draft-store.ts` states why user-authored text does not
  * reach durable storage, and a recall list is the same class of content.
  */
 export class DirectiveHistory {
@@ -194,7 +194,7 @@ export class DirectiveHistory {
  * The composer is rebound rather than remounted when a person moves between agents
  * and channels, and a single history for the life of the mounted bar carried the
  * whole of one address's sent messages — and any walk in progress — into the next.
- * ArrowUp under the new target copied participant-authored text written for the old
+ * ArrowUp under the new target copied user-authored text written for the old
  * one into the line, and ArrowDown restored a draft stashed before the switch.
  *
  * A MAP RATHER THAN A RESET. Coming back to an address and finding its own history

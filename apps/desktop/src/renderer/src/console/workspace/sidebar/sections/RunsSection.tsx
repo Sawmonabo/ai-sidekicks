@@ -157,7 +157,7 @@ export function RunsSection(context: SidebarSectionContext): React.JSX.Element {
             ? "No run has been started in this session."
             : "No run matches the filter."
         }
-        detail="A run starts when a participant sends a message to an agent."
+        detail="A run starts when a user sends a message to an agent."
       />
     );
   }

@@ -9,9 +9,9 @@
 // It pins three facts against the ABSOLUTE post-all-migrations control-plane
 // schema:
 //
-//   (1) the identity anchors (`participants`, `sessions`) are present
-//       The `runtime_node_attachments.participant_id REFERENCES
-//       participants(id)` and `.session_id REFERENCES sessions(id)` resolve at
+//   (1) the identity anchors (`users`, `sessions`) are present
+//       The `runtime_node_attachments.user_id REFERENCES
+//       users(id)` and `.session_id REFERENCES sessions(id)` resolve at
 //       Phase-3 CREATE-time only because ships these first.
 //       flow READS the per-session version floor from this forward-declared column (the
 //       `sessions` block in `packages/control-plane/src/migrations/0001-initial.ts`).
@@ -19,7 +19,7 @@
 //
 // (b) Substrate rationale — why this guard lives in control-plane, NOT daemon
 // ----------------------------------------------------------------------------
-// Every anchor this guard touches — `participants`, `sessions.min_client_version`,
+// Every anchor this guard touches — `users`, `sessions.min_client_version`,
 // and the deferred `runtime_node_attachments` / `runtime_node_presence` — is a
 // POSTGRES / control-plane surface (the runtime_node tables carry `-- Owner: `).
 // None of them is visible to a SQLite-introspecting test. So the honest home for
@@ -165,11 +165,11 @@ afterEach(async () => {
 // ----------------------------------------------------------------------------
 
 describe("upstream-anchor guard (reads, does not CREATE)", () => {
-  it("(1) identity anchors are present: participants + sessions", async () => {
-    // The runtime_node_attachments FK-references participants(id) and
+  it("(1) identity anchors are present: users + sessions", async () => {
+    // The runtime_node_attachments FK-references users(id) and
     // sessions(id); both must already exist for the Phase-3 CREATE to resolve.
     const tables: Set<string> = await snapshotPublicTables(ctx.querier);
-    expect(tables.has("participants")).toBe(true);
+    expect(tables.has("users")).toBe(true);
     expect(tables.has("sessions")).toBe(true);
   });
 

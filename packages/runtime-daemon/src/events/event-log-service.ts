@@ -114,7 +114,7 @@ import {
   assertNoCodecOwnedContentKeys,
   assertRegisteredVariantParses,
   PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
-  PII_PARTICIPANT_ID_PAYLOAD_KEY,
+  PII_USER_ID_PAYLOAD_KEY,
   writeEventWithPii,
   type EventContentInput,
   type PiiEligibleCategory,
@@ -148,7 +148,7 @@ export type UnsequencedEventEnvelope = Omit<EventEnvelope, "sequence">;
  * primary key), but it is returned anyway so a caller has ONE object carrying
  * every identifier of the row it just wrote — the same "the persistence
  * contract admits exactly this result" discipline `PiiEventWriteResult` applies
- * to its echoed `piiParticipantId`.
+ * to its echoed `piiUserId`.
  */
 export interface EventLogAppendReceipt {
   readonly id: string;
@@ -167,7 +167,7 @@ export interface EventLogAppendReceipt {
  */
 export interface EventLogAppendPii {
   /** Whose content key seals `piiPayload`, and the value for the stamp column. */
-  readonly participantId: string;
+  readonly userId: string;
   /** The PII half of the split — encrypted into `pii_payload`, never hashed. */
   readonly piiPayload: Record<string, unknown>;
 }
@@ -191,7 +191,7 @@ export interface EventLogAppendContent {
 }
 
 /**
- * The encryptor handed to the codec on a content-only row, where no participant
+ * The encryptor handed to the codec on a content-only row, where no user
  * partition exists and the injected {@link PiiEncryptor} may legitimately be
  * absent. Calling it is a routing defect, so it answers by name rather than by
  * `TypeError`.
@@ -343,7 +343,7 @@ export interface EventLogServiceDeps {
    * throwing transactional prelude, a UNIQUE violation on the INSERT. On a
    * session that never runs another content-bearing append — an inactive one
    * never compacts either — the row is permanent, and `rewrapAll` walks it on
-   * every unrelated participant's erasure for the life of the node.
+   * every unrelated user's erasure for the life of the node.
    *
    * OPTIONAL, and the degraded stance is honest rather than convenient: with it
    * unwired the orphan is not leaked, it is DELAYED — the compactor's pass-level
@@ -407,13 +407,13 @@ export class EventLogService {
          category, type, actor, payload, pii_payload,
          correlation_id, causation_id, version,
          prev_hash, row_hash, daemon_signature,
-         pii_participant_id, content_payload
+         pii_user_id, content_payload
        ) VALUES (
          @id, @session_id, @sequence, @occurred_at, @monotonic_ns,
          @category, @type, @actor, @payload, @pii_payload,
          @correlation_id, @causation_id, @version,
          @prev_hash, @row_hash, @daemon_signature,
-         @pii_participant_id, @content_payload
+         @pii_user_id, @content_payload
        )`,
     );
 
@@ -653,7 +653,7 @@ export class EventLogService {
             prev_hash: Buffer.from(signed.signedRow.prevHash),
             row_hash: Buffer.from(signed.signedRow.rowHash),
             daemon_signature: Buffer.from(signed.signedRow.daemonSignature),
-            pii_participant_id: signed.piiParticipantId ?? null,
+            pii_user_id: signed.piiUserId ?? null,
             content_payload: signed.contentPayload ?? null,
           },
           options?.transactionalPrelude,
@@ -695,7 +695,7 @@ export class EventLogService {
    * of the two to misreport itself.
    *
    * BOTH keys are CODEC-OWNED. `writeEventWithPii` is the only thing that may
-   * embed `pii_ciphertext_digest` or `pii_participant_id` into a payload, and
+   * embed `pii_ciphertext_digest` or `pii_user_id` into a payload, and
    * this service invokes that codec itself (it holds the `prev_hash` the codec
    * needs). So a payload arriving here with either key already present did not
    * come through the split — which is precisely the `daemon.pii_split_bypass`
@@ -725,10 +725,10 @@ export class EventLogService {
    * detail.
    */
   #assertNoReservedPiiKeys(payload: Record<string, unknown>): void {
-    if (Object.hasOwn(payload, PII_PARTICIPANT_ID_PAYLOAD_KEY)) {
+    if (Object.hasOwn(payload, PII_USER_ID_PAYLOAD_KEY)) {
       throw piiSplitBypass(
-        `payload.${PII_PARTICIPANT_ID_PAYLOAD_KEY}`,
-        `payload carries the reserved PII owner stamp \`${PII_PARTICIPANT_ID_PAYLOAD_KEY}\` — ` +
+        `payload.${PII_USER_ID_PAYLOAD_KEY}`,
+        `payload carries the reserved PII owner stamp \`${PII_USER_ID_PAYLOAD_KEY}\` — ` +
           `only the pii-indirection codec may embed it, and this write did not go through the ` +
           `encrypt-then-digest-then-sign split. Pass the PII partition as append options ` +
           `instead of embedding it in the payload.`,
@@ -828,7 +828,7 @@ export class EventLogService {
     // THE PLAIN BRANCH IS "NEITHER PARTITION", not "no PII". Phase 3B widened
     // this predicate rather than adding a third branch, and the widening is the
     // structural point of the change: `assistant.*` and `tool.*` rows carry
-    // machine prose and usually no participant PII at all, so before it the
+    // machine prose and usually no user PII at all, so before it the
     // common content-bearing row took this branch and never reached the codec —
     // the column could exist and nothing would ever write to it.
     if (input.pii === undefined && input.content === undefined) {
@@ -855,7 +855,7 @@ export class EventLogService {
       // AFTER `#assertNoReservedPiiKeys`, which ran back in `append` before
       // this method was reached, and the order is load-bearing now that the
       // strict layer REGISTERS both reserved keys as optional members: a
-      // caller-embedded `pii_participant_id` parses cleanly here, so the typed
+      // caller-embedded `pii_user_id` parses cleanly here, so the typed
       // `daemon.pii_split_bypass` refusal — which names the field path and the
       // remedy — is the one that must see it first. This guard catches what
       // that one cannot express.
@@ -882,20 +882,20 @@ export class EventLogService {
         envelope: storable,
         signedRow: signRow(canonical, input.prevHash, input.daemonSigningKey),
         piiPayload: undefined,
-        piiParticipantId: undefined,
+        piiUserId: undefined,
         contentPayload: undefined,
       };
     }
 
     if (input.pii !== undefined && this.#piiEncryptor === undefined) {
       // The alternative — dropping the partition, or writing it into the plain
-      // payload — would either lose participant data silently or persist it
+      // payload — would either lose user data silently or persist it
       // unencrypted in a hashed, signed, un-shreddable column. A plain Error,
       // not a typed refusal: this is a WIRING defect (the encryptor was never
       // injected), not something a caller can correct by changing its request.
       throw new Error(
         "EventLogService.append received a PII partition but no PiiEncryptor is wired " +
-          ". Refusing rather than persisting participant PII outside the" +
+          ". Refusing rather than persisting user PII outside the" +
           "pii_payload split. Construct the service with `piiEncryptor`.",
       );
     }
@@ -976,7 +976,7 @@ export class EventLogService {
     } else {
       codecInput = {
         ...codecCommonFields,
-        piiParticipantId: input.pii.participantId,
+        piiUserId: input.pii.userId,
         piiPayload: input.pii.piiPayload,
         ...(contentPartition !== undefined ? { content: contentPartition } : {}),
       };
@@ -1015,7 +1015,7 @@ export class EventLogService {
       envelope: written.envelope,
       signedRow: written.signedRow,
       piiPayload: written.piiPayload === undefined ? undefined : Buffer.from(written.piiPayload),
-      piiParticipantId: written.piiParticipantId,
+      piiUserId: written.piiUserId,
       contentPayload:
         written.contentPayload === undefined ? undefined : Buffer.from(written.contentPayload),
     };
@@ -1101,7 +1101,7 @@ interface InsertBindings {
   readonly prev_hash: Buffer;
   readonly row_hash: Buffer;
   readonly daemon_signature: Buffer;
-  readonly pii_participant_id: string | null;
+  readonly pii_user_id: string | null;
   readonly content_payload: Buffer | null;
 }
 
@@ -1121,7 +1121,7 @@ interface SignedEventRow {
   readonly envelope: EventEnvelope;
   readonly signedRow: SignedRow;
   readonly piiPayload: Buffer | undefined;
-  readonly piiParticipantId: string | undefined;
+  readonly piiUserId: string | undefined;
   readonly contentPayload: Buffer | undefined;
 }
 

@@ -32,7 +32,7 @@
 // has to name one of three categories, so there is no empty form of it — a synthesized
 // `healthy` reads as "nothing reported a problem" only if you do not look at what the
 // wire made it say, which is that somebody checked this machine and it is fine. The
-// cast bar's compact mark renders that verdict in every window, so the fabrication
+// session header's compact mark renders that verdict in every window, so the fabrication
 // would not stay inside this page.
 //
 // The live bridge keeps refusing all five, so nothing a release build renders moves.

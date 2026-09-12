@@ -30,7 +30,7 @@ import type { ScenarioReply } from "../../scenario/runtime/reply.js";
 import { WORKFLOWS_PARKED_RUN } from "../../scenario/workflows/runs.js";
 import { settleScriptedReply } from "../../scenario/runtime/scripted-reply.js";
 import {
-  PROBE_PARTICIPANT_ID,
+  PROBE_USER_ID,
   PROBE_SESSION_ID,
 } from "../../scenario/runtime/scripted-probe.test-support.js";
 import type { WorkflowRunSnapshot } from "../../wire-shapes/workflow-projection.js";
@@ -55,7 +55,7 @@ function scenarioScripting(replies: readonly ScenarioReply[]): ConsoleScenario {
     label: "Scripted-answer probe",
     purpose: "Drives the scripted-answer mapping over one settlement at a time.",
     sessionId: PROBE_SESSION_ID,
-    participantIdsInJoinOrder: [PROBE_PARTICIPANT_ID],
+    userIdsInJoinOrder: [PROBE_USER_ID],
     startedAtIso: "2026-01-01T12:00:00.000Z",
     beats: [],
     replies,

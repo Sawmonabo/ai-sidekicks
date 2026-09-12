@@ -53,7 +53,7 @@ afterEach(() => {
 });
 
 describe("BindWorkspaceController — the pre-bind read", () => {
-  it("asks nothing until a participant opens the dialog", async () => {
+  it("asks nothing until a user opens the dialog", async () => {
     // A session with six mounts must not put six pre-bind reads on the wire for a
     // person who is not binding anything.
     const { controller, clock } = open(GIT_MOUNT_ID);

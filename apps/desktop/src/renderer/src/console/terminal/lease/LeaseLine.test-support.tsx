@@ -28,11 +28,7 @@ import { render, type RenderResult } from "@testing-library/react";
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { FLAGSHIP_SCENARIO } from "../../bridge/scenario/flagship/flagship.js";
 import { TERMINAL_SCENARIO } from "../../bridge/scenario/terminal/terminal.js";
-import {
-  leaseEventWithPayload,
-  OTHER_PARTICIPANT,
-  VIEWER_PARTICIPANT,
-} from "./lease-model.test-support.js";
+import { leaseEventWithPayload, OTHER_USER, VIEWER_USER } from "./lease-model.test-support.js";
 import { LeaseLine } from "./LeaseLine.js";
 import type { TerminalViewerIdentity } from "./viewer-identity.js";
 import { UNREAD_TERMINAL_LEASE, type TerminalLeaseState } from "./lease-model.js";
@@ -150,7 +146,7 @@ export function servingBridge(): ConsoleBridge {
       // `controlHolder`, a release answers with the freed lease.
       terminalAcquireWriteLease: async () => ({
         status: "served" as const,
-        value: { controlHolder: VIEWER_PARTICIPANT },
+        value: { controlHolder: VIEWER_USER },
       }),
       terminalReleaseWriteLease: async () => ({
         status: "served" as const,
@@ -207,9 +203,9 @@ export function transitionAt(
     sequence,
     occurredAtIso: leaseEventWithPayload(sequence, undefined).occurredAt,
     reason,
-    holderParticipantId: reason === "taken" ? OTHER_PARTICIPANT : null,
-    previousHolderParticipantId: reason === "taken" ? null : OTHER_PARTICIPANT,
-    actorId: OTHER_PARTICIPANT,
+    holderUserId: reason === "taken" ? OTHER_USER : null,
+    previousHolderUserId: reason === "taken" ? null : OTHER_USER,
+    actorId: OTHER_USER,
     ...overrides,
   };
 }
@@ -223,7 +219,7 @@ export function transitionAt(
  */
 export const VIEWER_IDENTITY_READ: TerminalViewerIdentity = {
   status: "read",
-  participantId: VIEWER_PARTICIPANT,
+  userId: VIEWER_USER,
 };
 
 export function renderLease(

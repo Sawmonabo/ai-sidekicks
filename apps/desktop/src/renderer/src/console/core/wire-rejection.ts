@@ -30,7 +30,7 @@
 //
 // A DETAIL IS A SENTENCE SOMEBODY WROTE, NEVER A SERIALIZATION OF THE REJECTION.
 // `core/refusal.ts` states the rule this module has to keep — `detail` is "never the
-// refused value itself, which may be participant content" — and a rejection off the
+// refused value itself, which may be user content" — and a rejection off the
 // bridge is `unknown`, so its members are request values, repository paths, headers,
 // or a token as easily as they are prose. Every arm here therefore renders one of
 // exactly three things: a string the producing side wrote AS a sentence (a wire

@@ -67,7 +67,7 @@ export function boundStore(
   store.initialise({
     cursor: 0,
     entities: [],
-    participantJoinLog: scenario?.participantIdsInJoinOrder ?? [],
+    userJoinLog: scenario?.userIdsInJoinOrder ?? [],
   });
   return store;
 }

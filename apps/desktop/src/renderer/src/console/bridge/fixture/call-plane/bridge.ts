@@ -21,7 +21,7 @@
 //   • **`app` meta is fixed.** Version, platform, arch, locale are constants, so a
 //     screenshot baseline does not shift when the developer's machine does.
 
-import { ParticipantIdSchema } from "@ai-sidekicks/contracts";
+import { UserIdSchema } from "@ai-sidekicks/contracts";
 import type {
   AuxiliaryWindowControls,
   CpInput,
@@ -316,30 +316,28 @@ class ScriptedCeremonyRunner implements ScriptedCeremonyHost {
    * One scripted host answer, as the value a ceremony call resolves with.
    *
    * THE IDENTITY IS THE SCENARIO'S AND NOT THE SCRIPT'S. A script states what this
-   * machine's authenticator does; who signs in is `viewingParticipantId`, which the
+   * machine's authenticator does; who signs in is `viewingUserId`, which the
    * scenario already states once and the fixture's identity read already answers from.
    * Composing the claims here is what keeps that single statement single — a second
-   * one on the ceremony could name a different participant, and nothing would be able
+   * one on the ceremony could name a different user, and nothing would be able
    * to say which was right.
    *
    * A scenario that scripts an authenticated host and names no viewer takes the same
    * `capability-absent` refusal an unstated ceremony takes, rather than resolving with
-   * an invented participant: the sign-in card then renders _not checked_, which is the
+   * an invented user: the sign-in card then renders _not checked_, which is the
    * honest reading of a fixture that was never told who this window is.
    */
   async #resolve(call: string, answer: ScriptedCeremonyOutcome): Promise<object> {
     if (answer.kind !== "authenticated") {
       return encodeCeremonyResolution(answer);
     }
-    const participantId = ParticipantIdSchema.safeParse(
-      this.#scenarioEngine.scenario.viewingParticipantId,
-    );
-    if (!participantId.success) {
+    const userId = UserIdSchema.safeParse(this.#scenarioEngine.scenario.viewingUserId);
+    if (!userId.success) {
       return await refuseAbsentCapability(call);
     }
     const outcome: ProducedCeremonyOutcome = {
       ...answer,
-      claims: { participantId: participantId.data },
+      claims: { userId: userId.data },
     };
     return encodeCeremonyResolution(outcome);
   }

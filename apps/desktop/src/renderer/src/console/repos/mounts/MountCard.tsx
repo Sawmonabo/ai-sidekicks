@@ -9,7 +9,7 @@
 //
 //   • TWO PATHS, BOTH SURFACED. `canonicalRoot` is the resolver's output and the key
 //     the trust envelope and the dedupe index are built on; `localPath` is the
-//     participant-entered path kept as provenance. Both are required, because attach
+//     user-entered path kept as provenance. Both are required, because attach
 //     persists the first and the default workspace roots at the second, and attaching
 //     from a nested subdirectory is the case that separates them.
 //   • `canonicalRoot` VERBATIM. No home-directory abbreviation, no basename
@@ -51,7 +51,7 @@
 // are the daemon's trust-envelope rules, so the console sends the string and renders
 // `repo.outside_trust_envelope` if it comes
 // back. It never computes health and never softens `unreachable`. And it never
-// re-attaches: re-attach mints a new mount row and is a participant-confirmed act.
+// re-attaches: re-attach mints a new mount row and is a user-confirmed act.
 
 import type {
   ExecutionMode,
@@ -138,7 +138,7 @@ export interface MountCardProps {
   readonly frameStore: FrameStore;
   /** Put the resolved root on the clipboard; the host's own refusal is the caller's to render. */
   readonly onCopyCanonicalRoot: (canonicalRoot: string) => void;
-  /** Read the section again, because a participant's act minted a mount it has not seen. */
+  /** Read the section again, because a user's act minted a mount it has not seen. */
   readonly onRequestRead: () => void;
   readonly onSelectExecutionMode: (workspaceId: WorkspaceId, executionMode: ExecutionMode) => void;
   /**

@@ -54,7 +54,7 @@ export interface ExecutionRootsDisclosureBinding {
 /**
  * Bind one workspace's execution-context reading to its reader.
  *
- * Returns the reading and nothing else: this read takes no argument a participant can
+ * Returns the reading and nothing else: this read takes no argument a user can
  * supply and answers no act, so there is no second member for a surface to call.
  */
 export function useWorkspaceExecutionContext(

@@ -107,7 +107,7 @@ export function DiagnosticsReadOut(props: {
   // the three signals above are, so a press costs one coalesced pass over four wires
   // and never a read of its own.
   const onRecoveryReceipt = useCallback(() => {
-    diagnosticsRead.refresh("participant-request");
+    diagnosticsRead.refresh("user-request");
   }, [diagnosticsRead]);
 
   const state = usePushDrivenRead(diagnosticsRead);

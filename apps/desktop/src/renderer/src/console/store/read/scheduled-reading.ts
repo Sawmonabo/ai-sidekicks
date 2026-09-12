@@ -25,7 +25,7 @@
 // and `browser/settings/browser-settings-source.ts` (the three whose publishers are
 // character-identical), plus `repos/artifact-pane/artifact-read-schedule.ts` (already
 // abstract, and the only one with a per-read `start()` that also drives an imperative
-// trigger set), `settings/pages/notifications/scheduled-caller-participant-read.ts` and
+// trigger set), `settings/pages/notifications/scheduled-caller-user-read.ts` and
 // `settings/pages/appearance/store-state/store-state-read.ts` (the two that hold a
 // bare reading rather than a revisioned snapshot, and the one that reads no bridge at
 // all). WHERE EACH VARIATION LANDS:
@@ -35,7 +35,7 @@
 //     compose the refusal its own reading vocabulary spells.
 //   • **The snapshot fold** → the subclass, over {@link ScheduledReading.publish}. The
 //     base holds the value and hands out a new identity; whether a transition is a
-//     whole replacement (`CallerParticipantRead`, `StoreStateRead`) or a revisioned
+//     whole replacement (`CallerUserRead`, `StoreStateRead`) or a revisioned
 //     partial (`CostReceiptRead`, `SidekickRegistryView`, `BrowserSettingsView`) is a
 //     property of the SNAPSHOT TYPE, and a base that folded for both would have to
 //     require a `revision` member of readings that have none.
@@ -253,7 +253,7 @@ export abstract class ScheduledReading<TSnapshot> implements ReadTriggerTarget {
   /**
    * Ask for a read.
    *
-   * THE ONE WAY A REASON REACHES THIS READING — every trigger, every participant press
+   * THE ONE WAY A REASON REACHES THIS READING — every trigger, every user press
    * — so the disposal guard and the {@link isReadable} guard are each written once.
    * None of them calls the port: what a burst of reasons costs is the scheduler's
    * decision, and a surface that asked directly is the surface that had two reads

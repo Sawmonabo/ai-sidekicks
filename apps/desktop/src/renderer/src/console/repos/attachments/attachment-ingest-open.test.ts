@@ -74,7 +74,7 @@ describe("ingest client — the happy stream", () => {
 });
 
 describe("ingest client — what Init declares", () => {
-  it("forwards the media type the participant's file carried", async () => {
+  it("forwards the media type the user's file carried", async () => {
     const port = new ScriptedGrowthPort();
     const client = clientOver(port);
     client.attach(sourceOver("attachment-notes", "notes.md", 300, "text/markdown"));
@@ -137,7 +137,7 @@ describe("ingest client — what Init declares", () => {
     await crossMacrotaskBoundary();
 
     // A restart re-opens the stream, so the second Init has to carry the declaration too:
-    // it is read from the ledger's own record of what the participant handed over, which
+    // it is read from the ledger's own record of what the user handed over, which
     // a dropped stream identity does not touch.
     expect(port.initCalls.map((call) => call.mediaType)).toStrictEqual([
       "text/markdown",

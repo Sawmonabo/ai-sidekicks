@@ -48,7 +48,7 @@ export function eventAt(sequence: number, runId: string): ConsoleSessionEvent {
 
 /** A base state at `cursor` holding nothing, which the read answers with. */
 export function emptySnapshot(cursor: number): SessionSnapshot {
-  return { cursor, entities: [], participantJoinLog: [] };
+  return { cursor, entities: [], userJoinLog: [] };
 }
 
 /** Let every queued continuation run. The registry settles across microtasks. */

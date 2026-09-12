@@ -184,7 +184,7 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
   it("holds the fetch control while one is outstanding, and gives it back when it settles", async () => {
     // A payload is bounded only by the ingest cap, so a second press before the first
     // settles is a second download of the same bytes — and the reader refuses it. The
-    // control is held so a participant never meets that refusal by pressing something
+    // control is held so a user never meets that refusal by pressing something
     // the pane was offering, and the arm the reading is on is what holds it.
     const readCall = handAnsweredCall<GrowthPortAnswer<"artifactRead">>();
     const artifactRead = vi.fn(readCall.invoke);
@@ -305,7 +305,7 @@ describe("artifact pane — the reader is stamped to its subject", () => {
 
   it("does not hold the next subject's control with the previous subject's fetch", async () => {
     // The other half. The control is held by the `fetching` arm, and that arm belongs
-    // to an artifact this pane is no longer addressed to — so a participant met a
+    // to an artifact this pane is no longer addressed to — so a user met a
     // disabled Fetch on a subject nothing had ever been asked about.
     const context = contextFor(ARTIFACT_ENTITY, {
       bridge: artifactBridgeAnswering({

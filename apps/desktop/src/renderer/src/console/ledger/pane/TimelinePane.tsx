@@ -47,7 +47,7 @@ import { TimelineRowHost } from "./feed/surface/TimelineRowHost.js";
  * AND EVERY MEMBER NAMES ITS SUBJECT IN ENGLISH. The owner is the work that authors
  * the timeline row vocabulary in `renderer/src/timeline/`, and that is what every member
  * below is about — said in plain words, because a string is one bad render away from a
- * participant's screen. The suite beside this file asserts the absence rather than
+ * user's screen. The suite beside this file asserts the absence rather than
  * trusting it.
  */
 export const TIMELINE_ROW_SLOT: OwnerSlotContract = {

@@ -2,9 +2,9 @@
 // person does about each.
 //
 // An edit-and-resend is refused whole by four checks, each fail-closed at admission and
-// pre-dispatch: no active turn, no pending send, a participant-authored target of this
+// pre-dispatch: no active turn, no pending send, a user-authored target of this
 // run, and a resumable target. Each refuses for a different reason and each leaves the
-// participant a different next move, and until this reading existed the console showed
+// user a different next move, and until this reading existed the console showed
 // one wire string and no move at all — which is worst for the pending-send guard, whose
 // remedy is an act the person has to perform (cancel the queued items, or let them
 // drain) before the same request can ever succeed.
@@ -40,7 +40,7 @@ export interface CompositeGuardReading {
   readonly guard: RollbackCompositeRejectionGuard;
   /** What this check refuses, in the console's words — never the daemon's cause. */
   readonly refused: string;
-  /** The participant's next move, which for two of the four is a real act. */
+  /** The user's next move, which for two of the four is a real act. */
   readonly remedy: string;
 }
 
@@ -66,9 +66,9 @@ const COMPOSITE_GUARD_READINGS: Readonly<
     remedy:
       "Cancel the queued items, or let them drain, and then send the correction again. Nothing here reorders the queue on your behalf.",
   },
-  "participant-authored-target": {
+  "user-authored-target": {
     refused:
-      "The boundary you targeted was not opened by a participant message of this run, so there is no participant send to replace. A workflow phase input and an orchestrated child run both land here.",
+      "The boundary you targeted was not opened by a user message of this run, so there is no user send to replace. A workflow phase input and an orchestrated child run both land here.",
     remedy:
       "Rewind to that boundary without a correction, and change the input where it was authored.",
   },

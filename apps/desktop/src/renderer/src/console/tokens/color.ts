@@ -1,7 +1,7 @@
 // Meridian color math — OKLCH authoring, sRGB rendering, WCAG 2.2 measurement.
 //
 // Design-language rule 3 states contrast floors that a test must be able to *measure*,
-// and rule 2 generates the twelve participant hues from an OKLCH wheel. Both need one
+// and rule 2 generates the twelve user hues from an OKLCH wheel. Both need one
 // conversion path, so this module owns it: OKLCH is the authoring space (perceptually
 // uniform lightness, so one lightness really does read as one lightness across the
 // wheel), sRGB is what a display emits, and WCAG relative luminance is what the floors
