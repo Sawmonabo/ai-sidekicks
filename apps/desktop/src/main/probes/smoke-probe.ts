@@ -1,4 +1,4 @@
-// The substrate-boots smoke probe — Plan-023 Phase 1B (T-023p-1B-2).
+// The substrate-boots smoke probe.
 //
 // Lives beside the entrypoint rather than inside it. `index.ts` is the startup
 // ORDER — scheme, lock, ready, protocol, menu, window — and a reader checking
@@ -88,14 +88,13 @@ export function installReadinessBreadcrumbs(
  *
  * Two readings, both taken from the trusted side:
  *
- *   1. `executeJavaScript` against the renderer, asserting the
- *      `Spec-023 §Security Hardening Baseline` runtime invariants (bridge
- *      present; `require` / `process` / `global` all absent) AND the origin
- *      properties Phase 1B's privileged scheme is what makes true — the
- *      `sidekicks-renderer:` protocol, the `app` host, a live `indexedDB`, a
- *      `localStorage` round-trip, and a mounted React tree. A scheme registered
- *      without `standard: true` has no origin, so the storage readings would be
- *      the first thing to fail (Plan-023 I-023-11).
+ *   1. `executeJavaScript` against the renderer, asserting the hardening
+ *      guarantees at runtime (bridge present; `require` / `process` / `global`
+ *      all absent) AND the origin properties the privileged scheme is what makes
+ *      true — the `sidekicks-renderer:` protocol, the `app` host, a live
+ *      `indexedDB`, a `localStorage` round-trip, and a mounted React tree. A
+ *      scheme registered without `standard: true` has no origin, so the storage
+ *      readings would be the first thing to fail.
  *   2. `net.fetch` from the main process against the served `index.html`, to
  *      read back the `Content-Security-Policy` header the handler attaches. The
  *      header is the policy's ONLY carrier — the shipped `index.html` has no
@@ -112,10 +111,10 @@ export function installReadinessBreadcrumbs(
  * the probe.
  *
  * The probe mechanism lives on the trusted side deliberately. External CDP /
- * `chrome-remote-interface` attachment was rejected at Tier 1 (too heavyweight;
- * a new dependency family), and renderer `console.log` parsing was rejected
- * because renderer source is untrusted per `Spec-023 §Trust Stance` — adding a
- * probe there would couple a non-test surface to the test mechanism.
+ * `chrome-remote-interface` attachment was rejected as too heavyweight and a new
+ * dependency family, and renderer `console.log` parsing was rejected because
+ * renderer source is untrusted — adding a probe there would couple a non-test
+ * surface to the test mechanism.
  */
 export async function runSmokeProbe(browserWindow: BrowserWindow, windowMs: number): Promise<void> {
   const rendererReadings = `

@@ -1,4 +1,4 @@
-// Plan-023 Phase 1B (T-023p-1B-2) — the rejected-load recovery ladder.
+// The rejected-load recovery ladder.
 //
 // A rejected `loadURL` used to log and return, leaving a live blank window with
 // no content and no reason. Every rung of the replacement is asserted here,

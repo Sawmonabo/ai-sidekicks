@@ -4,8 +4,8 @@
 // this chord has two readers in two processes and no channel between them. The
 // renderer's key-binding table binds it to the act that puts the caret in the
 // composer; the main process WATCHES for it in an auxiliary window, which has no
-// composer to put a caret in (`Spec-023 §Console Design (Meridian)` §The surface
-// set — a detached timeline "shows the same pane at full width … and no composer").
+// composer to put a caret in — a detached timeline shows the same pane at full
+// width and no composer.
 // Written twice, the two readers drift, and the drift is silent: the auxiliary
 // window would answer a keystroke the main window binds to something else, or
 // answer none at all while the person keeps pressing.

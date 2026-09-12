@@ -1,4 +1,4 @@
-// Plan-023 Phase 1B (T-023p-1B-1) — the generated load-failure document.
+// The generated load-failure document.
 //
 // A rejected `loadURL` used to leave a live blank window; the window now loads
 // this instead. It is generated in the main process rather than emitted into the

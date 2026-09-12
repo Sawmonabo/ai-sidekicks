@@ -1,4 +1,4 @@
-// The menu accelerator table and its one conversion — Plan-023 Phase 1C.
+// The menu accelerator table and its one conversion.
 //
 // The table itself is a declaration, so what is checkable is the conversion beneath it
 // and the property that makes one home worth having: the console's grammar goes in and

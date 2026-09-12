@@ -1,4 +1,4 @@
-// The composer chord's grammar — Plan-023 Phase 1C.
+// The composer chord's grammar.
 //
 // The chord is read by two processes that cannot see each other, so what is
 // checkable here is not "the string is `$mod+KeyL`" — that is the declaration

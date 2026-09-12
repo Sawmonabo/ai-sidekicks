@@ -1,16 +1,15 @@
 // The composer chord, answered in the one process that can answer it.
 //
-// `Spec-023 §Console Design (Meridian)` §The surface set gives the detached
-// timeline "the same pane at full width … and no composer", and the console's
-// blueprint for that window ends with the sentence this module exists for: a
-// composer chord pressed there focuses the main window's composer. Before it,
-// pressing the chord in an auxiliary window did nothing at all and said nothing
-// about why — the keystroke reached a renderer with no composer bound to it.
+// The detached timeline window is the same pane at full width and no composer,
+// and the rule this module exists for follows from that: a composer chord
+// pressed there focuses the main window's composer. Before it, pressing the
+// chord in an auxiliary window did nothing at all and said nothing about why —
+// the keystroke reached a renderer with no composer bound to it.
 //
 // WHY MAIN. An auxiliary window is its own renderer process with its own preload,
-// its own bridge instance, and no store shared with the main window (Plan-023
-// I-023-12). Nothing inside it can reach another window: the bridge's `window`
-// namespace addresses auxiliary windows — detach, focus, close — and no namespace
+// its own bridge instance, and no store shared with the main window. Nothing
+// inside it can reach another window: the bridge's `window` namespace
+// addresses auxiliary windows — detach, focus, close — and no namespace
 // reaches into the main window's composer. The main process owns both windows, so
 // it is the only party that can act on the press, and `before-input-event` is how
 // it sees a keystroke: the event

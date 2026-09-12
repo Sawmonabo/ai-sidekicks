@@ -1,8 +1,8 @@
 // The main process's own JSONL log.
 //
-// `Spec-023 §Console Libraries`' main-process storage-and-logging row asks for a JSONL
-// logger, and this is it: async append, size rotation, level filter. Main is the one
-// process whose failures nothing else can report — a window that never opened has no
+// The main-process storage-and-logging slot asks for a JSONL logger, and this is
+// it: async append, size rotation, level filter. Main is the one process whose
+// failures nothing else can report — a window that never opened has no
 // renderer to capture from, and the sidecar supervisor's refusals happen before any
 // surface exists to render them.
 //
@@ -12,8 +12,8 @@
 // happen before there is a window to install anything into. Whatever reads the file is
 // where the two halves meet, and it is not this module.
 //
-// OWN-BUILT ON PURPOSE. That same row ADOPTs nothing here and names `electron-log` an
-// AVOID: this is one append path, one rotation rule, and one level filter, and a
+// OWN-BUILT ON PURPOSE. No library is adopted here and `electron-log` is deliberately
+// avoided: this is one append path, one rotation rule, and one level filter, and a
 // library for it would bring a transport registry, a renderer-side hook, and a format
 // layer for a file three tests read.
 //
@@ -38,10 +38,8 @@
 // path — recorded here because a later reader looking at the lazy seed should find the
 // bound of the claim beside it.
 //
-// OWNER. No task's text names a main-process logger; the audit that found the gap
-// left it unassigned. It belongs to the measurement task of Plan-023 Phase 1C,
-// T-023p-1C-8, which owns the console's observability floor on the renderer side and
-// is the only task whose scope an always-on main-side record is inside.
+// OWNER. This sits with the console's observability floor: the same work that owns
+// the renderer-side measurement owns the always-on main-side record.
 //
 // A WRITE NEVER THROWS AT ITS CALLER, AND NEVER SILENTLY SUCCEEDS EITHER. Callers are
 // startup paths whose own failure handling is the thing being logged, so a logger

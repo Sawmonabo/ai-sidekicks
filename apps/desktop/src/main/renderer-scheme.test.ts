@@ -1,8 +1,8 @@
-// Plan-023 Phase 1B (T-023p-1B-1 / T-023p-1B-2) — the renderer scheme's
-// identity and its Content-Security-Policy, on BOTH documents that can carry it.
+// The renderer scheme's identity and its Content-Security-Policy, on BOTH
+// documents that can carry it.
 //
-// `Spec-023 §Security Hardening Baseline` binds every renderer document, not
-// merely the packaged one. Two of them exist: the built bundle over
+// The hardening baseline binds every renderer document, not merely the
+// packaged one. Two of them exist: the built bundle over
 // `sidekicks-renderer://` (headers from `./protocol.ts`) and, under
 // `electron-vite dev`, an HTTP document from the Vite dev server, which never
 // passes through that handler and would otherwise carry no policy at all. Both
@@ -45,7 +45,7 @@ describe("the renderer scheme's identity", () => {
 });
 
 describe("the production Content-Security-Policy", () => {
-  it("carries every Spec-023 §Security Hardening Baseline directive", () => {
+  it("carries every security-hardening directive", () => {
     for (const directive of [
       "default-src 'self'",
       "script-src 'self'",
@@ -60,8 +60,8 @@ describe("the production Content-Security-Policy", () => {
     ]) {
       expect(RENDERER_CONTENT_SECURITY_POLICY).toContain(directive);
     }
-    // No `unsafe-eval` and no inline script anywhere: `Spec-023 §Renderer Bundle`
-    // names both as the reason the bundle is served over a custom scheme at all.
+    // No `unsafe-eval` and no inline script anywhere: both are the reason the
+    // bundle is served over a custom scheme at all.
     expect(RENDERER_CONTENT_SECURITY_POLICY).not.toContain("unsafe-eval");
     expect(RENDERER_CONTENT_SECURITY_POLICY).not.toContain("script-src 'self' 'unsafe-inline'");
   });

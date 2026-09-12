@@ -1,16 +1,16 @@
 // The renderer transport's identity and its content-security policy.
 //
-// Plan-023 Phase 1B (T-023p-1B-1). Split out of `./protocol.ts` so the three
-// things that need these values do not have to reach through an Electron
-// import to get them: the handler that serves the bundle, the window factory
+// Split out of `./protocol.ts` so the three things that need these values do
+// not have to reach through an Electron import to get them: the handler that
+// serves the bundle, the window factory
 // that decides which origins a window may navigate within, and the build config
 // that stands up the dev server. This module therefore imports NOTHING — not
 // `electron`, not `node:*` — and holds only frozen data.
 //
 // Why the policy lives beside the scheme rather than beside the handler: the
-// scheme and the policy are one decision. `Spec-023 §Security Hardening
-// Baseline` locks a policy for the renderer DOCUMENT, and that document is
-// served over two transports — this scheme in every packaged and built tree,
+// scheme and the policy are one decision. The hardening baseline locks a policy
+// for the renderer DOCUMENT, and that document is served over two transports —
+// this scheme in every packaged and built tree,
 // and the Vite dev server under `electron-vite dev`. A policy defined inside
 // the production handler is a policy the other transport has no way to state,
 // which is exactly how the dev document ended up with none.
@@ -27,19 +27,17 @@ export const RENDERER_ORIGIN = "sidekicks-renderer://app";
 /** The one navigable document; every route is this URL plus a hash fragment. */
 export const RENDERER_INDEX_URL = "sidekicks-renderer://app/index.html";
 
-// `Spec-023 §Security Hardening Baseline` locks this policy, and a response
-// HEADER is its only carrier — the shipped `index.html` deliberately has no
-// meta tag.
+// The hardening baseline locks this policy, and a response HEADER is its only
+// carrier — the shipped `index.html` deliberately has no meta tag.
 //
-// `connect-src` is narrower than the baseline's text, which reads
-// `'self' https://<configured-control-plane-origin> wss://<configured-relay-origin>`.
-// Those are placeholders: no control-plane origin and no relay origin is
-// configured anywhere in the workspace at Tier 1, and emitting a placeholder
-// string would produce a policy that neither allows the real origin nor refuses
-// honestly. The baseline is stated as a floor ("At minimum"), so shipping
+// `connect-src` is narrower than the baseline's own text, which also admits
+// `https://<configured-control-plane-origin>` and
+// `wss://<configured-relay-origin>`. Those are placeholders: no control-plane
+// origin and no relay origin is configured anywhere in the workspace yet, and
+// emitting a placeholder string would produce a policy that neither allows the
+// real origin nor refuses honestly. The baseline is a floor, so shipping
 // `'self'` alone is stricter than it requires, not looser. The two configured
-// origins join this directive in the Tier-8 remainder, when the surface that
-// configures them lands (Plan-023 Phase 3 wires the daemon and relay clients).
+// origins join this directive when the daemon and relay clients land.
 //
 // `connect-src` is also the ONE directive the dev transport widens, which is
 // why it is named as its own constant below rather than inlined here.

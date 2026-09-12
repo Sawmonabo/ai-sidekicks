@@ -10,13 +10,12 @@
 // not keep — the daemon was stopped at five seconds with half the budget it had been
 // pledged, and a run whose flush needed the second half lost it silently.
 //
-// THE VALUE IS THE SPEC'S. `Spec-023 §Main Process Responsibilities` fixes it under App
-// lifecycle: "Graceful shutdown on `before-quit` — signal the daemon to flush, wait up
-// to a 10-second budget, then force-terminate." So the disagreement resolves upward
-// rather than by meeting in the middle: the sentence was quoting the governing document
-// correctly and the cap was the half that had drifted from it. Narrowing the sentence to
-// five seconds would have made two documents agree with each other and both disagree
-// with the spec that decides.
+// TEN SECONDS IS THE RULE. Graceful shutdown on `before-quit` signals the daemon to
+// flush, waits up to a 10-second budget, then force-terminates. So the disagreement
+// resolves upward rather than by meeting in the middle: the sentence was stating the
+// rule correctly and the cap was the half that had drifted from it. Narrowing the
+// sentence to five seconds would have made two declarations agree with each other and
+// both disagree with the rule.
 //
 // AND IT IS HERE BECAUSE `src/shared/` IS THE ONLY PLACE BOTH SIDES CAN REACH. Main
 // never imports from `src/renderer/`, the renderer never imports from `src/main/`, and a
@@ -37,7 +36,7 @@
  *
  * Read by `src/main/sidecar-lifecycle.ts`, which races the drain against it, and quoted
  * by the console's restart confirmation, which renders it as a derived figure. Neither
- * side declares a second one; `apps/desktop/AGENTS.md` §Config single-sourcing is what
- * keeps that true.
+ * side declares a second one; the config-single-sourcing rule in
+ * `apps/desktop/AGENTS.md` is what keeps that true.
  */
 export const DAEMON_SHUTDOWN_FLUSH_BUDGET_MS = 10_000;

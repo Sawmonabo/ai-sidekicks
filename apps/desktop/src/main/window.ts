@@ -1,21 +1,17 @@
 // `BrowserWindow` factories for the Electron main process.
 //
 // One private function, `constructLockedWindow`, owns the `webPreferences`
-// literal — the verbatim `Spec-023 §Security Hardening Baseline` lock-in — so
-// the build-time assertion (`apps/desktop/build/assert-webprefs.ts`) covers the
-// main window and every auxiliary window through a single block, and asserts
-// that block appears EXACTLY ONCE so a second factory cannot smuggle in a
-// second, unchecked one. Any drift fails `pnpm build` before the bundle ships.
-// That assertion is the enforcement mechanism for `Plan-023 §Done Checklist`
-// and `Spec-023 §Pitfalls To Avoid` (`nodeIntegration: true` or
-// `sandbox: false` MUST be a build-time error), and it is what Plan-023 I-023-2
-// rests on.
+// literal — the hardening lock-in — so the build-time assertion
+// (`apps/desktop/build/assert-webprefs.ts`) covers the main window and every
+// auxiliary window through a single block, and asserts that block appears
+// EXACTLY ONCE so a second factory cannot smuggle in a second, unchecked one.
+// Any drift fails `pnpm build` before the bundle ships. That assertion is what
+// makes `nodeIntegration: true` or `sandbox: false` in any window a build-time
+// error rather than a shipped one.
 //
-// Plan-023 Phase 1B (T-023p-1B-2) added the load and the auxiliary factory. The
-// window is served over `sidekicks-renderer://`, never `file://`, because
-// `Spec-023 §Security Hardening Baseline` disables the
-// `GrantFileProtocolExtraPrivileges` fuse — see `./protocol.ts` for the scheme
-// registration and the handler.
+// The window is served over `sidekicks-renderer://`, never `file://`, because
+// the hardening baseline disables the `GrantFileProtocolExtraPrivileges` fuse —
+// see `./protocol.ts` for the scheme registration and the handler.
 //
 // Three neighbours own the rest of a window's life, split by role rather than
 // by size: `./navigation.ts` (which navigations are admitted),
@@ -30,17 +26,17 @@
 // → `out/preload/index.cjs`).
 //
 // Why `import.meta.dirname` and NOT a `__dirname` reconstruction:
-//   At Plan-023 Phase 1 T-023p-1-7 the build pipeline swapped from `tsc -b`
-//   to `electron-vite build` (electron-vite v5). electron-vite's `esmShim`
-//   plugin (chunks/lib-q6ns0vZr.js line 812:
+//   The build pipeline swapped from `tsc -b` to `electron-vite build`
+//   (electron-vite v5). electron-vite's `esmShim` plugin
+//   (chunks/lib-q6ns0vZr.js line 812:
 //   `const CJSShim = supportImportMetaPaths() ? CJSShim_node_20_11 : CJSShim_normal;`)
 //   auto-injects a CommonJS shim into ESM-target bundles whenever it
 //   detects a `__filename` / `__dirname` / `require(` token in user code
 //   (lines 786 + 818-819: `CJSyntaxRe = /__filename|__dirname|require\(|require\.resolve\(/`
 //   tested in `renderChunk`). The shim variant is gated on
 //   `supportImportMetaPaths()` (lines 137-139: `parseInt(majorVer) >= 30`,
-//   reading the bundled Electron major version). We target Electron 44
-//   (ADR-016), so the active shim is `CJSShim_node_20_11` (lines 796-802):
+//   reading the bundled Electron major version). We target Electron 44, so the
+//   active shim is `CJSShim_node_20_11` (lines 796-802):
 //
 //     const __filename = import.meta.filename;
 //     const __dirname  = import.meta.dirname;
@@ -53,18 +49,18 @@
 //   In either branch, if THIS file ALSO declared `const __filename = …`
 //   at module scope, the two would collide as `SyntaxError: Identifier
 //   '__filename' has already been declared` at app boot (verified
-//   empirically — see Phase 1 T-023p-1-7 commit body). Sticking to
-//   `import.meta.dirname` directly keeps the source bundler-agnostic and
-//   avoids triggering the shim's `CJSyntaxRe` detection altogether.
+//   empirically). Sticking to `import.meta.dirname` directly keeps the source
+//   bundler-agnostic and avoids triggering the shim's `CJSyntaxRe` detection
+//   altogether.
 //
 // Why `.cjs` (not `.js`) for the preload filename:
 //   Electron's sandboxed preload runtime (`sandbox: true` below) ONLY
 //   supports CommonJS — verified empirically on Electron 41.6.1 and still
-//   true on the 44.x pin (Plan-023 T-023p-1B-4): an
-//   ESM preload fails to register with `"SyntaxError: Cannot use import
-//   statement outside a module"`. The explicit `.cjs` extension overrides
-//   the package-level `"type": "module"` so Node loads the file as CJS
-//   regardless of the package field. See `electron.vite.config.ts` header.
+//   true on the 44.x pin: an ESM preload fails to register with
+//   `"SyntaxError: Cannot use import statement outside a module"`. The explicit
+//   `.cjs` extension overrides the package-level `"type": "module"` so Node
+//   loads the file as CJS regardless of the package field. See
+//   `electron.vite.config.ts` header.
 
 import { app, BrowserWindow } from "electron";
 import path from "node:path";
@@ -134,12 +130,11 @@ export function constructLockedWindow(options: LockedWindowOptions): BrowserWind
  *
  * The two origins differ, so the renderer's browser-storage partition differs
  * between `electron-vite dev` and the built bundle — accepted and stated,
- * because of what is allowed to live there. Per `Spec-023 §Console Design
- * (Meridian)` that store holds UI state only — layouts, selection, pins,
- * expansion — while composer text, form values, paths, and code stay in window
- * memory and are never written to it. So a partition split costs a pane its
- * remembered layout and can never cost a draft, and every console test tier
- * runs the built bundle regardless.
+ * because of what is allowed to live there. That store holds UI state only —
+ * layouts, selection, pins, expansion — while composer text, form values,
+ * paths, and code stay in window memory and are never written to it. So a
+ * partition split costs a pane its remembered layout and can never cost a
+ * draft, and every console test tier runs the built bundle regardless.
  */
 export function resolveRendererDocumentUrl(routeFragment: string): string {
   const devServerUrl = process.env["ELECTRON_RENDERER_URL"];

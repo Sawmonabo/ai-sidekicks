@@ -1,4 +1,4 @@
-// Plan-023 Phase 1B (T-023p-1B-2) — window construction and the load ordering.
+// Window construction and the load ordering.
 //
 // Three properties are asserted here that nothing else in the suite reaches:
 //
@@ -8,7 +8,7 @@
 //      that inherited a stray `ELECTRON_RENDERER_URL` from its parent shell
 //      would otherwise load whatever that variable pointed at — remote content
 //      inside a window whose `webPreferences` were locked down precisely so
-//      that could not happen (Plan-023 I-023-2).
+//      that could not happen.
 //   2. The window is constructed with the locked `webPreferences` block and is
 //      shown only once its first paint is ready. `assert-webprefs.ts` proves the
 //      literal is correct and appears exactly once in the source; this proves
@@ -22,8 +22,8 @@
 // and `./auxiliary-window.test.ts` the second factory.
 //
 // The `electron` module is mocked because a real `BrowserWindow` needs a
-// running Electron process; these are `main-unit` tests (node environment, the
-// project T-023p-1B-3 registers), not the smoke suite.
+// running Electron process; these are `main-unit` tests (node environment), not
+// the smoke suite.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -146,8 +146,8 @@ describe("the main window factory", () => {
 
   // The main window deliberately carries NO `render-process-gone` handler:
   // destroying it would fire `window-all-closed` and quit the application
-  // out from under the user. Main-window crash handling is the Tier-8 crash
-  // reporter's (T-023r-3-2), not this factory's.
+  // out from under the user. Main-window crash handling belongs to the crash
+  // reporter, not to this factory.
   it("does not register a renderer-gone handler on the main window", async () => {
     const { createMainWindow } = await loadWindowModule();
 

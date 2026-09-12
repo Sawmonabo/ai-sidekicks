@@ -1,6 +1,6 @@
 // The shell's half of the bridge: main speaking to this window, over one channel.
 //
-// Every other `SidekicksBridge` namespace runs renderer → main, and at Tier 1 every
+// Every other `SidekicksBridge` namespace runs renderer → main, and today every
 // one of them refuses. This one runs the other way and works today, because a shell
 // signal needs no daemon, no control plane, and no credential — main already has a
 // `webContents` and this window already has an `ipcRenderer`.

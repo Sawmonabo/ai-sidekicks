@@ -1,4 +1,4 @@
-// Plan-023 Phase 1B (T-023p-1B-2) — the navigation classifier.
+// The navigation classifier.
 //
 // `window.test.ts` asserts that the policy is INSTALLED on every window and that
 // each verdict is acted on. This file asserts the classification itself, where

@@ -1,8 +1,8 @@
 // Renderer scheme registration and the built-bundle protocol handler.
 //
-// Plan-023 Phase 1B (T-023p-1B-1). This module is the ELECTRON seam and nothing
-// else: it registers the scheme, installs the handler, and decides the response
-// policy — the status codes, the empty refusal bodies, and the locked headers.
+// This module is the ELECTRON seam and nothing else: it registers the scheme,
+// installs the handler, and decides the response policy — the status codes, the
+// empty refusal bodies, and the locked headers.
 // The three things it answers with live in their own modules, none of which
 // imports `electron`:
 //
@@ -17,15 +17,13 @@
 //     of every `whenReady()` consumer. Electron accepts exactly one
 //     `registerSchemesAsPrivileged` call per process and it must happen before
 //     `app.ready`; a scheme left non-standard has no origin, and an origin-less
-//     document gets neither IndexedDB nor `localStorage`
-//     (`Spec-023 §Renderer Bundle`, `Spec-023 §Console Design (Meridian)`
-//     §Persistence on the renderer scheme; Plan-023 I-023-11).
+//     document gets neither IndexedDB nor `localStorage`, which is where the
+//     console persists its UI state.
 //   • `installRendererProtocol(rendererRoot)` — inside `whenReady()`, BEFORE
 //     any window is constructed, so no window can ever race the handler.
 //
-// The bundle is served over this custom scheme and never over `file://`,
-// because `Spec-023 §Security Hardening Baseline` disables the
-// `GrantFileProtocolExtraPrivileges` fuse (Plan-023 I-023-2).
+// The bundle is served over this custom scheme and never over `file://`, because
+// the hardening baseline disables the `GrantFileProtocolExtraPrivileges` fuse.
 //
 // Bodies stream through `net.fetch(pathToFileURL(...))` — the pattern Electron's
 // own `protocol.handle` documentation gives — so no response is ever buffered
@@ -52,9 +50,9 @@ let rendererSchemeRegistered = false;
  * Registers `sidekicks-renderer://` as a privileged scheme.
  *
  * MUST run at module top level in `main/index.ts`, ahead of every
- * `whenReady()` consumer (Plan-023 I-023-11). Throws on a second call: Electron
- * accepts exactly one registration per process, and a silently-swallowed second
- * call would hide a startup-order regression rather than surface it.
+ * `whenReady()` consumer. Throws on a second call: Electron accepts exactly one
+ * registration per process, and a silently-swallowed second call would hide a
+ * startup-order regression rather than surface it.
  */
 export function registerRendererScheme(): void {
   if (rendererSchemeRegistered) {

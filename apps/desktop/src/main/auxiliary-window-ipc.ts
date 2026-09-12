@@ -1,4 +1,4 @@
-// The shell's answer to "put this pane in a window of its own" — Plan-023 Phase 1C.
+// The shell's answer to "put this pane in a window of its own".
 //
 // `./auxiliary-window.ts` owns WHICH window opens and on what; `./window.ts` owns
 // HOW one is constructed. This module owns the third question neither of them can

@@ -1,4 +1,4 @@
-// The composer chord in an auxiliary window — Plan-023 Phase 1C.
+// The composer chord in an auxiliary window.
 //
 // Four properties, and each one is a way the press goes wrong rather than a
 // restatement of the handler's shape:

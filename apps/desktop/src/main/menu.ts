@@ -1,8 +1,8 @@
-// The application menu — Plan-023 Phase 1B (T-023p-1B-2).
+// The application menu.
 //
-// `Spec-023 §Main Process Responsibilities` requires a platform-appropriate menu
-// bar (macOS app menu; Windows/Linux window menu). This module builds it from a
-// template of platform-default roles plus a `Window` submenu whose auxiliary
+// Main owes a platform-appropriate menu bar (macOS app menu; Windows/Linux
+// window menu). This module builds it from a template of platform-default roles
+// plus a `Window` submenu whose auxiliary
 // entries come from the SHARED bare-launchable route list in
 // `../shared/auxiliary-routes.ts` — never from the route type, and never from
 // the wider implemented set. The menu-bar path is the one that ships first
@@ -11,8 +11,8 @@
 // renderer-initiated detach rides the `window` bridge namespace, whose handlers
 // `./auxiliary-window-ipc.ts` registers.
 //
-// Copy follows `Spec-023 §Console Design (Meridian)` §Copy: sentence case, no
-// exclamation marks, no capability claimed that the code does not implement.
+// Copy follows the console's rules: sentence case, no exclamation marks, no
+// capability claimed that the code does not implement.
 //
 // Bare-launchable-set-derived, and the narrower set is the point. Every entry
 // this menu builds calls `createAuxiliaryWindow({ route })` with NO context, so
@@ -28,9 +28,9 @@
 // the user has to close. With a body but no reachable read it opens the context
 // picker, which finds an empty store registry and a refused session directory
 // and stops at the honest not-checked absence — a window that works and can
-// never be given a subject. Both are the capability-claimed-but-not-implemented
-// shape `Spec-023 §Console Design (Meridian)` §Copy forbids, so this menu
-// renders no auxiliary entry while the bare-launchable list is empty, and each
+// never be given a subject. Both claim a capability nothing implements, which
+// the console's copy rules forbid, so this menu renders no auxiliary entry
+// while the bare-launchable list is empty, and each
 // entry appears in the same commit as the read that makes its bare launch
 // answerable.
 //
@@ -42,8 +42,8 @@
 // other items are `minimize` / `zoom` / `front` / `close` — platform window
 // commands that have nothing to do with auxiliary routes and work today.
 // Dropping the submenu to hide two entries would take Minimize and Close off
-// the menu bar as collateral, which is a regression in a surface Phase 1C does
-// not touch. What an empty implemented set removes is exactly the auxiliary
+// the menu bar as collateral, which is a regression in a surface none of this
+// touches. What an empty implemented set removes is exactly the auxiliary
 // entries and the separator that introduces them, so the submenu never renders a
 // leading or doubled divider around nothing.
 //
@@ -56,12 +56,12 @@
 //
 // `registerMenuSection` is the second seam. An owning family EXTENDs this menu with
 // its own section rather than editing this template — the onboarding family registers
-// the `Session` section's _Set up providers_ entry through it. Sections are a RUNTIME
-// registry
-// where routes are a static list, and the difference is not stylistic: a
-// section's registrant is a main-process module (Plan-026's walkthrough host),
-// so it can call in, whereas a renderer route module cannot. A section whose
-// owning plan has nothing to offer registers no items and renders nothing —
+// the `Session` section's _Set up providers_ entry through it. Sections are a
+// RUNTIME registry where routes are a static list, and the difference is not
+// stylistic: a
+// section's registrant is a main-process module (the onboarding walkthrough
+// host), so it can call in, whereas a renderer route module cannot. A section
+// whose owner has nothing to offer registers no items and renders nothing —
 // the same absent-not-disabled rule, applied one level up.
 
 import { Menu, type MenuItemConstructorOptions } from "electron";
@@ -163,8 +163,8 @@ const applicationMenuRegistry = new ApplicationMenuRegistry();
 /**
  * Registers (or replaces) one top-level section.
  *
- * The exported seam Plan-026 T7.3 consumes; see {@link ApplicationMenuRegistry}
- * for the rebuild rule.
+ * The exported seam the onboarding family registers through; see
+ * {@link ApplicationMenuRegistry} for the rebuild rule.
  */
 export function registerMenuSection(section: MenuSection): void {
   applicationMenuRegistry.register(section);

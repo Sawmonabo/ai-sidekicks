@@ -1,5 +1,5 @@
 // Which auxiliary-window routes exist, what they are called, and which of them
-// this build offers — Plan-023 Phase 1B (T-023p-1B-2).
+// this build offers.
 //
 // SHARED, and the location is the whole point. An auxiliary window is two
 // halves in two processes: the main process constructs the window and builds
@@ -22,13 +22,13 @@
 // Implementation status is a BUILD-TIME fact about the renderer bundle, not
 // runtime state. A main-process registry that renderer route modules were meant
 // to fill has no reachable registrant — a renderer module cannot call into main,
-// and no bridge namespace for it exists (Plan-023 Phase 1B defers one) — so it
-// is a gate nothing ever opens and every entry behind it stays hidden forever.
+// and no bridge namespace for it exists — so it is a gate nothing ever opens
+// and every entry behind it stays hidden forever.
 // `IMPLEMENTED_AUXILIARY_ROUTES` replaces it: a constant the console's route
 // table, the detach handoff, and the window factory all read, grown in the same
-// commit as each route body (T-023p-1C-2 `timeline`, T-023p-1C-4
-// `agent-console`). `BARE_LAUNCHABLE_AUXILIARY_ROUTES` is the narrower subset
-// the menu bar reads, and its own header says why the two are separate claims.
+// commit as each route body. `BARE_LAUNCHABLE_AUXILIARY_ROUTES` is the narrower
+// subset the menu bar reads, and its own header says why the two are separate
+// claims.
 //
 // This module may import nothing but `@ai-sidekicks/contracts` — it is compiled
 // into the RENDERER bundle, so `electron`, `node:*`, and the main/preload
@@ -36,10 +36,9 @@
 // It holds data and pure functions: no state, no I/O.
 
 /**
- * The auxiliary windows `Spec-023 §Main Process Responsibilities` names — the
- * full-screen timeline and the detached agent console. A CLOSED set: the
- * console's pane-kind set is closed, and only these two panes may be moved into
- * a window of their own (`Spec-023 §Console Design (Meridian)` §The surface set).
+ * The two auxiliary windows the shell offers — the full-screen timeline and the
+ * detached agent console. A CLOSED set: the console's pane-kind set is closed,
+ * and only these two panes may be moved into a window of their own.
  *
  * Declared as the array; the union is DERIVED from it rather than written
  * beside it, so the two cannot disagree.
@@ -65,19 +64,18 @@ export const AUXILIARY_ROUTE_LABELS: Record<AuxiliaryRouteName, string> = {
 /**
  * The routes this build actually implements, in presentation order.
  *
- * It was EMPTY at Phase 1B: that phase shipped the main-process half only, and an
- * entry that opened `#/window/timeline` before Phase 1C's route body existed
- * would have opened a hardened window onto a hash route with nothing behind it —
- * a blank frame the user has to close, offered by a menu that claimed it did
- * something. That is the capability-claimed-but-not-implemented shape
- * `Spec-023 §Console Design (Meridian)` §Copy forbids, and the same
- * absent-not-disabled rule that keeps Plan-026's `Session` entries out of the
- * menu until its walkthrough host exists.
+ * It was EMPTY while only the main-process half shipped: an entry that opened
+ * `#/window/timeline` before the route body existed would have opened a hardened
+ * window onto a hash route with nothing behind it — a blank frame the user has
+ * to close, offered by a menu that claimed it did something. Claiming a
+ * capability nothing implements is what the console's copy rules forbid, and it
+ * is the same absent-not-disabled rule that keeps the onboarding `Session`
+ * entries out of the menu until its walkthrough host exists.
  *
  * Each joins it in the same commit as its route body. `timeline` is the console's
  * ledger family claiming the `timeline` surface slot, so `#/window/timeline`
  * resolves to a rendered pane rather than to nothing; `agent-console` is the agents
- * family's console claiming its own, from T-023p-1C-4.
+ * family's console claiming its own.
  *
  * Membership here admits a launch that SUPPLIES context — the deck's detach
  * control, and a hand-typed hash route. It does not by itself admit a BARE
@@ -106,14 +104,13 @@ export const IMPLEMENTED_AUXILIARY_ROUTES: readonly AuxiliaryRouteName[] = [
  * EMPTY today, and the reason is a wire and not an omission. An auxiliary
  * renderer starts with no open session stores, so `SessionStoreRegistry` — one
  * of the context picker's two candidate sources — is empty by construction. The
- * other is the node's session directory, which is a `Plan-023 §Console growth
- * slate` row that the live bridge refuses by name (`sessionList`, alongside
- * `sessionRead`): no daemon method for it is registered in
- * `packages/contracts`, so there is nothing for the live port to call. Both
- * candidate sources therefore settle at nothing, and a bare window stops at the
- * picker's honest not-checked absence with no way forward. A menu entry that
- * always ends there is the capability-claimed-but-not-implemented shape
- * `Spec-023 §Console Design (Meridian)` §Copy forbids.
+ * other is the node's session directory, a read the live bridge still refuses by
+ * name (`sessionList`, alongside `sessionRead`): no daemon method for it is
+ * registered in `packages/contracts`, so there is nothing for the live port to
+ * call. Both candidate sources therefore settle at nothing, and a bare window
+ * stops at the picker's honest not-checked absence with no way forward. A menu
+ * entry that always ends there claims a capability nothing implements, which the
+ * console's copy rules forbid.
  *
  * A route joins this list in the same commit as the read that makes its bare
  * launch answerable — the directory row landing is what makes `timeline` a

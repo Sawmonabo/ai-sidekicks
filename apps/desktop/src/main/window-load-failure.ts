@@ -1,5 +1,4 @@
-// What a window does when its document will not load — Plan-023 Phase 1B
-// (T-023p-1B-2).
+// What a window does when its document will not load.
 //
 // Split out of `./window.ts` so the factories read as construction and the
 // recovery reads as one ladder: load, then the generated failure document, then
