@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship the `@ai-sidekicks/crypto-paseto` workspace package — PASETO v4.public + v4.local primitives, PAE helper, and in-memory KeyRing — as the cryptographic substrate that the retired invite-membership-and-presence plan invite-token minting (CP-002-4) and Plan-016 refresh-token issuance depend on.
+**Goal:** Ship the `@ai-sidekicks/crypto-paseto` workspace package — PASETO v4.public + v4.local primitives, PAE helper, and in-memory KeyRing — as the cryptographic substrate that the retired invite-membership-and-presence plan invite-token minting (cross-plan row 4 of the retired invite-membership-and-presence plan) and Plan-016 refresh-token issuance depend on.
 
 **Architecture:** In-house TypeScript library built directly on `@noble/curves` (Ed25519), `@noble/ciphers` (XChaCha20), and `@noble/hashes` (BLAKE2b + `equalBytes` + `randomBytes`). No upstream `paseto`/`paseto-js` dependency — satisfies ADR-010:129–136 in-house-lib mandate. Surface is a flat barrel (`src/index.ts`) mirroring `packages/contracts/`. A test-only `encryptV4LocalDeterministic` seam under `src/internal/` enables RFC vector encrypt round-trips without exposing nonce-injection to production callers.
 
@@ -21,7 +21,7 @@
 | the retired self-hostable-node-relay spec | Context only; `spec_coverage: []` (the retired self-hostable-node-relay spec governs the relay surface, not package primitives) |
 | Cross-plan dependencies §5 + the retired self-hostable-node-relay plan Substrate-vs-Namespace Carve-Out | Names Plan-016 Tier 4 as the persistence owner for KeyRing |
 | [Plan-implementation readiness-audit runbook](../../operations/plan-implementation-readiness-audit-runbook.md) §Per-Phase Audit Semantics | Admits `substrate_exempt` for this phase |
-| the retired invite-membership-and-presence plan Phase 2 precondition | Downstream consumer (CP-002-4) — invite-token minting |
+| the retired invite-membership-and-presence plan Phase 2 precondition | Downstream consumer (cross-plan row 4 of the retired invite-membership-and-presence plan) — invite-token minting |
 | [CONTRIBUTING.md](../../../CONTRIBUTING.md) | GitFlow-lite; Conventional Branch; Conventional Commits |
 | [AGENTS.md](../../../AGENTS.md) | Primary-source citation discipline |
 
