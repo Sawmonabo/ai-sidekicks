@@ -1,10 +1,9 @@
-// I-007-3-T1 / T2 / T3 / T5 / T8 / T9 — Phase 3 `session.*` handler test
-// suite (T-007p-3-4 + BL-117 closure).
+// Phase 3 `session.*` handler test suite.
 //
 // Spec coverage:
 //   * `Spec-007 §Required Behavior` + `Spec-007 §Interfaces And Contracts`
 //     (docs/specs/007-local-ipc-and-daemon-control.md) — the `session.*`
-//     methods are the V1 vertical-slice surface (`create` / `read` / `join` /
+//     methods are the V1 vertical-slice surface (`create` / `read` /
 //     `subscribe`); this file exercises the handlers' registry-binding
 //     boundary and the streaming `subscribe` slice's wire-frame emission.
 //
@@ -53,14 +52,6 @@
 //     `data.type: "session.not_found"` per
 //     `docs/architecture/contracts/error-contracts.md §JSON-RPC Wire Mapping`
 //     (the §Session row is the HTTP 404 equivalent). Closes BL-117.
-//   * I-007-3-T9 (Verifies Spec-007 AC-N3 + Spec-001 AC4) — `session.join`
-//     round-trip. Happy path: mock `joinSession` drives a
-//     `membership.created` event (the canonical V1 join-admission variant per
-//     the `SessionEventSchema` discriminated union in `packages/contracts/src/event.ts`)
-//     to a same-session subscribe-side observer via the captured
-//     `onEvent` callback (mirrors T3's emit pattern). AC4 replay shape:
-//     two sequential dispatches with different `identityHandle`s return
-//     the same `sessionId` per the handler boundary. Closes BL-117.
 //
 // Test-fixture posture:
 //   * The runtime-daemon's `package.json` deliberately does NOT depend on
@@ -80,11 +71,6 @@
 //     `jsonrpc-error-mapping.test.ts` (sibling).
 //   * Streaming-primitive validation invariants beyond T3's frame-shape
 //     check — covered by `streaming-primitive.test.ts` (sibling).
-//   * Full session-service / projector integration for `session.join`'s
-//     real `membership.created` event emission — T9 uses mocked deps that
-//     drive the captured `onEvent` callback (mirroring T3's pattern); the
-//     SQLite-backed event log + control-plane replay path ships with
-//     Plan-001 Phase 5.
 //
 // Shared-helper directive (per the T-007p-3-4 task contract):
 //   T3's `$/subscription/notify` frame-shape assertions are INLINE-DUPLICATED
@@ -100,15 +86,10 @@ import type {
   Handler,
   HandlerContext,
   JsonRpcNotification,
-  MembershipCreatedEvent,
-  MembershipId,
-  ParticipantId,
   SessionCreateRequest,
   SessionCreateResponse,
   SessionEvent,
   SessionId,
-  SessionJoinRequest,
-  SessionJoinResponse,
   SessionReadRequest,
   SessionReadResponse,
   SessionSubscribeRequest,
@@ -121,8 +102,6 @@ import {
   SessionCreateResponseSchema,
   JsonRpcErrorCode,
   SessionEventSchema,
-  SessionJoinRequestSchema,
-  SessionJoinResponseSchema,
   SessionReadRequestSchema,
   SessionReadResponseSchema,
   SessionSubscribeRequestSchema,
@@ -140,7 +119,6 @@ import { SessionNotFoundError } from "../../session-errors.js";
 import { StreamingPrimitive } from "../../streaming-primitive.js";
 
 import { registerSessionCreate, type SessionCreateDeps } from "../session-create.js";
-import { registerSessionJoin, type SessionJoinDeps } from "../session-join.js";
 import { registerSessionRead, type SessionReadDeps } from "../session-read.js";
 import { registerSessionSubscribe, type SessionSubscribeDeps } from "../session-subscribe.js";
 
@@ -161,13 +139,9 @@ import { passthroughSchema } from "../../__tests__/__fixtures__/zod-schemas.js";
 
 const TEST_SESSION_ID = "550e8400-e29b-41d4-a716-446655440000" as SessionId;
 const TEST_PARTICIPANT_ID = "660e8400-e29b-41d4-a716-446655440001";
-// Additional IDs for the BL-117 / T8 + T9 fixtures. These values are
-// static literals chosen for human-readable test failure output; their
-// byte values are otherwise meaningless beyond passing the schema's
-// branded-UUID parse.
-const TEST_MEMBERSHIP_ID = "770e8400-e29b-41d4-a716-446655440002";
-const TEST_PARTICIPANT_ID_2 = "880e8400-e29b-41d4-a716-446655440003";
-const TEST_MEMBERSHIP_ID_2 = "990e8400-e29b-41d4-a716-446655440004";
+// Additional ID for the session-read fixtures. The value is a static
+// literal chosen for human-readable test failure output; its byte values
+// are otherwise meaningless beyond passing the schema's branded-UUID parse.
 const UNKNOWN_SESSION_ID = "aabbccdd-eeff-4011-8022-334455667788" as SessionId;
 
 /**
@@ -239,52 +213,6 @@ function buildSessionReadResponse(): SessionReadResponse {
     },
     timelineCursors: {
       latest: "evt-0042" as SessionReadResponse["timelineCursors"]["latest"],
-    },
-  };
-}
-
-/**
- * Build a canonical-shape `SessionJoinResponse` for the I-007-3-T9 happy-
- * path test. Optional `participantId` / `membershipId` slots are passed
- * so a regression that swapped the schema's branded ID slots would surface
- * as a typed parse failure.
- */
-function buildSessionJoinResponse(
-  options: { participantId?: string; membershipId?: string } = {},
-): SessionJoinResponse {
-  return {
-    sessionId: TEST_SESSION_ID,
-    participantId: (options.participantId ?? TEST_PARTICIPANT_ID) as ParticipantId,
-    membershipId: (options.membershipId ?? TEST_MEMBERSHIP_ID) as MembershipId,
-    sharedMetadata: {},
-  };
-}
-
-/**
- * Build a canonical-shape `membership.created` `SessionEvent` for the
- * I-007-3-T9 emit-and-observe arm. The payload shape matches
- * `MembershipCreatedEventSchema` in
- * `packages/contracts/src/event.ts` exactly — `membershipId`,
- * `participantId`, `role`, `identityHandle`. The discriminator union dispatch
- * picks this variant on `type === "membership.created"`.
- */
-function buildMembershipCreatedEvent(
-  options: { identityHandle?: string } = {},
-): MembershipCreatedEvent {
-  return {
-    id: "evt-membership-0001",
-    sessionId: TEST_SESSION_ID,
-    sequence: 1,
-    occurredAt: "2026-01-22T19:14:36.000Z",
-    category: "membership_change",
-    type: "membership.created",
-    actor: TEST_PARTICIPANT_ID,
-    version: "1.0" as SessionEvent["version"],
-    payload: {
-      membershipId: TEST_MEMBERSHIP_ID as MembershipId,
-      participantId: TEST_PARTICIPANT_ID as ParticipantId,
-      role: "collaborator",
-      identityHandle: options.identityHandle ?? "alice",
     },
   };
 }
@@ -1283,193 +1211,6 @@ describe("I-007-3-T8 — session.read round-trip (Spec-007 AC-N2 + I-007-8)", ()
 });
 
 // ----------------------------------------------------------------------------
-// I-007-3-T9 — `session.join` round-trip + Spec-001 AC4 replay shape
-// (BL-117 closure)
-// ----------------------------------------------------------------------------
-//
-// AC-N3 has two arms: (a) happy path — handler invocation drives a
-// `membership.created` event (the canonical V1 join-admission variant
-// per the `SessionEventSchema` discriminated union in `packages/contracts/src/event.ts`)
-// to a same-session subscribe-side observer through the streaming
-// primitive; (b) Spec-001 AC4 second-client replay shape — a second
-// `SessionJoin` returns the same `sessionId` at the handler boundary.
-//
-// The full session-service integration (SQLite-backed event log +
-// projector + control-plane replay path) ships with Plan-001 Phase 5.
-// This test verifies the wire-shape contract using mocked deps that
-// drive the captured `onEvent` callback (mirrors T3's emit pattern at
-// `session-handlers.test.ts` — a vi.fn() that only returns a fixture
-// cannot trigger an event by itself; the mock body must drive the
-// emission explicitly).
-
-describe("I-007-3-T9 — session.join round-trip (Spec-007 AC-N3 + Spec-001 AC4)", () => {
-  it("happy path: handler drives a membership.created event to the subscribe-side observer", async () => {
-    // Arrange — wire StreamingPrimitive + send mock + the subscribe-side
-    // capture for `onEvent` (holder pattern; see T3 for the rationale).
-    const registry = new MethodRegistryImpl();
-    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
-    const primitive = new StreamingPrimitive({ registry, send });
-
-    const onEventHolder: { current: ((event: SessionEvent) => void) | null } = {
-      current: null,
-    };
-    const subscribeToSession = vi.fn<SessionSubscribeDeps["subscribeToSession"]>(
-      (_sessionId, _afterCursor, onEvent) => {
-        onEventHolder.current = onEvent;
-        return () => undefined;
-      },
-    );
-    const subscribeDeps: SessionSubscribeDeps = {
-      streamingPrimitive: primitive,
-      subscribeToSession,
-    };
-    registerSessionSubscribe(registry, subscribeDeps);
-
-    // Arrange — mock `joinSession`. The mock body invokes the captured
-    // `onEvent` with a canonical `MembershipCreatedEvent` fixture,
-    // modeling what the real session-service (Plan-001 Phase 5) would
-    // do via the projector → event-source → subscribe-side observer
-    // chain. Returning a fixture is not enough by itself; the explicit
-    // `onEvent(fixture)` is what drives the subscribe-side `sub.next()`.
-    const joinResponse = buildSessionJoinResponse();
-    const membershipEvent = buildMembershipCreatedEvent({ identityHandle: "alice" });
-    const mockJoinSession = vi.fn<(req: SessionJoinRequest) => Promise<SessionJoinResponse>>(
-      async () => {
-        const onEvent = onEventHolder.current;
-        if (onEvent === null) {
-          throw new Error("test wiring: subscribe must be dispatched before join");
-        }
-        onEvent(membershipEvent);
-        return joinResponse;
-      },
-    );
-    const joinDeps: SessionJoinDeps = { joinSession: mockJoinSession };
-    registerSessionJoin(registry, joinDeps);
-
-    // Act — open the subscription first so `onEventHolder.current` is
-    // populated. The transport-bound ctx is required (session.subscribe
-    // refuses `transportId === undefined`).
-    const transportId = 11;
-    const subscribeCtx: HandlerContext = { transportId };
-    const subscribeReq: SessionSubscribeRequest = { sessionId: TEST_SESSION_ID };
-    const subscribeResult = (await registry.dispatch(
-      "session.subscribe",
-      subscribeReq,
-      subscribeCtx,
-    )) as SessionSubscribeResponse;
-    // Drain the wire-ordering replay-buffer flush boundary so events
-    // fired from this point on route directly through `sub.next` rather
-    // than via the replay buffer. Same posture as T3.
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(send).not.toHaveBeenCalled();
-
-    // Act — dispatch `session.join`. Mock body drives `onEvent` with
-    // the membership fixture, then returns the join response.
-    const joinCtx: HandlerContext = { transportId };
-    const joinReq: SessionJoinRequest = {
-      sessionId: TEST_SESSION_ID,
-      identityHandle: "alice",
-    };
-    const joinResult = (await registry.dispatch(
-      "session.join",
-      joinReq,
-      joinCtx,
-    )) as SessionJoinResponse;
-
-    // Assert — `joinSession` was invoked with the parsed request.
-    expect(mockJoinSession).toHaveBeenCalledTimes(1);
-    expect(mockJoinSession).toHaveBeenCalledWith(joinReq);
-
-    // Assert — the join response shape matches `SessionJoinResponseSchema`.
-    expect(joinResult).toStrictEqual(joinResponse);
-    expect(SessionJoinResponseSchema.safeParse(joinResult).success).toBe(true);
-
-    // Assert — the subscribe-side observer received a
-    // `$/subscription/notify` frame carrying the `membership.created`
-    // event. Inline-duplicated frame-shape check per the file's
-    // "no shared helper" directive.
-    expect(send).toHaveBeenCalledTimes(1);
-    const call = send.mock.calls[0];
-    if (call === undefined) throw new Error("unreachable — send asserted above");
-    const [actualTransportId, frame] = call;
-    expect(actualTransportId).toBe(transportId);
-    expect(frame.jsonrpc).toBe(JSONRPC_VERSION);
-    expect(frame.method).toBe(SUBSCRIPTION_NOTIFY_METHOD);
-    const params = frame.params as SubscriptionNotifyParams<SessionEvent>;
-    expect(params.subscriptionId).toBe(subscribeResult.subscriptionId);
-    expect(params.value).toStrictEqual(membershipEvent);
-    // Defense in depth — verify the event variant explicitly (a
-    // regression that emitted a `session.created` instead of
-    // `membership.created` would silently slip past `toStrictEqual` if
-    // a future refactor changed the fixture builder).
-    expect(params.value.type).toBe("membership.created");
-  });
-
-  it("AC4 replay shape: second-client join returns the same sessionId at the handler boundary", async () => {
-    // Arrange — register `session.join` with a mock that returns the
-    // SAME sessionId across two sequential calls but distinct
-    // participant/membership IDs (modeling Plan-001 Phase 5's contract:
-    // the session-service materializes a fresh membership row per call
-    // while keeping the session row stable across both joins).
-    const registry = new MethodRegistryImpl();
-    const mockJoinSession = vi.fn<(req: SessionJoinRequest) => Promise<SessionJoinResponse>>(
-      async (req) => {
-        if (req.identityHandle === "alice") {
-          return buildSessionJoinResponse();
-        }
-        return buildSessionJoinResponse({
-          participantId: TEST_PARTICIPANT_ID_2,
-          membershipId: TEST_MEMBERSHIP_ID_2,
-        });
-      },
-    );
-    const deps: SessionJoinDeps = { joinSession: mockJoinSession };
-    registerSessionJoin(registry, deps);
-
-    // Act — sequential joins with distinct identity handles.
-    const ctx: HandlerContext = { transportId: 13 };
-    const first = (await registry.dispatch(
-      "session.join",
-      { sessionId: TEST_SESSION_ID, identityHandle: "alice" },
-      ctx,
-    )) as SessionJoinResponse;
-    const second = (await registry.dispatch(
-      "session.join",
-      { sessionId: TEST_SESSION_ID, identityHandle: "bob" },
-      ctx,
-    )) as SessionJoinResponse;
-
-    // Assert — both responses share the sessionId (Spec-001 AC4: a
-    // second-client SessionJoin returns the SAME session id) — the
-    // canonical wire-shape check at the handler boundary.
-    expect(first.sessionId).toBe(TEST_SESSION_ID);
-    expect(second.sessionId).toBe(TEST_SESSION_ID);
-    expect(first.sessionId).toBe(second.sessionId);
-    // Each call materializes a distinct membership/participant row
-    // (the session is shared; the per-caller identity is not).
-    expect(second.participantId).not.toBe(first.participantId);
-    expect(second.membershipId).not.toBe(first.membershipId);
-    // Both responses round-trip through `SessionJoinResponseSchema`.
-    expect(SessionJoinResponseSchema.safeParse(first).success).toBe(true);
-    expect(SessionJoinResponseSchema.safeParse(second).success).toBe(true);
-    expect(mockJoinSession).toHaveBeenCalledTimes(2);
-  });
-
-  it("registers `session.join` with mutating: true (pre-handshake gate refuses)", () => {
-    // Sanity — `session.join` mutates domain state (admits a participant,
-    // emits `membership.created`). Flipping this flag to false would
-    // let pre-handshake callers admit themselves before version
-    // negotiation completes — a security-contract break.
-    const registry = new MethodRegistryImpl();
-    const deps: SessionJoinDeps = {
-      joinSession: async () => buildSessionJoinResponse(),
-    };
-    registerSessionJoin(registry, deps);
-    expect(registry.isMutating("session.join")).toBe(true);
-  });
-});
-
-// ----------------------------------------------------------------------------
 // Local TypeScript suppressions — `Handler<...>` import is required by the
 // fixture-typing surface above (the per-deps callback shape mirrors
 // `Handler<SessionCreateRequest, SessionCreateResponse>` at the registry
@@ -1490,6 +1231,5 @@ void _typeProbe;
 void SessionCreateRequestSchema;
 void SessionCreateResponseSchema;
 void SessionReadRequestSchema;
-void SessionJoinRequestSchema;
 void SessionSubscribeRequestSchema;
 void SessionSubscribeResponseSchema;
