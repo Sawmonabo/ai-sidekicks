@@ -1,14 +1,13 @@
-// Codex driver — intervention dispatcher (Plan-005 Phase 3, T3.2).
+// Codex driver — intervention dispatcher.
 //
 // One generic entry point, `applyIntervention`, routes a normalized intervention
 // onto the provider's native operation OR returns a structured `degraded` result
 // the orchestration layer can act on. It never throws to signal "unsupported" —
-// per ADR-011 an unsupported intervention type is DATA (`{ status: 'degraded',
+// an unsupported intervention type is DATA (`{ status: 'degraded',
 // fallbackAction }`), not an exception, because the layer above has to choose a
 // fallback and an exception carries no choice.
 //
 // ---------------------------------------------------------------------------
-// I-005-4 — the capability gate
 // ---------------------------------------------------------------------------
 //
 // The intervention type is mapped to the capability flag that governs it, and the
@@ -24,13 +23,13 @@
 // is a core obligation of the driver contract, not an optional capability.
 //
 // The gate is `!== true`, matching `provider-registry.ts`: a flag that is `false`
-// AND a flag that is missing are both "unsupported" (I-005-2). A capability is
-// supported only when explicitly declared `true`.
+// AND a flag that is missing are both "unsupported". A capability is supported
+// only when explicitly declared `true`.
 //
 // Codex declares `steer: true`, so its degraded arm is unreachable in production
 // wiring — but it is reachable, and tested, through the injected snapshot. The
-// production-live degraded path is the Claude leg (T3.7), where `steer` is
-// `false`; both legs share this dispatcher's shape.
+// production-live degraded path is the Claude leg, where `steer` is `false`;
+// both legs share this dispatcher's shape.
 //
 // ---------------------------------------------------------------------------
 // Why the runtime arrives as a port
@@ -87,12 +86,6 @@
 //                    interrupt the day the provider added a member to that
 //                    response would fail on a change that took nothing away.
 //
-// Spec coverage: `Spec-005 §Required Behavior` (the generic intervention
-// dispatcher and its degraded fallback; idempotency-key ride-through); ADR-011
-// (capability flags + intervention modeling).
-//
-// Refs: Plan-005 §Phase 3 / T3.2 + T3.14 (P0-3, P3-1), `Spec-005 §Required
-// Behavior`, invariant I-005-4 (and I-005-2 for the fail-closed read), ADR-011.
 
 import {
   DriverInterventionResultSchema,
@@ -155,8 +148,8 @@ export interface CodexSteerRunRequest {
    */
   readonly clientIdempotencyKey: string;
   /**
-   * Why this text is being written (T3.18). A steer directive is participant
-   * text, and this dispatcher says so explicitly rather than relying on the
+   * Why this text is being written. A steer directive is participant text,
+   * and this dispatcher says so explicitly rather than relying on the
    * absent-origin default — the default is fail-closed and would neutralize
    * identically, but it would report `origin=unknown` on a trip, which is a
    * worse answer than the true one when the true one is known.
@@ -201,7 +194,7 @@ export interface CodexInterventionRuntime {
   interruptRun(params: InterruptRunParams): Promise<void>;
   /**
    * Whether the runtime has ALREADY ruled the given turn's provider-bound text
-   * swallowed (T3.18).
+   * swallowed.
    *
    * A read, never a wait. The dispatcher asks once, at the moment its own
    * result resolves, which is precisely what makes `refusalCode` best-effort BY
@@ -214,7 +207,7 @@ export interface CodexInterventionRuntime {
   textNeutralizationDecisionForTurn(turnId: string): { readonly refused: boolean };
 }
 
-/** Reads the live capability snapshot. Injected — `capabilities.ts` is T3.3's file. */
+/** Reads the live capability snapshot. Injected — `capabilities.ts` is the file. */
 export type CodexCapabilitySnapshotReader = () => DriverCapabilities;
 
 /** Construction inputs for the dispatcher. */
@@ -232,7 +225,7 @@ export interface CodexInterventionOptions {
  * capability gate degrades an unmapped type before the switch is entered -- so
  * this buys the COMPILE-time guarantee the gate cannot give.
  *
- * Degrades rather than throwing, per I-005-4. It names NO `fallbackAction`:
+ * Degrades rather than throwing. It names NO `fallbackAction`:
  * `queue_and_interrupt` is the documented fallback for a missing native steer,
  * and asserting it for a type nothing here knows anything about would put a verb
  * into the daemon's mouth. Mirrors the Claude leg's arm of the same name.
@@ -255,11 +248,11 @@ function normalizeSteerAcknowledgement(
   acknowledgement: CodexSteerAcknowledgement,
   textNeutralizationRefused: boolean,
 ): DriverInterventionResult {
-  // T3.18 takes precedence over the acknowledgement grade, and the ordering is
-  // the claim. A steer whose text the provider swallowed may well come back
-  // with a perfectly matching ack — the provider genuinely accepted a turn, it
-  // simply never showed the words to a model — so grading the ack first would
-  // report `applied` for a directive that was never delivered.
+  // Takes precedence over the acknowledgement grade, and the ordering is the
+  // claim. A steer whose text the provider swallowed may well come back with a
+  // perfectly matching ack — the provider genuinely accepted a turn, it simply
+  // never showed the words to a model — so grading the ack first would report
+  // `applied` for a directive that was never delivered.
   //
   // The refusal arm carries NO `fallbackAction`, unlike every other degraded
   // arm in this module. `queue_and_interrupt` is the remedy for "this provider

@@ -1,4 +1,4 @@
-// RustSidecarPtyHost shutdown drain tests — Plan-001 §CP-001-1 polymorphic axis.
+// RustSidecarPtyHost shutdown drain tests
 //
 // What this asserts:
 //
@@ -19,7 +19,7 @@
 //     true`. Timeout → `taskkillEscalated: true`.
 //   * Crash-budget suppression: the deliberate sidecar exit during
 //     `shutdown()` does NOT consume a slot of the sliding-window
-//     crash budget — Plan-001 §CP-001-1 hard constraint.
+//     crash budget
 //   * No spurious `-1` crash sentinel on clean wind-down: a
 //     deliberate sidecar exit AFTER real `ExitCodeNotification`s have
 //     been routed does NOT fire the per-session `-1` synthetic
@@ -35,12 +35,9 @@
 //     `PtyBackendUnavailableError` — the host is terminal post-shutdown
 //     entry.
 //
-// Refs:
-//   • Plan-001 §Cross-Plan Obligations CP-001-1 — drain orchestration.
-//   • Plan-024 §Invariants I-024-4 — primary FIFO + drain invariant
-//     (this test exercises the drain portion; lifecycle wiring tests
-//     live in `apps/desktop/test/sidecar-lifecycle.test.ts`).
-//   • ADR-019 §Decision item 8 — backend polymorphism.
+//   • Primary FIFO + drain invariant (this test exercises the drain
+//     portion; lifecycle wiring tests live in
+//     `apps/desktop/test/sidecar-lifecycle.test.ts`).
 
 import { Buffer } from "node:buffer";
 import { EventEmitter } from "node:events";
@@ -203,7 +200,7 @@ async function spawnOneSession(
 // Tests
 // ----------------------------------------------------------------------------
 
-describe("RustSidecarPtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", () => {
+describe("RustSidecarPtyHost.shutdown — polymorphic drain", () => {
   it("with no spawned sessions returns vacuous DrainResult (0/0, host clean)", async () => {
     const fake = makeFakeSidecarChild();
     const host = new RustSidecarPtyHost({
@@ -484,16 +481,11 @@ describe("RustSidecarPtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", 
   it("escalates via spawnTaskkill (Windows tree-kill) and reports taskkillEscalated:true when the sidecar does not exit within hostTimeoutMs", async () => {
     // Windows-axis host-shutdown escalation pin. When `drainSidecarHost`
     // host-timeout fires on Windows (sidecar wedged, no exit on stdin
-    // EOF within `hostTimeoutMs`), the supervisor MUST invoke
-    // `taskkill /T /F /PID <sidecar-pid>` rather than `child.kill(
-    // "SIGKILL")` — Node's SIGKILL maps to a single-PID
-    // `TerminateProcess` on Windows, leaving descendants alive as
-    // orphaned PTY workers (Plan-024 §I-024-2 + Plan-001 §CP-001-1
-    // contract violation).
+    // EOF within `hostTimeoutMs`), the supervisor MUST invoke `taskkill
+    // /T /F /PID <sidecar-pid>` rather than `child.kill("SIGKILL")` —
+    // Node's SIGKILL maps to a single-PID `TerminateProcess` on Windows,
+    // leaving descendants alive as orphaned PTY workers.
     //
-    // Refs:
-    //   • Plan-024 §I-024-2 (taskkill /T /F mandate).
-    //   • Plan-001 §CP-001-1 (daemon sidecar-cleanup contract).
     //   • Codex Review P1 thread `PRRT_kwDOSCycWc6DY9b4` on PR #83.
     vi.useFakeTimers();
     try {
@@ -539,7 +531,7 @@ describe("RustSidecarPtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", 
       // Allow the (eventual) child exit so the synthetic teardown
       // chain runs. The supervisor returns from the escalation as soon
       // as `spawnTaskkill` resolves — the underlying child.exit may
-      // fire later or not at all (best-effort per I-024-2).
+      // fire later or not at all (best-effort).
       fake.triggerExit(0, null);
       await Promise.resolve();
       await Promise.resolve();
@@ -549,8 +541,8 @@ describe("RustSidecarPtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", 
       expect(result.taskkillEscalated).toBe(true);
 
       // Assert the supervisor invoked `taskkill /T /F /PID <sidecar-pid>`
-      // via `spawnTaskkill` — the load-bearing tree-walk per I-024-2.
-      // The fake child's pid is 67890 (see `makeFakeSidecarChild`).
+      // via `spawnTaskkill` — the load-bearing tree-walk. The fake
+      // child's pid is 67890 (see `makeFakeSidecarChild`).
       expect(mockTaskkill).toHaveBeenCalledTimes(1);
       expect(mockTaskkill).toHaveBeenCalledWith(67890);
 
@@ -564,10 +556,10 @@ describe("RustSidecarPtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", 
   });
 
   it("bounds the Windows tree-kill escalation by 5 s wall-clock when spawnTaskkill never settles", async () => {
-    // I-024-2 "MUST NOT block" floor: even if `taskkill.exe` stalls
-    // (kernel deadlock, suspended process, OS bug), the drain MUST
-    // resolve. `escalateHardKillTree` races `spawnTaskkill` against a
-    // 5 s native `setTimeout` so the bound holds regardless of the
+    // "MUST NOT block" floor: even if `taskkill.exe` stalls (kernel
+    // deadlock, suspended process, OS bug), the drain MUST resolve.
+    // `escalateHardKillTree` races `spawnTaskkill` against a 5 s
+    // native `setTimeout` so the bound holds regardless of the
     // OS-level outcome.
     //
     // Discriminator: inject a never-resolving `spawnTaskkill` mock.
@@ -578,8 +570,6 @@ describe("RustSidecarPtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", 
     // the bound this test asserts; we use the bound itself as the
     // discriminator).
     //
-    // Refs:
-    //   • Plan-024 §I-024-2 (MUST NOT block).
     //   • Mature pattern: `NodePtyHost.invokeTaskkill` (node-pty-host.ts:
     //     1103-1170 — the equivalent per-session-axis bound).
     vi.useFakeTimers();
@@ -701,8 +691,7 @@ describe("RustSidecarPtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", 
       // emission per the SIGKILL escalation path), but the drain was
       // non-graceful."
       //
-      // Per ADR-019 §Decision item 8 ("Consumers never see the
-      // backend choice"), the rust-sidecar backend MUST mirror
+      // The rust-sidecar backend MUST mirror
       // `NodePtyHost.invokeTaskkill` (node-pty-host.ts:1117-1127),
       // which synthesizes `onExit(sessionId, 1, undefined)` on the
       // taskkill-escalation path. The synthetic uses exit code `1`
@@ -755,8 +744,6 @@ describe("RustSidecarPtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", 
     //     was already deleted) and no-ops. B counts under
     //     `sessionsForcedKilled` (the drain returned `"forced"`).
     //
-    // Refs:
-    //   • Plan-001 §CP-001-1 sidecar-lifecycle drain.
     //   • `packages/contracts/src/pty-host.ts` PtyHost.onExit contract
     //     (exactly-once per session terminal callback).
 
@@ -888,8 +875,6 @@ describe("RustSidecarPtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", 
     // no `triggerExit`, single fake-timer advance past
     // `perSessionTimeoutMs`) is the structural pin.
     //
-    // Refs:
-    //   • Plan-001 §CP-001-1 sidecar-lifecycle drain.
     //   • PR #83 discussion r3271742909 (Codex P1 finding).
     vi.useFakeTimers();
     try {
@@ -995,7 +980,7 @@ describe("RustSidecarPtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", 
 
       // Host wind-down also escalated (the sidecar stayed wedged and
       // ignored stdin EOF too). `child.kill("SIGKILL")` was the
-      // bounded OS-signal backstop per ADR-019 §Decision item 8.
+      // bounded OS-signal backstop.
       expect(result.sidecarExitedCleanly).toBe(false);
       expect(result.taskkillEscalated).toBe(true);
       expect(fake.child.kill).toHaveBeenCalledWith("SIGKILL");
@@ -1051,8 +1036,6 @@ describe("RustSidecarPtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", 
     // emitted by the SIGKILL escalation on a LIVE sidecar (covered
     // by the wedge test above).
     //
-    // Refs:
-    //   • Plan-001 §CP-001-1 sidecar-lifecycle drain.
     //   • Existing two-session crash test at ~L531 (this is the
     //     single-session variant — same trace, no s-A drained path).
     vi.useFakeTimers();
@@ -1205,11 +1188,8 @@ describe("RustSidecarPtyHost.shutdown — Plan-001 CP-001-1 polymorphic drain", 
     // `fireCrashTimeOnExit` on sidecar exit (which suppresses the
     // `-1` sentinel under `shuttingDown === true`), and the
     // caller's subsequent `kill()` / `write()` / `resize()` would
-    // throw "unknown sessionId" — a contract break per
-    // ADR-019 §Decision item 8.
+    // throw "unknown sessionId" — a contract break.
     //
-    // Refs:
-    //   • Plan-001 §CP-001-1 sidecar-lifecycle drain.
     //   • `PtyBackendUnavailableError` shape matches the existing
     //     post-flag-flip path tested above.
 

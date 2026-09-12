@@ -1,5 +1,5 @@
 // NodeCapabilityService — capability declaration + change-detected update
-// emission (Plan-003 Phase 2, T2.2) + the I-003-2 `online` ordering gate (T2.4).
+// emission + `online` ordering gate.
 //
 // Persists a node's declared capabilities to `node_capabilities` (PK
 // `node_id + capability_key`) and emits the matching session event:
@@ -10,20 +10,15 @@
 // `updated_at` reflects the last actual CHANGE, not the last time the node
 // re-sent the same details.
 //
-// `bringOnline` (T2.4) gates the `runtime_node.online` emission on a prior
+// `bringOnline` gates the `runtime_node.online` emission on a prior
 // declaration: it reads the node-keyed `node_capabilities` ROW (NOT a
 // `capability_declared` event), emits `online` IFF a declaration exists, and
 // performs no durable write (online is event-sourced, not a daemon-durable
 // state in Phase 2). The gate is node-scoped; the emitted online event is
 // session-scoped (Model B). The full rationale lives on the method below.
 //
-// "Validate the capability declaration" (plan §341 / `Spec-003 §Default Behavior`) means a
-// SCHEMA-VALID declaration, NOT an allow-list of known keys: Spec-003's
-// least-privilege rule is that only explicitly declared capabilities are
-// schedulable — the declaration IS the schedulability allow-list, there is no
-// separate registry of known keys to check against. The emitter's `.parse()`
-// boundary (the capability payload schema) is the declaration validation; this
-// service persists what is declared.
+// The emitter's `.parse()` boundary (the capability payload schema) is the declaration
+// validation; this service persists what is declared.
 //
 // Dual-write with single-transaction atomicity
 // --------------------------------------------------------------------------
@@ -51,24 +46,14 @@
 // stored side is already normalized. Compare with `node:util.isDeepStrictEqual`
 // (structural + key-order-insensitive) — NOT a raw `JSON.stringify` byte-compare
 // (key-order-fragile → spurious update spam) and NOT a canonical-serialization
-// (JCS) dependency (canonical SERIALIZATION is a hashing/signing concern owned
-// by Plan-006 Tier 4's `EventEnvelope`, not an equality concern here; adding a
-// JCS dep would pre-empt that ownership for zero benefit).
+// (JCS) dependency (canonical SERIALIZATION is a hashing/signing concern Tier
+// 4's `EventEnvelope`, not an equality concern here; adding a JCS dep would
+// pre-empt that ownership for zero benefit).
 //
 // `sessionId` is threaded to the EMIT only — never stored. `node_capabilities`
 // has no `session_id` column; `capability` maps to `capability_key`,
 // `capabilityDetails` to the `capability_value` JSON column.
 //
-// Refs: Plan-003 (Runtime Node Attach) §Phase 2 / T2.2 + T2.4, `Spec-003 §Default Behavior`
-// (online only after capability declaration — the T2.4 gate;
-// least-privilege schedulability), `Spec-003 §State And Data Implications`
-// (capability/trust changes emitted as session events),
-// `Spec-003 §Pitfalls To Avoid` (no implicit capability exposure on attach;
-// serial re-attach satisfying the node-scoped gate without re-declaring is
-// the T2.4 gate contract),
-// `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` (`runtime_node.online` +
-// `capability_declared` / `capability_updated` payload shapes), invariant I-003-2 (the declaration is the
-// precondition that gates `online`).
 
 import { isDeepStrictEqual } from "node:util";
 
@@ -190,16 +175,14 @@ export class NodeCapabilityService {
   ) {
     this.#emitter = emitter;
     this.#now = now;
-    // Change-detection is NODE-scoped BY THE SCHEMA: `node_capabilities` is PK
-    // (node_id, capability_key) with NO session_id column (0002-runtime-node.ts),
-    // and the plan forbids adding one — so session-scoping the dedup is not even
-    // implementable, and an identical re-declare of a capability is a no-op
-    // regardless of session (capabilities are a NODE property, not a session one;
-    // plan §341 forbids the per-session update spam session-scoping would produce).
-    // The daemon-side I-003-2 `online` gate (T2.4) is correspondingly node-scoped:
-    // it reads THIS durable row ("has this node declared?"), satisfied across serial
-    // re-attaches (`Spec-003 §Resolved Questions and V1 Scope Decisions`) — it does NOT scan a per-session capability_declared
-    // event stream (which this node-keyed dedup would starve).
+    // Change-detection is NODE-scoped BY THE SCHEMA: `node_capabilities` is PK (node_id,
+    // capability_key) with NO session_id column (0002-runtime-node.ts), and the plan
+    // forbids adding one — so session-scoping the dedup is not even implementable, and an
+    // identical re-declare of a capability is a no-op regardless of session (capabilities
+    // are a NODE property, not a session one; plan). The daemon-side `online` gate is
+    // correspondingly node-scoped: it reads THIS durable row ("has this node declared?"),
+    // satisfied across serial re-attaches — it does NOT scan a per-session
+    // capability_declared event stream (which this node-keyed dedup would starve).
     this.#selectCapabilityStmt = db.prepare(
       `SELECT capability_value
          FROM node_capabilities
@@ -217,19 +200,18 @@ export class NodeCapabilityService {
                        updated_at       = excluded.updated_at`,
     );
 
-    // The I-003-2 `online` gate (T2.4) — "has this node declared AT LEAST ONE
-    // capability anywhere?". DELIBERATELY node-scoped only: no `session_id` (the
-    // table has no such column — 0002-runtime-node.ts) and NO `AND capability_key`
-    // (any declared capability satisfies the gate, not a specific one). `SELECT 1
-    // ... LIMIT 1` is an existence probe — we need the boolean presence of a row,
-    // never its value, so this is intentionally distinct from `#selectCapabilityStmt`
-    // (which reads a SPECIFIC capability's `capability_value` to decide first-declare
-    // vs. change). Reading the durable ROW — not a `capability_declared` EVENT — is
-    // the whole point of the gate (see `bringOnline`): an identical re-declare is a
-    // node-keyed no-op that emits NO event (Model B), so a node that already declared
-    // (row present) but re-declares as a no-op must still online. Gating on the event
-    // would resurface Model A at the emission layer; gating on the row makes
-    // "has this node declared?" correct across serial re-attaches (`Spec-003 §Resolved Questions and V1 Scope Decisions`).
+    // `online` gate — "has this node declared AT LEAST ONE capability anywhere?".
+    // DELIBERATELY node-scoped only: no `session_id` (the table has no such column —
+    // 0002-runtime-node.ts) and NO `AND capability_key` (any declared capability satisfies
+    // the gate, not a specific one). LIMIT 1` is an existence probe — we need the boolean
+    // presence of a row, never its value, so this is intentionally distinct from
+    // `#selectCapabilityStmt` (which reads a SPECIFIC capability's `capability_value` to
+    // decide first-declare vs. Reading the durable ROW — not a `capability_declared` EVENT
+    // — is the whole point of the gate (see `bringOnline`): an identical re-declare is a
+    // node-keyed no-op that emits NO event (Model B), so a node that already declared (row
+    // present) but re-declares as a no-op must still online. Gating on the event would
+    // resurface Model A at the emission layer; gating on the row makes "has this node
+    // declared?" correct across serial re-attaches.
     this.#nodeHasAnyCapabilityStmt = db.prepare(
       `SELECT 1 FROM node_capabilities WHERE node_id = @node_id LIMIT 1`,
     );
@@ -240,8 +222,8 @@ export class NodeCapabilityService {
    * that mutate state (first declaration and change); an identical re-declare
    * is an idempotent no-op (no write, no event).
    *
-   * SHAPE, post Plan-006 T3.1 re-point — read-decide under the append lock,
-   * re-check inside the write transaction, retry on divergence:
+   * SHAPE, post re-point — read-decide under the append lock, re-check
+   * inside the write transaction, retry on divergence:
    *
    *   1. Acquire `withSessionAppendLock` for the session. This is what keeps two
    *      concurrent same-session declares of the same capability from BOTH
@@ -401,24 +383,21 @@ export class NodeCapabilityService {
   }
 
   /**
-   * Bring a node `online` — the I-003-2 ordering gate (Plan-003 §Phase 2 / T2.4).
-   * Emits `runtime_node.online` (the registering→online transition) IFF the node
-   * has previously declared at least one capability; before declaration succeeds
-   * the node remains in its non-online (`registering`) state (`Spec-003 §Default Behavior`). Returns
-   * `true` when the gate is satisfied and the event was emitted, `false` when no
-   * declaration exists (no event emitted).
+   * Bring a node `online` — ordering gate. Emits `runtime_node.online` (the
+   * registering→online transition) IFF the node has previously declared at least one
+   * capability; before declaration succeeds the node remains in its non-online
+   * (`registering`) state. Returns `true` when the gate is satisfied and the event was
+   * emitted, `false` when no declaration exists (no event emitted).
    *
-   * GATE READS THE DURABLE ROW, NOT THE EVENT (this is the whole point — §357):
-   * the probe is `#nodeHasAnyCapabilityStmt` ("has this node declared anywhere?"),
-   * NOT a scan for a `runtime_node.capability_declared` event. An identical
-   * re-declare is a node-keyed no-op that emits NO `capability_declared` event
-   * (T2.2 / Model B), so a node that already declared (row present) but re-declares
-   * as a no-op would NEVER online if the gate keyed on the event — Model A
-   * resurfacing at the emission layer. Keying on the durable ROW makes
-   * "has this node declared?" correct across serial re-attaches (`Spec-003 §Resolved Questions and V1 Scope Decisions`),
-   * consistent with T2.2's node-scoped change-detection dedup. The control-plane
-   * attach gate (T3.2) is a DISTINCT surface reading relayed events, not this
-   * daemon-local table.
+   * GATE READS THE DURABLE ROW, NOT THE EVENT (this is the whole point): the probe is
+   * `#nodeHasAnyCapabilityStmt` ("has this node declared anywhere?"), NOT a scan for a
+   * `runtime_node.capability_declared` event. An identical re-declare is a node-keyed
+   * no-op that emits NO `capability_declared` event (Model B), so a node that already
+   * declared (row present) but re-declares as a no-op would NEVER online if the gate keyed
+   * on the event — Model A resurfacing at the emission layer. Keying on the durable ROW
+   * makes "has this node declared?" correct across serial re-attaches, consistent with the
+   * node-scoped change-detection dedup. The control-plane attach gate is a DISTINCT
+   * surface reading relayed events, not this daemon-local table.
    *
    * NODE-SCOPED GATE, SESSION-SCOPED TIMELINE (Model B): the gate is node-scoped
    * (the node-keyed `node_capabilities` row, no `session_id`), but the EMITTED
@@ -457,8 +436,8 @@ export class NodeCapabilityService {
     const hasDeclaredCapability: boolean =
       this.#nodeHasAnyCapabilityStmt.get({ node_id: input.nodeId }) !== undefined;
     if (!hasDeclaredCapability) {
-      // The I-003-2 precondition is unmet: emit nothing, the node stays in its
-      // non-online (registering) state (`Spec-003 §Default Behavior`).
+      // Precondition is unmet: emit nothing, the node stays in its non-online
+      // (registering) state.
       return false;
     }
     // The durable declaration row exists → emit the registering→online transition

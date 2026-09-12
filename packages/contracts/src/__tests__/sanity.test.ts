@@ -1,7 +1,7 @@
-// Plan-001 PR #1 sanity test — proves Vitest is wired and exercises the runtime.
+// PR #1 sanity test — proves Vitest is wired and exercises the runtime.
 //
-// "Trivial sanity check that Vitest is wired" per docs/plans/001-shared-session-core.md
-// § PR #1 — Workspace Bootstrap (Test And Verification Plan).
+// "Trivial sanity check that Vitest is wired" — Workspace Bootstrap (Test And
+// Verification Plan).
 //
 // We deliberately exercise vi.fn (mock factory + invocation tracking) plus an async
 // assertion so the test path touches the parts of Vitest that PR #2's contract tests

@@ -168,8 +168,8 @@ export function translateSpawnCwd(input: TranslateSpawnCwdInput): SpawnRequest {
     // `exec` replaces the shell process with the target so the PTY's
     // child PID is the target's, not the wrapper shell's. Without
     // exec, the wrapper shell would persist as the PTY parent and
-    // signal handling (Plan-024 kill translation) would target the
-    // wrapper not the user-visible process.
+    // signal handling (kill translation) would target the wrapper
+    // not the user-visible process.
     const quotedWorktree: string = quotePosix(worktreePath);
     const quotedCommand: string = quotePosix(spec.command);
     const quotedArgs: string = spec.args.map(quotePosix).join(" ");

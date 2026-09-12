@@ -1,4 +1,4 @@
-// P1/P2/P3: SessionDirectoryService — Plan-001 PR #4 acceptance gates.
+// P1/P2/P3: SessionDirectoryService — PR #4 acceptance gates.
 //
 // P1: SessionCreate returns stable session id and persists to directory.
 // P2: Second SessionCreate by same client does not silently fork — the
@@ -7,9 +7,8 @@
 // Migration-runner coverage: matches the runtime-daemon test shape for
 // `applyMigrations` idempotency (re-call on a migrated handle is a no-op,
 // schema_migrations rows stay stable at the registered MIGRATIONS set).
-// Post Plan-002 Amendment 2 (PR #102) and Plan-003 Phase 3 (PR #145) the
-// canonical-path applies v1, v2, and v3; the dedicated
-// `migration-runner.test.ts` test file pins the R1+R2
+// Post Amendment 2 (PR #102) and the canonical-path applies v1, v2, and
+// v3; the dedicated `migration-runner.test.ts` test file pins the R1+R2
 // canonical-path properties directly, while THIS file's idempotency block
 // proves the composition-level integration (running the migration runner
 // through the directory-service test fixture preserves the same shape).
@@ -20,8 +19,8 @@
 // Database lifecycle: each test gets a fresh ephemeral PGlite instance
 // (in-memory mode — no tmpdir cleanup needed). PGlite is single-connection
 // per instance, which matches our service's stateless query pattern; the
-// production wiring (Plan-001 PR #5) composes a `Querier` from `pg.Pool`
-// where the per-call connection checkout is automatic.
+// production wiring (PR #5) composes a `Querier` from `pg.Pool` where the
+// per-call connection checkout is automatic.
 
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import type { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
@@ -41,10 +40,8 @@ import {
 // Test fixtures
 // ----------------------------------------------------------------------------
 
-// UUID v4 fixtures — these stand in for the daemon-assigned UUID v7 values
-// per BL-069 (the v4 schema validator in `EventCursorSchema`/`SessionIdSchema`
-// accepts any RFC 9562 UUID). Real UUID v7 generation is daemon-side; the
-// service treats the id as opaque.
+// UUID v4 fixtures — these stand in for the daemon-assigned UUID v7 values.
+// Real UUID v7 generation is daemon-side; the service treats the id as opaque.
 const SESSION_ID: SessionId = "01970000-0000-7000-8000-00000000a001" as SessionId;
 const SECOND_SESSION_ID: SessionId = "01970000-0000-7000-8000-00000000a002" as SessionId;
 const OWNER_PARTICIPANT_ID: ParticipantId = "01970000-0000-7000-8000-00000000b001" as ParticipantId;
@@ -237,8 +234,8 @@ afterEach(async () => {
 
 describe("SessionDirectoryService — P1 (create persists with stable id)", () => {
   it("createSession with a daemon-supplied UUID v7 returns the same id and persists a sessions row", async () => {
-    // BL-069: the daemon mints UUID v7 locally and passes it on the create
-    // call. The control-plane row's id MUST equal the supplied id (no
+    // The daemon mints UUID v7 locally and passes it on the create call.
+    // The control-plane row's id MUST equal the supplied id (no
     // server-side regeneration).
     const input: CreateSessionInput = {
       sessionId: SESSION_ID,
@@ -356,10 +353,10 @@ describe("SessionDirectoryService — P1 (create persists with stable id)", () =
 
 describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", () => {
   it("a second createSession with the same sessionId returns the same row, not a new one", async () => {
-    // BL-069: idempotent upsert via `ON CONFLICT (id) DO UPDATE SET
-    // updated_at = sessions.updated_at RETURNING *`. A retry-after-crash
-    // (network blip mid-create, daemon restart between request send and
-    // ack) MUST yield the same row, not a sibling.
+    // Idempotent upsert via `ON CONFLICT (id) DO UPDATE SET updated_at =
+    // sessions.updated_at RETURNING *`. A retry-after-crash (network
+    // blip mid-create, daemon restart between request send and ack) MUST
+    // yield the same row, not a sibling.
     await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [OWNER_PARTICIPANT_ID]);
 
     const first = await ctx.service.createSession({
@@ -719,15 +716,15 @@ describe("applyMigrations — idempotency", () => {
     // We pin two assertions against PGlite, both load-bearing here:
     //
     //   (a) End-state correctness — `Promise.all([apply, apply])` on a
-    //       fresh DB resolves with no throw; each migration lands
-    //       exactly once (`schema_migrations` carries v1 + v2 + v3 anchor
-    //       rows post Plan-003 PR #145; `participants` table exists from v1).
-    //       This IS load-bearing on PGlite: empirically, the pre-R8
-    //       broken shape (no advisory lock around the transaction) DOES
-    //       throw `relation "participants" already exists` on PGlite
-    //       under `Promise.all`, because both outer probes race to
-    //       false and both transactions execute the unguarded
-    //       `CREATE TABLE`. Removing the lock would crash this assertion.
+    //       fresh DB resolves with no throw; each migration lands exactly
+    //       once (`schema_migrations` carries v1 + v2 + v3 anchor rows post
+    //       PR #145; `participants` table exists from v1). This IS
+    //       load-bearing on PGlite: empirically, the pre-R8 broken shape (no
+    //       advisory lock around the transaction) DOES throw `relation
+    //       "participants" already exists` on PGlite under `Promise.all`,
+    //       because both outer probes race to false and both transactions
+    //       execute the unguarded `CREATE TABLE`. Removing the lock would
+    //       crash this assertion.
     //
     //   (b) Lock-query presence — the captured SQL stream MUST contain
     //       `pg_advisory_xact_lock(...)`. This is the explicit-emission
@@ -810,13 +807,13 @@ describe("applyMigrations — idempotency", () => {
 });
 
 // ----------------------------------------------------------------------------
-// createPgPoolQuerier — pool-checkout-and-release path (Plan-001 T5.5)
+// createPgPoolQuerier — pool-checkout-and-release path
 // ----------------------------------------------------------------------------
 //
 // Phase 4 shipped `SessionDirectoryService` typed against `Querier`, with the
-// PGlite-backed concretion exercised in the P1/P2/P3 blocks above. T5.5 lands
-// the `pg.Pool`-backed concretion that production wiring will use; this
-// describe block pins the adapter contract:
+// PGlite-backed concretion exercised in the P1/P2/P3 blocks above. lands the
+// `pg.Pool`-backed concretion that production wiring will use; this describe
+// block pins the adapter contract:
 //
 //   * `query()` and `exec()` route through `pool.query()` (one-shot
 //     auto-checkout-and-release), NOT through `pool.connect()`. Using
@@ -834,7 +831,7 @@ describe("applyMigrations — idempotency", () => {
 //   * The inner `Querier` passed to `fn` routes ALL three methods through
 //     the held client, not back through the pool. Recursive `transaction`
 //     throws — Postgres has no native nested transactions without
-//     SAVEPOINTs and Plan-001 has no SAVEPOINT requirement.
+//     SAVEPOINTs and has no SAVEPOINT requirement.
 //
 //   * `client.release()` runs in a `finally` so the connection returns to
 //     the pool whether the path terminated in COMMIT success, application
@@ -851,25 +848,25 @@ describe("applyMigrations — idempotency", () => {
 //
 //   The behavioral correctness of the service SQL (the `createSession`
 //   four-statement sequence, the join's two-statement sequence) is already
-//   proven in the PGlite path above. T5.5's load-bearing claim is the
-//   ADAPTER CONTRACT — that `transaction()` holds one connection across
+//   proven in the PGlite path above. the load-bearing claim is the ADAPTER
+//   CONTRACT — that `transaction()` holds one connection across
 //   BEGIN/COMMIT and releases on every exit, that `query()`/`exec()` route
 //   through the pool's one-shot path, and that the in-transaction inner
 //   Querier routes through the held client. Mock spies prove this directly
 //   and precisely. A pg-mem swap would only PARTIALLY validate (pg-mem
 //   doesn't implement `pg_advisory_xact_lock` faithfully), and a real
-//   Postgres-in-CI substrate is out of scope for this PR (would require
-//   CI workflow changes).
+//   Postgres-in-CI substrate is out of scope for this PR (would require CI
+//   workflow changes).
 //
-//   The Spec-001 AC1 / AC2 / AC4 assertions are routed through the same
-//   mock substrate: the service body runs against `createPgPoolQuerier(
-//   mockPool)`, and we assert the AC-load-bearing behavior at the
-//   service-response shape level (one session id, one membership, COMMIT
-//   issued before resolve, idempotent membership id on rejoin).
+//   Assertions are routed through the same mock substrate: the service
+//   body runs against `createPgPoolQuerier(mockPool)`, and we assert the
+//   AC-load-bearing behavior at the service-response shape level (one
+//   session id, one membership, COMMIT issued before resolve, idempotent
+//   membership id on rejoin).
 //
 //   If a future PR needs deeper validation against a real Postgres — in
-//   particular T5.6's lock-ordering strengthening — that PR adds the
-//   substrate. T5.5 lands the composer and the adapter-contract tests.
+//   particular the lock-ordering strengthening — that PR adds the
+//   substrate. lands the composer and the adapter-contract tests.
 
 // ----------------------------------------------------------------------------
 // MockPool / MockPoolClient — canned-response substrate
@@ -1187,9 +1184,9 @@ describe("createPgPoolQuerier — pool-checkout-and-release path", () => {
     // `pool.query()` (which checks out a different pooled client per call)
     // would leave the inner SQL running OUTSIDE the BEGIN/COMMIT span — the
     // transaction boundary would only enclose BEGIN and COMMIT themselves,
-    // and any FOR UPDATE / advisory lock acquired by inner SQL would land
-    // on the wrong connection. This is the central correctness concern
-    // T5.6's lock-ordering test (next PR) discriminates more aggressively.
+    // and any FOR UPDATE / advisory lock acquired by inner SQL would land on
+    // the wrong connection. This is the central correctness concern the
+    // lock-ordering test (next PR) discriminates more aggressively.
     const pool = makeMockPool();
     const querier = createPgPoolQuerier(pool);
 
@@ -1214,10 +1211,10 @@ describe("createPgPoolQuerier — pool-checkout-and-release path", () => {
   });
 
   it("transaction(fn) inner Querier rejects nested transaction()", async () => {
-    // Postgres has no native nested transactions without SAVEPOINTs and
-    // Plan-001 has no SAVEPOINT requirement. The PGlite test adapter throws
-    // on nested call (see `wrap()` at the top of this file); the pg.Pool
-    // adapter matches — same failure mode across substrates.
+    // Postgres has no native nested transactions without SAVEPOINTs and has
+    // no SAVEPOINT requirement. The PGlite test adapter throws on nested
+    // call (see `wrap()` at the top of this file); the pg.Pool adapter
+    // matches — same failure mode across substrates.
     const pool = makeMockPool();
     const querier = createPgPoolQuerier(pool);
 
@@ -1383,16 +1380,15 @@ describe("createPgPoolQuerier — pool-checkout-and-release path", () => {
 
   // --------------------------------------------------------------------------
   // Broken-client destruction — defends against pool poisoning when the
-  // underlying socket breaks mid-transaction. The adapter subscribes a
-  // `'error'` listener at acquire; the listener trips a `tainted` flag;
-  // the `finally` then calls `client.release(error)` (truthy first arg)
-  // instead of `client.release()`. node-postgres treats the truthy arg
-  // as "disconnect and destroy" rather than "return to idle pool", per
-  // https://github.com/brianc/node-postgres/blob/master/docs/pages/apis/pool.mdx
-  // §releasing clients. Statement-position classification alone is
-  // unreliable — a healthy client can fail COMMIT on a deferred-constraint
-  // violation, and a broken client can surface only via the listener
-  // after the in-flight query rejected.
+  // underlying socket breaks mid-transaction. The adapter subscribes a `'error'`
+  // listener at acquire; the listener trips a `tainted` flag; the `finally` then
+  // calls `client.release(error)` (truthy first arg) instead of
+  // `client.release()`. node-postgres treats the truthy arg as "disconnect and
+  // destroy" rather than "return to idle pool", per
+  // https://github.com/brianc/node-postgres/blob/master/docs/pages/apis/pool.mdx.
+  // Statement-position classification alone is unreliable — a healthy client can
+  // fail COMMIT on a deferred-constraint violation, and a broken client can
+  // surface only via the listener after the in-flight query rejected.
   // --------------------------------------------------------------------------
 
   it("transaction(fn) destroys the client when the 'error' event fires mid-transaction", async () => {
@@ -1531,7 +1527,7 @@ describe("createPgPoolQuerier — pool-checkout-and-release path", () => {
   });
 
   // --------------------------------------------------------------------------
-  // Spec-001 AC1 — createSession through pg.Pool yields stable shape
+  // CreateSession through pg.Pool yields stable shape
   // --------------------------------------------------------------------------
 
   it("createSession through the pg.Pool-backed Querier yields one stable session id and an empty default channel list", async () => {
@@ -1580,19 +1576,19 @@ describe("createPgPoolQuerier — pool-checkout-and-release path", () => {
   });
 
   // --------------------------------------------------------------------------
-  // Spec-001 AC2 — durability (COMMIT before resolve)
+  // Durability (COMMIT before resolve)
   // --------------------------------------------------------------------------
 
-  it("Spec-001 AC2: COMMIT is awaited before the createSession promise resolves (session is committed before caller observes the response)", async () => {
-    // AC2 says "session record is durable (committed) through the pg.Pool
-    // transaction substrate before any caller observes the response".
-    // The adapter contract guarantees this: `transaction(fn)` awaits
+  it("COMMIT is awaited before the createSession promise resolves (session is committed before caller observes the response)", async () => {
+    // Says "session record is durable (committed) through the pg.Pool
+    // transaction substrate before any caller observes the response". The
+    // adapter contract guarantees this: `transaction(fn)` awaits
     // `client.query("COMMIT")` BEFORE returning the result. A regression
     // that issued COMMIT after the return — or fire-and-forgot the COMMIT
     // — would let the caller observe the response with the row still
     // sitting in the transaction's uncommitted snapshot; a concurrent
-    // reader (or a crash before the deferred COMMIT lands) would lose
-    // the row. This test pins the awaiting-COMMIT contract.
+    // reader (or a crash before the deferred COMMIT lands) would lose the
+    // row. This test pins the awaiting-COMMIT contract.
     let commitCompleted = false;
     // `commitResolvedAt` is written from inside the stamped `client.query`
     // mock below (asynchronously, during `COMMIT`); `let ... | undefined`

@@ -1,11 +1,11 @@
-// Plan-006 T3.3 — the control-plane write path for event-log anchors.
+// The control-plane write path for event-log anchors.
 //
 // One operation: persist a daemon-signed Merkle anchor into `event_log_anchors`,
-// idempotently. The table is the control plane's ENTIRE participation in
-// Plan-006's integrity protocol — it witnesses that a daemon committed to a
-// range, and stores nothing about what the range contains (ADR-017; I-006-3-02,
-// enforced structurally by `AnchorPayload`'s exact seven-member `.strict()`
-// schema in `@ai-sidekicks/contracts`).
+// idempotently. The table is the control plane's ENTIRE participation in the
+// integrity protocol — it witnesses that a daemon committed to a range, and
+// stores nothing about what the range contains (enforced structurally by
+// `AnchorPayload`'s exact seven-member `.strict()` schema in
+// `@ai-sidekicks/contracts`).
 //
 // ----------------------------------------------------------------------------
 // Idempotency: `ON CONFLICT DO NOTHING`, and why zero rows is SUCCESS
@@ -30,7 +30,7 @@
 // `(session, node)` pair because re-keying strands every already-signed row —
 // a genuine conflict, correctly a 409. Here the conflicting row is BYTE-
 // IDENTICAL by construction: the key covers the full range identity, and
-// Ed25519 is deterministic (RFC 8032 §5.1.6), so the same daemon signing the
+// Ed25519 is deterministic (RFC 8032 section 5.1.6), so the same daemon signing the
 // same root produces the same 64 bytes. There is nothing to refuse. `stored:
 // false` reports "already witnessed" so the daemon can log a re-fire distinctly
 // from a first landing, and both arms mean "this anchor is durably held; stop
@@ -51,10 +51,10 @@
 //
 // WHAT IT IS NOT: part of the signed commitment, and the distinction is easy to
 // overstate. `root_signature` covers the Merkle ROOT alone (the DDL's own column
-// comment in `shared-postgres-schema.md` says so), so no verifier can detect a
-// wrong `anchored_at` cryptographically. The two copies are not byte-comparable
-// either: the daemon holds ISO-8601 TEXT in `pending_anchor_uploads` while this
-// side holds `timestamptz`, and a Postgres round-trip re-spells the value.
+// comment says so), so no verifier can detect a wrong `anchored_at`
+// cryptographically. The two copies are not byte-comparable either: the daemon
+// holds ISO-8601 TEXT in `pending_anchor_uploads` while this side holds
+// `timestamptz`, and a Postgres round-trip re-spells the value.
 //
 // The honest property is narrower and still worth the explicit column list: the
 // daemon's own value is durably recorded on BOTH sides, so the pair corroborates
@@ -62,9 +62,6 @@
 // So the INSERT names all seven columns explicitly and the default exists only
 // for a hypothetical direct-SQL writer.
 //
-// Refs: Plan-006 T3.3, ADR-017,
-// `docs/architecture/schemas/shared-postgres-schema.md` §Event Log Anchors
-// (Plan-006 — Integrity Witness).
 
 import {
   AnchorPayloadSchema,
@@ -78,10 +75,10 @@ import type { Querier } from "../sessions/migration-runner.js";
  * Raised when the anchor names a session the control plane does not know.
  *
  * A PLAIN `Error` SUBCLASS, deliberately not an `AisWireException`. The wire
- * error CODES are a governed vocabulary (`error-contracts.md`) and this
- * condition has no row there; minting one here would put an uncatalogued code
- * on the wire. The router maps this to a bare tRPC `NOT_FOUND` instead — the
- * same shape `session.join`'s self-check uses for its bare `UNAUTHORIZED`.
+ * error CODES are a governed vocabulary and this condition has no row there;
+ * minting one here would put an uncatalogued code on the wire. The router
+ * maps this to a bare tRPC `NOT_FOUND` instead — the same shape
+ * `session.join`'s self-check uses for its bare `UNAUTHORIZED`.
  */
 export class UnknownAnchorSessionError extends Error {
   constructor(sessionId: string) {
@@ -89,7 +86,7 @@ export class UnknownAnchorSessionError extends Error {
       `event_log_anchors references session ${sessionId}, which does not exist in the control ` +
         "plane. An anchor can only witness a session the control plane knows: either the session " +
         "was never created here, or the daemon is uploading a node-scope (sentinel-partitioned) " +
-        "anchor, which is locally-witnessed-only in V1 (ADR-017 §Node-Scope Anchor Witnessing).",
+        "anchor, which is locally-witnessed-only in V1.",
     );
     this.name = "UnknownAnchorSessionError";
   }
@@ -130,9 +127,9 @@ function decodeBase64(value: string): Uint8Array {
 /**
  * Persists daemon-signed Merkle anchors into `event_log_anchors`.
  *
- * Constructor-injected `Querier` per I-008-3 #1 — the class touches no `pg`
- * type directly, so the same instance runs against a Hyperdrive-backed Pool in
- * production and PGlite in tests.
+ * Constructor-injected `Querier` #1 — the class touches no `pg` type directly,
+ * so the same instance runs against a Hyperdrive-backed Pool in production and
+ * PGlite in tests.
  */
 export class EventLogAnchorStore {
   readonly #querier: Querier;
@@ -150,10 +147,10 @@ export class EventLogAnchorStore {
    */
   async upload(anchor: AnchorPayload): Promise<EventAnchorUploadResponse> {
     // Trust-boundary validation — parse rather than trust the caller, mirroring
-    // `attach` / `detach` / `readRoster`. This is also where I-006-3-02 is
-    // ENFORCED rather than assumed: the schema is `.strict()`, so a body that
-    // smuggled a `payload` / `events` / `pii_payload` member is refused here
-    // even if the router's own `.input()` parse were ever loosened.
+    // `attach` / `detach` / `readRoster`. This is also where is ENFORCED rather
+    // than assumed: the schema is `.strict()`, so a body that smuggled a
+    // `payload` / `events` / `pii_payload` member is refused here even if the
+    // router's own `.input()` parse were ever loosened.
     const validated: AnchorPayload = AnchorPayloadSchema.parse(anchor);
 
     // Base64 on the wire (the tRPC root runs `transformer: false`, so bytes

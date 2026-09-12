@@ -1,43 +1,29 @@
-// Run-control contracts — the queue, intervention, pause/resume, and
-// run-read surface for Plan-004 (Queue, Steer, Pause, Resume).
+// Run-control contracts — the queue, intervention, pause/resume, and run-read
+// surface.
 //
-// Every shape here mirrors
-// `docs/architecture/contracts/api-payload-contracts.md §Plan-004 — Queue Steer Pause Resume`
-// and `§Shared Enums` verbatim: adding, removing, or renaming a member is a
-// contract break and requires the doc edit first (Plan-004 T1.1, T1.2, T1.3,
-// T1.6, T1.7 all name that section as their byte-for-byte mirror source, and
-// the three shapes no Phase-1 task names — `RunRolledBackEvent` plus the two
-// `run.subscribe*` request shapes — are homed here by that same section's
-// closing sentence, which places the canonical Zod schemas for the
-// request/response shapes of its own method registry in this file under
-// CP-004-3; the `driver_ask` interface sharing that fence is NOT one of them,
-// its payload schemas being Plan-012's).
+// Every shape here and verbatim: adding, removing, or renaming a member is a
+// contract break and requires the doc edit first (all name that section as their
+// byte-for-byte mirror source, and the three shapes no Phase-1 task names —
+// `RunRolledBackEvent` plus the two `run.subscribe*` request shapes — are homed
+// here by that same section's closing sentence, which places the canonical Zod
+// schemas for the request/response shapes of its own method registry in this
+// file; the `driver_ask` interface sharing that fence is NOT one of them, its
+// payload schemas living elsewhere).
 //
-// CANONICAL ORIGIN (Plan-004 CP-004-3). This module owns the branded
-// `QueueItemId` / `InterventionId`, the queue and intervention wire shapes,
-// `RunPauseRequest` / `RunResumeRequest` / `RunControlAck`, the forward
-// `RunRolledBackEvent`, the two session-scoped `run.subscribe*` request
-// shapes, and the run-read accessor contract. It also DECLARES four enums
-// that the canonical doc lists under §Shared Enums but that no TypeScript in
-// this workspace had yet exported: `RunState`, `RunFailureCategory`,
-// `QueueItemState`, and `InterventionState`. Plan-004 T1.1/T1.3 say
-// "import ... do not redefine", and there is nothing to import — a repo-wide
-// search of `packages/` and `apps/` finds no declaration of any of the four.
-// Plan-004 is the lowest-tier plan that must author a shape carrying them,
-// so they are declared here on the precedent `provider-driver.ts` already
-// sets for `RunId`: the canonical symbol is homed with its lowest-tier
-// consumer and imported upward (CP-005-6). A later plan MUST import from
-// here, never restate.
+// This module owns the branded `QueueItemId` / `InterventionId`, the queue
+// and intervention wire shapes, `RunPauseRequest` / `RunResumeRequest` /
+// `RunControlAck`, the forward `RunRolledBackEvent`, the two session-scoped
+// `run.subscribe*` request shapes, and the run-read accessor contract. It
+// also DECLARES four enums that the canonical doc lists `RunState`,
+// `RunFailureCategory`, `QueueItemState`, and `InterventionState`. do not
+// redefine", and there is nothing to import — a repo-wide search of
+// `packages/` and `apps/` finds no declaration of any of the four. A later
+// plan MUST import from here, never restate.
 //
-// `InterventionType` is the counter-example and is deliberately NOT declared
-// here: it IS exported (Plan-005 owns it in `./provider-driver.js`), so this
-// module imports it and pins the payload union against it in the test suite.
-//
-// IMPORT DIRECTION. This module imports downward only, so no cycle is
-// reachable through it today. Its one in-package consumer is the
-// `./timeline/` subdirectory (Plan-013 T1.1/T1.2 take `RunState` and
-// `RunRolledBackEventSchema` from here), which nothing below imports back.
-// Keep it that way: the shapes below compose
+// This module imports downward only, so no cycle is reachable through it
+// today. Its one in-package consumer is the `./timeline/` subdirectory (take
+// `RunState` and `RunRolledBackEventSchema` from here), which nothing below
+// imports back. Keep it that way: the shapes below compose
 // `./provider-driver.js`, `./session.js`, `./repo.js`, and the `./node-id.js`
 // leaf, and every one of those is an eager module-scope Zod initializer, so a
 // back-import from any of them would throw `ReferenceError` at import time
@@ -88,7 +74,6 @@ export const InterventionIdSchema: z.ZodType<InterventionId, InterventionId> =
   brandedUuidIdSchema<InterventionId>("InterventionId");
 
 // --------------------------------------------------------------------------
-// Shared enums (api-payload-contracts.md §Shared Enums)
 // --------------------------------------------------------------------------
 //
 // Membership is verbatim. `RunFailureCategory`'s values carry a space by
@@ -193,15 +178,14 @@ const runCounterSchema: z.ZodNumber = z.number().int().nonnegative();
 // guard that CANNOT falsely refuse is applied instead — NUL rejection (no
 // filesystem admits a NUL in a path component).
 //
-// Both length and cardinality are deliberately UNBOUNDED. Spec-010
-// §Turn-Boundary Snapshots requires both restore enumerations to be
-// never-silent; a per-path length ceiling would make a valid
-// extended-length Windows path (\\?\ prefix — no 260/4096 bound) or a
-// deep POSIX tree fail parse, and an array-count cap would refuse a
-// large-but-legitimate restore — either way discarding the only report of
-// overwritten files or divergent gitlinks, which is the one outcome the
-// never-silent mandate forbids. Byte bounds belong to the framework layer's
-// body-size limit, not to a cap that can refuse a truthful result.
+// Both length and cardinality are deliberately UNBOUNDED. a per-path length
+// ceiling would make a valid extended-length Windows path (\\?\ prefix — no
+// 260/4096 bound) or a deep POSIX tree fail parse, and an array-count cap
+// would refuse a large-but-legitimate restore — either way discarding the
+// only report of overwritten files or divergent gitlinks, which is the one
+// outcome the never-silent mandate forbids. Byte bounds belong to the
+// framework layer's body-size limit, not to a cap that can refuse a
+// truthful result.
 const filesystemPathSchema: z.ZodString = z
   .string()
   .min(1)
@@ -210,14 +194,13 @@ const filesystemPathSchema: z.ZodString = z
   });
 
 // --------------------------------------------------------------------------
-// T1.1 — Queue item contracts
 // --------------------------------------------------------------------------
 
 export interface QueueItemCreateRequest {
   sessionId: SessionId;
   channelId?: ChannelId | undefined;
-  // Repo-bound run binding (Spec-010 run setup data; absent = non-repo run) —
-  // Tier-6 audit, CP-004-8.
+  // Repo-bound run binding (run setup data; absent = non-repo run) — Tier-6
+  // audit.
   workspaceId?: WorkspaceId | undefined;
   priority?: number | undefined;
   payload: Record<string, unknown>;
@@ -314,13 +297,12 @@ export const QueueItemCancelResponseSchema: z.ZodType<QueueItemCancelResponse> =
   .strict();
 
 // --------------------------------------------------------------------------
-// T1.2 — InterventionRequestPayload
 // --------------------------------------------------------------------------
 //
 // `expectedRunVersion` is the MANDATORY optimistic-concurrency comparand
-// (D-004-2, fail-closed): an absent comparand is rejected, never applied — an
-// optional field would let a caller bypass the stale-replay guard by omitting
-// it. `clientIdempotencyKey` is the orthogonal second guard: a
+// (fail-closed): an absent comparand is rejected, never applied — an optional
+// field would let a caller bypass the stale-replay guard by omitting it.
+// `clientIdempotencyKey` is the orthogonal second guard: a
 // requester-generated UUID persisted on the `interventions` row under
 // `UNIQUE(target_run_id, client_idempotency_key)`, so an identical retry
 // replays the recorded outcome. The UUID shape is validated here rather than
@@ -333,11 +315,11 @@ export const QueueItemCancelResponseSchema: z.ZodType<QueueItemCancelResponse> =
 // / Phase 3), not something a schema can know.
 //
 // `replacementSend` is OPTIONAL and PRESENCE-DISCRIMINATING: presence alone
-// selects the atomic edit-and-resend composite (I-004-21) and turns on that
-// composite's four additional structural refusal guards, each of which is
-// likewise an admission concern. `.strict()` is what makes the absence
-// meaningful — an unregistered sibling member fails closed rather than being
-// silently dropped into a bare rollback.
+// selects the atomic edit-and-resend composite and turns on that composite's
+// four additional structural refusal guards, each of which is likewise an
+// admission concern. `.strict()` is what makes the absence meaningful — an
+// unregistered sibling member fails closed rather than being silently
+// dropped into a bare rollback.
 
 export type InterventionRequestPayload =
   | {
@@ -346,13 +328,13 @@ export type InterventionRequestPayload =
       expectedRunVersion: number;
       clientIdempotencyKey: string;
       content: string;
-      // TYPED `ArtifactId[]` (2026-09-08, CP-014-7 discharge) — the SAME element
-      // type and the SAME order-preserving, never-silently-dropped delivery rule
-      // the driver-boundary `SteerPayload.attachments` carries, imported from
-      // its CP-005-6 home in `./provider-driver.js` rather than restated here,
-      // because this arm and that payload are two ends of one carrier and a
-      // second declaration would let them drift. The rule and both bounds — this
-      // seam's coarse `DRIVER_WIRE_STEER_ATTACHMENTS_MAX` count ceiling and the
+      // TYPED `ArtifactId[]` (2026-09-08 discharge) — the SAME element type and
+      // the SAME order-preserving, never-silently-dropped delivery rule the
+      // driver-boundary `SteerPayload.attachments` carries, imported from its
+      // home in `./provider-driver.js` rather than restated here, because this
+      // arm and that payload are two ends of one carrier and a second
+      // declaration would let them drift. The rule and both bounds — this seam's
+      // coarse `DRIVER_WIRE_STEER_ATTACHMENTS_MAX` count ceiling and the
       // operator-tunable `max_attachments_per_carrier` the daemon enforces at
       // carrier acceptance — are stated once, on that declaration.
       attachments?: ArtifactId[] | undefined;
@@ -395,10 +377,10 @@ export const InterventionRequestPayloadSchema: z.ZodType<
         DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
         "InterventionRequestPayload.content",
       ),
-      // `ArtifactId` elements (CP-014-7): a non-id element is refused at this
-      // seam, and the `.max()` beside it is the coarse frame-abuse count
-      // ceiling. The operator-tunable `max_attachments_per_carrier` is the
-      // daemon's admission check, not this parse's — see `SteerPayload`.
+      // `ArtifactId` elements: a non-id element is refused at this seam, and
+      // the `.max()` beside it is the coarse frame-abuse count ceiling. The
+      // operator-tunable `max_attachments_per_carrier` is the daemon's
+      // admission check, not this parse's — see `SteerPayload`.
       attachments: z.array(ArtifactIdSchema).max(DRIVER_WIRE_STEER_ATTACHMENTS_MAX).optional(),
       expectedTurnId: wireFreeFormString(
         DRIVER_WIRE_HANDLE_MAX_LEN,
@@ -455,7 +437,6 @@ export const InterventionRequestPayloadSchema: z.ZodType<
 ]);
 
 // --------------------------------------------------------------------------
-// T1.3 — Rollback result vocabulary
 // --------------------------------------------------------------------------
 //
 // The disposition class is ENCODED in the arm types: `applied` admits exactly
@@ -487,9 +468,8 @@ export const InterventionRequestPayloadSchema: z.ZodType<
 export type RollbackAppliedResult =
   | {
       disposition: "files-restored";
-      // Spec-010 §Turn-Boundary Snapshots mandates both enumerations on the
-      // restore result ("never silent"): REQUIRED, empty-when-none — absence
-      // is a parse failure, so a consumer can never mistake absence for none.
+      // "never silent"): REQUIRED, empty-when-none — absence is a parse
+      // failure, so a consumer can never mistake absence for none.
       overwrittenIgnoredPaths: string[];
       divergentGitlinks: string[];
     }
@@ -512,12 +492,8 @@ export type RollbackDegradedResult =
   | {
       disposition: "boundary-diverged";
       confirmedPosition: number;
-      // Required-and-NULLABLE rather than optional: Spec-004 routes a second
-      // cause into this disposition — a position-less `usage.context_compacted`
-      // row, which "classifies as crossing for EVERY target of that run" and
-      // has no position to compare against. An absent member could not
-      // distinguish that from a producer that forgot to populate it; an
-      // explicit `null` states the cause.
+      // An absent member could not distinguish that from a producer that forgot
+      // to populate it; an explicit `null` states the cause.
       newestBoundaryPosition: number | null;
     }
   | {
@@ -627,7 +603,6 @@ export const RollbackInterventionResultSchema: z.ZodType<RollbackInterventionRes
 ]);
 
 // --------------------------------------------------------------------------
-// T1.3 — InterventionRequestResponse
 // --------------------------------------------------------------------------
 //
 // Discriminated on `interventionType` so `result` parses STRICTLY per type: a
@@ -651,43 +626,37 @@ export const RollbackInterventionResultSchema: z.ZodType<RollbackInterventionRes
 // CODE slot, which is "never prose, never localized, never reworded between the
 // producer and the screen"
 // (`apps/desktop/src/renderer/src/console/core/refusal.ts`). What that member is
-// NOT is a CLOSED VOCABULARY: `error-contracts.md` §Intervention deliberately
-// registers no code for an intervention OUTCOME (`rejected` / `expired` /
-// `degraded` "are states, not error codes"; that namespace covers only
-// request-level refusals that produce no intervention row), so no contract
-// anywhere enumerates the causes a rollback `rejected` may carry, and the
-// `wireFreeFormString` below bounds length / whitespace / NUL at the trust
-// boundary rather than fixing a value set. A client can therefore SHOW the cause
-// and cannot SWITCH on it: a refusal family added later carries a new identifier
-// that every exhaustive read falls through, silently and at no compile-time
-// cost. This member is the closed union that closes exactly that gap for the
-// four guards — the shape `refusal.ts` already prescribes, where each producer
-// "keeps its own closed code union and widens into this shape at its boundary" —
-// so a fifth guard breaks compilation at every exhaustive reader and a per-guard
-// remedy render is total by construction rather than by care. The four literals
-// are the guard names of `Spec-004 §Required Behavior` (its
-// four-structural-refusal-guards paragraph) kebab-cased with the leading article
-// dropped, so each names the condition the guard requires rather than a
-// restatement of the failure.
+// NOT is a CLOSED VOCABULARY: so no contract anywhere enumerates the causes a
+// rollback `rejected` may carry, and the `wireFreeFormString` below bounds
+// length / whitespace / NUL at the trust boundary rather than fixing a value
+// set. A client can therefore SHOW the cause and cannot SWITCH on it: a refusal
+// family added later carries a new identifier that every exhaustive read falls
+// through, silently and at no compile-time cost. This member is the closed union
+// that closes exactly that gap for the four guards — the shape `refusal.ts`
+// already prescribes, where each producer "keeps its own closed code union and
+// widens into this shape at its boundary" — so a fifth guard breaks compilation
+// at every exhaustive reader and a per-guard remedy render is total by
+// construction rather than by care. The four literals are the guard names of
+// kebab-cased with the leading article dropped, so each names the condition the
+// guard requires rather than a restatement of the failure.
 //
-// ARM-SCOPED, NOT BASE-SCOPED. Only the composite raises these guards, and only
-// a `rollback` request can be a composite, so the member is declared on the
-// rollback `rejected` arm alone — `.strict()` then REFUSES it on a steer /
-// interrupt / cancel rejection and on every non-`rejected` state, instead of a
-// base-level optional that would parse a guard on an arm that can never raise
-// one. Within that arm it is additive-OPTIONAL and PRODUCER-OBLIGATED, the
-// `resendDisposition` shape: no member of a `rejected` response identifies its
-// request as composite (`replacementSend` is request-side and the response does
-// not echo it), so requiredness is not expressible at the strict-parse boundary.
-// The daemon's tested obligation is that a refusal raised by one of the four
-// guards always populates it and every other refusal family never does — the
-// EIGHT `Queue And Intervention Model §Intervention State Transition Table`
-// admits for a rollback: the capability gate, authorization, the target-position
-// domain check, the compaction-boundary classification, an incompatible target
-// run state, the Spec-010 restore precondition, the uncompacted-rewind-span
-// intersection, and execution-root `busy`. The obligation is asserted by the
-// composite's settlement tests (Plan-004 T3.17), whose negative control runs all
-// eight.
+// Only the composite raises these guards, and only a `rollback` request can be a
+// composite, so the member is declared on the rollback `rejected` arm alone —
+// `.strict()` then REFUSES it on a steer / interrupt / cancel rejection and on
+// every non-`rejected` state, instead of a base-level optional that would parse
+// a guard on an arm that can never raise one. Within that arm it is
+// additive-OPTIONAL and PRODUCER-OBLIGATED, the `resendDisposition` shape: no
+// member of a `rejected` response identifies its request as composite
+// (`replacementSend` is request-side and the response does not echo it), so
+// requiredness is not expressible at the strict-parse boundary. The daemon's
+// tested obligation is that a refusal raised by one of the four guards always
+// populates it and every other refusal family never does — the EIGHT `Queue And
+// Intervention Model ` admits for a rollback: the capability gate,
+// authorization, the target-position domain check, the compaction-boundary
+// classification, an incompatible target run state restore precondition, the
+// uncompacted-rewind-span intersection, and execution-root `busy`. The
+// obligation is asserted by the composite's settlement tests, whose negative
+// control runs all eight.
 //
 // REPLAY-DURABLE, AND NOT DERIVABLE FROM ITS SIBLING. A `rejected` response
 // carries no `result` (the state-split arm below declares `result?: never`), so
@@ -710,8 +679,7 @@ export const RollbackInterventionResultSchema: z.ZodType<RollbackInterventionRes
 // forbids (no rename, no type change, no semantic change, no new required field,
 // no new required semantic invariant). It rides `2026-05-01` and mints no
 // revision, as every additive member added to this file since that ratification
-// has; see `docs/architecture/contracts/api-payload-contracts.md` §Plan-004 —
-// Queue Steer Pause Resume for the rule and the precedent list.
+// has — Queue Steer Pause Resume for the rule and the precedent list.
 
 export type RollbackCompositeRejectionGuard =
   | "no-active-turn"
@@ -725,9 +693,9 @@ export const RollbackCompositeRejectionGuardSchema: z.ZodType<RollbackCompositeR
 export interface InterventionResponseBase {
   interventionId: InterventionId;
   state: InterventionState;
-  // Post-application run counter (D-004-1) — the caller threads this into the
-  // next intervention's `expectedRunVersion`. Carried on the response because
-  // an applied native steer advances the run version WITHOUT a `run.*` state
+  // Post-application run counter — the caller threads this into the next
+  // intervention's `expectedRunVersion`. Carried on the response because an
+  // applied native steer advances the run version WITHOUT a `run.*` state
   // change, so for that path this is the only place the fresh comparand can be
   // read.
   runVersion: number;
@@ -845,40 +813,26 @@ export const InterventionRequestResponseSchema: z.ZodType<InterventionRequestRes
   ]);
 
 // --------------------------------------------------------------------------
-// T1.3 — RunStateChangeEvent
 // --------------------------------------------------------------------------
 //
-// `ExecutionPosture`, `RecoveryCondition`, and `RecoverySpanClassification`
-// are Plan-005-owned types imported from `./provider-driver.js`. TWO of the
-// three now carry exported parsers there (Plan-005 T4.8), and this file
-// imports them instead of mirroring their values: a carrier that restates a
-// hoisted vocabulary is the drift T4.8 exists to remove, and the symbol names
-// are claimed from Plan-005's own file rather than minted in this one.
+// TWO of the three now carry exported parsers there, and this file imports
+// them instead of mirroring their values: a carrier that restates a hoisted
+// vocabulary is the drift exists to remove, and the symbol names are claimed
+// from its own file rather than minted in this one.
 //
-// `ExecutionPosture` keeps its module-private parser below. It carries no
-// exported schema in `provider-driver.ts` and is not one of T4.8's carrier
-// surfaces, so exporting a parser for it HERE would claim a Plan-005 symbol
-// name in this package's barrel. Its `z.ZodType<ExecutionPosture>` annotation
-// pins the parser's output to the imported declaration, which fails the build
-// if that type NARROWS — but a WIDENING of it still compiles, because
-// `ZodType` is covariant in its output. The annotation is a partial guard, not
-// a mirror-drift guard, and that asymmetry is exactly why the two recovery
-// vocabularies are single-sourced upstream instead of annotated here.
+// `ExecutionPosture` keeps its module-private parser below. Its
+// `z.ZodType<ExecutionPosture>` annotation pins the parser's output to the
+// imported declaration, which fails the build if that type NARROWS — but a
+// WIDENING of it still compiles, because `ZodType` is covariant in its output.
+// The annotation is a partial guard, not a mirror-drift guard, and that
+// asymmetry is exactly why the two recovery vocabularies are single-sourced
+// upstream instead of annotated here.
 //
 // THREE MEMBERS OF THE CANONICAL SHAPE ARE DELIBERATELY OMITTED: `agentId`,
-// `linkType`, and `effectiveRunConfig`. All three are typed by Plan-016-owned
-// symbols (`AgentId`, `LinkType`, `OrchestrationRunConfig`) that no
-// TypeScript in this workspace declares, and minting them here would take
-// Plan-016's ownership of shapes it has not yet authored. The remaining
-// orchestration-linkage members (`parentRunId`, `internalHelper`,
-// `producingNodeId`) have types in hand and are carried, so the omission is
-// exactly the three that cannot be typed rather than the whole block.
+// `linkType`, and `effectiveRunConfig`.
 //
-// The consequence is deliberate and must be understood before Plan-016 lands:
-// `.strict()` means a producer emitting `agentId` FAILS PARSE. Plan-016 is
-// Tier 6 and ships after this contract, so no producer exists today; when one
-// does, the three members are added HERE — never worked around at a consumer,
-// and never by relaxing the strict shape.
+// The consequence is deliberate and must be understood before lands:
+// `.strict()` means a producer emitting `agentId` FAILS PARSE.
 
 // `ExecutionPostureNetwork` types `allowedDomains` as `[string, ...string[]]`,
 // so the parser must produce a non-empty TUPLE and not merely a checked array:
@@ -947,22 +901,17 @@ const executionPostureSchema: z.ZodType<ExecutionPosture> = z.union([
     .strict(),
 ]);
 
-// The `run.subscribeState` WIRE projection (api-payload-contracts.md
-// §Plan-004 — Queue Steer Pause Resume), deliberately distinct from the
-// durable `run_lifecycle` payload of `Spec-006 §Run Lifecycle
-// (run_lifecycle)` (`{sessionId, runId, runVersion, previousState,
-// newState, channelId?, ...}` — Zod home: the `SessionEventSchema` variants
-// in `event.ts`, Plan-006). The subscription server projects the durable
-// row into this shape: `sessionId` is carried by the subscription scope
+// The subscription server projects the durable row into this shape:
+// `sessionId` is carried by the subscription scope
 // (`RunStateSubscribeRequest`), not repeated per event, and the canonical
 // wire member is `currentState`. The durable payload is NOT expected to
 // validate through this schema.
 export interface RunStateChangeEvent {
   runId: RunId;
-  // Run-progression counter (D-004-1): the optimistic-concurrency comparand
-  // clients read via `run.subscribeState` and pass back as
-  // `expectedRunVersion`. Distinct from the immutable `EventEnvelope.version`
-  // wire-contract semver — this is the run aggregate's concurrency token.
+  // Run-progression counter: the optimistic-concurrency comparand clients
+  // read via `run.subscribeState` and pass back as `expectedRunVersion`.
+  // Distinct from the immutable `EventEnvelope.version` wire-contract semver
+  // — this is the run aggregate's concurrency token.
   runVersion: number;
   previousState: RunState;
   currentState: RunState;
@@ -1042,14 +991,12 @@ export const RunStateChangeEventSchema: z.ZodType<RunStateChangeEvent> = z
   .strict();
 
 // --------------------------------------------------------------------------
-// CP-004-3 — RunRolledBackEvent
 // --------------------------------------------------------------------------
 //
-// The forward, NON-STATE rollback event. Registered in
-// `docs/architecture/contracts/api-payload-contracts.md §Plan-004 — Queue Steer Pause Resume` and homed
-// here under CP-004-3 rather than under a Phase-1 task, because no Phase-1
-// task names it: T3.12 produces the forward emission, and the shape rides
-// `run.subscribeState` alongside `RunStateChangeEvent`.
+// The forward, NON-STATE rollback event. Registered and homed here rather than
+// under a Phase-1 task, because no Phase-1 task names it: produces the forward
+// emission, and the shape rides `run.subscribeState` alongside
+// `RunStateChangeEvent`.
 //
 // Deliberately NO `previousState` / `currentState`: a rollback is not a state
 // transition, and fabricating one would corrupt the transition stream
@@ -1061,11 +1008,10 @@ export const RunStateChangeEventSchema: z.ZodType<RunStateChangeEvent> = z
 // `previousState` / `currentState` / `timestamp`.
 //
 // `sessionId` — which the sibling state-change shape does not carry — is
-// present because this same payload is the durable `run.rolled_back` row the
-// Plan-013 timeline consumes, where the boundary entry refines
-// `runId === payload.runId`, `sessionId === payload.sessionId`, and
-// `position === payload.targetPosition`, so outer attribution and payload
-// cannot disagree.
+// present because this same payload is the durable `run.rolled_back` row
+// timeline consumes, where the boundary entry refines `runId ===
+// payload.runId`, `sessionId === payload.sessionId`, and `position ===
+// payload.targetPosition`, so outer attribution and payload cannot disagree.
 
 export interface RunRolledBackEvent {
   sessionId: SessionId;
@@ -1093,16 +1039,16 @@ export const RunRolledBackEventSchema: z.ZodType<RunRolledBackEvent> = z
   .strict();
 
 // --------------------------------------------------------------------------
-// T1.6 — Pause / resume triggers
+// Pause / resume triggers
 // --------------------------------------------------------------------------
 //
 // `pause` and `resume` are SEPARATE REQUEST TYPES, not `InterventionType`
-// members: they are orchestration-layer verbs (ADR-011) and hold no membership
-// in `steer | interrupt | cancel | rollback` by design, so the client needs a
-// typed trigger distinct from `applyIntervention`. Both carry the MANDATORY
+// members: they are orchestration-layer verbs and hold no membership in `steer
+// | interrupt | cancel | rollback` by design, so the client needs a typed
+// trigger distinct from `applyIntervention`. Both carry the MANDATORY
 // `expectedRunVersion` guard with the same fail-closed semantics as
-// `InterventionRequestPayload` — D-004-2 as deliberately extended to these two
-// verbs (I-004-7), not as inherited from its original intervention-only scope.
+// `InterventionRequestPayload` — as deliberately extended to these two verbs,
+// not as inherited from its original intervention-only scope.
 
 export interface RunPauseRequest {
   targetRunId: RunId;
@@ -1143,29 +1089,27 @@ export const RunControlAckSchema: z.ZodType<RunControlAck> = z
   .strict();
 
 // --------------------------------------------------------------------------
-// CP-004-3 — Subscription request shapes
 // --------------------------------------------------------------------------
 //
-// Both `run.subscribe*` requests carry `{sessionId}` and nothing else, and
-// both are homed here on the same CP-004-3 basis as `RunRolledBackEvent`
-// above: `docs/architecture/contracts/api-payload-contracts.md §Plan-004 — Queue Steer Pause Resume`
-// registers them, no Phase-1 task names them, and the Phase-4 client-SDK and
-// renderer tasks (T4.1 / T4.3 / T4.4) consume them — T4.3 naming the shipped
-// `subscribePresence → {sessionId}` shape as the precedent these two follow.
+// Both `run.subscribe*` requests carry `{sessionId}` and nothing else, and both
+// are homed here on the same basis as `RunRolledBackEvent` above: registers them,
+// no Phase-1 task names them, and the Phase-4 client-SDK and renderer tasks
+// consume them — naming the shipped `subscribePresence → {sessionId}` shape as
+// the precedent these two follow.
 //
 // SESSION-SCOPED BY DESIGN, not for want of a filter: the canonical event
-// stream is per-session and ADR-001 makes the session the authorization
-// unit, so a caller subscribes within a session it participates in and fans
-// out per run CLIENT-side via `RunStateChangeEvent.runId`. A `runId` member
-// would be a second, weaker scope over an authorization decision the session
-// already settles.
+// stream is per-session and makes the session the authorization unit, so a
+// caller subscribes within a session it participates in and fans out per run
+// CLIENT-side via `RunStateChangeEvent.runId`. A `runId` member would be a
+// second, weaker scope over an authorization decision the session already
+// settles.
 //
 // NO replay-cursor member, unlike `SessionSubscribeRequest`: that shape
 // declares `afterCursor` / `lastEventId` because it is ALSO served over
 // tRPC's HTTP/SSE transport, whose fetch adapter injects a reconnect's
 // `Last-Event-ID` header into the input object BEFORE Zod validation, where
 // a strict shape lacking the member would throw on every resumption. The
-// `run.*` namespace is Plan-007 local-IPC JSON-RPC (CP-004-4) — the posture
+// `run.*` namespace is local-IPC JSON-RPC — the posture
 // `PresenceSubscribeRequest` records for itself — so the absence here is a
 // decision, and adding cursors is a doc edit first.
 //
@@ -1190,18 +1134,14 @@ export const RunQueueSubscribeRequestSchema: z.ZodType<
 > = z.object({ sessionId: SessionIdSchema }).strict();
 
 // --------------------------------------------------------------------------
-// T1.7 — Run-read accessor contract
 // --------------------------------------------------------------------------
 //
-// The SHAPE only. Phase 3 authors the engine-side read
-// (`runtime-daemon/src/session/run-engine.ts`, CP-004-6); this file
+// Phase 3 authors the engine-side read
+// (`runtime-daemon/src/session/run-engine.ts`); this file
 // deliberately creates no daemon module.
 //
-// `version` is the any-run-progression counter ratified as D-004-1 — the
-// comparand the stale-replay guard compares `expectedRunVersion` against
-// (I-004-7). `sessionId` and `state` are derived from the
-// `Spec-006 §Run Lifecycle (run_lifecycle)` projection; there is no
-// standalone runs table.
+// `sessionId` and `state` are derived projection; there is no standalone
+// runs table.
 //
 // TOTAL BY CONTRACT. The accessor returns a snapshot or THROWS; it does not
 // return null or undefined for an unknown run. That is what makes the guard

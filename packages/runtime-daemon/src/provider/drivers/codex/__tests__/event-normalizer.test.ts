@@ -1,15 +1,15 @@
-// Codex event-normalizer suite (Plan-005 T3.5).
+// Codex event-normalizer suite.
 //
 // Spec coverage under test:
-//   • `Spec-005 §Required Behavior` — drivers emit normalized runtime events,
-//     not provider-native types. Asserted as: every pinned Codex inbound
-//     method resolves to a Plan-006 `EventCategory` + `SessionEventType`, and
-//     an unmapped method never resolves to a fabricated one.
-//   • `Spec-005 §Required Behavior` — the required normalized event families.
-//     Asserted as a two-sided coverage pin: which of the six the pinned Codex
-//     inbound census reaches, and which it provably does not.
+//   • drivers emit normalized runtime events, not provider-native types.
+//     Asserted as: every pinned Codex inbound method resolves to a
+//     `EventCategory` + `SessionEventType`, and an unmapped method never
+//     resolves to a fabricated one.
+//   • the required normalized event families. Asserted as a two-sided
+//     coverage pin: which of the six the pinned Codex inbound census reaches,
+//     and which it provably does not.
 //
-// Verifies invariant: none (T3.5 declares none; normalization is structural).
+// Verifies invariant: none (declares none; normalization is structural).
 //
 // Fixture discipline: the two `__fixtures__/` modules are METHOD census
 // vectors derived from `docs/reference/provider-wire/codex.md` at pin
@@ -93,7 +93,7 @@ interface ExpectedNormalizedRow {
 const EXPECTED_NORMALIZED_ROWS: ReadonlyMap<CodexInboundFrameMethod, ExpectedNormalizedRow> =
   new Map([
     // ServerRequest — callback tool + the seven asks that surface as
-    // `driver_ask.*` (Plan-005 T3.14 P1-4-driver).
+    // `driver_ask.*` (P1-4-driver).
     [
       "item/tool/call",
       {
@@ -166,7 +166,6 @@ const EXPECTED_NORMALIZED_ROWS: ReadonlyMap<CodexInboundFrameMethod, ExpectedNor
         normalizedKind: "approval_request",
       },
     ],
-    // Legacy notifications (codex.md §Method namespace).
     [
       "error",
       {
@@ -203,7 +202,7 @@ const EXPECTED_NORMALIZED_ROWS: ReadonlyMap<CodexInboundFrameMethod, ExpectedNor
         normalizedKind: "notification",
       },
     ],
-    // Guardian + autoApprovalReview (Plan-006 delta row: `approval_flow`
+    // Guardian + autoApprovalReview (delta row: `approval_flow`
     // observability, "never a Cedar-pipeline bypass").
     [
       "guardianWarning",
@@ -250,7 +249,7 @@ const EXPECTED_NORMALIZED_ROWS: ReadonlyMap<CodexInboundFrameMethod, ExpectedNor
         normalizedKind: null,
       },
     ],
-    // Goals (Plan-006 delta row: `session_lifecycle`).
+    // Goals (delta row: `session_lifecycle`).
     [
       "thread/goal/updated",
       {
@@ -297,7 +296,7 @@ const EXPECTED_NORMALIZED_ROWS: ReadonlyMap<CodexInboundFrameMethod, ExpectedNor
         normalizedKind: "notification",
       },
     ],
-    // `process/*` (Plan-006 delta row: `tool_activity`).
+    // `process/*` (delta row: `tool_activity`).
     [
       "process/outputDelta",
       {
@@ -316,9 +315,9 @@ const EXPECTED_NORMALIZED_ROWS: ReadonlyMap<CodexInboundFrameMethod, ExpectedNor
         normalizedKind: "codex_exec_result",
       },
     ],
-    // `turn/diff/updated` | `turn/plan/updated` — disposition from the Plan-006
-    // delta row, wire names from the binary's generator at codex-cli 0.150.1
-    // (the delta row carried truncated forms until its 2026-08-28 correction).
+    // `turn/diff/updated` | `turn/plan/updated` — disposition delta row, wire
+    // names from the binary's generator at codex-cli 0.150.1 (the delta row
+    // carried truncated forms until its 2026-08-28 correction).
     [
       "turn/diff/updated",
       {
@@ -350,18 +349,18 @@ const EXPECTED_NOT_EVENTED_METHODS: readonly CodexInboundFrameMethod[] = [
   "thread/environment/connected",
   "thread/environment/disconnected",
   "thread/settings/updated",
-  // T3.26. The skill-file watch signal: an empty-payload invalidation cue whose
-  // only consequence is daemon-side (the driver's held command enumeration is
+  // The skill-file watch signal: an empty-payload invalidation cue whose only
+  // consequence is daemon-side (the driver's held command enumeration is
   // discarded so the next read is a full re-read), so it carries no session
   // observation a timeline row could hold.
   "skills/changed",
 ];
 
 /**
- * The six required normalized families, verbatim from
- * `Spec-005 §Required Behavior`: "run lifecycle, assistant output, tool
- * activity, interactive request, artifact publication, usage or quota
- * telemetry where available", named with their `EventCategory` literals.
+ * The six required normalized families, verbatim: "run lifecycle,
+ * assistant output, tool activity, interactive request, artifact
+ * publication, usage or quota telemetry where available", named with
+ * their `EventCategory` literals.
  */
 const REQUIRED_NORMALIZED_FAMILIES: readonly EventCategory[] = [
   "run_lifecycle",
@@ -375,10 +374,9 @@ const REQUIRED_NORMALIZED_FAMILIES: readonly EventCategory[] = [
 /**
  * The eleven realtime notifications deliberately EXCLUDED from the census.
  *
- * Spelled in full in Plan-005 T3.11, which states the normalizer "routes each
- * of the eleven Codex realtime wire kinds ... to the default-branch
- * diagnostic". Pinned here so a future edit that quietly maps one of them into
- * a family fails: the `realtime_*` Spec-006 family is reserved with no V1
+ * Spelled in full which states the normalizer "routes each of the eleven Codex
+ * realtime wire kinds... Pinned here so a future edit that quietly maps one of
+ * them into a family fails: the `realtime_*` family is reserved with no V1
  * emitter, so any family it were mapped to would be fabricated.
  *
  * The last three arrived with the `0.150.1` pin BESIDE the older spellings, not
@@ -404,7 +402,7 @@ const EXCLUDED_REALTIME_METHODS: readonly string[] = [
  *
  * Gated like the other three additions and given no normalized family by any
  * corpus row, so it is deliberately absent from the closed union and reaches
- * the T3.11 default-branch diagnostic. Asserted rather than assumed because the
+ * default-branch diagnostic. Asserted rather than assumed because the
  * fixture-gated cross-check below filters to census members, which would let a
  * newly-tagged non-census method pass through unexamined.
  */
@@ -519,14 +517,12 @@ describe("Codex event normalizer — every fixture frame normalizes as expected"
   });
 
   it("normalizes the two corpus-described delta frames through typed constructors", () => {
-    // Their DISPOSITION comes from
-    // `Plan-006 §Event-Kind Disposition Table (surveyed-runtime normalized census)`'s Codex delta row and their WIRE
-    // NAMES from the pinned binary's own generator output at codex-cli
-    // 0.150.1 (the delta row carried both truncated until 2026-08-28).
-    // Exercised as typed values here on top of the census coverage above: the
-    // annotation binds each literal to `CodexInboundFrameMethod` at compile
-    // time, so dropping a member from the union fails to BUILD rather than
-    // failing a string lookup at run time.
+    // Their DISPOSITION comes from the Codex delta row and their WIRE NAMES from
+    // the pinned binary's own generator output at codex-cli 0.150.1 (the delta row
+    // carried both truncated until 2026-08-28). Exercised as typed values here on
+    // top of the census coverage above: the annotation binds each literal to
+    // `CodexInboundFrameMethod` at compile time, so dropping a member from the
+    // union fails to BUILD rather than failing a string lookup at run time.
     const diffFrame: CodexInboundFrameMethod = "turn/diff/updated";
     const planFrame: CodexInboundFrameMethod = "turn/plan/updated";
 
@@ -567,23 +563,22 @@ describe("Codex event normalizer — normalized-family coverage", () => {
   });
 
   it("pins artifact_publication as reachable from NO Codex frame, and why", () => {
-    // Not a hole in this table — a corpus fact, asserted so it stays loud.
-    // `Plan-006 §Event-Kind Disposition Table (surveyed-runtime normalized census)` assigns NO normalized census
-    // kind to `artifact_publication`: `EVENT_DISPOSITION_BY_KIND` names
-    // `run_lifecycle`, `assistant_output`, `tool_activity`,
-    // `interactive_request`, `approval_flow`, `usage_telemetry` and
-    // `session_lifecycle` as target categories and never that one, and the
+    // Not a hole in this table — a corpus fact, asserted so it stays loud. assigns
+    // NO normalized census kind to `artifact_publication`:
+    // `EVENT_DISPOSITION_BY_KIND` names `run_lifecycle`, `assistant_output`,
+    // `tool_activity`, `interactive_request`, `approval_flow`, `usage_telemetry`
+    // and `session_lifecycle` as target categories and never that one, and the
     // Codex `turn/diff/updated` delta row is routed to `tool_activity` (`diff`, row
     // 32) rather than to `diff.created`. And the family's emitter is not a
-    // driver at all: Plan-006's event-family ownership table assigns all six
-    // `artifact_publication` types to Plan-014, so a Codex normalizer
-    // producing one would assert an emitter the corpus gives to another plan.
-    // (Corrected 2026-08-27: an earlier revision of this comment also named
-    // Plan-011, which owns Gitflow PR and diff attribution and emits none of
-    // these six.) Should a Codex frame ever gain an artifact-publication
-    // mapping, this assertion fires and the author must justify the new
-    // producer. Full grounding lives in the normalizer header under "Why
-    // `artifact_publication` is reachable from no Codex frame".
+    // driver at all: the event-family ownership table assigns all six
+    // `artifact_publication` types to so a Codex normalizer producing one
+    // would assert an emitter the corpus gives to another plan. (Corrected
+    // 2026-08-27: an earlier revision of this comment also named which owns
+    // Gitflow PR and diff attribution and emits none of these six.) Should a
+    // Codex frame ever gain an artifact-publication mapping, this assertion
+    // fires and the author must justify the new producer. Full grounding
+    // lives in the normalizer header under "Why `artifact_publication` is
+    // reachable from no Codex frame".
     const reached = new Set(normalizedRowsOfCensus().map((row) => row.family));
     expect(reached.has("artifact_publication")).toBe(false);
 
@@ -595,7 +590,7 @@ describe("Codex event normalizer — normalized-family coverage", () => {
     expect(dispositionCategories.has("artifact_publication")).toBe(false);
   });
 
-  it("reaches only families the Plan-006 taxonomy recognizes", () => {
+  it("reaches only families taxonomy recognizes", () => {
     for (const row of normalizedRowsOfCensus()) {
       // A family is legitimate exactly when the census registry agrees that
       // the row's target literal lives in it.
@@ -612,10 +607,10 @@ describe("Codex event normalizer — agreement with the contracts registries", (
   });
 
   it("agrees with EVENT_DISPOSITION_BY_KIND on every row that names a census kind", () => {
-    // The runtime consume of this registry is Plan-005 T3.11's, deliberately
-    // not this module's. Cross-checking it HERE is what keeps the two from
-    // drifting in the meantime: a row whose family contradicts the registry's
-    // category for its own census kind fails now, not at T3.11 integration.
+    // The runtime consumer of this registry lives elsewhere, deliberately not in
+    // this module. Cross-checking it HERE is what keeps the two from drifting in
+    // the meantime: a row whose family contradicts the registry's category
+    // for its own census kind fails now, not integration.
     for (const row of normalizedRowsOfCensus()) {
       if (row.normalizedKind === null) {
         continue;
@@ -670,9 +665,9 @@ describe("Codex event normalizer — unknown-frame behavior is a typed refusal",
   });
 
   it("refuses rather than silently dropping (never returns undefined)", () => {
-    // The distinction the Plan-006 no-silent-capability-loss default turns on:
-    // an unmapped frame must be observable. Pre-T3.11 that means a throw; T3.11
-    // replaces the throw with an operator-visible diagnostic record.
+    // The distinction no-silent-capability-loss default turns on: an unmapped
+    // frame must be observable. Pre- that means a throw replaces the throw with
+    // an operator-visible diagnostic record.
     let returned: CodexFrameNormalization | undefined;
     try {
       returned = normalizeCodexInboundFrame("codex/unheard-of");
@@ -699,7 +694,7 @@ describe("Codex event normalizer — unknown-frame behavior is a typed refusal",
     }
   });
 
-  it("refuses all eight excluded realtime notifications (the T3.11 routing pin)", () => {
+  it("refuses all eight excluded realtime notifications (routing pin)", () => {
     for (const realtimeMethod of EXCLUDED_REALTIME_METHODS) {
       expect(() => normalizeCodexInboundFrame(realtimeMethod)).toThrow(
         UnknownCodexInboundFrameError,
@@ -756,9 +751,9 @@ describe("Codex event normalizer — purity and determinism", () => {
 //
 // The stamp answers a question distinct from "which family": whether the
 // named `SessionEventType` may be built into a `SessionEvent` envelope TODAY
-// (Plan-006 T1.10's flip-is-not-emission rule). It is derived at map-build
-// from the live `SESSION_EVENT_TYPES` roster, never hand-stated per row, so
-// it widens by itself when an emitting plan registers a payload variant.
+// (the flip-is-not-emission rule). It is derived at map-build from the live
+// `SESSION_EVENT_TYPES` roster, never hand-stated per row, so it widens by
+// itself when an emitting plan registers a payload variant.
 //
 // Deliberately NOT folded into `EXPECTED_NORMALIZED_ROWS`: restating
 // `payload-variant-pending` on 26 hand-written rows would reintroduce, inside
@@ -904,7 +899,7 @@ describe("Codex event normalizer — emission readiness is derived, not stated",
 });
 
 // --------------------------------------------------------------------------
-// Tool-identity binding — the `tools.ts` (T3.4) namespace seam.
+// Tool-identity binding — the `tools.ts` namespace seam.
 // --------------------------------------------------------------------------
 //
 // `tools.ts` exports `CODEX_TOOL_NAMES` specifically so this module consumes
@@ -976,7 +971,7 @@ describe("Codex event normalizer — tool-keyed methods bind to the tools.ts nam
 // inputs: the generated schema does not encode it for notifications, and
 // `tools.ts` knows nothing about negotiation. These tests are what keep the
 // declaration honest — they pin it to the `__fixtures__/` gate tags, which are
-// the transcription of codex.md §The experimental gate, across BOTH transports.
+// the transcription of codex.md across BOTH transports.
 
 describe("Codex event normalizer — negotiation-gated methods are declared, not assumed", () => {
   /** Census members the fixtures tag experimental-gated, on either transport. */
@@ -1023,7 +1018,7 @@ describe("Codex event normalizer — negotiation-gated methods are declared, not
   it("keeps every declared gated method mapped rather than deleted", () => {
     // The point of the declaration: these rows stay in the census so a posture
     // flip or a pin bump inherits their disposition instead of routing twelve
-    // settled frames into the T3.11 diagnostic at once.
+    // settled frames into diagnostic at once.
     for (const gatedMethod of CODEX_NEGOTIATION_GATED_METHODS) {
       expect(CODEX_INBOUND_FRAME_METHODS).toContain(gatedMethod);
       expect(() => normalizeCodexInboundFrame(gatedMethod)).not.toThrow();
@@ -1046,9 +1041,9 @@ describe("Codex event normalizer — negotiation-gated methods are declared, not
     // arm. It is neither suppressed by name (it is not realtime) nor given a
     // family by any corpus row, so it belongs in NEITHER the closed union nor
     // the dormant-but-settled declaration: it must reach the unknown seam and
-    // surface as a T3.11 diagnostic. Without this assertion the fixture's gate
-    // tag for it is checked by nothing, because the cross-check above filters
-    // to census members and this method is deliberately not one.
+    // surface as a diagnostic. Without this assertion the fixture's gate tag
+    // for it is checked by nothing, because the cross-check above filters to
+    // census members and this method is deliberately not one.
     expect(CODEX_INBOUND_FRAME_METHODS).not.toContain(EXCLUDED_NON_REALTIME_GATED_METHOD_AT_PIN);
     expect(CODEX_NEGOTIATION_GATED_METHODS).not.toContain(
       EXCLUDED_NON_REALTIME_GATED_METHOD_AT_PIN,
@@ -1079,8 +1074,8 @@ describe("Codex event normalizer — negotiation-gated methods are declared, not
     // and "11 of this census's 26" notifications. A prose count that no test
     // reads is a count that drifts -- this one was wrong (24) on first write
     // and was caught by measuring rather than by re-reading. It moved 25 -> 26
-    // at T3.26 with `skills/changed`, which is UNGATED, so the gated split
-    // below is unchanged by that addition.
+    // with `skills/changed`, which is UNGATED, so the gated split below is
+    // unchanged by that addition.
     const rows = [...CODEX_FRAME_NORMALIZATION_BY_METHOD.values()];
     expect(rows.filter((row) => row.transport === "server-request")).toHaveLength(10);
     expect(rows.filter((row) => row.transport === "server-notification")).toHaveLength(26);
@@ -1100,13 +1095,12 @@ describe("Codex event normalizer — negotiation-gated methods are declared, not
 // --------------------------------------------------------------------------
 
 describe("Codex event normalizer — the truncated delta names stay off the census", () => {
-  it("refuses the truncated wire names the Plan-006 delta row once carried", () => {
-    // `Plan-006 §Event-Kind Disposition Table (surveyed-runtime normalized census)`
+  it("refuses the truncated wire names delta row once carried", () => {
     // spelled this family "`turn/diff` | `turn/plan` | `turn/moderationMetadata`"
     // until its 2026-08-28 correction. Regenerating the protocol schema from the
-    // pinned binary (`codex app-server generate-json-schema` at codex-cli
-    // 0.150.1) emits `turn/diff/updated` and `turn/plan/updated`; the bare
-    // forms appear nowhere in its 79-arm `ServerNotification` root.
+    // pinned binary (`codex app-server generate-json-schema` at codex-cli 0.150.1)
+    // emits `turn/diff/updated` and `turn/plan/updated`; the bare forms appear
+    // nowhere in its 79-arm `ServerNotification` root.
     //
     // The guard OUTLIVES the correction it was written against. The truncated
     // spellings are the intuitive ones, they survive in older revisions of this
@@ -1140,10 +1134,10 @@ describe("Codex event normalizer — the truncated delta names stay off the cens
 });
 
 // --------------------------------------------------------------------------
-// T3.11 — emission routing, family classification, child announcements.
+// Emission routing, family classification, child announcements.
 // --------------------------------------------------------------------------
 
-describe("resolveCodexFrameEmissionRoute (T3.11 P0-1)", () => {
+describe("resolveCodexFrameEmissionRoute (P0-1)", () => {
   function makeDiagnostics() {
     return new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
   }
@@ -1186,7 +1180,7 @@ describe("resolveCodexFrameEmissionRoute (T3.11 P0-1)", () => {
   });
 });
 
-describe("classifyCodexFrameFamilyForRouting (T3.11, NS-91)", () => {
+describe("classifyCodexFrameFamilyForRouting", () => {
   it("classifies every censused method plus the two router-band methods — none falls to unknown", () => {
     const routableMethods = [
       ...CODEX_INBOUND_FRAME_METHODS,
@@ -1205,8 +1199,8 @@ describe("classifyCodexFrameFamilyForRouting (T3.11, NS-91)", () => {
       "account/chatgptAuthTokens/refresh",
       "model/safetyBuffering/updated",
       "project/changed",
-      // T3.26. Connection-scoped by its own pinned shape — its payload is the
-      // empty object, so it names no thread. Asserted explicitly because the
+      // Connection-scoped by its own pinned shape — its payload is the empty
+      // object, so it names no thread. Asserted explicitly because the
       // alternative is not merely a different label: an unlisted method
       // quarantines, which would emit a router diagnostic on every save of
       // every watched skill file.
@@ -1253,7 +1247,7 @@ describe("classifyCodexFrameFamilyForRouting (T3.11, NS-91)", () => {
   });
 });
 
-describe("deriveCodexChildThreadAnnouncement (T3.11, NS-91)", () => {
+describe("deriveCodexChildThreadAnnouncement", () => {
   it("marks the subagent-attributed ThreadSourceKind arms with the child thread id as subagent identity", () => {
     for (const threadSourceKind of CODEX_SUBAGENT_ATTRIBUTED_THREAD_SOURCE_KINDS) {
       expect(
@@ -1296,19 +1290,17 @@ describe("deriveCodexChildThreadAnnouncement (T3.11, NS-91)", () => {
 });
 
 // --------------------------------------------------------------------------
-// T3.14 P1-1 / P1-2-driver — the terminal-emission boundary.
+// P1-1 / P1-2-driver — the terminal-emission boundary.
 // --------------------------------------------------------------------------
 //
 // Spec coverage under test:
-//   `Spec-006 §Run Lifecycle (run_lifecycle)` — a daemon-initiated close is
 //     stamped `intendedClose` so the recovery classifier reads a clean shutdown
 //     as a clean shutdown rather than as a crash.
-//   `Spec-005 §Required Behavior` — at most one terminal per
 //     `(runId, runVersion)` epoch reaches the emission pipeline, so the ordinary
 //     post-interrupt double is absorbed at the driver rather than failing loud
-//     against Plan-006's partial unique index.
+//     against the partial unique index.
 
-describe("CodexTerminalEmissionGate (T3.14 P1-1, P1-2-driver)", () => {
+describe("CodexTerminalEmissionGate (P1-1, P1-2-driver)", () => {
   const PROJECTED_ROUTE = { decision: "project" } as const;
 
   function terminalFrame(overrides: Partial<CodexTerminalRunFrame> = {}): CodexTerminalRunFrame {
@@ -1398,7 +1390,7 @@ describe("CodexTerminalEmissionGate (T3.14 P1-1, P1-2-driver)", () => {
 });
 
 // --------------------------------------------------------------------------
-// T3.16 — typed provider usage-limit signal, Codex leg (I-005-6)
+// Typed provider usage-limit signal, Codex leg
 // --------------------------------------------------------------------------
 //
 // Shapes below are built from the pinned generated protocol

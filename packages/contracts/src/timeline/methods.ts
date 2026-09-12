@@ -1,14 +1,10 @@
-// Plan-013 T1.4 — the four `timeline.*` method strings, each BOUND to the
+// The four `timeline.*` method strings, each BOUND to the
 // request/response schemas that carry it.
 //
-// PROVENANCE. `docs/architecture/contracts/api-payload-contracts.md`
-// §"Timeline Method-Name Registry (Tier 8, Plan-013 T1.4)" is the canonical
-// table this module mirrors: four methods, three `query` and one
-// `subscription`, riding the daemon JSON-RPC transport only (the timeline is a
-// daemon-local projection over the session event log per ADR-017, and no tRPC
-// sibling exists in V1). Method tails are camelCase per the BL-142 convention.
-// The `timeline` namespace root is already ratified in that file's §JSON-RPC
-// Method-Name Registry (Tier 1 Ratified) root set.
+// Four methods, three `query` and one `subscription`, riding the daemon
+// JSON-RPC transport only (the timeline is a daemon-local projection over the
+// session event log and no tRPC sibling exists in V1). Method tails are
+// camelCase convention. The `timeline` namespace root is already ratified.
 //
 // ----------------------------------------------------------------------------
 // Why the strings are bound to schemas rather than just declared

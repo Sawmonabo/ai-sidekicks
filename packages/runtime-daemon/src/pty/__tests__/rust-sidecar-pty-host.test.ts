@@ -1,21 +1,18 @@
 // Tests for `RustSidecarPtyHost` — daemon-side supervisor for the Rust
 // PTY sidecar binary.
 //
-// What we assert (Plan-024 Phase 3 acceptance criteria):
+// What we assert (acceptance criteria):
 //
-//   * AC1: every `PtyHost` method is implemented (spawn, resize, write,
+//   * Every `PtyHost` method is implemented (spawn, resize, write,
 //     kill, close, onData, onExit). Round-trip framing is exercised
 //     end-to-end via a fake child process whose stdin/stdout streams
 //     are wired to the supervisor's framer.
-//   * AC2: AC2 ("PtyHostSelector returns a working host on Windows") is
-//     covered by the selector test suite — this file focuses on the
-//     supervisor surface itself.
-//   * AC3: sidecar process crash within the respawn budget triggers
+//   * Sidecar process crash within the respawn budget triggers
 //     automatic respawn; outside budget surfaces
 //     `PtyBackendUnavailableError`. Both branches exercised with a
 //     mock-clock so the 60s sliding window is deterministic.
-//   * Pin 1: factory accepts `binaryPath` so T-024-3-3 can swap the
-//     resolver without touching the signature.
+//   * Pin 1: factory accepts `binaryPath` so can swap the resolver
+//     without touching the signature.
 //   * Pin 4: Content-Length frames written to stdin match the wire
 //     format `Content-Length: <bytes>\r\n\r\n<json-payload>`.
 //   * Pin 5: crash budget is a sliding window — 5 crashes at t=10s
@@ -32,7 +29,6 @@
 // test scenario builds a fresh fake and wires the supervisor against
 // it.
 //
-// Refs: Plan-024 §F-024-3-02 + §F-024-3-05; ADR-019 §Decision item 1.
 
 import { Buffer } from "node:buffer";
 import { EventEmitter } from "node:events";
@@ -234,10 +230,10 @@ async function flushMicrotasks(): Promise<void> {
 }
 
 // ----------------------------------------------------------------------------
-// AC1 — every PtyHost method is implemented.
+// Every PtyHost method is implemented.
 // ----------------------------------------------------------------------------
 
-describe("RustSidecarPtyHost — PtyHost contract surface (AC1)", () => {
+describe("RustSidecarPtyHost — PtyHost contract surface", () => {
   it("spawn round-trips through the framer and resolves with the SpawnResponse", async () => {
     const fake = makeFakeChild();
     const host = new RustSidecarPtyHost({
@@ -318,7 +314,7 @@ describe("RustSidecarPtyHost — PtyHost contract surface (AC1)", () => {
     await expect(resizePromise).resolves.toBeUndefined();
   });
 
-  it("write base64-encodes the bytes per F-024-1-01 and resolves on WriteResponse", async () => {
+  it("write base64-encodes the bytes and resolves on WriteResponse", async () => {
     const fake = makeFakeChild();
     const host = new RustSidecarPtyHost({
       resolveBinaryPath: () => "/fake/sidecar",
@@ -517,16 +513,16 @@ describe("RustSidecarPtyHost — Content-Length wire format (Pin 4)", () => {
     // Strict wire-format match — the header line MUST be exactly
     // "Content-Length: <n>\r\n\r\n" before the JSON body. A future
     // refactor that adds optional headers (Content-Type, etc.) MUST
-    // keep Content-Length as the first header line for ADR-009 parity.
+    // keep Content-Length as the first header line for parity.
     expect(stdin).toMatch(/^Content-Length: \d+\r\n\r\n\{/);
   });
 });
 
 // ----------------------------------------------------------------------------
-// AC3 + Pin 5 — sliding-window crash budget.
+// Pin 5 — sliding-window crash budget.
 // ----------------------------------------------------------------------------
 
-describe("RustSidecarPtyHost — sliding-window crash budget (AC3 + Pin 5)", () => {
+describe("RustSidecarPtyHost — sliding-window crash budget (Pin 5)", () => {
   it("respawns the sidecar within budget (4 crashes in 60s does NOT exhaust)", async () => {
     const seq = spawnReturningSequence();
     const clock = vi.fn<() => number>().mockReturnValue(0);
@@ -821,8 +817,7 @@ describe("createRustSidecarPtyHost — factory accepts binaryPath", () => {
 describe("RustSidecarPtyHost — framing limits (defense in depth)", () => {
   it(`MAX_FRAME_BODY_BYTES is set to ${MAX_FRAME_BODY_BYTES} bytes (mirrors Rust framing::MAX_FRAME_BODY_BYTES)`, () => {
     // Pin the constant value so a future divergence from the Rust
-    // side trips this test. 8 MiB is the contract per Plan-024
-    // F-024-1-06.
+    // side trips this test. 8 MiB is the contract.
     expect(MAX_FRAME_BODY_BYTES).toBe(8 * 1024 * 1024);
   });
 });
@@ -947,9 +942,7 @@ describe("ContentLengthParser — chunk-boundary reassembly + rejection paths", 
   });
 
   // Strict digit-only Content-Length grammar — pins the daemon-side
-  // rejection surface. Phase 1 framing layer; below the I-024-N
-  // invariants per Plan-024 §T-024-1-2 ("Verifies invariant: none —
-  // framing layer below invariants").
+  // rejection surface. Phase 1 framing layer; below invariants.
   //
   // The daemon's `/^\d+$/` is DELIBERATELY STRICTER than the Rust
   // framer at packages/sidecar-rust-pty/src/framing.rs, which calls
@@ -960,7 +953,7 @@ describe("ContentLengthParser — chunk-boundary reassembly + rejection paths", 
   // https://doc.rust-lang.org/std/primitive.usize.html#method.from_str_radix.
   //
   // The daemon side rejects `+N` to align with HTTP/1.1 RFC 7230
-  // §3.3.2 (`Content-Length = 1*DIGIT` — no sign permitted;
+  // `Content-Length = 1*DIGIT` — no sign permitted;
   // https://datatracker.ietf.org/doc/html/rfc7230#section-3.3.2)
   // and as defense-in-depth at the daemon ↔ sidecar boundary. The
   // asymmetry is safe under the current trust architecture: a `+N`
@@ -1035,7 +1028,7 @@ describe("ContentLengthParser — chunk-boundary reassembly + rejection paths", 
   });
 
   it("preserves the duplicate-Content-Length defense ahead of the strict-grammar check", () => {
-    // Regression guard: AC5 — the new validator MUST run AFTER the
+    // Regression guard: — the new validator MUST run AFTER the
     // duplicate-header check so the duplicate-shape error message is
     // surfaced even when the second value would also fail the
     // grammar. Without this ordering a peer could mask a smuggling
@@ -1067,13 +1060,12 @@ describe("ContentLengthParser — chunk-boundary reassembly + rejection paths", 
   // unbounded header buffering when a peer (or a desync condition) never
   // delivers `\r\n\r\n`. Without this cap, `feed()` would concatenate
   // forever. Mirrors the per-section cap in the IPC sibling framer at
-  // `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts` lines 274-288
-  // (`if (buffer.byteLength > 1024) throw FramingError("header_too_long"…)`).
-  // The Rust framer at `packages/sidecar-rust-pty/src/framing.rs:34`
-  // enforces a 1 KiB PER-LINE cap by contrast — deliberately different
-  // per the load-bearing comment at framing.rs:25-33. Phase 3 framer
-  // hardening; below the I-024-N invariants per Plan-024 §T-024-3-1
-  // ("framing layer below invariants").
+  // `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts` lines 274-288 (`if
+  // (buffer.byteLength > 1024) throw FramingError("header_too_long"…)`). The
+  // Rust framer at `packages/sidecar-rust-pty/src/framing.rs:34` enforces a 1
+  // KiB PER-LINE cap by contrast — deliberately different per the
+  // load-bearing comment at framing.rs:25-33. Phase 3 framer hardening; below
+  // invariants.
   // ----------------------------------------------------------------------------
 
   it(`MAX_HEADER_BYTES is set to 1024 bytes (mirrors the TS IPC sibling per-section cap)`, () => {
@@ -2058,10 +2050,10 @@ describe("RustSidecarPtyHost — data_frame fan-out gating", () => {
 // `head.resolve(envelope)` queues the awaiter's microtask. Without
 // this, the drain loop would dispatch trailing frames for a freshly-
 // minted session_id with sessions.has(id) === false and silently drop
-// them. (Plan-024 §T-024-3-1; ADR-019 §Failure Mode Analysis.)
+// them.
 // ----------------------------------------------------------------------------
 
-describe("RustSidecarPtyHost — same-stdout-chunk frame coalescing (Plan-024 §T-024-3-1)", () => {
+describe("RustSidecarPtyHost — same-stdout-chunk frame coalescing", () => {
   it("delivers DataFrame arriving same-chunk after SpawnResponse to onData", async () => {
     // Setup: fake child, host attached, register onData listener BEFORE
     // spawn. The race targets: the sidecar writer queues SpawnResponse
@@ -2253,10 +2245,9 @@ describe("RustSidecarPtyHost — same-stdout-chunk frame coalescing (Plan-024 §
 //      cannot have this race — `pty.spawn()` is synchronous and the
 //      `child.onExit` subscription is wired atomically inside spawn()).
 //
-// (Plan-024 §T-024-3-1 + §I-024-6; ADR-019 §Failure Mode Analysis.)
 // ----------------------------------------------------------------------------
 
-describe("RustSidecarPtyHost — pre-spawn event buffering (Plan-024 §I-024-6)", () => {
+describe("RustSidecarPtyHost — pre-spawn event buffering", () => {
   /**
    * Yield to the I/O loop's Check phase so any `setImmediate` callbacks
    * scheduled during prior microtask + I/O work get a chance to run.
@@ -2537,7 +2528,7 @@ describe("RustSidecarPtyHost — pre-spawn event buffering (Plan-024 §I-024-6)"
     );
     await flushMicrotasks();
     // Crash the first child — handleChildExit clears the pre-spawn
-    // buffer per I-024-6.
+    // buffer.
     seq.latest().triggerExit(1, null);
     await preCrashSpawnP.catch(() => undefined);
 
@@ -2582,7 +2573,7 @@ describe("RustSidecarPtyHost — pre-spawn event buffering (Plan-024 §I-024-6)"
     // would have its DataFrame / ExitCodeNotification suppressed
     // (instead of delivered via the alive-session branch). Verify
     // closedSessionIds is cleared by `clearPreSpawnState` on
-    // `handleChildExit` per I-024-6.
+    // `handleChildExit`.
     const seq = spawnReturningSequence();
     const host = new RustSidecarPtyHost({
       resolveBinaryPath: () => "/fake/sidecar",
@@ -2616,8 +2607,8 @@ describe("RustSidecarPtyHost — pre-spawn event buffering (Plan-024 §I-024-6)"
     await closeP;
 
     // Crash the first child — handleChildExit clears
-    // closedSessionIds per I-024-6 so the post-respawn fresh `s-0`
-    // is not suppressed.
+    // closedSessionIds so the post-respawn fresh `s-0` is not
+    // suppressed.
     seq.latest().triggerExit(1, null);
 
     // Post-respawn: fresh spawn for s-0 (same wire id, new logical
@@ -2798,8 +2789,7 @@ describe("RustSidecarPtyHost — dual error+exit events do not double-charge the
 //
 // Refs: Local class invariant — see RustSidecarPtyHost class rustdoc
 // and handleChildExit rustdoc for the active-child-only teardown
-// contract. Plan-024 §T-024-3-1 governs the broader crash-respawn
-// supervision.
+// contract..
 // ----------------------------------------------------------------------------
 
 describe("RustSidecarPtyHost — stale child lifecycle events do not clobber the replacement child", () => {
@@ -3014,7 +3004,6 @@ describe("RustSidecarPtyHost — stale child lifecycle events do not clobber the
 });
 
 // ----------------------------------------------------------------------------
-// Crash-time per-session `onExit` (ADR-019 §Decision item 9).
 //
 // What we assert (the contract surface a consumer relies on for cleanup
 // when the sidecar host dies abnormally):
@@ -3032,13 +3021,13 @@ describe("RustSidecarPtyHost — stale child lifecycle events do not clobber the
 //     on a respawned sidecar's drain loop does NOT route to the
 //     exit listener (the record is gone; the buffer-fallback path
 //     never reaches `exitListener`).
-//   * BL-111 fire sits BELOW the stale-event guard — a late stale
-//     event for an old crashed child whose sessions were already
+//   * Fire sits BELOW the stale-event guard — a late stale event
+//     for an old crashed child whose sessions were already
 //     crash-fired does NOT fire `onExit` against a freshly-spawned
 //     replacement's sessions.
 // ----------------------------------------------------------------------------
 
-describe("RustSidecarPtyHost — crash-time per-session onExit (`ADR-019 §Decision` item 9)", () => {
+describe("RustSidecarPtyHost — crash-time per-session onExit", () => {
   it("handleChildExit fires onExit(-1) for every active session and empties the session map", async () => {
     const fake = makeFakeChild();
     const host = new RustSidecarPtyHost({
@@ -3071,8 +3060,8 @@ describe("RustSidecarPtyHost — crash-time per-session onExit (`ADR-019 §Decis
     };
     expect(internals.sessions.size).toBe(3);
 
-    // Crash the sidecar. BL-111 must fire onExit for all three sessions
-    // BEFORE `rejectAllOutstanding`, and leave the session map empty.
+    // Must fire onExit for all three sessions BEFORE
+    // `rejectAllOutstanding`, and leave the session map empty.
     fake.triggerExit(1, null);
     await flushMicrotasks();
 
@@ -3085,7 +3074,7 @@ describe("RustSidecarPtyHost — crash-time per-session onExit (`ADR-019 §Decis
       ]),
     );
     // Each fire used the 2-arg call convention (signalCode omitted),
-    // matching the §Decision item 9 contract.
+    // matching.
     for (const call of exitFn.mock.calls) {
       expect(call).toHaveLength(2);
     }
@@ -3175,10 +3164,10 @@ describe("RustSidecarPtyHost — crash-time per-session onExit (`ADR-019 §Decis
     expect(exitFn).toHaveBeenCalledTimes(1);
     expect(exitFn).toHaveBeenCalledWith("s-0", 0);
 
-    // Crash the sidecar. BL-111 must skip the FIRE for s-0 (already
-    // cached) and fire only for s-1 — assert: total fires = 2 (the
-    // prior s-0,0 + the new s-1,-1), NOT 3. The DELETE runs
-    // unconditionally so `sessions.size === 0` holds for BOTH paths.
+    // Must skip the FIRE for s-0 (already cached) and fire only for
+    // s-1 — assert: total fires = 2 (the prior s-0,0 + the new
+    // s-1,-1), NOT 3. The DELETE runs unconditionally so
+    // `sessions.size === 0` holds for BOTH paths.
     fake.triggerExit(1, null);
     await flushMicrotasks();
 
@@ -3275,7 +3264,7 @@ describe("RustSidecarPtyHost — crash-time per-session onExit (`ADR-019 §Decis
     childA.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
     await spawnP1;
 
-    // Crash child A — BL-111 fires onExit("s-0", -1) once.
+    // Crash child A — fires onExit("s-0", -1) once.
     childA.triggerExit(1, null);
     await flushMicrotasks();
     expect(exitFn).toHaveBeenCalledTimes(1);
@@ -3391,7 +3380,7 @@ describe("RustSidecarPtyHost — crash-time per-session onExit (`ADR-019 §Decis
     childA.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
     await spawnP1;
 
-    // Crash child A — BL-111 fires for s-0 once.
+    // Crash child A — fires for s-0 once.
     childA.triggerExit(1, null);
     await flushMicrotasks();
     expect(exitFn).toHaveBeenCalledTimes(1);
@@ -3433,10 +3422,9 @@ describe("RustSidecarPtyHost — crash-time per-session onExit (`ADR-019 §Decis
 });
 
 // ----------------------------------------------------------------------------
-// `resolveSidecarBinaryPath` — four-tier binary resolution per F-024-3-03.
+// `resolveSidecarBinaryPath` — four-tier binary resolution.
 //
-// What we assert (T-024-3-3 acceptance criteria, dispatch §pin 5 ordering,
-// dispatch §pin 4 four-exhausted enumeration):
+// What we assert (acceptance criteria, dispatch order):
 //
 //   * Tier 1 (env-var) hits → returns env value verbatim; tiers 2/3/4 NOT
 //     consulted.
@@ -3452,7 +3440,7 @@ describe("RustSidecarPtyHost — crash-time per-session onExit (`ADR-019 §Decis
 //   * Platform binary name: 'sidecar' on POSIX, 'sidecar.exe' on Windows.
 // ----------------------------------------------------------------------------
 
-describe("resolveSidecarBinaryPath — four-tier binary resolution (F-024-3-03)", () => {
+describe("resolveSidecarBinaryPath — four-tier binary resolution", () => {
   // Helper — build an injectable-deps record with the strict defaults each
   // test overrides. The defaults (empty env, throwing nodeRequire, false-
   // returning existsSync) ensure every test must opt-in to the tier it
@@ -3583,7 +3571,7 @@ describe("resolveSidecarBinaryPath — four-tier binary resolution (F-024-3-03)"
     const result: string = resolveSidecarBinaryPath(opts);
 
     expect(result).toBe("/installed/pkg/bin/sidecar");
-    // The id passed to require.resolve must match F-024-3-03's format.
+    // The id passed to require.resolve must match the format.
     expect(requireMock).toHaveBeenCalledTimes(1);
     expect(requireMock).toHaveBeenCalledWith(
       "@ai-sidekicks/pty-sidecar-linux-" + process.arch + "/bin/sidecar",
@@ -3705,10 +3693,9 @@ describe("resolveSidecarBinaryPath — four-tier binary resolution (F-024-3-03)"
   });
 
   it("on Windows, probes 'sidecar.exe' (not 'sidecar') for tier 2 and embeds .exe in tier 3/4 diagnostics", () => {
-    // ADR-019 §Decision item 1 names Windows as the primary sidecar
-    // target; the resolver MUST handle the .exe suffix or the
-    // entire failure-mode mitigation regresses on the platform that
-    // needs it most.
+    // The resolver MUST handle the.exe suffix or the entire
+    // failure-mode mitigation regresses on the platform that needs
+    // it most.
     const requireMock = vi.fn<(id: string) => string>(() => {
       throw new Error("not found");
     });
@@ -3851,7 +3838,7 @@ describe("RustSidecarPtyHost — ensureChild preserves resolver-thrown PtyBacken
     const resolverError: PtyBackendUnavailableError = new PtyBackendUnavailableError(
       { attemptedBackend: "rust-sidecar", cause: innerCause },
       "RustSidecarPtyHost: sidecar binary not found on any of the four resolution tiers " +
-        "(per Plan-024 §F-024-3-03). Attempts:\n" +
+        ". Attempts:\n" +
         "  tier 1 (env-var AIS_PTY_SIDECAR_BIN): unset\n" +
         "  tier 2 (require.resolve(...)): threw: Cannot find module\n" +
         "  tier 3 (...): not found at /workspace/.../release/sidecar\n" +
@@ -3940,8 +3927,8 @@ describe("RustSidecarPtyHost — ensureChild preserves resolver-thrown PtyBacken
 });
 
 // ----------------------------------------------------------------------------
-// ensureChild — concurrent cold-start callers serialize on a single spawn
-// (Plan-024, T-024-3-1).
+// ensureChild — concurrent cold-start callers serialize on a single
+// spawn.
 // ----------------------------------------------------------------------------
 
 describe("RustSidecarPtyHost — ensureChild concurrent-spawn serialization", () => {
@@ -4163,7 +4150,7 @@ describe("RustSidecarPtyHost — ensureChild concurrent-spawn serialization", ()
 });
 
 // ----------------------------------------------------------------------------
-// Pipe-error listeners on stdin / stdout / stderr (Plan-024, T-024-3-1).
+// Pipe-error listeners on stdin / stdout / stderr.
 //
 // Async pipe errors (ERR_STREAM_DESTROYED, EPIPE, EIO) on the sidecar
 // child's three stream objects fire as `'error'` events — they bypass
@@ -4178,7 +4165,7 @@ describe("RustSidecarPtyHost — ensureChild concurrent-spawn serialization", ()
 // pipe-level errors on the stream objects.
 // ----------------------------------------------------------------------------
 
-describe("RustSidecarPtyHost — pipe error handlers (Plan-024, T-024-3-1)", () => {
+describe("RustSidecarPtyHost — pipe error handlers", () => {
   // Symmetry-cover stdin/stdout/stderr through a single test definition:
   // the production handler is a shared factory across all three streams,
   // so the assertion shape is identical and a regression that fixes
@@ -4254,9 +4241,7 @@ describe("RustSidecarPtyHost — pipe error handlers (Plan-024, T-024-3-1)", () 
 
 // ----------------------------------------------------------------------------
 // Payload-layer corruption is a fatal supervisor event identical in shape to
-// the framing-error path (Plan-024 §T-024-3-1 crash-respawn supervision;
-// ADR-019 §Failure Mode Analysis sidecar-originated failure → fallback
-// chain; local PtyHost contract substitutability lives in
+// the framing-error path (local PtyHost contract substitutability lives in
 // packages/contracts/src/pty-host.ts).
 //
 // Three distinct decode-failure shapes converge on the same teardown chain:
@@ -4737,7 +4722,7 @@ describe("RustSidecarPtyHost — fatal teardown on JSON-decode failure", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Fatal teardown on `data_frame.bytes` that is not strict RFC 4648 §4 base64.
+// Fatal teardown on `data_frame.bytes` that is not strict RFC 4648 section 4 base64.
 //
 // `Buffer.from(s, "base64")` is permissive — it silently drops characters
 // outside the canonical alphabet and tolerates misaligned padding. Without

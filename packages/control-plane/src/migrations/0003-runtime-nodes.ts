@@ -1,6 +1,5 @@
-// Plan-003 PR #145 — third Collaboration Control Plane Postgres migration
-// (inlined SQL). Adds the `runtime_node_attachments` and `runtime_node_presence`
-// tables required by Plan-003 Phase 3 (control-plane runtime-node attach).
+// PR #145 — third Collaboration Control Plane Postgres migration (inlined SQL).
+// Adds the `runtime_node_attachments` and `runtime_node_presence` tables.
 //
 // SQL is inlined as a TypeScript string constant rather than loaded from a
 // sibling `.sql` file. The rationale mirrors `migrations/0001-initial.ts` and
@@ -15,31 +14,23 @@
 //   3. Bundlers handle `import.meta.url` inconsistently; inline strings
 //      survive every transform stage.
 //
-// The canonical schema source-of-truth is
-// `docs/architecture/schemas/shared-postgres-schema.md` — the §Runtime Node
-// Attachments (Plan-003) block is reproduced VERBATIM below
-// including both `-- Owner: Plan-003` stamps, every per-column comment, and the
-// multi-line I-003-5 comment on `idx_node_attachments_active`, so the inline
-// constant stays in lockstep with the canonical doc. Any column-shape edit
+// The canonical schema source-of-truth is) block is reproduced VERBATIM below
+// including both `-- Owner: ` stamps, every per-column comment, and the
+// multi-line comment on `idx_node_attachments_active`, so the inline constant
+// stays in lockstep with the canonical doc. Any column-shape edit
 // (add/remove/rename/CHECK change) MUST land first in the canonical doc per
 // AGENTS.md "doc-first ordering".
 //
 // ----------------------------------------------------------------------------
-// Plan-003 scope (this migration)
 // ----------------------------------------------------------------------------
 //
-// Plan-003 Phase 3 owns the physical CREATE for TWO control-plane tables
-// (verbatim subset of docs/architecture/schemas/shared-postgres-schema.md
-// §Runtime Node Attachments) — Plan-001 does NOT create these (Plan-003
-// header §Dependencies + cross-plan-dependencies.md §1 Uncontested row; the
-// `-- Owner: Plan-003` stamps in the canonical schema):
+// Owns the physical CREATE for TWO control-plane tables (verbatim subset
+// of) — does NOT create these (header the `-- Owner: ` stamps in the
+// canonical schema):
 //
 //   * runtime_node_attachments — durable runtime-node attach records for
-//                       reconnect/audit (`Spec-003 §State And Data Implications`). FK references
-//                       `sessions(id)` and `participants(id)` — BOTH ship in
-//                       v1 (`0001-initial`), so both FKs resolve at this
-//                       migration's CREATE-time per shared-postgres-schema.md
-//                       §Migration-order invariant (v3 lands after v1/v2).
+//                       FK references `sessions(id)` and `participants(id)` — BOTH ship in v1
+//                       (`0001-initial`), so both FKs resolve at this migration's CREATE-time.
 //   * runtime_node_presence — per-node heartbeat/health coordination record
 //                       (`node_id` PRIMARY KEY; no FK).
 //
@@ -47,15 +38,13 @@
 // (`(version, description) = (3, 'Runtime node attachments and presence')`).
 //
 // ----------------------------------------------------------------------------
-// I-002-3 boundary — why this CREATE TABLE runtime_node_presence is sanctioned
+// Boundary — why this CREATE TABLE runtime_node_presence is sanctioned
 // ----------------------------------------------------------------------------
 //
-// I-002-3 (Plan-002) keeps COLLABORATIVE presence (Yjs Awareness CRDT —
-// cursors/awareness) in-memory only. `runtime_node_presence` is a DIFFERENT
-// domain: runtime-node LIVENESS (heartbeat + `health_state`), a durable
-// coordination record sanctioned by Spec-003 §Default Behavior, ADR-017
-// §Server-Derived Runtime-Node Lifecycle Events, and shared-postgres-schema.md
-// §Runtime Node Attachments — so this CREATE does NOT violate I-002-3.
+// Keeps COLLABORATIVE presence (Yjs Awareness CRDT — cursors/awareness)
+// in-memory only. `runtime_node_presence` is a DIFFERENT domain: runtime-node
+// LIVENESS (heartbeat + `health_state`), a durable coordination record
+// sanctioned and — so this CREATE does NOT violate.
 //
 // ----------------------------------------------------------------------------
 // Cross-plan boundary — NOT modified by this migration
@@ -93,14 +82,13 @@
 // owned by the caller, identical to `INITIAL_MIGRATION_SQL`.
 
 export const RUNTIME_NODES_MIGRATION_SQL: string = `
--- Owner: Plan-003
 CREATE TABLE runtime_node_attachments (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   session_id      UUID NOT NULL REFERENCES sessions(id),
   participant_id  UUID NOT NULL REFERENCES participants(id),
   node_id         TEXT NOT NULL,                 -- daemon-assigned node identifier
   capabilities    JSONB NOT NULL DEFAULT '{}',   -- declared capabilities
-  client_version  TEXT NOT NULL,                 -- daemon semver "MAJOR.MINOR" at attach; floor-compared vs sessions.min_client_version (ADR-018 §Decision #4) — makes the read-only verdict auditable + roster-displayable
+  client_version  TEXT NOT NULL,                 -- daemon semver "MAJOR.MINOR" at attach; floor-compared vs sessions.min_client_version — makes the read-only verdict auditable + roster-displayable
   state           TEXT NOT NULL DEFAULT 'registering'
                   CHECK(state IN ('registering', 'online', 'degraded', 'offline', 'revoked')),
   attached_at     TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -109,15 +97,14 @@ CREATE TABLE runtime_node_attachments (
 CREATE INDEX idx_node_attachments_session ON runtime_node_attachments(session_id);
 CREATE INDEX idx_node_attachments_participant ON runtime_node_attachments(participant_id);
 CREATE UNIQUE INDEX idx_node_attachments_node ON runtime_node_attachments(node_id, session_id);
--- One-active-session enforcement (Plan-003 I-003-5; Spec-003 §Resolved Questions and V1 Scope Decisions — "one active session at a time in v1"):
--- a node has at most one attachment in an active state across all sessions. The partial UNIQUE constrains
--- only active-state rows, so an inactive ('offline' or 'revoked') row does not block a later (re)attach at
--- the index level. Reattach eligibility is then a T3.2 application decision: an 'offline' row is reactivated
--- on reconnect, while a 'revoked' row is refused — revocation is terminal (Plan-003 T3.2/P10).
+-- One-active-session enforcement ("one active session at a time in v1"): a node has at most one
+-- attachment in an active state across all sessions. The partial UNIQUE constrains only
+-- active-state rows, so an inactive ('offline' or 'revoked') row does not block a later (re)attach
+-- at the index level. Reattach eligibility is then a application decision: an 'offline' row is
+-- reactivated on reconnect, while a 'revoked' row is refused — revocation is terminal (P10).
 CREATE UNIQUE INDEX idx_node_attachments_active ON runtime_node_attachments(node_id)
   WHERE state IN ('registering', 'online', 'degraded');
 
--- Owner: Plan-003
 CREATE TABLE runtime_node_presence (
   node_id             TEXT NOT NULL PRIMARY KEY,
   last_heartbeat_at   TIMESTAMPTZ NOT NULL,

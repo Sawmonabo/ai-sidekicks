@@ -1,33 +1,23 @@
 // repo-errors.test.ts — registry conformance and redaction pins for the five
-// `repo.*` typed carriers (Plan-009 Phase 1 T1.4).
+// `repo.*` typed carriers.
 //
-// Spec coverage:
-//   * `Spec-009 §Fallback Behavior` — canonical-root resolution failure is
-//     explicit, never a guess; `RepoRootResolutionError` is that carrier.
-//   * `Spec-009 §Required Behavior` + `Spec-009 §Local Trust Envelope (V1
-//     Definition)` — traversal / outside-envelope binding is rejected with
-//     the typed `repo.outside_trust_envelope` error.
-//   * `Spec-009 §Detach Semantics (V1 Definition)` — detach is refused with
-//     `repo.detach_conflict` while a dependent workspace is `busy`.
-//   * `error-contracts.md §Repo` — the ratified five-row registry: every
-//     code string and notional HTTP status asserted below is quoted from
-//     that table, so a registry edit that is not mirrored here fails.
+//   * canonical-root resolution failure is explicit, never a guess;
+//     `RepoRootResolutionError` is that carrier.
+//   * traversal / outside-envelope binding is rejected with the typed
+//     `repo.outside_trust_envelope` error.
+//   * detach is refused with `repo.detach_conflict` while a dependent
+//     workspace is `busy`.
+//   * the ratified five-row registry: every code string and notional
+//     HTTP status asserted below is quoted from that table, so a
+//     registry edit that is not mirrored here fails.
 //
-// Invariants covered (canonical text in
-// `docs/plans/009-repo-attachment-and-workspace-binding.md §Invariants`):
-//   * I-009-2 — carrier leg. A typed class permanently fixed to
-//     `repo.root_resolution_failed` with a closed, non-path-bearing reason.
-//     The never-guess-a-root enforcement is T1.5's and is tested there.
-//   * I-009-3 — carrier leg. A typed class fixed to
-//     `repo.outside_trust_envelope` that cannot carry the attempted path.
-//     The containment check itself is T1.6's and is tested there.
+// Invariants covered (canonical text):
+//   * A typed class permanently fixed to `repo.root_resolution_failed` with
+//     a closed, non-path-bearing reason.
+//   * A typed class fixed to `repo.outside_trust_envelope` that cannot
+//     carry the attempted path.
 //
-// Scope boundary: these are shape assertions on the carriers. The wire
-// round-trip through `mapJsonRpcError` (numeric, `data.type`, `data.fields`)
-// is Phase 3 T3.6's surface and is deliberately not duplicated here; what is
-// pinned instead is the structural precondition for it — every carrier
-// extends `DaemonDomainError`, so it reaches that mapper's single generic
-// projection branch with no per-class mapper edit.
+// Scope boundary: these are shape assertions on the carriers.
 
 import { describe, expect, it } from "vitest";
 
@@ -49,12 +39,12 @@ import {
 
 // A realistic operator path. NOT injected into any carrier — none exposes a
 // channel that would accept one. It documents the threat model (this is the
-// shape the §Repo ban exists to keep off the wire) and supplies the negative
-// control below. The enforcing assertions are the `[/\\]` separator checks,
-// which catch ANY path rather than only this one.
+// shape) and supplies the negative control below. The enforcing assertions
+// are the `[/\\]` separator checks, which catch ANY path rather than only
+// this one.
 const ATTEMPTED_PATH = "/Users/operator/private-clients/acme-payments/src";
 
-// Bare UUIDs, not prefixed handles. T1.1's `RepoMountIdSchema` /
+// Bare UUIDs, not prefixed handles. the `RepoMountIdSchema` /
 // `WorkspaceIdSchema` are `brandedUuidIdSchema` (`RFC_9562_TEXT_FORM`), so an
 // `rm-` / `ws-`-prefixed fixture would fail to parse — and a fixture here is
 // what a Phase 2 author copies.
@@ -70,11 +60,11 @@ const SAMPLE_BUSY_WORKSPACE_IDS = [
  * listed here, or listed here but not in the union, is a compile error. Every
  * reason loop below derives from this rather than hardcoding the members, so
  * the loops grow with the union. That matters most for the redaction assertions
- * — a future reason whose message escaped them would be a silent hole in the
- * §Repo no-echo guarantee. It worked as designed twice, on both members T1.5
- * added — `not_absolute` for its absoluteness gate and `root_mismatch` for its
- * root verification: this Record failed to compile until each member landed,
- * and the redaction and round-trip loops picked them up with no further edit.
+ * — a future reason whose message escaped them would be a silent hole. It
+ * worked as designed twice, on both members added — `not_absolute` for its
+ * absoluteness gate and `root_mismatch` for its root verification: this Record
+ * failed to compile until each member landed, and the redaction and round-trip
+ * loops picked them up with no further edit.
  */
 const RESOLUTION_REASON_KEYS: Record<RepoRootResolutionReason, true> = {
   not_absolute: true,
@@ -92,7 +82,7 @@ type ResolutionReasonParameter = ConstructorParameters<typeof RepoRootResolution
 /** Constructor parameter list of the argument-free envelope-violation carrier. */
 type TrustEnvelopeArguments = ConstructorParameters<typeof TrustEnvelopeViolationError>;
 
-/** One instance of each carrier, in `error-contracts.md §Repo` row order. */
+/** One instance of each carrier, in `` row order. */
 function everyCarrier(): readonly DaemonDomainError[] {
   return [
     new RepoMountNotFoundError(SAMPLE_MOUNT_ID),
@@ -104,10 +94,9 @@ function everyCarrier(): readonly DaemonDomainError[] {
 }
 
 // ----------------------------------------------------------------------------
-// Registry conformance — error-contracts.md §Repo
 // ----------------------------------------------------------------------------
 
-describe("repo error carriers — canonical code strings (error-contracts.md §Repo)", () => {
+describe("repo error carriers — canonical code strings", () => {
   it("RepoMountNotFoundError carries repo.not_found", () => {
     expect(new RepoMountNotFoundError(SAMPLE_MOUNT_ID).code).toBe("repo.not_found");
   });
@@ -133,11 +122,10 @@ describe("repo error carriers — canonical code strings (error-contracts.md §R
   });
 
   it("emits the same set as REPO_ERROR_CODES — no orphan row, no invented code", () => {
-    // Drift detector, scoped to what `everyCarrier()` enumerates: a §Repo row
-    // with no carrier fails here, as does one of THESE five minting a code the
-    // registry does not list. A sixth carrier added to the module but not to
-    // the helper is invisible to this assertion — the export census below is
-    // what closes that gap.
+    // Drift detector, scoped to what `everyCarrier()` enumerates: a as does
+    // one of THESE five minting a code the registry does not list. A sixth
+    // carrier added to the module but not to the helper is invisible to this
+    // assertion — the export census below is what closes that gap.
     const emittedCodes = everyCarrier().map((carrier) => carrier.code);
     expect([...emittedCodes].sort()).toEqual([...REPO_ERROR_CODES].sort());
   });
@@ -167,7 +155,7 @@ describe("repo error carriers — canonical code strings (error-contracts.md §R
     expect(Object.keys(everyRegistryCode).sort()).toEqual([...REPO_ERROR_CODES].sort());
   });
 
-  it("pins the notional HTTP status of every row (error-contracts.md §Repo status column)", () => {
+  it("pins the notional HTTP status of every row", () => {
     expect(new RepoMountNotFoundError(SAMPLE_MOUNT_ID).httpStatus).toBe(404);
     expect(new RepoRootResolutionError("path_not_found").httpStatus).toBe(422);
     expect(new TrustEnvelopeViolationError().httpStatus).toBe(403);
@@ -234,15 +222,15 @@ describe("repo error carriers — Error subclass behavior", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Wire-projection shape — the structural precondition for Phase 3 T3.6
+// Wire-projection shape — the structural precondition for Phase 3
 // ----------------------------------------------------------------------------
 
 describe("repo error carriers — wire-projection shape", () => {
   it("every carrier extends DaemonDomainError, so it rides the single mapper branch", () => {
     // This is what makes the AC's "Phase 2/3 map onto the JSON-RPC envelope
     // without re-keying" true: `mapJsonRpcError` already has one generic
-    // `instanceof DaemonDomainError` branch (BL-143, a landed Plan-009
-    // §Preconditions row), so no phase adds a per-class branch.
+    // `instanceof DaemonDomainError` branch (a landed), so no phase adds a
+    // per-class branch.
     for (const carrier of everyCarrier()) {
       expect(carrier).toBeInstanceOf(DaemonDomainError);
     }
@@ -250,9 +238,9 @@ describe("repo error carriers — wire-projection shape", () => {
 
   it("pins repo.not_found at -32602 InvalidParams, matching session.not_found", () => {
     // The base class's own rule: a supplied id that does not resolve is a
-    // param-shape failure. BL-143 landed `repo.not_found` at `-32602` as its
-    // worked example on both sides of the wire, so pinning it in the carrier
-    // is what spares Phase 3 from editing a Phase 1 file.
+    // param-shape failure. landed `repo.not_found` at `-32602` as its worked
+    // example on both sides of the wire, so pinning it in the carrier is
+    // what spares Phase 3 from editing a Phase 1 file.
     expect(new RepoMountNotFoundError(SAMPLE_MOUNT_ID).jsonRpcCode).toBe(
       JsonRpcErrorCode.InvalidParams,
     );
@@ -271,10 +259,10 @@ describe("repo error carriers — wire-projection shape", () => {
 });
 
 // ----------------------------------------------------------------------------
-// I-009-2 carrier leg — the closed resolution-failure discriminant
+// Carrier leg — the closed resolution-failure discriminant
 // ----------------------------------------------------------------------------
 
-describe("RepoRootResolutionError — closed reason discriminant (I-009-2 carrier leg)", () => {
+describe("RepoRootResolutionError — closed reason discriminant (carrier leg)", () => {
   it("accepts exactly the five ratified reasons", () => {
     // The union's member set is pinned at compile time by
     // `RESOLUTION_REASON_KEYS` being a total `Record`; this fixes the count
@@ -313,16 +301,15 @@ describe("RepoRootResolutionError — closed reason discriminant (I-009-2 carrie
 });
 
 // ----------------------------------------------------------------------------
-// Path redaction — error-contracts.md §Repo no-echo discipline
 // ----------------------------------------------------------------------------
 
 describe("path redaction — the attempted path cannot reach message or fields", () => {
   it("TrustEnvelopeViolationError exposes no constructor channel for a path", () => {
-    // Plan-009 T1.4 prescribes a carrier "constructed with an attempted path"
-    // that does not leak it into `message`. This satisfies that in the
-    // stronger structural form — there is no way to construct it WITH a path,
-    // so the leak is unrepresentable rather than merely absent. A plan-vs-test
-    // differ should read the missing literal case as subsumed, not skipped.
+    // Prescribes a carrier "constructed with an attempted path" that does not
+    // leak it into `message`. This satisfies that in the stronger structural
+    // form — there is no way to construct it WITH a path, so the leak is
+    // unrepresentable rather than merely absent. A plan-vs-test differ should
+    // read the missing literal case as subsumed, not skipped.
     //
     // Two type-level pins plus a runtime cross-check:
     //   * the empty-tuple annotation rejects a new REQUIRED parameter;
@@ -394,7 +381,7 @@ describe("repo error carriers — structured detail payloads", () => {
     expect(error.message).toContain(SAMPLE_MOUNT_ID);
   });
 
-  it("RepoAlreadyAttachedError carries the conflicting mount id (D-009-7 refusal)", () => {
+  it("RepoAlreadyAttachedError carries the conflicting mount id (refusal)", () => {
     const error = new RepoAlreadyAttachedError(SAMPLE_CONFLICTING_MOUNT_ID);
     expect(error.conflictingRepoMountId).toBe(SAMPLE_CONFLICTING_MOUNT_ID);
     expect(error.detail).toEqual({ conflictingRepoMountId: SAMPLE_CONFLICTING_MOUNT_ID });

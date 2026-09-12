@@ -81,14 +81,12 @@ export interface PtyHost {
    * `recordCrashOncePerChild` MUST NOT be invoked for the
    * shutdown-initiated child exit.
    *
-   * Consumer: Plan-001 §Cross-Plan Obligations CP-001-1
-   * (`apps/desktop/src/main/sidecar-lifecycle.ts`) calls `shutdown()`
-   * from the Electron `app.on('will-quit', ...)` handler that registers
-   * before any other will-quit handler per Plan-024 §Invariants
-   * I-024-4. The two timeouts are independent budgets so the wiring
-   * layer can dimension each separately (per-session drain dominated
-   * by child cleanup; host drain dominated by sidecar dispatcher
-   * wind-down).
+   * Consumer: `apps/desktop/src/main/sidecar-lifecycle.ts`) calls
+   * `shutdown()` from the Electron `app.on('will-quit',...)` handler
+   * that registers before any other will-quit handler. The two timeouts
+   * are independent budgets so the wiring layer can dimension each
+   * separately (per-session drain dominated by child cleanup; host
+   * drain dominated by sidecar dispatcher wind-down).
    */
   shutdown(options: {
     readonly perSessionTimeoutMs: number;
@@ -105,10 +103,10 @@ export interface PtyHost {
    * channels for response dispatch vs. async events MUST buffer data
    * chunks observed on the wire before the matching `SpawnResponse`
    * frame and replay them on a separate I/O turn so the consumer's
-   * `await spawn()` continuation runs first (otherwise `onData(id, ...)`
-   * could fire before the consumer records `id` in its own state and
-   * the chunk would be dropped). See I-024-6 in Plan-024 for the
-   * `RustSidecarPtyHost` realization of this requirement.
+   * `await spawn()` continuation runs first (otherwise `onData(id,...)`
+   * could fire before the consumer records `id` in its own state and the
+   * chunk would be dropped). for the `RustSidecarPtyHost` realization of
+   * this requirement.
    */
   onData(sessionId: string, chunk: Uint8Array): void;
 
@@ -129,10 +127,9 @@ export interface PtyHost {
    * buffer pre-spawn exit notifications keyed by `sessionId` and replay
    * them on a separate I/O turn after registering the session via
    * spawn-response handling, so the consumer's `await spawn()`
-   * continuation runs first (otherwise `onExit(id, ...)` could fire
-   * before the consumer records `id` in its own state). See I-024-6 in
-   * Plan-024 for the `RustSidecarPtyHost` realization of this
-   * requirement.
+   * continuation runs first (otherwise `onExit(id,...)` could fire
+   * before the consumer records `id` in its own state). for the
+   * `RustSidecarPtyHost` realization of this requirement.
    *
    * MUST NOT fire after `close()` resolves for the same `sessionId`.
    */
@@ -142,13 +139,12 @@ export interface PtyHost {
 /**
  * Result of a `PtyHost.shutdown()` drain cycle.
  *
- * Reported back to the lifecycle wiring layer (Plan-001 CP-001-1) so
- * the desktop main process can observe whether the will-quit handler
- * achieved a graceful drain or escalated to OS-level taskkill. The
- * fields are independent counters / flags — the four-value tuple
- * captures the per-session axis (drained vs. forced) and the
- * sidecar-process axis (clean exit vs. taskkill escalation)
- * separately.
+ * Reported back to the lifecycle wiring layer so the desktop main
+ * process can observe whether the will-quit handler achieved a
+ * graceful drain or escalated to OS-level taskkill. The fields are
+ * independent counters / flags — the four-value tuple captures the
+ * per-session axis (drained vs. forced) and the sidecar-process axis
+ * (clean exit vs.
  *
  * Invariants:
  *   - `sessionsDrained + sessionsForcedKilled` equals the count of

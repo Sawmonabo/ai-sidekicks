@@ -1,17 +1,11 @@
-// Pending-compaction wait suite (Plan-005 T3.26 — the participant-triggered
-// compaction leg).
+// Pending-compaction wait suite (the participant-triggered compaction leg).
 //
 // Spec coverage under test:
-//   • `Spec-005 §Desktop Console Parity Surfaces` — participant-triggered
-//     compaction settles on the provider's own typed compaction evidence and
-//     NEVER on the request being accepted, because both pinned mechanisms answer
-//     before the work is done; the wait is bounded and TWICE-terminated (a
-//     per-driver declared bound and the binding ceasing to be live), and
-//     bounding the OPERATION never bounds the BOUNDARY'S RECORD.
-//
-// Verifies invariant: I-005-13 (a compaction reports `applied` only against
-// observed typed evidence; every other terminal is a recorded failure, and no
-// terminal suppresses the boundary row a late frame still produces).
+//   • participant-triggered compaction settles on the provider's own typed
+//     compaction evidence and NEVER on the request being accepted, because both
+//     pinned mechanisms answer before the work is done; the wait is bounded and
+//     TWICE-terminated (a per-driver declared bound and the binding ceasing to
+//     be live), and bounding the OPERATION never bounds the BOUNDARY'S RECORD.
 //
 // The scheduler is INJECTED throughout and no test here uses a real timer: a
 // suite that waited out a declared bound to observe an expiry is a suite nobody

@@ -1,21 +1,14 @@
-// Plan-013 T1.4 — the four `timeline.*` method strings against the REAL
-// daemon `MethodRegistry`.
+// The four `timeline.*` method strings against the REAL daemon
+// `MethodRegistry`.
 //
-// Spec coverage:
-//   * `Spec-013 §Interfaces And Contracts`; the canonical
-//     `docs/architecture/contracts/api-payload-contracts.md` §"Timeline
-//     Method-Name Registry (Tier 8, Plan-013 T1.4)" table.
-//   * Plan-007 I-007-6 (duplicate rejected at register-time), I-007-7 (schema
-//     validated before dispatch), I-007-9 (canonical method-name format).
-//
-// WHAT THIS FILE IS FOR. The Tier-8 audit's finding was that a timeline
-// operation's SCHEMA NAME resolved while its METHOD STRING did not. Asserting
-// the four names against `METHOD_NAME_FORMAT` alone would not close that — a
-// regex says a name is well-formed, not that the deployed registry accepts it
-// (BL-142 is the worked case: every camelCase-tailed V1 name matched the
-// canonical regex in the doc and was rejected by the daemon's own drifted copy
-// at boot). So every assertion here goes through `MethodRegistryImpl`, and the
-// dispatch rows go through the descriptor's real schemas.
+// The Tier-8 audit's finding was that a timeline operation's SCHEMA NAME
+// resolved while its METHOD STRING did not. Asserting the four names against
+// `METHOD_NAME_FORMAT` alone would not close that — a regex says a name is
+// well-formed, not that the deployed registry accepts it (is the worked case:
+// every camelCase-tailed V1 name matched the canonical regex in the doc and
+// was rejected by the daemon's own drifted copy at boot). So every assertion
+// here goes through `MethodRegistryImpl`, and the dispatch rows go through the
+// descriptor's real schemas.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -175,8 +168,8 @@ const registerAllTimelineMethods = (
   });
 };
 
-describe("timeline method-name registration (Plan-013 T1.4)", () => {
-  it("every timeline method string passes the deployed registry's I-007-9 gate", () => {
+describe("timeline method-name registration", () => {
+  it("every timeline method string passes the deployed registry's gate", () => {
     for (const method of TIMELINE_METHOD_NAMES) {
       expect(isCanonicalMethodName(method)).toBe(true);
     }
@@ -209,7 +202,7 @@ describe("timeline method-name registration (Plan-013 T1.4)", () => {
     expect(registry.isMutating("timeline.write")).toBeUndefined();
   });
 
-  it("I-007-6 — registering a timeline method twice throws at register-time", () => {
+  it("registering a timeline method twice throws at register-time", () => {
     const registry = new MethodRegistryImpl();
     registerTimelineMethod(registry, {
       method: TIMELINE_READ_METHOD,
@@ -223,7 +216,7 @@ describe("timeline method-name registration (Plan-013 T1.4)", () => {
     }).toThrow(RegistryRegistrationError);
   });
 
-  it("I-007-7 — the descriptor's request schema gates dispatch, handler never runs", async () => {
+  it("the descriptor's request schema gates dispatch, handler never runs", async () => {
     const registry = new MethodRegistryImpl();
     const handler = vi.fn<Handler<TimelineReadRequest, TimelineReadResponse>>(
       async () => readResponse,
@@ -334,10 +327,6 @@ describe("timeline method-name registration (Plan-013 T1.4)", () => {
     // one. A deep-equality check would pass against a look-alike rebuilt from
     // the wrong operation's parts; identity cannot.
     //
-    // `MethodRegistry` exposes no schema introspection — only register /
-    // dispatch / has / isMutating — so this records what the binder PASSES
-    // rather than reaching into the real registry's internals or widening a
-    // Plan-007-owned interface to suit a test.
     const recorded = new Map<string, { params: unknown; result: unknown }>();
     const recordingRegistry = {
       register: (method: string, paramsSchema: unknown, resultSchema: unknown): void => {
@@ -441,13 +430,12 @@ describe("timeline method-name registration (Plan-013 T1.4)", () => {
   });
 
   it("rows emitted DURING setup are held until after the ack, and arrive in order", async () => {
-    // I-007-10, and the reason the barrier lives in the binder rather than in
-    // an obligation on the projection. A projection that replays synchronously
-    // emits before the handler has returned, let alone before the gateway has
-    // written `{ subscriptionId }`. A pre-ack notify frame is not an error the
-    // client sees — the SDK registers the subscription only once the init
-    // response settles, so an early frame hits the unknown-id silent-drop
-    // branch and the rows simply vanish.
+    // A projection that replays synchronously emits before the handler has
+    // returned, let alone before the gateway has written `{ subscriptionId }`.
+    // A pre-ack notify frame is not an error the client sees — the SDK
+    // registers the subscription only once the init response settles, so an
+    // early frame hits the unknown-id silent-drop branch and the rows simply
+    // vanish.
     const registry = new MethodRegistryImpl();
     const { streamingPrimitive, sentFrames } = buildStreamingPrimitive();
     const replayedRows: TimelineRow[] = [

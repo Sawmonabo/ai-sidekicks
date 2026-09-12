@@ -1,48 +1,36 @@
-// JSON-RPC 2.0 envelope contracts — wire-shape types for Plan-007 Phase 2.
+// JSON-RPC 2.0 envelope contracts — the wire-shape types.
 //
-// Plan-007-partial Phase 2 (T-007p-2-1) ships the substrate that frames and
-// dispatches JSON-RPC 2.0 messages between the local daemon and its clients
-// (CLI, desktop shell, future SDK consumers). This file owns the
-// CROSS-PACKAGE type surface — the request / response / notification / error
-// envelopes that every wire participant agrees on. It deliberately contains
-// NO Node-specific imports (no `Buffer`, no `node:*`); the substrate-side
-// framing parser, transport, and supervision hooks live in
+// -partial Phase 2 ships the substrate that frames and dispatches JSON-RPC
+// 2.0 messages between the local daemon and its clients (CLI, desktop shell,
+// future SDK consumers). This file owns the CROSS-PACKAGE type surface — the
+// request / response / notification / error envelopes that every wire
+// participant agrees on. It deliberately contains NO Node-specific imports
+// (no `Buffer`, no `node:*`); the substrate-side framing parser, transport,
+// and supervision hooks live in
 // `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts`.
 //
-// Spec coverage:
-//   * `Spec-007 §Wire Format` — JSON-RPC 2.0 + LSP-style Content-Length framing.
-//   * ADR-009 (docs/decisions/009-json-rpc-ipc-wire-format.md) — wire-format
-//     decision rationale.
+//   * JSON-RPC 2.0 + LSP-style Content-Length framing.
 //
 // What this file does NOT define (deferred to sibling tasks):
-//   * `MethodRegistry` — owned by T-007p-2-3 (`packages/runtime-daemon/src/ipc/registry.ts`).
 //   * JSON-RPC numeric error code mapping discriminator (which thrown values
-//     map to which JSON-RPC numeric code, sanitization, envelope assembly) —
-//     owned by T-007p-2-2 (`jsonrpc-error-mapping.ts`). This file exposes
-//     the wire-envelope SHAPE per BL-103 closure; the discriminator that
-//     populates it lives daemon-side. The canonical numeric ↔ project
-//     dotted-namespace mapping table itself lives at
-//     docs/architecture/contracts/error-contracts.md §JSON-RPC Wire Mapping
-//     (BL-103 ratified 2026-05-01).
-//   * `DaemonHello` / `DaemonHelloAck` — owned by T-007p-2-4
-//     (`protocol-negotiation.ts`).
+//     map to which JSON-RPC numeric code, sanitization, envelope assembly)
+//. This file exposes the wire-envelope SHAPE closure; the
+//     discriminator that populates it lives daemon-side. The canonical
+//     numeric ↔ project dotted-namespace mapping table itself lives.
 //   * `LocalSubscriptionProducer<T>` (server-side producer handle) /
-//     `$/subscription/notify` notification methods — owned by T-007p-2-5
-//     (`streaming-primitive.ts`). The `JsonRpcNotification` shape here is
-//     the GENERIC notification envelope (any `method` string + `params`);
-//     the streaming primitive's `$/subscription/notify` is one specific
-//     instance T-5 will type against this generic shape. The
-//     `LocalSubscriptionProducer<T>` interface is re-exported from
-//     `jsonrpc-streaming.ts` via `index.ts`; the corresponding CLIENT-side
-//     consumer is `LocalSubscriptionConsumer<T>` declared at
+//     `$/subscription/notify` notification methods. The
+//     `JsonRpcNotification` shape here is the GENERIC notification
+//     envelope (any `method` string + `params`); the streaming primitive's
+//     `$/subscription/notify` is one specific instance T-5 will type
+//     against this generic shape. The `LocalSubscriptionProducer<T>`
+//     interface is re-exported from `jsonrpc-streaming.ts` via `index.ts`;
+//     the corresponding CLIENT-side consumer is
+//     `LocalSubscriptionConsumer<T>` declared at
 //     `packages/client-sdk/src/transport/types.ts` (not re-exported here —
 //     the client-sdk owns its own consumer shape).
 //
-// `protocolVersion` field type ratified at api-payload-contracts.md
-// §Tier 1 (cont.): Plan-007 (BL-102 closed 2026-05-01) — ISO 8601
-// `YYYY-MM-DD` date-string per the MCP §Architecture overview precedent
-// (modelcontextprotocol.io). `Spec-007 §Wire Format` amended to match. Date-strings
-// sort lexicographically equivalent to chronologically and dodge the
+// `protocolVersion` field type): — ISO 8601 `YYYY-MM-DD` date-string per the MCP.
+// Date-strings sort lexicographically equivalent to chronologically and dodge the
 // semver "v1.5 with no v1.4" ambiguity.
 
 // --------------------------------------------------------------------------
@@ -52,7 +40,7 @@
 /**
  * The JSON-RPC 2.0 spec literal. Every request, notification, and response
  * envelope MUST carry `jsonrpc: "2.0"` per the spec
- * (https://www.jsonrpc.org/specification §4 "Request object"). The literal
+ * (https://www.jsonrpc.org/specification section 4 "Request object"). The literal
  * is exported so consumers (substrate framing parser, T-2 error-mapping,
  * T-3 registry, T-5 streaming) compare against the typed value rather than
  * the bare string.
@@ -63,13 +51,11 @@ export type JsonRpcVersion = typeof JSONRPC_VERSION;
 /**
  * The maximum size, in bytes, of ONE framed JSON-RPC message body.
  *
- * `Spec-007 §Wire Format` ("Maximum message size: 1 MB"); "1 MB" is decimal,
- * 1,000,000 bytes, following that section's wording. The bound is on the BODY
- * the `Content-Length` header declares — the header bytes are not counted
- * against it. An oversized body closes the connection with an error frame
- * (F-007p-2-05), so exceeding this is not a recoverable per-request failure.
- * Changing the value requires a Plan-007 Phase 2 amendment plus a Spec-007
- * update, per F-007p-2-11.
+ * "1 MB" is decimal, 1,000,000 bytes, following that section's wording. The
+ * bound is on the BODY the `Content-Length` header declares — the header
+ * bytes are not counted against it. An oversized body closes the connection
+ * with an error frame, so exceeding this is not a recoverable per-request
+ * failure. Changing the value is a wire-contract change.
  *
  * DECLARED HERE, ENFORCED IN THE SUBSTRATE. The framing parser and encoder
  * live daemon-side in `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts`,
@@ -90,12 +76,12 @@ export const MAX_MESSAGE_BYTES = 1_000_000;
  *
  * WHY A PRODUCER NEEDS THIS. A reply is refused by the framer AFTER it has
  * been built, and the refusal closes the connection rather than failing one
- * request (F-007p-2-05). A producer that pages its output therefore has to
- * decide where to stop BEFORE it hands the page over, and the only honest
- * comparand is the same number the framer will compute. Estimating from
- * field-length caps does not substitute: a bound derived from caps is either
- * so conservative that ordinary pages split needlessly, or it silently omits
- * an unbounded member and stops being a bound at all.
+ * request. A producer that pages its output therefore has to decide where to
+ * stop BEFORE it hands the page over, and the only honest comparand is the
+ * same number the framer will compute. Estimating from field-length caps
+ * does not substitute: a bound derived from caps is either so conservative
+ * that ordinary pages split needlessly, or it silently omits an unbounded
+ * member and stops being a bound at all.
  *
  * WHY NOT `Buffer.byteLength`. This package declares no Node dependency (see
  * this file's header), and the loop below is exact on every runtime. Lone
@@ -146,8 +132,8 @@ export function jsonUtf8ByteLength(value: unknown): number {
  * {@link MAX_MESSAGE_BYTES} no matter how small the result is. That failure
  * lands on the SEND side, where the reply that cannot be encoded is the very
  * thing that would have carried the error — so the substrate closes the
- * connection instead of answering (F-007p-2-05). A caller could therefore
- * drop its own session with a request the substrate accepted.
+ * connection instead of answering. A caller could therefore drop its own
+ * session with a request the substrate accepted.
  *
  * WHY IT IS ENFORCED ON THE REQUEST, NOT SUBTRACTED FROM THE REPLY. No
  * response schema can bound a member the response does not choose. Sizing
@@ -168,8 +154,8 @@ export function jsonUtf8ByteLength(value: unknown): number {
  * DECLARED HERE, ENFORCED IN THE SUBSTRATE — the same split
  * {@link MAX_MESSAGE_BYTES} takes, and for the same reason: the gateway
  * refuses an over-bound id before dispatch, and this package's page budgets
- * subtract it. Changing the value requires a Plan-007 amendment, since it is
- * an accept/refuse rule on the wire.
+ * subtract it. Changing the value is a wire-contract change, since it is an
+ * accept/refuse rule on the wire.
  */
 export const JSON_RPC_ID_MAX_BYTES = 256;
 
@@ -187,23 +173,21 @@ export function isJsonRpcIdWithinBound(candidate: unknown): boolean {
 }
 
 /**
- * Methods exempt from the substrate's envelope-level `protocolVersion`
- * gate. `Spec-007 §Wire Format` mandates that every request carries an ISO 8601
- * `YYYY-MM-DD` `protocolVersion` field on the JSON-RPC envelope; the
- * `local-ipc-gateway.ts#dispatchFrame` substrate enforces the field
- * BEFORE dispatch (per I-007-7), but the handshake exchange itself
- * (`daemon.hello`) cannot — by definition — carry a negotiated version
- * because the negotiation has not yet occurred. The handshake's
- * `protocolVersion` rides in `params.protocolVersion` (proposed primary)
+ * Methods exempt from the substrate's envelope-level `protocolVersion` gate.
+ * mandates that every request carries an ISO 8601 `YYYY-MM-DD`
+ * `protocolVersion` field on the JSON-RPC envelope; the
+ * `local-ipc-gateway.ts#dispatchFrame` substrate enforces the field BEFORE
+ * dispatch, but the handshake exchange itself (`daemon.hello`) cannot — by
+ * definition — carry a negotiated version because the negotiation has not yet
+ * occurred. The handshake's `protocolVersion` rides in `params.protocolVersion`
+ * (proposed primary)
  * + `params.supportedProtocols` (full set), validated INSIDE the
- * registry against `DaemonHelloSchema` per F-007p-2-10.
  *
- * Tier 1 surface only registers `daemon.hello`; Tier-4 health-check
- * methods (`Spec-007 §Wire Format` "except health checks") will extend this set
- * when those methods are implemented. Adding a method here is a
- * deliberate, documented exemption — every entry MUST cite which
- * envelope-level violation invariant it is shifting into the handler's
- * own params validation.
+ * Tier 1 surface only registers `daemon.hello`; Tier-4 health-check methods
+ * ("except health checks") will extend this set when those methods are
+ * implemented. Adding a method here is a deliberate, documented exemption —
+ * every entry MUST cite which envelope-level violation invariant it is shifting
+ * into the handler's own params validation.
  *
  * Frozen via `readonly` so consumers cannot mutate the substrate's gate
  * at runtime.
@@ -217,7 +201,7 @@ export const ENVELOPE_PROTOCOL_VERSION_EXEMPT_METHODS: ReadonlySet<string> = new
 // --------------------------------------------------------------------------
 
 /**
- * Per JSON-RPC 2.0 §4: a request `id` MUST be a String, Number, or NULL
+ * Per JSON-RPC 2.0 section 4: a request `id` MUST be a String, Number, or NULL
  * value. Notifications omit `id` entirely. We accept all three runtime
  * types here so the substrate parser does not pre-narrow the wire shape;
  * downstream code can choose to reject `null` IDs (the spec strongly
@@ -241,17 +225,14 @@ export type JsonRpcId = string | number | null;
 /**
  * JSON-RPC 2.0 request envelope.
  *
- * `protocolVersion` is the Spec-007 §Wire Format per-request field
- * (`Spec-007 §Wire Format` — every request except health checks must carry it). Typed as
- * an ISO 8601 `YYYY-MM-DD` date-string per api-payload-contracts.md
- * §Tier 1 (cont.): Plan-007 (BL-102 ratified 2026-05-01). Optional because
- * health checks omit it per `Spec-007 §Wire Format`.
+ * Typed as an ISO 8601 `YYYY-MM-DD` date-string):. Optional because health checks omit
+ * it.
  *
  * `params` is `unknown` at this layer because the substrate does NOT
  * validate it — Zod schema validation runs INSIDE the registry's
- * `dispatch` (T-3) per I-007-7. The substrate's only contract is "frame
- * boundary parses cleanly into a JSON-RPC envelope"; payload typing is
- * the registered handler's contract.
+ * `dispatch` (T-3). The substrate's only contract is "frame boundary
+ * parses cleanly into a JSON-RPC envelope"; payload typing is the
+ * registered handler's contract.
  */
 export interface JsonRpcRequest<P = unknown> {
   readonly jsonrpc: JsonRpcVersion;
@@ -266,10 +247,8 @@ export interface JsonRpcRequest<P = unknown> {
 // --------------------------------------------------------------------------
 
 /**
- * JSON-RPC 2.0 notification envelope. Per spec §4.1 a notification is a
- * request without an `id` field (the absence is what the spec uses to
- * discriminate "no response expected" from "response expected"). The
- * server MUST NOT reply to a notification per spec.
+ * JSON-RPC 2.0 notification envelope. The server MUST NOT reply to a
+ * notification per spec.
  *
  * The streaming-primitive task (T-5) types its `$/subscription/notify`
  * frames against this shape. The substrate's framing parser produces
@@ -287,7 +266,7 @@ export interface JsonRpcNotification<P = unknown> {
 // --------------------------------------------------------------------------
 
 /**
- * JSON-RPC 2.0 success response envelope (spec §5).
+ * JSON-RPC 2.0 success response envelope (spec).
  *
  * The `id` MUST equal the request's `id` per spec — the substrate's
  * dispatcher echoes it back verbatim. `result` is `unknown` at this layer
@@ -310,32 +289,28 @@ export interface JsonRpcResponse<R = unknown> {
 // --------------------------------------------------------------------------
 
 /**
- * Structured `data` payload riding inside a JSON-RPC error object. Shape
- * ratified at error-contracts.md §JSON-RPC Wire Mapping (BL-103 closed
- * 2026-05-01) per the [RFC 7807 Problem Details]
- * (https://datatracker.ietf.org/doc/html/rfc7807) precedent and the
- * [LSP 3.17 ResponseError]
+ * Structured `data` payload riding inside a JSON-RPC error object. Shape) per the [RFC 7807 Problem
+ * Details] (https://datatracker.ietf.org/doc/html/rfc7807) precedent and the [LSP 3.17
+ * ResponseError]
  * (https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#responseError)
  * field convention:
  *
  *   * `type: string` — the canonical project dotted-namespace code (e.g.
  *     `session.not_found`, `unknown_setting`, `protocol.handshake_required`,
- *     `resource.limit_exceeded`). The string is a SUPERSET of the
- *     error-contracts.md §Error Codes registry: it ALSO includes
- *     framework-level / substrate-only identifiers (e.g. `invalid_params`,
- *     `invalid_envelope`, `method_not_found`, `oversized_body`) that are
- *     stable substrate identifiers without §Error Codes registry entries.
- *     Consumers MUST discriminate on `data.type` for project-level error
- *     handling; the numeric `code` is for JSON-RPC §5.1 framing only.
+ *     `resource.limit_exceeded`). `invalid_params`, `invalid_envelope`,
+ *     `method_not_found`, `oversized_body`) that are stable substrate
+ *     identifiers without. Consumers MUST discriminate on `data.type` for
+ *     project-level error handling; the numeric `code` is for JSON-RPC
+ *     section 5.1 framing only.
  *   * `fields?: Record<string, unknown>` — optional structured detail (e.g.
- *     `{ setting: string, value: unknown }` for `unknown_setting`,
- *     `{ limit, observed }` for `transport.message_too_large`). Producers
- *     MUST keep this payload free of stack traces, absolute paths, and
- *     secrets per Plan-007 invariant I-007-8.
+ *     `{ setting: string, value: unknown }` for `unknown_setting`, `{
+ *     limit, observed }` for `transport.message_too_large`). Producers MUST
+ *     keep this payload free of stack traces, absolute paths, and secrets
+ *     invariant.
  *
  * The shape is REQUIRED whenever `data` is populated. The substrate's
- * daemon-side discriminator (T-007p-2-2's `jsonrpc-error-mapping.ts`)
- * projects each typed throw into this canonical shape; clients see the
+ * daemon-side discriminator (the `jsonrpc-error-mapping.ts`) projects
+ * each typed throw into this canonical shape; clients see the
  * canonical shape only.
  */
 export interface JsonRpcErrorData {
@@ -344,15 +319,14 @@ export interface JsonRpcErrorData {
 }
 
 // --------------------------------------------------------------------------
-// JsonRpcErrorCode — JSON-RPC 2.0 spec §5.1 numeric error codes
+// JsonRpcErrorCode — JSON-RPC 2.0 spec
 // --------------------------------------------------------------------------
 
 /**
  * The five JSON-RPC 2.0 spec reserved numeric error codes (per
- * https://www.jsonrpc.org/specification §5.1 "Error object"). These are
+ * https://www.jsonrpc.org/specification section 5.1 "Error object"). These are
  * the only numerics the substrate emits — domain-specific codes ride in
- * `error.data.type` per error-contracts.md §JSON-RPC Wire Mapping (BL-103
- * closed 2026-05-01).
+ * `error.data.type`.
  *
  * Promoted to `@ai-sidekicks/contracts` so that daemon-side mapping
  * (`packages/runtime-daemon/src/ipc/jsonrpc-error-mapping.ts`) and SDK-side
@@ -388,24 +362,21 @@ export const JsonRpcErrorCode = {
 export type JsonRpcErrorCodeValue = (typeof JsonRpcErrorCode)[keyof typeof JsonRpcErrorCode];
 
 /**
- * JSON-RPC 2.0 error response envelope (spec §5.1).
+ * JSON-RPC 2.0 error response envelope (spec).
  *
- * The error object's shape per spec §5.1:
+ * The error object's shape per spec
  *   * `code: integer` — error code; the JSON-RPC reserved range
  *     (-32768..-32000) is the spec's prerogative. The canonical numeric ↔
- *     project dotted-namespace table lives at error-contracts.md
- *     §JSON-RPC Wire Mapping. Project domain codes ride in `data.type`
- *     (NOT in `code`), per the table.
- *   * `message: string` — human-readable; the substrate's I-007-8
- *     sanitization step strips stack traces and absolute paths from this
- *     field before it leaves the daemon. Sanitization itself is a
- *     substrate-side helper (`sanitizeErrorMessage` in
- *     `local-ipc-gateway.ts`); the contract here is "this string is
- *     trusted to not leak secrets".
- *   * `data?: JsonRpcErrorData` — structured project-level detail per
- *     BL-103. `data.type` is the project dotted-namespace code;
- *     `data.fields` is optional structured context. See `JsonRpcErrorData`
- *     above for the full contract.
+ *     project dotted-namespace table lives. Project domain codes ride in
+ *     `data.type` (NOT in `code`), per the table.
+ *   * `message: string` — human-readable; the substrate's sanitization
+ *     step strips stack traces and absolute paths from this field before
+ *     it leaves the daemon. Sanitization itself is a substrate-side
+ *     helper (`sanitizeErrorMessage` in `local-ipc-gateway.ts`); the
+ *     contract here is "this string is trusted to not leak secrets".
+ *   * `data?: JsonRpcErrorData` — structured project-level detail.
+ *     `data.type` is the project dotted-namespace code; `data.fields` is
+ *     optional structured context.
  */
 export interface JsonRpcError {
   readonly code: number;
@@ -415,9 +386,8 @@ export interface JsonRpcError {
 
 export interface JsonRpcErrorResponse {
   readonly jsonrpc: JsonRpcVersion;
-  // Per spec §5: if there was an error in detecting the request's id, the
-  // id MUST be `null`. The runtime substrate produces `null` on parse-error
-  // / missing-id paths and echoes the request id verbatim otherwise.
+  // The runtime substrate produces `null` on parse-error / missing-id paths
+  // and echoes the request id verbatim otherwise.
   readonly id: JsonRpcId;
   readonly error: JsonRpcError;
 }
@@ -428,11 +398,11 @@ export interface JsonRpcErrorResponse {
 
 /**
  * The full response envelope is exactly one of `JsonRpcResponse` (success)
- * or `JsonRpcErrorResponse` (error) per spec §5. Union form rather than a
- * single type with optional `result` / `error` because the spec is explicit
- * that the two are mutually exclusive — encoding that as a union pushes
- * the discriminator (`"result" in env` vs `"error" in env`) into the type
- * system, so a regression that emitted both fields would fail to typecheck.
+ * or `JsonRpcErrorResponse` (error) per spec `result` / `error` because the
+ * spec is explicit that the two are mutually exclusive — encoding that as a
+ * union pushes the discriminator (`"result" in env` vs `"error" in env`)
+ * into the type system, so a regression that emitted both fields would fail
+ * to typecheck.
  *
  * `R = unknown` default: per-method result schemas live in the registry
  * (T-3); the substrate's framing layer is type-erased.

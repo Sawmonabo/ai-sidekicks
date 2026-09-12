@@ -7,7 +7,6 @@
 //   * The snapshot survives a daemon restart and yields an identical
 //     projection on rehydrate.
 //
-// Append-guard coverage (the `Plan-006 §T3.1 — Append-path service writing integrity columns + Plan-022 Path 1 shred callback` precondition):
 //   * `append()` refuses on a default-constructed service; reads need
 //     no opt-in. The `beforeEach` fixture opts in explicitly
 //     (`allowUnsignedPlaceholderAppend`) so the D2/D3/D4 blocks can
@@ -680,13 +679,13 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
     // negative control below (which is environment-independent
     // because it pins the existence of contention, not its absence).
     //
-    // TODO(Plan-006): the threshold is calibrated to the
+    // TODO: the threshold is calibrated to the
     // ".immediate()-dropped" regression class (~95 % per-attempt
     // saturation on Linux). A future regression that produced a
     // smaller per-attempt failure rate (say 30 %) would not cross
     // 10/20 and would pass silently — the negative control below
     // catches "DEFERRED-shaped contention exists" but not
-    // intermediate failure rates. When Plan-006 adds further
+    // intermediate failure rates. When adds further
     // migration-related concurrency invariants (per-event
     // hash-chain commit, snapshot-write coupling), revisit this
     // threshold and add bug-class-specific assertions for any
@@ -757,16 +756,12 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
     // What it does NOT deterministically catch: a newest-migration-ONLY
     // `.immediate()` drop. The race below was traced for v11 and has NOT
     // been re-traced for the newer ordinals. Tracing it, a DEFERRED loser
-    // hits SQLITE_BUSY on the write-UPGRADE and bails BEFORE committing
-    // its INSERT (so no duplicate row lands), and some worker always wins
-    // each BEGIN (so the row is never missing) — the row-count assertion is
+    // hits SQLITE_BUSY on the write-UPGRADE and bails BEFORE committing its
+    // INSERT (so no duplicate row lands), and some worker always wins each
+    // BEGIN (so the row is never missing) — the row-count assertion is
     // therefore essentially immune to a v11-only `.immediate()` regression.
-    // Deterministic detection of that class rides on the FAILURE_THRESHOLD
-    // above (calibrated to v1's ~95% DEFERRED saturation) and is owned by
-    // the `TODO(Plan-006)` threshold-calibration item; a racing CREATE
-    // TABLE loss would also surface as a worker failure already counted
-    // above. Loop over EVERY trial path so a partial regression that only
-    // corrupts one trial still surfaces.
+    // Loop over EVERY trial path so a partial regression that only corrupts
+    // one trial still surfaces.
     //
     // The immunity argument was RE-DERIVED (not incremented) for v6, v7, v8,
     // v9, v10, and v11, because it rests on a property each migration must be
@@ -784,16 +779,16 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
     //     in the worker-failure count above rather than here.
     //   * v8 (`PENDING_ANCHOR_UPLOADS_MIGRATION_SQL`) — the CREATE TABLE, its
     //     partial CREATE INDEX, and the version-8 INSERT are one script, one
-    //     `.exec()`. Holds. Re-derived rather than incremented: v8 is the first
-    //     Plan-006 migration to create a TABLE, so the failure mode it would
-    //     add is a loser that landed the anchor row without the table. It
-    //     cannot, for the same single-`.exec()` reason — and a lost guard turns
-    //     a re-apply into a hard "table already exists" throw, which lands in
-    //     the worker-failure count above rather than here.
+    //     `.exec()`. Re-derived rather than incremented: v8 is the first
+    //     migration to create a TABLE, so the failure mode it would add is a
+    //     loser that landed the anchor row without the table. It cannot, for
+    //     the same single-`.exec()` reason — and a lost guard turns a re-apply
+    //     into a hard "table already exists" throw, which lands in the
+    //     worker-failure count above rather than here.
     //   * v9 (`RETENTION_CLASS_AND_STUB_SIGNATURE_MIGRATION_SQL`) — the two
     //     ALTER TABLE ADD COLUMNs, the partial CREATE INDEX, and the version-9
-    //     INSERT are one script, one `.exec()`. Holds. Re-derived rather than
-    //     incremented: v9 is the first Plan-006 migration whose statements are
+    //     INSERT are one script, one `.exec()`. Re-derived rather than
+    //     incremented: v9 is the first migration whose statements are
     //     INTERNALLY ordered (its index predicate reads a column the same
     //     script adds two statements earlier), so the failure mode it would add
     //     is a loser that landed the columns without the index — a schema that
@@ -1158,12 +1153,12 @@ describe("openDatabase — failure-mode cleanup (closes handle if init throws)",
 // Integrity-column CHECK constraints
 // ----------------------------------------------------------------------------
 //
-// The Plan-001 migration declares CHECK(length(prev_hash) = 32 AND
-// length(row_hash) = 32 AND length(daemon_signature) = 64) on
-// session_events. Without these CHECKs, wrong-length placeholder
-// bytes (e.g. Buffer.alloc(0)) would silently succeed and surface as a
-// chain-recompute failure later, in Plan-006 verification territory.
-// These tests pin the constraints at INSERT time.
+// Migration declares CHECK(length(prev_hash) = 32 AND length(row_hash)
+// = 32 AND length(daemon_signature) = 64) on session_events. Without
+// these CHECKs, wrong-length placeholder bytes (e.g. Buffer.alloc(0))
+// would silently succeed and surface as a chain-recompute failure
+// later verification territory. These tests pin the constraints at
+// INSERT time.
 
 describe("session_events integrity-column CHECK constraints", () => {
   it("rejects an INSERT with a wrong-length prev_hash (must be 32 bytes)", () => {
@@ -1233,22 +1228,16 @@ describe("session_events integrity-column CHECK constraints", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Append guard (the `Plan-006 §T3.1 — Append-path service writing integrity columns + Plan-022 Path 1 shred callback` precondition)
 // ----------------------------------------------------------------------------
 //
-// `append()` writes zero-filled integrity placeholders — exactly the rows
-// Plan-006's `verifyRow` refuses fail-closed (`signature_placeholder`) — so
-// the writer is guarded behind an explicit test-only construction opt-in.
 // A default-constructed service is read-only: a composition root wiring a
 // real database cannot reach the unsigned append path by accident. The
 // refusal test below is the guard's own negative control — it proves the
 // guard fires, so the opted-in green suite is not vacuous evidence.
 
-// The guard's negative controls' titles, bound to exported identifiers so
-// governance docs can cite the controls durably (the docs-corpus gate's
-// symbol matcher is identifier-shaped): renaming or deleting either test
-// breaks the inbound cite instead of leaving it validating against nothing
-// (same pattern as migration-shape.test.ts's exported titles).
+// The guard's negative controls' titles, bound to exported identifiers so a
+// rename or deletion is a compile-time change rather than a silent one (same
+// pattern as migration-shape.test.ts's exported titles).
 export const DEFAULT_CONSTRUCTED_APPEND_REFUSAL_TEST: string =
   "refuses append on a default-constructed service, naming the replacement writer and the opt-in";
 export const FORGED_TOKEN_REFUSAL_TEST: string =

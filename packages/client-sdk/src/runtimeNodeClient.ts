@@ -1,32 +1,24 @@
-// Plan-003 Phase 4 T4.1 + Phase 5 T5.0d: typed `runtimeNodeClient` SDK surface
-// — the V1 runtime-node-attach consumer wrapping `JsonRpcClient` (daemon
-// transport, Plan-007 Phase 3) and the tRPC v11 control-plane transport
-// (Plan-003 Phase 3 `runtimeNodeRouter`, T3.8; Phase 5 roster query, T5.0c)
-// under a shared `RuntimeNodeClient` mutation interface. The control-plane
-// factory returns the widened `ControlPlaneRuntimeNodeClient`, which adds the
-// control-plane-only `roster` query (T5.0d).
+// Typed `runtimeNodeClient` SDK surface — the V1 runtime-node-attach consumer
+// wrapping `JsonRpcClient` (daemon transport) and the tRPC v11 control-plane
+// transport (`runtimeNodeRouter` Phase 5 roster query) under a shared
+// `RuntimeNodeClient` mutation interface. The control-plane factory returns
+// the widened `ControlPlaneRuntimeNodeClient`, which adds the
+// control-plane-only `roster` query.
 //
-// Spec coverage:
-//   * `Spec-003 §Interfaces And Contracts` — `RuntimeNodeAttach` fields (sessionId, participantId,
-//     nodeId, clientVersion, capabilities, healthState). `attach()` below
-//     threads `RuntimeNodeAttachRequestSchema` / `RuntimeNodeAttachResponse-
-//     Schema`; the server-derived `readOnly` PERMISSION verdict and the
-//     `state` LIVENESS axis ride the response through unchanged (the SDK does
-//     NOT compute `readOnly`; the Phase-3 attach service does — runtime-node.ts
-//     §Design note).
-//   * `Spec-003 §Interfaces And Contracts` — `RuntimeNodeHeartbeat` updates presence and health.
-//     `heartbeat()` carries the daemon's 2-value `healthState` and unwraps the
-//     no-content `z.null()` response (`RuntimeNodeHeartbeatResponseSchema`).
-//   * `Spec-003 §Interfaces And Contracts` — `RuntimeNodeCapabilityUpdate` add/remove/health
-//     variants. `capabilityUpdate()` threads the FULL-REPLACEMENT `capabilities`
-//     map (removals by omission, additions by presence) plus the optional
-//     `healthChanges` 2-value-health transition, and unwraps the
-//     `{nodeId, state, updatedAt}` content response.
-//   * `Spec-003 §Interfaces And Contracts` — `RuntimeNodeDetach` retires a node. `detach()` carries
-//     the `nodeId` (+ optional audit `reason`) and unwraps the no-content
-//     `z.null()` response (`RuntimeNodeDetachResponseSchema`).
-//   * `Spec-003 §Interfaces And Contracts` (incl. the roster-read amendment)
-//     — `RuntimeNodeRoster` returns the session's full node roster via the
+//   * `RuntimeNodeAttach` fields (sessionId, participantId, nodeId, clientVersion, capabilities,
+//     healthState). `attach()` below threads `RuntimeNodeAttachRequestSchema` /
+//     `RuntimeNodeAttachResponseSchema`; the server-derived `readOnly` PERMISSION verdict and the
+//     `state` LIVENESS axis ride the response through unchanged (the SDK does NOT compute
+//     `readOnly`; the Phase-3 attach service does — runtime-node.ts).
+//   * `RuntimeNodeHeartbeat` updates presence and health. `heartbeat()` carries the daemon's
+//     2-value `healthState` and unwraps the no-content `z.null()` response
+//     (`RuntimeNodeHeartbeatResponseSchema`).
+//   * `capabilityUpdate()` threads the FULL-REPLACEMENT `capabilities` map (removals by
+//     omission, additions by presence) plus the optional `healthChanges` 2-value-health
+//     transition, and unwraps the `{nodeId, state, updatedAt}` content response.
+//   * `RuntimeNodeDetach` retires a node. `detach()` carries the `nodeId` (+ optional audit
+//     `reason`) and unwraps the no-content `z.null()` response (`RuntimeNodeDetachResponseSchema`).
+//   * `RuntimeNodeRoster` returns the session's full node roster via the
 //     control-plane-only `runtimenode.roster` query. `roster()` below (the
 //     control-plane factory ONLY) threads `RuntimeNodeRosterRequestSchema` /
 //     `RuntimeNodeRosterResponseSchema`; each entry rides through with BOTH
@@ -104,8 +96,8 @@ import type { JsonRpcClient } from "./transport/jsonRpcClient.js";
  * `sessionClient.ts`'s `SESSION_METHOD_*` consts serve both factories. The
  * ROSTER name routes on the control-plane tRPC transport ONLY — the daemon
  * registers no `runtimenode.roster` JSON-RPC method (the registry pins the
- * roster row "control-plane tRPC ONLY" — api-payload-contracts.md
- * §Runtime-Node Method-Name Registry; see `ControlPlaneRuntimeNodeClient`).
+ * roster row "control-plane tRPC ONLY" — see
+ * `ControlPlaneRuntimeNodeClient`).
  *
  * LOWERCASE one-word operation segments (`capabilityupdate`, NOT
  * `capabilityUpdate`) — these match the `runtimenode.*` procedure namespace the
@@ -258,21 +250,18 @@ export interface ControlPlaneRuntimeNodeClientOptions {
  *
  * WHY the daemon factory has no `roster`: the roster is control-plane-owned
  * cross-node coordination state — a daemon knows only itself — so the read is
- * registered "control-plane tRPC ONLY" (api-payload-contracts.md
- * §Runtime-Node Method-Name Registry roster row; Spec-003 §Interfaces And
- * Contracts, 2026-06-09 amendment), and no daemon JSON-RPC handler exists for
- * it (`packages/runtime-daemon/src/ipc/handlers/` registers `session.*` /
- * `presence.*` handlers only). Widening the SHARED `RuntimeNodeClient`
- * instead would force the daemon factory to carry an unimplementable method —
- * a throw-only stub lying about its transport reach — so the query lives on
- * this NAMED extension, keeping the shared contract honest and giving
- * control-plane consumers a stable type to hold.
+ * registered "control-plane tRPC ONLY" (2026-06-09 amendment), and no daemon
+ * JSON-RPC handler exists for it (`packages/runtime-daemon/src/ipc/handlers/`
+ * registers `session.*` / `presence.*` handlers only). Widening the SHARED
+ * `RuntimeNodeClient` instead would force the daemon factory to carry an
+ * unimplementable method — a throw-only stub lying about its transport reach
+ * — so the query lives on this NAMED extension, keeping the shared contract
+ * honest and giving control-plane consumers a stable type to hold.
  *
- * `roster` resolves the faithful both-axes projection (`Spec-003 §Interfaces And Contracts`):
- * every `runtime_node_attachments` row for the session — slot `state`
- * verbatim, nullable liveness `healthState` / `lastHeartbeatAt` (NULL until
- * the node's first heartbeat lands), and the per-row read-time `readOnly`
- * verdict. The SDK derives nothing; reconciling the two axes is the caller's
+ * `roster` resolves the faithful both-axes projection: every `runtime_node_attachments` row
+ * for the session — slot `state` verbatim, nullable liveness `healthState` /
+ * `lastHeartbeatAt` (NULL until the node's first heartbeat lands), and the per-row read-time
+ * `readOnly` verdict. The SDK derives nothing; reconciling the two axes is the caller's
  * render-time concern.
  */
 export interface ControlPlaneRuntimeNodeClient extends RuntimeNodeClient {
@@ -291,13 +280,11 @@ export interface ControlPlaneRuntimeNodeClient extends RuntimeNodeClient {
  * Code-AGNOSTIC by design — it carries WHATEVER `aisError.code` string the wire
  * delivered, NOT a hardcoded constant. The four runtime-node refusals all
  * surface through this one class:
- *   * `version.floor_exceeded` — a below-floor read-only node's capability
- *     WRITE refusal (the typed `VERSION_FLOOR_EXCEEDED`, I-003-1 / ADR-018
- *     §Decision #4 / `Spec-003 §Acceptance Criteria` (AC4)). A consumer (e.g. Plan-003 T4.4) asserts
- *     this branch via `error.code === VERSION_FLOOR_EXCEEDED_CODE` (imported
- *     from `@ai-sidekicks/contracts`) — this SDK deliberately does NOT import or
- *     hardcode that constant, so the surface stays decoupled from any single
- *     code.
+ *   * `version.floor_exceeded` — a below-floor read-only node's capability WRITE refusal (the typed
+ *     `VERSION_FLOOR_EXCEEDED`). A consumer (e.g.) asserts this branch via `error.code ===
+ *     VERSION_FLOOR_EXCEEDED_CODE` (imported from `@ai-sidekicks/contracts`) — this SDK
+ *     deliberately does NOT import or hardcode that constant, so the surface stays decoupled from
+ *     any single code.
  *   * `runtimenode.attach_conflict` / `runtimenode.attach_revoked` — the two
  *     attach refusals.
  *   * `runtimenode.capabilityupdate_conflict` — the capability-update refusal.
@@ -318,9 +305,8 @@ export interface ControlPlaneRuntimeNodeClient extends RuntimeNodeClient {
  * `aisError` payload against `VersionFloorExceededErrorSchema` because that
  * schema is the TWO-sided HTTP `ErrorResponse` shape (`acceptedRange.{min,max}`)
  * — the runtime-node write-refusal surface is code+message-only (the one-sided
- * session floor cannot populate it; error-contracts.md §Version surface (3)),
- * so validating against the two-sided schema would reject the very payload we
- * are parsing.
+ * session floor cannot populate it), so validating against the two-sided schema
+ * would reject the very payload we are parsing.
  */
 export class RuntimeNodeControlPlaneError extends Error {
   /** The typed `aisError.code` wire string (e.g. `version.floor_exceeded`). */
@@ -488,7 +474,7 @@ async function parseRuntimeNodeResult<T>(
  * the `aisError` payload against `VersionFloorExceededErrorSchema` (the
  * two-sided HTTP `ErrorResponse` shape), because the runtime-node write-refusal
  * surface is code+message-only and that schema would reject it (see
- * `RuntimeNodeControlPlaneError` JSDoc + error-contracts.md §Version).
+ * `RuntimeNodeControlPlaneError` JSDoc +).
  */
 async function buildControlPlaneError(response: Response): Promise<RuntimeNodeControlPlaneError> {
   const httpStatus = response.status;

@@ -1,17 +1,16 @@
 // NodeProviderPlane — the runtime-node lifecycle binder for the capability /
-// auth refresh cadence (Plan-005 Phase 3, T3.12 / P2-9's sanctioned wiring
-// call).
+// auth refresh cadence (P2-9's sanctioned wiring call).
 //
 // Coverage targets (audit-derived):
-//   * `Spec-005 §Resolved Questions and V1 Scope Decisions` (P2-9) — capability
-//     and account-state declarations refresh per runtime node on a bounded
-//     periodic cadence. A scheduler nobody STARTS satisfies that on paper only,
-//     so the integration case below drives the cadence through the real
-//     `NodeRegistry` lifecycle rather than by calling the scheduler directly.
-//   * `Spec-005 §Required Behavior` — run admission consumes the per-(node,
-//     driver) auth state through this plane's read (`driver.not_authenticated`
-//     is the admission seam's refusal, not this module's), and a detached node
-//     answers `undefined`, which admission treats fail-closed.
+//   * capability and account-state declarations refresh per runtime node on a
+//     bounded periodic cadence. A scheduler nobody STARTS satisfies that on
+//     paper only, so the integration case below drives the cadence through the
+//     real `NodeRegistry` lifecycle rather than by calling the scheduler
+//     directly.
+//   * run admission consumes the per-(node, driver) auth state through this
+//     plane's read (`driver.not_authenticated` is the admission seam's
+//     refusal, not this module's), and a detached node answers `undefined`,
+//     which admission treats fail-closed.
 //   * The provider-neutrality boundary: the plane composes a driver's refresh
 //     entry from a caller-supplied declaration thunk plus the driver's own
 //     `probeAuth`, importing no driver module — asserted here by exercising the

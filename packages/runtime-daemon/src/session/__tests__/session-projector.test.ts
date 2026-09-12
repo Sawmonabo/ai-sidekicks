@@ -53,7 +53,7 @@ describe("session-projector — bootstrap projection", () => {
     expect(snapshot.ownerActor).toBe(OWNER_ACTOR_ID);
 
     // The main channel id is the shared deterministic `deriveMainChannelId`
-    // (`@ai-sidekicks/contracts`, RFC 9562 §5.8 UUIDv8). The contracts
+    // (`@ai-sidekicks/contracts`, RFC 9562 section 5.8 UUIDv8). The contracts
     // `ChannelIdSchema` (the RFC 9562 predicate + `.brand<"ChannelId">()`)
     // validates this shape at the IPC mapping seam, so a non-UUID id would
     // be rejected there.

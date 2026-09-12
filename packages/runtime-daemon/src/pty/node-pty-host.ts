@@ -3,15 +3,14 @@
 // Why this exists
 // ---------------
 //
-// Plan-024 (Rust PTY Sidecar) ships two backends behind the `PtyHost`
-// interface published from `@ai-sidekicks/contracts`: a Rust sidecar
-// primary on Windows (Phase 3) and this in-process `node-pty` wrapper
-// (Phase 2). On macOS / Linux `NodePtyHost` is the primary backend at
-// every phase (no behavioral regression vs the pre-Plan-024 daemon).
-// On Windows it is the fallback backend used when the sidecar binary is
-// not resolvable; until the Phase 5 selector default-flip lands it is
-// ALSO the Windows default (per Plan-024 Phase 2 selector-default-Node
-// statement; see `pty-host-selector.ts` at T-024-2-3).
+// Ships two backends behind the `PtyHost` interface published from
+// `@ai-sidekicks/contracts`: a Rust sidecar primary on Windows (Phase
+// 3) and this in-process `node-pty` wrapper (Phase 2). On macOS / Linux
+// `NodePtyHost` is the primary backend at every phase (no behavioral
+// regression vs the pre- daemon). On Windows it is the fallback backend
+// used when the sidecar binary is not resolvable; until the Phase 5
+// selector default-flip lands it is ALSO the Windows default
+// (selector-default-Node statement; see `pty-host-selector.ts`).
 //
 // Why the Windows kill-translation lives here, not in `node-pty`
 // --------------------------------------------------------------
@@ -19,15 +18,14 @@
 // `node-pty.kill(signal)` on Windows signals a single PID via the
 // `node-pty` C++ binding and does NOT walk console-control-event /
 // process-tree semantics ([microsoft/node-pty#167],
-// [microsoft/node-pty#437]). Plan-024 §Invariants I-024-1 and I-024-2
-// promote that gap to load-bearing daemon-layer obligations:
+// [microsoft/node-pty#437]).
 //
-//   * I-024-1: `PtyHost.kill` on Windows MUST translate POSIX signal
-//     semantics to the `GenerateConsoleCtrlEvent` Win32 API
-//     (`SIGINT` → `CTRL_C_EVENT`; graceful hard-stop → `CTRL_BREAK_EVENT`
-//     then escalation per I-024-2).
-//   * I-024-2: hard-stop MUST `taskkill /T /F` the entire descendant
-//     tree (single-PID kill leaves orphans on Windows); reaping MUST be
+//   * `PtyHost.kill` on Windows MUST translate POSIX signal semantics to
+//     the `GenerateConsoleCtrlEvent` Win32 API (`SIGINT` →
+//     `CTRL_C_EVENT`; graceful hard-stop → `CTRL_BREAK_EVENT` then
+//     escalation).
+//   * Hard-stop MUST `taskkill /T /F` the entire descendant tree
+//     (single-PID kill leaves orphans on Windows); reaping MUST be
 //     bounded-timeout (2 s wall-clock) and idempotent — `onExit` MUST
 //     fire on the daemon path regardless of whether the OS reap stalls.
 //
@@ -46,13 +44,11 @@
 // Production code resolves real implementations lazily; tests inject
 // `vi.fn()` mocks so Test K1 / Test K3 run on every platform without
 // requiring `node-pty` itself, `koffi`, or Windows APIs to be available
-// in the test environment. This is the architectural seam pattern;
-// see also `pty-host-selector.ts` at T-024-2-3 for the parallel
-// selector-side seam (the selector's `PtyHostSelectorDeps` follows the
-// same constructor-injected, resolve-with-defaults shape used here).
+// in the test environment. This is the architectural seam pattern; see
+// also `pty-host-selector.ts` for the parallel selector-side seam (the
+// selector's `PtyHostSelectorDeps` follows the same
+// constructor-injected, resolve-with-defaults shape used here).
 //
-// Refs: Plan-024 §Implementation Steps 8, §Invariants I-024-1, I-024-2;
-// ADR-019 §Decision item 1, §Failure Mode Analysis row "kill propagation".
 
 import { randomUUID } from "node:crypto";
 
@@ -81,9 +77,9 @@ import { defaultSpawnTaskkill, type TaskkillResult } from "./taskkill-windows.js
 //      consume, which doubles as a contract-narrowing audit (we touch
 //      only `pid`, `onData`, `onExit`, `kill`, `resize`, `write`).
 //
-// If the upstream `node-pty` v1 beta tightens or relaxes these shapes
-// in a future release, update this block to match. The package.json
-// pin (`^1.2.0-beta.12` per `Plan-024 §Target Areas`) caps the drift surface.
+// If the upstream `node-pty` v1 beta tightens or relaxes these shapes in a
+// future release, update this block to match. The package.json pin
+// (`^1.2.0-beta.12`) caps the drift surface.
 
 /** Shape of a single PTY-child wrapper as returned by `node-pty.spawn`. */
 export interface NodePtyChild {
@@ -111,10 +107,10 @@ export interface NodePtySpawnOptions {
   readonly cwd: string;
   readonly env: Record<string, string>;
   /**
-   * ADR-019 §Tripwire 3: MUST remain `false` until
+   * `false` until
    * [microsoft/node-pty#894](https://github.com/microsoft/node-pty/issues/894)
-   * closes. Setting `true` opts into the bundled ConPTY DLL, which
-   * regresses PowerShell 7 with a 3.5 s startup delay.
+   * closes. Setting `true` opts into the bundled ConPTY DLL, which regresses
+   * PowerShell 7 with a 3.5 s startup delay.
    */
   readonly useConptyDll?: false;
 }
@@ -214,8 +210,8 @@ interface SessionRecord {
   readonly subscriptions: Array<{ dispose: () => void }>;
   /**
    * Cached exit code once the child has terminated. `null` while the
-   * child is still alive. Plan-024 idempotency clause: a `kill` after
-   * the child has already exited MUST treat as success and re-emit
+   * child is still alive. idempotency clause: a `kill` after the
+   * child has already exited MUST treat as success and re-emit
    * `onExit` from this cached value rather than throwing.
    */
   exitCode: number | null;
@@ -389,9 +385,9 @@ async function loadGenerateConsoleCtrlEvent(): Promise<
 }
 
 // `defaultSpawnTaskkill` lives at `./taskkill-windows.ts` so the
-// rust-sidecar backend can share the same OS-level primitive (Plan-001
-// §CP-001-1 + Plan-024 §I-024-2). Imported above; the lazy-import
-// pattern for `node:child_process` is preserved inside that module.
+// rust-sidecar backend can share the same OS-level primitive. Imported
+// above; the lazy-import pattern for `node:child_process` is preserved
+// inside that module.
 
 // --------------------------------------------------------------------------
 // `NodePtyHost` class
@@ -400,10 +396,10 @@ async function loadGenerateConsoleCtrlEvent(): Promise<
 /**
  * In-process `node-pty` implementation of `PtyHost`.
  *
- * On macOS / Linux this is the production backend (Plan-024 Phase 2
- * onward). On Windows this is the fallback backend when the Rust
- * sidecar is not resolvable, and the primary backend during Phase 2
- * before the selector default-flip at Phase 5.
+ * On macOS / Linux this is the production backend (onward). On
+ * Windows this is the fallback backend when the Rust sidecar is not
+ * resolvable, and the primary backend during Phase 2 before the
+ * selector default-flip at Phase 5.
  */
 export class NodePtyHost implements PtyHost {
   /** Per-session table keyed by sidecar-minted session id. */
@@ -495,14 +491,14 @@ export class NodePtyHost implements PtyHost {
 
   public async spawn(spec: SpawnRequest): Promise<SpawnResponse> {
     if (this.shuttingDown) {
-      // Plan-001 §CP-001-1 sidecar-lifecycle drain: once `shutdown()`
-      // has flipped this flag, the host is terminal — refuse new spawn
-      // paths so a concurrent `spawn()` cannot register a session that
-      // escapes the `activeSessionIds` snapshot in `runShutdown` and
-      // leaves an orphaned PTY child running past `shutdown()`
-      // resolution. The `PtyHost.shutdown` contract surface declares
-      // the host single-use post-shutdown; consumers MUST re-create a
-      // fresh host if a new session is needed after shutdown.
+      // `shutdown()` has flipped this flag, the host is terminal —
+      // refuse new spawn paths so a concurrent `spawn()` cannot
+      // register a session that escapes the `activeSessionIds`
+      // snapshot in `runShutdown` and leaves an orphaned PTY child
+      // running past `shutdown()` resolution. The `PtyHost.shutdown`
+      // contract surface declares the host single-use post-shutdown;
+      // consumers MUST re-create a fresh host if a new session is
+      // needed after shutdown.
       throw new PtyBackendUnavailableError(
         { attemptedBackend: "node-pty" },
         "NodePtyHost: shutdown() in progress or complete; " +
@@ -511,7 +507,6 @@ export class NodePtyHost implements PtyHost {
     }
     const ptySpawn: NodePtySpawnFn = await this.resolvePtySpawn();
     if (this.shuttingDown) {
-      // Post-await race guard (Plan-001 §CP-001-1).
       //
       // The top-of-method gate above closes the case where `shutdown()`
       // started BEFORE this `spawn()` call entered the method. This
@@ -549,7 +544,7 @@ export class NodePtyHost implements PtyHost {
       rows: spec.rows,
       cwd: spec.cwd,
       env,
-      // ADR-019 Tripwire 3 — MUST remain `false` until
+      // Tripwire 3 — MUST remain `false` until
       // microsoft/node-pty#894 closes.
       useConptyDll: false,
     });
@@ -613,11 +608,10 @@ export class NodePtyHost implements PtyHost {
         record.exitCode = event.exitCode;
         record.signalCode = event.signal;
         this.fireExit(sessionId, event.exitCode, event.signal);
-        // Plan-001 §CP-001-1 sidecar-lifecycle drain: a `shutdown()`
-        // call waiting on this session's exit picks up here, after the
-        // record's exit-cache is populated. Ordering matches the
-        // `fireExit` call so a listener-observed exit precedes the
-        // drain-completion signal.
+        // `shutdown()` call waiting on this session's exit picks up
+        // here, after the record's exit-cache is populated. Ordering
+        // matches the `fireExit` call so a listener-observed exit
+        // precedes the drain-completion signal.
         //
         // Outcome is `record.escalated ? "forced" : "drained"` — Codex
         // P2 (PR #83 thread `PRRT_kwDOSCycWc6DZEKP`): on Windows, the
@@ -669,8 +663,7 @@ export class NodePtyHost implements PtyHost {
   /**
    * Send `signal` to the session's child.
    *
-   * On Windows this is the load-bearing kill-translation path per
-   * Plan-024 I-024-1 + I-024-2:
+   * On Windows this is the load-bearing kill-translation path:
    *   - `SIGINT` → `GenerateConsoleCtrlEvent(CTRL_C_EVENT, child.pid)`
    *   - `SIGTERM` → `GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, child.pid)`,
    *      escalate to `taskkill /T /F /PID <pid>` if the child has not
@@ -679,7 +672,7 @@ export class NodePtyHost implements PtyHost {
    *   - `SIGHUP` → same hard-stop cascade as `SIGTERM` (plan does not
    *     pin a specific Windows mapping; matching SIGTERM is the most
    *     conservative graceful-then-force shape that respects the
-   *     descendant-tree obligation per I-024-2).
+   *     descendant-tree obligation).
    *
    * On non-Windows platforms this delegates to `node-pty.kill(signal)`
    * unchanged (POSIX semantics).
@@ -705,8 +698,8 @@ export class NodePtyHost implements PtyHost {
       throw new Error(`NodePtyHost.kill: unknown sessionId '${sessionId}'`);
     }
 
-    // Idempotency clause (per the `Plan-024 §Implementation Steps` step-8 kill bullet) — already-exited children
-    // get a re-emit of the cached exit, not a throw and not a re-kill.
+    // Idempotency clause (step-8 kill bullet) — already-exited children get a
+    // re-emit of the cached exit, not a throw and not a re-kill.
     if (record.exitCode !== null) {
       this.fireExit(sessionId, record.exitCode, record.signalCode);
       return;
@@ -747,13 +740,13 @@ export class NodePtyHost implements PtyHost {
     // see the file-header note about node-pty.kill on Windows targeting
     // a single PID. Codex P1 (PR #51): a Windows `close()` that routes
     // through `record.child.kill()` orphans descendants because
-    // node-pty's kill does not walk console-control-event /
-    // process-tree semantics, exactly the failure mode I-024-1 / I-024-2
-    // exist to prevent. Route through the same `taskkill /T /F /PID`
-    // hard-stop path that `kill(SIGKILL)` uses to honor the descendant-
-    // tree obligation. Fire-and-forget — `close()` MUST NOT block on the
-    // OS reap (the 5 s wall-clock cap inside `invokeTaskkill` is for
-    // the kill-cascade contract, not the teardown contract).
+    // node-pty's kill does not walk console-control-event / process-tree
+    // semantics, exactly the failure mode exist to prevent. Route
+    // through the same `taskkill /T /F /PID` hard-stop path that
+    // `kill(SIGKILL)` uses to honor the descendant- tree obligation.
+    // Fire-and-forget — `close()` MUST NOT block on the OS reap (the 5 s
+    // wall-clock cap inside `invokeTaskkill` is for the kill-cascade
+    // contract, not the teardown contract).
     if (record.exitCode === null) {
       if (this.deps.platform === "win32") {
         // The synthetic onExit that `invokeTaskkill` emits at the tail
@@ -827,8 +820,7 @@ export class NodePtyHost implements PtyHost {
     }
     // Non-async wrapper so a second call returns the SAME Promise
     // identity (an `async` wrapper would wrap the memoized inner
-    // Promise in a fresh outer Promise on each invocation — see
-    // Plan-001 §CP-001-1 re-entrancy clause).
+    // Promise in a fresh outer Promise on each invocation).
     this.shutdownPromise = this.runShutdown(options);
     return this.shutdownPromise;
   }
@@ -906,9 +898,9 @@ export class NodePtyHost implements PtyHost {
 
     try {
       // Issue graceful kill via the production `kill()` path so Windows
-      // kill-translation (CTRL_BREAK_EVENT + escalation, I-024-1) and
-      // POSIX behavior stay in one place. SIGTERM is the canonical
-      // graceful signal per Plan-024 §Implementation Steps 8.
+      // kill-translation (CTRL_BREAK_EVENT + escalation) and POSIX
+      // behavior stay in one place. SIGTERM is the canonical graceful
+      // signal.
       try {
         await this.kill(sessionId, "SIGTERM");
       } catch {
@@ -1078,8 +1070,8 @@ export class NodePtyHost implements PtyHost {
 
     if (signal === "SIGKILL") {
       // Direct hard-stop — skip CTRL_BREAK_EVENT entirely. The /T flag
-      // walks the descendant tree (I-024-2 load-bearing piece); /F
-      // forces termination of processes that ignore graceful signals.
+      // walks the descendant tree (load-bearing piece); /F forces
+      // termination of processes that ignore graceful signals.
       //
       // Codex P2 (PR #51): fire-and-forget (`void`, not `await`) so
       // `kill()` returns once the cascade has BEGUN, per the
@@ -1100,9 +1092,9 @@ export class NodePtyHost implements PtyHost {
 
     // SIGTERM and SIGHUP: graceful CTRL_BREAK_EVENT, then escalate via
     // taskkill if the child has not exited within 2 s. SIGHUP is not
-    // pinned by Plan-024; matching SIGTERM is the most conservative
+    // pinned matching SIGTERM is the most conservative
     // graceful-then-force cascade and respects the descendant-tree
-    // obligation per I-024-2.
+    // obligation.
     const gcce = await this.resolveGCCE();
     // CTRL_BREAK_EVENT = 1 per Win32 docs.
     gcce(1, pid);
@@ -1113,9 +1105,7 @@ export class NodePtyHost implements PtyHost {
     record.pendingEscalation = this.deps.setTimer(() => {
       // Race-safe re-check: if exit happened between the timer scheduler
       // and this callback, the exit-cache is populated and we skip the
-      // escalation. Otherwise we proceed to taskkill — the child
-      // ignored CTRL_BREAK_EVENT (or is stuck) and we must reap the
-      // descendant tree per I-024-2.
+      // escalation.
       if (record.exitCode !== null) {
         record.pendingEscalation = null;
         return;
@@ -1180,16 +1170,16 @@ export class NodePtyHost implements PtyHost {
     const spawnTaskkill = this.deps.spawnTaskkill ?? ((p: number) => defaultSpawnTaskkill(p));
 
     // R2 review POLISH-4: wall-clock-bound `spawnTaskkill` so a stuck
-    // OS-level operation cannot hang the daemon — the exact failure
-    // mode I-024-2 forbids ("the daemon must not hang on a stuck
-    // OS-level operation"). 5 s is comfortably longer than realistic
-    // `taskkill` latency on a healthy Windows box (sub-second) and
-    // far shorter than "indefinitely". The race uses `this.deps.setTimer`
-    // / `clearTimer` so tests under `vi.useFakeTimers()` can advance
-    // simulated time deterministically without waiting wall-clock
-    // seconds. If the inner timer wins, we proceed to fire the
-    // synthetic exit as normal — the OS-level reap is left to the
-    // operating system to clean up (best-effort).
+    // OS-level operation cannot hang the daemon — the exact failure mode
+    // forbids ("the daemon must not hang on a stuck OS-level operation").
+    // 5 s is comfortably longer than realistic `taskkill` latency on a
+    // healthy Windows box (sub-second) and far shorter than
+    // "indefinitely". The race uses `this.deps.setTimer` / `clearTimer`
+    // so tests under `vi.useFakeTimers()` can advance simulated time
+    // deterministically without waiting wall-clock seconds. If the inner
+    // timer wins, we proceed to fire the synthetic exit as normal — the
+    // OS-level reap is left to the operating system to clean up
+    // (best-effort).
     await new Promise<void>((resolve) => {
       let settled = false;
       const fallbackHandle = this.deps.setTimer(() => {
@@ -1214,13 +1204,13 @@ export class NodePtyHost implements PtyHost {
         try {
           await spawnTaskkill(pid);
         } catch (err: unknown) {
-          // Swallow — per I-024-2 we MUST fire onExit even if reaping
-          // is incomplete (OS-level taskkill failures must not hang
-          // the daemon). The outer fallback timer is a defense-in-
-          // depth backstop for the case where the promise itself
-          // never settles (kernel deadlock, suspended process, OS
-          // bug); a thrown rejection still reaches this catch and
-          // resolves the outer Promise on time.
+          // Swallow — we MUST fire onExit even if reaping is
+          // incomplete (OS-level taskkill failures must not hang the
+          // daemon). The outer fallback timer is a defense-in- depth
+          // backstop for the case where the promise itself never
+          // settles (kernel deadlock, suspended process, OS bug); a
+          // thrown rejection still reaches this catch and resolves
+          // the outer Promise on time.
           //
           // R3 review POLISH-2: log the cause so a recurring failure
           // (misconfigured PATH, AV-blocked taskkill.exe, etc.) is
@@ -1232,7 +1222,7 @@ export class NodePtyHost implements PtyHost {
           console.warn(
             `NodePtyHost: invokeTaskkill: spawnTaskkill rejected for ` +
               `session=${sessionId} pid=${pid}; synthetic onExit will ` +
-              `fire to honor I-024-2.`,
+              `fire to honor.`,
             { cause: err },
           );
         }
@@ -1240,14 +1230,14 @@ export class NodePtyHost implements PtyHost {
       })();
     });
 
-    // I-024-2: emit `ExitCodeNotification` even if reaping is incomplete.
-    // We fabricate an exit-code of 1 (non-zero) with no signal-code to
+    // Emit `ExitCodeNotification` even if reaping is incomplete. We
+    // fabricate an exit-code of 1 (non-zero) with no signal-code to
     // communicate "we killed it on the daemon path; OS reap status
     // unknown." If the underlying child.onExit eventually fires with a
-    // real exit-code, it short-circuits on the cached exitCode set
-    // here (the cache is write-once after first emission so the
-    // synthetic exit-code stays observable for any subsequent
-    // idempotent re-emit per `kill()`).
+    // real exit-code, it short-circuits on the cached exitCode set here
+    // (the cache is write-once after first emission so the synthetic
+    // exit-code stays observable for any subsequent idempotent re-emit
+    // per `kill()`).
     //
     // R3 review ACTIONABLE-1: gate the synthetic emit on
     // `this.sessions.has(sessionId)` so a `close()` that lands during
@@ -1266,11 +1256,9 @@ export class NodePtyHost implements PtyHost {
       record.exitCode = 1;
       record.signalCode = undefined;
       this.fireExit(sessionId, 1, undefined);
-      // Plan-001 §CP-001-1: a Windows SIGKILL-escalation path may fire
-      // the synthetic exit while a `shutdown()` drain waiter is
-      // outstanding. Notify the waiter so the drain budget can resolve
-      // without depending on the underlying `child.onExit` arriving
-      // (which is best-effort per I-024-2).
+      // `shutdown()` drain waiter is outstanding. Notify the waiter so
+      // the drain budget can resolve without depending on the
+      // underlying `child.onExit` arriving (which is best-effort).
       //
       // Outcome is unconditionally `"forced"` — we are inside
       // `invokeTaskkill`, the sole commitment point for the Windows
@@ -1293,7 +1281,7 @@ export class NodePtyHost implements PtyHost {
  * `node-pty` accepts a record only, so duplicate keys deduplicate to
  * the LAST tuple (record semantics). This matches POSIX `execve`'s
  * "later entry shadows earlier" rule for the worktree-translator's
- * `cwd-env` strategy (Plan-001 P5 CP-001-2).
+ * `cwd-env` strategy (P5).
  */
 function envTuplesToRecord(
   tuples: ReadonlyArray<readonly [string, string]>,

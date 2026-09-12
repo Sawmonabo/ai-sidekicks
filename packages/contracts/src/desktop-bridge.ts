@@ -1,30 +1,26 @@
-// Spec-023 §Preload Bridge Contract — typed `window.sidekicks` surface.
+// Preload bridge contract — the typed `window.sidekicks` surface.
 //
 // At Tier 1 this module ships:
-//   • `SidekicksBridge` — verbatim shape + `readonly` hardening from
-//     `Spec-023 §Preload Bridge Contract`. The structure matches the
-//     spec exactly; this implementation adds `readonly` modifiers to every
-//     capability group and `app` sub-property for defense-in-depth (prevents
-//     a compromised renderer from reassigning `bridge.daemon = …`).
-//   • Stub type imports for Plan-007 daemon / Plan-002+ control-plane / Electron
-//     dialog / DOM WebAuthn types — every Tier-8-or-later type lands here as a
-//     deliberate stub so the bridge shape is reviewable without those plans
+//   • `SidekicksBridge` — verbatim shape + `readonly` hardening. The
+//     structure matches the spec exactly; this implementation adds
+//     `readonly` modifiers to every capability group and `app` sub-property
+//     for defense-in-depth (prevents a compromised renderer from reassigning
+//     `bridge.daemon = …`).
+//   • Stub type imports for daemon / control-plane / Electron dialog / DOM
+//     WebAuthn types — every Tier-8-or-later type lands here as a deliberate
+//     stub so the bridge shape is reviewable without those plans
 //   • `NotImplementedAtTier1Error` — thrown by every bridge method until the
 //     corresponding Tier 8 IPC handler ships
 //   • `createTier1Bridge()` — factory the preload calls; every method throws
 //
 // Coverage:
-//   `Spec-023 §Acceptance Criteria` ("No auth material on
-//   `window.sidekicks`") is enforced by the conditional-type negative test
-//   `desktop-bridge.test-d.ts` against the `SidekicksBridge` interface declared
-//   below. Any future edit that introduces a property name matching
-//   /token|dpop|prf|secret/i FAILS `pnpm --filter @ai-sidekicks/contracts typecheck`.
+//   Any future edit that introduces a property name matching /token|dpop|prf|secret/i
+//   FAILS `pnpm --filter @ai-sidekicks/contracts typecheck`.
 //
-// Tier 1 carve-outs (per Plan-023 Phase 1 T-023p-1-4):
-//   • Plan-007 daemon types do not exist yet — stubbed as `string` brands +
-//     `unknown` parametrics. When Plan-007 lands the real discriminated unions
-//     they replace the stubs without changing the bridge surface.
-//   • Plan-002+ control-plane types same posture (tRPC procedure brands).
+//   • Daemon types do not exist yet — stubbed as `string` brands + `unknown`
+//     parametrics. When lands the real discriminated unions they replace the
+//     stubs without changing the bridge surface.
+//   • Control-plane types same posture (tRPC procedure brands).
 //   • Electron dialog types (`OpenDialogOptions`, etc.) stubbed locally as
 //     empty interfaces — Tier 8 replaces them with imports from `electron`'s
 //     types once `electron` becomes a `packages/contracts` devDep.
@@ -33,7 +29,6 @@
 //     Tier 8 either adds `dom` to the contracts lib list or imports the types
 //     from `@types/webappapis`.
 //
-// Bridge non-exposure list (`Spec-023 §Preload Bridge Contract`):
 //   • raw `ipcRenderer` / `ipcMain`
 //   • `require`, `process`, `global`, any Node built-in
 //   • auth material (PASETO tokens, DPoP key, WebAuthn PRF output, daemon
@@ -45,57 +40,55 @@ import type { AuxiliaryWindowControls } from "./desktop/auxiliary-window.js";
 import type { SessionId } from "./session.js";
 
 // ---------------------------------------------------------------------------
-// Plan-007 daemon protocol stubs (real types land at Plan-007 Phase 1).
+// Daemon protocol stubs (real types land).
 //
 // The `__plan007_*__` brand markers force every consumer to acknowledge "this
-// is a Tier 1 stub" — when Plan-007's real discriminated unions land, the
-// brand goes away and existing call sites continue to typecheck because the
-// brand was only a structural marker. This is the canonical pattern for
-// surviving "stub → real type" substitution as a non-breaking change.
+// is a Tier 1 stub" — when the real discriminated unions land, the brand goes
+// away and existing call sites continue to typecheck because the brand was
+// only a structural marker. This is the canonical pattern for surviving "stub
+// → real type" substitution as a non-breaking change.
 // ---------------------------------------------------------------------------
 
 /**
- * Plan-007 method name brand (Tier 1 stub).
- * Replaced by Plan-007's `DaemonMethod` string-literal union when that plan
- * lands. Until then, every `daemon.call(method, …)` call site picks up the
- * brand and the negative type-test still flattens an empty key set under it.
+ * Method name brand (Tier 1 stub). Replaced by the `DaemonMethod`
+ * string-literal union when that plan lands. Until then, every
+ * `daemon.call(method, …)` call site picks up the brand and the negative
+ * type-test still flattens an empty key set under it.
  */
 export type DaemonMethod = string & { readonly __plan007_daemon_method__: never };
 
 /**
- * Plan-007 method-request param shape (Tier 1 stub).
- * Replaced by `DaemonRequest[M]` from Plan-007 once method-to-params mapping
- * lands. `unknown` at Tier 1 forces callers to narrow before use.
+ * Method-request param shape (Tier 1 stub). Replaced by `DaemonRequest[M]`
+ * once method-to-params mapping lands. `unknown` at Tier 1 forces callers to
+ * narrow before use.
  */
 export type DaemonParams<M extends DaemonMethod> = M extends DaemonMethod ? unknown : never;
 
 /**
- * Plan-007 method-response result shape (Tier 1 stub).
- * Replaced by `DaemonResponse[M]` from Plan-007.
+ * Method-response result shape (Tier 1 stub).
  */
 export type DaemonResult<M extends DaemonMethod> = M extends DaemonMethod ? unknown : never;
 
 /**
- * Plan-007 event name brand (Tier 1 stub).
- * Replaced by Plan-007's `DaemonEvent` string-literal union.
+ * Event name brand (Tier 1 stub). Replaced by the
+ * `DaemonEvent` string-literal union.
  */
 export type DaemonEvent = string & { readonly __plan007_daemon_event__: never };
 
 /**
- * Plan-007 event payload shape (Tier 1 stub).
- * Replaced by `DaemonEventPayloads[E]` from Plan-007.
+ * Event payload shape (Tier 1 stub).
  */
 export type DaemonEventPayload<E extends DaemonEvent> = E extends DaemonEvent ? unknown : never;
 
 // ---------------------------------------------------------------------------
-// Control-plane procedure stubs (real types land at Plan-002 / Plan-008 tRPC
-// surface). Same brand posture as Plan-007 stubs above.
+// Control-plane procedure stubs (real types land tRPC surface). Same brand
+// posture as stubs above.
 // ---------------------------------------------------------------------------
 
 /**
- * Control-plane tRPC procedure name brand (Tier 1 stub).
- * Replaced by the typed-procedure union derived from `AppRouter` once
- * Plan-002+ exposes the full router shape through this package.
+ * Control-plane tRPC procedure name brand (Tier 1 stub). Replaced by
+ * the typed-procedure union derived from `AppRouter` once exposes the
+ * full router shape through this package.
  */
 export type CpProcedure = string & { readonly __cp_procedure__: never };
 
@@ -106,9 +99,9 @@ export type CpInput<P extends CpProcedure> = P extends CpProcedure ? unknown : n
 export type CpOutput<P extends CpProcedure> = P extends CpProcedure ? unknown : never;
 
 /**
- * Relay subscription event handler (Tier 1 stub).
- * The relay event shape (Plan-008 §Relay Frame Schema or successor) replaces
- * the `unknown` payload once that plan exposes it through this package.
+ * Relay subscription event handler (Tier 1 stub). The relay event shape
+ * replaces the `unknown` payload once that plan exposes it through this
+ * package.
  */
 export type RelayEventHandler = (event: unknown) => void;
 
@@ -152,8 +145,7 @@ export interface NotificationOptions {}
  * Opaque branded reference to a file path. The renderer never sees the raw
  * path string — every operation that returns a path returns this token, and
  * every operation that consumes a path takes this token, with the main process
- * dereferencing internally. This is the structural enforcement of Spec-023
- * `Spec-023 §Preload Bridge Contract` ("arbitrary file paths as strings").
+ * dereferencing internally.
  */
 export type FilePathRef = string & { readonly __brand: "FilePathRef" };
 
@@ -182,10 +174,8 @@ export interface PublicKeyCredentialRequestOptions {}
 export interface PublicKeyCredential {}
 
 /**
- * Input to `webAuthn.deriveKeyMaterial` (Tier 1 stub).
- * Spec-023 §WebAuthn Credential Flow + ADR-010 specify the PRF extension
- * derives main-process-owned key material from a per-session salt. The salt
- * is the only renderer-visible input — the derived material returns as an
+ * Input to `webAuthn.deriveKeyMaterial` (Tier 1 stub).. The salt is the
+ * only renderer-visible input — the derived material returns as an
  * `ArrayBuffer` and never includes the raw PRF output in any other form.
  *
  * IMPORTANT: this type name `PrfInput` contains the substring `prf`. The
@@ -199,20 +189,20 @@ export interface PrfInput {
 }
 
 /**
- * Auto-update state surfaced to the renderer (Tier 1 stub).
- * Plan-023 Tier 8 remainder owns the real shape; at Tier 1 a coarse-grained
- * discriminated union is sufficient for the bridge type to compile. The
- * Tier-1-stub bridge throws on `update.getState()` so the runtime shape is
- * never observed by Tier 1 callers.
+ * Auto-update state surfaced to the renderer (Tier 1 stub). Tier 8
+ * remainder owns the real shape; at Tier 1 a coarse-grained discriminated
+ * union is sufficient for the bridge type to compile. The Tier-1-stub
+ * bridge throws on `update.getState()` so the runtime shape is never
+ * observed by Tier 1 callers.
  *
- * `Spec-023 §Preload Bridge Contract` names this type on `update.getState` and
- * `update.subscribe` and fixes no arm shape, so the arms are settled here. The
- * `idle` arm carries the instant of the last completed check because the settings
- * read-out has to say when the answer it is showing was established — an `idle`
- * with no time behind it reads as "there is no update" when what it means is "we
- * do not know". It is OPTIONAL and absent is a real state rather than a gap: a
- * build that has never completed a check has no instant to report, and a
- * fabricated one would be the renderer inventing a reading.
+ * names this type on `update.getState` and `update.subscribe` and fixes no arm
+ * shape, so the arms are settled here. The `idle` arm carries the instant of the
+ * last completed check because the settings read-out has to say when the answer
+ * it is showing was established — an `idle` with no time behind it reads as
+ * "there is no update" when what it means is "we do not know". It is OPTIONAL and
+ * absent is a real state rather than a gap: a build that has never completed a
+ * check has no instant to report, and a fabricated one would be the renderer
+ * inventing a reading.
  */
 export type UpdateState =
   | { readonly status: "idle"; readonly lastCheckedAt?: string }
@@ -267,17 +257,16 @@ export interface ShellSignals {
  */
 export class NotImplementedAtTier1Error extends Error {
   public constructor(method: string) {
-    super(`SidekicksBridge.${method} is not implemented at Tier 1 (Plan-023 Phase 1 stub).`);
+    super(`SidekicksBridge.${method} is not implemented at Tier 1 (stub).`);
     this.name = "NotImplementedAtTier1Error";
   }
 }
 
 // ---------------------------------------------------------------------------
-// The bridge interface — verbatim shape + `readonly` hardening from
-// `Spec-023 §Preload Bridge Contract`. The structure matches the
-// spec exactly; `readonly` modifiers on every capability group and `app`
-// sub-property are local defense-in-depth (the spec's contract block contains
-// zero `readonly` modifiers).
+// The bridge interface — verbatim shape + `readonly` hardening. The structure
+// matches the spec exactly; `readonly` modifiers on every capability group
+// and `app` sub-property are local defense-in-depth (the spec's contract
+// block contains zero `readonly` modifiers).
 //
 // Every property name on this interface is enforced not to match
 // /token|dpop|prf|secret/i by the conditional-type test in
@@ -291,23 +280,22 @@ export class NotImplementedAtTier1Error extends Error {
  * `contextBridge.exposeInMainWorld('sidekicks', bridge)`.
  *
  * Seven capability surfaces:
- *   • `daemon` — JSON-RPC over IPC to the local Plan-007 daemon
- *   • `controlPlane` — tRPC + relay WebSocket to the Plan-002/003/008 control plane
+ *   • `daemon` — JSON-RPC over IPC to the local daemon
+ *   • `controlPlane` — tRPC + relay WebSocket to 003/008 control plane
  *   • `native` — main-process-mediated OS dialogs and OS surfaces
- *   • `webAuthn` — main-process-orchestrated WebAuthn ceremony (ADR-010)
- *   • `window` — the shell's auxiliary-window controls (Plan-023 Phase 1C)
+ *   • `webAuthn` — main-process-orchestrated WebAuthn ceremony
+ *   • `window` — the shell's auxiliary-window controls
  *   • `update` — renderer observes the auto-updater state machine
  *   • `shell` — the desktop shell asking THIS window to do something
  *   • `app` — read-only build/runtime meta
  *
- * Non-exposure (`Spec-023 §Preload Bridge Contract`):
  *   • `ipcRenderer` / `ipcMain` / `require` / `process` / `global` / Node built-ins
  *   • auth material (any token / DPoP / PRF output / secret) — enforced
  *     STRUCTURALLY by the negative type-test (`desktop-bridge.test-d.ts`)
  *   • raw file path strings — paths are opaque `FilePathRef` tokens
  */
 export interface SidekicksBridge {
-  // daemon RPC — request/response over Spec-007 JSON-RPC contract
+  // daemon RPC — request/response over JSON-RPC contract
   readonly daemon: {
     call<M extends DaemonMethod>(method: M, params: DaemonParams<M>): Promise<DaemonResult<M>>;
     subscribe<E extends DaemonEvent>(
@@ -320,19 +308,15 @@ export interface SidekicksBridge {
   readonly controlPlane: {
     /**
      * Generic renderer-facing forwarder for control-plane request/response procedures
-     * (session CRUD, membership, invites, approvals, artifacts, health — Spec-008
-     * §Control-Plane Transport Protocol).
+     * (session CRUD, membership, invites, approvals, artifacts, health).
      *
      * CONTRACT CONSTRAINT — relay negotiation is NOT reachable through this forwarder.
-     * `negotiateRelay` returns a `RelayNegotiationResponse` carrying the short-lived relay
-     * `connectionToken` (a PASETO `aud=relay-connect` bearer credential) which Spec-023
-     * §Trust Stance confines to the main process and forbids on the preload bridge. Relay
-     * negotiation runs main-process-owned and consumes the token in-process to open the
-     * relay WSS; the renderer reaches the relay only via `subscribeRelay` (relay events,
-     * never the token). The main-process `controlPlane.call` handler MUST reject any
-     * relay-negotiation procedure. (A structural exclusion is not expressible against the
-     * opaque `CpProcedure` brand; closing `CpProcedure` to a named allow-list that omits
-     * relay negotiation is a Plan-023 bridge-contract concern.)
+     * Relay negotiation runs main-process-owned and consumes the token in-process to open
+     * the relay WSS; the renderer reaches the relay only via `subscribeRelay` (relay
+     * events, never the token). The main-process `controlPlane.call` handler MUST reject
+     * any relay-negotiation procedure. (A structural exclusion is not expressible against
+     * the opaque `CpProcedure` brand; closing `CpProcedure` to a named allow-list that
+     * omits relay negotiation is a bridge-contract concern.)
      */
     call<P extends CpProcedure>(procedure: P, input: CpInput<P>): Promise<CpOutput<P>>;
     subscribeRelay(sessionId: SessionId, handler: RelayEventHandler): Unsubscribe;
@@ -393,11 +377,10 @@ export interface SidekicksBridge {
 // Decision: `app.platform` and `app.arch` are typed as the V1 supported-OS
 // subset (darwin / linux / win32 + arm64 / x64). `process.platform` and
 // `process.arch` return the broader NodeJS.Platform / NodeJS.Architecture
-// unions; we cast through `as unknown as ...` to narrow without runtime
+// unions; we cast through `as unknown as...` to narrow without runtime
 // validation. At Tier 1 this is acceptable because (a) the bridge stub is
 // never reached in a production runtime — the Tier 8 replacement performs the
-// narrow with a proper check — and (b) Plan-023 §Implementation Steps locks
-// the V1 OS matrix to exactly this subset (ADR-016 §Success Criteria).
+// narrow with a proper check — and (b).
 // ---------------------------------------------------------------------------
 
 function tier1Throw(method: string): never {
@@ -464,7 +447,7 @@ export function createTier1Bridge(shell: ShellSignals = SHELL_WITHOUT_A_HOST): S
     // one holding the channel the shell speaks on, so there is nothing here to defer.
     shell,
     // The one namespace the PRELOAD replaces rather than takes from here. Its
-    // main-process handlers ship at Tier 1 (Plan-023 Phase 1C), so
+    // main-process handlers ship at Tier 1, so
     // `apps/desktop/src/preload/index.ts` spreads a real `ipcRenderer`
     // implementation over this block. The throwing stub stays because the
     // factory's contract is a TOTAL `SidekicksBridge` — every reader that builds
@@ -486,11 +469,11 @@ export function createTier1Bridge(shell: ShellSignals = SHELL_WITHOUT_A_HOST): S
     },
     app: {
       version: "0.0.0",
-      // V1 supported OS matrix (ADR-016 §Success Criteria) is darwin / linux / win32.
-      // `process.platform` may return values outside this set (aix, freebsd, sunos,
-      // openbsd, cygwin, haiku, netbsd, android) which Tier 1 stub does not handle —
-      // Tier 8 replacement validates and surfaces an explicit "unsupported platform"
-      // error before reaching the renderer.
+      // V1 supported OS matrix is darwin / linux / win32. `process.platform` may
+      // return values outside this set (aix, freebsd, sunos, openbsd, cygwin, haiku,
+      // netbsd, android) which Tier 1 stub does not handle — Tier 8 replacement
+      // validates and surfaces an explicit "unsupported platform" error before
+      // reaching the renderer.
       platform: process.platform as unknown as "darwin" | "linux" | "win32",
       // V1 supported arch matrix is arm64 / x64. `process.arch` may return ia32,
       // mips, ppc, etc.; same narrowing posture as `platform`.

@@ -1,4 +1,4 @@
-// Canonical transcript fold + ordered transform pipeline (Plan-005 Phase 3, T3.19).
+// Canonical transcript fold + ordered transform pipeline.
 //
 // Two properties carry this file, and both are asserted positively rather than
 // left to a comment:
@@ -10,8 +10,6 @@
 //     purpose and observe the defect — which is the only way an ordering claim
 //     is falsifiable at all.
 //
-// Refs: Plan-005 §Phase 3 / T3.19, invariant I-005-8, ADR-029,
-// `Spec-005 §Canonical Transcript Export And Replay`.
 
 import { describe, expect, it } from "vitest";
 

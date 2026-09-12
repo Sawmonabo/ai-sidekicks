@@ -13,8 +13,7 @@
   //
   // `src/**/*.test-d.ts` (conditional-type tests sitting alongside the contract
   // files they validate — e.g., `desktop-bridge.test-d.ts` next to
-  // `desktop-bridge.ts` per Plan-023 Phase 1 T-023p-1-4) is excluded by the
-  // same rule: the negative type-test runs under `tsconfig.test.json` (noEmit)
-  // and never emits to `dist/`.
+  // `desktop-bridge.ts`) is excluded by the same rule: the negative type-test
+  // runs under `tsconfig.test.json` (noEmit) and never emits to `dist/`.
   "exclude": ["dist", "node_modules", "src/**/__tests__/**", "src/**/*.test-d.ts"]
 }

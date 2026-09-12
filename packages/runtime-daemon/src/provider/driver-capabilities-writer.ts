@@ -1,18 +1,17 @@
-// DriverCapabilitiesWriter — the daemon-resident driver-capability cache seam
-// (Plan-005 Phase 2, T2.4).
+// DriverCapabilitiesWriter — the daemon-resident driver-capability cache
+// seam.
 //
 // What this seam does
 // --------------------------------------------------------------------------
-// Persists a driver's advertised capability snapshot to the THREE driver-keyed
-// SQLite tables (migration `0003`) AND emits the matching
-// `runtime_node.capability_*` session event, ATOMICALLY, on driver
-// registration + capability refresh. It also exposes a cold-start hydration
-// read that reconstructs the WHOLE `GetCapabilitiesResult` — `cliVersion`
-// INCLUDED, since T2.6 makes `driver_contract_meta` cache that pair — from those
-// same three tables WITHOUT round-tripping the driver (`Spec-005 §Recovery Consequences`,
-// the cache-as-source-of-truth). This is the durable cache that the in-memory
-// `ProviderRegistry` (T2.3) mirrors; together they complete the capability
-// round-trip that T2.5 verifies end-to-end (`Spec-005 §Required Behavior`, invariant I-005-2).
+// Persists a driver's advertised capability snapshot to the THREE driver-keyed SQLite
+// tables (migration `0003`) AND emits the matching `runtime_node.capability_*`
+// session event, ATOMICALLY, on driver registration + capability refresh. It also
+// exposes a cold-start hydration read that reconstructs the WHOLE
+// `GetCapabilitiesResult` — `cliVersion` INCLUDED, since makes `driver_contract_meta`
+// cache that pair — from those same three tables WITHOUT round-tripping the driver
+// (the cache-as-source-of-truth). This is the durable cache that the in-memory
+// `ProviderRegistry` mirrors; together they complete the capability round-trip that
+// verifies end-to-end (invariant).
 //
 //   * driver_capabilities  — the flag matrix (PK driver_name, capability_flag).
 //   * driver_tools         — per-tool metadata (PK driver_name, tool_name).
@@ -20,7 +19,7 @@
 //                            (PK driver_name); its PRESENCE is the existence gate
 //                            for hydration ("has this driver ever been written?").
 //                            It ALSO carries the `cli_version_raw` /
-//                            `cli_version_semver` currency pair (T1.7's migration),
+//                            `cli_version_semver` currency pair (the migration),
 //                            written on every mutating declare and refreshed
 //                            side-band on a version-only re-declare (see below).
 //
@@ -31,20 +30,15 @@
 //
 // FLAT event payload vs NESTED hydrate return (do not conflate)
 // --------------------------------------------------------------------------
-// The canonical `CapabilityDetails` (`docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy` — the
-// shape Plan-006 T1.4 bound over the previously interim-opaque
-// `capabilityDetails` / `previousState` / `newState` event payload fields, as
-// the canonical-first arm of a tolerant union — CP-003-1 leg (c)) is FLATTENED:
+// The canonical `CapabilityDetails` (the shape bound over the previously
+// interim-opaque `capabilityDetails` / `previousState` / `newState` event payload
+// fields, as the canonical-first arm of a tolerant union — leg (c)) is FLATTENED:
 //   { flags: Record<DriverCapabilityFlag, boolean>; contractVersion: string;
 //     tools: NormalizedProviderToolMetadata[] }
-// The EVENT payload carries the FLAT snapshot, which already parses under the
-// T1.4-landed canonical-first arm at EMIT time (the emitter's
-// `RuntimeNodeCapability*PayloadSchema.parse`) and stays valid when Plan-006
-// Tier 4's `SessionEventSchema` union registration — CP-003-1 leg (a) — begins
-// validating these events. Carrying the NESTED `GetCapabilitiesResult` in the
-// event would miss the canonical arm at BOTH layers — accepted forever via the
-// tolerant record arm, never canonically typed. By contrast `hydrate()` returns
-// the NESTED, now-COMPLETE `GetCapabilitiesResult` — `{ capabilities: { flags,
+// Carrying the NESTED `GetCapabilitiesResult` in the event would miss the
+// canonical arm at BOTH layers — accepted forever via the tolerant record arm,
+// never canonically typed. By contrast `hydrate()` returns the NESTED,
+// now-COMPLETE `GetCapabilitiesResult` — `{ capabilities: { flags,
 // contractVersion }, tools, cliVersion }` — wrapped in the
 // `DriverCapabilityHydrationResult` hit/miss discriminant, whose `capabilities`
 // member is exactly what `ProviderRegistry.register` consumes
@@ -56,9 +50,9 @@
 // The cli_version PAIR: cache currency, not a capability
 // --------------------------------------------------------------------------
 // `cliVersion` is a reading of the INSTALLED BUILD, not a capability, so it sits
-// OUTSIDE change-detection on purpose (the `Spec-005 §Interfaces And Contracts`
-// detection-source precedent: "provenance is not a per-snapshot capability
-// property"). Three consequences, each deliberate:
+// OUTSIDE change-detection on purpose (detection-source precedent: "provenance
+// is not a per-snapshot capability property"). Three consequences, each
+// deliberate:
 //
 //   1. The pair rides EVERY mutating upsert — the durable row always carries the
 //      reading from the declare that last wrote it.
@@ -73,17 +67,15 @@
 //      report. The common case — same version, same snapshot — still writes
 //      NOTHING. See `#declareOnce`.
 //
-// Capability key — `"provider-driver-<driverName>"` (CP-005-5)
+// Capability key — `"provider-driver-<driverName>"`
 // --------------------------------------------------------------------------
-// The emitted `capability` identifier is `"provider-driver-" + driverName`
-// (e.g. `provider-driver-claude`), per CP-005-5 (`Plan-005 §CP-005-5 — Driver capability event surface owed to [Plan-006](./006-session-event-taxonomy-and-audit-log.md) / [Spec-006](../specs/006-session-event-taxonomy-and-audit-log.md)`), which
-// directs the emit on driver registration + refresh with
-// `capability: "provider-driver-{codex|claude}"`. The DRIVER-NAME SUFFIX
-// disambiguates MULTIPLE drivers on one runtime node IN-PLAN — it is the
-// resolved contract (CP-005-5 status: RESOLVED), NOT a deferred Plan-006
-// concern. (`docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`'s bare `"provider-driver"` is only an
-// ILLUSTRATIVE example of the `capability` field, not the canonical value;
-// CP-005-5 is the authority.)
+// The emitted `capability` identifier is `"provider-driver-" + driverName` (e.g.
+// `provider-driver-claude`) which directs the emit on driver registration + refresh
+// with `capability: "provider-driver-{codex|claude}"`. The DRIVER-NAME SUFFIX
+// disambiguates MULTIPLE drivers on one runtime node IN-PLAN — it is the resolved
+// contract (status: RESOLVED), NOT a deferred concern. (the bare `"provider-driver"`
+// is only an ILLUSTRATIVE example of the `capability` field, not the canonical value
+// is the authority.)
 //
 // Atomic dual-write, and who owns the transaction
 // --------------------------------------------------------------------------
@@ -94,18 +86,13 @@
 // BODY ORDER is load-bearing: the three writes come FIRST, the event row LAST,
 // so a THROWING event write rolls back the cache write.
 //
-// THIS WRITER NO LONGER OPENS THAT TRANSACTION. Plan-006 T3.1 re-pointed the
-// emitter onto the async `EventLogService.append` (it awaits a signing-key
-// unseal), and a better-sqlite3 transaction cannot span an `await`. So the three
-// table writes are handed DOWN as `transactionalPrelude`, which the append runs
-// inside the same transaction as the event-row INSERT, immediately before it —
-// preserving the body order verbatim. The append dispatches that transaction
-// IMMEDIATE, so the `BEGIN IMMEDIATE` writer-intent property this writer relied
-// on is retained; and because the prelude is write-only (the SELECTs now happen
-// before it), the transaction is no longer read-first at all, which removes the
-// `SQLITE_BUSY_SNAPSHOT` read-then-upgrade hazard rather than merely mitigating
-// it. (The `RuntimeBindingStore.#updateTxn` field comment carries the full
-// rationale for why a read-first transaction needed IMMEDIATE.)
+// THIS WRITER NO LONGER OPENS THAT TRANSACTION. re-pointed the emitter onto the
+// async `EventLogService.append` (it awaits a signing-key unseal), and a
+// better-sqlite3 transaction cannot span an `await`. So the three table writes
+// are handed DOWN as `transactionalPrelude`, which the append runs inside the
+// same transaction as the event-row INSERT, immediately before it — preserving
+// the body order verbatim. (The `RuntimeBindingStore.#updateTxn` field comment
+// carries the full rationale for why a read-first transaction needed IMMEDIATE.)
 //
 // Validation + normalization + canonical SORT, then read-decide, then the write
 // --------------------------------------------------------------------------
@@ -118,7 +105,7 @@
 //      (exactly the canonical flag set — no extra, no missing key),
 //   3. normalizes each tool via `ProviderToolMetadataSchema.safeParse` (which
 //      fills `idempotency_class` default `"manual_reconcile_only"` and strips
-//      unknown keys — I-005-3 — and raises the leak-safe typed error, not a raw
+//      unknown keys — and raises the leak-safe typed error, not a raw
 //      ZodError, on a malformed tool),
 //   4. SORTS the normalized tools by `name` ascending (canonical order).
 //
@@ -161,13 +148,13 @@
 // extra three-SELECT read per changed declare, paid inside the write
 // transaction. The RETRY is the dominant term — a diverged attempt discards
 // everything after the read and redoes it, including the signing-key `read()`
-// (a fresh unseal, which can block on a human: `Spec-022 §Daemon Master Key`
-// wipes the in-memory master on an idle timer, so the first unseal after a wipe
-// may await a WebAuthn ceremony or a passphrase prompt — see
-// `signing-key-source.ts`'s `DaemonSigningKeySealer` doc) and the row
-// signature. That is bounded at `DRIVER_DECLARE_MAX_ATTEMPTS`, and it is only
-// ever paid under genuine contention. Identical re-declares (the common case)
-// return at the noop branch and reach neither the re-check nor the retry.
+// (a fresh unseal, which can block on a human: wipes the in-memory master on an
+// idle timer, so the first unseal after a wipe may await a WebAuthn ceremony or
+// a passphrase prompt — see `signing-key-source.ts`'s `DaemonSigningKeySealer`
+// doc) and the row signature. That is bounded at `DRIVER_DECLARE_MAX_ATTEMPTS`,
+// and it is only ever paid under genuine contention. Identical re-declares (the
+// common case) return at the noop branch and reach neither the re-check nor the
+// retry.
 //
 // Tools canonical-ordering rationale (load-bearing)
 // --------------------------------------------------------------------------
@@ -180,9 +167,9 @@
 // `ORDER BY tool_name`) is what makes the array comparison correct, so a
 // reorder-only re-declare is the idempotent no-op it should be.
 //
-// WIRING CONTRACT (T2.5 / daemon bootstrap)
+// WIRING CONTRACT (daemon bootstrap)
 // --------------------------------------------------------------------------
-// The injected `RuntimeNodeEventEmitter`'s `SessionEventLog` — Plan-006 T3.1's
+// The injected `RuntimeNodeEventEmitter`'s `SessionEventLog` — the
 // `EventLogService` — MUST be constructed over the SAME `better-sqlite3`
 // connection (`db`) as this writer. The direction of the obligation is now
 // REVERSED (this writer's statements join the append's transaction, rather than
@@ -194,13 +181,6 @@
 // non-atomic dual-write this whole section exists to prevent. The daemon root
 // composition is responsible for honoring it.
 //
-// Spec coverage: `Spec-005 §Required Behavior` (runtime treats undeclared capabilities as
-// unsupported — the cache the gate reads), `Spec-005 §Default Behavior` (driver capability
-// declarations are required at attach time and may be refreshed when provider
-// state changes — the `declare` seam and its refresh path), `Spec-005 §Recovery Consequences`
-// (cache-as-source-of-truth; cold-start hydration reconstructs the snapshot
-// without round-tripping the driver). Refs: Plan-005 §Phase 2 / T2.4, CP-005-5
-// (the `runtime_node.capability_*` emission), invariant I-005-2.
 
 import { isDeepStrictEqual } from "node:util";
 
@@ -232,15 +212,14 @@ import {
 // Public + private types (LOCAL to runtime-daemon — NOT hoisted to
 // `@ai-sidekicks/contracts`: a single-package, daemon-internal consumer fails
 // the 2-surface hoist test, the same call made by RuntimeBindingStore). The
-// one exception is `CapabilityDetails` itself: Plan-006 T1.4 hoisted it to
-// contracts as the canonical event-payload shape, so this file imports it
-// rather than keeping a structural twin.
+// one exception is `CapabilityDetails` itself: hoisted it to contracts as the
+// canonical event-payload shape, so this file imports it rather than keeping
+// a structural twin.
 // --------------------------------------------------------------------------
 
 /**
  * The driver-name-suffixed capability identifier emitted on every
- * `runtime_node.capability_*` event — `"provider-driver-<driverName>"`
- * (e.g. `provider-driver-claude`). Per CP-005-5 (`Plan-005 §CP-005-5 — Driver capability event surface owed to [Plan-006](./006-session-event-taxonomy-and-audit-log.md) / [Spec-006](../specs/006-session-event-taxonomy-and-audit-log.md)`), the
+ * `runtime_node.capability_*` event — `"provider-driver-<driverName>"` (e.g. the
  * suffix disambiguates multiple drivers on one runtime node IN-PLAN.
  */
 /**
@@ -302,21 +281,19 @@ function providerDriverCapabilityKey(driverName: string): string {
   return `provider-driver-${driverName}`;
 }
 
-// The flat capability snapshot is the canonical `CapabilityDetails` imported
-// from `@ai-sidekicks/contracts`
-// (`docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`). It is the form carried by
-// the `runtime_node.capability_*` event payloads AND the form used for
-// change-detection; `hydrate()` wraps it into the nested
-// `GetCapabilitiesResult`. In THIS writer, `tools` is ALWAYS in canonical
-// (`name`-ascending) order — see the file header.
+// The flat capability snapshot is the canonical `CapabilityDetails` imported from
+// `@ai-sidekicks/contracts`. It is the form carried by the
+// `runtime_node.capability_*` event payloads AND the form used for change-detection;
+// `hydrate()` wraps it into the nested `GetCapabilitiesResult`. In THIS writer,
+// `tools` is ALWAYS in canonical (`name`-ascending) order — see the file header.
 
 /**
- * `declare` input. `sessionId` / `nodeId` are threaded to the EMIT only (never
- * stored in the driver-keyed tables — those carry no session column).
- * `driverName` is the cache key for all three tables. `result` is the driver's
- * advertised `GetCapabilitiesResult` (`{ capabilities: { flags, contractVersion },
- * tools, cliVersion }`). Its `cliVersion` IS persisted by this seam (T2.6) into
- * `driver_contract_meta.cli_version_raw` / `cli_version_semver` — the pair T1.7's
+ * `sessionId` / `nodeId` are threaded to the EMIT only (never stored in the
+ * driver-keyed tables — those carry no session column). `driverName` is the cache
+ * key for all three tables. `result` is the driver's advertised
+ * `GetCapabilitiesResult` (`{ capabilities: { flags, contractVersion }, tools,
+ * cliVersion }`). Its `cliVersion` IS persisted by this seam into
+ * `driver_contract_meta.cli_version_raw` / `cli_version_semver` — the pair the
  * currency migration added — on every mutating declare, and side-band on a
  * version-only re-declare; it is deliberately NOT carried in any event payload
  * (see the file header's cli_version section). `actor` defaults to `null` (system
@@ -338,7 +315,7 @@ export interface DeclareDriverCapabilitiesInput {
 /**
  * `declare` return.
  *
- * `emitted` is the EMISSION discriminant callers (and T2.5) assert on:
+ * `emitted` is the EMISSION discriminant callers assert on:
  *   * `"declared"` — first write for this driver; emitted `capability_declared`.
  *   * `"updated"`  — the snapshot CHANGED; emitted `capability_updated`.
  *   * `"noop"`     — the capability snapshot was identical; NO event emitted.
@@ -374,33 +351,24 @@ export interface DeclareDriverCapabilitiesResult {
  * `hydrate` return — an explicit HIT/MISS discriminant over the durable cache.
  *
  * The hit arm carries the WHOLE `GetCapabilitiesResult`, `cliVersion` included:
- * T2.6 caches the `driver_contract_meta.cli_version_raw` / `cli_version_semver`
- * pair on every mutating declare, so cold-start hydration no longer has to hand
- * back a narrowed shape.
+ * caches the `driver_contract_meta.cli_version_raw` / `cli_version_semver` pair
+ * on every mutating declare, so cold-start hydration no longer has to hand back
+ * a narrowed shape.
  *
  * The miss arm names its CAUSE, and keeping the two causes distinguishable is a
  * deliberate cost:
  *   * `"never_written"`      — no `driver_contract_meta` row: this driver has
  *                              never been declared on this node.
  *   * `"cli_version_missing"` — the row exists but its version pair is NULL (a
- *                              pre-T1.7 row). The canonical rule
- *                              (`docs/architecture/schemas/local-sqlite-schema.md §Driver and Runtime Binding Tables (Plan-005)`)
- *                              is that a NULL pair is a cache MISS — hydration
- *                              refreshes from the driver rather than reporting a
- *                              version it does not hold, because the REQUIRED
- *                              `GetCapabilitiesResult.cliVersion` is never
- *                              fabricated from cache. Fabricating one
- *                              (`{ raw: "", semver: "" }`, or a reading copied
- *                              from an unrelated driver) would feed a FALSE
- *                              version into the attach-time floor gate, which is
- *                              fail-closed precisely because an unknown version
- *                              must not pass.
- *
- * BOTH causes demand the same caller behavior — refresh from the driver — so
- * collapsing them into one `undefined` was the cheap option available and is
- * deliberately not taken: T3.23's spawn-floor gate and the cache-health
- * telemetry both need "we have never seen this driver" separated from "we have a
- * capability cache whose currency reading predates the version columns".
+ *                              The canonical rule is that a NULL pair is a cache MISS
+ *                              — hydration refreshes from the driver rather than
+ *                              reporting a version it does not hold, because the
+ *                              REQUIRED `GetCapabilitiesResult.cliVersion` is never
+ *                              fabricated from cache. Fabricating one (`{ raw: "",
+ *                              semver: "" }`, or a reading copied from an unrelated
+ *                              driver) would feed a FALSE version into the
+ *                              attach-time floor gate, which is fail-closed precisely
+ *                              because an unknown version must not pass.
  *
  * The FLAG-MATRIX corruption case is NOT a miss and is not represented here — a
  * `driver_contract_meta` row present with a wrong flag key set THROWS from
@@ -455,7 +423,7 @@ interface CachedDriverCapabilityRead {
  * can never disagree.
  *
  * Absent-vs-present is a difference (a NULL stored pair is refreshed by any
- * incoming report), which is what makes the pre-T1.7 row self-heal on the next
+ * incoming report), which is what makes the pre- row self-heal on the next
  * declare rather than staying a permanent hydration miss.
  */
 function cliVersionReportsEqual(
@@ -477,10 +445,10 @@ export class DriverCapabilitiesWriter {
   // emitter are retained (mirrors RuntimeBindingStore / NodeCapabilityService —
   // the raw `db` handle is NOT stored; a prepared statement keeps its parent
   // connection alive). This class no longer owns a WRITE transaction at all:
-  // since the T3.1 re-point its table writes travel as a `transactionalPrelude`
-  // inside `EventLogService.append`'s transaction, and it is THAT transaction
-  // which is dispatched IMMEDIATE (read-first write — see the file header for
-  // the WAL `SQLITE_BUSY_SNAPSHOT` rationale).
+  // since re-point its table writes travel as a `transactionalPrelude` inside
+  // `EventLogService.append`'s transaction, and it is THAT transaction which is
+  // dispatched IMMEDIATE (read-first write — see the file header for the WAL
+  // `SQLITE_BUSY_SNAPSHOT` rationale).
   readonly #selectCapabilityFlagsStmt: Statement;
   readonly #selectToolsStmt: Statement;
   readonly #selectContractMetaStmt: Statement;
@@ -509,9 +477,9 @@ export class DriverCapabilitiesWriter {
   // `cliVersionRefreshed` need the pair from the SAME consistent read as the
   // snapshot they are reported alongside.
   readonly #readTxn: Transaction<(driverName: string) => CachedDriverCapabilityRead>;
-  // The emission seam. REQUIRED (not optional): capability declarations always
-  // occur at attach time with a live session/node (`Spec-005 §Default Behavior`). The
-  // `writeDriverTables` prelude closure is built around it on each declare attempt.
+  // REQUIRED (not optional): capability declarations always occur at attach time with
+  // a live session/node. The `writeDriverTables` prelude closure is built around it
+  // on each declare attempt.
   readonly #emitter: RuntimeNodeEventEmitter;
   // Injected wall-clock for `refreshed_at` (deterministic tests).
   readonly #now: () => string;
@@ -645,11 +613,11 @@ export class DriverCapabilitiesWriter {
     // (0b) Validate the REQUIRED `cliVersion` reading, immediately after the
     // structural guard and still before any txn opens — the same
     // defense-in-depth position the `contract_version` assert holds, and for the
-    // same reason: T2.6 persists this pair into two CHECK-constrained columns
+    // same reason: persists this pair into two CHECK-constrained columns
     // (`length(cli_version_raw) <= 128`, `length(cli_version_semver) <= 64`,
     // NUL-free, non-empty), so an unvalidated report would trip a raw
-    // `SqliteError` from INSIDE the append's transaction — breaking both the
-    // "a rejected input never opens a transaction" and the "leak-safe
+    // `SqliteError` from INSIDE the append's transaction — breaking both the "a
+    // rejected input never opens a transaction" and the "leak-safe
     // `ProviderOutputValidationError`, never a raw error" doctrines.
     //
     // The PRESENCE/TYPE guard is this validator's, not an inline one here. The
@@ -715,12 +683,11 @@ export class DriverCapabilitiesWriter {
     assertValidCapabilityFlags(input.result.capabilities.flags);
 
     // (3) Normalize each ingress tool via the contract schema — fills the
-    // `idempotency_class` default `"manual_reconcile_only"` (I-005-3) and strips
-    // unknown keys (`Spec-005 §Default Behavior` forward-compat). `safeParse` (NOT `.parse()`) so a
-    // malformed tool surfaces the leak-safe `ProviderOutputValidationError` —
-    // error-type-symmetric with the contract_version path, never a raw `ZodError`
-    // (the leak-safe doctrine of `provider-output-validation.ts`). Still before
-    // any txn opens.
+    // `idempotency_class` default `"manual_reconcile_only"` and strips unknown keys
+    // (forward-compat). `safeParse` (NOT `.parse()`) so a malformed tool surfaces the
+    // leak-safe `ProviderOutputValidationError` — error-type-symmetric with the
+    // contract_version path, never a raw `ZodError` (the leak-safe doctrine of
+    // `provider-output-validation.ts`). Still before any txn opens.
     const normalizedTools: NormalizedProviderToolMetadata[] = input.result.tools.map((tool) => {
       const parsed = ProviderToolMetadataSchema.safeParse(tool);
       if (!parsed.success) {
@@ -996,10 +963,8 @@ export class DriverCapabilitiesWriter {
         });
       };
 
-      // (6c) EMIT — the FLAT snapshot is the event payload (so the T1.4-landed
-      // canonical `CapabilityDetails` binding validates). The emitter input
-      // seam carries the payload type's canonical-first union, so the typed
-      // snapshot passes uncast.
+      // The emitter input seam carries the payload type's canonical-first
+      // union, so the typed snapshot passes uncast.
       if (priorSnapshot === undefined) {
         await this.#emitter.emitCapabilityDeclared({
           sessionId,
@@ -1029,10 +994,10 @@ export class DriverCapabilitiesWriter {
   }
 
   /**
-   * Cold-start hydration: reconstruct a driver's advertised capability snapshot
-   * from the durable cache WITHOUT round-tripping the driver (`Spec-005 §Recovery Consequences`). Pure READ (no write, no emit); the SELECTs run
-   * inside ONE `BEGIN DEFERRED` read transaction so they share a consistent
-   * snapshot — see the `#readTxn` field comment.
+   * Cold-start hydration: reconstruct a driver's advertised capability snapshot from
+   * the durable cache WITHOUT round-tripping the driver. Pure READ (no write, no
+   * emit); the SELECTs run inside ONE `BEGIN DEFERRED` read transaction so they share
+   * a consistent snapshot — see the `#readTxn` field comment.
    *
    * Returns the {@link DriverCapabilityHydrationResult} hit/miss discriminant.
    * The HIT arm carries the NESTED, COMPLETE `GetCapabilitiesResult`
@@ -1041,26 +1006,20 @@ export class DriverCapabilitiesWriter {
    * flat `CapabilityDetails` the events carry (see the file header for the
    * flat-vs-nested distinction). `tools` is in canonical order.
    *
-   * A NULL version pair is a MISS (`"cli_version_missing"`), not a hit with a
-   * blank version: the required `GetCapabilitiesResult.cliVersion` is never
-   * fabricated from cache (`docs/architecture/schemas/local-sqlite-schema.md §Driver and Runtime Binding Tables (Plan-005)`), and
-   * the caller refreshes from the driver. A never-written driver is the OTHER
-   * miss (`"never_written"`); see the result type for why the two stay
+   * A NULL version pair is a MISS (`"cli_version_missing"`), not a hit with a blank
+   * version: the required `GetCapabilitiesResult.cliVersion` is never fabricated from
+   * cache, and the caller refreshes from the driver. A never-written driver is the
+   * OTHER miss (`"never_written"`); see the result type for why the two stay
    * distinguishable.
    *
-   * `detectionSource` is naturally absent from the hit arm — it is not declared
-   * on `GetCapabilitiesResult` at all (T3.24 owns that member), and its absence
-   * is specified to read as CACHE RECONSTRUCTION rather than unknown provenance
-   * (`Spec-005 §Interfaces And Contracts`), which is exactly what this return is.
-   *
-   * `outputSpeedLevels` (T3.26) does the OPPOSITE, and the asymmetry is the
-   * contract's own: that member is required whenever the reconstructed
-   * `flags.output_speed` is `true`, "on either read path". Omitting it here
-   * would hand back a report that is contract-invalid while looking well-formed
-   * — `output_speed: true` with nothing for a client to render. It is served
-   * from the static per-driver table rather than from a cache column because it
-   * is a constant OF THE DRIVER and always re-derivable, while `detectionSource`
-   * is a fact about one reading and cannot be. See `./driver-output-speed.ts`.
+   * `outputSpeedLevels` does the OPPOSITE, and the asymmetry is the contract's
+   * own: that member is required whenever the reconstructed `flags.output_speed`
+   * is `true`, "on either read path". Omitting it here would hand back a report
+   * that is contract-invalid while looking well-formed — `output_speed: true`
+   * with nothing for a client to render. It is served from the static per-driver
+   * table rather than from a cache column because it is a constant OF THE DRIVER
+   * and always re-derivable, while `detectionSource` is a fact about one reading
+   * and cannot be.
    */
   hydrate(driverName: string): DriverCapabilityHydrationResult {
     // Route the composite read through a DEFERRED read transaction so the

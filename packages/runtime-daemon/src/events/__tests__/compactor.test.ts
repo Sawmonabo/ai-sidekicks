@@ -1,5 +1,5 @@
-// Contract coverage for `Compactor` — audit-log compaction behind anchors
-// (Plan-006 T3.2).
+// Contract coverage for `Compactor` — audit-log compaction behind
+// anchors.
 //
 // WHAT THE FIXTURES DO, and why they seed raw rows instead of appending through
 // `EventLogService`. Compaction is a read-modify-write over ALREADY-STORED rows,
@@ -31,12 +31,6 @@
 // would invalidate it silently, so the arms live beside the code whose span
 // computation they constrain.
 //
-// Spec coverage: `Spec-006 §Event Compaction Policy` (the three triggers and
-// their candidate sets), `Spec-006 §Post-Compaction Integrity`
-// (anchor-before-compaction), `Spec-006 §Run Lifecycle (run_lifecycle)` (the
-// terminal keys a stub must preserve), `Spec-006 §Event Maintenance
-// (event_maintenance)` (`event.compacted`). Refs: Plan-006 T3.2, T3.5,
-// I-006-3-01, I-006-3-03.
 
 import { ed25519 } from "@noble/curves/ed25519.js";
 import type { Database as DatabaseType } from "better-sqlite3";
@@ -90,7 +84,7 @@ const keySource: DaemonSigningKeySource = {
   read: () => Promise.resolve(DAEMON_PRIVATE_KEY),
 };
 
-// The pre-CP-006-7 daemon: every real session's key resolves, the daemon-scope
+// The pre- daemon: every real session's key resolves, the daemon-scope
 // sentinel's does not. `DaemonSigningKeySource.read` is deliberately NOT
 // create-on-read, so an unprovisioned sentinel really does reject — this stub
 // reproduces that rejection rather than inventing a failure mode.
@@ -376,7 +370,6 @@ function buildCompactor(options?: BuildOptions): Compactor {
 }
 
 // ----------------------------------------------------------------------------
-// The three triggers — `Spec-006 §Event Compaction Policy`
 // ----------------------------------------------------------------------------
 
 describe("Compactor — compaction triggers", () => {
@@ -586,7 +579,6 @@ describe("Compactor — compaction triggers", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Anchor-before-compaction — `Spec-006 §Post-Compaction Integrity`
 // ----------------------------------------------------------------------------
 
 describe("Compactor — anchor-before-compaction", () => {
@@ -867,11 +859,10 @@ describe("Compactor — audit-stub projection", () => {
   });
 
   it("holds the session append lock across a row's attribute-and-stub", async () => {
-    // The `Spec-004 §Required Behavior` admission-serialization reciprocal. The
-    // admission side checks a rewind span and writes an intervention under this
-    // same lock; if the compactor could attribute-and-stub outside it, the two
-    // interleave and a row gets stubbed against attribution the intervention is
-    // about to invalidate.
+    // The admission side checks a rewind span and writes an intervention under
+    // this same lock; if the compactor could attribute-and-stub outside it, the
+    // two interleave and a row gets stubbed against attribution the
+    // intervention is about to invalidate.
     seed({
       category: "assistant_output",
       type: "assistant.message",
@@ -1013,11 +1004,11 @@ describe("Compactor — audit-stub projection", () => {
 // ----------------------------------------------------------------------------
 
 // ----------------------------------------------------------------------------
-// The stub-projection canonical-bytes bound — `Spec-006 §Compacted Event
-// Format`'s companion to the append-path ceiling
+// The stub-projection canonical-bytes bound — the companion to the
+// append-path ceiling
 // ----------------------------------------------------------------------------
 
-describe("Compactor — the stub-projection canonical-bytes bound (Spec-006 §Compacted Event Format)", () => {
+describe("Compactor — the stub-projection canonical-bytes bound", () => {
   it("truncates the minted summary until the stored stub sits AT the ceiling, and signs the truncated bytes", async () => {
     // The append path caps `type` at the wire, so this row models the
     // out-of-band writer the bound exists for: this module reads SQLite
@@ -1071,8 +1062,8 @@ describe("Compactor — the stub-projection canonical-bytes bound (Spec-006 §Co
     // `credentialPolicyRef` rides the preserve-when-present loop verbatim, so
     // a foreign-written row can hand the projection a member no truncation may
     // shorten: preserved content is signed attribution evidence, not
-    // locally-minted prose. The pass must refuse rather than emit a stub the
-    // Spec-008 backfill seam can never carry — or a corrupt one.
+    // locally-minted prose. The pass must refuse rather than emit a stub
+    // backfill seam can never carry — or a corrupt one.
     const oversizedReference = "r".repeat(EVENT_CANONICAL_BYTES_MAX + 1024);
     const target = seed({
       category: "session_lifecycle",

@@ -1,13 +1,13 @@
-// The provider-neutral terminal-emission gate (Plan-005 Phase 3, T3.14 —
-// P1-1 intended close + P1-2-driver duplicate suppression).
+// The provider-neutral terminal-emission gate (P1-1 intended close +
+// P1-2-driver duplicate suppression).
 //
 // Both driver legs need exactly one guarantee at the moment a provider's
 // terminal frame arrives: at most one terminal per `(runId, runVersion)` epoch
 // reaches the emission pipeline, and the one that does carries whether a
 // daemon-initiated close preceded it. The two legs previously each held their
 // own near-verbatim copy of that logic, feeding ONE shared uniqueness index
-// (the Plan-006 partial unique index) — two implementations of one invariant,
-// which is one more than the invariant can survive.
+// (partial unique index) — two implementations of one invariant, which is one
+// more than the invariant can survive.
 //
 // This module is that logic once, at `provider/` level, on the
 // `NormalizedEventReorderBuffer` precedent: a provider-neutral mechanism the
@@ -21,14 +21,10 @@
 // already diagnosed by the thread-frame router — so a provider member would be
 // a constructor parameter with no reader.
 //
-// Routing is CONSUMED here, never re-decided (T3.14's own routing clause): the
-// gate takes the `ThreadFrameRoute` the T3.11 router already produced and
-// settles a run only on `project`. A child thread's terminal therefore never
-// settles the parent's run, and this boundary adds no second source of truth
-// for whose stream a frame came from.
+// Routing is CONSUMED here, never re-decided (its own routing clause): the
+// gate takes the `ThreadFrameRoute` router already produced and settles a run
+// only on `project`.
 //
-// Refs: Plan-005 §Phase 3 / T3.14 (P1-1, P1-2-driver), `Spec-006 §Run Lifecycle
-// (run_lifecycle)`.
 
 import type { ThreadFrameRoute } from "./thread-frame-router.js";
 
@@ -44,7 +40,7 @@ export interface TerminalRunFrame {
   readonly runVersion: number;
   /** The provider frame kind that produced the terminal, carried as data only. */
   readonly rawWireType: string;
-  /** The T3.11 router's decision for this frame, consumed unchanged. */
+  /** router's decision for this frame, consumed unchanged. */
   readonly route: ThreadFrameRoute;
 }
 

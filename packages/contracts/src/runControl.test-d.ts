@@ -1,7 +1,6 @@
 // Conditional-type tests against two `runControl.ts` shapes the runtime suite
 // cannot reach: the `InterventionRequestResponse` arm scoping of
-// `rejectionGuard`, and the `steer` arm's `ArtifactId[]` attachment element
-// (CP-014-7).
+// `rejectionGuard`, and the `steer` arm's `ArtifactId[]` attachment element.
 //
 // The runtime suite (`__tests__/runControl.test.ts`, "the rejectionGuard
 // member") proves the SCHEMA refuses the member on every arm but the rollback
@@ -98,7 +97,7 @@ export const steerResponse: InterventionRequestResponse = steerCarryingGuard;
 export const rejectedResponse: InterventionRequestResponse = rejectedCarryingGuard;
 
 // --------------------------------------------------------------------------
-// The `steer` arm's attachment element type (CP-014-7)
+// The `steer` arm's attachment element type
 // --------------------------------------------------------------------------
 //
 // The runtime suite proves the SCHEMA refuses a non-id element. That is again a

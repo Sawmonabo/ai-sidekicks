@@ -1,17 +1,14 @@
-// Plan-001 D5 — migration-shape regression test.
+// D5 — migration-shape regression test.
 //
-// Verifies I-001-3 (forward-declared schema shape is immutable at Tier 1).
 // If a future plan reshapes any column in `0001-initial.ts` (rename, type
 // change, NOT NULL drop, CHECK relaxation), this test fails fast so the
 // drift is caught at PR review rather than at a downstream consumer's
 // runtime.
 //
 // Path: ships at `src/session/__tests__/migration-shape.test.ts` to match
-// the package vitest discovery glob `src/**/__tests__/**/*.test.ts`. The
-// Plan-001 T3.4 cited path `migrations/test/` would be silently skipped by
-// that glob — see the §Decision Log erratum recorded with this PR.
+// the package vitest discovery glob `src/**/__tests__/**/*.test.ts`. cited
+// path `migrations/test/` would be silently skipped by that glob
 //
-// Schema source-of-truth is `docs/architecture/schemas/local-sqlite-schema.md`
 // + `0001-initial.ts` inline SQL. Forward-declared columns
 // (`session_events.pii_payload`, `prev_hash`, `row_hash`, `daemon_signature`)
 // ship with the initial migration; later migrations own their semantics.
@@ -37,54 +34,51 @@ import { QUEUE_AND_INTERVENTIONS_MIGRATION_SQL } from "../../migrations/0015-que
 import { COMMAND_RECEIPT_MCP_TASK_HANDLE_MIGRATION_SQL } from "../../migrations/0017-command-receipt-mcp-task-handle.js";
 import { applyMigrations, applyPragmas, openDatabase } from "../migration-runner.js";
 
-// Bound to exported identifiers so `Plan-010 §References` can anchor at the
-// two forward-FK tests durably. The docs-corpus symbol gate matches an
-// identifier-shaped anchor PRESENT IN THE FILE, which a spaced `it(...)` title
-// can never be — so that row previously anchored at the imported
-// `applyPragmas` helper, which kept validating after either test was renamed
-// or deleted and so presented the behaviour as covered when it was not
-// (Codex review, PR #254 round 5). Renaming or removing either test now forces
-// a change to the identifier the citation names, breaking the cite loudly.
+// Bound to exported identifiers so can anchor at the two forward-FK tests
+// durably. The docs-corpus symbol gate matches an identifier-shaped anchor
+// PRESENT IN THE FILE, which a spaced `it(...)` title can never be — so that
+// row previously anchored at the imported `applyPragmas` helper, which kept
+// validating after either test was renamed or deleted and so presented the
+// behaviour as covered when it was not (Codex review, PR #254 round 5).
+// Renaming or removing either test now forces a change to the exported
+// identifier, so the break is loud rather than silent.
 export const WRITE_INERT_ON_PARENTLESS_DB_TEST: string =
   "ships write-inert on a parent-less db: the referencing INSERT fails to compile, not as an FK violation";
 export const FORWARD_REFERENCES_DML_ENFORCEMENT_TEST: string =
   "enforces the forward REFERENCES clauses at DML time under foreign_keys = ON";
 
-// The canonical Plan-001 tables. Order is intentional (alphabetical by
-// SQLite's ORDER BY name) so the assertion is stable across SQLite versions.
-// This constant drives the per-table snapshot loop below — it is the
-// I-001-3 immutable-shape guard for the 0001 tables, so the Plan-003
-// version-2 tables are NOT added here (their shape is pinned by the
-// separate `0002-runtime-node migration shape` describe block).
-const PLAN_001_TABLES: ReadonlyArray<string> = [
+// Order is intentional (alphabetical by SQLite's ORDER BY name) so the
+// assertion is stable across SQLite versions. This constant drives the
+// per-table snapshot loop below — it is immutable-shape guard for the 0001
+// tables, so version-2 tables are NOT added here (their shape is pinned by
+// the separate `0002-runtime-node migration shape` describe block).
+const SESSION_CORE_TABLES: ReadonlyArray<string> = [
   "participant_keys",
   "schema_version",
   "session_events",
   "session_snapshots",
 ];
 
-// The full set of tables present after ALL migrations have applied
-// (Plan-001 version-1 tables + Plan-003 version-2 tables + Plan-005
-// version-3 tables + Plan-010 version-4 tables + the three Plan-006 tables —
-// version-5 `daemon_signing_keys`, version-8 `pending_anchor_uploads`, and
-// version-13 `session_content_keys` — plus the two Plan-009 version-10 tables
-// `repo_mounts` and `workspaces`, plus the three Plan-004 version-15 tables
-// `queue_items`, `interventions`, and the forward-declared `command_receipts`
-// shell, plus the two Plan-029 version-16 tables `provider_accounts` and
-// `provider_account_usage_windows`).
-// Version 11 (Plan-005) moves this census by ZERO: it rebuilds
-// `driver_capabilities` in place to widen a column CHECK, and the transient
-// `driver_capabilities_new` is renamed over the original within the same
-// script — a leftover transient would show up here as an extra table.
-// Alphabetical by SQLite's `ORDER BY name` — BINARY collation, so
-// `_` (0x5F) sorts before every lowercase letter and
+// The full set of tables present after ALL migrations have applied (version-1
+// tables + version-2 tables + version-3 tables + version-4 tables + the three
+// tables — version-5 `daemon_signing_keys`, version-8
+// `pending_anchor_uploads`, and version-13 `session_content_keys` — plus the
+// two version-10 tables `repo_mounts` and `workspaces`, plus the three
+// version-15 tables `queue_items`, `interventions`, and the forward-declared
+// `command_receipts` shell, plus the two version-16 tables
+// `provider_accounts` and `provider_account_usage_windows`). Version 11 moves
+// this census by ZERO: it rebuilds `driver_capabilities` in place to widen a
+// column CHECK, and the transient `driver_capabilities_new` is renamed over
+// the original within the same script — a leftover transient would show up
+// here as an extra table. Alphabetical by SQLite's `ORDER BY name` — BINARY
+// collation, so `_` (0x5F) sorts before every lowercase letter and
 // `run_execution_contexts` precedes `runtime_bindings`, while `workspaces`
-// precedes `worktrees` on the fifth byte (`s` 0x73 < `t` 0x74). The same
-// rule puts `provider_account_usage_windows` BEFORE `provider_accounts`:
-// the two share the prefix `provider_account`, and the next byte is `_`
-// (0x5F) against `s` (0x73). Kept separate from `PLAN_001_TABLES` so the
-// snapshot loop's 0001-immutability guard is unaffected by the 0002 / 0003 /
-// 0004 / 0005 / 0008 / 0010 / 0015 / 0016 additions.
+// precedes `worktrees` on the fifth byte (`s` 0x73 < `t` 0x74). The same rule
+// puts `provider_account_usage_windows` BEFORE `provider_accounts`: the two
+// share the prefix `provider_account`, and the next byte is `_` (0x5F)
+// against `s` (0x73). Kept separate from `SESSION_CORE_TABLES` so the snapshot
+// loop's 0001-immutability guard is unaffected by the 0002 / 0003 / 0004 /
+// 0005 / 0008 / 0010 / 0015 / 0016 additions.
 const ALL_EXPECTED_TABLES: ReadonlyArray<string> = [
   "branch_contexts",
   "command_receipts",
@@ -149,24 +143,23 @@ describe("0001-initial migration shape", () => {
     const rows = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
       .all() as ReadonlyArray<{ name: string }>;
-    // After version-16 the DB holds the full twenty-four-table set:
-    // the four Plan-001 tables, the two Plan-003 tables (node_capabilities,
-    // node_trust_state), the four Plan-005 tables (runtime_bindings,
-    // driver_capabilities, driver_tools, driver_contract_meta), the four
-    // Plan-010 tables (worktrees, ephemeral_clones, branch_contexts,
-    // run_execution_contexts), the two Plan-006 tables
+    // After version-16 the DB holds the full twenty-four-table set: the four
+    // tables, the two tables (node_capabilities, node_trust_state), the four
+    // tables (runtime_bindings, driver_capabilities, driver_tools,
+    // driver_contract_meta), the four tables (worktrees, ephemeral_clones,
+    // branch_contexts, run_execution_contexts), the two tables
     // (daemon_signing_keys at v5, pending_anchor_uploads at v8), the two
-    // Plan-009 tables (repo_mounts, workspaces at v10), the third Plan-006
-    // table (session_content_keys at v13), the three Plan-004 tables
-    // (queue_items, interventions, command_receipts at v15), and the two
-    // Plan-029 tables (provider_accounts, provider_account_usage_windows at
-    // v16). Versions 11 and 12 rebuild and backfill driver_capabilities rather
-    // than adding anything, so this list is also the assertion that version
-    // 11's transient `driver_capabilities_new` did not survive the rename.
+    // tables (repo_mounts, workspaces at v10), the third table
+    // (session_content_keys at v13), the three tables (queue_items,
+    // interventions, command_receipts at v15), and the two tables
+    // (provider_accounts, provider_account_usage_windows at v16). Versions 11
+    // and 12 rebuild and backfill driver_capabilities rather than adding
+    // anything, so this list is also the assertion that version 11's transient
+    // `driver_capabilities_new` did not survive the rename.
     expect(rows.map((r) => r.name)).toEqual(ALL_EXPECTED_TABLES);
   });
 
-  for (const table of PLAN_001_TABLES) {
+  for (const table of SESSION_CORE_TABLES) {
     it(`pins the column shape of \`${table}\``, () => {
       // PRAGMA table_info returns rows in CID (creation) order — stable
       // across SQLite versions because the column order is fixed by the
@@ -176,8 +169,6 @@ describe("0001-initial migration shape", () => {
         .all() as ReadonlyArray<PragmaColumn>;
       // Snapshot per table so a column rename / type change / NOT NULL
       // flip surfaces as a diff against the checked-in `.snap` file.
-      // Adding a new column to a Plan-001-owned table requires updating
-      // the snapshot AND the canonical schema doc in the same PR.
       expect(columns).toMatchSnapshot();
     });
   }
@@ -188,22 +179,21 @@ describe("0001-initial migration shape", () => {
       .all() as ReadonlyArray<PragmaColumn>;
     const byName = new Map(columns.map((c) => [c.name, c]));
 
-    // Plan-006 forward-decl: hash-chain + signature columns. NOT NULL
-    // for prev_hash / row_hash / daemon_signature (placeholder bytes
-    // satisfy the constraint per Plan-001 §Forward-declared columns).
+    // Forward-decl: hash-chain + signature columns. NOT NULL for
+    // prev_hash / row_hash / daemon_signature (placeholder bytes
+    // satisfy the constraint).
     expect(byName.get("prev_hash")?.notnull).toBe(1);
     expect(byName.get("row_hash")?.notnull).toBe(1);
     expect(byName.get("daemon_signature")?.notnull).toBe(1);
 
-    // Plan-022 forward-decl: PII payload column ships at Tier 1 with
-    // crypto-shred semantics owned by Plan-022. Nullable per same block
-    // (Plan-001 writes NULL for every V1 event — no V1 SessionEvent
-    // variant carries PII).
+    // Forward-decl: PII payload column ships at Tier 1 with
+    // crypto-shred semantics. Nullable per same block (writes NULL for
+    // every V1 event — no V1 SessionEvent variant carries PII).
     expect(byName.has("pii_payload")).toBe(true);
     expect(byName.get("pii_payload")?.notnull).toBe(0);
 
-    // monotonic_ns ships as Plan-001 owned (process.hrtime.bigint() at
-    // emit; within-daemon ordering per Spec-015 §Clock Handling, BL-062).
+    // monotonic_ns ships as owned (process.hrtime.bigint() at emit;
+    // within-daemon ordering).
     expect(byName.get("monotonic_ns")?.notnull).toBe(1);
   });
 
@@ -270,19 +260,16 @@ describe("0001-initial migration shape", () => {
   });
 });
 
-// Plan-003 PR #135 — version-2 migration-shape coverage.
+// PR #135 — version-2 migration-shape coverage.
 //
-// Pins the column set, NOT NULL flags, primary-key shape, and the two
-// DEFAULT clauses of the Plan-003 Local SQLite tables (`node_capabilities`,
-// `node_trust_state`). Schema source-of-truth is
-// `docs/architecture/schemas/local-sqlite-schema.md`
-// §"Runtime Node Local Tables (Plan-003)" / `migrations/0002-runtime-node.ts`.
+// Pins the column set, NOT NULL flags, primary-key shape, and the two DEFAULT
+// clauses of Local SQLite tables (`node_capabilities`, `node_trust_state`).
+// Schema source-of-truth is `migrations/0002-runtime-node.ts`.
 //
 // Asserted via PRAGMA table_info (explicit field-by-field), NOT
 // `toMatchSnapshot`, so this block adds no entries to the 0001 immutability
 // `.snap` file. Scope is the two new tables only — Postgres-table absence
-// and Plan-001 upstream-presence are a separate structural guard (T1.7),
-// not pinned here.
+// and upstream-presence are a separate structural guard, not pinned here.
 describe("0002-runtime-node migration shape", () => {
   let db: DatabaseType;
 
@@ -354,14 +341,12 @@ describe("0002-runtime-node migration shape", () => {
   });
 });
 
-// Plan-005 PR #159 — version-3 migration-shape coverage.
+// PR #159 — version-3 migration-shape coverage.
 //
 // Pins the column set, NOT NULL flags, primary-key shape, DEFAULT clauses,
-// and CHECK-constraint enforcement of the four Plan-005 Local SQLite tables
+// and CHECK-constraint enforcement of the four Local SQLite tables
 // (`runtime_bindings`, `driver_capabilities`, `driver_tools`,
 // `driver_contract_meta`). Schema source-of-truth is
-// `docs/architecture/schemas/local-sqlite-schema.md`
-// §"Driver and Runtime Binding Tables (Plan-005)" /
 // `migrations/0003-runtime-bindings.ts`.
 //
 // Asserted via PRAGMA table_info (explicit field-by-field) plus behavioral
@@ -370,11 +355,10 @@ describe("0002-runtime-node migration shape", () => {
 // only. The CHECK-rejection tests verify the provider-output defense-in-depth
 // layer actually fires (column presence alone would not prove the bound
 // landed), encoding the spec_coverage cites:
-//   * `Spec-005 §Required Behavior` — driver-contract operations persist provider session
-//     handles (runtime_bindings is the persistence surface).
-//   * `Spec-005 §Required Behavior` — provider-owned resume handles persisted separately from
-//     canonical run ids (runtime_bindings.resume_handle is nullable + distinct
-//     from id / run_id).
+//   * driver-contract operations persist provider session handles (runtime_bindings is
+//     the persistence surface).
+//   * provider-owned resume handles persisted separately from canonical run ids
+//     (runtime_bindings.resume_handle is nullable + distinct from id / run_id).
 describe("0003-runtime-bindings migration shape", () => {
   let db: DatabaseType;
 
@@ -398,14 +382,14 @@ describe("0003-runtime-bindings migration shape", () => {
       .all() as ReadonlyArray<PragmaColumn>;
 
     // Columns in CID (creation) order — fixed by the CREATE TABLE DDL, then
-    // EXTENDED at CID-last by version 11's three `ALTER TABLE ... ADD COLUMN`
-    // statements. The schema doc declares `cli_version_raw` /
-    // `cli_version_semver` beside `contract_version` and `spawn_config` beside
-    // `runtime_metadata` — their LOGICAL positions — while ADD COLUMN can only
-    // append, the same `retention_class`-style divergence version 9 produced on
+    // EXTENDED at CID-last by version 11's three `ALTER TABLE... The schema doc
+    // declares `cli_version_raw` / `cli_version_semver` beside
+    // `contract_version` and `spawn_config` beside `runtime_metadata` — their
+    // LOGICAL positions — while ADD COLUMN can only append, the same
+    // `retention_class`-style divergence version 9 produced on
     // `session_events`. Physical order is what PRAGMA reports, so physical
-    // order is what this pin records; no Plan-005 read or write depends on it
-    // (every statement names its columns).
+    // order is what this pin records; no read or write depends on it (every
+    // statement names its columns).
     expect(columns.map((c) => c.name)).toEqual([
       "id",
       "run_id",
@@ -439,9 +423,6 @@ describe("0003-runtime-bindings migration shape", () => {
       expect(byName.get(other)?.pk).toBe(0);
     }
 
-    // `Spec-005 §Required Behavior` — resume_handle (provider-owned handle) is persisted
-    // SEPARATELY from the canonical `id` / `run_id` and is NULLABLE (a run may
-    // exist before the provider issues a resume handle).
     expect(byName.get("resume_handle")?.notnull).toBe(0);
 
     // NOT NULL columns per the schema doc. `id` is intentionally EXCLUDED:
@@ -451,7 +432,7 @@ describe("0003-runtime-bindings migration shape", () => {
     // documented SQLite quirk; an `INTEGER PRIMARY KEY` rowid-alias would be
     // the sole exception). This matches the existing `session_events.id`
     // shape. The NOT NULL discipline on `id` is upheld at the write seam
-    // (T2.2 always supplies a generated id), not by the DDL.
+    // (always supplies a generated id), not by the DDL.
     for (const required of [
       "run_id",
       "driver_name",
@@ -633,7 +614,7 @@ describe("0003-runtime-bindings migration shape", () => {
       }).not.toThrow();
     }
     // An undeclared flag is rejected by the CHECK IN constraint. `pause` is the
-    // canonical excluded flag per `Spec-005 §Required Behavior` + ADR-011.
+    // canonical excluded flag.
     expect(() => {
       insertFlag("pause");
     }).toThrow(/CHECK constraint failed/i);
@@ -763,15 +744,13 @@ describe("0003-runtime-bindings migration shape", () => {
   });
 });
 
-// Plan-010 PR #253 — version-4 migration-shape coverage.
+// PR #253 — version-4 migration-shape coverage.
 //
 // Pins the column set, NOT NULL flags, primary-key shape, DEFAULT clauses,
 // index shape (including the two partial-unique indexes), and the behavioral
-// CHECK / UNIQUE / FK enforcement of the four Plan-010 Local SQLite tables
+// CHECK / UNIQUE / FK enforcement of the four Local SQLite tables
 // (`worktrees`, `ephemeral_clones`, `branch_contexts`,
 // `run_execution_contexts`). Schema source-of-truth is
-// `docs/architecture/schemas/local-sqlite-schema.md`
-// §"Workspace and Git Tables (Plan-009, Plan-010, Plan-011)" /
 // `migrations/0004-worktree-lifecycle.ts`.
 //
 // Asserted via PRAGMA table_info / index_list / index_info (explicit
@@ -786,36 +765,34 @@ describe("0003-runtime-bindings migration shape", () => {
 // chain.
 //
 // Shape-checkable spec/invariant cites:
-//   * Spec-010 §State And Data Implications — worktree records persist
-//     branch, mount, lifecycle state, and creating-session/run provenance
-//     (I-010-3); the per-run execution binding persists workspace, mode,
-//     roots, and git_common_dir with mode-conditional root identity; branch
-//     context is a polymorphic carrier whose at-most-one-root CHECK holds
-//     (I-010-5).
-//   * I-010-4 — the partial-unique `idx_worktrees_active_branch` (WHERE
-//     state NOT IN 'retired', 'failed') is the at-most-one-live-checkout
-//     race arbiter.
-//   * I-010-2 (DDL half) — the CHECK clauses ship verbatim inside the
-//     exported migration constant; byte-lockstep with the `worktree.ts`
-//     contract enums is owned by the T1.4 conformance test, NOT asserted
-//     here.
+//   * Worktree records persist branch, mount, lifecycle state, and
+//     creating-session/run provenance; the per-run execution binding
+//     persists workspace, mode, roots, and git_common_dir with
+//     mode-conditional root identity; branch context is a polymorphic
+//     carrier whose at-most-one-root CHECK holds.
+//   * The partial-unique `idx_worktrees_active_branch` (WHERE state NOT
+//     IN 'retired', 'failed') is the at-most-one-live-checkout race
+//     arbiter.
+//   * The CHECK clauses ship verbatim inside the exported migration
+//     constant; byte-lockstep with the `worktree.ts` contract enums is
+//     conformance test, NOT asserted here.
 //
-// Plan-009 parent rows (B23 forward-reference ordering): the migration's
-// `REFERENCES repo_mounts(id)` / `REFERENCES workspaces(id)` clauses target
-// tables version 4 does not create — Plan-009's version-10 migration does.
-// SQLite resolves FK targets lazily at DML time, so the version-4 CREATEs
-// apply against absent parents and the referencing INSERT is what fails while
-// a parent table is missing — as a `SQLITE_ERROR` statement-compile failure
-// (`no such table: main.<parent>`), NOT a `FOREIGN KEY constraint failed`
-// violation. BOTH classes stay pinned, on the two handles that can each
-// exhibit exactly one: the version-≤4 isolation handle
+// Parent rows (B23 forward-reference ordering): the migration's `REFERENCES
+// repo_mounts(id)` / `REFERENCES workspaces(id)` clauses target tables
+// version 4 does not create — the version-10 migration does. SQLite resolves
+// FK targets lazily at DML time, so the version-4 CREATEs apply against
+// absent parents and the referencing INSERT is what fails while a parent
+// table is missing — as a `SQLITE_ERROR` statement-compile failure (`no such
+// table: main.<parent>`), NOT a `FOREIGN KEY constraint failed` violation.
+// BOTH classes stay pinned, on the two handles that can each exhibit exactly
+// one: the version-≤4 isolation handle
 // (`openDatabaseMigratedThroughVersionFour`) reaches the `SQLITE_ERROR`
 // class, and the fully-migrated handle this block otherwise uses reaches the
 // true FK-constraint class, where the parent TABLE exists and only the parent
 // ROW is missing. The insert-shaped tests below therefore seed FIXTURE ROWS
-// against the real Plan-009 DDL that `openDatabase` creates at version 10.
-// A stub parent table cannot serve here: the real table already exists on
-// that handle, so a plain `CREATE TABLE repo_mounts` would collide with it.
+// against the real DDL that `openDatabase` creates at version 10. A stub
+// parent table cannot serve here: the real table already exists on that
+// handle, so a plain `CREATE TABLE repo_mounts` would collide with it.
 describe("0004-worktree-lifecycle migration shape", () => {
   let db: DatabaseType;
 
@@ -844,15 +821,15 @@ describe("0004-worktree-lifecycle migration shape", () => {
   }
 
   beforeEach(() => {
-    // Canonical factory (Plan-001): ":memory:" is better-sqlite3's in-memory
+    // Canonical factory: ":memory:" is better-sqlite3's in-memory
     // database-path spelling, so `openDatabase` composes the pinned
     // applyPragmas → applyMigrations order for this block too — which now
-    // reaches version 10 and therefore creates the real Plan-009 parents.
+    // reaches version 10 and therefore creates the real parents.
     db = openDatabase(":memory:");
-    // FIXTURE PARENT ROWS against the real Plan-009 DDL, supplying every
-    // NOT NULL column those tables declare, so the version-4 REFERENCES
-    // clauses resolve at DML time under foreign_keys = ON. The mount is
-    // inserted FIRST: `workspaces.repo_mount_id` is itself an enforced FK.
+    // FIXTURE PARENT ROWS against the real DDL, supplying every NOT NULL
+    // column those tables declare, so the version-4 REFERENCES clauses
+    // resolve at DML time under foreign_keys = ON. The mount is inserted
+    // FIRST: `workspaces.repo_mount_id` is itself an enforced FK.
     db.prepare(
       `INSERT INTO repo_mounts
          (id, session_id, node_id, local_path, canonical_root, vcs_type, state, attached_at, updated_at)
@@ -997,12 +974,12 @@ describe("0004-worktree-lifecycle migration shape", () => {
   }
 
   it("applies migration 0004 in isolation without creating repo_mounts / workspaces", () => {
-    // B23 forward-reference ordering: SQLite resolves REFERENCES targets
-    // lazily at DML time, so the version-4 CREATEs land on a database that has
-    // never seen a Plan-009 migration. The claim is about migration 0004 IN
-    // ISOLATION — it creates its own four tables and neither Plan-009 parent —
-    // which a fully-migrated handle can no longer demonstrate, since version 10
-    // creates those parents for real.
+    // B23 forward-reference ordering: SQLite resolves REFERENCES targets lazily
+    // at DML time, so the version-4 CREATEs land on a database that has never
+    // seen a migration. The claim is about migration 0004 IN ISOLATION — it
+    // creates its own four tables and neither parent — which a fully-migrated
+    // handle can no longer demonstrate, since version 10 creates those parents
+    // for real.
     const isolatedDb: DatabaseType = openDatabaseMigratedThroughVersionFour();
     try {
       const tableRows = isolatedDb
@@ -1017,9 +994,6 @@ describe("0004-worktree-lifecycle migration shape", () => {
       ]) {
         expect(tableNames).toContain(plan010Table);
       }
-      // Migration 0004 must NOT create the Plan-009 parents itself: they are
-      // Plan-009-owned, and a version-4 CREATE of either would collide with
-      // version 10's real DDL on every fully-migrated handle.
       expect(tableNames).not.toContain("repo_mounts");
       expect(tableNames).not.toContain("workspaces");
       // The version-4 anchor row landed atomically with the CREATEs.
@@ -1041,18 +1015,16 @@ describe("0004-worktree-lifecycle migration shape", () => {
     // discriminates FK failures by message would miss it.
     //
     // Empirically discovered against the then-pinned toolchain (better-sqlite3
-    // 12.9.0 / SQLite 3.53.0) and re-confirmed green on the moved pin
-    // (13.0.3 / SQLite 3.53.4, Plan-023 T-023p-1B-4): with the parent TABLE
-    // absent, SQLite refuses
-    // the statement outright — `SQLITE_ERROR: no such table:
-    // main.repo_mounts` — and never reaches constraint evaluation, so the
-    // error class is NOT the `FOREIGN KEY constraint failed`
-    // (SQLITE_CONSTRAINT_FOREIGNKEY) the real-parent negative control below
-    // produces, where the parent TABLE exists and only the parent ROW is
-    // missing. Both halves are pinned, on the two handles that can each
-    // exhibit exactly one. The throw actually surfaces at prepare(), before a
-    // value is bound; prepare and run stay inside one block so the pin does
-    // not depend on which phase raises.
+    // 12.9.0 / SQLite 3.53.0) and re-confirmed green on the moved pin (13.0.3
+    // / SQLite 3.53.4): with the parent TABLE absent, SQLite refuses the
+    // statement outright — `SQLITE_ERROR: no such table: main.repo_mounts` —
+    // and never reaches constraint evaluation, so the error class is NOT the
+    // `FOREIGN KEY constraint failed` (SQLITE_CONSTRAINT_FOREIGNKEY) the
+    // real-parent negative control below produces, where the parent TABLE
+    // exists and only the parent ROW is missing. Both halves are pinned, on
+    // the two handles that can each exhibit exactly one. The throw actually
+    // surfaces at prepare(), before a value is bound; prepare and run stay
+    // inside one block so the pin does not depend on which phase raises.
     const parentlessDb: DatabaseType = openDatabaseMigratedThroughVersionFour();
     try {
       expect(parentlessDb.pragma("foreign_keys", { simple: true })).toBe(1);
@@ -1116,7 +1088,7 @@ describe("0004-worktree-lifecycle migration shape", () => {
     // parent ROW exists — not because enforcement is silently off — and proves
     // the REFERENCES clauses shipped un-stripped. This is the FK-constraint
     // half of the class distinction the parent-less test above opens: here the
-    // parent table is Plan-009's real one and only the row is missing.
+    // parent table is the real one and only the row is missing.
     expect(db.pragma("foreign_keys", { simple: true })).toBe(1);
     expect(() => {
       insertWorktreeRow({ id: "worktree-dangling", repoMountId: "missing-mount" });
@@ -1161,7 +1133,7 @@ describe("0004-worktree-lifecycle migration shape", () => {
       expect(byName.get(other)?.pk).toBe(0);
     }
 
-    // I-010-3 provenance: created_by_session_id is mandatory;
+    // Provenance: created_by_session_id is mandatory;
     // created_by_run_id is nullable (NULL = pre-run explicit prepare).
     expect(byName.get("created_by_session_id")?.notnull).toBe(1);
     expect(byName.get("created_by_run_id")?.notnull).toBe(0);
@@ -1200,7 +1172,7 @@ describe("0004-worktree-lifecycle migration shape", () => {
       .all() as ReadonlyArray<{ name: string }>;
     expect(repoIndexColumns.map((c) => c.name)).toEqual(["repo_mount_id"]);
 
-    // I-010-4 race arbiter: UNIQUE + partial (WHERE state NOT IN
+    // Race arbiter: UNIQUE + partial (WHERE state NOT IN
     // ('retired', 'failed')) on (repo_mount_id, branch_name).
     expect(byIndexName.get("idx_worktrees_active_branch")?.unique).toBe(1);
     expect(byIndexName.get("idx_worktrees_active_branch")?.partial).toBe(1);
@@ -1279,8 +1251,8 @@ describe("0004-worktree-lifecycle migration shape", () => {
   it("rejects an UPDATE that moves a non-live worktree back into the live set on a held (mount, branch)", () => {
     // The reverse transition: the arbiter must also fire on the index-entry
     // INSERT an UPDATE drives, not only on row INSERT. A resurrect-on-retry
-    // bug would otherwise put two live checkouts on one branch — exactly the
-    // I-010-4 race the partial index exists to arbitrate.
+    // bug would otherwise put two live checkouts on one branch — exactly
+    // race the partial index exists to arbitrate.
     insertWorktreeRow({ id: "worktree-live", branchName: "feature/resurrect", state: "ready" });
     insertWorktreeRow({
       id: "worktree-retired",
@@ -1293,7 +1265,7 @@ describe("0004-worktree-lifecycle migration shape", () => {
   });
 
   it("enforces the state CHECK on `worktrees`", () => {
-    // Behavioral proof that SQLite enforces the enum. T1.4's conformance test
+    // Behavioral proof that SQLite enforces the enum. the conformance test
     // string-extracts the CHECK text from the migration constant, which
     // cannot show the constraint fires. Each accept takes a distinct branch
     // so the live states do not collide on idx_worktrees_active_branch.
@@ -1496,13 +1468,13 @@ describe("0004-worktree-lifecycle migration shape", () => {
       .all() as ReadonlyArray<{ name: string }>;
     expect(workspaceIndexColumns.map((c) => c.name)).toEqual(["workspace_id"]);
 
-    // One binding row per (workspace, worktree) — the D-010-15 upsert
-    // target: UNIQUE + partial (WHERE worktree_id IS NOT NULL). The
-    // `partial === 1` metadata assertion is the ONLY guard on the WHERE
-    // clause's presence: SQLite already treats NULLs as distinct in a unique
-    // index, so dropping the predicate would change neither accept nor reject
-    // behavior — the predicate buys index size and partial-index planning,
-    // not uniqueness. The uniqueness itself is pinned behaviorally below.
+    // One binding row per (workspace, worktree) — upsert target: UNIQUE +
+    // partial (WHERE worktree_id IS NOT NULL). The `partial === 1` metadata
+    // assertion is the ONLY guard on the WHERE clause's presence: SQLite
+    // already treats NULLs as distinct in a unique index, so dropping the
+    // predicate would change neither accept nor reject behavior — the
+    // predicate buys index size and partial-index planning, not uniqueness.
+    // The uniqueness itself is pinned behaviorally below.
     expect(byIndexName.get("idx_branch_contexts_worktree_workspace")?.unique).toBe(1);
     expect(byIndexName.get("idx_branch_contexts_worktree_workspace")?.partial).toBe(1);
     const worktreeWorkspaceColumns = db
@@ -1512,11 +1484,11 @@ describe("0004-worktree-lifecycle migration shape", () => {
   });
 
   it("rejects a second branch_contexts row on the same (worktree_id, workspace_id)", () => {
-    // The behavioral half of the D-010-15 upsert target. Without it the index
-    // is metadata-only: mutating the predicate to
-    // `WHERE ephemeral_clone_id IS NOT NULL` leaves unique / partial /
-    // index_info identical and every other assertion in this block green,
-    // because nothing else ever puts two rows on one worktree_id.
+    // The behavioral half of upsert target. Without it the index is
+    // metadata-only: mutating the predicate to `WHERE ephemeral_clone_id IS
+    // NOT NULL` leaves unique / partial / index_info identical and every
+    // other assertion in this block green, because nothing else ever puts two
+    // rows on one worktree_id.
     insertWorktreeRow({ id: "worktree-1" });
     // The helper pins workspace_id to "workspace-1", so both rows share the
     // workspace and collide on the full indexed pair.
@@ -1532,9 +1504,9 @@ describe("0004-worktree-lifecycle migration shape", () => {
   });
 
   it("admits multiple branch-mode branch_contexts rows in one workspace (worktree_id NULL on each)", () => {
-    // Branch-mode representability (I-010-5): the main checkout carries no
-    // Plan-010 root row, and one workspace may hold many such contexts. This
-    // guards the branch-mode ARM, not the partial predicate — a NOT NULL on
+    // Branch-mode representability: the main checkout carries no root row,
+    // and one workspace may hold many such contexts. This guards the
+    // branch-mode ARM, not the partial predicate — a NOT NULL on
     // worktree_id, a COALESCE(worktree_id, '') index expression, or an
     // at-most-one-root CHECK tightened to exactly-one would each break it.
     // It is deliberately NOT a predicate pin: under SQLite's NULL
@@ -1549,8 +1521,8 @@ describe("0004-worktree-lifecycle migration shape", () => {
   it("accepts one branch_contexts row per polymorphic arm (worktree-bound, clone-bound, neither)", () => {
     insertWorktreeRow({ id: "worktree-1" });
     insertEphemeralCloneRow({ id: "clone-1" });
-    // I-010-5 representability: worktree rows reference the worktree, clone
-    // rows the clone, branch-mode rows neither.
+    // Representability: worktree rows reference the worktree, clone rows
+    // the clone, branch-mode rows neither.
     expect(() => {
       insertBranchContextRow({ id: "branch-context-worktree", worktreeId: "worktree-1" });
     }).not.toThrow();
@@ -1701,12 +1673,12 @@ describe("0004-worktree-lifecycle migration shape", () => {
   it("enforces the execution_mode CHECK on `run_execution_contexts`", () => {
     // Accepts for all four canonical modes live in the test above; this is
     // the missing reject half. An out-of-enum mode ALSO fails the
-    // mode-conditional CHECK (no OR arm matches it), so the loose
-    // /CHECK constraint failed/ matcher used elsewhere in this block could
-    // not tell the two apart — the matcher below names the enum CHECK's own
+    // mode-conditional CHECK (no OR arm matches it), so the loose /CHECK
+    // constraint failed/ matcher used elsewhere in this block could not
+    // tell the two apart — the matcher below names the enum CHECK's own
     // expression to prove which constraint fired. It stops at the opening
     // paren on purpose: byte-lockstep with the `worktree.ts` contract enums
-    // is T1.4's job, not this block's.
+    // is the job, not this block's.
     //
     // 'ephemeral-clone' (hyphen) is the sharpest probe: the DDL spells that
     // mode with a SPACE, so the hyphen is the exact typo a caller would make.
@@ -1779,7 +1751,7 @@ describe("0004-worktree-lifecycle migration shape", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Plan-006 T2.7 — `daemon_signing_keys` (migration version 5).
+// `daemon_signing_keys` (migration version 5).
 // ---------------------------------------------------------------------------
 //
 // The version-5 table was previously covered only by the table-name census in
@@ -1791,8 +1763,7 @@ describe("0004-worktree-lifecycle migration shape", () => {
 // Every value asserted below was read out of SQLite's own introspection
 // (`PRAGMA table_info` / `PRAGMA index_list`) against the then-pinned
 // toolchain (better-sqlite3 12.9.0 / SQLite 3.53.0), re-confirmed green on the
-// moved pin (13.0.3 / SQLite 3.53.4, Plan-023 T-023p-1B-4), rather than
-// reasoned from the DDL —
+// moved pin (13.0.3 / SQLite 3.53.4), rather than reasoned from the DDL —
 // column ORDER especially, which no reading of the CREATE TABLE can certify.
 //
 // What this block does NOT re-assert, deliberately: the table-name census, the
@@ -1801,14 +1772,14 @@ describe("0004-worktree-lifecycle migration shape", () => {
 // same division the 0004 block observes.
 //
 // SHAPE-CHECKABLE CITES:
-//   * `Spec-022 §Daemon Master Key` — the private half is SEALED at rest via
-//     the OS-keystore master key; the column is BLOB NOT NULL and never holds
-//     cleartext key material. The sealing itself is `signing-key-source.ts`'s
-//     injected boundary, covered by that module's own suite.
-//   * `ADR-004 §Decision` — daemon-private key material is per-machine and
-//     lives in local SQLite, never in shared Postgres. That this table exists
-//     in THIS database is the assertion.
-//   * I-006-2-02's custody half — `session_id` is the PRIMARY KEY, so a second
+//   * the private half is SEALED at rest via the OS-keystore master key; the
+//     column is BLOB NOT NULL and never holds cleartext key material. The
+//     sealing itself is `signing-key-source.ts`'s injected boundary, covered
+//     by that module's own suite.
+//   * daemon-private key material is per-machine and lives in local SQLite,
+//     never in shared Postgres. That this table exists in THIS database is
+//     the assertion.
+//   * The custody half — `session_id` is the PRIMARY KEY, so a second
 //     `create()` for one session is a constraint error rather than a silent
 //     re-key that would strand every already-signed row behind a public key no
 //     longer derivable from the stored private half.
@@ -1820,8 +1791,8 @@ describe("0005-daemon-signing-keys migration shape", () => {
   const FIXTURE_SEALED_PRIVATE_KEY: Buffer = Buffer.alloc(48, 0x02);
 
   beforeEach(() => {
-    // Canonical factory (Plan-001): applyPragmas → applyMigrations in the
-    // pinned order, which now reaches version 5.
+    // Canonical factory: applyPragmas → applyMigrations in the pinned
+    // order, which now reaches version 5.
     db = openDatabase(":memory:");
   });
 
@@ -1918,7 +1889,7 @@ describe("0005-daemon-signing-keys migration shape", () => {
     expect(indexColumns.map((c) => c.name)).toEqual(["session_id"]);
   });
 
-  it("anchors the version-5 schema_version row with its Plan-006 description", () => {
+  it("anchors the version-5 schema_version row with its description", () => {
     const anchorRows = db
       .prepare("SELECT description FROM schema_version WHERE version = 5")
       .all() as ReadonlyArray<{ description: string }>;
@@ -2039,7 +2010,7 @@ describe("0005-daemon-signing-keys migration shape", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Plan-006 T3.1 — run-lifecycle terminal backstop (migration version 6).
+// Run-lifecycle terminal backstop (migration version 6).
 // ---------------------------------------------------------------------------
 //
 // Version 6 adds no TABLE, so `ALL_EXPECTED_TABLES` pins nothing about it: the
@@ -2051,7 +2022,7 @@ describe("0005-daemon-signing-keys migration shape", () => {
 //
 // The deeper behavioral matrix (insert-leg NULL + storage-class drift, the
 // update leg's value-rewrite and de-scope arms, and the index's own
-// duplicate-terminal rejection) is T3.5's per the plan; this block deliberately
+// duplicate-terminal rejection) is the per the plan; this block deliberately
 // does not duplicate it.
 describe("0006-run-lifecycle-terminal-backstop-index migration shape", () => {
   let db: DatabaseType;
@@ -2170,7 +2141,7 @@ describe("0006-run-lifecycle-terminal-backstop-index migration shape", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Plan-006 T3.3 — `pending_anchor_uploads` (migration version 8).
+// `pending_anchor_uploads` (migration version 8).
 // ---------------------------------------------------------------------------
 //
 // The durable Merkle-anchor upload queue. `ALL_EXPECTED_TABLES` pins that the
@@ -2180,20 +2151,18 @@ describe("0006-run-lifecycle-terminal-backstop-index migration shape", () => {
 // Every value asserted below was read out of SQLite's own introspection
 // (`PRAGMA table_info` / `index_list` / `index_info`) against the then-pinned
 // toolchain (better-sqlite3 12.9.0 / SQLite 3.53.0), re-confirmed green on the
-// moved pin (13.0.3 / SQLite 3.53.4, Plan-023 T-023p-1B-4), rather than
-// reasoned from the DDL — column ORDER and the two autoindex NAMES especially,
-// which no
-// reading of the CREATE TABLE can certify.
+// moved pin (13.0.3 / SQLite 3.53.4), rather than reasoned from the DDL —
+// column ORDER and the two autoindex NAMES especially, which no reading of the
+// CREATE TABLE can certify.
 //
-// Spec coverage: `Spec-006 §Post-Compaction Integrity` — the covering-anchor
-// precondition is a COVERAGE test, not an exact-start match, which is exactly
-// why `end_sequence` sits in the UNIQUE key. The final arm below is that
-// property asserted behaviorally: two anchors sharing a `start_sequence`
-// coexist, and only an identical range is deduped.
+// The covering-anchor precondition is a COVERAGE test, not an exact-start
+// match, which is exactly why `end_sequence` sits in the UNIQUE key. The
+// final arm below is that property asserted behaviorally: two anchors sharing
+// a `start_sequence` coexist, and only an identical range is deduped.
 //
 // The service-level behavior on top of this shape (cadence firing, force-fire
-// re-entry returning the queued row without re-signing) is Plan-006 T3.5's
-// file set; this block covers the storage contract only.
+// re-entry returning the queued row without re-signing) is the file set; this
+// block covers the storage contract only.
 describe("0008-pending-anchor-uploads migration shape", () => {
   let db: DatabaseType;
 
@@ -2366,7 +2335,7 @@ describe("0008-pending-anchor-uploads migration shape", () => {
     expect(indexDdl?.sql).toContain("WHERE uploaded_at IS NULL");
   });
 
-  it("anchors the version-8 schema_version row with its Plan-006 description", () => {
+  it("anchors the version-8 schema_version row with its description", () => {
     const anchorRows = db
       .prepare("SELECT description FROM schema_version WHERE version = 8")
       .all() as ReadonlyArray<{ description: string }>;
@@ -2378,9 +2347,9 @@ describe("0008-pending-anchor-uploads migration shape", () => {
 
   it("has NO foreign key into session_events — a crypto-shred must not erase the witness", () => {
     // Deliberate absence, asserted so a later migration cannot add one
-    // casually. The premise is ROW LIFETIME, not the shred mechanism: Spec-022
-    // Path 1 destroys the per-participant key and deletes no row at all (the
-    // hard DELETE is Path 2, and Postgres-only). What does remove local rows is
+    // casually. The premise is ROW LIFETIME, not the shred mechanism: Path 1
+    // destroys the per-participant key and deletes no row at all (the hard
+    // DELETE is Path 2, and Postgres-only). What does remove local rows is
     // compaction, which rewrites them into `audit_stub` form, and any later
     // retention pass. An FK would either block those or cascade into the
     // anchors, destroying the very commitment that proves the range once
@@ -2390,8 +2359,7 @@ describe("0008-pending-anchor-uploads migration shape", () => {
   });
 
   it("dedups an identical range but lets a wider covering anchor sharing start_sequence coexist", () => {
-    // The Spec-006 §Post-Compaction Integrity property, asserted at the storage
-    // layer. Three inserts, three distinct outcomes:
+    // Asserted at the storage layer. Three inserts, three distinct outcomes:
 
     // 1. The routine cadence anchor over [1, 1000].
     enqueueAnchor({ id: "anchor-cadence", startSequence: 1, endSequence: 1000 });
@@ -2436,7 +2404,7 @@ describe("0008-pending-anchor-uploads migration shape", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Plan-006 T3.2 — compaction retention discriminator (migration version 9).
+// Compaction retention discriminator (migration version 9).
 // ---------------------------------------------------------------------------
 //
 // Version 9 adds no TABLE, so `ALL_EXPECTED_TABLES` pins nothing about it: the
@@ -2619,7 +2587,7 @@ describe("0009-retention-class-and-stub-signature migration shape", () => {
     expect(indexDdl?.sql).toContain("WHERE retention_class IS NULL");
   });
 
-  it("anchors the version-9 schema_version row with its Plan-006 description", () => {
+  it("anchors the version-9 schema_version row with its description", () => {
     const versionRows = db
       .prepare("SELECT description FROM schema_version WHERE version = 9")
       .all() as ReadonlyArray<{ description: string }>;
@@ -2631,18 +2599,15 @@ describe("0009-retention-class-and-stub-signature migration shape", () => {
   });
 });
 
-// Plan-005 T1.7 — version-11 migration-shape coverage.
 //
 // Pins the four legs of `migrations/0011-driver-capability-currency.ts`: the
-// fourteen-value `driver_capabilities.capability_flag` CHECK this ordinal
-// leaves behind (reached by a twelve-step table rebuild, since SQLite cannot
-// alter a column CHECK in place; ordinal 14 rebuilds the same column again to
-// admit seventeen, so every claim in this block is scoped to THIS ordinal's
-// widening), the thirteen-flag `supported = 0` backfill this ordinal writes, the
+// fourteen-value `driver_capabilities.capability_flag` CHECK this ordinal leaves
+// behind (reached by a twelve-step table rebuild, since SQLite cannot alter a
+// column CHECK in place; ordinal 14 rebuilds the same column again to admit
+// seventeen, so every claim in this block is scoped to THIS ordinal's widening),
+// the thirteen-flag `supported = 0` backfill this ordinal writes, the
 // `cli_version_raw` / `cli_version_semver` pair on `runtime_bindings` +
-// `driver_contract_meta`, and `runtime_bindings.spawn_config`. Schema
-// source-of-truth is `docs/architecture/schemas/local-sqlite-schema.md`
-// §"Driver and Runtime Binding Tables (Plan-005)".
+// `driver_contract_meta`, and `runtime_bindings.spawn_config`.
 //
 // The physical column shape of the three tables is pinned by the
 // `0003-runtime-bindings migration shape` block above (those pins run on a
@@ -2659,12 +2624,11 @@ describe("0009-retention-class-and-stub-signature migration shape", () => {
 // `openDatabaseMigratedThroughVersionFour`.
 //
 // Shape-checkable spec/invariant cites:
-//   * I-005-2 — an undeclared capability is UNSUPPORTED: the backfill writes
+//   * An undeclared capability is UNSUPPORTED: the backfill writes
 //     `supported = 0`, never 1, and never overwrites a declared row.
-//   * `Spec-005 §Required Behavior` — the `cliVersion` report is persisted as a
-//     both-or-neither pair (verbatim + parsed), and a NULL pair on
-//     `driver_contract_meta` is the cache MISS that forces a refresh rather
-//     than a fabricated version.
+//   * the `cliVersion` report is persisted as a both-or-neither pair (verbatim
+//     + parsed), and a NULL pair on `driver_contract_meta` is the cache MISS
+//     that forces a refresh rather than a fabricated version.
 describe("0011-driver-capability-currency migration shape", () => {
   let db: DatabaseType;
 
@@ -2815,8 +2779,8 @@ describe("0011-driver-capability-currency migration shape", () => {
       total: 14,
     });
 
-    // `pause` is the canonical EXCLUDED flag per `Spec-005 §Required Behavior`
-    // + ADR-011 — widening the CHECK must not have widened it to everything.
+    // `pause` is the canonical EXCLUDED flag
+    // + Widening the CHECK must not have widened it to everything.
     expect(() => {
       insertCapabilityRow(db, "claude", "pause", 1, FIXTURE_TIMESTAMP);
     }).toThrow(/CHECK constraint failed/i);
@@ -2936,7 +2900,7 @@ describe("0011-driver-capability-currency migration shape", () => {
     }).toThrow(/CHECK constraint failed/i);
 
     // Embedded NUL, on each half independently — the provider-string
-    // defense-in-depth bound the other Plan-005 text columns already carry.
+    // defense-in-depth bound the other text columns already carry.
     expect(() => {
       insertBindingWithCliVersion(
         "binding-cli-raw-nul",
@@ -2999,7 +2963,7 @@ describe("0011-driver-capability-currency migration shape", () => {
     }).toThrow(/CHECK constraint failed/i);
 
     // Embedded NUL, on each half independently — the provider-string
-    // defense-in-depth bound the other Plan-005 text columns already carry.
+    // defense-in-depth bound the other text columns already carry.
     expect(() => {
       insertContractMetaWithCliVersion("gemini", `0.149.1${String.fromCharCode(0)}x`, "1.0.0");
     }).toThrow(/CHECK constraint failed/i);
@@ -3068,8 +3032,8 @@ describe("0011-driver-capability-currency migration shape", () => {
           .get("codex", "mcp"),
       ).toEqual({ supported: 1, refreshed_at: "2026-07-01T00:00:00.000Z" });
 
-      // I-005-2: every BACKFILLED row is `supported = 0`. An undeclared
-      // capability is unsupported, and nothing in a migration may declare one.
+      // Every BACKFILLED row is `supported = 0`. An undeclared capability is
+      // unsupported, and nothing in a migration may declare one.
       const backfilledSupportedValues = isolatedDb
         .prepare(
           "SELECT DISTINCT supported FROM driver_capabilities WHERE capability_flag NOT IN ('resume', 'steer', 'mcp')",
@@ -3155,7 +3119,7 @@ describe("0011-driver-capability-currency migration shape", () => {
     }
   });
 
-  it("anchors the version-11 schema_version row with its Plan-005 description", () => {
+  it("anchors the version-11 schema_version row with its description", () => {
     const versionRows = db
       .prepare("SELECT description FROM schema_version WHERE version = 11")
       .all() as ReadonlyArray<{ description: string }>;
@@ -3168,16 +3132,15 @@ describe("0011-driver-capability-currency migration shape", () => {
   });
 
   it("keeps the backfilled row set in exact lockstep with DRIVER_CAPABILITY_FLAGS", () => {
-    // THE UNION-PARITY TRIPWIRE. The migration hardcodes its flag literals on
-    // purpose (a migration is a frozen point-in-time copy of the schema — the
-    // 0003 precedent), so nothing structural ties the backfill to the contract
-    // const. This test is that tie, asserted behaviorally through live rows:
-    // it is the Plan-005 analogue of the I-010-2 DDL-conformance tripwire, and
-    // it fails the moment either side moves without the other.
+    // The migration hardcodes its flag literals on purpose (a migration is a
+    // frozen point-in-time copy of the schema — the 0003 precedent), so
+    // nothing structural ties the backfill to the contract const. This test is
+    // that tie, asserted behaviorally through live rows: it is analogue of
+    // DDL-conformance tripwire, and it fails the moment either side moves
+    // without the other.
     //
     // Compared as SORTED sets, deliberately. Row order without an ORDER BY is
     // undefined, and the two canonical corpus listings of these fourteen values
-    // (`api-payload-contracts.md` §Shared Enums and the local-SQLite schema doc)
     // already disagree on the order of the last two — vocabulary is the claim,
     // ordering is not.
     const isolatedDb = openDatabaseMigratedThroughVersionTen();
@@ -3199,7 +3162,7 @@ describe("0011-driver-capability-currency migration shape", () => {
           "`provider/driver-capabilities-writer.ts` proves exactly this key set on every " +
           "cold-start hydration (naming both the missing and the unexpected keys), and a " +
           "mismatch throws before any refresh can heal it. The const and the backfilled row " +
-          "set move in LOCKSTEP: Plan-005 T3.19 lands the fourteenth union member and the " +
+          "set move in LOCKSTEP: lands the fourteenth union member and the" +
           "fourteenth `transcript_replay` row in the SAME migration ordinal (the CHECK having " +
           "widened one ordinal earlier, which costs nothing). A red arm here means the two " +
           "diverged — widen whichever half lags, never this assertion.",
@@ -3210,7 +3173,6 @@ describe("0011-driver-capability-currency migration shape", () => {
   });
 });
 
-// Plan-005 T3.19 — version-12 migration-shape coverage.
 //
 // Version 12 is a PURE ROW BACKFILL. Its two legs settle in different ordinals
 // and conflating them is the trap: the `capability_flag` CHECK was already
@@ -3222,11 +3184,11 @@ describe("0011-driver-capability-currency migration shape", () => {
 // left at thirteen rows fails the next hydrate BEFORE any refresh could heal it.
 //
 // Shape-checkable spec/invariant cites:
-//   * I-005-2 — an undeclared capability is UNSUPPORTED: the backfill writes
+//   * An undeclared capability is UNSUPPORTED: the backfill writes
 //     `supported = 0`, never 1, and never overwrites a declared row.
-//   * `Spec-005 §Recovery Consequences` — the cache is the cold-start source of
-//     truth, so its currency stamp must describe the driver's own last answer
-//     rather than the migration's wall clock.
+//   * the cache is the cold-start source of truth, so its currency stamp must
+//     describe the driver's own last answer rather than the migration's wall
+//     clock.
 describe("0012-transcript-capability-backfill migration shape", () => {
   let db: DatabaseType;
 
@@ -3312,7 +3274,7 @@ describe("0012-transcript-capability-backfill migration shape", () => {
       expect(capabilityFlagsFor(isolatedDb, "claude")).toEqual([...DRIVER_CAPABILITY_FLAGS].sort());
       expect(capabilityFlagsFor(isolatedDb, "codex")).toEqual([...DRIVER_CAPABILITY_FLAGS].sort());
 
-      // I-005-2 — undeclared is unsupported, so the migration writes 0 and never 1.
+      // Undeclared is unsupported, so the migration writes 0 and never 1.
       expect(
         isolatedDb
           .prepare(
@@ -3557,7 +3519,6 @@ describe("0013-content-payload migration shape", () => {
   });
 });
 
-// Plan-005 T3.26 — version-14 migration-shape coverage.
 //
 // Version 14 is the pairing version 12 did NOT need. Version 11 froze the
 // `capability_flag` CHECK at exactly fourteen literals, so `transcript_replay`
@@ -3569,13 +3530,13 @@ describe("0013-content-payload migration shape", () => {
 // backfill that brings every cached driver to the union's cardinality.
 //
 // Shape-checkable spec/invariant cites:
-//   * I-005-2 — an undeclared capability is UNSUPPORTED. The two shipped drivers
-//     declare most of these three `true`, so unlike version 12 the backfilled row
-//     and the declaration deliberately DISAGREE until a refresh runs. Writing the
+//   * An undeclared capability is UNSUPPORTED. The two shipped drivers declare
+//     most of these three `true`, so unlike version 12 the backfilled row and the
+//     declaration deliberately DISAGREE until a refresh runs. Writing the
 //     declaration here would be exactly the unprobed `true` the invariant forbids.
-//   * `Spec-005 §Recovery Consequences` — the cache is the cold-start source of
-//     truth, so the rebuild must carry every existing row across byte-for-byte
-//     and the added rows must be stamped with the driver's own last answer.
+//   * the cache is the cold-start source of truth, so the rebuild must carry
+//     every existing row across byte-for-byte and the added rows must be
+//     stamped with the driver's own last answer.
 describe("0014-console-parity-capability-flags migration shape", () => {
   let db: DatabaseType;
 
@@ -3744,11 +3705,11 @@ describe("0014-console-parity-capability-flags migration shape", () => {
       expect(capabilityFlagsFor(isolatedDb, "claude")).toEqual([...DRIVER_CAPABILITY_FLAGS].sort());
       expect(capabilityFlagsFor(isolatedDb, "codex")).toEqual([...DRIVER_CAPABILITY_FLAGS].sort());
 
-      // I-005-2 — the migration records what the daemon has been TOLD, and it has
-      // been told nothing. Both shipped drivers declare `context_compaction` and
+      // The migration records what the daemon has been TOLD, and it has been told
+      // nothing. Both shipped drivers declare `context_compaction` and
       // `provider_commands` supported, so a backfill copying the declaration
-      // would read `1` here and would be asserting a capability no build was
-      // ever asked about.
+      // would read `1` here and would be asserting a capability no build was ever
+      // asked about.
       expect(
         isolatedDb
           .prepare(
@@ -3880,7 +3841,6 @@ describe("0014-console-parity-capability-flags migration shape", () => {
   });
 });
 
-// Plan-004 T1.4 + T1.5 — version-15 migration-shape coverage.
 //
 // Three tables in one ordinal, and the block below pins WHY each is here:
 //
@@ -3888,20 +3848,11 @@ describe("0014-console-parity-capability-flags migration shape", () => {
 //     transaction — the queue row carries the id of the intervention that
 //     created it — so they cannot be split across ordinals without admitting a
 //     schema in which that transaction is unwritable.
-//   * `command_receipts` is a forward-declared SHELL (CP-004-2). Its coverage
-//     is deliberately as much about the columns that are ABSENT as the five
-//     that are present: Plan-015, Plan-005, and Plan-028 EXTEND it through
-//     their own migrations, and a shell that quietly grew their columns would
-//     let this migration take ownership it does not have.
+//   * `command_receipts` is a forward-declared SHELL.
 //
 // Shape-checkable invariant cites:
-//   * I-004-4 — the mandatory fail-closed comparand. `expected_run_version` is
-//     NOT NULL, so an intervention row cannot persist without one.
-//   * I-004-22 / I-004-23 — the admitting-principal carrier. `origin` carries
-//     NO DEFAULT (an unstamped insert fails at the database rather than
-//     defaulting into the system arm) and the table-level CHECK is a
-//     BICONDITIONAL, so both failure directions are refused: a participant row
-//     without a principal, and a system row that smuggles one in.
+//   * The mandatory fail-closed comparand. `expected_run_version` is NOT NULL,
+//     so an intervention row cannot persist without one.
 //
 // Every refusal assertion below is paired with a positive control, so a broken
 // statement can never read as a working constraint.
@@ -4002,13 +3953,13 @@ describe("0015-queue-and-interventions migration shape", () => {
       { name: "type", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
       { name: "state", type: "TEXT", notnull: 1, dflt_value: "'requested'", pk: 0 },
       { name: "payload", type: "TEXT", notnull: 1, dflt_value: "'{}'", pk: 0 },
-      // I-004-4: the mandatory fail-closed comparand cannot be absent.
+      // The mandatory fail-closed comparand cannot be absent.
       { name: "expected_run_version", type: "INTEGER", notnull: 1, dflt_value: null, pk: 0 },
       { name: "client_idempotency_key", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
       { name: "pii_payload", type: "BLOB", notnull: 0, dflt_value: null, pk: 0 },
       { name: "pii_participant_id", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
       // NOT NULL and UNDEFAULTED together — that pairing is the fail-closed
-      // property, not the NOT NULL alone (I-004-22).
+      // property, not the NOT NULL alone.
       { name: "origin", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
       { name: "result", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
       // The wire contract forbids `result` on `rejected`, so the machine-
@@ -4038,16 +3989,16 @@ describe("0015-queue-and-interventions migration shape", () => {
   });
 
   it("leaves every UNLANDED plan's command_receipts column to that plan's own migration", () => {
-    // The shell's real contract. Plan-015 owns the BL-051 two-phase columns and
-    // Plan-028 `mcp_binding_digest` — each through its own migration, neither
-    // shipped. A shell that quietly grew any of them would take ownership this
-    // plan does not have, and `idempotency_class` in particular is NOT NULL with
-    // no default, so creating it here would also silently pre-empt the table
-    // rebuild that EXTEND has to perform.
+    // The shell's real contract. owns two-phase columns and `mcp_binding_digest`
+    // — each through its own migration, neither shipped. A shell that quietly
+    // grew any of them would take ownership this plan does not have, and
+    // `idempotency_class` in particular is NOT NULL with no default, so creating
+    // it here would also silently pre-empt the table rebuild that EXTEND has to
+    // perform.
     //
-    // `mcp_task_id` is deliberately NOT in this list any more: Plan-005 landed
-    // it through its own version-17 migration, which is the discipline this test
-    // enforces rather than an exception to it. It is asserted present below.
+    // `mcp_task_id` is deliberately NOT in this list any more: landed it through
+    // its own version-17 migration, which is the discipline this test enforces
+    // rather than an exception to it. It is asserted present below.
     const present = new Set(columnsOf("command_receipts").map((entry) => entry.name));
     for (const notYetOwned of [
       "idempotency_class",
@@ -4077,8 +4028,7 @@ describe("0015-queue-and-interventions migration shape", () => {
       "idx_interventions_state",
     ]);
     // `idx_command_receipts_run` reads only a shell column. The canonical
-    // block's other two indexes read Plan-015 / Plan-028 columns and belong to
-    // those EXTENDs.
+    // block's other two indexes read columns and belong to those EXTENDs.
     expect(namedIndexesOf("command_receipts")).toEqual(["idx_command_receipts_run"]);
   });
 
@@ -4185,7 +4135,7 @@ describe("0015-queue-and-interventions migration shape", () => {
   });
 
   it("requires the fail-closed comparand on every intervention row", () => {
-    // I-004-4. The positive control is the shared helper, which supplies one.
+    // The positive control is the shared helper, which supplies one.
     expect(() => {
       insertIntervention({ id: "comparand-present", client_idempotency_key: "comparand-a" });
     }).not.toThrow();
@@ -4199,10 +4149,10 @@ describe("0015-queue-and-interventions migration shape", () => {
   });
 
   it("fails an unstamped origin closed rather than defaulting it into the system arm", () => {
-    // I-004-22. The column is NOT NULL with NO DEFAULT, so an insert site that
-    // forgets to declare the admission path is refused at the database — a
-    // DEFAULT would have failed OPEN by silently electing `system`, the arm that
-    // needs no principal.
+    // The column is NOT NULL with NO DEFAULT, so an insert site that forgets to
+    // declare the admission path is refused at the database — a DEFAULT would
+    // have failed OPEN by silently electing `system`, the arm that needs no
+    // principal.
     expect(() => {
       db.prepare(
         `INSERT INTO interventions
@@ -4301,7 +4251,6 @@ describe("0015-queue-and-interventions migration shape", () => {
   });
 });
 
-// Plan-029 T1.2 + T1.4 — version-16 migration-shape coverage.
 //
 // The registry's whole design intent is that six states are UNREPRESENTABLE
 // rather than merely discouraged, so the tests that matter here are the
@@ -4317,37 +4266,31 @@ describe("0015-queue-and-interventions migration shape", () => {
 // otherwise store as REAL and satisfy `>= 1`.
 //
 // Shape-checkable spec/invariant cites:
-//   * I-029-2 — `credential_generation` starts at 1 and never resets. The DDL
-//     carries both halves the schema can express: `DEFAULT 1` for the start and
+//   * `credential_generation` starts at 1 and never resets. The DDL carries both
+//     halves the schema can express: `DEFAULT 1` for the start and
 //     `CHECK(typeof(credential_generation) = 'integer' AND credential_generation
 //     >= 1)` for the floor and for the storage class a divisible counter would
 //     otherwise slip through.
-//   * I-029-8 — sharing a credential home is never a fallback. Two accounts
-//     naming one home would share its credentials, which a total unique index
-//     refuses; T1.2 names this invariant as one of the two it verifies.
-//   * I-029-5 — exactly one default per provider, enforced by the schema and
-//     not by application code.
-//   * I-029-13 — quota readings key on `(account_id, limit_id)` with the window
-//     length an ATTRIBUTE, so one account can hold several limits that share a
-//     window length.
-//   * I-029-1 — the account identity is daemon-minted, opaque, and immutable. A
-//     NULL identity is none of those, and SQLite admits one in a `TEXT PRIMARY
-//     KEY` on a rowid table unless `NOT NULL` is declared.
+//   * Sharing a credential home is never a fallback. Two accounts naming one
+//     home would share its credentials, which a total unique index refuses
+//     names this invariant as one of the two it verifies.
+//   * Exactly one default per provider, enforced by the schema and not by
+//     application code.
+//   * Quota readings key on `(account_id, limit_id)` with the window length an
+//     ATTRIBUTE, so one account can hold several limits that share a window
+//     length.
+//   * The account identity is daemon-minted, opaque, and immutable. A NULL
+//     identity is none of those, and SQLite admits one in a `TEXT PRIMARY KEY`
+//     on a rowid table unless `NOT NULL` is declared.
 //
 // ENCODING DRIFT, settled doc-side in this same PR (2026-08-31). Four of those
 // six constraints were absent from the canonical DDL this migration transcribes.
-// Two were named by the plan and by its T1.2 test row and simply missing from the
+// Two were named by the plan and by its test row and simply missing from the
 // encoding — uniqueness on `credential_home_path` and the floor CHECK on
-// `credential_generation`. Two more were found by the 2026-08-31 Codex round and
-// settled the same way rather than differently: `account_id` was declared
-// `TEXT PRIMARY KEY` with no `NOT NULL`, which on a rowid table admits NULL and
-// admits two NULLs as distinct, since the key is a unique index and NULLs compare
-// distinct inside one; and `observed_credential_generation` carried no floor at
-// all, though it is compared against the parent's generation and against the
-// wire's own floored `CredentialGenerationSchema`. The plan is the ratified
-// authority and neither table has ever shipped, so the canonical block was
-// corrected and this migration re-mirrored — one ordinal, no supersession —
-// rather than the assertions inverted to match an encoding gap.
+// `credential_generation`. The plan is the ratified authority and neither table
+// has ever shipped, so the canonical block was corrected and this migration
+// re-mirrored — one ordinal, no supersession — rather than the assertions
+// inverted to match an encoding gap.
 describe("0016-provider-accounts migration shape", () => {
   let db: DatabaseType;
 
@@ -4408,12 +4351,12 @@ describe("0016-provider-accounts migration shape", () => {
       })),
     ).toEqual([
       // Daemon-minted, opaque, immutable — never derived from credential
-      // material, an email, or a filesystem path (I-029-1).
+      // material, an email, or a filesystem path.
       { name: "account_id", type: "TEXT", notnull: 1, dflt_value: null, pk: 1 },
       { name: "provider", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
       { name: "display_label", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
       { name: "credential_home_path", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
-      // DEFAULT 1 is I-029-2's "starts at 1" expressed in the schema.
+      // DEFAULT 1 is the "starts at 1" expressed in the schema.
       { name: "credential_generation", type: "INTEGER", notnull: 1, dflt_value: "1", pk: 0 },
       { name: "billing_mode", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
       { name: "is_default", type: "INTEGER", notnull: 1, dflt_value: "0", pk: 0 },
@@ -4439,9 +4382,9 @@ describe("0016-provider-accounts migration shape", () => {
   });
 
   it("carries no column that could hold credential material", () => {
-    // I-029-11's storage half, asserted by NAME rather than by reading the
-    // header: the registry stores the identity of an account, where its home
-    // lives, and how it bills — never a token, a refresh token, a cookie, or a
+    // The storage half, asserted by NAME rather than by reading the header:
+    // the registry stores the identity of an account, where its home lives,
+    // and how it bills — never a token, a refresh token, a cookie, or a
     // keystore payload. A column added later whose name says otherwise fails
     // here before it can fail in an incident.
     const forbiddenSubstrings = ["token", "secret", "password", "credential_value", "api_key"];
@@ -4490,7 +4433,7 @@ describe("0016-provider-accounts migration shape", () => {
     expect(indexRow?.sql).not.toMatch(/provider_accounts\(provider/);
   });
 
-  it("refuses a second account naming one credential home (I-029-8)", () => {
+  it("refuses a second account naming one credential home", () => {
     const sharedHome = "/var/lib/sidekicks/homes/shared";
     insertAccount({ account_id: "home-owner", credential_home_path: sharedHome });
 
@@ -4528,7 +4471,7 @@ describe("0016-provider-accounts migration shape", () => {
     ).toThrow(/UNIQUE constraint failed/);
   });
 
-  it("refuses a non-positive credential generation (I-029-2)", () => {
+  it("refuses a non-positive credential generation", () => {
     // Positive controls first: the floor admits its own boundary and everything
     // above it. Ordered ahead of the refusals so a committed row can never make
     // a later refusal ambiguous.
@@ -4589,7 +4532,7 @@ describe("0016-provider-accounts migration shape", () => {
     ).toThrow(/CHECK constraint failed/);
 
     // A generation only ever moves up, so the refusal has to bind the UPDATE
-    // path as well: a reset to 0 is the exact write I-029-2 forbids.
+    // path as well: a reset to 0 is the exact write forbids.
     expect(() =>
       db
         .prepare("UPDATE provider_accounts SET credential_generation = 0 WHERE account_id = ?")
@@ -4597,15 +4540,14 @@ describe("0016-provider-accounts migration shape", () => {
     ).toThrow(/CHECK constraint failed/);
   });
 
-  it("refuses a NULL account identity (I-029-1)", () => {
-    // A `TEXT PRIMARY KEY` on a rowid table admits NULL unless NOT NULL is
-    // declared: the key is usually just a UNIQUE constraint, an historical
-    // oversight lets its column values be NULL, and the vendor's own stated
-    // workaround is exactly this per-column NOT NULL —
-    // https://www.sqlite.org/quirks.html#primary_keys_can_sometimes_contain_nulls
-    // (§5, accessed 2026-08-31). Because NULLs compare distinct in that index,
-    // TWO identity-less rows would both commit. Positive control first, so the refusal below cannot pass
-    // because the statement was broken.
+  it("refuses a NULL account identity", () => {
+    // A `TEXT PRIMARY KEY` on a rowid table admits NULL unless NOT NULL is declared: the key is
+    // usually just a UNIQUE constraint, an historical oversight lets its column values be NULL, and
+    // the vendor's own stated workaround is exactly this per-column NOT NULL —
+    // https://www.sqlite.org/quirks.html#primary_keys_can_sometimes_contain_nulls (accessed
+    // 2026-08-31). Because NULLs compare distinct in that index, TWO identity-less rows would both
+    // commit. Positive control first, so the refusal below cannot pass because the statement was
+    // broken.
     expect(() => insertAccount({ account_id: "identity-present" })).not.toThrow();
 
     expect(() =>
@@ -4624,7 +4566,7 @@ describe("0016-provider-accounts migration shape", () => {
     ).toThrow(/NOT NULL constraint failed/);
   });
 
-  it("refuses a second default for one provider and admits one per provider (I-029-5)", () => {
+  it("refuses a second default for one provider and admits one per provider", () => {
     insertAccount({ account_id: "claude-default", is_default: 1 });
 
     // Positive control #1: a NON-default row for the same provider is admitted,
@@ -4696,7 +4638,7 @@ describe("0016-provider-accounts migration shape", () => {
     ).toEqual({
       health_state: null,
       health_observed_at: null,
-      // I-029-2: an account is born at generation 1 without the writer saying so.
+      // An account is born at generation 1 without the writer saying so.
       credential_generation: 1,
       probe_enabled: 1,
       removal_intent: 0,
@@ -4751,7 +4693,7 @@ describe("0016-provider-accounts migration shape", () => {
     ).toEqual([
       // The composite PK's two members carry ordinals 1 and 2; every other
       // column carries 0 — which is the assertion that `window_mins` is an
-      // ATTRIBUTE of the reading and not part of its identity (I-029-13).
+      // ATTRIBUTE of the reading and not part of its identity.
       { name: "account_id", type: "TEXT", notnull: 1, dflt_value: null, pk: 1 },
       { name: "limit_id", type: "TEXT", notnull: 1, dflt_value: null, pk: 2 },
       { name: "window_mins", type: "INTEGER", notnull: 1, dflt_value: null, pk: 0 },
@@ -4771,9 +4713,9 @@ describe("0016-provider-accounts migration shape", () => {
   });
 
   it("admits several limits sharing one window length and refuses a duplicate limit", () => {
-    // The failure I-029-13 exists to prevent, exercised directly: the pinned
-    // Claude surface publishes three limit identifiers that share a
-    // 10080-minute window, so all three must coexist for one account.
+    // The failure exists to prevent, exercised directly: the pinned Claude
+    // surface publishes three limit identifiers that share a 10080-minute
+    // window, so all three must coexist for one account.
     insertAccount({ account_id: "quota-account" });
     const insertWindow = db.prepare(
       `INSERT INTO provider_account_usage_windows
@@ -4968,7 +4910,6 @@ describe("0016-provider-accounts migration shape", () => {
   });
 });
 
-// Plan-005 T5.1 — version-17 migration shape.
 //
 // Pins the MCP Tasks durable recovery handle: its presence, its nullability, the
 // four states its CHECK admits or refuses, and the two properties that make it
@@ -5071,8 +5012,8 @@ describe("0017-command-receipt-mcp-task-handle migration shape", () => {
       >;
       // Every shell column byte-for-byte, and NULL — not empty string, not a
       // sentinel — in the appended one. NULL is the meaningful zero state: it
-      // is what keeps a receipt on the manual_reconcile_only halt (I-005-3), so
-      // a migration that backfilled anything else would silently promote every
+      // is what keeps a receipt on the manual_reconcile_only halt, so a
+      // migration that backfilled anything else would silently promote every
       // historical receipt onto the polling recovery path.
       expect(after.map(({ mcp_task_id: _handle, ...shell }) => shell)).toEqual(before);
       expect(after.map((row) => row["mcp_task_id"])).toEqual([null, null]);

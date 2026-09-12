@@ -1,5 +1,5 @@
 // Provider-bound outbound text frames — driver-boundary neutralization and the
-// runtime tripwire (Plan-005 T3.18, I-005-7).
+// runtime tripwire.
 //
 // ---------------------------------------------------------------------------
 // The hazard
@@ -11,9 +11,7 @@
 // model attribution, and no token accounting. The participant's words never
 // reach the model while every layer above reads a completed turn. Verified
 // first-party against the pinned Claude build; see
-// `docs/reference/provider-wire/claude.md` §Client-side command interception on
-// the programmatic input surface for the measured discriminants this module's
-// classifiers key on.
+// `docs/reference/provider-wire/claude.md`.
 //
 // ---------------------------------------------------------------------------
 // Why the neutralization lives HERE and nowhere upstream
@@ -39,13 +37,11 @@
 // Why frame ORIGIN and not a capability flag
 // ---------------------------------------------------------------------------
 //
-// A capability flag's undeclared state resolves fail-OPEN through Spec-005's
+// A capability flag's undeclared state resolves fail-OPEN through the
 // undeclared-is-unsupported rule, which is backwards here: the dangerous
 // default is "do not neutralize". `OutboundFrameOrigin` is therefore a closed
 // discriminator on the frame itself whose ABSENT and UNRECOGNIZED arms both
-// neutralize. It is deliberately daemon-local — it never crosses the wire and
-// is never hoisted into `packages/contracts`, because no wire payload, event,
-// or persisted row carries it.
+// neutralize.
 //
 // ---------------------------------------------------------------------------
 // Why the tripwire asks for turn evidence and never for command dispatch
@@ -112,8 +108,8 @@ export type CallerDeclaredFrameOrigin = Exclude<OutboundFrameOrigin, "driver_com
 export type TripwireDetailOrigin = "participant_text" | "system_narration" | "unknown";
 
 /**
- * The parity mechanism grade for this leg's text-neutrality capability, read
- * from `Spec-005 §Parity Capability Mechanism Grades`.
+ * The parity mechanism grade for this leg's text-neutrality capability,
+ * read.
  *
  * This is a behavioral INPUT, not a label: an `emulated` leg prepends the
  * sentinel to command-shaped text, a `native` leg emits the author's bytes
@@ -127,7 +123,6 @@ export type TextNeutralityMechanismGrade = "native" | "emulated";
 // --------------------------------------------------------------------------
 
 /**
- * Registered in `docs/architecture/contracts/error-contracts.md` §Driver at
  * 409. It rides NO JSON-RPC error envelope on any path: the run's own
  * `run.failed` terminal is the guarantee, and the intervention result's
  * `refusalCode` is a best-effort second surface.
@@ -1418,14 +1413,14 @@ export class OutboundFrameCapacityRefusedError extends Error {
  * operator who reads the run terminal and then watches an attach fail sees one
  * cause, not two unrelated ones.
  *
- * Deliberately extends `Error` and NOT `DaemonDomainError`. `error-contracts.md`
- * registers this code as riding no error envelope on any path — "one landing,
- * never an error envelope" — and the JSON-RPC mapper discriminates by
- * `instanceof`, projecting a `DaemonDomainError` subclass's `code` into
- * `data.type` on the wire. Extending that base would therefore publish the
- * dotted code as a wire refusal and break the registration; falling through to
- * the mapper's catch-all keeps this a `-32603` with no `data`, which is the
- * honest shape for a daemon-internal disposal a client never named.
+ * Deliberately extends `Error` and NOT `DaemonDomainError`. registers this code
+ * as riding no error envelope on any path — "one landing, never an error
+ * envelope" — and the JSON-RPC mapper discriminates by `instanceof`, projecting
+ * a `DaemonDomainError` subclass's `code` into `data.type` on the wire.
+ * Extending that base would therefore publish the dotted code as a wire refusal
+ * and break the registration; falling through to the mapper's catch-all keeps
+ * this a `-32603` with no `data`, which is the honest shape for a
+ * daemon-internal disposal a client never named.
  */
 export class TextNeutralizationRefusedError extends Error {
   readonly code: TextNeutralizationRefusalCode = TEXT_NEUTRALIZATION_REFUSAL_CODE;

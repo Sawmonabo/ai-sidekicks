@@ -1,8 +1,7 @@
 //! Round-trip tests for the Content-Length framing layer.
 //!
-//! Plan-024 Phase 1 / T-024-1-2 — verifies ADR-009 §Decision (LSP-style
-//! Content-Length framing parity). Exercises header parsing edges, the
-//! 8 MiB cap (F-024-1-06), and byte-identical write/read round-trip.
+//! Exercises header parsing edges, the 8 MiB cap, and byte-identical
+//! write/read round-trip.
 
 use std::io::ErrorKind;
 
@@ -52,9 +51,9 @@ async fn round_trip_small_body() {
 
 #[tokio::test]
 async fn round_trip_json_payload_with_embedded_newlines() {
-    // Content-Length framing must survive newlines and CRLF sequences
-    // inside the payload — that's the whole reason ADR-009 picked it over
-    // newline-delimited JSON (Option E rejected for this exact failure mode).
+    // Content-Length framing must survive newlines and CRLF sequences inside
+    // the payload — that's the whole reason picked it over newline-delimited
+    // JSON (Option E rejected for this exact failure mode).
     let body = b"{\"kind\":\"spawn\",\"args\":[\"line1\\nline2\\r\\nline3\"]}";
     let recovered = round_trip(body).await;
     assert_eq!(recovered, body);
@@ -161,8 +160,8 @@ async fn read_rejects_header_without_colon() {
 
 #[tokio::test]
 async fn read_rejects_lf_only_header_terminator() {
-    // LSP/ADR-009 require CRLF. Bare LF must be rejected, otherwise the
-    // framer would silently accept non-conformant peers.
+    // Bare LF must be rejected, otherwise the framer would silently
+    // accept non-conformant peers.
     let bytes = b"Content-Length: 5\n\nhello".to_vec();
     let mut reader = BufReader::new(&bytes[..]);
     let err = read_frame(&mut reader)

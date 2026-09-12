@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "type": "module",
   "license": "Apache-2.0",
-  "description": "PASETO v4.public + v4.local primitives for AI Sidekicks (substrate for Plan-002 / Plan-018 auth).",
+  "description": "PASETO v4.public + v4.local primitives for AI Sidekicks (substrate for auth).",
   "engines": {
     "node": ">=22.14.0"
   },

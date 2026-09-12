@@ -9,11 +9,8 @@ import { z } from "zod";
  * The RFC 9562 UUID text form, stated ONCE for every branded UUID id in this
  * package. Three alternatives, ALL matched case-insensitively:
  *
- *   1. The general form — [RFC 9562 §4](https://www.rfc-editor.org/rfc/rfc9562#section-4)
- *      8-4-4-4-12 hex with the §4.2 version nibble in `1`-`8` and the §4.1
- *      variant bits `10` (nibble `8`, `9`, `a`, or `b`).
- *   2. The §5.9 Nil UUID, all zeros.
- *   3. The §5.10 Max UUID, all ones.
+ *   1. The general form — [RFC 9562 section 4](https://www.rfc-editor.org/rfc/rfc9562#section-4)
+ *      8-4-4-4-12 hex with `1`-`8` and `10` (nibble `8`, `9`, `a`, or `b`).
  *
  * WHY THIS IS NOT `z.string().uuid()`. Zod 4.3.6's versionless `uuid` regex
  * (`node_modules/zod/v4/core/regexes.js`) is, verbatim:
@@ -26,7 +23,7 @@ import { z } from "zod";
  * because its `[1-8]` version nibble rejects the Max UUID's `f`. So
  * `ffffffff-ffff-ffff-ffff-ffffffffffff` parsed and
  * `FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF` did not, which handed two textual
- * spellings of ONE logical UUID two different parse results. RFC 9562 §4 makes
+ * spellings of ONE logical UUID two different parse results. RFC 9562 section 4 makes
  * UUID hex text case-insensitive ("uppercase or lowercase"), so that split was
  * a validator artifact and never a property of the identifier. (The Nil UUID is
  * all digits, so case was vacuous there — the defect reached exactly the Max
@@ -50,9 +47,9 @@ const RFC_9562_TEXT_FORM =
  * For the narrow case of a wire member that is an id by nature but whose brand
  * is another plan's unshipped symbol, so declaring the brand here would be the
  * duplicate source of truth this file exists to prevent — `repo.ts`'s
- * `worktreeId` is the shipped instance, since Plan-010 owns `WorktreeId`.
- * Composing this rather than `z.string().uuid()` is what makes that member's
- * standing claim — the runtime accept set is already identical and only the
+ * `worktreeId` is the shipped instance, since owns `WorktreeId`. Composing
+ * this rather than `z.string().uuid()` is what makes that member's standing
+ * claim — the runtime accept set is already identical and only the
  * compile-time brand is absent — true by CONSTRUCTION rather than by
  * coincidence: the owning plan can narrow at its own consumption site with no
  * wire change, because no value's parse result moves when the brand arrives.
@@ -72,18 +69,18 @@ export const uuidTextFormSchema: z.ZodType<string, string> = z
 /**
  * Bridges Zod v4 `$ZodBranded` single-T output to the double-T `ZodType<T, T>`
  * shape required for Standard Schema V1 input inference in tRPC v11 request
- * schemas (per ADR-014). The `as unknown as` cast is load-bearing; the runtime
+ * schemas. The `as unknown as` cast is load-bearing; the runtime
  * `.brand(brandName)` call preserves Zod's internal brand metadata.
  *
- * Used for the UUID-based branded IDs declared in `session.ts`
- * (SessionId, ParticipantId, MembershipId, ChannelId) and for every
- * later family composed through it (RunId, ArtifactId, the repo / worktree /
- * runtime-node ids). Every one of them therefore shares ONE accept set —
- * `RFC_9562_TEXT_FORM` above — so a value that parses as one branded id parses
- * as all of them, and widening or narrowing the encoding is a single edit here
- * rather than a sweep. Non-UUID branded scalars (e.g. `EventCursor`, whose
- * internal structure is owned by Plan-006 — see session.ts `EventCursorSchema`)
- * compose `.brand()` inline and apply the same cast pattern at the callsite.
+ * Used for the UUID-based branded IDs declared in `session.ts` (SessionId,
+ * ParticipantId, ChannelId) and for every later family composed
+ * through it (RunId, ArtifactId, the repo / worktree / runtime-node ids). Every
+ * one of them therefore shares ONE accept set — `RFC_9562_TEXT_FORM` above — so
+ * a value that parses as one branded id parses as all of them, and widening or
+ * narrowing the encoding is a single edit here rather than a sweep. Non-UUID
+ * branded scalars (e.g. `EventCursor`, whose internal structure is — see
+ * session.ts `EventCursorSchema`) compose `.brand()` inline and apply the same
+ * cast pattern at the callsite.
  *
  * The refusal message keeps the word "UUID": consumers assert on the reason
  * rather than merely on the rejection, so a message naming only the pattern

@@ -1,4 +1,4 @@
-// Plan-006 T3.3 — `EventLogAnchorStore` behaviour.
+// `EventLogAnchorStore` behaviour.
 //
 // The store is the control plane's only writer of `event_log_anchors`, so this
 // file covers the three properties the anchor write must hold:
@@ -7,21 +7,18 @@
 //     `stored: false`, not raised as a conflict — daemons retry whenever an
 //     attempt's outcome is unknown to them, and that is the normal case rather
 //     than the exceptional one.
-//   * COVERAGE, NOT EXACT-START. Two anchors sharing a `start_sequence` are
-//     distinct commitments and BOTH persist (`Spec-006 §Post-Compaction
-//     Integrity`). A store that deduped on `start_sequence` would silently drop
-//     the compaction-covering anchor.
-//   * METADATA ONLY (I-006-3-02 / ADR-017). A body carrying event content is
-//     REFUSED at the store's own parse, independently of the router's
-//     `.input()` parse — a boundary invariant enforced at exactly one layer
-//     stops being enforced the moment a second caller appears.
+//   * Two anchors sharing a `start_sequence` are distinct commitments and BOTH
+//     persist. A store that deduped on `start_sequence` would silently drop the
+//     compaction-covering anchor.
+//   * A body carrying event content is REFUSED at the store's own parse,
+//     independently of the router's `.input()` parse — a boundary invariant
+//     enforced at exactly one layer stops being enforced the moment a second
+//     caller appears.
 //
 // Driven against real PGlite rather than a mocked `Querier`: every property
 // above is a property of the SQL and the DDL constraints, and a mock would
 // assert only that the store built the string the test expected.
 //
-// Refs: Plan-006 T3.3, ADR-017,
-// `docs/architecture/schemas/shared-postgres-schema.md` §Event Log Anchors.
 
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -190,9 +187,8 @@ describe("EventLogAnchorStore.upload — idempotency", () => {
 
 describe("EventLogAnchorStore.upload — distinct ranges are not collapsed", () => {
   it("persists a wider covering anchor that shares a start_sequence", async () => {
-    // Spec-006 §Post-Compaction Integrity: a compactor discarding [1,5000]
-    // needs a covering witness, and the cadence anchor over [1,1000] does not
-    // cover it. Both must land.
+    // 5000] needs a covering witness, and the cadence anchor over [1,1000]
+    // does not cover it.
     await expect(
       ctx.store.upload(anchorFixture({ startSequence: 1, endSequence: 1000 })),
     ).resolves.toEqual({ stored: true });
@@ -212,10 +208,9 @@ describe("EventLogAnchorStore.upload — distinct ranges are not collapsed", () 
 });
 
 // ----------------------------------------------------------------------------
-// I-006-3-02 — metadata only
 // ----------------------------------------------------------------------------
 
-describe("EventLogAnchorStore.upload — metadata-only enforcement (I-006-3-02)", () => {
+describe("EventLogAnchorStore.upload — metadata-only enforcement", () => {
   for (const smuggledMember of ["payload", "events", "pii_payload"] as const) {
     it(`REFUSES a body carrying \`${smuggledMember}\` at the store's own parse`, async () => {
       // Cast at the boundary because the whole point is a value TypeScript would

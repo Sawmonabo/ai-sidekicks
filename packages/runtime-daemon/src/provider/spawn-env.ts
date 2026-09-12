@@ -78,7 +78,7 @@ export interface CredentialEnvPolicy {
 
 /**
  * The documented auto-update opt-out each provider's child environment carries
- * (`Spec-005 §Required Behavior`, 2026-08-26).
+ * (2026-08-26).
  *
  * Suppression is a CORRECTNESS obligation, not hygiene: a build that replaces
  * itself mid-session invalidates the version recorded on the run's binding AND

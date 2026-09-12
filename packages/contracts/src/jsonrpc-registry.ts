@@ -1,51 +1,37 @@
-// JSON-RPC method-namespace registry — cross-package typed surface for
-// Plan-007 Phase 2 (T-007p-2-3).
+// JSON-RPC method-namespace registry — the cross-package typed surface.
 //
 // This file owns the CONTRACT SHAPE every consumer of the daemon's
 // method-namespace registry agrees on. The runtime IMPLEMENTATION lives in
-// `packages/runtime-daemon/src/ipc/registry.ts` (T-007p-2-3 sibling). Per
-// CP-007-3 / Plan-002 CP-002-2 / Plan-026 §API And Transport Changes,
-// multiple downstream plans
-// register handlers against this surface — typing the interface here lets
-// each consumer import the surface without taking a runtime-daemon
-// dependency.
+// `packages/runtime-daemon/src/ipc/registry.ts` (sibling). multiple
+// downstream plans register handlers against this surface — typing the
+// interface here lets each consumer import the surface without taking a
+// runtime-daemon dependency.
 //
-// Spec coverage:
-//   * Plan-007 §Cross-Plan Obligations CP-007-3
-//     (docs/plans/007-local-ipc-and-daemon-control.md) — the
-//     `MethodRegistry.register()` registry surface owed to Plan-026 and
-//     Tier 4 namespace plans.
-//
-// Invariants this file's interface enforces (canonical text in
-// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-6 through I-007-9):
-//   * I-007-6 — duplicate method-name registration is rejected at
-//     register-time (synchronous), not at dispatch-time. Programmer error
-//     surfaces during daemon bootstrap.
-//   * I-007-7 — schema validation runs before handler dispatch. Every
-//     dispatch call MUST Zod-parse the request params against the
-//     registered schema before the handler body executes; failures map to
-//     `-32602 Invalid Params` at the substrate boundary (T-007p-2-2's
-//     mapping).
-//   * I-007-9 — method names conform to the canonical format declared in
-//     docs/architecture/contracts/api-payload-contracts.md §JSON-RPC
-//     Method-Name Registry (Tier 1 Ratified). The `METHOD_NAME_FORMAT`
+// Invariants this file's interface enforces (canonical text through):
+//   * Duplicate method-name registration is rejected at register-time
+//     (synchronous), not at dispatch-time. Programmer error surfaces
+//     during daemon bootstrap.
+//   * Schema validation runs before handler dispatch. Every dispatch call
+//     MUST Zod-parse the request params against the registered schema
+//     before the handler body executes; failures map to `-32602 Invalid
+//     Params` at the substrate boundary (the mapping).
+//   * Method names conform to the canonical format. The `METHOD_NAME_FORMAT`
 //     constant exported below is the single runtime source the daemon
 //     registry's `register()` check imports; it validates each name at
-//     register-time (no per-package re-declaration — BL-142). Every segment,
-//     the namespace root included, starts lowercase and may carry camelCase
+//     register-time (no per-package re-declaration). Every segment, the
+//     namespace root included, starts lowercase and may carry camelCase
 //     (root widened 2026-09-05).
 //
 // What this file does NOT define (deferred to sibling tasks):
 //   * The runtime registry class implementation (`MethodRegistry implements
-//     MethodRegistry`) — owned by T-007p-2-3 in
-//     `packages/runtime-daemon/src/ipc/registry.ts`. The interface here
-//     is the contract; the class there is the realization.
+//     MethodRegistry`) — in `packages/runtime-daemon/src/ipc/registry.ts`.
+//     The interface here is the contract; the class there is the
+//     realization.
 //   * JSON-RPC numeric error code mapping (`-32601` method not found,
-//     `-32602` invalid params, `-32603` internal error) — owned by
-//     T-007p-2-2 (`jsonrpc-error-mapping.ts`). The runtime registry
-//     throws a daemon-internal `RegistryDispatchError` carrying a
-//     stable `registryCode`; T-2's mapping table converts that to the
-//     wire numeric code.
+//     `-32602` invalid params, `-32603` internal error). The
+//     runtime registry throws a daemon-internal
+//     `RegistryDispatchError` carrying a stable `registryCode`; T-2's
+//     mapping table converts that to the wire numeric code.
 //   * Concrete handler shapes for `session.*` / `presence.*` / etc. —
 //     owned by Phase 3 + downstream plans. The interface here parameterizes
 //     over `<P, R>` so each handler can register with its own typed
@@ -63,9 +49,9 @@ import type { ZodType } from "zod";
 // `@ai-sidekicks/contracts` without taking its own dependency on `"zod"`.
 // Runtime-daemon's package.json deliberately does NOT list zod — the
 // schema instances flow in via the `register()` call from contracts-aware
-// callers (Phase 3 `session.*` handlers, Plan-002 `presence.*`, etc.).
-// Exposing the type here means the daemon can type-check its
-// implementation against `ZodType<T>` while only depending on contracts.
+// callers (Phase 3 `session.*` handlers `presence.*`, etc.). Exposing the
+// type here means the daemon can type-check its implementation against
+// `ZodType<T>` while only depending on contracts.
 export type { ZodType };
 
 // --------------------------------------------------------------------------
@@ -73,17 +59,16 @@ export type { ZodType };
 // --------------------------------------------------------------------------
 
 /**
- * Canonical `dotted-camelCase` method-name format, ratified at
- * docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name
- * Registry (Tier 1 Ratified). This constant is the SINGLE runtime source the
- * daemon's `MethodRegistry` implementation imports for its register-time
- * I-007-9 check (`packages/runtime-daemon/src/ipc/registry.ts`). It mirrors
- * the `JsonRpcErrorCode` promotion in `jsonrpc.ts`: a wire-level constant
- * lives in contracts so every consumer shares one declaration instead of
+ * Canonical `dotted-camelCase` method-name format. This constant is the
+ * SINGLE runtime source the daemon's `MethodRegistry` implementation imports
+ * for its register-time check
+ * (`packages/runtime-daemon/src/ipc/registry.ts`). It mirrors the
+ * `JsonRpcErrorCode` promotion in `jsonrpc.ts`: a wire-level constant lives
+ * in contracts so every consumer shares one declaration instead of
  * re-stating the literal. The prior daemon-local copy had drifted from this
  * canonical form — its tail class read `[a-z0-9]`, dropping the ratified
- * camelCase tails — which BL-142 surfaced and closed by collapsing the
- * duplicate into this import.
+ * camelCase tails — which surfaced and closed by collapsing the duplicate
+ * into this import.
  *
  * Grammar: every dot-delimited segment starts lowercase and may contain
  * camelCase (`[a-z][a-zA-Z0-9]*`) — the first segment (the namespace root)
@@ -142,7 +127,7 @@ export const METHOD_NAME_FORMAT: RegExp = /^[a-z][a-zA-Z0-9]*(?:\.[a-z][a-zA-Z0-
  *   dispatch.
  * Trade-off accepted: the shape will widen in later phases. We commit to
  *   ADDITIVE evolution — fields are added, never removed/renamed without a
- *   spec edit (api-payload-contracts.md §Plan-007 governance route).
+ *   spec edit.
  */
 export interface HandlerContext {
   readonly transportId?: number;
@@ -157,18 +142,18 @@ export interface HandlerContext {
  * `register<P, R>(...)` call binds:
  *   * `P` (params type) — derived from the registered `paramsSchema`'s
  *     output. The handler is GUARANTEED to receive a value that has
- *     already passed `paramsSchema.safeParse` (per I-007-7); a malformed
- *     payload is rejected by the registry before the handler body runs.
+ *     already passed `paramsSchema.safeParse`; a malformed payload is
+ *     rejected by the registry before the handler body runs.
  *   * `R` (result type) — derived from the registered `resultSchema`'s
  *     output. The handler MUST resolve to a value that conforms; the
  *     registry validates the resolved value against `resultSchema` after
  *     the handler returns (defensive: a handler bug returning malformed
  *     data is a programmer error, not a client-facing one).
  *
- * Async-only by design. Synchronous handlers don't exist at this layer —
- * the dispatcher always returns a `Promise`, and a handler that doesn't
- * need awaitable work just `return`s a value (which the `Promise` chain
- * wraps). One shape simplifies T-007p-2-2's wiring.
+ * Synchronous handlers don't exist at this layer — the dispatcher always
+ * returns a `Promise`, and a handler that doesn't need awaitable work
+ * just `return`s a value (which the `Promise` chain wraps). One shape
+ * simplifies the wiring.
  */
 export type Handler<P, R> = (params: P, ctx: HandlerContext) => Promise<R>;
 
@@ -177,9 +162,8 @@ export type Handler<P, R> = (params: P, ctx: HandlerContext) => Promise<R>;
 // --------------------------------------------------------------------------
 
 /**
- * Optional registration flags. The single Tier 1 flag is `mutating`,
- * declared per F-007p-2-06 — the substrate uses it for the version-
- * mismatch gate at `protocol-negotiation.ts` (T-007p-2-4): when
+ * The single Tier 1 flag is `mutating`, declared — the substrate uses it
+ * for the version- mismatch gate at `protocol-negotiation.ts`: when
  * `DaemonHelloAck.compatible === false`, the gateway refuses dispatch of
  * any registered method whose `mutating` flag is `true` and allows
  * read-only methods through.
@@ -196,46 +180,43 @@ export interface RegisterOptions {
 
 /**
  * The method-namespace registry typed surface. Implementations:
- *   * `packages/runtime-daemon/src/ipc/registry.ts` — daemon-side runtime
- *     (T-007p-2-3); the substrate the daemon's bootstrap consumes.
+ *   * `packages/runtime-daemon/src/ipc/registry.ts` — daemon-side
+ *     runtime; the substrate the daemon's bootstrap consumes.
  *   * Future control-plane / sidecar registries may share the interface;
  *     the contract is intentionally cross-package.
  *
  * Lifecycle:
  *   1. Bootstrap constructs a registry instance (`new MethodRegistry()`).
- *   2. Each Phase 3 / downstream plan calls `register(method, ...)` for
- *      the methods it owns. Duplicate names throw at this step (I-007-6).
+ *   2. Each Phase 3 / downstream plan calls `register(method,...)` for
+ *      the methods it owns. Duplicate names throw at this step.
  *   3. The IPC substrate routes incoming JSON-RPC requests through
  *      `dispatch(method, params, ctx)`. The dispatch path validates
- *      params against the registered schema (I-007-7), invokes the
- *      handler, validates the result, and returns the value.
+ *      params against the registered schema, invokes the handler,
+ *      validates the result, and returns the value.
  *
  * The interface is INSTANTIABLE — multiple registries per process are
  * plausible (test isolation, future Tier-4 surfaces). Mirrors the
- * `LocalIpcGateway` instantiable shape (T-007p-2-1's same rationale).
+ * `LocalIpcGateway` instantiable shape (the same rationale).
  */
 export interface MethodRegistry {
   /**
    * Register a typed handler against a method name.
    *
    * @param method - The dotted-namespace method name (e.g. `session.create`).
-   *   Format is governed by I-007-9 + the canonical `METHOD_NAME_FORMAT`
-   *   regex exported above, ratified at
-   *   docs/architecture/contracts/api-payload-contracts.md §JSON-RPC
-   *   Method-Name Registry.
+   *   Format is governed the canonical `METHOD_NAME_FORMAT` regex
+   *   exported above.
    * @param paramsSchema - Zod schema validating the request `params`.
-   *   Runs before handler dispatch (I-007-7).
+   *   Runs before handler dispatch.
    * @param resultSchema - Zod schema validating the handler's resolved
    *   result. Runs after the handler returns (defensive — programmer-
    *   error surface).
    * @param handler - The async function that produces the result given
    *   validated params + dispatch context.
    * @param opts - Optional registration flags (`mutating` for the
-   *   version-mismatch gate per F-007p-2-06).
    * @throws RegistryRegistrationError synchronously when:
-   *   * `method` is already registered (I-007-6 — duplicate at register-
-   *     time, not dispatch-time).
-   *   * `method` does not match the canonical format regex (I-007-9).
+   *   * `method` is already registered (duplicate at register- time, not
+   *     dispatch-time).
+   *   * `method` does not match the canonical format regex.
    */
   register<P, R>(
     method: string,
@@ -256,10 +237,10 @@ export interface MethodRegistry {
    *   2. `paramsSchema.safeParse(params)` — failures throw
    *      `RegistryDispatchError(registryCode: "invalid_params")`. T-2
    *      maps to JSON-RPC `-32602`. The handler is NEVER invoked on a
-   *      malformed payload (I-007-7).
+   *      malformed payload.
    *   3. Handler invocation — the typed `params` are passed alongside
    *      the dispatch `ctx`. Handler-thrown errors propagate as-is; T-2
-   *      sanitizes and maps via `error-contracts.md`'s table.
+   *      sanitizes and maps via the table.
    *   4. `resultSchema.safeParse(result)` — failures throw
    *      `RegistryDispatchError(registryCode: "invalid_result")`. T-2
    *      maps to JSON-RPC `-32603` (programmer error, not client error).
@@ -267,7 +248,7 @@ export interface MethodRegistry {
    * Returns the handler's resolved result on success. The return type is
    * `unknown` because the dispatcher is generic over all registered
    * methods; the per-method `R` is recovered downstream by the typed
-   * client SDK (Phase 3, T-007p-3-*).
+   * client SDK (Phase 3 -*).
    */
   dispatch(method: string, params: unknown, ctx: HandlerContext): Promise<unknown>;
 
@@ -285,10 +266,9 @@ export interface MethodRegistry {
    * "unknown method" from "known read-only method" before consulting the
    * version-mismatch gate).
    *
-   * Per F-007p-2-06 + I-007-1 fail-closed posture, T-007p-2-4's
-   * version-gate uses this query to decide whether to allow a method
-   * through when `DaemonHelloAck.compatible === false`. Mutating ops are
-   * refused; read-only ops pass.
+   * Fail-closed posture, the version-gate uses this query to decide
+   * whether to allow a method through when `DaemonHelloAck.compatible
+   * === false`. Mutating ops are refused; read-only ops pass.
    */
   isMutating(method: string): boolean | undefined;
 }

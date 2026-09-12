@@ -1,26 +1,21 @@
-// P6 — HeartbeatService behavior gates (Plan-003 Phase 3, T3.6).
+// P6 — HeartbeatService behavior gates.
 //
-// `Spec-003 §Default Behavior`. Cite map (each spec_coverage row has
-// an explicit home; cites are the authoritative coverage contract, ACs a
-// subset):
+// Cite map (each spec_coverage row has an explicit home; cites are the
+// authoritative coverage contract, ACs a subset):
 //
-//   `Spec-003 §Default Behavior` (heartbeat cadence 15s / ingestion):
 //       - "ingest creates / updates a presence row" (the heartbeat-reception
 //         side of the 15s cadence — this service IS where a beat lands).
 //       - "STALENESS_SWEEP_INTERVAL_MS is exported and finer than the 15s
-//         cadence" — pins the `Spec-003 §Default Behavior` "set finer than the 15s cadence" claim
-//         that derives FROM the §Default Behavior cadence, giving it a concrete
-//         numeric anchor rather than resting on framing alone.
+//         cadence" — pins "set finer than the 15s cadence" claim that derives
+//         giving it a concrete numeric anchor rather than resting on framing
+//         alone.
 //
-//   `Spec-003 §Default Behavior` (degraded@30s, offline@60s, hysteresis):
 //       - "sweep demotes a 45s-stale row to degraded"
 //       - "sweep demotes a 90s-stale row to offline"
 //       - "sweep leaves a 10s-fresh row untouched" (the < 30s band)
 //       - "hysteresis recovery": a degraded node that resumes heartbeating is
 //         restored to online WITHOUT passing through offline.
 //
-//   `Spec-003 §Default Behavior` (server-derived, sweep-driven, coordination-record
-//   transition, NO durable event):
 //       - "sweep is idempotent / transition-only": an already-offline row still
 //         aged > 60s returns an EMPTY array (no re-write, no re-report) — the
 //         production-grade idempotency a forever-looping sweep requires.
@@ -30,7 +25,7 @@
 //         from the attachment-slot axis).
 //       - the no-durable-event property is structural: `ingest`/`sweepStaleness`
 //         touch ONE table and return; there is no event-log surface to assert
-//         against (ADR-017 — no control-plane event log exists).
+//         against (no control-plane event log exists).
 //
 // Harness: the in-process PGlite pattern from attach-service.test.ts /
 // the migrations suites — a fresh ephemeral PGlite per test, `applyMigrations`
@@ -174,10 +169,10 @@ afterEach(async () => {
 });
 
 // ----------------------------------------------------------------------------
-// `Spec-003 §Default Behavior` — heartbeat ingestion + the sweep-interval cadence anchor
+// heartbeat ingestion + the sweep-interval cadence anchor
 // ----------------------------------------------------------------------------
 
-describe("HeartbeatService — ingest (`Spec-003 §Default Behavior`)", () => {
+describe("HeartbeatService — ingest", () => {
   it("creates a presence row with a recent last_heartbeat_at and the reported health on first heartbeat (P6)", async () => {
     await ctx.service.ingest({ nodeId: NODE_ID, healthState: "online" });
 
@@ -204,9 +199,9 @@ describe("HeartbeatService — ingest (`Spec-003 §Default Behavior`)", () => {
   });
 
   it("rejects a daemon attempting to self-report offline (the 2-value wire enum is online|degraded only)", async () => {
-    // `Spec-003 §Default Behavior`: `offline` is server-DERIVED (the sweep), never daemon-
-    // self-reported. The boundary parse enforces the 2-value enum, so an
-    // `offline` heartbeat is rejected before any row is written.
+    // `offline` is server-DERIVED (the sweep), never daemon- self-reported. The
+    // boundary parse enforces the 2-value enum, so an `offline` heartbeat is
+    // rejected before any row is written.
     await expect(
       ctx.service.ingest({ nodeId: NODE_ID, healthState: "offline" as "online" | "degraded" }),
     ).rejects.toThrow();
@@ -214,21 +209,19 @@ describe("HeartbeatService — ingest (`Spec-003 §Default Behavior`)", () => {
     expect(await countPresence(ctx.querier)).toBe(0);
   });
 
-  it("exports STALENESS_SWEEP_INTERVAL_MS finer than the 15s heartbeat cadence (`Spec-003 §Default Behavior` heartbeat-cadence -> sweep-derivation bound)", () => {
-    // The `Spec-003 §Default Behavior` timing guarantee ("recorded within one sweep interval of a
-    // threshold crossing", "set finer than the 15s cadence") derives from the
-    // §Default Behavior 15s cadence. Pin it numerically: the constant is exported (T3.8's
-    // scheduler imports it) and is strictly finer than 15s.
+  it("exports STALENESS_SWEEP_INTERVAL_MS finer than the 15s heartbeat cadence (heartbeat-cadence -> sweep-derivation bound)", () => {
+    // Timing guarantee ("recorded within one sweep interval of a threshold
+    // crossing", "set finer than the 15s cadence") derives.
     expect(STALENESS_SWEEP_INTERVAL_MS).toBe(5_000);
     expect(STALENESS_SWEEP_INTERVAL_MS).toBeLessThan(15_000);
   });
 });
 
 // ----------------------------------------------------------------------------
-// `Spec-003 §Default Behavior` — sweep-driven degraded/offline + hysteresis recovery
+// sweep-driven degraded/offline + hysteresis recovery
 // ----------------------------------------------------------------------------
 
-describe("HeartbeatService — sweepStaleness demotions (`Spec-003 §Default Behavior`)", () => {
+describe("HeartbeatService — sweepStaleness demotions", () => {
   it("demotes an online row stale past 30s to degraded and returns it (P6)", async () => {
     await seedPresence(ctx.querier, { nodeId: NODE_ID, ageSeconds: 45, healthState: "online" });
 
@@ -307,11 +300,11 @@ describe("HeartbeatService — sweepStaleness demotions (`Spec-003 §Default Beh
   it("resurrects a sweep-declared offline node to online on ANY resumed heartbeat (no re-attach gating)", async () => {
     // The one liveness-recovery transition the hysteresis test does NOT cover: a
     // node the sweep already drove to `offline` (fully dead, aged past 60s)
-    // resurrects on a resumed heartbeat via the SAME unconditional
-    // `DO UPDATE SET ... health_state = $2` path. This pins that the liveness
-    // axis (`runtime_node_presence`) and the attachment-slot axis are disjoint:
-    // a heartbeat restores liveness with NO re-attach gating (re-attach against
-    // an `offline` ATTACHMENT row is a separate concern owned by T3.2/T3.7).
+    // resurrects on a resumed heartbeat via the SAME unconditional `DO UPDATE
+    // SET... health_state = $2` path. This pins that the liveness axis
+    // (`runtime_node_presence`) and the attachment-slot axis are disjoint: a
+    // heartbeat restores liveness with NO re-attach gating (re-attach against an
+    // `offline` ATTACHMENT row is a separate concern).
     await seedPresence(ctx.querier, { nodeId: NODE_ID, ageSeconds: 90, healthState: "offline" });
 
     await ctx.service.ingest({ nodeId: NODE_ID, healthState: "online" });
@@ -331,7 +324,7 @@ describe("HeartbeatService — sweepStaleness demotions (`Spec-003 §Default Beh
     // regression to "one global target for the whole table" or "return only the
     // first row" would pass them all. Seed two nodes at DIFFERENT ages so they
     // demote to DIFFERENT targets in a SINGLE sweep; the returned array (which
-    // feeds T3.8 observability) must carry both, each at its correct target.
+    // feeds observability) must carry both, each at its correct target.
     await seedPresence(ctx.querier, { nodeId: NODE_ID, ageSeconds: 45, healthState: "online" });
     await seedPresence(ctx.querier, {
       nodeId: NODE_ID_BETA,
@@ -361,10 +354,10 @@ describe("HeartbeatService — sweepStaleness demotions (`Spec-003 §Default Beh
 });
 
 // ----------------------------------------------------------------------------
-// `Spec-003 §Default Behavior` — idempotent / transition-only + writes only presence
+// idempotent / transition-only + writes only presence
 // ----------------------------------------------------------------------------
 
-describe("HeartbeatService — sweep idempotency + write boundary (`Spec-003 §Default Behavior`)", () => {
+describe("HeartbeatService — sweep idempotency + write boundary", () => {
   it("does NOT re-write or re-report an already-offline row still aged past 60s (idempotent / transition-only)", async () => {
     // The row is ALREADY at its computed target (`offline`) and still stale. A
     // re-sweep must be a no-op: no re-write, no re-report. This pins the
@@ -415,9 +408,9 @@ describe("HeartbeatService — sweep idempotency + write boundary (`Spec-003 §D
   it("writes ONLY runtime_node_presence — a co-resident attachment row is byte-for-byte unchanged after a sweep", async () => {
     // Seed a full attachment row (it has FKs, so seed its session + participant)
     // alongside a stale presence row. The sweep must demote presence WITHOUT
-    // touching the attachment-slot axis (the two axes are disjoint —
-    // `Spec-003 §Default Behavior`). Proven behaviorally (the boundary holds at runtime), not by
-    // inspecting the SQL string.
+    // touching the attachment-slot axis (the two axes are disjoint). Proven
+    // behaviorally (the boundary holds at runtime), not by inspecting the SQL
+    // string.
     await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [PARTICIPANT_ID]);
     await ctx.querier.query(
       "INSERT INTO sessions (id, owner_user_id, state) VALUES ($1, $2, 'active')",

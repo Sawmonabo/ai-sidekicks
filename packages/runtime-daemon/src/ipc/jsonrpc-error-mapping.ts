@@ -1,33 +1,26 @@
 // JSON-RPC error mapping — discriminate thrown values from the dispatch
-// path and produce sanitized `JsonRpcErrorResponse` envelopes (Plan-007
-// Phase 2, T-007p-2-2).
+// path and produce sanitized `JsonRpcErrorResponse` envelopes.
 //
-// Spec coverage:
-//   * Spec-007 §Error Mapping (referenced via §Wire Format / §Required
-//     Behavior in docs/specs/007-local-ipc-and-daemon-control.md) — the
-//     daemon-side error-emission contract for JSON-RPC 2.0 envelopes.
-//   * ADR-009 (docs/decisions/009-json-rpc-ipc-wire-format.md) — wire-
-//     format decision rationale; numeric error code semantics.
-//   * error-contracts.md §JSON-RPC Wire Mapping — canonical numeric ↔
-//     project dotted-namespace table (BL-103 closed 2026-05-01). The
-//     two-layer envelope (numeric `code` + `data: { type, fields? }`) is
-//     ratified there; this module is its substrate-side enforcement seam.
+//   * The daemon-side error-emission contract for JSON-RPC 2.0
+//     envelopes.
+//   * Wire- format decision rationale; numeric error code semantics.
+//   * canonical numeric ↔ project dotted-namespace table (closed
+//     2026-05-01). The two-layer envelope (numeric `code` + `data: {
+//     type, fields? }`) is ratified there; this module is its
+//     substrate-side enforcement seam.
 //
 // Invariants this module owns at the error-mapping boundary (canonical
-// text in `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`,
-// I-007-7 and I-007-8):
-//   * I-007-7 (schema validation runs before handler dispatch) — mapping-
-//     side: when the registry's `dispatch()` throws
+// text):
+//   * Mapping- side: when the registry's `dispatch()` throws
 //     `RegistryDispatchError(registryCode: "invalid_params")` BEFORE the
-//     handler body executes, this module surfaces the wire numeric
-//     `-32602 Invalid Params`. The handler-never-ran property is preserved
-//     because the registry surface guarantees throw-before-handler-call;
-//     this module simply translates the registry's stable string code
-//     into the canonical JSON-RPC numeric.
-//   * I-007-8 (handler-thrown errors map to JSON-RPC error codes with
-//     sanitized payloads) — mapping-side: BOTH channels of the error
-//     envelope flow through dedicated sanitizers before reaching the
-//     wire. The `error.message` channel flows through T-1's
+//     handler body executes, this module surfaces the wire numeric `-32602
+//     Invalid Params`. The handler-never-ran property is preserved because
+//     the registry surface guarantees throw-before-handler-call; this
+//     module simply translates the registry's stable string code into the
+//     canonical JSON-RPC numeric.
+//   * Mapping-side: BOTH channels of the error envelope flow through
+//     dedicated sanitizers before reaching the wire. The
+//     `error.message` channel flows through T-1's
 //     `sanitizeErrorMessage`; the `error.data.fields` channel flows
 //     through this module's `sanitizeFields`. Stack traces, absolute
 //     filesystem paths, and UNC / Windows-drive paths are stripped from
@@ -38,10 +31,9 @@
 //     into stable sentinel strings so `encodeFrame.JSON.stringify`
 //     cannot be DoS'd by a hostile or buggy `error.fields` payload.
 //
-// Discriminator architecture (post-BL-103):
 //   `mapJsonRpcError` discriminates `instanceof` against the daemon's
 //   typed error surfaces and projects each into the canonical JSON-RPC
-//   envelope per the §JSON-RPC Wire Mapping table:
+//   envelope
 //
 //     1. RegistryDispatchError         → registryCode     → numeric + data.type
 //     2. FramingError                  → code             → numeric + data.type
@@ -59,15 +51,14 @@
 //   for `transport.message_too_large`).
 //
 // What this module does NOT do:
-//   * Reimplement message-channel sanitization. T-1's
-//     `sanitizeErrorMessage` is the single I-007-8 seam for the
+//   * T-1's `sanitizeErrorMessage` is the single seam for the
 //     `error.message` string; we IMPORT and reuse it.
 //   * Reimplement path-shape regex matching. T-1's
 //     `redactPathsFromString` is the single primitive shared between
 //     `sanitizeErrorMessage` (single-string sanitization) and
 //     `sanitizeFields` (recursive structured-value sanitization); both
-//     I-007-8 enforcement seams use it.
-//   * Discriminate notifications. JSON-RPC notifications (per §4.1) are
+//     enforcement seams use it.
+//   * Discriminate notifications. JSON-RPC notifications (per section 4.1) are
 //     one-way and MUST NOT receive a response — that is the gateway's
 //     concern (it skips the response-emission path entirely for
 //     notifications). This module is only invoked when the gateway has
@@ -96,7 +87,7 @@ import { SessionNotFoundError } from "./session-errors.js";
 /**
  * Map T-1's `FramingError.code` strings (declared in `local-ipc-gateway.ts`'s
  * `parseFrame` / `encodeFrame` throws) to the appropriate JSON-RPC numeric.
- * Per JSON-RPC §5.1, both "couldn't parse" and "envelope-shape malformed"
+ * Per JSON-RPC section 5.1, both "couldn't parse" and "envelope-shape malformed"
  * are valid framing failure modes — the spec lumps "couldn't parse the
  * request" into `-32700` and "valid JSON but bad envelope" into `-32600`.
  *
@@ -104,13 +95,12 @@ import { SessionNotFoundError } from "./session-errors.js";
  *   * `"header_too_long"` — header section exceeded the defense-in-depth
  *     1 KB cap before CRLFCRLF. The wire is desynced; we cannot trust
  *     the body either. → `-32700 ParseError`.
- *   * `"oversized_body"` — declared `Content-Length` exceeded
- *     `MAX_MESSAGE_BYTES`. The framing parser successfully read the
- *     header but refuses to read the body. Per `Plan-007 §Phase 2: Wire Substrate` Tasks (T-007p-2-2) + W-007p-2-T5,
- *     this is structurally an "Invalid Request" (the request envelope
- *     itself is malformed-by-being-too-large, not malformed-as-JSON).
- *     → `-32600 InvalidRequest` per JSON-RPC §5.1 ("The JSON sent is not
- *     a valid Request object").
+ *   * `"oversized_body"` — declared `Content-Length` exceeded `MAX_MESSAGE_BYTES`.
+ *     The framing parser successfully read the header but refuses to read the body.
+ *     Tasks + W-007p-2-T5, this is structurally an "Invalid Request" (the request
+ *     envelope itself is malformed-by-being-too-large, not malformed-as-JSON). →
+ *     `-32600 InvalidRequest` per JSON-RPC section 5.1 ("The JSON sent is not a
+ *     valid Request object").
  *   * `"malformed_header"` — header grammar violation (wrong line
  *     terminator, missing colon, empty header line). Body cannot be
  *     trusted. → `-32700 ParseError`.
@@ -120,21 +110,16 @@ import { SessionNotFoundError } from "./session-errors.js";
  *     entirely. → `-32700 ParseError`.
  *   * `"invalid_json"` — frame body parsed past the framing layer but
  *     `JSON.parse` rejected it. The wire was framed correctly but the
- *     payload is not valid JSON. → `-32700 ParseError` per spec §5.1
- *     ("Invalid JSON was received by the server").
+ *     payload is not valid JSON. → `-32700 ParseError` per spec.
  *   * `"invalid_envelope"` — frame body is valid JSON but does not match
  *     the JSON-RPC envelope shape (missing `jsonrpc` field, missing
  *     `method` on a request, etc.). The framing+JSON layers succeeded;
- *     the JSON-RPC layer rejects. → `-32600 InvalidRequest` per spec §5.1
- *     ("The JSON sent is not a valid Request object").
- *   * `"invalid_protocol_version"` — request envelope is structurally
- *     valid (jsonrpc / method / id-shape all pass) but the per-request
- *     `protocolVersion` field is missing, the wrong type, or fails the
- *     ISO 8601 `YYYY-MM-DD` shape per `Spec-007 §Wire Format` (BL-102 ratification).
- *     The substrate refuses dispatch BEFORE the handler runs (I-007-7).
- *     → `-32600 InvalidRequest` per spec §5.1 ("The JSON sent is not a
- *     valid Request object" — a request missing a wire-mandated field
- *     IS not a valid Request object).
+ *     the JSON-RPC layer rejects. → `-32600 InvalidRequest` per spec.
+ *   * `"invalid_protocol_version"` — request envelope is structurally valid
+ *     (jsonrpc / method / id-shape all pass) but the per-request `protocolVersion`
+ *     field is missing, the wrong type, or fails the ISO 8601 `YYYY-MM-DD` shape.
+ *     The substrate refuses dispatch BEFORE the handler runs. → `-32600
+ *     InvalidRequest` per spec.
  *
  * The three virtual codes `"invalid_json"`, `"invalid_envelope"`, and
  * `"invalid_protocol_version"` are NOT thrown by `parseFrame` directly —
@@ -170,38 +155,31 @@ function mapFramingErrorCode(code: string): JsonRpcErrorCodeValue {
 
 /**
  * Map T-1's `FramingError.code` to the canonical project dotted-namespace
- * `data.type` per error-contracts.md §JSON-RPC Wire Mapping.
+ * `data.type`.
  *
- * The `oversized_body` row projects to the registered transport-layer
- * code `transport.message_too_large` (HTTP 413 semantic per §Error Codes
- * §Transport). This is intentionally distinct from `resource.limit_exceeded`
- * (Spec-001 quota-enforcement code, HTTP 429): a wire frame exceeding the
- * 1MB body cap is a TRANSPORT failure (peer is mis-using the framing
- * layer) — it is NOT a domain-level resource limit (which describes
- * sessions / runs / invites being created at a rate above
+ * The `oversized_body` row projects to the registered transport-layer code
+ * `transport.message_too_large` (HTTP 413 semantic). This is intentionally
+ * distinct from `resource.limit_exceeded` (quota-enforcement code, HTTP
+ * 429): a wire frame exceeding the 1MB body cap is a TRANSPORT failure (peer
+ * is mis-using the framing layer) — it is NOT a domain-level resource limit
+ * (which describes sessions / runs / invites being created at a rate above
  * `ResourceLimitExceededDetailsSchema`'s `{resource, limit, current}`
- * contract). Conflating them violates the Spec-001 strict-schema invariant
- * and makes 413-semantic peer mis-framing indistinguishable from 429-
- * semantic quota saturation in downstream observability.
+ * contract). Conflating them violates strict-schema invariant and makes
+ * 413-semantic peer mis-framing indistinguishable from 429- semantic quota
+ * saturation in downstream observability.
  *
- * The `invalid_protocol_version` row projects to the registered
- * transport-layer code `transport.invalid_protocol_version` (per
- * error-contracts.md §Plan-007 Tier 1 Domain Identifiers + §Transport).
- * This is the substrate-side enforcement of `Spec-007 §Wire Format`'s per-request
- * `protocolVersion` field requirement — the field is part of the wire
- * envelope contract, so its absence / wrong type / bad format is a
- * TRANSPORT failure (peer mis-using the wire layer), distinct from
- * `protocol.version_mismatch` (NegotiationError, registry-side gate
- * for incompatible negotiated versions on subsequent mutating ops).
+ * The `invalid_protocol_version` row projects to the registered transport-layer
+ * code `transport.invalid_protocol_version`. This is the substrate-side
+ * enforcement of the per-request `protocolVersion` field requirement — the field
+ * is part of the wire envelope contract, so its absence / wrong type / bad format
+ * is a TRANSPORT failure (peer mis-using the wire layer), distinct from
+ * `protocol.version_mismatch` (NegotiationError, registry-side gate for
+ * incompatible negotiated versions on subsequent mutating ops).
  *
  * The rest of the framing codes project directly through their framing-
  * code string (which carries no domain meaning, only wire-level meaning).
- * The §JSON-RPC Wire Mapping table permits framework-level identifiers in
  * `data.type` for substrate-only concerns — `invalid_json`,
- * `invalid_envelope`, `malformed_header` etc. are not §Error Codes
- * registry entries but they are stable, documented substrate-level
- * identifiers that downstream test/observability code can discriminate
- * against.
+ * `invalid_envelope`, `malformed_header` etc.
  */
 function framingErrorDataType(code: string): string {
   if (code === "oversized_body") {
@@ -223,9 +201,9 @@ function framingErrorDataType(code: string): string {
  * contract at `registry.ts` lines 195-222:
  *
  *   * `"method_not_found"` — registered method missing from registry. →
- *     `-32601 MethodNotFound` per JSON-RPC §5.1.
+ *     `-32601 MethodNotFound` per JSON-RPC section 5.1.
  *   * `"invalid_params"` — `paramsSchema.safeParse(params)` failed. The
- *     handler was NEVER invoked (I-007-7). → `-32602 InvalidParams`.
+ *     handler was NEVER invoked.
  *   * `"invalid_result"` — `resultSchema.safeParse(result)` failed
  *     against the handler's resolved value. This is a PROGRAMMER ERROR
  *     (the handler returned malformed data); the client did nothing
@@ -251,13 +229,8 @@ function mapRegistryDispatchCode(
 
 /**
  * Build the `data: JsonRpcErrorData` payload for a `RegistryDispatchError`.
- * The registry's stable string code (`method_not_found` / `invalid_params`
- * / `invalid_result`) projects directly into `data.type` — these are the
- * JSON-RPC §5.1 framework-level identifiers, not §Error Codes registry
- * entries, but they are the canonical substrate identifiers downstream
- * test / observability code discriminates against. Zod validation issues
- * ride in `data.fields.issues` when present so clients can introspect the
- * specific schema violations.
+ * Zod validation issues ride in `data.fields.issues` when present so clients
+ * can introspect the specific schema violations.
  */
 function buildRegistryDispatchData(thrown: RegistryDispatchError): JsonRpcErrorData {
   if (thrown.issues !== undefined && thrown.issues.length > 0) {
@@ -289,9 +262,9 @@ function buildFramingErrorData(thrown: FramingError): JsonRpcErrorData {
  * Build the `data: JsonRpcErrorData` payload for a `NegotiationError`.
  * `negotiationCode` is already the canonical project dotted-namespace
  * identifier (`protocol.handshake_required` / `protocol.version_mismatch`)
- * per error-contracts.md §JSON-RPC Wire Mapping — project it through to
- * `data.type` verbatim. `error.fields` (when set, e.g. `{ reason }` for
- * `protocol.version_mismatch`) projects through to `data.fields`.
+ * — project it through to `data.type` verbatim. `error.fields` (when set,
+ * e.g. `{ reason }` for `protocol.version_mismatch`) projects through to
+ * `data.fields`.
  */
 function buildNegotiationErrorData(thrown: NegotiationError): JsonRpcErrorData {
   if (thrown.fields !== undefined) {
@@ -304,9 +277,8 @@ function buildNegotiationErrorData(thrown: NegotiationError): JsonRpcErrorData {
  * Build the `data: JsonRpcErrorData` payload for a
  * `SecureDefaultsValidationError`. The error's stable `code` string is
  * the canonical `data.type` (`unknown_setting`, `invalid_bind_address`,
- * etc.) per error-contracts.md §JSON-RPC Wire Mapping. The structured
- * `{ setting, value }` payload captured at the throw site projects
- * through to `data.fields`.
+ * etc.). The structured `{ setting, value }` payload captured at the
+ * throw site projects through to `data.fields`.
  */
 function buildSecureDefaultsValidationData(
   thrown: SecureDefaultsValidationError,
@@ -318,13 +290,10 @@ function buildSecureDefaultsValidationData(
 }
 
 /**
- * Build the `data: JsonRpcErrorData` payload for a `SessionNotFoundError`.
- * The class's `code` literal is the canonical project dotted-namespace
- * identifier (`session.not_found`) per
- * `docs/architecture/contracts/error-contracts.md §JSON-RPC Wire Mapping`
- * (the §Session row is the HTTP 404 equivalent). The optional `fields` payload
- * captured at the throw site (typically `{ sessionId }`) projects through
- * to `data.fields`.
+ * Build the `data: JsonRpcErrorData` payload for a `SessionNotFoundError`. The
+ * class's `code` literal is the canonical project dotted-namespace identifier
+ * (`session.not_found`). The optional `fields` payload captured at the throw
+ * site (typically `{ sessionId }`) projects through to `data.fields`.
  */
 function buildSessionNotFoundData(thrown: SessionNotFoundError): JsonRpcErrorData {
   if (thrown.fields !== undefined) {
@@ -336,11 +305,11 @@ function buildSessionNotFoundData(thrown: SessionNotFoundError): JsonRpcErrorDat
 /**
  * Build the `data: JsonRpcErrorData` payload for a `DaemonDomainError` (or any
  * subclass). The error's `code` is the canonical project dotted-namespace
- * identifier per error-contracts.md §JSON-RPC Wire Mapping — projected
- * verbatim into `data.type`. The optional `detail` captured at the throw site
- * projects through to `data.fields` (sanitized at the single seam in
- * `mapJsonRpcError`, like every other builder's `fields`). Named `detail` on
- * the class, `fields` on the wire — the projection is the rename point.
+ * identifier — projected verbatim into `data.type`. The optional `detail`
+ * captured at the throw site projects through to `data.fields` (sanitized at
+ * the single seam in `mapJsonRpcError`, like every other builder's `fields`).
+ * Named `detail` on the class, `fields` on the wire — the projection is the
+ * rename point.
  */
 function buildDomainErrorData(thrown: DaemonDomainError): JsonRpcErrorData {
   if (thrown.detail !== undefined) {
@@ -350,7 +319,7 @@ function buildDomainErrorData(thrown: DaemonDomainError): JsonRpcErrorData {
 }
 
 // --------------------------------------------------------------------------
-// sanitizeFields — I-007-8 enforcement for `data.fields` (BL-103 hardening)
+// sanitizeFields — enforcement for `data.fields` (hardening)
 // --------------------------------------------------------------------------
 
 /**
@@ -429,9 +398,9 @@ interface SanitizationBudget {
 }
 
 /**
- * Sanitize a `data.fields` payload for wire emission. The I-007-8
- * enforcement seam for the structured-detail channel of the JSON-RPC
- * error envelope.
+ * Sanitize a `data.fields` payload for wire emission. enforcement
+ * seam for the structured-detail channel of the JSON-RPC error
+ * envelope.
  *
  * Why this exists: the `error.message` channel has a single-seam
  * sanitizer (`sanitizeErrorMessage` in `local-ipc-gateway.ts`) that
@@ -443,15 +412,15 @@ interface SanitizationBudget {
  * `data.fields.value`, which can be a path-shape, a secret-shape, or a
  * non-JSON-safe type (`BigInt` throws in `JSON.stringify`; circular
  * objects throw; symbols / functions silently drop). All four classes
- * are I-007-8 violations:
+ * are violations:
  *
  *   1. Confidentiality: an absolute path or secret-shape value bypasses
  *      the path-redaction the message channel applies.
  *   2. DoS: a `BigInt` or circular value crashes
  *      `local-ipc-gateway.ts`'s `encodeFrame.JSON.stringify`, which
  *      destroys the connection (peer sees `ECONNRESET`).
- *   3. Asymmetric I-007-8: only `error.message` was actually enforced
- *      by the substrate; `data.fields` was producer-honor-system.
+ *   3. Asymmetric: only `error.message` was actually enforced by the
+ *      substrate; `data.fields` was producer-honor-system.
  *
  * What this function does:
  *   * Recursively walks the structured payload bounded by
@@ -480,9 +449,9 @@ interface SanitizationBudget {
  * NOT throw. `sanitizeFields(anything)` itself MUST NOT throw. Hostile
  * inputs with throwing `Object.entries` getters, throwing `toString`, or
  * `Symbol.toPrimitive` traps are caught and replaced with
- * `<unsanitizeable>`. The substrate's I-007-8 enforcement seam MUST be
- * non-throwing because a throw here would crash `mapJsonRpcError`,
- * which is itself the substrate's only escape hatch for handler errors.
+ * `<unsanitizeable>`. The substrate's enforcement seam MUST be
+ * non-throwing because a throw here would crash `mapJsonRpcError`, which
+ * is itself the substrate's only escape hatch for handler errors.
  *
  * What this function does NOT do:
  *   * Strip secrets that don't match path patterns. Same trade-off as
@@ -731,20 +700,18 @@ function capString(value: string): string {
  * Discriminate an arbitrary thrown value from the gateway's dispatch path
  * and produce a sanitized `JsonRpcErrorResponse` envelope ready for the
  * wire. Every `error.message` is sanitized via T-1's `sanitizeErrorMessage`
- * (I-007-8 enforcement on the message channel); every `error.data.fields`
- * is sanitized via `sanitizeFields` (I-007-8 enforcement on the structured-
- * detail channel — added 2026-05-01 per Codex review of PR #26 closing the
- * confidentiality + DoS gaps documented in BL-103); every `error.code` is
- * one of the JSON-RPC 2.0 spec numerics in `JsonRpcErrorCode`; `error.data`
- * is the canonical two-layer envelope shape ratified at error-contracts.md
- * §JSON-RPC Wire Mapping (BL-103 closed 2026-05-01).
+ * (enforcement on the message channel); every `error.data.fields` is
+ * sanitized via `sanitizeFields` (enforcement on the structured- detail
+ * channel — added 2026-05-01 per Codex review of PR #26 closing the
+ * confidentiality + DoS gaps documented); every `error.code` is one of the
+ * JSON-RPC 2.0 spec numerics in `JsonRpcErrorCode`; `error.data` is the
+ * canonical two-layer envelope shape.
  *
- * I-007-8 multi-channel posture (the canonical text in plan §Invariants,
- * I-007-8, says "Stack traces and secrets MUST never leak through the
- * response" — "the response" is the entire JSON-RPC error envelope, not
- * just `error.message`). Both surfaces of the envelope that carry
- * substrate-or-throw-site-supplied content flow through dedicated
- * sanitizers:
+ * Multi-channel posture (the canonical text in plan says "Stack traces
+ * and secrets MUST never leak through the response" — "the response" is
+ * the entire JSON-RPC error envelope, not just `error.message`). Both
+ * surfaces of the envelope that carry substrate-or-throw-site-supplied
+ * content flow through dedicated sanitizers:
  *
  *     `error.message`      → `sanitizeErrorMessage` (path redaction + length cap)
  *     `error.data.fields`  → `sanitizeFields`       (recursive value normalization)
@@ -767,30 +734,30 @@ function capString(value: string): string {
  *   4. `SessionNotFoundError` — `session.*` handler unknown-id failure.
  *      Maps to `-32602 InvalidParams` (the supplied sessionId is
  *      structurally a malformed param); `data.type` is the class's
- *      `code` literal `session.not_found` (HTTP 404 equivalent per
- *      error-contracts.md §Session); `data.fields` carries throw-site
- *      detail (typically `{ sessionId }`). Listed before
- *      `SecureDefaultsValidationError` because both share `-32602` but
- *      `SessionNotFoundError` is the more specific surface.
+ *      `code` literal `session.not_found` (HTTP 404 equivalent);
+ *      `data.fields` carries throw-site detail (typically `{ sessionId
+ *      }`). Listed before `SecureDefaultsValidationError` because both
+ *      share `-32602` but `SessionNotFoundError` is the more specific
+ *      surface.
  *   5. `SecureDefaultsValidationError` — bootstrap config-validation
  *      failure. `code` selects the JSON-RPC numeric (always `-32602`);
  *      `data.type` carries the validation code verbatim; `data.fields`
  *      carries `{ setting, value }` from the throw site.
- *   6. `DaemonDomainError` — generic namespace-error base (BL-143). Any
- *      error extending it (or thrown as it directly) self-describes its
- *      wire mapping: `jsonRpcCode` selects the numeric (default `-32603`
- *      when unset), `code` is the dotted `data.type`, `detail` becomes
+ *   6. `DaemonDomainError` — generic namespace-error base. Any error
+ *      extending it (or thrown as it directly) self-describes its wire
+ *      mapping: `jsonRpcCode` selects the numeric (default `-32603` when
+ *      unset), `code` is the dotted `data.type`, `detail` becomes
  *      `data.fields`. Listed LAST among typed branches — it is the
  *      general base, so the specific branches above are matched first and
  *      never shadowed (they do not extend this base).
  *   7. Anything else — handler-thrown `Error` / `string` / arbitrary
  *      thrown value. Collapses to `-32603 Internal Error` with no
  *      `data` field — the substrate has no canonical projection for an
- *      unregistered throw, and per BL-103 the absence of `data` is the
- *      signal that this is a daemon-internal failure rather than a
- *      registered domain failure.
+ *      unregistered throw, and the absence of `data` is the signal
+ *      that this is a daemon-internal failure rather than a registered
+ *      domain failure.
  *
- * Per JSON-RPC §5: if the request id was undeterminable (e.g. parse
+ * Per JSON-RPC section 5: if the request id was undeterminable (e.g. parse
  * error before id was extracted), the caller MUST pass `null`. This
  * function does not attempt to extract the id from the thrown value —
  * that is the caller's concern. Pass the request id verbatim from
@@ -817,28 +784,25 @@ export function mapJsonRpcError(thrown: unknown, requestId: JsonRpcId): JsonRpcE
     data = buildFramingErrorData(thrown);
   } else if (thrown instanceof NegotiationError) {
     // Both `protocol.handshake_required` and `protocol.version_mismatch`
-    // surface as `-32600 InvalidRequest` per error-contracts.md §JSON-RPC
-    // Wire Mapping. The request is structurally valid JSON-RPC, but the
-    // per-connection protocol-state contract is violated — JSON-RPC §5.1
-    // "the JSON sent is not a valid Request object" at the protocol layer.
+    // surface as `-32600 InvalidRequest`. The request is structurally valid
+    // JSON-RPC, but the per-connection protocol-state contract is violated —
+    // JSON-RPC section 5.1 "the JSON sent is not a valid Request object" at the
+    // protocol layer.
     numericCode = JsonRpcErrorCode.InvalidRequest;
     data = buildNegotiationErrorData(thrown);
   } else if (thrown instanceof SessionNotFoundError) {
-    // `session.not_found` is a registered project dotted-namespace
-    // identifier per `docs/architecture/contracts/error-contracts.md §Session` — HTTP 404
-    // equivalent. Maps to `-32602 InvalidParams` per the project
-    // convention that "requested resource does not exist" is
-    // structurally a param-shape failure (the supplied sessionId does
-    // not resolve), matching the SecureDefaultsValidationError
-    // "unknown setting" treatment. Listed BEFORE
+    // `session.not_found` is a registered project dotted-namespace identifier —
+    // HTTP 404 equivalent. Maps to `-32602 InvalidParams` per the project
+    // convention that "requested resource does not exist" is structurally a
+    // param-shape failure (the supplied sessionId does not resolve), matching the
+    // SecureDefaultsValidationError "unknown setting" treatment. Listed BEFORE
     // SecureDefaultsValidationError because both share -32602 but
-    // SessionNotFoundError is the more specific surface — discriminator
-    // order is most-specific first.
+    // SessionNotFoundError is the more specific surface — discriminator order is
+    // most-specific first.
     numericCode = JsonRpcErrorCode.InvalidParams;
     data = buildSessionNotFoundData(thrown);
   } else if (thrown instanceof SecureDefaultsValidationError) {
-    // Config-validation failures are `-32602 InvalidParams` per
-    // error-contracts.md §Plan-007 Tier 1 Domain Identifiers — daemon
+    // Config-validation failures are `-32602 InvalidParams` — daemon
     // boot-time config IS the request parameters from the operator's
     // perspective; rejecting an unknown setting or an invalid bind
     // address is structurally the same shape as rejecting a malformed
@@ -846,51 +810,47 @@ export function mapJsonRpcError(thrown: unknown, requestId: JsonRpcId): JsonRpcE
     numericCode = JsonRpcErrorCode.InvalidParams;
     data = buildSecureDefaultsValidationData(thrown);
   } else if (thrown instanceof DaemonDomainError) {
-    // Generic typed-domain-error projection (BL-143). Any namespace error
-    // extending DaemonDomainError (or thrown as it directly) carries its
-    // own wire mapping: `jsonRpcCode` selects the numeric (default
-    // `-32603 InternalError` per error-contracts.md §Numeric Code Space
-    // when unset); `code` is the canonical dotted `data.type`; `detail`
-    // becomes `data.fields` (sanitized in Step 2). Placed LAST among the
-    // typed branches — immediately before the untyped catch-all — because
-    // it is the general base; a more-specific existing branch (e.g.
-    // SessionNotFoundError) is matched first and never shadowed (those
-    // classes deliberately do NOT extend this base).
+    // Any namespace error extending DaemonDomainError (or thrown as it
+    // directly) carries its own wire mapping: `jsonRpcCode` selects the
+    // numeric (default `-32603 InternalError`); `code` is the canonical
+    // dotted `data.type`; `detail` becomes `data.fields` (sanitized in
+    // Step 2). Placed LAST among the typed branches — immediately before
+    // the untyped catch-all — because it is the general base; a
+    // more-specific existing branch (e.g. SessionNotFoundError) is
+    // matched first and never shadowed (those classes deliberately do NOT
+    // extend this base).
     numericCode = thrown.jsonRpcCode ?? JsonRpcErrorCode.InternalError;
     data = buildDomainErrorData(thrown);
   } else {
-    // Per JSON-RPC §5.1: "Internal JSON-RPC error" — the catch-all for
-    // unexpected throws inside the handler body. The handler's failure
-    // is a daemon-internal one, not a client-protocol one; -32603 is
-    // the canonical numeric. The absence of `data` is intentional: per
-    // BL-103, only registered failure surfaces carry `data` so clients
+    // The handler's failure is a daemon-internal one, not a client-protocol
+    // one; -32603 is the canonical numeric. The absence of `data` is
+    // intentional: only registered failure surfaces carry `data` so clients
     // can discriminate "registered domain failure" (data present) from
     // "unregistered substrate-internal failure" (data absent).
     numericCode = JsonRpcErrorCode.InternalError;
     data = undefined;
   }
 
-  // Step 2: sanitize the structured-detail payload (I-007-8 enforcement
-  // on the `data.fields` channel). The data builders (Step 1) project
-  // the throw site's typed `error.fields` verbatim; before this step,
-  // those values flowed unredacted to the wire — a path-shape value, a
-  // BigInt, or a circular reference would either leak operator state or
-  // crash `encodeFrame.JSON.stringify`. `sanitizeFields` runs the
-  // recursive walk that mirrors `sanitizeErrorMessage`'s posture for the
+  // Step 2: sanitize the structured-detail payload (enforcement on the
+  // `data.fields` channel). The data builders (Step 1) project the throw
+  // site's typed `error.fields` verbatim; before this step, those values
+  // flowed unredacted to the wire — a path-shape value, a BigInt, or a
+  // circular reference would either leak operator state or crash
+  // `encodeFrame.JSON.stringify`. `sanitizeFields` runs the recursive
+  // walk that mirrors `sanitizeErrorMessage`'s posture for the
   // single-string channel. Single-seam: only HERE, never inside the
-  // per-class builders, so the I-007-8 enforcement is auditable in one
-  // location and cannot be bypassed by a future builder forgetting to
-  // sanitize.
+  // per-class builders, so enforcement is auditable in one location and
+  // cannot be bypassed by a future builder forgetting to sanitize.
   if (data !== undefined && data.fields !== undefined) {
     data = { type: data.type, fields: sanitizeFields(data.fields) };
   }
 
-  // Step 3: sanitize the message (I-007-8 enforcement on the
-  // `error.message` channel). T-1's `sanitizeErrorMessage` strips stack
-  // traces, Unix absolute paths, UNC paths, and Windows-drive paths. We
-  // DO NOT reimplement here — the single sanitization seam keeps the
-  // security posture auditable in one place. `redactPathsFromString` is
-  // the shared regex primitive between this and `sanitizeFields`.
+  // Step 3: sanitize the message (enforcement on the `error.message`
+  // channel). T-1's `sanitizeErrorMessage` strips stack traces, Unix
+  // absolute paths, UNC paths, and Windows-drive paths. We DO NOT
+  // reimplement here — the single sanitization seam keeps the security
+  // posture auditable in one place. `redactPathsFromString` is the
+  // shared regex primitive between this and `sanitizeFields`.
   const sanitizedMessage = sanitizeErrorMessage(thrown);
 
   // Step 4: build the envelope. `exactOptionalPropertyTypes: true`

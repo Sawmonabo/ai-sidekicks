@@ -1,5 +1,5 @@
 /**
- * Plan-005 T3.9 — Claude tool metadata (I-005-3).
+ * Claude tool metadata — the conservative idempotency default.
  *
  * These tests drive THIS module's closing helper, deliberately not the
  * contract's `ProviderToolMetadataSchema` default: the schema's
@@ -38,7 +38,7 @@ const RECOGNIZED_CLASSES: readonly IdempotencyClass[] = [
   "manual_reconcile_only",
 ];
 
-describe("Claude tool metadata — the conservative default (I-005-3)", () => {
+describe("Claude tool metadata — the conservative default", () => {
   it("fixes the default at manual_reconcile_only", () => {
     expect(DEFAULT_CLAUDE_TOOL_IDEMPOTENCY_CLASS).toBe("manual_reconcile_only");
   });
@@ -60,8 +60,8 @@ describe("Claude tool metadata — the conservative default (I-005-3)", () => {
   });
 
   it("floors an UNRECOGNIZED class rather than passing it through or throwing", () => {
-    // The static type is erased at runtime; T3.13 routes MCP-discovered tools
-    // through this helper, so an out-of-vocabulary value is reachable. A value
+    // The static type is erased at runtime; MCP-discovered tools route through
+    // this helper, so an out-of-vocabulary value is reachable. A value
     // outside the vocabulary declares nothing, so it takes absence's treatment.
     const hostile = {
       name: "HostileTool",
@@ -136,8 +136,8 @@ describe("Claude tool catalog", () => {
   });
 
   it("annotates exactly the pure local reads as idempotent", () => {
-    // Spec-005 §Tool Metadata defines `idempotent` as a pure read. Adding a
-    // name here is a decision to re-execute that tool during recovery.
+    // `idempotent` means a pure read. Adding a name here is a decision to
+    // re-execute that tool during recovery.
     const idempotent = CLAUDE_TOOL_CATALOG.filter(
       (tool) => tool.idempotency_class === "idempotent",
     ).map((tool) => tool.name);
@@ -212,10 +212,10 @@ describe("Claude tool catalog", () => {
 });
 
 // ==========================================================================
-// T3.13 — MCP idempotency floor + dormant task-handle seam + status census
+// MCP idempotency floor + dormant task-handle seam + status census
 // ==========================================================================
 
-describe("Claude MCP idempotency floor (T3.13 P2-7)", () => {
+describe("Claude MCP idempotency floor", () => {
   it("classifies an MCP-discovered tool manual_reconcile_only with no annotations", () => {
     expect(classifyMcpDiscoveredTool()).toBe("manual_reconcile_only");
   });
@@ -231,7 +231,7 @@ describe("Claude MCP idempotency floor (T3.13 P2-7)", () => {
     ).toBe("manual_reconcile_only");
   });
 
-  it("pins the MCP floor constant to the spec value and the driver default", () => {
+  it("pins the MCP floor constant to the declared value and the driver default", () => {
     expect(MCP_DISCOVERED_TOOL_IDEMPOTENCY_CLASS).toBe("manual_reconcile_only");
     expect(MCP_DISCOVERED_TOOL_IDEMPOTENCY_CLASS).toBe(DEFAULT_CLAUDE_TOOL_IDEMPOTENCY_CLASS);
   });
@@ -247,7 +247,7 @@ describe("Claude MCP idempotency floor (T3.13 P2-7)", () => {
   });
 });
 
-describe("Claude durable MCP task-handle seam (T3.13 observation, T5.1 active)", () => {
+describe("Claude durable MCP task-handle seam", () => {
   it("extracts the receiver-generated taskId from a CreateTaskResult acceptance", () => {
     expect(extractMcpTaskId({ task: { taskId: "task-123" } })).toBe("task-123");
   });
@@ -265,7 +265,7 @@ describe("Claude durable MCP task-handle seam (T3.13 observation, T5.1 active)",
     // `commandId` reaches the sink verbatim: it is the `command_receipts` row
     // the handle is written to, and the MCP identity pair names no row. The
     // handle-less dispatch calls nothing, leaving the column NULL and the
-    // receipt on the manual_reconcile_only halt (I-005-3).
+    // receipt on the manual_reconcile_only halt.
     const observations: McpTaskHandleObservation[] = [];
     const collectingSink = (observation: McpTaskHandleObservation): void => {
       observations.push(observation);
@@ -288,7 +288,7 @@ describe("Claude durable MCP task-handle seam (T3.13 observation, T5.1 active)",
   });
 });
 
-describe("Claude MCP server-status census normalization (T3.13 P2-10-L1)", () => {
+describe("Claude MCP server-status census normalization", () => {
   it("maps every recognized init-census status token into the unified enum", () => {
     const expectations: readonly (readonly [string, string])[] = [
       ["connected", "connected"],

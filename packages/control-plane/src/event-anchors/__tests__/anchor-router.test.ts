@@ -1,29 +1,28 @@
-// Plan-006 T3.3 — `eventanchor.upload` resolves through the MERGED host.
+// `eventanchor.upload` resolves through the MERGED host.
 //
 // Every test here dispatches an HTTP request at
 // `buildControlPlaneFetchHandler` rather than driving the router factory
 // through `t.createCallerFactory`, and that is the point rather than an
 // incidental choice. Three things are only observable on the HTTP path:
 //
-//   1. THE MOUNT (Plan-006 CP-006-2). A 200 at `/trpc/eventanchor.upload` is
-//      reachable only if `t.mergeRouters` composed this router flat alongside
-//      the session and runtime-node siblings. A regression that re-nested it or
-//      dropped it from the merge surfaces here as a 404 while every in-process
-//      caller test would still pass — the same gap
+//   1. A 200 at `/trpc/eventanchor.upload` is reachable only if
+//      `t.mergeRouters` composed this router flat alongside the session and
+//      runtime-node siblings. A regression that re-nested it or dropped it from
+//      the merge surfaces here as a 404 while every in-process caller test
+//      would still pass — the same gap
 //      `server/__tests__/host-runtime-node.test.ts` closes for `runtimenode.*`.
 //   2. THE `.input()` REFUSAL as a wire STATUS. The metadata-only invariant
-//      (I-006-3-02) is enforced by a `.strict()` schema at the procedure
-//      boundary, and a caller needs to see a 4xx — not a 200 with the extra
-//      member quietly dropped.
-//   3. THE I-008-1 GATE still intercepting. Adding a third router to the merge
-//      must not open a path around the dual gate.
+//      is enforced by a `.strict()` schema at the procedure boundary, and a
+//      caller needs to see a 4xx — not a 200 with the extra member quietly
+//      dropped.
+//   3. Adding a third router to the merge must not open a path around the dual
+//      gate.
 //
 // The store's own behaviour (idempotency mechanics, byte fidelity, the FK arm)
 // is covered against PGlite in the sibling `anchor-store.test.ts`; this file
 // asserts the transport contract on top of it and does not re-derive it.
 //
-// Refs: Plan-006 T3.3, `Plan-006 §Cross-Plan Obligations` CP-006-2, ADR-014,
-// ADR-017, `packages/control-plane/src/server/host.ts` (the `t.mergeRouters`
+// `packages/control-plane/src/server/host.ts` (the `t.mergeRouters`
 // composition).
 
 import { PGlite, type Transaction } from "@electric-sql/pglite";
@@ -161,10 +160,9 @@ async function readErrorCode(response: Response): Promise<unknown> {
 }
 
 // ----------------------------------------------------------------------------
-// The mount (CP-006-2)
 // ----------------------------------------------------------------------------
 
-describe("merged host — eventanchor.upload resolves through t.mergeRouters (CP-006-2)", () => {
+describe("merged host — eventanchor.upload resolves through t.mergeRouters", () => {
   it("dispatches an anchor upload and returns 200 + { stored: true }", async () => {
     const response = await handler(buildUploadRequest(anchorFixture()), PASSING_ENV);
 
@@ -198,10 +196,10 @@ describe("merged host — eventanchor.upload resolves through t.mergeRouters (CP
 });
 
 // ----------------------------------------------------------------------------
-// I-006-3-02 at the transport boundary
+// At the transport boundary
 // ----------------------------------------------------------------------------
 
-describe("eventanchor.upload — metadata-only refusal on the wire (I-006-3-02)", () => {
+describe("eventanchor.upload — metadata-only refusal on the wire", () => {
   for (const smuggledMember of ["payload", "events", "pii_payload"] as const) {
     it(`REFUSES a request body carrying \`${smuggledMember}\` with a 4xx`, async () => {
       const response = await handler(
@@ -256,10 +254,9 @@ describe("eventanchor.upload — unknown session", () => {
 });
 
 // ----------------------------------------------------------------------------
-// The I-008-1 gate still intercepts
 // ----------------------------------------------------------------------------
 
-describe("eventanchor.upload — the I-008-1 dual gate is not bypassed by the new mount", () => {
+describe("eventanchor.upload — dual gate is not bypassed by the new mount", () => {
   it("refuses with 503 before router dispatch when the kill-switch is off", async () => {
     // Adding a third router to the merge must not open a path around the gate.
     // `makePassThroughDeps` supplies a live querier here, so a 503 proves the

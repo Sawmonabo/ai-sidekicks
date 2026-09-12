@@ -1,26 +1,8 @@
 /**
  * Repo-mount lifecycle service — the daemon-side owner of the `repo_mounts`
- * table (Plan-009 Phase 2, T2.3).
+ * table.
  *
- * Spec coverage: `Spec-009 §Required Behavior` (attach resolves and persists the
- * canonical repository root before anything else may reference it),
- * `Spec-009 §Default Behavior` (attach unconditionally creates the default
- * read-only workspace, git and non-git alike),
- * `Spec-009 §Fallback Behavior` (resolution failure is an explicit typed
- * refusal, never a guessed root), `Spec-009 §Detach Semantics (V1 Definition)`
- * (busy-dependent refusal, archive cascade, terminal `detached`),
- * `Spec-009 §Local Trust Envelope (V1 Definition)` (attach IS envelope
- * admission), `Spec-009 §Repo Mount Health (V1 Definition)` (the on-read probe
- * floor).
- *
- * Verifies invariant: I-009-1 (the persisted root is the resolver's canonical
- * output, never the entered path), I-009-2 (a root that cannot be resolved
- * fails loudly and persists nothing), I-009-4 (a non-git directory is recorded
- * honestly as `vcs_type 'none'`, which is not an error), I-009-5 (every mount
- * row carries resolved identity AND provenance), I-009-9 (exactly one lifecycle
- * event per real transition, committed with the row that caused it).
- *
- * ## Attach composes T2.4's two-closure creation, and the order is the contract
+ * ## Attach composes the two-closure creation, and the order is the contract
  *
  * `WorkspaceService.createDefaultWorkspace` returns a `DefaultWorkspaceCreation`
  * (`./workspace-service.js`) split in two halves precisely so this module can
@@ -35,9 +17,9 @@
  * await creation.emitReady();
  * ```
  *
- * Do not reorder it. D-009-7 makes `defaultWorkspaceId` REQUIRED on the ATTACH
- * response — `RepoMountReadResponse` carries no such field, so the read side is
- * not what forces this. The contract states the reason directly
+ * Do not reorder it. makes `defaultWorkspaceId` REQUIRED on the ATTACH response —
+ * `RepoMountReadResponse` carries no such field, so the read side is not what
+ * forces this. The contract states the reason directly
  * (`packages/contracts/src/repo.ts`, at `RepoAttachResponse.defaultWorkspaceId`):
  * optionality "would make 'attached, but no workspace' representable, and the
  * persistence model never produces it". A mount row committed without its
@@ -58,7 +40,7 @@
  *
  * ## Attach refuses in a fixed order, and each position is load-bearing
  *
- * 1. **Session existence, before anything else.** `Plan-009 T2.3` names
+ * 1. **Session existence, before anything else.** names
  *    `SessionService.replay(sessionId)` returning `null` as the daemon's
  *    session-existence predicate, and attach refuses on `null` BEFORE resolving
  *    or persisting anything. Resolving first would spawn a `git` subprocess
@@ -66,24 +48,23 @@
  *    exist; persisting first would leave a mount row (and its workspace, and two
  *    events) parented to nothing — `repo_mounts.session_id` carries no foreign
  *    key, so the database would not catch it.
- * 2. **Canonical-root resolution.** T1.5's resolver throws typed
- *    `repo.root_resolution_failed` on every non-resolution (I-009-2). Nothing
- *    has been written at this point, so the "persists nothing" half of that
- *    invariant is structural rather than a promise.
+ * 2. **Canonical-root resolution.** the resolver throws typed
+ *    `repo.root_resolution_failed` on every non-resolution. Nothing has been
+ *    written at this point, so the "persists nothing" half of that invariant
+ *    is structural rather than a promise.
  * 3. **Active-root uniqueness.** Enforced by `idx_repo_mounts_active_root`
  *    inside the write transaction, NOT by a read-then-insert check — see below.
  *
  * ## NO containment check fires at attach
  *
- * This is the one place in Plan-009 where a path is accepted without being
- * tested against the session's trust envelope, and it is deliberate:
- * `Spec-009 §Local Trust Envelope (V1 Definition)` defines the envelope AS the
- * set of attached mount roots, and "envelope admission is the explicit
+ * This is the one place where a path is accepted without being tested against
+ * the session's trust envelope, and it is deliberate: defines the envelope AS
+ * the set of attached mount roots, and "envelope admission is the explicit
  * `RepoAttach` action; no path enters the envelope implicitly". Validating an
  * attach against the envelope would make the first attach of a session
  * impossible (an empty envelope contains nothing) and every later one a
- * subdirectory-only operation. Containment is T1.6's job at BIND time (I-009-3),
- * against the roots this method admitted.
+ * subdirectory-only operation. Containment is the job at BIND time, against the
+ * roots this method admitted.
  *
  * ## Duplicate detection is the index, not a pre-read
  *
@@ -106,7 +87,7 @@
  *
  * ## Detach reads its dependents inside the transaction that flips the mount
  *
- * T2.4's bind INSERT is conditional on `state = 'attached'`, which closes the
+ * The bind INSERT is conditional on `state = 'attached'`, which closes the
  * bind-vs-detach race from the BIND side: a bind that passes over an
  * about-to-detach mount writes zero rows and aborts. This module closes it from
  * the detach side, and the two halves only compose if the dependent-set read,
@@ -115,12 +96,12 @@
  * window between the read and the flip: the bind's own guard would pass (the
  * mount is still `attached`), and the cascade would then archive a set computed
  * before that workspace existed, leaving a live execution root on a detached
- * mount — exactly the I-009-3 hole the bind-side predicate was added to close.
+ * mount — exactly hole the bind-side predicate was added to close.
  *
  * The mount flip is a compare-and-swap on `state = 'attached'`. Zero rows
  * changed means a concurrent detach won; the transaction aborts and the loser
  * returns the winner's outcome rather than appending a second `repo.detached`
- * for one transition (I-009-9).
+ * for one transition.
  *
  * ## Detach's event order, and the crash window it accepts
  *
@@ -130,8 +111,8 @@
  * merely a different order: those events would have to be appended BEFORE their
  * rows moved, so a crash mid-sequence would leave `workspace.archived` events
  * for workspaces still sitting `ready`. Events describing transitions that never
- * happened are a strictly worse I-009-9 breach than events missing for
- * transitions that did.
+ * happened are a strictly worse breach than events missing for transitions that
+ * did.
  *
  * The accepted window is therefore: all rows durable, `repo.detached` durable,
  * some `workspace.archived` events missing. The same survivable class as the
@@ -151,21 +132,20 @@
  * rebuilding from them reaches the correct end state regardless of which
  * announcements landed.
  *
- * Those follow-on events carry no `causationId` pointing at the `repo.detached`
- * they belong to. T2.2 ratified append receipts as UNEXAMINED (this module never
- * reads `.sequence`, `.id`, or anything else off one), so the emitted
- * event's id is not available to name as a cause without breaking that seam. The
- * caller's `correlationId` is threaded through every event of the cascade
- * instead, which is what makes them collatable.
+ * Ratified append receipts as UNEXAMINED (this module never reads `.sequence`,
+ * `.id`, or anything else off one), so the emitted event's id is not available
+ * to name as a cause without breaking that seam. The caller's `correlationId` is
+ * threaded through every event of the cascade instead, which is what makes them
+ * collatable.
  *
  * ## The Windows `git` seam
  *
- * `Plan-009 §Notes` (2026-07-25) records that libuv searches a bare executable
- * name in the SPAWNING process's current directory before `PATH` on Windows —
- * so spawning bare `git` can execute a `git.exe` sitting in the daemon's own
- * working directory (the resolver passes no `cwd`; its header carries the
- * libuv `search_path` authority). T1.5's resolver takes an injectable
- * `gitExecutablePath` for exactly this, and this service exposes it through
+ * records that libuv searches a bare executable name in the SPAWNING process's
+ * current directory before `PATH` on Windows — so spawning bare `git` can
+ * execute a `git.exe` sitting in the daemon's own working directory (the
+ * resolver passes no `cwd`; its header carries the libuv `search_path`
+ * authority). the resolver takes an injectable `gitExecutablePath` for exactly
+ * this, and this service exposes it through
  * {@link RepoMountServiceDeps.gitExecutablePath} so the daemon-config surface
  * can supply an ABSOLUTE path on `win32` without this module having to know
  * where the daemon keeps its configuration. Supplying both a ready-made
@@ -287,9 +267,9 @@ export class RepoMountServiceInvariantError extends Error {
  * The append path runs the prelude and then INSERTs the event row
  * UNCONDITIONALLY — only a throw rolls the transaction back. A prelude that
  * merely recorded "my flip matched no row" and returned would still commit a
- * `repo.detached` event for a transition that did not happen, which is the
- * I-009-9 duplicate the compare-and-swap exists to prevent. Throwing is the only
- * way to say "abort, but this is not an error".
+ * `repo.detached` event for a transition that did not happen, which is duplicate
+ * the compare-and-swap exists to prevent. Throwing is the only way to say
+ * "abort, but this is not an error".
  *
  * Modelled on `./workspace-service.js`'s `StaleTransitionRaceError`, and
  * unexported for the same reason: it never escapes this module, and it names an
@@ -332,10 +312,10 @@ interface DependentWorkspaceRow {
  * The one question this service asks the session domain: does this session
  * exist?
  *
- * Structural and minimal on purpose — the same stance T2.2's emitter takes on
- * its append seam. `SessionService.replay(sessionId)` satisfies it, and
- * `Plan-009 T2.3` names that method as the daemon's session-existence
- * predicate: `null` means "no such session".
+ * Structural and minimal on purpose — the same stance the emitter takes on
+ * its append seam. `SessionService.replay(sessionId)` satisfies it, and names
+ * that method as the daemon's session-existence predicate: `null` means "no
+ * such session".
  *
  * The return type is `unknown` because only the `null` / non-`null`
  * discrimination is read here. Widening it to the real snapshot type would
@@ -360,22 +340,22 @@ export interface RepoMountServiceDeps {
    * MUST be the same connection the event log behind {@link events} appends
    * through. The attach dual-write and the detach cascade run as
    * `transactionalPrelude`s, and a statement prepared on a different connection
-   * does not join the event transaction — the row/event atomicity I-009-9
-   * rests on would silently vanish, with no exception anywhere. Nothing here
-   * can verify handle identity (the event log sits behind the emitter seam),
-   * so the composition root owns the constraint; the plan's Phase-3 wiring
-   * obligation records it.
+   * does not join the event transaction — the row/event atomicity rests on
+   * would silently vanish, with no exception anywhere. Nothing here can verify
+   * handle identity (the event log sits behind the emitter seam), so the
+   * composition root owns the constraint; the plan's Phase-3 wiring obligation
+   * records it.
    */
   readonly database: Database;
-  /** The single seam through which repo/workspace lifecycle events are appended (T2.2). */
+  /** The single seam through which repo/workspace lifecycle events are appended. */
   readonly events: WorkspaceEventEmitter;
-  /** Owner of the `workspaces` table (T2.4). Attach's default workspace is created through it. */
+  /** Owner of the `workspaces` table. Attach's default workspace is created through it. */
   readonly workspaces: WorkspaceService;
   /** Session-existence predicate. See {@link SessionExistenceReader}. */
   readonly sessions: SessionExistenceReader;
   /**
-   * Canonical-root resolver (T1.5). Defaults to a stock `RepoRootResolver`.
-   * Mutually exclusive with {@link gitExecutablePath} — see the header.
+   * Defaults to a stock `RepoRootResolver`. Mutually exclusive with {@link
+   * gitExecutablePath} — see the header.
    */
   readonly resolver?: RepoRootResolver;
   /**
@@ -392,8 +372,8 @@ export interface RepoMountServiceDeps {
    * Injected for the reason `./repo-root-resolver.js` gives for deriving
    * win32-ness from its injected `path` module: a guard keyed off the REAL
    * platform is exercised only on a Windows runner, so "the branch that matters
-   * most on an ADR-019 V1 tier" would ship untested. The pty package takes the
-   * same seam (`platform: partial.platform ?? process.platform`).
+   * most on an V1 tier" would ship untested. The pty package takes the same
+   * seam (`platform: partial.platform ??
    *
    * Not a bypass: a caller who wants no pinning can already pass its own
    * {@link resolver}, which this guard deliberately accepts. The guard exists to
@@ -447,8 +427,8 @@ export interface DetachRepoMountInput extends RepoDetachRequest {
 // literal type (so the SQL text stays exact) while making the contracts union
 // the authority on the vocabulary.
 
-// The state every attach writes, and the sole legal predecessor of `detached`
-// (`Spec-009 §Detach Semantics (V1 Definition)`).
+// The state every attach writes, and the sole legal predecessor of
+// `detached`.
 const ATTACHED_MOUNT_STATE = "attached" satisfies RepoMountState;
 
 // The terminal state a successful detach writes. There is no `detached ->
@@ -458,12 +438,11 @@ const DETACHED_MOUNT_STATE = "detached" satisfies RepoMountState;
 
 // The workspace state the detach cascade writes, and the one state that is
 // already terminal — an `archived` dependent is skipped rather than re-archived,
-// so one real transition produces one `workspace.archived` (I-009-9).
+// so one real transition produces one `workspace.archived`.
 const ARCHIVED_WORKSPACE_STATE = "archived" satisfies WorkspaceState;
 
 // The workspace state that REFUSES a detach outright: a run holds this
-// workspace, and V1 has no force-detach
-// (`Spec-009 §Detach Semantics (V1 Definition)`).
+// workspace, and V1 has no force-detach.
 const BUSY_WORKSPACE_STATE = "busy" satisfies WorkspaceState;
 
 // --------------------------------------------------------------------------
@@ -526,7 +505,7 @@ export class RepoMountService {
       throw new TypeError(
         "RepoMountService: on win32 you must supply either an absolute gitExecutablePath or a " +
           "ready-made resolver. Spawning bare `git` there lets a git.exe in the daemon's own " +
-          "working directory execute instead of the system one (Plan-009 §Notes, 2026-07-25).",
+          "working directory execute instead of the system one (2026-07-25).",
       );
     }
 
@@ -549,7 +528,7 @@ export class RepoMountService {
 
     // `state` is a literal rather than a parameter: this is the only INSERT into
     // `repo_mounts`, and a mount is born `attached` or not at all. `metadata`
-    // takes the DDL default, as T2.4's workspace INSERT does.
+    // takes the DDL default, as the workspace INSERT does.
     this.#insertMountStmt = database.prepare(
       `INSERT INTO repo_mounts (
          id, session_id, node_id, local_path, canonical_root, vcs_type, state, attached_at, updated_at, metadata
@@ -558,12 +537,10 @@ export class RepoMountService {
        )`,
     );
 
-    // UNSCOPED by state, unlike T2.4's mount lookup. A read must answer for a
+    // UNSCOPED by state, unlike the mount lookup. A read must answer for a
     // `detached` mount: `RepoMountReadResponse.state` composes the full 3-value
-    // union, and `Spec-009 §Detach Semantics (V1 Definition)` keeps the durable
-    // record precisely so a detached mount stays inspectable. Answering
-    // `repo.not_found` for a row that exists would make the retained record
-    // unreachable, which is the opposite of what the spec asks for.
+    // union, and keeps the durable record precisely so a detached mount stays
+    // inspectable.
     this.#selectMountStmt = database.prepare(
       `SELECT id, session_id, node_id, local_path, canonical_root, vcs_type, state, attached_at
          FROM repo_mounts
@@ -587,8 +564,8 @@ export class RepoMountService {
     // dependent regardless of state: the busy check needs `busy` rows, the
     // cascade needs the rest, and already-`archived` rows have to be VISIBLE to
     // be skipped rather than merely absent. `created_at, id` for the same
-    // reason T2.4 orders its lists that way: attach writes a mount and its
-    // workspace at one instant, so `created_at` alone ties.
+    // reason orders its lists that way: attach writes a mount and its workspace
+    // at one instant, so `created_at` alone ties.
     this.#selectDependentWorkspacesStmt = database.prepare(
       `SELECT id, state
          FROM workspaces
@@ -640,14 +617,14 @@ export class RepoMountService {
    * and the root is known, and then everything is written at once.
    *
    * A non-git directory is NOT a failure: it lands `vcs_type: 'none'` and gets
-   * the same default workspace a git mount does (D-009-4's single funnel,
-   * I-009-4's honest classification).
+   * the same default workspace a git mount does (the single funnel, the honest
+   * classification).
    *
    * @throws {SessionNotFoundError} when `sessionId` names no session.
    * @throws {RepoRootResolutionError} when the path resolves to no canonical
-   *   root. Nothing is persisted and no event is appended (I-009-2).
+   *   Nothing is persisted and no event is appended.
    * @throws {RepoAlreadyAttachedError} when the resolved root is already
-   *   actively attached to this session on this node (D-009-7).
+   *   actively attached to this session on this node.
    */
   async attach(input: AttachRepoMountInput): Promise<RepoAttachResponse> {
     const actor = input.actor ?? null;
@@ -661,7 +638,7 @@ export class RepoMountService {
     }
 
     // Step 2 — canonicalize. Throws typed `repo.root_resolution_failed` on every
-    // non-resolution; there is no fallback to the entered path (I-009-1/2).
+    // non-resolution; there is no fallback to the entered path (2).
     const resolution = await this.#resolver.resolveCanonicalRoot(input.localPath);
 
     // Step 3 — NO containment check. Attach IS envelope admission; see header.
@@ -702,8 +679,8 @@ export class RepoMountService {
           sessionId: input.sessionId,
           nodeId: input.nodeId,
           // PROVENANCE: the path the operator typed, verbatim. Never the
-          // resolved root, and never the other way round (I-009-5) — the two
-          // differ whenever someone attaches from a subdirectory or through a
+          // resolved root, and never the other way round — the two differ
+          // whenever someone attaches from a subdirectory or through a
           // symlink, which is the case that makes both values worth keeping.
           localPath: input.localPath,
           canonicalRoot: resolution.canonicalRoot,
@@ -714,7 +691,7 @@ export class RepoMountService {
       },
     });
 
-    // Step 6 — announce the workspace. Deliberately after the commit: T2.4's
+    // Step 6 — announce the workspace. Deliberately after the commit: the
     // split puts the ROW in the transaction and the EVENT after it.
     await creation.emitReady();
 
@@ -728,21 +705,15 @@ export class RepoMountService {
   /**
    * Read one mount with a freshly probed health verdict — `repo.mountRead`.
    *
-   * Answers for mounts in EVERY state, not just `attached`. Two reasons, and
-   * they point the same way: `Spec-009 §Detach Semantics (V1 Definition)`
-   * transitions a detached mount "without deleting the durable record", which is
-   * only useful if the record can be read; and `RepoMountReadResponse.state`
-   * composes the full 3-value `RepoMountStateSchema` rather than narrowing to
-   * `attached`, so the contract already types the answer this method gives. An
-   * UNKNOWN id is the only miss, and it is `repo.not_found`.
+   * Answers for mounts in EVERY state, not just `attached`. An UNKNOWN id is the
+   * only miss, and it is `repo.not_found`.
    *
-   * Health is the D-009-2 derived projection and is orthogonal to lifecycle
-   * state: a `detached` mount whose root is still on disk reads `healthy`. The
-   * projector's own docstring makes that call — folding lifecycle into health
-   * "would invent a semantics neither the spec nor the ratified shape carries".
+   * The projector's own docstring makes that call — folding lifecycle into
+   * health "would invent a semantics neither the spec nor the ratified shape
+   * carries".
    *
    * The probe targets `canonical_root` VERBATIM, straight off the row. Not a
-   * re-resolved, re-normalized, or otherwise "improved" spelling: T2.5's
+   * re-resolved, re-normalized, or otherwise "improved" spelling: the
    * `assertProbeTargets` compares the probed path to the row's path BYTE for
    * byte, and a normalization here would be indistinguishable from a probe of
    * some other path that merely normalizes alike.
@@ -769,19 +740,16 @@ export class RepoMountService {
   /**
    * Detach a mount and archive its dependent workspaces — `repo.detach`.
    *
-   * `Spec-009 §Detach Semantics (V1 Definition)`, in order: refuse while any
-   * dependent workspace is `busy` (there is no force-detach in V1); otherwise
-   * archive every dependent and transition the mount to the terminal `detached`,
-   * emitting `repo.detached` plus one `workspace.archived` per workspace the
-   * cascade actually moved.
+   * in order: refuse while any dependent workspace is `busy` (there is no
+   * force-detach in V1); otherwise archive every dependent and transition the
+   * mount to the terminal `detached`, emitting `repo.detached` plus one
+   * `workspace.archived` per workspace the cascade actually moved.
    *
    * Detaching a mount that is ALREADY `detached` (or `archived`) is a no-op
    * success: the current state, an empty `archivedWorkspaceIds`, and no event.
-   * Three things force that shape. There is no registered `repo.*` code for
-   * "already detached", and minting one is banned; `repo.not_found` would be a
-   * lie about a row that exists; and I-009-9 forbids an event for a transition
-   * that did not happen. The response contract anticipates it — `state` carries
-   * the full union and an empty `archivedWorkspaceIds` is explicitly valid.
+   * Three things force that shape. The response contract anticipates it —
+   * `state` carries the full union and an empty `archivedWorkspaceIds` is
+   * explicitly valid.
    *
    * If a post-commit `workspace.archived` append FAILS, the remaining ones are
    * still attempted and the call then rejects with
@@ -858,7 +826,7 @@ export class RepoMountService {
           sessionId: row.session_id,
           workspaceId,
           // The archival is a detach cascade's dependent transition, which is
-          // exactly when T2.2 asks for the mount id.
+          // exactly when asks for the mount id.
           repoMountId,
           actor,
           correlationId,
@@ -1102,8 +1070,8 @@ function isConstraintViolation(error: unknown): boolean {
  *
  * Clock first so `checkedAt` is never NEWER than the observation it stamps.
  * `probedPath` is the argument, unmodified — the byte-equality subject binding
- * T2.5's projector enforces. A deliberate twin of T2.4's identical helper: both
- * are module-private there and here, and hoisting one into a shared module is a
+ * the projector enforces. A deliberate twin of the identical helper: both are
+ * module-private there and here, and hoisting one into a shared module is a
  * file neither task owns.
  */
 function createDefaultPathProbe(): FilesystemPathProbeFn {
@@ -1119,7 +1087,6 @@ function createDefaultPathProbe(): FilesystemPathProbeFn {
   };
 }
 
-// Indirection so the default probe binds the same readability primitive T1.5,
-// T1.6 and T2.4 use — one implementation of "can the daemon open this
-// directory?".
+// Indirection so the default probe binds the same readability primitive use —
+// one implementation of "can the daemon open this directory?".
 const readDirectory: DirectoryReadabilityProbe = DEFAULT_DIRECTORY_READABILITY_PROBE;

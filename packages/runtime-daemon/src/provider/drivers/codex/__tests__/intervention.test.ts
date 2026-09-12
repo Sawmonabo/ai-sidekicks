@@ -1,22 +1,21 @@
-// Codex driver — intervention dispatcher tests (Plan-005 Phase 3, T3.2).
+// Codex driver — intervention dispatcher tests.
 //
 // Coverage map (the cites are the authoritative contract, not just the ACs):
 //
-//   `Spec-005 §Required Behavior` — one generic dispatcher routes every
+//   one generic dispatcher routes every
 //     intervention type onto a native provider operation, or returns a
 //     structured degraded result.
-//   ADR-011 — an unsupported intervention is DATA the orchestration layer acts
+//   An unsupported intervention is DATA the orchestration layer acts
 //     on, never an exception.
-//   I-005-4 — an intervention type whose capability flag is not declared `true`
+//   An intervention type whose capability flag is not declared `true`
 //     returns `{ status: 'degraded', fallbackAction }` AND performs no provider
 //     operation. The second half matters as much as the first: a dispatcher that
 //     returned `degraded` after already steering would have applied an
 //     intervention the layer above is about to compensate for.
-//   I-005-2 — the gate is `!== true`, so a missing flag is as unsupported as a
 //     false one.
-//   P0-3 (T3.14) — the REQUESTER's `clientIdempotencyKey` reaches the runtime
+//   P0-3 — the REQUESTER's `clientIdempotencyKey` reaches the runtime
 //     verbatim on the steer path, and is never re-minted per dispatch.
-//   P3-1 (T3.14) — a steer acknowledgement that names a different turn, or names
+//   P3-1 — a steer acknowledgement that names a different turn, or names
 //     none at all, degrades instead of reading as success.
 
 import { describe, expect, it, vi } from "vitest";
@@ -145,7 +144,7 @@ function cancelParams(): ApplyInterventionParams {
   };
 }
 
-describe("CodexInterventionDispatcher native routing (Spec-005 §Required Behavior)", () => {
+describe("CodexInterventionDispatcher native routing", () => {
   it("routes steer onto the provider's native steer", async () => {
     const harness = createHarness();
 
@@ -232,7 +231,7 @@ describe("CodexInterventionDispatcher native routing (Spec-005 §Required Behavi
   });
 });
 
-describe("CodexInterventionDispatcher degraded fallback (I-005-4, ADR-011)", () => {
+describe("CodexInterventionDispatcher degraded fallback", () => {
   it("returns a degraded result when the governing capability is declared false", async () => {
     const harness = createHarness({ steer: false });
 
@@ -263,7 +262,7 @@ describe("CodexInterventionDispatcher degraded fallback (I-005-4, ADR-011)", () 
     });
   });
 
-  it("treats an undeclared flag as unsupported (I-005-2 fail-closed)", async () => {
+  it("treats an undeclared flag as unsupported (fail-closed)", async () => {
     const harness = createHarness();
     // Simulates a snapshot arriving through an untyped boundary with the flag
     // missing entirely: `!== true` must catch it, `=== false` would not.

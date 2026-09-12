@@ -1,45 +1,38 @@
 // Repo-mount + workspace lifecycle event emission — the single seam every
-// Plan-009 Phase-2 state transition appends its event through.
+// Phase-2 state transition appends its event through.
 //
-// Spec coverage:
-//   • `Spec-006 §Repo, Workspace, and Worktree Lifecycle (session_lifecycle)`
-//     — the six event types this module owns: `repo.attached`,
-//     `repo.detached`, `workspace.provisioning`, `workspace.ready`,
-//     `workspace.stale`, `workspace.archived`. The same family's five
-//     `worktree.*` members are Plan-010's and are deliberately absent here.
-//   • `Spec-009 §State And Data Implications` — the repo-mount and workspace
-//     rows whose transitions these events witness.
-//   • `Spec-009 §Detach Semantics (V1 Definition)` — the detach cascade, the
-//     one flow that emits a `workspace.archived` naming BOTH a workspace and
-//     the repo mount whose detach caused it.
+//   • the six event types this module owns: `repo.attached`, `repo.detached`,
+//     `workspace.provisioning`, `workspace.ready`, `workspace.stale`,
+//     `workspace.archived`.
+//   • the repo-mount and workspace rows whose transitions these events
+//     witness.
+//   • the detach cascade, the one flow that emits a `workspace.archived`
+//     naming BOTH a workspace and the repo mount whose detach caused it.
 //
 // Invariants carried here:
-//   • I-009-9 — every repo-mount / workspace state transition appends its
-//     matching `session_lifecycle` event exactly once. This module carries
-//     the EMITTER-SIDE half: each method constructs one envelope and appends
+//   • Every repo-mount / workspace state transition appends its matching
+//     `session_lifecycle` event exactly once. This module carries the
+//     EMITTER-SIDE half: each method constructs one envelope and appends
 //     exactly once (no retry, no fan-out), so "exactly once" is a property
 //     of the call, not of a dedupe check somewhere downstream. The "every
-//     transition" universal is the producers' half — T2.3/T2.4 are specified
-//     to route each transition through this seam as its only entry point,
-//     holding no envelope-construction code of their own, and T2.6's
-//     integration pass is what closes that quantifier over code that exists.
-//     Two states the payload vocabulary
-//     admits have no emit method here, both deliberate: workspace `busy` is
-//     carved out by CP-009-7 (the T2.4 busy/release transitions write the
-//     state column with no dedicated event type, per the closed-registry
-//     posture), and mount `archived` has no registered Spec-006 event type
-//     and no Plan-009 task that drives the transition.
+//     transition" universal is the producers' half — are specified to route
+//     each transition through this seam as its only entry point, holding no
+//     envelope-construction code of their own, and the integration pass is
+//     what closes that quantifier over code that exists. Two states the
+//     payload vocabulary admits have no emit method here, both deliberate:
+//     workspace `busy` is carved out and mount `archived` has no registered
+//     event type and no task that drives the transition.
 //
 // Three things this module deliberately does NOT do:
 //
-//   • It never computes a sequence number, chain hash, or signature. The
-//     Plan-006 append path owns every integrity primitive; this seam hands it
-//     a sequence-free envelope and reads back the receipt it assigned. There
-//     is no second write path to keep in step.
+//   • It never computes a sequence number, chain hash, or signature. append
+//     path owns every integrity primitive; this seam hands it a sequence-free
+//     envelope and reads back the receipt it assigned. There is no second
+//     write path to keep in step.
 //
-//   • It never accepts a `state` from its caller. Each of the six Spec-006
-//     types names exactly ONE post-transition state, so the state is a
-//     property of the method you call, resolved from the tables below. An
+//   • It never accepts a `state` from its caller. Each of the six types
+//     names exactly ONE post-transition state, so the state is a property
+//     of the method you call, resolved from the tables below. An
 //     out-of-vocabulary state, or a state paired with the wrong type, is
 //     therefore unrepresentable rather than merely rejected at parse time —
 //     a strictly stronger position than validating a caller-supplied state,
@@ -55,9 +48,6 @@
 //     that resolves to a malformed receipt would surface at whoever reads
 //     the receipt, not here.
 //
-// Refs: Plan-009 (repo attachment and workspace binding), Plan-006 (the
-// append path and the type → category registry), CP-009-4 (the payload
-// schema and the union registration this seam consumes).
 
 import {
   EventEnvelopeVersionSchema,
@@ -136,7 +126,7 @@ const WORKSPACE_STATE_BY_EVENT_NAME = {
 } as const satisfies Record<WorkspaceEventName, WorkspaceState>;
 
 // The `EventEnvelope` version for repo-mount / workspace lifecycle events —
-// semver MAJOR.MINOR per ADR-018, matching the daemon's existing convention.
+// semver MAJOR.MINOR matching the daemon's existing convention.
 //
 // Minted THROUGH the schema rather than cast, because `EventEnvelope.version`
 // is the branded `EventEnvelopeVersion` and the brand is what the canonical
@@ -169,23 +159,21 @@ type _LifecyclePayloadCarriesIndexSignature = _AssertExtends<
 // --------------------------------------------------------------------------
 
 /**
- * The durable session-event log this emitter appends to. Structural on
- * purpose — it names no concrete class, and it is typed against the append
- * path's OWN parameter and return types so a signature change there fails
- * THIS compile rather than drifting. Declared locally rather than imported
- * from the runtime-node emitter's identically-shaped seam: sharing that
- * export would create a Plan-003 → Plan-009 module edge no plan declares,
+ * Structural on purpose — it names no concrete class, and it is typed
+ * against the append path's OWN parameter and return types so a signature
+ * change there fails THIS compile rather than drifting. Declared locally
+ * rather than imported from the runtime-node emitter's identically-shaped
+ * seam: sharing that export would create a module edge no plan declares,
  * for a three-line interface.
  *
- * ASYNC-TRANSACTIONAL BY CONTRACT. The append path awaits a signing-key
- * unseal, and a better-sqlite3 transaction cannot span an `await` — so a
- * producer that must commit a table write ATOMICALLY with its event row does
- * not open its own transaction. It hands that write down as
- * `transactionalPrelude`, which the append path runs inside the SAME
- * transaction as the event-row INSERT, immediately before it. That is the
- * mechanism I-009-9 rests on for the Plan-009 producers: a throwing INSERT
- * rolls the row write back, and a refusal before the transaction opens means
- * the prelude never runs at all.
+ * The append path awaits a signing-key unseal, and a better-sqlite3
+ * transaction cannot span an `await` — so a producer that must commit a
+ * table write ATOMICALLY with its event row does not open its own
+ * transaction. It hands that write down as `transactionalPrelude`, which the
+ * append path runs inside the SAME transaction as the event-row INSERT,
+ * immediately before it. That is the mechanism rests on for producers: a
+ * throwing INSERT rolls the row write back, and a refusal before the
+ * transaction opens means the prelude never runs at all.
  */
 export interface WorkspaceEventLog {
   append(
@@ -235,9 +223,8 @@ export interface WorkspaceEventEmitterDeps {
 // both sides.
 //
 // Two shapes rather than six: the six events divide cleanly by SUBJECT, and
-// which optional id a payload carries is what identifies that subject
-// (`Spec-009 §State And Data Implications`). Six aliases over two shapes
-// would name the same distinction twice.
+// which optional id a payload carries is what identifies that subject. Six
+// aliases over two shapes would name the same distinction twice.
 
 // Shared envelope-level inputs every emit method carries.
 interface WorkspaceEventEmitBase {
@@ -254,7 +241,7 @@ interface WorkspaceEventEmitBase {
   readonly actor?: string | null;
   // Optional envelope linkage fields. The detach cascade uses them to tie
   // each dependent `workspace.archived` back to the `repo.detached` that
-  // caused it (`Spec-009 §Detach Semantics (V1 Definition)`).
+  // caused it.
   readonly correlationId?: string | null;
   readonly causationId?: string | null;
   // A SYNCHRONOUS durable write to commit ATOMICALLY with this event row,
@@ -321,10 +308,9 @@ export class WorkspaceEventEmitter {
   }
 
   /**
-   * Emit `repo.attached` — a local path was admitted as a durable repo mount
-   * (`Spec-009 §Required Behavior`). Resolves to the append receipt so the
-   * producer can read the `sequence` the append path ASSIGNED rather than one
-   * this emitter guessed.
+   * Emit `repo.attached` — a local path was admitted as a durable repo mount.
+   * Resolves to the append receipt so the producer can read the `sequence`
+   * the append path ASSIGNED rather than one this emitter guessed.
    */
   async emitRepoAttached(input: EmitRepoMountEventInput): Promise<EventLogAppendReceipt> {
     return this.#appendRepoMountEvent("repo.attached", input);
@@ -360,7 +346,7 @@ export class WorkspaceEventEmitter {
   /**
    * Emit `workspace.archived` — the workspace reached its terminal state.
    * Pass `repoMountId` when the archival is a detach cascade's dependent
-   * transition (`Spec-009 §Detach Semantics (V1 Definition)`).
+   * transition.
    */
   async emitWorkspaceArchived(input: EmitWorkspaceEventInput): Promise<EventLogAppendReceipt> {
     return this.#appendWorkspaceEvent("workspace.archived", input);
@@ -423,10 +409,10 @@ export class WorkspaceEventEmitter {
     payload: RepoWorkspaceLifecyclePayload,
   ): Promise<EventLogAppendReceipt> {
     // Looked up, never spelled as a literal. The registry is the one place
-    // the type → category bijection is asserted (I-006-1-01), and the strict
-    // layer refuses an envelope whose category disagrees with its type — so a
-    // hardcoded `"session_lifecycle"` here would be a second, unchecked copy
-    // of a fact that already has an owner.
+    // the type → category bijection is asserted, and the strict layer refuses
+    // an envelope whose category disagrees with its type — so a hardcoded
+    // `"session_lifecycle"` here would be a second, unchecked copy of a fact
+    // that already has an owner.
     const category: EventCategory | undefined = SESSION_EVENT_CATEGORY_BY_TYPE.get(type);
     if (category === undefined) {
       throw new Error(
@@ -477,17 +463,17 @@ export class WorkspaceEventEmitter {
     // awaited, and — the part no compile-time check would catch — the
     // producer's `transactionalPrelude` never ran inside a transaction with
     // the event row, silently undoing the attach/detach dual-write atomicity
-    // I-009-9 depends on. A tripwire, not a recovery path: by the time we
-    // look, the implementation's work has already happened. It exists to make
-    // such wiring LOUD on the first emit any test exercises, rather than
-    // report success over a half-written pair. No cast: `isThenable` already
-    // takes `unknown`, and a runtime check reads whatever value the seam
-    // actually returned — the variable's declared `Promise` type is exactly
-    // the claim this guard exists to distrust, not a reason to delete it.
+    // depends on. A tripwire, not a recovery path: by the time we look, the
+    // implementation's work has already happened. It exists to make such
+    // wiring LOUD on the first emit any test exercises, rather than report
+    // success over a half-written pair. No cast: `isThenable` already takes
+    // `unknown`, and a runtime check reads whatever value the seam actually
+    // returned — the variable's declared `Promise` type is exactly the claim
+    // this guard exists to distrust, not a reason to delete it.
     if (!isThenable(appendResult)) {
       throw new Error(
         "WorkspaceEventLog.append did not return a promise: this seam is async-transactional " +
-          "(the Plan-006 append path serializes on the per-session append lock and runs the " +
+          "(append path serializes on the per-session append lock and runs the" +
           "caller's transactionalPrelude inside the same transaction as the event row). A " +
           "synchronous append reports success before the write is durable and never commits " +
           "the prelude atomically with the row.",

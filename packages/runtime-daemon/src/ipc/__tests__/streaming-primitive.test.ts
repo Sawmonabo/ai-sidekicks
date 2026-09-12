@@ -1,19 +1,14 @@
-// W-007p-2-T11 — StreamingPrimitive test suite (T-007p-2-6).
+// W-007p-2-T11 — StreamingPrimitive test suite.
 //
-// Spec coverage:
-//   * `Spec-007 §Required Behavior` + `Spec-007 §Wire Format`
-//     (docs/specs/007-local-ipc-and-daemon-control.md) — Local IPC supports
-//     bidirectional streaming notifications; the wire envelope is the same
-//     `Content-Length`-framed JSON-RPC envelope.
+//   * Local IPC supports bidirectional streaming notifications; the wire
+//     envelope is the same `Content-Length`-framed JSON-RPC envelope.
 //
-// Invariants verified here (canonical text in
-// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`):
-//   * I-007-7 streaming analog — every emitted `$/subscription/notify`
-//     value must conform to the per-subscription `valueSchema` BEFORE
-//     the gateway sends the frame. Validation failure throws
+// Invariants verified here (canonical text):
+//   * Streaming analog — every emitted `$/subscription/notify` value
+//     must conform to the per-subscription `valueSchema` BEFORE the
+//     gateway sends the frame. Validation failure throws
 //     `StreamingValidationError` (programmer error).
 //
-// W-tests covered here (per `Plan-007 §Phase 2 — Wire Substrate (W-007p-2-T1..T11)`):
 //   * W-007p-2-T11 — `LocalSubscriptionProducer<T>` round-trip + cancel
 //                    cleanup. Initial response carries
 //                    `subscriptionId`; N notifications correlate;
@@ -22,7 +17,7 @@
 //
 // The streaming tests run synchronously without binding any listener —
 // the primitive's `send` callback is a `vi.fn()` we inspect directly.
-// This isolates the I-007-7 streaming validation from the wire layer.
+// This isolates streaming validation from the wire layer.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -116,7 +111,7 @@ describe("W-007p-2-T11 — LocalSubscriptionProducer round-trip + cancel cleanup
     }
   });
 
-  it("I-007-7 streaming analog — next(invalidValue) throws `StreamingValidationError`; no send", () => {
+  it("streaming analog — next(invalidValue) throws `StreamingValidationError`; no send", () => {
     const { primitive, send } = makeFixture();
     const sub = primitive.createSubscription<unknown>(9, rejectingSchema<unknown>("invalid-value"));
     let caught: unknown = null;
@@ -154,7 +149,7 @@ describe("W-007p-2-T11 — LocalSubscriptionProducer round-trip + cancel cleanup
     expect(send).toHaveBeenCalledTimes(1);
   });
 
-  it("constructor eagerly registers `$/subscription/cancel` against the supplied registry (I-007-6)", () => {
+  it("constructor eagerly registers `$/subscription/cancel` against the supplied registry", () => {
     const { registry } = makeFixture();
     expect(registry.has(SUBSCRIPTION_CANCEL_METHOD)).toBe(true);
     // Registered as `mutating: false` per streaming-primitive.ts:521-531
@@ -162,7 +157,7 @@ describe("W-007p-2-T11 — LocalSubscriptionProducer round-trip + cancel cleanup
     expect(registry.isMutating(SUBSCRIPTION_CANCEL_METHOD)).toBe(false);
   });
 
-  it("constructing a SECOND primitive against the SAME registry throws `RegistryRegistrationError(`duplicate_method`)` per I-007-6", () => {
+  it("constructing a SECOND primitive against the SAME registry throws `RegistryRegistrationError(`duplicate_method`)`", () => {
     const registry = new MethodRegistryImpl();
     const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
     new StreamingPrimitive({ registry, send });
@@ -275,8 +270,8 @@ describe("W-007p-2-T11 — LocalSubscriptionProducer round-trip + cancel cleanup
 });
 
 // ----------------------------------------------------------------------------
-// LocalSubscriptionProducer.onCancel lifecycle hook (Plan-007 PR #19 Round 6 F5
-// Path B — closes the upstream-watcher leak surfaced in Codex's review of
+// LocalSubscriptionProducer.onCancel lifecycle hook (PR #19 Round 6 F5 Path B —
+// closes the upstream-watcher leak surfaced in Codex's review of
 // `session-subscribe.ts:273` where the discarded `unsubscribe` handle from
 // `subscribeToSession` left the upstream event-source consuming CPU/DB
 // resources after subscription teardown).

@@ -1,19 +1,17 @@
-// Plan-006 T3.3 — RFC 9162 §2.1.1 Merkle Tree Hash conformance.
+// RFC 9162 section 2.1.1 Merkle Tree Hash conformance.
 //
-// SCOPE. This file covers exactly one exported pure function,
-// `computeMerkleRoot`, and nothing else about `MerkleAnchorService`. The
-// cadence rule, the force-fire path, the durable queue and the upload drain are
-// Plan-006 T3.5's file set
-// (`Plan-006 §T3.5 — Phase 3 contract-test suite + end-to-end shred-safety regression (Plan-006 §Test And Verification Plan acceptance gate)`),
-// and none of them is touched here.
+// This file covers exactly one exported pure function, `computeMerkleRoot`, and
+// nothing else about `MerkleAnchorService`. The cadence rule, the force-fire path,
+// the durable queue and the upload drain are the file set, and none of them is
+// touched here.
 //
 // WHY THIS FILE EXISTS AT ALL. The root is an INTEROP CONTRACT, not an
 // implementation detail: Phase 4's verifier and any external audit reader must
-// recompute the same 32 bytes from stored `row_hash` values years later
-// (`Security architecture §Verification Rules` rule 3, the anchor check —
-// NOT step 3 of §Merkle Anchors, which is the upload step). A silent change to the
-// split point or to either domain-separation prefix would break every previously
-// signed anchor, and nothing would fail until an audit.
+// recompute the same 32 bytes from stored `row_hash` values years later (`Security
+// architecture ` rule 3, the anchor check — NOT step 3 of which is the upload
+// step). A silent change to the split point or to either domain-separation prefix
+// would break every previously signed anchor, and nothing would fail until an
+// audit.
 //
 // WHAT CONFORMANCE MEANS HERE. `HASH` is BLAKE3 and the data entries `d[i]` are
 // the range's 32-byte `session_events.row_hash` values; everything else is the
@@ -30,10 +28,7 @@
 // BLAKE3 itself is not under test (Phase 2's `signer.golden.test.ts` pins it
 // against published vectors); what is under test is WHICH bytes reach it.
 //
-// Refs: RFC 9162 §2.1.1, Plan-006 T3.3, `Spec-006 §Post-Compaction Integrity`,
-// `Security architecture §Merkle Anchors (Control-Plane Witness)`,
-// `docs/architecture/schemas/local-sqlite-schema.md` (the canonical DDL comment
-// on `pending_anchor_uploads.merkle_root`).
+// Refs: RFC 9162 section 2.1.1 `Security architecture `.
 
 import { blake3 } from "@noble/hashes/blake3.js";
 import { describe, expect, it } from "vitest";
@@ -80,7 +75,7 @@ function hex(bytes: Uint8Array): string {
 // Structure — the split rule, level by level
 // ----------------------------------------------------------------------------
 
-describe("computeMerkleRoot — RFC 9162 §2.1.1 tree shape", () => {
+describe("computeMerkleRoot — RFC 9162 section 2.1.1 tree shape", () => {
   it("hashes a single-entry range as HASH(0x00 || d0)", () => {
     const d0 = entry(0xa1);
     expect(hex(computeMerkleRoot([d0]))).toBe(hex(leafHash(d0)));
@@ -174,7 +169,7 @@ describe("computeMerkleRoot — RFC 9162 §2.1.1 tree shape", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Domain separation — RFC 9162 §2.1.1's second-preimage defence
+// Domain separation — RFC 9162 section 2.1.1's second-preimage defence
 // ----------------------------------------------------------------------------
 
 describe("computeMerkleRoot — 0x00/0x01 domain separation", () => {
@@ -216,7 +211,7 @@ describe("computeMerkleRoot — root uniqueness", () => {
     // lists collapsed to one root (CVE-2012-2459), so the root alone did not
     // determine the entry list and the safety rested on the anchor's signed
     // sequence range. RFC 9162's split construction removes the ambiguity at the
-    // tree: "its shape is uniquely determined by the number of leaves." T4.1's
+    // tree: "its shape is uniquely determined by the number of leaves." the
     // verifier therefore inherits no forward obligation from this file.
     const [a, b, c] = [entry(0x01), entry(0x02), entry(0x03)];
     expect(hex(computeMerkleRoot([a, b, c]))).not.toBe(hex(computeMerkleRoot([a, b, c, c])));

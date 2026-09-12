@@ -1,19 +1,15 @@
-// MCP Tasks durable recovery handle — write seam (Plan-005 T5.1).
+// MCP Tasks durable recovery handle — write seam.
 //
 // Spec coverage under test:
-//   • `Spec-005 §Tool Metadata` / `Spec-015 §Idempotency Classes and Recovery Behavior` — a task-augmented MCP
-//     call's receiver-generated `taskId` is durably recorded on its
-//     `command_receipts` row, so recovery polls `tasks/get` + `tasks/result`
-//     instead of halting. Asserted end-to-end from each driver's observation
-//     seam through the recorder to the column.
-//   • The T2.1 defense-in-depth convention — the untrusted handle is bounded at
-//     the write seam as well as by the column's CHECK, and the two bounds are
-//     asserted to agree, including on the unit they measure in.
+//   • a task-augmented MCP call's receiver-generated `taskId` is durably
+//     recorded on its `command_receipts` row, so recovery polls `tasks/get` +
+//     `tasks/result` instead of halting. Asserted end-to-end from each driver's
+//     observation seam through the recorder to the column.
 //
-// Verifies invariant I-005-3 (the conservative floor): every path that fails to
-// record a handle leaves the column NULL, which is the state that keeps the
-// receipt on the `manual_reconcile_only` halt. No path truncates a handle, and
-// no path fails a turn.
+// Verifies invariant: every path that fails to record a handle leaves the
+// column NULL, which is the state that keeps the receipt on the
+// `manual_reconcile_only` halt. No path truncates a handle, and no path fails a
+// turn.
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -55,7 +51,7 @@ const NUL_CODE_UNIT = String.fromCharCode(0);
 
 const COMMAND_ID = "command-7";
 
-describe("McpTaskHandleRecorder (Plan-005 T5.1)", () => {
+describe("McpTaskHandleRecorder", () => {
   let db: DatabaseType;
   let loggedRecords: DriverDiagnosticRecord[];
   let counterSink: InMemoryDriverDiagnosticCounterSink;
@@ -122,7 +118,7 @@ describe("McpTaskHandleRecorder (Plan-005 T5.1)", () => {
       // A crash before the receiver's acceptance is durably stored reaches the
       // observation seam with no `CreateTaskResult` to parse. Nothing is
       // offered to the recorder, so the column stays NULL and the receipt stays
-      // on the manual_reconcile_only halt (I-005-3).
+      // on the manual_reconcile_only halt.
       observeCodexMcpTaskAcceptance(
         recorder.asSink(),
         { commandId: COMMAND_ID, serverName: "filesystem", toolName: "read_file" },
@@ -472,9 +468,9 @@ describe("storage-failure containment", () => {
 
     readOnlyDatabase.close();
 
-    // The conservative floor (I-005-3): the receipt stayed NULL, so the call
-    // stays on the `manual_reconcile_only` halt rather than pointing recovery
-    // at a handle that was never durably stored.
+    // The conservative floor: the receipt stayed NULL, so the call stays on
+    // the `manual_reconcile_only` halt rather than pointing recovery at a
+    // handle that was never durably stored.
     const verifier = new Database(join(temporaryDirectory, "daemon.sqlite"), { readonly: true });
     expect(
       verifier
@@ -534,17 +530,12 @@ describe("storage-failure containment", () => {
 describe("the pre-migration state", () => {
   it("cannot even CONSTRUCT the write seam before the migration lands", () => {
     // The obligation "assert the dormant pre-state — the Phase-3 seam writes no
-    // handle before this migration" (Plan-005 T5.1), in the only form that is
-    // still honest once the seam is live. Before this task there was a sink
-    // that discarded; asserting THAT today would assert a contract the corpus
-    // no longer has. What remains true, and is stronger, is that the write is
-    // not merely inert without the column but unreachable: the recorder
-    // prepares its statements in the CONSTRUCTOR, so a handle cannot be written
-    // to a database that never ran 0017 — it fails at wiring time, at the
-    // composition root, rather than once per turn inside a diagnostic nobody
-    // is watching. This is the `wireTurnSnapshotRetentionSweep` posture, and it
-    // is why the storage-failure containment above deliberately does not extend
-    // to construction.
+    // handle before this migration", in the only form that is still honest once
+    // the seam is live. Before this task there was a sink that discarded;
+    // asserting THAT today would assert a contract the corpus no longer has.
+    // This is the `wireTurnSnapshotRetentionSweep` posture, and it is why the
+    // storage-failure containment above deliberately does not extend to
+    // construction.
     const preMigrationDatabase = new Database(":memory:");
     applyPragmas(preMigrationDatabase);
     preMigrationDatabase.exec(INITIAL_MIGRATION_SQL);

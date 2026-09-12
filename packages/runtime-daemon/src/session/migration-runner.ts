@@ -1,35 +1,20 @@
 // Schema migration runner for Local Runtime Daemon SQLite databases.
 //
-// The runner is intentionally minimal: check `schema_version`, exec the SQL
-// if absent. Each migration version N is registered as its own explicit
-// `if (!hasMigrationApplied(db, N))` guarded block inside `applyMigrations`,
+// The runner is intentionally minimal: check `schema_version`, exec the SQL if
+// absent. Each migration version N is registered as its own explicit `if
+// (!hasMigrationApplied(db, N))` guarded block inside `applyMigrations`,
 // mirroring the version-1 `db.transaction(...).immediate()` + in-transaction
 // double-check primitive verbatim (race-safe by construction — see the
 // `applyMigrations` docstring). This is deliberately NOT a generic
-// migration-list/registry loop: the `.immediate()` concurrency seam is
-// pinned by the worker_threads concurrent-boot race test, and re-expressing
-// it through a registry would re-open that control flow for re-validation.
-// Version 1 is owned by Plan-001 (`migrations/0001-initial.ts`); version 2
-// by Plan-003 (`migrations/0002-runtime-node.ts`); version 3 by Plan-005
-// (`migrations/0003-runtime-bindings.ts`); version 4 by Plan-010
-// (`migrations/0004-worktree-lifecycle.ts`); versions 5 through 9 by Plan-006
-// (`migrations/0005-daemon-signing-keys.ts`,
-// `migrations/0006-run-lifecycle-terminal-backstop-index.ts`,
-// `migrations/0007-pii-participant-id.ts`,
-// `migrations/0008-pending-anchor-uploads.ts`,
-// `migrations/0009-retention-class-and-stub-signature.ts`); version 10 by
-// Plan-009 (`migrations/0010-repo-workspaces.ts`); versions 11 and 12 by
-// Plan-005 (`migrations/0011-driver-capability-currency.ts`,
-// `migrations/0012-transcript-capability-backfill.ts`); version 13 by
-// Plan-006 (`migrations/0013-content-payload.ts`); version 14 by Plan-005
-// (`migrations/0014-console-parity-capability-flags.ts`); version 15 by
-// Plan-004 (`migrations/0015-queue-and-interventions.ts`); version 16 by
-// Plan-029 (`migrations/0016-provider-accounts.ts`); version 17 by
-// Plan-005 (`migrations/0017-command-receipt-mcp-task-handle.ts`). The runner
-// needs no contiguity — every version is an independently guarded block keyed
-// on its own `schema_version` row, and `hasMigrationApplied` asks about one
-// version rather than about a maximum — so parallel-authored ordinals merge
-// safely. Subsequent plans — and Plan-006's own remaining migrations —
+// migration-list/registry loop: the `.immediate()` concurrency seam is pinned
+// by the worker_threads concurrent-boot race test, and re-expressing it
+// through a registry would re-open that control flow for re-validation.
+// Version 1 is version 2 version 3 version 4 versions 5 through 9 version 10
+// versions 11 and 12 version 13 version 14 version 15 version 16 version 17.
+// The runner needs no contiguity — every version is an independently guarded
+// block keyed on its own `schema_version` row, and `hasMigrationApplied` asks
+// about one version rather than about a maximum — so parallel-authored
+// ordinals merge safely. Subsequent plans — and its own remaining migrations —
 // register their version as a further guarded block of the same shape and bump
 // `schema_version`.
 //
@@ -89,9 +74,7 @@
 // header of `migrations/0001-initial.ts` for the full rationale.
 //
 // This module also owns:
-//   * the canonical pragma list applied at every handle open per
-//     `docs/architecture/schemas/local-sqlite-schema.md` §Pragmas
-//     (`applyPragmas`),
+//   * the canonical pragma list applied at every handle open
 //   * the canonical handle factory (`openDatabase`) — opens the file,
 //     applies pragmas, runs migrations in the right order. Use this in
 //     production code paths AND in tests so the order can never drift.
@@ -121,10 +104,9 @@ import { COMMAND_RECEIPT_MCP_TASK_HANDLE_MIGRATION_SQL } from "../migrations/001
  * Apply pragmas to an open Database handle. MUST be called on every
  * handle open (including reopens) — pragmas are connection-local.
  *
- * Per `docs/architecture/schemas/local-sqlite-schema.md` §Pragmas:
  *   - WAL journal mode: concurrent readers during writes.
  *   - synchronous=FULL: overrides better-sqlite3 default (NORMAL) for
- *     chain-of-custody durability per Spec-006 §Integrity Protocol.
+ *     chain-of-custody durability.
  *   - foreign_keys=ON: enforce FK constraints at INSERT/UPDATE time.
  *   - busy_timeout=5000: tolerate concurrent writers up to 5 s before
  *     SQLITE_BUSY surfaces to the application.
@@ -197,7 +179,7 @@ export function applyMigrations(db: DatabaseType): void {
   }
 
   if (!hasMigrationApplied(db, 2)) {
-    // Version 2 (Plan-003) — node_capabilities + node_trust_state.
+    // Version 2 — node_capabilities + node_trust_state.
     db.transaction(() => {
       if (!hasMigrationApplied(db, 2)) {
         db.exec(RUNTIME_NODE_MIGRATION_SQL);
@@ -206,7 +188,7 @@ export function applyMigrations(db: DatabaseType): void {
   }
 
   if (!hasMigrationApplied(db, 3)) {
-    // Version 3 (Plan-005) — runtime_bindings + driver_capabilities +
+    // Version 3 — runtime_bindings + driver_capabilities +
     // driver_tools + driver_contract_meta.
     db.transaction(() => {
       if (!hasMigrationApplied(db, 3)) {
@@ -216,11 +198,11 @@ export function applyMigrations(db: DatabaseType): void {
   }
 
   if (!hasMigrationApplied(db, 4)) {
-    // Version 4 (Plan-010) — worktrees + ephemeral_clones + branch_contexts +
+    // Version 4 — worktrees + ephemeral_clones + branch_contexts +
     // run_execution_contexts. This migration's REFERENCES clauses target
-    // Plan-009 Phase 2 tables that may not exist yet; SQLite resolves FK
-    // targets lazily at DML time, so the CREATEs apply cleanly regardless
-    // (B23 ordering; see the 0004 file header).
+    // tables that may not exist yet; SQLite resolves FK targets lazily at DML
+    // time, so the CREATEs apply cleanly regardless (B23 ordering; see the
+    // 0004 file header).
     db.transaction(() => {
       if (!hasMigrationApplied(db, 4)) {
         db.exec(WORKTREE_LIFECYCLE_MIGRATION_SQL);
@@ -229,7 +211,7 @@ export function applyMigrations(db: DatabaseType): void {
   }
 
   if (!hasMigrationApplied(db, 5)) {
-    // Version 5 (Plan-006) — daemon_signing_keys.
+    // Version 5 — daemon_signing_keys.
     db.transaction(() => {
       if (!hasMigrationApplied(db, 5)) {
         db.exec(DAEMON_SIGNING_KEYS_MIGRATION_SQL);
@@ -238,12 +220,12 @@ export function applyMigrations(db: DatabaseType): void {
   }
 
   if (!hasMigrationApplied(db, 6)) {
-    // Version 6 (Plan-006) — run_lifecycle terminal-key backstop: the partial
-    // unique index plus the insert/update/promote trigger trio. Atomicity
-    // matters more than usual here: a torn apply that landed the UNIQUE index
-    // without its trigger trio would leave the NULL-distinctness hole the
-    // triggers exist to close, silently admitting duplicate terminal rows (see
-    // the 0006 file header).
+    // Version 6 — run_lifecycle terminal-key backstop: the partial unique
+    // index plus the insert/update/promote trigger trio. Atomicity matters
+    // more than usual here: a torn apply that landed the UNIQUE index without
+    // its trigger trio would leave the NULL-distinctness hole the triggers
+    // exist to close, silently admitting duplicate terminal rows (see the 0006
+    // file header).
     db.transaction(() => {
       if (!hasMigrationApplied(db, 6)) {
         db.exec(RUN_LIFECYCLE_TERMINAL_BACKSTOP_MIGRATION_SQL);
@@ -252,8 +234,8 @@ export function applyMigrations(db: DatabaseType): void {
   }
 
   if (!hasMigrationApplied(db, 7)) {
-    // Version 7 (Plan-006) — session_events.pii_participant_id, the durable
-    // PII owner-stamp column. The guards are what make re-application a no-op:
+    // Version 7 — session_events.pii_participant_id, the durable PII
+    // owner-stamp column. The guards are what make re-application a no-op:
     // SQLite has no `ADD COLUMN IF NOT EXISTS`, so a second exec would throw
     // "duplicate column name".
     db.transaction(() => {
@@ -264,8 +246,8 @@ export function applyMigrations(db: DatabaseType): void {
   }
 
   if (!hasMigrationApplied(db, 8)) {
-    // Version 8 (Plan-006) — pending_anchor_uploads, the durable Merkle-anchor
-    // upload queue. Atomicity is load-bearing here for the same reason it is at
+    // Version 8 — pending_anchor_uploads, the durable Merkle-anchor upload
+    // queue. Atomicity is load-bearing here for the same reason it is at
     // version 6: a torn apply that landed the table without its partial index
     // would leave the upload worker's pending scan doing a full table scan of a
     // queue that grows without bound during a long partition.
@@ -277,7 +259,7 @@ export function applyMigrations(db: DatabaseType): void {
   }
 
   if (!hasMigrationApplied(db, 9)) {
-    // Version 9 (Plan-006) — session_events.retention_class +
+    // Version 9 — session_events.retention_class +
     // session_events.stub_signature + the idx_session_events_live partial
     // index: the compaction retention discriminator and the post-compaction
     // stub commitment. Two version-specific facts: the ALTER TABLEs cannot be
@@ -294,15 +276,15 @@ export function applyMigrations(db: DatabaseType): void {
   }
 
   if (!hasMigrationApplied(db, 10)) {
-    // Version 10 (Plan-009) — repo_mounts + workspaces, the durable attach
-    // record and its execution binding. This is the version that supplies the
-    // parent tables version 4's forward REFERENCES clauses target, so it is
-    // also the version after which those columns fail as ordinary FK
-    // violations rather than as `no such table`. Atomicity matters here for the
-    // reason it does at versions 6, 8, and 9: a torn apply that landed
-    // `repo_mounts` without the partial-unique `idx_repo_mounts_active_root`
-    // would leave the attach path admitting duplicate active mounts of one
-    // canonical root, silently (see the 0010 file header).
+    // Version 10 — repo_mounts + workspaces, the durable attach record and its
+    // execution binding. This is the version that supplies the parent tables
+    // version 4's forward REFERENCES clauses target, so it is also the version
+    // after which those columns fail as ordinary FK violations rather than as
+    // `no such table`. Atomicity matters here for the reason it does at
+    // versions 6, 8, and 9: a torn apply that landed `repo_mounts` without the
+    // partial-unique `idx_repo_mounts_active_root` would leave the attach path
+    // admitting duplicate active mounts of one canonical root, silently (see
+    // the 0010 file header).
     db.transaction(() => {
       if (!hasMigrationApplied(db, 10)) {
         db.exec(REPO_WORKSPACES_MIGRATION_SQL);
@@ -311,7 +293,7 @@ export function applyMigrations(db: DatabaseType): void {
   }
 
   if (!hasMigrationApplied(db, 11)) {
-    // Version 11 (Plan-005) — driver-capability currency: the fourteen-value
+    // Version 11 — driver-capability currency: the fourteen-value
     // `driver_capabilities.capability_flag` CHECK (a twelve-step table rebuild,
     // since SQLite cannot alter a column CHECK in place) with its thirteen-flag
     // `supported = 0` backfill, plus the `cli_version_raw` /
@@ -333,13 +315,13 @@ export function applyMigrations(db: DatabaseType): void {
   }
 
   if (!hasMigrationApplied(db, 12)) {
-    // Version 12 (Plan-005) — the transcript capability backfill: a
-    // `supported = 0` `transcript_replay` row for every cached `driver_name`,
-    // landing the fourteenth row against the CHECK version 11 already widened.
-    // Atomicity carries the same weight it does at version 11 and for the same
-    // reason: the backfill and its `schema_version` stamp must land together, or
-    // a re-run would be gated on a version marker whose rows never arrived. What
-    // makes the row set urgent rather than cosmetic is the hydrator's
+    // Version 12 — the transcript capability backfill: a `supported = 0`
+    // `transcript_replay` row for every cached `driver_name`, landing the
+    // fourteenth row against the CHECK version 11 already widened. Atomicity
+    // carries the same weight it does at version 11 and for the same reason: the
+    // backfill and its `schema_version` stamp must land together, or a re-run
+    // would be gated on a version marker whose rows never arrived. What makes
+    // the row set urgent rather than cosmetic is the hydrator's
     // exact-cardinality guard — a cache left at thirteen rows against the
     // fourteen-member union throws on the first cold-start read, before any
     // capability refresh could heal it.
@@ -351,14 +333,14 @@ export function applyMigrations(db: DatabaseType): void {
   }
 
   if (!hasMigrationApplied(db, 13)) {
-    // Version 13 (Plan-006) — the durable encrypted home for machine-authored
-    // prose: `session_events.content_payload` plus the `session_content_keys`
-    // table that holds each session's wrapped sealing key. Order-independent of
-    // every earlier version in the strong sense — the column is additive and
+    // Version 13 — the durable encrypted home for machine-authored prose:
+    // `session_events.content_payload` plus the `session_content_keys` table
+    // that holds each session's wrapped sealing key. Order-independent of every
+    // earlier version in the strong sense — the column is additive and
     // unreferenced by any existing index, trigger, or CHECK, and the table
     // stands alone with no FK in either direction. Atomicity is what makes the
-    // two statements one version rather than two: a column with no key table
-    // is a column nothing can write to, and a key table with no column is a key
+    // two statements one version rather than two: a column with no key table is
+    // a column nothing can write to, and a key table with no column is a key
     // for nothing, so a crash between them would leave a half-usable schema
     // gated on a version marker that never arrived.
     db.transaction(() => {
@@ -369,16 +351,16 @@ export function applyMigrations(db: DatabaseType): void {
   }
 
   if (!hasMigrationApplied(db, 14)) {
-    // Version 14 (Plan-005) — the console-parity capability flags: the
-    // `capability_flag` CHECK widened from fourteen values to SEVENTEEN through
-    // the same twelve-step table rebuild version 11 performed, plus a
-    // `supported = 0` backfill of the three added flags for every cached
-    // `driver_name`. Unlike version 12 this one CANNOT be a bare row insert:
-    // version 11 froze the CHECK at exactly fourteen literals and pre-admits
-    // none of the three, so the constraint has to move before any row can land.
+    // Version 14 — the console-parity capability flags: the `capability_flag`
+    // CHECK widened from fourteen values to SEVENTEEN through the same
+    // twelve-step table rebuild version 11 performed, plus a `supported = 0`
+    // backfill of the three added flags for every cached `driver_name`. Unlike
+    // version 12 this one CANNOT be a bare row insert: version 11 froze the
+    // CHECK at exactly fourteen literals and pre-admits none of the three, so
+    // the constraint has to move before any row can land.
     //
     // It follows version 13 by ORDINAL and not by dependency. That version is
-    // Plan-006's `session_events` work and touches neither this table nor this
+    // the `session_events` work and touches neither this table nor this
     // constraint, so the two are independent in the strong sense; what this one
     // requires is version 11's table, and only version 11's.
     //
@@ -399,9 +381,9 @@ export function applyMigrations(db: DatabaseType): void {
   }
 
   if (!hasMigrationApplied(db, 15)) {
-    // Version 15 (Plan-004) — the queue, intervention, and command-receipt
-    // tables. Order-independent of every earlier version in the strong sense:
-    // it CREATEs three standalone tables, participates in no foreign key in
+    // Version 15 — the queue, intervention, and command-receipt tables.
+    // Order-independent of every earlier version in the strong sense: it
+    // CREATEs three standalone tables, participates in no foreign key in
     // either direction, and neither reads nor rebuilds a column any prior
     // version added. It follows version 14 by ordinal alone.
     //
@@ -411,8 +393,8 @@ export function applyMigrations(db: DatabaseType): void {
     // that created it — so a torn apply could leave a schema in which that
     // transaction cannot be written at all, gated on a version marker saying
     // the queue is ready. `command_receipts` rides along as a forward-declared
-    // shell (CP-004-2) with no reader until Plan-015: a rollback boundary
-    // around a table nothing writes would buy nothing.
+    // shell with no reader until: a rollback boundary around a table nothing
+    // writes would buy nothing.
     db.transaction(() => {
       if (!hasMigrationApplied(db, 15)) {
         db.exec(QUEUE_AND_INTERVENTIONS_MIGRATION_SQL);
@@ -421,7 +403,7 @@ export function applyMigrations(db: DatabaseType): void {
   }
 
   if (!hasMigrationApplied(db, 16)) {
-    // Version 16 (Plan-029) — the node-local provider-account registry
+    // Version 16 — the node-local provider-account registry
     // (`provider_accounts`, plus the two unique indexes that make a second
     // default per provider and a shared credential home unrepresentable) and its
     // per-limit quota-window store (`provider_account_usage_windows`).
@@ -447,12 +429,12 @@ export function applyMigrations(db: DatabaseType): void {
   }
 
   if (!hasMigrationApplied(db, 17)) {
-    // Version 17 (Plan-005) — the MCP Tasks durable recovery handle on
-    // `command_receipts`. Requires version 15 and nothing else: it appends one
-    // nullable column to the table version 15 CREATEs, reads no other table, and
-    // participates in no foreign key. Run against a database that never applied
-    // version 15 the ALTER would fail on a missing table, which is the correct
-    // and loud outcome — the ordering is a real dependency, not a convention.
+    // Version 17 — the MCP Tasks durable recovery handle on `command_receipts`.
+    // Requires version 15 and nothing else: it appends one nullable column to
+    // the table version 15 CREATEs, reads no other table, and participates in no
+    // foreign key. Run against a database that never applied version 15 the
+    // ALTER would fail on a missing table, which is the correct and loud outcome
+    // — the ordering is a real dependency, not a convention.
     //
     // ADD COLUMN carries the bounding CHECK rather than a table rebuild: the
     // constraint is column-level, references only this column, and admits NULL,

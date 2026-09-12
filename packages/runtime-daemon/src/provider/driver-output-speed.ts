@@ -1,6 +1,6 @@
 /**
  * The per-driver output-speed value vocabularies — the ONE table every reader
- * of that axis reads (Plan-005 T3.26, `Spec-005 §The output-speed axis`).
+ * of that axis reads.
  *
  * WHY THIS IS A PROVIDER-LEVEL MODULE AND NOT A PAIR OF DRIVER CONSTANTS. The
  * vocabulary has TWO readers, and only one of them holds a driver. The live
@@ -55,10 +55,10 @@ export const DRIVER_OUTPUT_SPEED_LEVELS: Readonly<Record<FlooredDriverName, read
     // EMPTY, and that is the complete declaration the `output_speed: false` flag
     // implies: this provider declares no settable output-speed level vocabulary
     // anywhere (its per-turn `serviceTier` override carries no enumerated level
-    // set and no declared-state read), so `Spec-005 §The output-speed axis`
-    // makes an absent or empty vocabulary the signal that the axis is
-    // unsettable and a caller carrying an `outputSpeed` refuses fail-closed
-    // rather than forwarding an unvalidated value.
+    // set and no declared-state read), so makes an absent or empty vocabulary
+    // the signal that the axis is unsettable and a caller carrying an
+    // `outputSpeed` refuses fail-closed rather than forwarding an unvalidated
+    // value.
     codex: Object.freeze([]),
   });
 

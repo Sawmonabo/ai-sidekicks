@@ -1,4 +1,4 @@
-// The memo projection floor (Plan-005 Phase 3, T3.21).
+// The memo projection floor.
 //
 // Four properties carry this file, and each is asserted as a MECHANISM rather
 // than as a shape:
@@ -24,8 +24,6 @@
 //     recorder observing that the only members touched on the target across all
 //     four delivery paths are the read and the send.
 //
-// Refs: Plan-005 §Phase 3 / T3.21, invariant I-005-9, ADR-029,
-// `Spec-005 §Canonical Transcript Export And Replay`, `Spec-005 §Fallback Behavior`.
 
 import { describe, expect, it } from "vitest";
 

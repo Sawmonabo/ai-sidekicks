@@ -1,12 +1,12 @@
 // Canonical transcript fold — the daemon's authoritative record of a provider
-// session's content (Plan-005 Phase 3, T3.19).
+// session's content.
 //
 // The transcript is a PROJECTION, not a store: `CanonicalTranscriptFold.build()`
 // walks the session log every time it is called and keeps nothing between calls.
-// That is the whole point of ADR-029 — a cached transcript is a second record of
-// the conversation, and the moment it disagrees with the log there is no rule
-// that says which one is the session. `builtAtPosition` exists so a caller can
-// SEE the fold move rather than take the property on faith.
+// That is the whole point of — a cached transcript is a second record of the
+// conversation, and the moment it disagrees with the log there is no rule that
+// says which one is the session. `builtAtPosition` exists so a caller can SEE
+// the fold move rather than take the property on faith.
 //
 // ---------------------------------------------------------------------------
 // Why the content source is a separate collaborator
@@ -24,21 +24,19 @@
 //     bodies — reaches the fold through the content port instead. Two different
 //     reasons land in the same place, and both are deliberate:
 //
-//       - Assistant and tool payloads are metadata-shaped by construction, per
-//         `Spec-006 §Assistant Output (assistant_output)` and
-//         `Spec-006 §Tool Activity (tool_activity)` — assistant output carries
-//         `contentType` / `contentLength` and never message text, tool activity
-//         carries no tool output — so unbounded content always rides behind a
-//         reference.
+//       - Assistant and tool payloads are metadata-shaped by construction and —
+//         assistant output carries `contentType` / `contentLength` and never
+//         message text, tool activity carries no tool output — so unbounded
+//         content always rides behind a reference.
 //
 //       - The participant's message text IS named in the `user.message` payload
 //         shape, but it is PII-bearing at that call site and the emitter routes
-//         it through the encrypted `pii_payload` envelope, per
-//         `Spec-006 §User Message Events`. The read path this fold walks exposes
-//         only the clear half, so reading `payload.message` here would answer
-//         `undefined` for every real participant row and silently erase every
-//         participant turn from export and replay under no declared loss. The
-//         port is the seam that keeps that decryption decision out of the fold.
+//         it through the encrypted `pii_payload` envelope. The read path this
+//         fold walks exposes only the clear half, so reading `payload.message`
+//         here would answer `undefined` for every real participant row and
+//         silently erase every participant turn from export and replay under no
+//         declared loss. The port is the seam that keeps that decryption
+//         decision out of the fold.
 //
 // So the content arrives through `TranscriptContentSource`, a port this module
 // declares and does not implement. Declaring it is not a stub standing in for
@@ -46,15 +44,8 @@
 // content source are different surfaces, and it keeps every ordering, strip, and
 // pairing rule in the transform pipeline testable and shippable today. Where that
 // content durably lives is an open corpus question, and inventing an answer here
-// would put a second record of the conversation exactly where ADR-029 forbids one.
+// would put a second record of the conversation exactly where forbids one.
 //
-// Spec coverage: `Spec-005 §Canonical Transcript Export And Replay` (step 1 of the
-// ordered pipeline), invariant I-005-8.
-//
-// Refs: Plan-005 §Phase 3 / T3.19, ADR-029,
-// `Spec-006 §Assistant Output (assistant_output)`,
-// `Spec-006 §Tool Activity (tool_activity)`,
-// `Spec-006 §User Message Events`.
 
 import type {
   CanonicalReasoningDisclosure,

@@ -86,17 +86,14 @@ const MIGRATIONS: ReadonlyArray<{ readonly version: number; readonly sql: string
 // Stable advisory-lock ID for ai-sidekicks control-plane migrations.
 // `pg_advisory_xact_lock` takes a bigint; the value must be unique
 // relative to ALL OTHER advisory-lock callers in the same Postgres
-// database. We own the database today, so collision is
-// impossible — but a future caller that adds an additional advisory-lock
-// caller (e.g. for cross-replica coordination of a recurring job) MUST
-// pick a distinct constant. `9_000_000_001` was chosen as a memorable
-// value well outside the typical application id-space (most apps key on
-// values < 2^32 or on hashed strings); changing this constant requires
-// a coordinated rollout because two daemons disagreeing on the lock id
-// would silently permit the race the lock is meant to prevent. See the
-// "Advisory Lock ID Registry" subsection in
-// `docs/architecture/schemas/shared-postgres-schema.md` for the
-// ID-space allocation.
+// database. We own the database today, so collision is impossible — but
+// a future caller that adds an additional advisory-lock caller (e.g. for
+// cross-replica coordination of a recurring job) MUST pick a distinct
+// constant. `9_000_000_001` was chosen as a memorable value well outside
+// the typical application id-space (most apps key on values < 2^32 or on
+// hashed strings); changing this constant requires a coordinated rollout
+// because two daemons disagreeing on the lock id would silently permit
+// the race the lock is meant to prevent.
 const MIGRATION_LOCK_ID = 9_000_000_001n;
 
 /**
@@ -124,18 +121,18 @@ const MIGRATION_LOCK_ID = 9_000_000_001n;
  *     wrapped in `BEGIN`/`COMMIT` (auto-`ROLLBACK` on throw). Required
  *     for atomicity across multiple statements when the underlying
  *     driver checks out a different connection per `query()`/`exec()`
- *     call (the `pg.Pool` shape that Plan-001 PR #5 will compose). The
- *     callback receives a `Querier` rather than a narrower transaction
- *     type so that helper code shared between in-transaction and
+ *     call (the `pg.Pool` shape that PR #5 will compose). The callback
+ *     receives a `Querier` rather than a narrower transaction type so
+ *     that helper code shared between in-transaction and
  *     out-of-transaction paths sees the same surface; nested-transaction
  *     calls inside `fn` will throw at runtime per Postgres semantics, an
  *     acceptable runtime check rather than a type-system constraint.
  *
  * Typing against this minimal interface (rather than `pg.Pool` or
- * `pg.Client` directly) is what makes the production wiring (Plan-001 PR #5
- * will compose a `Querier` from `pg.Pool`) and the test wiring (an
- * in-process `PGlite` instance) interchangeable without a runtime branch
- * inside the migration runner or the directory service.
+ * `pg.Client` directly) is what makes the production wiring (PR #5 will
+ * compose a `Querier` from `pg.Pool`) and the test wiring (an in-process
+ * `PGlite` instance) interchangeable without a runtime branch inside the
+ * migration runner or the directory service.
  *
  * `params` is `ReadonlyArray<unknown>` to accommodate the heterogeneous shape
  * Postgres parameters take (UUIDs as strings, JSON as objects/strings, etc.)
@@ -213,9 +210,9 @@ export interface Querier {
  * Why `transaction()` and not three separate `exec("BEGIN")` /
  * `exec(SQL)` / `exec("COMMIT")` calls: the three-call shape works on
  * PGlite (single connection per instance) but BREAKS the future `pg.Pool`
- * wiring (Plan-001 PR #5 composes `Querier` from `pg.Pool`, where each
- * `pool.query()` call checks out a fresh connection — three separate
- * exec calls would land on three different connections, dissolving the
+ * wiring (PR #5 composes `Querier` from `pg.Pool`, where each
+ * `pool.query()` call checks out a fresh connection — three separate exec
+ * calls would land on three different connections, dissolving the
  * transaction AND releasing the advisory lock between statements).
  * `Querier.transaction(fn)` collapses both substrates onto the same
  * atomicity primitive — PGlite's `pg.transaction(fn)` and the `pg.Pool`
@@ -228,7 +225,7 @@ export interface Querier {
 export async function applyMigrations(querier: Querier): Promise<void> {
   for (const { version, sql } of MIGRATIONS) {
     // Outer probe — fast path. Avoids taking a lock on the (overwhelmingly
-    // common) already-applied case; see method docstring §1.
+    // common) already-applied case; see method docstring.
     if (await hasMigrationApplied(querier, version)) {
       continue;
     }
@@ -237,8 +234,7 @@ export async function applyMigrations(querier: Querier): Promise<void> {
       // enters this version's body at a time. Released automatically at
       // COMMIT or ROLLBACK. Concurrent racers that both passed the outer
       // probe BLOCK on this call until the first runner commits, then
-      // re-probe and short-circuit. See method docstring §2 for the full
-      // failure mode this defends against.
+      // re-probe and short-circuit.
       //
       // BigInt parameter is accepted by both PGlite (verified empirically
       // 2026-04-27 against @electric-sql/pglite 0.4.4) and `pg` (driver's

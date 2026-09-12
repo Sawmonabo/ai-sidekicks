@@ -1,11 +1,11 @@
-// END-TO-END shred safety — the Phase-3 acceptance gate (Plan-006 T3.5).
+// END-TO-END shred safety — the Phase-3 acceptance gate.
 //
 // One lifecycle, run through the REAL modules in the order production runs them:
 //
 //   64 PII-carrying appends through `EventLogService`
-//     → a compaction pass behind a real `MerkleAnchorService` anchor
-//     → `event.shredded` through the same append path
-//     → the registered shred callback performs Plan-022 Path 1's crypto-shred
+//     → a compaction pass behind a real `MerkleAnchorService` anchor →
+//     `event.shredded` through the same append path → the registered shred
+//     callback performs Path 1's crypto-shred
 //       (a `participant_keys` row DELETE — the key, never the ciphertext)
 //     → the integrity verifier re-runs over the WHOLE chain
 //
@@ -24,15 +24,9 @@
 // WHAT IS SUITE-LOCAL, and what is production. The read projection below is
 // suite-local by design — Phase 4's replay service does not exist yet, and
 // importing a symbol from it is not an option. `splitPii` is likewise a fixture:
-// Plan-022 owns the real classification. Everything else — the append path, the
-// PII codec, the compactor, the anchor service, the signer — is the shipped code.
+// owns the real classification. Everything else — the append path, the PII codec,
+// the compactor, the anchor service, the signer — is the shipped code.
 //
-// Spec coverage: `Spec-006 §Canonical Serialization Rules` (the canonical bytes
-// exclude `pii_payload` and bind it through a digest), `Spec-006 §Event
-// Compaction Policy` (the pass that precedes the shred), `Spec-006 §Event
-// Maintenance (event_maintenance)` (`event.shredded`). Refs: Plan-006 T3.5,
-// `Plan-006 §Read Path`, `Spec-022 §Shred Fan-Out` Path 1, I-006-2-04,
-// I-006-2-12.
 
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { blake3 } from "@noble/hashes/blake3.js";
@@ -91,8 +85,7 @@ const SHREDDED_PLAINTEXT = "the-content-that-must-become-unreadable";
 const RETAINED_PLAINTEXT = "the-content-that-must-stay-readable";
 
 /**
- * The marker `Plan-006 §Read Path`'s third state puts where the participant's
- * fields were.
+ * The marker the third state puts where the participant's fields were.
  */
 const PII_SHREDDED_MARKER = "<pii-shredded>";
 
@@ -109,7 +102,7 @@ const keySource: DaemonSigningKeySource = {
 };
 
 // ----------------------------------------------------------------------------
-// Fixtures — the CP-006-1 encryptor and Plan-022's `splitPii`
+// Fixtures — encryptor and the `splitPii`
 // ----------------------------------------------------------------------------
 
 /**
@@ -174,11 +167,8 @@ function xorWithKeystream(
 }
 
 /**
- * Plan-022's `splitPii`, as a fixture.
+ * The `splitPii`, as a fixture.
  *
- * The real classification is semantic and Plan-022-owned; what this file needs
- * is only the SHAPE of its output — a partition of one logical event into the
- * half that is hashed and signed in the clear and the half that is encrypted.
  */
 function splitPii(event: Record<string, unknown>): {
   readonly clear: Record<string, unknown>;
@@ -330,7 +320,7 @@ function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
 }
 
 /**
- * The SUITE-LOCAL read projection — `Plan-006 §Read Path`'s three states.
+ * The SUITE-LOCAL read projection — the three states.
  *
  * ONE MODELLING DECISION worth stating outright: in the third state the reader
  * marks the participant's contribution AS A UNIT rather than field by field,
@@ -386,12 +376,9 @@ const LIVE_ROW_COUNT = TOTAL_SESSION_ROW_COUNT - EXPECTED_COMPACTED_ROWS;
  * The sentinel partition after one lifecycle: the pass's `event.compacted` at
  * sequence 0, then `event.shredded` at sequence 1.
  *
- * `Spec-006 §Daemon-Scope Event Binding And Node-Scope Anchoring` binds EVERY
- * `event_maintenance` type to the daemon-scope sentinel, and grants exactly one
- * carve-out back to a real session: an `event.compacted` scoped to a single
- * session's compaction MAY carry that session's id. `event.shredded` has no such
- * grant — it is a fan-out record naming its affected sessions in the payload,
- * and a shred spanning several sessions has no one session to belong to.
+ * binds EVERY `event_maintenance` type to the daemon-scope sentinel, and grants
+ * exactly one carve-out back to a real session: an `event.compacted` scoped to a
+ * single session's compaction MAY carry that session's id.
  */
 const SENTINEL_COMPACTED_RECORD_COUNT = 1;
 const SHRED_SENTINEL_SEQUENCE = SENTINEL_COMPACTED_RECORD_COUNT;
@@ -464,10 +451,10 @@ function buildCompactor(thresholds: {
 
 /** Appends, compacts, then shreds — the whole lifecycle, once. */
 async function runLifecycle(): Promise<LifecycleResult> {
-  // The session opens, exactly as `Plan-006 §Test And Verification Plan`'s
-  // end-to-end lifecycle sentence has it. It is also the row that proves the
-  // compacted prefix is not PII-only: a stub projection that mishandled a
-  // payload with no PII partition would fail here rather than in Phase 4.
+  // The session opens, exactly as the end-to-end lifecycle sentence has it.
+  // It is also the row that proves the compacted prefix is not PII-only: a
+  // stub projection that mishandled a payload with no PII partition would
+  // fail here rather than in Phase 4.
   await eventLog.append({
     id: "evt-session-created",
     sessionId: SESSION,
@@ -498,9 +485,9 @@ async function runLifecycle(): Promise<LifecycleResult> {
     eventCountThreshold: COMPACTION_COUNT_THRESHOLD,
   }).tick();
 
-  // Plan-022 Path 1: the callback destroys the KEY. It runs post-commit, while
-  // the append still holds the lock of the session the RECORD was written on —
-  // the sentinel's, here. That is a narrower guarantee than it looks: the append
+  // Path 1: the callback destroys the KEY. It runs post-commit, while the append
+  // still holds the lock of the session the RECORD was written on — the
+  // sentinel's, here. That is a narrower guarantee than it looks: the append
   // lock is per-session and there is no cross-session exclusion, so an append on
   // an affected session can legitimately interleave with the key deletion. What
   // the hold actually buys is serialization of the sentinel chain across the
@@ -732,7 +719,7 @@ describe("Shred safety E2E — PII lifecycle through compaction and crypto-shred
     expect(verifyWholeChain().perRow.filter((verdict) => !verdict.valid)).toEqual([]);
   });
 
-  it("spares the never-compacted categories through a SECOND pass (I-006-3-01 layer 1)", async () => {
+  it("spares the never-compacted categories through a SECOND pass (layer 1)", async () => {
     await runLifecycle();
     const sentinelBefore = storedRows(DAEMON_SCOPE_SENTINEL_SESSION_ID);
     const shredRecordBefore = sentinelBefore.find((row) => row.type === "event.shredded");

@@ -27,7 +27,7 @@ function parseUuidBytes(text: string): Uint8Array {
   return bytes;
 }
 
-/** RFC 9562 §5.7 — the 48-bit big-endian `unix_ts_ms` field. */
+/** RFC 9562 section 5.7 — the 48-bit big-endian `unix_ts_ms` field. */
 function readTimestampMilliseconds(text: string): number {
   const bytes: Uint8Array = parseUuidBytes(text);
   const highHalf: number = (bytes[0]! << 8) | bytes[1]!;
@@ -36,7 +36,7 @@ function readTimestampMilliseconds(text: string): number {
   return highHalf * 2 ** 32 + lowHalf;
 }
 
-/** RFC 9562 §6.2 Method 1 — the 12-bit counter occupying `rand_a`. */
+/** RFC 9562 section 6.2 Method 1 — the 12-bit counter occupying `rand_a`. */
 function readSubMillisecondCounter(text: string): number {
   const bytes: Uint8Array = parseUuidBytes(text);
   return ((bytes[6]! & 0x0f) << 8) | bytes[7]!;
@@ -53,13 +53,13 @@ function assertRfc9562UuidV7(text: string): void {
   }
   const bytes: Uint8Array = parseUuidBytes(text);
 
-  // RFC 9562 §4.2 — version in the most significant 4 bits of octet 6.
+  // RFC 9562 section 4.2 — version in the most significant 4 bits of octet 6.
   const version: number = bytes[6]! >>> 4;
   if (version !== 7) {
     throw new Error(`expected UUID version 7 (RFC 9562 section 4.2), read version ${version}`);
   }
 
-  // RFC 9562 §4.1 — variant `0b10` in the two most significant bits of octet 8.
+  // RFC 9562 section 4.1 — variant `0b10` in the two most significant bits of octet 8.
   const variantBits: number = bytes[8]! >>> 6;
   if (variantBits !== 0b10) {
     throw new Error(

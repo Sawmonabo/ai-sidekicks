@@ -1,37 +1,26 @@
-// Client-side JSON-RPC transport contract surface — Plan-007 Phase 3
-// (T-007p-3-2).
+// Client-side JSON-RPC transport contract surface
 //
-// This file owns the TYPE SHAPES that `jsonRpcClient.ts` consumes and that
-// downstream consumers (Plan-001 Phase 5 `sessionClient.ts`, the desktop
-// shell's Node-socket transport, in-memory test transports) implement against.
 // It deliberately contains NO runtime imports — every export is a type or
 // interface so the file emits as `.d.ts`-only at the isolated-declarations
 // boundary.
 //
-// Spec coverage:
-//   * `Spec-007 §Wire Format` — typed JSON-RPC client transport surface owed to
-//     desktop renderer + CLI consumers.
-//   * Plan-007 §Cross-Plan Obligations CP-007-4 — `transport/jsonRpcClient.ts`
+//   * typed JSON-RPC client transport surface owed to desktop renderer + CLI
+//     consumers.
 //     + `transport/types.ts` CREATE.
-//   * `Plan-007 §Phase 3: session.* Handlers + SDK Zod Layer` — task contract for the file pair (the
-//     `JsonRpcClient` class signature + `LocalSubscriptionConsumer<T>` /
-//     `Handler<Req, Res>` shapes). The original plan body named the
-//     consumer interface `LocalSubscription<T>`; BL-115 (landed 2026-05-19)
-//     renamed it to `LocalSubscriptionConsumer<T>` to disambiguate from the
-//     server-side producer in `@ai-sidekicks/contracts`.
+//   * task contract for the file pair (the `JsonRpcClient` class signature +
+//     `LocalSubscriptionConsumer<T>` / `Handler<Req, Res>` shapes). The original
+//     plan body named the consumer interface `LocalSubscription<T>` renamed it to
+//     `LocalSubscriptionConsumer<T>` to disambiguate from the server-side
+//     producer in `@ai-sidekicks/contracts`.
 //
 // What this file does NOT define (deferred to sibling files / phases):
 //   * The runtime `JsonRpcClient` class implementation — owned by
-//     `./jsonRpcClient.ts` (T-007p-3-2 sibling).
+//     `./jsonRpcClient.ts` (sibling).
 //   * Concrete transport implementations (Node net.Socket, in-memory, browser
-//     MessagePort) — owned by Plan-001 Phase 5 + downstream test fixtures.
-//     This file declares the abstract `ClientTransport` shape every
-//     implementation conforms to.
-//   * The `sessionClient` SDK methods — owned by Plan-001 Phase 5
-//     (`packages/client-sdk/src/sessionClient.ts`, per F-007p-3-03 boundary
-//     resolution + CP-007-4).
+//     MessagePort) — downstream test fixtures.
+//   * The `sessionClient` SDK methods.
 //
-// Naming-collision history (resolved by BL-115, landed 2026-05-19):
+// Naming-collision history (resolved landed 2026-05-19):
 //   The CLIENT-side `LocalSubscriptionConsumer<T>` declared here is
 //   INTENTIONALLY distinct from the SERVER-side `LocalSubscriptionProducer<T>`
 //   in `@ai-sidekicks/contracts/jsonrpc-streaming.ts`. The two are NOT
@@ -43,18 +32,15 @@
 //       `next(): Promise<T | undefined>`, `cancel(): Promise<void>`,
 //       `[Symbol.asyncIterator](): AsyncIterator<T>` — the SDK caller
 //       CONSUMES values out of this handle.
-//   Both interfaces were originally declared as `LocalSubscription<T>` per
-//   the Plan-007 Phase 2 / Phase 3 task contracts verbatim (the advisor flag
-//   at PR #19 surfaced the collision). BL-115 resolved it with the
-//   producer/consumer suffix rename so call-site imports unambiguously
-//   select the correct shape: SDK consumers import `LocalSubscriptionConsumer`
-//   from this file; server-side primitives import `LocalSubscriptionProducer`
-//   from `@ai-sidekicks/contracts`.
+//   Both interfaces were originally declared as `LocalSubscription<T>` Phase 3
+//   task contracts verbatim (the advisor flag at PR #19 surfaced the
+//   collision). resolved it with the producer/consumer suffix rename so
+//   call-site imports unambiguously select the correct shape: SDK consumers
+//   import `LocalSubscriptionConsumer` from this file; server-side primitives
+//   import `LocalSubscriptionProducer` from `@ai-sidekicks/contracts`.
 //
-// `protocolVersion` is an ISO 8601 `YYYY-MM-DD` date-string per
-// api-payload-contracts.md §Tier 1 (cont.): Plan-007 (BL-102 ratified
-// 2026-05-01); mirrors the narrowed `JsonRpcRequest.protocolVersion` at
-// the contracts layer.
+// `protocolVersion` is an ISO 8601 `YYYY-MM-DD` date-string): mirrors
+// the narrowed `JsonRpcRequest.protocolVersion` at the contracts layer.
 
 import type {
   HandlerContext,
@@ -72,9 +58,7 @@ import type {
  * Implementations OWN:
  *   * Establishing and tearing down the underlying connection (Unix socket,
  *     Windows named pipe, in-memory MessagePort, etc.).
- *   * `Content-Length`-prefixed LSP framing (per Spec-007 §Wire Format) on
- *     the way out and reverse-framing on the way in. The substrate's
- *     `parseFrame` / `encodeFrame` (in
+ *   * The substrate's `parseFrame` / `encodeFrame` (in
  *     `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts`) is the
  *     canonical algorithm; transport implementations on the SDK side
  *     reimplement (or import via a future framing-helper move) the same
@@ -89,10 +73,10 @@ import type {
  * transport's concern.
  *
  * Design note: this matches the MCP TypeScript SDK transport boundary
- * (per `Plan-007 §Phase 3: session.* Handlers + SDK Zod Layer` T-007p-3-2 reference). Their `Transport` interface has `send`,
- * `onmessage`, `onclose`, `onerror`, `start`, `close`. We collapse `start`
- * into the constructor (the transport is connected by the time it reaches
- * the client) and treat `onerror` as a specialization of `onClose(reason)`.
+ * (reference). Their `Transport` interface has `send`, `onmessage`, `onclose`,
+ * `onerror`, `start`, `close`. We collapse `start` into the constructor (the
+ * transport is connected by the time it reaches the client) and treat `onerror`
+ * as a specialization of `onClose(reason)`.
  */
 export interface ClientTransport {
   /**
@@ -101,7 +85,7 @@ export interface ClientTransport {
    * Implementations MUST:
    *   1. JSON-encode the envelope (`JSON.stringify`).
    *   2. Frame it with the LSP `Content-Length: <bytes>\r\n\r\n<body>`
-   *      header per Spec-007 §Wire Format.
+   *      header.
    *   3. Write the framed bytes to the underlying transport.
    *
    * The return type is `void | PromiseLike<void>` so synchronous
@@ -121,7 +105,7 @@ export interface ClientTransport {
    * responsible for discriminating response-vs-notification (`"id" in msg`
    * → response; otherwise notification).
    *
-   * Per the JSON-RPC §5 contract, the inbound stream may carry:
+   * Per the JSON-RPC section 5 contract, the inbound stream may carry:
    *   * `JsonRpcResponseEnvelope` — success or error responses to outbound
    *     requests (correlated by `id`).
    *   * `JsonRpcNotification` — server-emitted notifications (e.g.
@@ -162,8 +146,8 @@ export interface ClientTransport {
 
 /**
  * Client-side consumer handle returned by `JsonRpcClient.subscribe<T>`.
- * The Phase 5 `sessionClient.subscribe(...)` method (Plan-001 Phase 5
- * ownership) wraps this with typed `EventEnvelope` consumption.
+ * The Phase 5 `sessionClient.subscribe(...)` method (ownership) wraps
+ * this with typed `EventEnvelope` consumption.
  *
  * Lifecycle:
  *   1. `JsonRpcClient.subscribe(method, params, valueSchema)` returns a
@@ -211,18 +195,18 @@ export interface LocalSubscriptionConsumer<T> {
    *     `next()` settle): the daemon-issued UUID per the `SubscriptionId`
    *     brand in `@ai-sidekicks/contracts/jsonrpc-streaming.ts`.
    *
-   * Why `string` and not `SubscriptionId` (the branded type): the plan
-   * body (`Plan-007 §Phase 3: session.* Handlers + SDK Zod Layer` T-007p-3-2) names `subscriptionId: string` literally, and the
-   * brand is a server-side construction concern. SDK consumers that need
-   * the brand can `SubscriptionIdSchema.parse()` from `@ai-sidekicks/
-   * contracts` after the field is populated.
+   * Why `string` and not `SubscriptionId` (the branded type): the plan body names
+   * `subscriptionId: string` literally, and the brand is a server-side
+   * construction concern. SDK consumers that need the brand can
+   * `SubscriptionIdSchema.parse()` from `@ai-sidekicks/ contracts` after the
+   * field is populated.
    *
    * Alternative considered: expose as `Promise<string>` getter. Rejected
    * because the plan body is explicit on the synchronous shape, and the
    * mutation pattern matches the documented "initial response carries
-   * subscriptionId" contract from T-007p-2-5 (jsonrpc-streaming.ts:84).
-   * Trade-off accepted: callers reading `subscriptionId` synchronously
-   * see the empty-string sentinel — JSDoc documents the contract.
+   * subscriptionId" contract. Trade-off accepted: callers reading
+   * `subscriptionId` synchronously see the empty-string sentinel — JSDoc
+   * documents the contract.
    */
   readonly subscriptionId: string;
 
@@ -249,9 +233,9 @@ export interface LocalSubscriptionConsumer<T> {
    *   * Subsequent `next()` calls drain any queued values, then return
    *     `undefined`.
    *   * Inbound `$/subscription/notify` frames carrying this
-   *     `subscriptionId` are silently dropped (race-tolerant per
-   *     T-007p-2-5's wire-frame contract — server may have queued frames
-   *     before the cancel arrived).
+   *     `subscriptionId` are silently dropped (race-tolerant per the
+   *     wire-frame contract — server may have queued frames before the
+   *     cancel arrived).
    *
    * Idempotent: a second `cancel()` call resolves immediately without
    * re-emitting the wire frame.
@@ -268,26 +252,24 @@ export interface LocalSubscriptionConsumer<T> {
    * underlying queue as the handle's `next()` method — `for await` over
    * this subscription is mutually exclusive with direct `next()` polling.
    *
-   * Returns `AsyncIterator<T>` (not `AsyncIterableIterator<T>`) per the
-   * `Plan-007 §Phase 3: session.* Handlers + SDK Zod Layer` T-007p-3-2 task contract verbatim. Callers using `for await`
-   * directly on the subscription work because the JS runtime invokes
-   * `[Symbol.asyncIterator]()` once at loop start; mixing repeated
-   * `for await` blocks against the same subscription is implementation-
-   * defined for the same reason as the `next()` / iterator interleaving
-   * note above.
+   * Returns `AsyncIterator<T>` (not `AsyncIterableIterator<T>`) task contract
+   * verbatim. Callers using `for await` directly on the subscription work because
+   * the JS runtime invokes `[Symbol.asyncIterator]()` once at loop start; mixing
+   * repeated `for await` blocks against the same subscription is implementation-
+   * defined for the same reason as the `next()` / iterator interleaving note
+   * above.
    */
   [Symbol.asyncIterator](): AsyncIterator<T>;
 }
 
 // --------------------------------------------------------------------------
-// Handler<Req, Res> — client-side handler shape (`Plan-007 §Phase 3: session.* Handlers + SDK Zod Layer` T-007p-3-2)
+// Handler<Req, Res> — client-side handler shape
 // --------------------------------------------------------------------------
 
 /**
- * Type alias for a typed JSON-RPC handler function. Structurally identical
- * to `Handler<P, R>` in `@ai-sidekicks/contracts/jsonrpc-registry.ts`
- * (lines 105-123); the rename to `<Req, Res>` follows the `Plan-007 §Phase 3: session.* Handlers + SDK Zod Layer` T-007p-3-2
- * task contract verbatim.
+ * Type alias for a typed JSON-RPC handler function. Structurally identical to
+ * `Handler<P, R>` in `@ai-sidekicks/contracts/jsonrpc-registry.ts` (lines
+ * 105-123); the rename to `<Req, Res>` follows task contract verbatim.
  *
  * Why redeclare instead of re-export under an alias: TypeScript's
  * `export type Handler<Req, Res> = ContractsHandler<Req, Res>` pattern
@@ -298,8 +280,8 @@ export interface LocalSubscriptionConsumer<T> {
  *
  * The handler is GUARANTEED:
  *   * `params: Req` — already validated against the registered `paramsSchema`
- *     by the registry's I-007-7 enforcement (the handler never observes
- *     malformed payloads).
+ *     by the registry's enforcement (the handler never observes malformed
+ *     payloads).
  *   * `ctx: HandlerContext` — the per-dispatch context populated by the
  *     substrate (`transportId` available when wired through the gateway).
  *

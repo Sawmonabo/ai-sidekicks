@@ -1,14 +1,13 @@
-// Codex driver — lifecycle + transport tests (Plan-005 Phase 3, T3.1).
+// Codex driver — lifecycle + transport tests.
 //
 // Coverage map (the cites are the authoritative contract, not just the ACs):
 //
-//   `Spec-005 §Required Behavior` — the normalized driver contract's lifecycle
+//   the normalized driver contract's lifecycle
 //     surface: `createSession`, `resumeSession`, `startRun`, `interruptRun`,
 //     `closeSession` each reach the pinned Codex `app-server` method with the
 //     pinned parameter shape.
-//   `Spec-005 §Fallback Behavior` (AC3) — a resume whose handle fails surfaces a
 //     recovery-needed condition rather than a replacement session.
-//   I-005-5 — asserted THREE ways, because the invariant has three distinct ways
+//   Asserted THREE ways, because the invariant has three distinct ways
 //     to be violated:
 //       (a) the returned value is the typed `failed` result (shape enforced by
 //           `DriverResumeResultSchema`, not by hand-written matchers);
@@ -495,7 +494,7 @@ function makeManualScheduler(): {
     },
     /**
      * Fires ONLY the timers armed at one declared delay, and answers how many
-     * ran (T3.26).
+     * ran.
      *
      * `fireAll` cannot serve an expiry assertion on a single deadline: a live
      * session holds the transport's own request deadline too, so firing
@@ -612,7 +611,7 @@ interface Harness {
 }
 
 /**
- * One run terminal a text-neutralization trip produced (T3.18).
+ * One run terminal a text-neutralization trip produced.
  *
  * The callback is a REQUIRED dependency, so every harness binds it — the trip
  * raises no JSON-RPC error, and an unbound sink would let a swallowed turn end
@@ -625,9 +624,9 @@ interface RecordedTextNeutralizationFailure {
 }
 
 /**
- * The T3.11 diagnostic band, silenced. The default log sink writes to the
- * console, which would make every policy diagnostic a line of test output; the
- * emitter still retains the records, which is what the assertions read.
+ * The default log sink writes to the console, which would make every policy
+ * diagnostic a line of test output; the emitter still retains the records,
+ * which is what the assertions read.
  */
 function makeSilentDriverDiagnostics(): DriverDiagnosticsEmitter {
   return new DriverDiagnosticsEmitter({
@@ -762,7 +761,7 @@ interface ManagerHarnessOptions {
   /** Binds the replay target-readback reader, so the post-replay assertion can run. */
   transcriptReplayReadback?: ReplayTargetReadbackReader;
   /**
-   * Binds the participant-turn readback, so T3.22's positional reconcile can run.
+   * Binds the participant-turn readback, so the positional reconcile can run.
    *
    * Left unbound by default, exactly as the production composition leaves it, so
    * every test that does not name it exercises the unreadable settlement — which
@@ -878,9 +877,9 @@ function createManagerHarness(options: ManagerHarnessOptions = {}): ManagerHarne
  * carrying one model-output item.
  *
  * The item is not decoration. A `completed` turn with an EMPTY item list is
- * exactly the zero-turn reply the T3.18 tripwire exists to catch, so a fixture
- * without one would trip every test that merely needs a turn to end — and would
- * then dispose the session those tests go on to use.
+ * exactly the zero-turn reply tripwire exists to catch, so a fixture without
+ * one would trip every test that merely needs a turn to end — and would then
+ * dispose the session those tests go on to use.
  */
 function turnCompletedFrame(turnId: string, status: string): Record<string, unknown> {
   return {
@@ -896,7 +895,7 @@ function turnCompletedFrame(turnId: string, status: string): Record<string, unkn
 /**
  * A `completed` turn that produced NOTHING — the shape a provider answers with
  * when its input surface consumed the participant's words as a client-side
- * command (T3.18).
+ * command.
  */
 function zeroTurnCompletedFrame(turnId: string): Record<string, unknown> {
   return {
@@ -906,7 +905,7 @@ function zeroTurnCompletedFrame(turnId: string): Record<string, unknown> {
   };
 }
 
-/** An in-flight `item/completed` naming one model message on a turn (T3.18). */
+/** An in-flight `item/completed` naming one model message on a turn. */
 function modelOutputItemFrame(turnId: string): Record<string, unknown> {
   return {
     jsonrpc: "2.0",
@@ -928,7 +927,6 @@ function readTurnStartInputText(params: unknown): string | undefined {
 }
 
 // --------------------------------------------------------------------------
-// Spawn + handshake (`Spec-005 §Required Behavior`)
 // --------------------------------------------------------------------------
 
 describe("CodexDriver spawn and handshake", () => {
@@ -941,7 +939,7 @@ describe("CodexDriver spawn and handshake", () => {
     expect(spawnRequest?.command).toBe("/bin/sh");
     // The stdio default: the prelude script, its `$0` label, and the single
     // positional word naming the subcommand. `"$@"` carries the transport argv
-    // (T3.15 leg 6) as positional parameters the shell never re-parses.
+    // (leg 6) as positional parameters the shell never re-parses.
     expect(spawnRequest?.args).toEqual([
       "-c",
       CODEX_APP_SERVER_SHELL_PRELUDE,
@@ -960,7 +958,7 @@ describe("CodexDriver spawn and handshake", () => {
     // `"$@"` rather than a literal `app-server`: the subcommand and every
     // transport flag reach the provider as POSITIONAL parameters, so a
     // daemon-configured socket path or credential-file path cannot be
-    // re-parsed by the shell (T3.15 leg 6).
+    // re-parsed by the shell (leg 6).
     expect(CODEX_APP_SERVER_SHELL_PRELUDE).toBe(
       `stty -icanon -echo && printf '%s\\n' ${CODEX_APP_SERVER_READY_SENTINEL} && exec "$${CODEX_APP_SERVER_BIN_ENV_VAR}" "$@"`,
     );
@@ -1156,10 +1154,10 @@ describe("CodexDriver lifecycle operations", () => {
 });
 
 // --------------------------------------------------------------------------
-// I-005-5 — resume failure never becomes a new session
+// Resume failure never becomes a new session
 // --------------------------------------------------------------------------
 
-describe("CodexDriver resumeSession (I-005-5, Spec-005 §Fallback Behavior)", () => {
+describe("CodexDriver resumeSession", () => {
   it("returns the typed resumed result carrying the provider's turn count", async () => {
     const harness = createHarness();
     harness.server.on("thread/resume", () => threadStartResult(3));
@@ -1217,7 +1215,7 @@ describe("CodexDriver resumeSession (I-005-5, Spec-005 §Fallback Behavior)", ()
     const detail = (result as { providerFailureDetail: string }).providerFailureDetail;
     expect(detail).toContain(THREAD_ID);
     expect(detail).toContain(replacementThreadId);
-    // I-005-5, all three ways: typed result, no createSession call, no
+    // All three ways: typed result, no createSession call, no
     // `thread/start` frame on the wire.
     expect(createSessionSpy).not.toHaveBeenCalled();
     expect(harness.server.framesForMethod("thread/start")).toHaveLength(0);
@@ -1280,7 +1278,7 @@ describe("CodexDriver resumeSession (I-005-5, Spec-005 §Fallback Behavior)", ()
 
     // `providerFailureDetail` is validated by `wireFreeFormString`, which rejects
     // empty strings — without normalization this path would THROW instead of
-    // returning the typed condition, losing exactly what I-005-5 protects.
+    // returning the typed condition, losing exactly what protects.
     const result = await harness.driver.resumeSession({
       sessionId: SESSION_ID,
       resumeHandle: THREAD_ID,
@@ -1313,7 +1311,7 @@ describe("CodexDriver resumeSession (I-005-5, Spec-005 §Fallback Behavior)", ()
     }));
 
     // Reporting position 0 would make a silently-fresh thread indistinguishable
-    // from a resumed one, which is the confusion I-005-5 exists to prevent.
+    // from a resumed one, which is the confusion exists to prevent.
     const result = await harness.driver.resumeSession({
       sessionId: SESSION_ID,
       resumeHandle: THREAD_ID,
@@ -1387,8 +1385,8 @@ describe("CodexDriver resumeSession (I-005-5, Spec-005 §Fallback Behavior)", ()
     ).resolves.toMatchObject({ recoveryCondition: "recovery-needed" });
 
     // Only the leg that just failed is torn down. Killing the live one would make
-    // a refused resume destructive, which is the other half of I-005-5's promise:
-    // the daemon decides what happens next, and it still has a session to decide
+    // a refused resume destructive, which is the other half of the promise: the
+    // daemon decides what happens next, and it still has a session to decide
     // about.
     expect(harness.server.closedSessions).toEqual(["pty-session-2"]);
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
@@ -1496,7 +1494,7 @@ describe("CodexAppServerConnection transport", () => {
     await createdSession(harness);
 
     // `attestation/generate` rather than an approval method: the approval and
-    // callback-tool asks are ROUTED since T3.15 leg 3 and answer with their own
+    // callback-tool asks are ROUTED since leg 3 and answer with their own
     // refusal shapes. This one is censused and deliberately unrouted — the
     // driver declines attestation at negotiation — so it still witnesses the
     // fail-closed default arm on a method the pinned census knows.
@@ -1749,7 +1747,7 @@ describe("CodexAppServerConnection transport", () => {
 // Session identity and process ownership
 // --------------------------------------------------------------------------
 
-describe("CodexDriver session ownership (Spec-005 §Required Behavior)", () => {
+describe("CodexDriver session ownership", () => {
   it("refuses a second createSession for a live session, spawning nothing", async () => {
     const harness = createHarness();
     await createdSession(harness);
@@ -1987,7 +1985,6 @@ describe("CodexDriver session ownership (Spec-005 §Required Behavior)", () => {
 });
 
 // --------------------------------------------------------------------------
-// Approval-reviewer pinning (`Spec-005 §Required Behavior`)
 // --------------------------------------------------------------------------
 
 describe("CodexDriver approval reviewer pinning", () => {
@@ -2032,7 +2029,7 @@ describe("CodexDriver approval reviewer pinning", () => {
 // Zero-turn auth probe (P0-5) — `getAuthStatus` over a dedicated connection
 // --------------------------------------------------------------------------
 
-describe("CodexLifecycleManager probeAuth (T3.14 P0-5)", () => {
+describe("CodexLifecycleManager probeAuth (P0-5)", () => {
   function probingHarness(answer: JsonRpcAnswer | undefined): ManagerHarness {
     const harness = createManagerHarness();
     if (answer !== undefined) {
@@ -2180,7 +2177,7 @@ describe("CodexLifecycleManager probeAuth (T3.14 P0-5)", () => {
 // Steer on the wire — P0-3's key ride-through and P3-1's acknowledgement grade
 // --------------------------------------------------------------------------
 
-describe("CodexDriver spawn-environment hygiene (T3.14 P0-4)", () => {
+describe("CodexDriver spawn-environment hygiene (P0-4)", () => {
   // A variable that exists in the DAEMON's environment and in no supplied
   // config. Any appearance of it in a child environment means some path spread
   // `process.env`, which is the whole failure P0-4 forbids: the child
@@ -2420,9 +2417,9 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
 
   it("refuses a CREATED posture that resolves to no policy, before anything is spawned", async () => {
     // The create twin of the resume's refusal arm, and it refuses through a
-    // different channel: `resumeSession` owes I-005-5 a typed `failed` result,
-    // while `createSession` has no result type to refuse into, so the refusal is
-    // the same typed config error its bag parse already raises.
+    // different channel: `resumeSession` owes a typed `failed` result, while
+    // `createSession` has no result type to refuse into, so the refusal is the
+    // same typed config error its bag parse already raises.
     const harness = createHarness({
       resolveCredentialEnvPolicy: () => Promise.resolve(undefined),
     });
@@ -2590,9 +2587,6 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
     // mode is not `trusted` REQUIRES `credentialPolicyRef`, so an unresolved
     // policy is a wiring fault — degrading it to "deny nothing" would launch the
     // child holding exactly the credentials the reference exists to withhold.
-    // And I-005-5 requires the refusal to ARRIVE as the typed `failed` result: a
-    // rejection escaping `resumeSession` would be a second failure channel the
-    // recovery leg has no rule for.
     const harness = createHarness({
       resolveCredentialEnvPolicy: () => Promise.resolve(undefined),
     });
@@ -2689,7 +2683,7 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
 });
 
 // --------------------------------------------------------------------------
-// Provider-account precedence at the spawn seam (T3.17)
+// Provider-account precedence at the spawn seam
 // --------------------------------------------------------------------------
 
 describe("CodexDriver provider-account precedence at the spawn seam", () => {
@@ -2745,12 +2739,12 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
   }
 
   it("binds a create to the TYPED member when the config bag names none", async () => {
-    // THE FAIL-OPEN THIS CLOSES. Before T3.17 was wired in, the create seam read
-    // only the untyped bag — so a caller following the typed contract spawned
-    // against whatever the node resolves as that provider's default, with the
-    // receipt's per-paying-account key still claiming the admitted one. Nothing
-    // reported the substitution, which is what made it a silent re-bill rather
-    // than a visible failure.
+    // THE FAIL-OPEN THIS CLOSES. Before was wired in, the create seam read only
+    // the untyped bag — so a caller following the typed contract spawned against
+    // whatever the node resolves as that provider's default, with the receipt's
+    // per-paying-account key still claiming the admitted one. Nothing reported
+    // the substitution, which is what made it a silent re-bill rather than a
+    // visible failure.
     const harness = accountHarness();
 
     await harness.driver.createSession({
@@ -2791,8 +2785,8 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
   it("REFUSES a create whose two channels name different accounts, before anything spawns", async () => {
     // Neither resolver may silently win. Picking the typed one would override a
     // caller that explicitly declared an account; picking the bag would
-    // re-introduce the very silent re-bill T3.17 closed. A refusal is the only
-    // answer that cannot move a run's spend without saying so.
+    // re-introduce the very silent re-bill closed. A refusal is the only answer
+    // that cannot move a run's spend without saying so.
     const harness = accountHarness();
 
     const refused = await harness.driver
@@ -2875,7 +2869,7 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
       providerAccountId: ADMITTED_ACCOUNT_ID,
     });
 
-    // I-005-5: the refusal ARRIVES as the typed result, never as a rejection.
+    // The refusal ARRIVES as the typed result, never as a rejection.
     expect(result.status).toBe("failed");
     // Both accounts are named, so an operator can see which side is wrong rather
     // than only that two values differed.
@@ -2946,9 +2940,7 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
     // The live record is what THIS session's process is actually running under,
     // so a typed member naming a different account is two resolvers disagreeing
     // about one session's billing identity — unlike the node-wide default, which
-    // claims nothing about this session. And I-005-5 requires the refusal to
-    // ARRIVE as the typed `failed` result: a rejection escaping `resumeSession`
-    // would be a second failure channel the recovery leg has no rule for.
+    // claims nothing about this session.
     const harness = accountHarness();
     await harness.driver.createSession({
       sessionId: SESSION_ID,
@@ -3197,7 +3189,7 @@ describe("CodexDriver turn posture realization", () => {
   });
 });
 
-describe("CodexDriver resume-failure taxonomy (T3.14 P3-3)", () => {
+describe("CodexDriver resume-failure taxonomy (P3-3)", () => {
   const REFUSED_RESUME: JsonRpcAnswer = {
     error: { code: -32600, message: "thread not found" },
   };
@@ -3289,8 +3281,8 @@ describe("CodexDriver resume-failure taxonomy (T3.14 P3-3)", () => {
 
     const result = await resume(harness);
 
-    // A build that does not answer the question must still produce I-005-5's
-    // typed result — with the resume's OWN cause on the detail, not the probe's.
+    // A build that does not answer the question must still produce the typed
+    // result — with the resume's OWN cause on the detail, not the probe's.
     expect(result).toMatchObject({ status: "failed", recoveryCondition: "recovery-needed" });
     expect(result).not.toHaveProperty("bindingId");
     expect((result as { providerFailureDetail: string }).providerFailureDetail).toContain(
@@ -3310,7 +3302,7 @@ describe("CodexDriver resume-failure taxonomy (T3.14 P3-3)", () => {
   });
 });
 
-describe("CodexLifecycleManager steer wire shape (T3.14 P0-3, P3-1)", () => {
+describe("CodexLifecycleManager steer wire shape (P0-3, P3-1)", () => {
   const STEER_KEY = "9a1d8f30-0000-4000-8000-0000000000aa";
 
   /** A harness with one live session and one live turn, ready to be steered. */
@@ -3981,7 +3973,7 @@ describe("CodexLifecycleManager session slot across re-establishment", () => {
 });
 
 // --------------------------------------------------------------------------
-// Ambiguous turn/start is connection-fatal (ADR-029: replay, never reconcile)
+// Ambiguous turn/start is connection-fatal (replay, never reconcile)
 // --------------------------------------------------------------------------
 
 describe("CodexLifecycleManager turn/start ambiguity", () => {
@@ -4080,7 +4072,7 @@ describe("CodexLifecycleManager turn/start ambiguity", () => {
 });
 
 // --------------------------------------------------------------------------
-// T3.22 — permanent-vs-transient refusal classification at the dispatch seam
+// Permanent-vs-transient refusal classification at the dispatch seam
 // --------------------------------------------------------------------------
 
 /** A `turn/start` refusal carrying the pin's typed `CodexErrorInfo` member. */
@@ -4372,7 +4364,7 @@ describe("CodexLifecycleManager ambiguous turn/start reconciliation", () => {
 });
 
 // --------------------------------------------------------------------------
-// Resume commits only a VALIDATED result (I-005-5)
+// Resume commits only a VALIDATED result
 // --------------------------------------------------------------------------
 
 describe("CodexLifecycleManager resume result validation", () => {
@@ -4387,7 +4379,7 @@ describe("CodexLifecycleManager resume result validation", () => {
       resumeHandle: THREAD_ID,
     });
 
-    // I-005-5: still the typed condition, never an exception.
+    // Still the typed condition, never an exception.
     expect(result).toMatchObject({ status: "failed", recoveryCondition: "recovery-needed" });
     expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
     // Nothing was installed against the connection this method then closed, so
@@ -4428,7 +4420,6 @@ describe("CodexLifecycleManager resume result validation", () => {
 });
 
 // --------------------------------------------------------------------------
-// Turn route lifetime (`Spec-005 §Required Behavior`)
 // --------------------------------------------------------------------------
 
 describe("CodexLifecycleManager turn route lifetime", () => {
@@ -5680,7 +5671,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await Promise.resolve();
 
     // The manager interposes on this stream; it does not consume it. The event
-    // normalizer (T3.5) is the consumer, and it must see the frame verbatim.
+    // normalizer is the consumer, and it must see the frame verbatim.
     expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
     expect(harness.notifications).toContainEqual({
       method: "turn/completed",
@@ -6121,7 +6112,7 @@ describe("CodexAppServerConnection rejection handling", () => {
 // Framing bounds — the read buffer is fed from provider-controlled input
 // --------------------------------------------------------------------------
 
-describe("CodexAppServerConnection framing bounds (Spec-005 §Pitfalls To Avoid)", () => {
+describe("CodexAppServerConnection framing bounds", () => {
   // A well-formed frame PREFIX. If the tail were ever truncated and handed on,
   // this would surface as a diagnostic for a frame the provider never sent.
   const FRAME_PREFIX = '{"jsonrpc":"2.0","method":"item/started","params":{"text":"';
@@ -6279,7 +6270,7 @@ describe("CodexAppServerConnection framing bounds (Spec-005 §Pitfalls To Avoid)
 // Provider refusal detail
 // --------------------------------------------------------------------------
 
-describe("CodexProviderRequestError (Spec-005 §Required Behavior)", () => {
+describe("CodexProviderRequestError", () => {
   it("carries the JSON-RPC error data member verbatim", async () => {
     const harness = createHarness();
     await createdSession(harness);
@@ -6373,11 +6364,10 @@ describe("Codex driver config read-shapes", () => {
 
   // Totality, on the values that actually break coercion. Each of these was
   // confirmed to throw against the runtime before being pinned here -- they are
-  // not hypotheses. The stake is I-005-5: this function is what `resumeSession`'s
-  // catch path calls to BUILD the typed failure, so a throw here converts the
-  // typed `recovery-needed` result back into an exception, on the path that is
-  // already handling a failure and therefore least likely to hold a well-formed
-  // cause.
+  // not hypotheses. The stake is: this function is what `resumeSession`'s catch
+  // path calls to BUILD the typed failure, so a throw here converts the typed
+  // `recovery-needed` result back into an exception, on the path that is already
+  // handling a failure and therefore least likely to hold a well-formed cause.
   it("stays total for a null-prototype object, which cannot be stringified", () => {
     // `String(value)` throws TypeError: no `toString` or `valueOf` on the chain.
     expect(normalizeProviderFailureDetail(Object.create(null) as unknown)).toMatch(
@@ -6427,20 +6417,20 @@ describe("Codex driver config read-shapes", () => {
 });
 
 // --------------------------------------------------------------------------
-// T3.15 — the R8 parity driver legs, Codex arm.
+// The R8 parity driver legs, Codex arm.
 // --------------------------------------------------------------------------
 //
 // Spec coverage under test:
-//   `Spec-005 §Interfaces And Contracts` — `rollbackTo` / `setSessionGoal` /
+//   `rollbackTo` / `setSessionGoal` /
 //     `clearSessionGoal` reach the pinned methods and answer the typed results;
 //     a `rollbackTo` that applies reports the `bindingId` the daemon rebinds on.
-//   `Spec-005 §Parity Capability Mechanism Grades` — the Codex cells this leg
+//   the Codex cells this leg
 //     realizes NATIVELY (`thread/fork`, `thread/goal/*`) versus the ones it
 //     withholds (the callback-tool registry, subagent definitions).
-//   `Spec-016 §Provider-Native Subagents` — the two caps the provider enforces
+//   the two caps the provider enforces
 //     are supplied at every thread establishment; the definitions are withheld
 //     and recorded rather than silently dropped.
-//   CP-005-1 — a resumed or forked thread re-realizes every spawn-bound leg.
+//   A resumed or forked thread re-realizes every spawn-bound leg.
 
 /** The params of the first frame the provider received for a method. */
 function firstParamsFor(harness: Harness, method: string): Record<string, unknown> {
@@ -6480,7 +6470,7 @@ async function resumedSessionWithTurns(
   });
 }
 
-describe("CodexDriver rollbackTo (T3.15 leg 1, native `thread/fork`)", () => {
+describe("CodexDriver rollbackTo (leg 1, native `thread/fork`)", () => {
   it("reports the rebinding `bindingId` on the applied arm", async () => {
     const harness = createHarness();
     await resumedSessionWithTurns(harness, 2);
@@ -6510,7 +6500,7 @@ describe("CodexDriver rollbackTo (T3.15 leg 1, native `thread/fork`)", () => {
     });
   });
 
-  it("re-realizes posture and subagent caps on the fork (CP-005-1)", async () => {
+  it("re-realizes posture and subagent caps on the fork", async () => {
     const harness = createHarness();
     await resumedSessionWithTurns(harness, 2, {
       executionPosture: WORKSPACE_POSTURE_WITH_NETWORK,
@@ -6667,7 +6657,7 @@ describe("CodexDriver rollbackTo (T3.15 leg 1, native `thread/fork`)", () => {
   });
 });
 
-describe("CodexDriver resumeSession re-realization (T3.15 legs 4-5, CP-005-1)", () => {
+describe("CodexDriver resumeSession re-realization (legs 4-5)", () => {
   it("re-sends posture and subagent caps on `thread/resume`", async () => {
     // A resume is a FRESH SPAWN. Omitting the overrides would leave the resumed
     // thread running under the provider's persisted config rather than the one
@@ -6688,7 +6678,7 @@ describe("CodexDriver resumeSession re-realization (T3.15 legs 4-5, CP-005-1)", 
   });
 });
 
-describe("CodexDriver session goals (T3.15 leg 2, native)", () => {
+describe("CodexDriver session goals (leg 2, native)", () => {
   it("sends only the daemon-owned objective on `thread/goal/set`", async () => {
     const harness = createHarness();
     await createdSession(harness);
@@ -6727,7 +6717,7 @@ describe("CodexDriver session goals (T3.15 leg 2, native)", () => {
   });
 });
 
-describe("CodexDriver subagent caps (T3.15 leg 4)", () => {
+describe("CodexDriver subagent caps (leg 4)", () => {
   it("disables subagents on the DEPTH axis, never with a zero concurrency cap", async () => {
     // Verified against the pinned build: `agents.max_concurrent_threads_per_session: 0`
     // is refused `-32600`, so a zero cap would fail every session that tried to
@@ -6792,7 +6782,7 @@ describe("CodexDriver subagent caps (T3.15 leg 4)", () => {
   });
 });
 
-describe("CodexDriver posture realization (T3.15 leg 5)", () => {
+describe("CodexDriver posture realization (leg 5)", () => {
   it("records a divergence when the provider's readback narrows the requested axis", async () => {
     // The config table FAILS OPEN — an unrecognized key is accepted and ignored
     // — so a leg that silently stopped applying looks exactly like one that
@@ -6875,7 +6865,7 @@ describe("CodexDriver posture realization (T3.15 leg 5)", () => {
   });
 });
 
-describe("CodexDriver callback-tool withholding (T3.15 leg 3, Codex arm)", () => {
+describe("CodexDriver callback-tool withholding (leg 3, Codex arm)", () => {
   it("withholds the registry and records it on BOTH diagnostic sinks", async () => {
     const harness = createHarness();
     harness.server.on("thread/start", () => threadStartResult());
@@ -6902,7 +6892,7 @@ describe("CodexDriver callback-tool withholding (T3.15 leg 3, Codex arm)", () =>
   });
 });
 
-describe("Codex server-request routing census (T3.15 `driver_ask` reachability)", () => {
+describe("Codex server-request routing census (`driver_ask` reachability)", () => {
   it("routes the seven reachable ask methods and no others", () => {
     expect([...CODEX_ROUTED_SERVER_REQUEST_METHODS].sort()).toStrictEqual([
       "applyPatchApproval",
@@ -6923,7 +6913,7 @@ describe("Codex server-request routing census (T3.15 `driver_ask` reachability)"
   });
 });
 
-describe("CodexDriver realtime suppression (T3.15 leg 7)", () => {
+describe("CodexDriver realtime suppression (leg 7)", () => {
   it("opts out of every censused realtime method in the `initialize` frame it actually sends", async () => {
     // Read off the frame the provider RECEIVED, not off the exported constant:
     // asserting the constant against itself would pass with the negotiation leg
@@ -6953,7 +6943,7 @@ describe("CodexDriver realtime suppression (T3.15 leg 7)", () => {
   });
 });
 
-describe("CodexDriver transport construction (T3.15 leg 6)", () => {
+describe("CodexDriver transport construction (leg 6)", () => {
   const websocketTransportConfig = {
     transport: "websocket" as const,
     endpoint: "wss://codex.internal/app-server",
@@ -7065,15 +7055,14 @@ describe("CodexDriver transport construction (T3.15 leg 6)", () => {
 });
 
 // --------------------------------------------------------------------------
-// T3.15 R3 — routed server requests reach the daemon, and every path answers.
+// R3 — routed server requests reach the daemon, and every path answers.
 // --------------------------------------------------------------------------
 //
 // Spec coverage under test:
-//   `Spec-012 §Required Behavior` — every tool invocation and approval ask is
 //     adjudicated. A responder that is absent, refuses, or throws all answer
 //     the method's own REFUSAL shape: never `-32601` (a protocol error where a
 //     decision was asked for), never an allow, and never silence.
-//   `Spec-005 §Required Behavior` — an unrouted method+id frame still answers,
+//   an unrouted method+id frame still answers,
 //     so no provider turn hangs on a method this pin never saw.
 
 interface RoutedAskHarness {
@@ -7152,7 +7141,7 @@ async function routedAskHarness(
   return { harness, askProvider, driverDiagnosticRecords };
 }
 
-describe("CodexAppServerConnection routed server requests (T3.15 R3)", () => {
+describe("CodexAppServerConnection routed server requests (R3)", () => {
   it("answers an allowed `item/tool/call` with the provider's own success shape", async () => {
     const { harness, askProvider } = await routedAskHarness({
       answer: async (): Promise<CodexServerRequestDecision> =>
@@ -7534,7 +7523,7 @@ describe("CodexAppServerConnection routed server requests (T3.15 R3)", () => {
   });
 });
 
-describe("composeCodexTransportArgv (T3.15 leg 6, the authenticated listener)", () => {
+describe("composeCodexTransportArgv (leg 6, the authenticated listener)", () => {
   it("starts a websocket listener WITH bearer auth on every credential mode", () => {
     const selection: CodexTransportSelection = {
       transport: "websocket",
@@ -7603,7 +7592,7 @@ describe("composeCodexTransportArgv (T3.15 leg 6, the authenticated listener)", 
   });
 });
 
-describe("resolveCodexTransportSelection (T3.15 leg 6)", () => {
+describe("resolveCodexTransportSelection (leg 6)", () => {
   it("normalizes a `unix://` endpoint off the scheme the provider prints", () => {
     expect(
       resolveCodexTransportSelection({
@@ -7638,7 +7627,7 @@ describe("resolveCodexTransportSelection (T3.15 leg 6)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// T3.11 — the routing / metering band, driven through the REAL ingest path.
+// The routing / metering band, driven through the REAL ingest path.
 // ---------------------------------------------------------------------------
 //
 // These drive raw JSON-RPC notifications into the fake provider's byte channel
@@ -7646,7 +7635,7 @@ describe("resolveCodexTransportSelection (T3.15 leg 6)", () => {
 // the router or the accountant directly: their unit suites already do that, and
 // what is unproven without this file is that the driver actually CONSULTS them.
 
-describe("CodexLifecycleManager thread routing and usage metering (T3.11, I-005-11, I-005-12)", () => {
+describe("CodexLifecycleManager thread routing and usage metering", () => {
   const CHILD_THREAD_ID = "01a04202-0148-7ae2-8560-child0000001";
 
   async function managerWithSession(
@@ -7748,7 +7737,7 @@ describe("CodexLifecycleManager thread routing and usage metering (T3.11, I-005-
 
     // The wire reported 100 then 150 — a running total. What the daemon must
     // meter is 100 then 50; forwarding 150 as a turn figure is exactly the
-    // double-charge I-005-11 exists to forbid.
+    // double-charge exists to forbid.
     expect(harness.meteredUsage.map((entry) => entry.delta.axisDeltas.input)).toEqual([100, 50]);
     expect(harness.meteredUsage.map((entry) => entry.sessionId)).toEqual([SESSION_ID, SESSION_ID]);
     expect(harness.meteredUsage[0]?.delta.attributedTurnId).toBe(TURN_ID);
@@ -7876,7 +7865,7 @@ describe("CodexLifecycleManager thread routing and usage metering (T3.11, I-005-
     expect(harness.notifications.map((entry) => entry.method)).toEqual(["turn/completed"]);
   });
 
-  it("the eleventh I-005-12 case: a fully suppressed child still leaves its started/completed pair", async () => {
+  it("the eleventh case: a fully suppressed child still leaves its started/completed pair", async () => {
     const harness = await managerWithSession();
 
     announceChild(harness, "subAgentReview");
@@ -8551,10 +8540,10 @@ describe("CodexLifecycleManager thread routing and usage metering (T3.11, I-005-
 });
 
 // --------------------------------------------------------------------------
-// T3.12 C-8 — the model catalog, reachable through the composed driver.
+// C-8 — the model catalog, reachable through the composed driver.
 // --------------------------------------------------------------------------
 
-describe("CodexDriver model catalog (T3.12 C-8)", () => {
+describe("CodexDriver model catalog (C-8)", () => {
   function buildCatalogDriverOptions(): ConstructorParameters<typeof CodexDriver>[0] {
     return {
       ptyHost: new FakeCodexAppServer(),
@@ -8634,16 +8623,16 @@ describe("CodexDriver model catalog (T3.12 C-8)", () => {
 });
 
 // --------------------------------------------------------------------------
-// T3.15 leg 3 — the callback-tool host reaches the provider end to end.
+// Leg 3 — the callback-tool host reaches the provider end to end.
 // --------------------------------------------------------------------------
 //
 // Spec coverage under test:
-//   `Spec-005 §Required Behavior` — the driver answers EVERY callback-tool
+//   the driver answers EVERY callback-tool
 //     invocation. Asserted through the composed path a production spawn will
 //     use rather than through the host in isolation: a provider `item/tool/call`
 //     frame reaches the daemon's `CallbackToolHost`, and the host's answer
 //     reaches the provider as a `DynamicToolCallResponse`.
-//   `Spec-012 §Required Behavior` — every invocation is adjudicated. Asserted
+//   every invocation is adjudicated.
 //     as the evaluation seam having been consulted before the executor ran on
 //     the admitted path, and as no executor reaching a withheld registry.
 //
@@ -8744,7 +8733,7 @@ async function callbackToolRoundTripHarness(options: {
   };
 }
 
-describe("CodexDriver callback-tool round trip (T3.15 leg 3)", () => {
+describe("CodexDriver callback-tool round trip (leg 3)", () => {
   it("carries a provider tool call to the host and the host's answer back", async () => {
     const roundTrip = await callbackToolRoundTripHarness({ providerRegistrationAvailable: true });
     await roundTrip.startTurn();
@@ -8945,19 +8934,16 @@ describe("CodexDriver callback-tool round trip (T3.15 leg 3)", () => {
   });
 });
 
-// Console-parity operations — T3.26 (`Spec-005 §Desktop Console Parity
-// Surfaces`, invariant I-005-13).
 // --------------------------------------------------------------------------
 //
 // Spec coverage under test:
-//   `Spec-005 §Desktop Console Parity Surfaces` — compaction settles on the
 //     provider's TYPED EVIDENCE and never on the request being accepted; the
 //     wait is bounded and twice-terminated; bounding the OPERATION never bounds
 //     the BOUNDARY'S RECORD; the command surface is a LIVE READ held as
 //     driver-session state and never a stored registry, whose entries carry the
 //     `(driverName, providerAccountId)` they were read under.
 
-describe("CodexLifecycleManager.compactContext (T3.26, native)", () => {
+describe("CodexLifecycleManager.compactContext (native)", () => {
   // A child thread of this session's own thread. Declared here rather than
   // reused from the routing suite's block scope so this leg's child case cannot
   // be silently repointed by an edit to a neighbouring describe.
@@ -9406,7 +9392,7 @@ describe("CodexLifecycleManager.compactContext (T3.26, native)", () => {
   });
 });
 
-describe("CodexLifecycleManager.listProviderCommands (T3.26, live read)", () => {
+describe("CodexLifecycleManager.listProviderCommands (live read)", () => {
   interface SkillFixture {
     name: string;
     description?: unknown;
@@ -9956,8 +9942,8 @@ describe("CodexLifecycleManager.listProviderCommands (T3.26, live read)", () => 
 
   it("keeps the bound account across a resume, and refuses a present-but-empty one", async () => {
     // The DRIVER harness rather than the manager one: the resume path is
-    // exercised through the same facade the existing I-005-5 resume tests use,
-    // and `listProviderCommands` is on the driver's own `Pick` since T3.26.
+    // exercised through the same facade the existing resume tests use, and
+    // `listProviderCommands` is on the driver's own `Pick` since.
     const harness = createHarness();
     // REQUIRED here and nowhere else in this block: a resume holds the new
     // connection and the superseded one at once, and the fake's listener
@@ -10040,7 +10026,7 @@ describe("CodexLifecycleManager.listProviderCommands (T3.26, live read)", () => 
   });
 });
 
-describe("readCodexAskOptionSet (T3.26, the input-ask choice set)", () => {
+describe("readCodexAskOptionSet (the input-ask choice set)", () => {
   it("reads `item/tool/requestUserInput` options with value === label", () => {
     // `ToolRequestUserInputOption` is `{ label, description }` at the pin and
     // carries NO value member, so the label IS the answer token the provider
@@ -10325,7 +10311,7 @@ describe("readCodexAskOptionSet (T3.26, the input-ask choice set)", () => {
   });
 });
 
-describe("Codex ask normalization at the session seam (T3.26)", () => {
+describe("Codex ask normalization at the session seam", () => {
   async function askHarness(
     recorded: CodexSessionServerRequest[],
   ): Promise<{ harness: ManagerHarness; ask: (method: string, params: unknown) => Promise<void> }> {
@@ -10427,11 +10413,7 @@ describe("Codex ask normalization at the session seam (T3.26)", () => {
   });
 });
 
-describe("CodexLifecycleManager.replayTranscript (T3.20)", () => {
-  // Plan-005 T3.20 / invariant I-005-8. Every case here turns on the same rule:
-  // the seeding calls answering successfully is not evidence, and only the
-  // target's own answer is.
-
+describe("CodexLifecycleManager.replayTranscript", () => {
   const TARGET = {
     providerSessionId: "session-tree-1",
     resumeHandle: THREAD_ID,
@@ -10591,7 +10573,7 @@ describe("CodexLifecycleManager.replayTranscript (T3.20)", () => {
     expect(injectedFrameCount(harness)).toBe(0);
   });
 
-  // NS-89's replay-target lifecycle: a prefix-accepted, then-refused target is
+  // The replay-target lifecycle: a prefix-accepted, then-refused target is
   // abandoned and never reused, so the memo settlement its caller falls back to
   // lands in a FRESH target and no surviving session holds both native frames
   // and a memo about the same exchanges.

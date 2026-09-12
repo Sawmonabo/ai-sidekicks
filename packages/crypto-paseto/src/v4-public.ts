@@ -31,7 +31,7 @@ export function signV4Public(
   const f = footer ?? new Uint8Array(0);
   const i = implicitAssertion ?? new Uint8Array(0);
 
-  // PAE input order per paseto-spec §v4.public: [header, payload, footer, ia].
+  // PAE input order per paseto-spec payload, footer, ia].
   const m2 = pae([HEADER_BYTES, payload, f, i]);
   const sig = ed25519.sign(m2, secretKey);
 
@@ -58,7 +58,7 @@ export function verifyV4Public(
   if (parts.length > 2) {
     throw new InvalidTokenError("v4.public token has too many segments");
   }
-  // PASETO §2: a token is exactly `header.payload` or `header.payload.footer`.
+  // PASETO section 2: a token is exactly `header.payload` or `header.payload.footer`.
   // A trailing dot with empty footer (`v4.public.<body>.`) is non-canonical —
   // two distinct token strings would otherwise verify against the same public
   // key, and exact-string controls (replay/revocation caches keyed by token
@@ -67,7 +67,7 @@ export function verifyV4Public(
     throw new InvalidTokenError("v4.public token has trailing dot with empty footer");
   }
 
-  // Footer canonicalization: undefined ≡ Uint8Array(0). See design spec §6.
+  // Footer canonicalization: undefined ≡ Uint8Array(0).
   const expF = footer ?? new Uint8Array(0);
   const tokenFooterB64 = parts[1] ?? "";
 
@@ -116,9 +116,8 @@ export function verifyV4Public(
   // universal forgery on the path that authenticates v4.public auth tokens.
   // `zip215: false` selects strict RFC 8032 / FIPS 186-5 verification, which
   // also rejects non-canonical point encodings (`y >= p`). That matches what
-  // paseto-spec Version4.md §Verify actually specifies — libsodium's
-  // `crypto_sign_verify_detached`, which refuses small-order and
-  // non-canonically-encoded public keys.
+  // paseto-spec Version4.md — libsodium's `crypto_sign_verify_detached`, which
+  // refuses small-order and non-canonically-encoded public keys.
   //
   // Pass the option literally at this call site. Noble branches on the option
   // being absent — it tests for `undefined` and falls back to a wrapper built
@@ -169,7 +168,7 @@ function base64UrlEncode(bytes: Uint8Array): string {
 }
 
 function base64UrlDecode(s: string): Uint8Array {
-  // PASETO §2 requires strictly canonical base64url (RFC 4648 §5, unpadded):
+  // PASETO section 2 requires strictly canonical base64url (RFC 4648 section 5, unpadded):
   // no `=` padding, no whitespace, no characters outside `[A-Za-z0-9_-]`.
   // Node's `Buffer.from(s, "base64url")` is lenient — it tolerates `=`
   // padding and silently ignores invalid characters — so two different

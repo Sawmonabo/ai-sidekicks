@@ -1,33 +1,31 @@
-// ClaudeDriver — the Claude provider driver entry point (Plan-005 Phase 3, T3.6).
+// ClaudeDriver — the Claude provider driver entry point.
 //
 // Composition root for the Claude leg: it owns no logic of its own, binding the
-// lifecycle band (T3.6, `lifecycle.ts`) and the intervention band (T3.7,
-// `intervention.ts`) into the shape the daemon's `ProviderRegistry` registers.
-// The two bands are coupled through exactly one narrow port —
-// `ClaudeRunChannelLookup` — so the dispatcher can find the channel a run is
-// bound to without reaching into session state it must not mutate.
+// lifecycle band (`lifecycle.ts`) and the intervention band (`intervention.ts`)
+// into the shape the daemon's `ProviderRegistry` registers. The two bands are
+// coupled through exactly one narrow port — `ClaudeRunChannelLookup` — so the
+// dispatcher can find the channel a run is bound to without reaching into
+// session state it must not mutate.
 //
-// WHY `Pick<ProviderDriver, ...>` AND NOT `implements ProviderDriver`. This class
+// WHY `Pick<ProviderDriver,...>` AND NOT `implements ProviderDriver`. This class
 // implements FOURTEEN of the contract's EIGHTEEN operations — both figures
 // counted from `ClaudeDriverOperations` below and from the `ProviderDriver`
 // members themselves rather than carried forward from an earlier revision, since
 // each side of that subtraction has moved three times this phase. The four still
-// absent — `respondToRequest`, `listModes`, `getCapabilities`,
-// `exportTranscript` — are authored by sibling Phase-3 tasks
-// (T3.8 capabilities / modes, T3.14 interactive requests, T3.19 the
-// canonical-transcript export). `listModels` left that list
-// with T3.12's currency duty (C-8), `compactContext` / `listProviderCommands`
-// with T3.26's console-parity surfaces, and `replayTranscript` with T3.20's
-// replay leg and post-replay assertion. The enumeration is re-derived from the
-// type argument rather than restated, so it cannot drift from what this class
-// implements. Declaring the full interface today would force
-// throwing stubs into the driver, and a driver that answers a contract operation
-// by throwing is indistinguishable from one whose provider refused — the exact
-// conflation I-005-2 and I-005-4 exist to prevent. The `Pick` binds every
-// signature this class DOES implement to the contract with zero drift, so
-// widening to the full `ProviderDriver` when the sibling bands land is purely
-// additive: change the type argument, add the methods, and any drift becomes a
-// compile error rather than a runtime surprise.
+// absent — `respondToRequest`, `listModes`, `getCapabilities`, `exportTranscript`
+// — are authored by sibling Phase-3 tasks (capabilities / modes interactive
+// requests the canonical-transcript export). `listModels` left that list with the
+// currency duty (C-8), `compactContext` / `listProviderCommands` with the
+// console-parity surfaces, and `replayTranscript` with the replay leg and
+// post-replay assertion. The enumeration is re-derived from the type argument
+// rather than restated, so it cannot drift from what this class implements.
+// Declaring the full interface today would force throwing stubs into the driver,
+// and a driver that answers a contract operation by throwing is indistinguishable
+// from one whose provider refused — the exact conflation exist to prevent. The
+// `Pick` binds every signature this class DOES implement to the contract with
+// zero drift, so widening to the full `ProviderDriver` when the sibling bands
+// land is purely additive: change the type argument, add the methods, and any
+// drift becomes a compile error rather than a runtime surprise.
 
 import type {
   ApplyInterventionParams,
@@ -153,9 +151,9 @@ export type ClaudeDriverOperations = Pick<
 
 export type ClaudeDriverDependencies = ClaudeSessionLifecycleDependencies & {
   /**
-   * The live `list_models` read backing `listModels()` (T3.12 C-8), or an
-   * EXPLICIT `null` for a composition that binds none — in which case the
-   * driver answers the provenance-stamped declaration in `./capabilities.ts`.
+   * The live `list_models` read backing `listModels()` (C-8), or an EXPLICIT
+   * `null` for a composition that binds none — in which case the driver
+   * answers the provenance-stamped declaration in `./capabilities.ts`.
    *
    * REQUIRED, on the reasoning that makes the capability probe a required
    * dependency of `ClaudeCapabilityReporter`: an optional arm would let a
@@ -231,7 +229,7 @@ export class ClaudeDriver implements ClaudeDriverOperations {
   }
 
   /**
-   * The selectable model catalog (T3.12 C-8).
+   * The selectable model catalog (C-8).
    *
    * Delegates rather than deciding: `./capabilities.ts` owns both the declared
    * catalog and the normalization of a live reply, so the wire shape and its
@@ -252,13 +250,12 @@ export class ClaudeDriver implements ClaudeDriverOperations {
   }
 
   /**
-   * Reconstitutes the canonical transcript into a fresh provider session (T3.20).
+   * Reconstitutes the canonical transcript into a fresh provider session.
    *
    * Refuses on every build published at this pin, and that is the declared
-   * answer rather than a stub: `Spec-005`'s Claude `transcript_replay` cell is
+   * answer rather than a stub: the Claude `transcript_replay` cell is
    * probe-valued, the probe finds no seeding surface, and reconstitution settles
-   * on the memo floor reported `degraded`. See the lifecycle method for why the
-   * whole leg ships behind that probe rather than as an unconditional throw.
+   * on the memo floor reported `degraded`.
    */
   async replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult> {
     return await this.#lifecycle.replayTranscript(params);
@@ -266,7 +263,7 @@ export class ClaudeDriver implements ClaudeDriverOperations {
 
   /**
    * The output-speed state this session's binding HELD from the provider's own
-   * handshake, or `undefined` where the binding holds none (T3.26).
+   * handshake, or `undefined` where the binding holds none.
    *
    * BESIDE the contract operations, not among them: it is deliberately absent
    * from `ClaudeDriverOperations`, so the thirteen-of-eighteen count in this

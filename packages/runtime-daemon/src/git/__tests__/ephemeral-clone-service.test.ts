@@ -1,10 +1,9 @@
-// EphemeralCloneService — Plan-010 Phase 2, T2.3.
+// EphemeralCloneService behaviour.
 //
 // Drives the real service over a real test SQLite database (the same lifecycle
-// as the T2.1 and T2.2 suites: `openDatabase` factory → per-test tmp file →
-// `afterEach` close + remove), with a RECORDING fake git runner in place of the
-// child process and the REAL Plan-009 `WorkspaceService` behind the injected
-// reprovision primitive.
+// as suites: `openDatabase` factory → per-test tmp file → `afterEach` close +
+// remove), with a RECORDING fake git runner in place of the child process and
+// the REAL `WorkspaceService` behind the injected reprovision primitive.
 //
 // Two harness choices carry most of the evidential weight:
 //
@@ -15,38 +14,26 @@
 //     a retirement has to be observed NOT removing one, and a tick has to be
 //     observed removing it.
 //   * The disposition arms drive a real `WorkspaceService` + `WorkspaceEventEmitter`
-//     rather than a stub. `Spec-010 §Fallback Behavior`'s claim is that the
-//     workspace lands in `provisioning` and not in `stale`, and only the real
-//     primitive can be wrong about that. Reaching `ready` and `busy` likewise
-//     goes through `completeReprovision` and `markBusy` rather than through raw
-//     UPDATEs, so the states the deferral guard reads are states Plan-009 itself
-//     produced.
+//     rather than a stub. Reaching `ready` and `busy` likewise goes through
+//     `completeReprovision` and `markBusy` rather than through raw UPDATEs, so the
+//     states the deferral guard reads are states itself produced.
 //
 // Coverage map (the cites are the contract, not just the ACs):
-//   * `Spec-010 §Required Behavior` — an `ephemeral clone`-mode prepare
-//     provisions a disposable isolated clone: the row, the D-010-6 root, the
-//     created head branch, the base branch observed from the clone before that
-//     cut (absent when the clone's own HEAD lands detached), and the reported
-//     policy / expiry / branch.
-//   * `Spec-010 §Default Behavior` — every provisioning git invocation
-//     neutralizes hook execution at the invocation layer.
-//   * `Spec-010 §Fallback Behavior` — a failed preparation records the failure
-//     and refuses rather than substituting anything; retirement is recorded with
-//     the root left on disk, and a sweep tick — the same one or a later one —
-//     removes that ROOT and stamps `cleaned_at`; no row is ever deleted, which
-//     is what makes the retirement queryable (I-010-9); retiring the clone
-//     backing a live clone-mode workspace's current root returns that workspace
-//     to `provisioning`, never to `stale`.
-//   * `Spec-010 §Resolved Questions and V1 Scope Decisions` — the TTL is daemon
-//     configuration (a prepare accepts none, and the default is 24 hours), and
-//     NO clone transition is separately evented (D-010-11).
-//
-// Verifies invariant: I-010-9 (a retirement leaves `cleaned_at` NULL and the
-// root on disk; only a tick removes and stamps, and a second tick does not move
-// the stamp), I-010-10 (EVERY recorded invocation carries
-// `-c core.hooksPath=<empty dir>` and `-c core.fsmonitor=false`, asserted over
-// a full prepare / dispose / tick lifecycle rather than over one call, and the
-// directory is empty — an empty directory is the mechanism).
+//   * an `ephemeral clone`-mode prepare provisions a disposable isolated
+//     clone: the row root, the created head branch, the base branch observed
+//     from the clone before that cut (absent when the clone's own HEAD lands
+//     detached), and the reported policy / expiry / branch.
+//   * every provisioning git invocation neutralizes hook execution at
+//     the invocation layer.
+//   * a failed preparation records the failure and refuses rather than
+//     substituting anything; retirement is recorded with the root left on disk,
+//     and a sweep tick — the same one or a later one — removes that ROOT and
+//     stamps `cleaned_at`; no row is ever deleted, which is what makes the
+//     retirement queryable; retiring the clone backing a live clone-mode
+//     workspace's current root returns that workspace to `provisioning`, never
+//     to `stale`.
+//   * the TTL is daemon configuration (a prepare accepts none, and the default
+//     is 24 hours), and NO clone transition is separately evented.
 //
 // Also pinned here, each with its negative control: an UNEXPIRED clone survives
 // a tick (without which "the expired one was retired" does not discriminate), a
@@ -174,11 +161,8 @@ function gitVerb(argv: readonly string[]): string | undefined {
  * about a stub, and the newline is real because git prints one and the service
  * is supposed to trim it.
  *
- * `checkout -b` refuses a name in {@link existingBranchNames}, which MODELS
- * git's own behavior — `fatal: a branch named '<name>' already exists` — and is
- * seeded with the source's default branch, because a clone's HEAD sits on it.
  * The model is what makes the collision arm below a recorded decision; the
- * real-git evidence for it belongs to T2.6's acceptance tier.
+ * real-git evidence for it belongs to the acceptance tier.
  *
  * An unrecognized verb REJECTS rather than resolving empty. A fixture that
  * shrugged at an unknown invocation would let a new git call into the service
@@ -322,8 +306,7 @@ function makeService(overrides: Partial<EphemeralCloneServiceDeps> = {}): Epheme
   return new EphemeralCloneService({
     database: ctx.db,
     executionRootsDirectory: ctx.executionRootsDirectory,
-    // The REAL Plan-009 primitive (CP-010-2), wired exactly as a composition
-    // root would wire it.
+    // The REAL primitive, wired exactly as a composition root would wire it.
     beginWorkspaceReprovision: (workspaceId, targetMode) =>
       ctx.workspaces.beginReprovision(workspaceId, targetMode),
     git: ctx.git.run,
@@ -351,14 +334,13 @@ function insertAttachedMount(): void {
  * state a per-run prepare starts from.
  *
  * Raw INSERT rather than `WorkspaceService.create`: every case that cares about
- * a TRANSITION drives the real Plan-009 primitives from here
- * (`completeReprovision`, `markBusy`), so the states this service's guards read
- * are states Plan-009 itself produced. Cases that only need a row in some other
- * state say so with a one-line UPDATE at the point they need it, where the
- * reason is visible.
+ * a TRANSITION drives the real primitives from here (`completeReprovision`,
+ * `markBusy`), so the states this service's guards read are states itself
+ * produced. Cases that only need a row in some other state say so with a
+ * one-line UPDATE at the point they need it, where the reason is visible.
  */
-// Options object rather than a positional `workspaceId`: the sibling T2.2
-// suite's same-named seeder takes a workspace STATE in its one slot, and two
+// Options object rather than a positional `workspaceId`: the sibling suite's
+// same-named seeder takes a workspace STATE in its one slot, and two
 // same-arity `(string)` signatures with opposite meanings across sibling files
 // let a miscopied call type-check while seeding a UUID into `state`.
 function insertWorkspace(options: { readonly workspaceId?: string } = {}): void {
@@ -473,8 +455,8 @@ async function prepareReadyClone(
 
 /**
  * Take the workspace from `provisioning` to `ready` on the prepared clone, the
- * way T2.4's orchestrator will: through Plan-009's own primitive, so the state
- * the deferral guard and the disposition read is one Plan-009 produced.
+ * way the orchestrator will: through its own primitive, so the state the
+ * deferral guard and the disposition read is one produced.
  */
 async function adoptCloneAsExecutionRoot(cloneId: string): Promise<string> {
   const cloneRoot = readCloneRow(cloneId).clone_root;
@@ -486,7 +468,7 @@ async function adoptCloneAsExecutionRoot(cloneId: string): Promise<string> {
 // prepare
 // ----------------------------------------------------------------------------
 
-describe("EphemeralCloneService.prepare (`Spec-010 §Required Behavior`)", () => {
+describe("EphemeralCloneService.prepare", () => {
   beforeEach(() => {
     insertWorkspace();
   });
@@ -500,8 +482,8 @@ describe("EphemeralCloneService.prepare (`Spec-010 §Required Behavior`)", () =>
     expect(prepared.workspaceId).toBe(WORKSPACE_ID);
     expect(prepared.branchName).toBe(BRANCH_NAME);
     expect(prepared.cleanupPolicy).toBe("on_run_complete");
-    // `Spec-010 §Resolved Questions and V1 Scope Decisions`: the default TTL is
-    // 24 hours, and it is daemon configuration — the request carried none.
+    // the default TTL is 24 hours, and it is daemon configuration — the request
+    // carried none.
     expect(prepared.expiresAt).toBe(
       new Date(Date.parse(EPOCH) + TWENTY_FOUR_HOURS_MS).toISOString(),
     );
@@ -537,7 +519,7 @@ describe("EphemeralCloneService.prepare (`Spec-010 §Required Behavior`)", () =>
     expect(prepared.expiresAt).toBe(new Date(Date.parse(EPOCH) + ONE_HOUR_MS).toISOString());
   });
 
-  it("places the clone root at the D-010-6 path", async () => {
+  it("places the clone root path", async () => {
     const service = makeService();
 
     const prepared = await service.prepare({ workspaceId: WORKSPACE_ID, branchName: BRANCH_NAME });
@@ -566,9 +548,9 @@ describe("EphemeralCloneService.prepare (`Spec-010 §Required Behavior`)", () =>
     ]);
     // Pinned separately from the argv shape. Dropping the flag lets git hardlink
     // `.git/objects/**` into the clone, and the hazard is MUTATION, not removal —
-    // unlinking one link never harms the other. CP-009-8 hands this root to
-    // Plan-012 as an approval scope, so a tool writing inside a scope that looks
-    // disposable would be writing files that ARE the user's repository.
+    // unlinking one link never harms the other. hands this root to as an approval
+    // scope, so a tool writing inside a scope that looks disposable would be
+    // writing files that ARE the user's repository.
     expect(cloneArgv).toContain("--no-hardlinks");
     expect(ctx.git.argvFor("checkout")).toEqual([
       "-c",
@@ -643,7 +625,7 @@ describe("EphemeralCloneService.prepare (`Spec-010 §Required Behavior`)", () =>
     // The distinction the member exists for: a FAILED read is not a detached
     // HEAD. Swallowing it into the absent case would let a transient failure,
     // followed by a branch cut that succeeds, ship self-anchored provenance into
-    // `branch_contexts` — which CP-010-6 hands to Plan-011 for attribution.
+    // `branch_contexts` — which hands to for attribution.
     expect(failure).toBeInstanceOf(ClonePrepareFailedError);
     expect((failure as ClonePrepareFailedError).reason).toBe("base_branch_unreadable");
     // No cut was attempted, and the disposition is the head-branch arm's: the
@@ -664,9 +646,8 @@ describe("EphemeralCloneService.prepare (`Spec-010 §Required Behavior`)", () =>
     expect(failure).toBeInstanceOf(ClonePrepareFailedError);
     expect((failure as ClonePrepareFailedError).code).toBe("clone.prepare_failed");
     expect((failure as ClonePrepareFailedError).reason).toBe("clone_invocation_failed");
-    // `Spec-010 §Fallback Behavior`: the row survives as the queryable incident
-    // (it is the only trail a clone failure has — D-010-11), and nothing was
-    // substituted.
+    // the row survives as the queryable incident (it is the only trail a clone
+    // failure has), and nothing was substituted.
     expect(readCloneRow(readSoleCloneId()).state).toBe("failed");
   });
 
@@ -711,8 +692,8 @@ describe("EphemeralCloneService.prepare (`Spec-010 §Required Behavior`)", () =>
 
     expect(failure).toBeInstanceOf(ClonePrepareFailedError);
     expect((failure as ClonePrepareFailedError).reason).toBe("execution_root_unavailable");
-    // The D-010-6 root is prepared before anything is spawned, so this arm is
-    // reached with no git call at all — which is what distinguishes it from the
+    // Root is prepared before anything is spawned, so this arm is reached with
+    // no git call at all — which is what distinguishes it from the
     // clone-invocation arm above.
     expect(ctx.git.invocations).toHaveLength(0);
     expect(readCloneRow(readSoleCloneId()).state).toBe("failed");
@@ -818,11 +799,11 @@ describe("EphemeralCloneService.prepare (`Spec-010 §Required Behavior`)", () =>
     const notFound = await captureRejection(() => service.dispose(UNKNOWN_CLONE_ID));
 
     expect(notFound).toBeInstanceOf(CloneNotFoundError);
-    // EVERY member of the taxonomy, not only the one the arm above drives. The
-    // §Ephemeral Clone ban is on the message TABLE, so the way a path would
-    // enter it is through a member no live arm in this suite happens to reach.
-    // Keyed as a total `Record`: a sixth member added to the union without a row
-    // here fails to compile rather than silently escaping the guard.
+    // EVERY member of the taxonomy, not only the one the arm above drives. so
+    // the way a path would enter it is through a member no live arm in this
+    // suite happens to reach. Keyed as a total `Record`: a sixth member added to
+    // the union without a row here fails to compile rather than silently
+    // escaping the guard.
     const everyPrepareCarrier: Record<ClonePrepareFailureReason, ClonePrepareFailedError> = {
       execution_root_unavailable: new ClonePrepareFailedError("execution_root_unavailable"),
       clone_invocation_failed: new ClonePrepareFailedError("clone_invocation_failed"),
@@ -837,10 +818,10 @@ describe("EphemeralCloneService.prepare (`Spec-010 §Required Behavior`)", () =>
       expect(message).not.toContain(ctx.tmpDir);
       expect(message).not.toContain(ctx.executionRootsDirectory);
       expect(message).not.toContain(CANONICAL_ROOT);
-      // The structural form of the same ban, mirroring the T2.2 suite: no path
-      // SEPARATOR at all, which holds whatever the fixture's tmp paths happen to
-      // be. The three checks above stay because they catch a message that echoed
-      // a bare directory name.
+      // The structural form of the same ban, mirroring suite: no path SEPARATOR
+      // at all, which holds whatever the fixture's tmp paths happen to be. The
+      // three checks above stay because they catch a message that echoed a bare
+      // directory name.
       expect(message).not.toMatch(/[\\/]/);
     }
 
@@ -864,7 +845,7 @@ describe("EphemeralCloneService.dispose (explicit disposal)", () => {
     insertWorkspace();
   });
 
-  it("records the retirement and leaves the root on disk with `cleaned_at` NULL (I-010-9)", async () => {
+  it("records the retirement and leaves the root on disk with `cleaned_at` NULL", async () => {
     const service = makeService();
     const cloneId = await prepareReadyClone(service);
     const cloneRoot = readCloneRow(cloneId).clone_root;
@@ -917,7 +898,7 @@ describe("EphemeralCloneService.dispose (explicit disposal)", () => {
     expect((failure as CloneNotFoundError).code).toBe("clone.not_found");
   });
 
-  it("returns the holding workspace to `provisioning` when it disposes its current root (CP-009-8)", async () => {
+  it("returns the holding workspace to `provisioning` when it disposes its current root", async () => {
     const service = makeService();
     const cloneId = await prepareReadyClone(service);
     await adoptCloneAsExecutionRoot(cloneId);
@@ -1011,7 +992,7 @@ describe("EphemeralCloneService.retireRunClone (the run-terminal path)", () => {
     expect(retired).toEqual([]);
   });
 
-  it("defers the named clone while a busy workspace is executing in it (I-010-11)", async () => {
+  it("defers the named clone while a busy workspace is executing in it", async () => {
     // Near-vacuous under clone scoping — a next run always prepares a fresh
     // clone — but the busy guard is the retirement paths' shared floor, and
     // this pins that the run-terminal path did not drop it.
@@ -1035,7 +1016,7 @@ describe("EphemeralCloneService.retireRunClone (the run-terminal path)", () => {
 // cleanupTick
 // ----------------------------------------------------------------------------
 
-describe("EphemeralCloneService.cleanupTick (D-010-13 legs (a), (b), (d))", () => {
+describe("EphemeralCloneService.cleanupTick (legs (a), (b), (d))", () => {
   beforeEach(() => {
     insertWorkspace();
   });
@@ -1083,8 +1064,8 @@ describe("EphemeralCloneService.cleanupTick (D-010-13 legs (a), (b), (d))", () =
 
     expect(result.returnedToProvisioningWorkspaceIds).toEqual([WORKSPACE_ID]);
     const workspace = readWorkspaceRow();
-    // `Spec-010 §Fallback Behavior`, in its own words: the workspace awaits the
-    // next per-run prepare, and `stale` is reserved for fault paths.
+    // in its own words: the workspace awaits the next per-run prepare, and
+    // `stale` is reserved for fault paths.
     expect(workspace.state).toBe("provisioning");
     expect(workspace.fs_root).toBeNull();
     expect(workspace.execution_mode).toBe("ephemeral clone");
@@ -1225,9 +1206,9 @@ describe("EphemeralCloneService.cleanupTick (D-010-13 legs (a), (b), (d))", () =
     await service.dispose(cloneId);
     expect(readWorkspaceRow().state).toBe("busy");
 
-    // The run ends. Plan-009's `releaseBusy` deliberately does not clear
-    // `fs_root`, so the workspace is `ready` again while still naming the root
-    // of a clone that is already retired.
+    // The `releaseBusy` deliberately does not clear `fs_root`, so the
+    // workspace is `ready` again while still naming the root of a clone that
+    // is already retired.
     expect(ctx.workspaces.releaseBusy(WORKSPACE_ID)).toBe(true);
     expect(readWorkspaceRow().fs_root).toBe(cloneRoot);
 
@@ -1236,8 +1217,8 @@ describe("EphemeralCloneService.cleanupTick (D-010-13 legs (a), (b), (d))", () =
     // Leg (d) settles the debt before deleting anything. Without it the tick
     // removes the directory under a `ready` workspace, and that workspace can
     // only rediscover the truth through the health probe deriving `stale` — the
-    // FAULT state, where `Spec-010 §Fallback Behavior` prescribes `provisioning`
-    // for a clone that simply ended (CP-009-8).
+    // FAULT state, where prescribes `provisioning` for a clone that simply
+    // ended.
     expect(result.returnedToProvisioningWorkspaceIds).toEqual([WORKSPACE_ID]);
     expect(result.cleanedCloneIds).toEqual([cloneId]);
     // Nothing was retired by this tick: the row was already `retired`, so this
@@ -1249,7 +1230,7 @@ describe("EphemeralCloneService.cleanupTick (D-010-13 legs (a), (b), (d))", () =
     expect(existsSync(cloneRoot)).toBe(false);
     expect(readCloneRow(cloneId).cleaned_at).toBe(clock());
     // `markBusy` and `releaseBusy` are not evented; the disposition is, and it is
-    // Plan-009's event rather than a clone transition (D-010-11).
+    // the event rather than a clone transition.
     expect(readEventTypes()).toEqual(["workspace.ready", "workspace.provisioning"]);
   });
 
@@ -1264,7 +1245,7 @@ describe("EphemeralCloneService.cleanupTick (D-010-13 legs (a), (b), (d))", () =
     // The race the adjudication is about, made deterministic: a new run claims
     // the workspace between leg (d)'s candidate snapshot and the disposition.
     // Claiming it INSIDE the primitive is what makes the refusal the real
-    // Plan-009 carrier rather than a stubbed throw.
+    // carrier rather than a stubbed throw.
     const racingService = makeService({
       beginWorkspaceReprovision: async (workspaceId, targetMode) => {
         await ctx.workspaces.markBusy(workspaceId, RUN_ID);
@@ -1367,7 +1348,7 @@ describe("EphemeralCloneService — invariants across a full lifecycle", () => {
     insertWorkspace();
   });
 
-  it("hook-neutralizes EVERY recorded invocation against an empty directory (I-010-10)", async () => {
+  it("hook-neutralizes EVERY recorded invocation against an empty directory", async () => {
     const service = makeService({ ttlMs: ONE_HOUR_MS });
     const firstCloneId = await prepareReadyClone(service);
     await service.dispose(firstCloneId);
@@ -1394,7 +1375,7 @@ describe("EphemeralCloneService — invariants across a full lifecycle", () => {
     expect(readdirSync(ctx.hookNeutralizationDirectory)).toEqual([]);
   });
 
-  it("appends no clone event for any transition (D-010-11)", async () => {
+  it("appends no clone event for any transition", async () => {
     const service = makeService({ ttlMs: ONE_HOUR_MS });
     const cloneId = await prepareReadyClone(service);
     await service.dispose(cloneId);
@@ -1406,9 +1387,6 @@ describe("EphemeralCloneService — invariants across a full lifecycle", () => {
     advanceClock(2 * ONE_HOUR_MS);
     await service.cleanupTick();
 
-    // Not one event of any kind: no clone transition is evented, and none of
-    // these paths reached the disposition, which is the only thing in this
-    // service that causes an event at all — and it is Plan-009's.
     expect(readEventTypes()).toEqual([]);
   });
 });

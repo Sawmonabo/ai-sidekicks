@@ -1,7 +1,7 @@
 /**
- * Plan-005 T3.8 — Claude capability declaration (I-005-2, CP-005-5).
+ * Claude capability declaration.
  *
- * The invariant is that the declaration is EXPLICIT and TOTAL, and that no
+ * The rule is that the declaration is EXPLICIT and TOTAL, and that no
  * caller may read support out of absence. The strongest assertion here is a
  * COMPILE-time one and says so where it appears: the flag record's totality is
  * enforced by its type annotation, so a flag added to the contract union
@@ -11,8 +11,8 @@
  *
  * What is deliberately NOT asserted here: that a
  * `runtime_node.capability_declared` / `capability_updated` event reaches the
- * log. That emission is `DriverCapabilitiesWriter`'s (Plan-005 T2.4) and is
- * covered by its own tests; a typed fake observes the CALL, never the event.
+ * log. That emission is `DriverCapabilitiesWriter`'s and is covered by its own
+ * tests; a typed fake observes the CALL, never the event.
  * What this file asserts about the refresh trigger is exactly what it owns —
  * that a fresh reading, keyed to this driver, reaches the sink unaltered, and
  * that the sink's verdict is returned unaltered.
@@ -66,7 +66,7 @@ import { CLAUDE_TOOL_CATALOG } from "../tools.js";
 
 const CLI_VERSION: DriverCliVersionReport = { raw: "2.1.245 (Claude Code)", semver: "2.1.245" };
 
-// The build a T3.23 reading names — a Cellar path, deliberately NOT the
+// The build a spawned-version reading names — a Cellar path, deliberately NOT the
 // `/opt/homebrew/bin/claude` launcher symlink that points at it, because a
 // launcher is precisely what the reading refuses to describe.
 const RESOLVED_CLAUDE_EXECUTABLE = "/opt/homebrew/Cellar/claude/2.1.245/bin/claude";
@@ -80,7 +80,7 @@ function claudeReading(report: DriverCliVersionReport): SpawnedProviderVersionRe
 }
 
 /**
- * The reporter takes a `SpawnedProviderVersionReading` reader since T3.23. The
+ * The reporter takes a `SpawnedProviderVersionReading` reader. The
  * suite keeps expressing cases as REPORTS and wraps each into a reading here, so
  * every existing assertion still says what it always said about the version,
  * while the reporter's dependency is exercised in its shipped shape.
@@ -96,7 +96,7 @@ function makeReporter(
 ): ClaudeCapabilityReporter {
   return new ClaudeCapabilityReporter({
     readSpawnedVersion: async () => claudeReading(await readCliVersion()),
-    // T3.24: the probe transport is a REQUIRED dependency, so a reporter that
+    // The probe transport is a REQUIRED dependency, so a reporter that
     // declares provenance nobody measured cannot be constructed. The default
     // double answers every censused subtype and refuses the negative control,
     // which is the happy path these pre-existing assertions assume; the probe
@@ -133,9 +133,9 @@ class RecordingDeclarationSink implements DriverCapabilityDeclarationSink {
   }
 }
 
-describe("Claude capability declaration — explicit and total (I-005-2)", () => {
-  it("declares the Spec-005 matrix values exactly", () => {
-    // Transcribed from Spec-005 §Per-Driver Capability Matrix (Claude column).
+describe("Claude capability declaration — explicit and total", () => {
+  it("declares the capability matrix values exactly", () => {
+    // Transcribed from the Claude column of the per-driver capability matrix.
     // The annotation makes this expectation total too: a flag added to the
     // union breaks this test at COMPILE time, not on a silent `false`.
     const matrix: Record<DriverCapabilityFlag, boolean> = {
@@ -197,9 +197,9 @@ describe("Claude capability declaration — explicit and total (I-005-2)", () =>
   });
 
   it("declares no flag the contract does not carry", () => {
-    // `transcript_replay` is now in the union, and its Spec-005 Claude cell is
+    // `transcript_replay` is now in the union, and its Claude matrix cell is
     // `probe` rather than a value — so the MATRIX reading here stays `false` and
-    // `getCapabilities` replaces it with the probe's own answer (T3.20). `false`
+    // `getCapabilities` replaces it with the probe's own answer. `false`
     // is the right constant to sit here because it is what an unprobed build
     // declares, and undeclared and declared-unsupported must be
     // indistinguishable to a caller.
@@ -216,7 +216,7 @@ describe("Claude capability declaration — explicit and total (I-005-2)", () =>
     }).not.toThrow();
   });
 
-  it("pins the contract version the T3.26 growth moved it to, as a MINOR bump", () => {
+  it("pins the contract version the flag growth moved it to, as a MINOR bump", () => {
     // The version is change detection, so it must actually MOVE when the
     // declared shape does — the writer compares whole snapshots, and a frozen
     // token on a grown declaration is the failure mode this pins against. MINOR
@@ -323,7 +323,7 @@ describe("getCapabilities() — the V1 result wrapper", () => {
     expect(Object.is(second.capabilities.flags, first.capabilities.flags)).toBe(false);
   });
 
-  it("reports tools already class-closed (I-005-3 holds at the wrapper)", async () => {
+  it("reports tools already class-closed — the floor holds at the wrapper", async () => {
     const result = await makeReporter().getCapabilities();
     expect(result.tools.length).toBe(CLAUDE_TOOL_CATALOG.length);
     for (const tool of result.tools) {
@@ -332,8 +332,8 @@ describe("getCapabilities() — the V1 result wrapper", () => {
   });
 
   it("propagates an in-band version read failure instead of reporting a partial wrapper", async () => {
-    // The read is the spawned process's own `get_binary_version` answer since
-    // T3.23 — never a `--version` shell-out — so a failed read means the daemon
+    // The read is the spawned process's own `get_binary_version` answer —
+    // never a `--version` shell-out — so a failed read means the daemon
     // does not know which build is running and must report no wrapper at all.
     const reporter = makeReporter(() =>
       Promise.reject(new Error("in-band version handshake failed")),
@@ -342,7 +342,7 @@ describe("getCapabilities() — the V1 result wrapper", () => {
   });
 });
 
-describe("refreshDeclaration() — the emission seam (CP-005-5)", () => {
+describe("refreshDeclaration() — the emission seam", () => {
   it("hands the sink a fresh reading keyed to this driver", async () => {
     const sink = new RecordingDeclarationSink();
     const reporter = makeReporter();
@@ -417,7 +417,7 @@ describe("refreshDeclaration() — the emission seam (CP-005-5)", () => {
   });
 });
 
-describe("Claude CLI-version floor (T3.12, P0-2)", () => {
+describe("Claude CLI-version floor", () => {
   it("refuses a below-floor reading fail-closed before any report reaches a caller", async () => {
     // 2.1.198 is the PRE-amendment floor — exactly the build the 2026-08-26
     // raise (2.1.198 → 2.1.234) exists to refuse.
@@ -473,10 +473,10 @@ describe("Claude CLI-version floor (T3.12, P0-2)", () => {
   });
 });
 
-describe("Claude composition is bound to the spawned build (T3.23, I-005-10)", () => {
+describe("Claude composition is bound to the spawned build", () => {
   it("takes a reading of the spawned build rather than a bare report", async () => {
-    // `Spec-005 §Required Behavior`: the version a driver reports is the version
-    // that spawned. The reader hands back a reading naming the resolved build,
+    // The version a driver reports is the version that spawned. The reader hands
+    // back a reading naming the resolved build,
     // and that reading's report is what the wrapper carries.
     const readSpawnedVersion = vi.fn(() =>
       Promise.resolve(claudeReading({ raw: "2.1.246", semver: "2.1.246" })),
@@ -516,7 +516,7 @@ describe("Claude composition is bound to the spawned build (T3.23, I-005-10)", (
 });
 
 // --------------------------------------------------------------------------
-// T3.12 C-8 — the current model catalog + per-model effort vocabularies
+// The current model catalog + per-model effort vocabularies
 // --------------------------------------------------------------------------
 
 /**
@@ -588,7 +588,7 @@ const CLAUDE_RECORDED_LIST_MODELS_REPLY: Readonly<Record<string, unknown>> = Obj
   ],
 });
 
-describe("Claude model catalog (T3.12 C-8)", () => {
+describe("Claude model catalog", () => {
   it("reads the recorded reply into four models keyed by resolvedModel", () => {
     const models = normalizeClaudeModelCatalog(CLAUDE_RECORDED_LIST_MODELS_REPLY);
 
@@ -599,8 +599,8 @@ describe("Claude model catalog (T3.12 C-8)", () => {
       "claude-sonnet-5",
       "claude-haiku-4-5-20251001",
     ]);
-    // The alias `value`s never become ids. `Spec-016 §Same-Agent Provider
-    // Switch` validates a switch's model against this list, so admitting
+    // The alias `value`s never become ids. A same-agent provider switch
+    // validates its model against this list, so admitting
     // `sonnet` or `default` here is a switch target that can move underneath
     // the participant who chose it.
     for (const aliasValue of ["default", "opus[1m]", "sonnet", "haiku"]) {
@@ -688,8 +688,8 @@ describe("Claude model catalog (T3.12 C-8)", () => {
   it("populates no capabilities tags", () => {
     const models = normalizeClaudeModelCatalog(CLAUDE_RECORDED_LIST_MODELS_REPLY);
 
-    // The member carries no registered vocabulary anywhere in the corpus and is
-    // read by nothing; populating it from the row's `supportsAdaptiveThinking` /
+    // The member carries no registered vocabulary anywhere and is read by
+    // nothing; populating it from the row's `supportsAdaptiveThinking` /
     // `supportsFastMode` / `supportsAutoMode` axes would mint a tag set ahead of
     // its reader.
     for (const model of models) {
@@ -808,8 +808,8 @@ describe("Claude model catalog (T3.12 C-8)", () => {
   });
 });
 
-// AC12's positive/negative pair for the ONE probe-valued cell in the Spec-005
-// matrix (Plan-005 T3.20). Every capability a client can invoke must be one
+// The positive/negative pair for the ONE probe-valued cell in the capability
+// matrix. Every capability a client can invoke must be one
 // `getCapabilities` declares — so the declaration has to track the probe in BOTH
 // directions, and a suite that only ever ran the refusing double would pass
 // against a hard-coded `false`. Flipping the same double is what makes the

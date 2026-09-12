@@ -1,4 +1,4 @@
-// Plan-006 T3.3 — `0004-event-log-anchors.ts` migration shape regression.
+// `0004-event-log-anchors.ts` migration shape regression.
 //
 // Phase 3 acceptance criterion: applying `0004` against a Postgres DB already
 // migrated through `0003` creates `event_log_anchors` with the exact column
@@ -19,9 +19,8 @@
 //   P4 — the `CHECK (end_sequence >= start_sequence)` rejects an inverted range.
 //   P5 — THE KEY: an identical `(session_id, node_id, start_sequence,
 //        end_sequence)` collides, while a WIDER range sharing `start_sequence`
-//        coexists. This is the `Spec-006 §Post-Compaction Integrity`
-//        coverage-not-exact-start property at the DDL layer, and it is the
-//        reason `end_sequence` is in the key at all.
+//        coexists. This is the ` ` coverage-not-exact-start property at the
+//        DDL layer, and it is the reason `end_sequence` is in the key at all.
 //   P6 — the `session_id` FK to `sessions(id)` is enforced (`23503`), which is
 //        also what keeps node-scope sentinel anchors out of V1 storage.
 //   P7 — both `anchored_at DESC` indexes exist on the right columns.
@@ -36,14 +35,14 @@
 // ----------------------------------------------------------------------------
 //
 // This file exercises `EVENT_LOG_ANCHORS_MIGRATION_SQL` semantics in isolation
-// at the SQL layer. Post Plan-006 T3.3, `applyMigrations()` iterates
-// every registered migration and applies them all in one call, so using
-// `applyMigrations()` in this file's `beforeEach` would pre-apply v4 —
-// defeating P1's "the table should not yet exist" probe and P2-P8's "apply v4
-// cleanly, then probe" structure. Instead `beforeEach` direct-execs v1 and
-// v3 so each test starts at exactly the AC's precondition, mirroring the
-// pattern `0003-runtime-nodes.test.ts` states in full. Canonical-path runner
-// coverage (the v1..v4 loop and its idempotency) lives in
+// at the SQL layer. Post `applyMigrations()` iterates every registered
+// migration and applies them all in one call, so using `applyMigrations()` in
+// this file's `beforeEach` would pre-apply v4 — defeating P1's "the table
+// should not yet exist" probe and P2-P8's "apply v4 cleanly, then probe"
+// structure. Instead `beforeEach` direct-execs v1 and v3 so each test starts
+// at exactly the AC's precondition, mirroring the pattern
+// `0003-runtime-nodes.test.ts` states in full. Canonical-path runner coverage
+// (the v1..v4 loop and its idempotency) lives in
 // `sessions/__tests__/migration-runner.test.ts`.
 //
 // The `adaptPGlite` helper is a local copy for the same reason the sibling
@@ -51,9 +50,6 @@
 // `packages/control-plane/`, and the helper is small enough that an
 // `internal/` extraction would add more indirection than it removes.
 //
-// Refs: Plan-006 T3.3, ADR-017,
-// `docs/architecture/schemas/shared-postgres-schema.md` §Event Log Anchors
-// (Plan-006 — Integrity Witness).
 
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -344,8 +340,7 @@ describe("0004-event-log-anchors migration (P5 — four-column UNIQUE key)", () 
     // The wider compaction-covering anchor. SAME start_sequence, and it MUST
     // land — a compactor about to discard [1,5000] needs a covering witness and
     // the [1,1000] anchor does not cover it. A three-column key would reject
-    // this insert and leave the compaction range unwitnessed
-    // (`Spec-006 §Post-Compaction Integrity`).
+    // this insert and leave the compaction range unwitnessed.
     await expect(
       insertAnchor(ctx.querier, { startSequence: 1, endSequence: 5000 }),
     ).resolves.toBeUndefined();

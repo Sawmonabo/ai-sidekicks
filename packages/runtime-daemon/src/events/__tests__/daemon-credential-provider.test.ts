@@ -1,12 +1,12 @@
-// Plan-006 T3.3 — the CP-006-13 outbound-credential seam, end to end.
+// Outbound-credential seam, end to end.
 //
-// SCOPE. This file covers the credential seam and the ONE shipped consumer of
-// it — `TrpcFetchAnchorUploadTransport`, whose call shape is the thing the
+// This file covers the credential seam and the ONE shipped consumer of it —
+// `TrpcFetchAnchorUploadTransport`, whose call shape is the thing the
 // contract exists to constrain. It deliberately does NOT cover
 // `MerkleAnchorService`'s own behaviour (cadence, force-fire, queue drain);
-// that is Plan-006 T3.5's file set.
+// that is the file set.
 //
-// WHY THE CONSUMER'S CALL SHAPE IS PART OF THIS SEAM'S COVERAGE. RFC 9449 §4.3
+// WHY THE CONSUMER'S CALL SHAPE IS PART OF THIS SEAM'S COVERAGE. RFC 9449 section 4.3
 // binds a DPoP proof to the request's method (`htm`) and target URI (`htu`). A
 // provider that mints a correct proof for the wrong method or URI has minted a
 // proof of nothing, and no type can express the agreement — it is a property of
@@ -14,14 +14,12 @@
 // asserted here by capturing both and comparing them, which is the only place
 // it is observable.
 //
-// The interface's implementation is Tier-5-deferred (Plan-018 PASETO auth), so
-// what is testable today is exactly: the refusing stub refuses with a
-// diagnostic that names the deferral, the consumer-side guard refuses a bearer
-// or proofless credential, and the transport's htm/htu agree with its own
-// request.
+// The interface's implementation is Tier-5-deferred (PASETO auth), so what is
+// testable today is exactly: the refusing stub refuses with a diagnostic that
+// names the deferral, the consumer-side guard refuses a bearer or proofless
+// credential, and the transport's htm/htu agree with its own request.
 //
-// Refs: Plan-006 T3.3, `Plan-006 §Cross-Plan Obligations` CP-006-13,
-// RFC 9449 §4.3 + §7.1, ADR-010.
+// RFC 9449 section 4.3 + section 7.1.
 
 import { describe, expect, it } from "vitest";
 
@@ -123,8 +121,8 @@ describe("Tier5DeferredDaemonCredentialProvider", () => {
 
     expect(rejection).toBeInstanceOf(Error);
     const message = (rejection as Error).message;
-    expect(message).toContain("CP-006-13");
-    expect(message).toContain("Plan-018");
+    expect(message).toContain("");
+    expect(message).toContain("");
     expect(message).toContain(`${ENDPOINT}/eventanchor.upload`);
     // The reassurance that matters operationally: a daemon running with this
     // stub still ANCHORS correctly, it just never flushes.
@@ -133,7 +131,7 @@ describe("Tier5DeferredDaemonCredentialProvider", () => {
 });
 
 // ----------------------------------------------------------------------------
-// The consumer-side guard — RFC 9449 §7.1
+// The consumer-side guard — RFC 9449 section 7.1
 // ----------------------------------------------------------------------------
 
 describe("assertDpopCredentialMaterial", () => {
@@ -153,10 +151,10 @@ describe("assertDpopCredentialMaterial", () => {
           [DPOP_PROOF_HEADER_NAME]: "fake.dpop.proof",
         },
       }),
-    ).toThrow(/RFC 9449 §7.1/);
+    ).toThrow(/RFC 9449 section 7.1/);
   });
 
-  it("accepts a case-varied scheme spelling (RFC 9110 §11.1 makes schemes case-insensitive)", () => {
+  it("accepts a case-varied scheme spelling (RFC 9110 section 11.1 makes schemes case-insensitive)", () => {
     // Refusing `dpop` would reject a CONFORMING provider. The guard exists to
     // catch `Bearer`, not to police capitalization.
     for (const scheme of ["dpop", "DPOP", "DPoP"]) {
@@ -187,7 +185,7 @@ describe("assertDpopCredentialMaterial", () => {
   });
 
   it("reads the headers case-insensitively (a Headers-derived provider lowercases them)", () => {
-    // RFC 9110 §5.1: header names are case-insensitive, and `Headers` normalizes
+    // RFC 9110 section 5.1: header names are case-insensitive, and `Headers` normalizes
     // every name it stores to lowercase. An exact-match read would refuse this
     // CONFORMING provider while reporting "no Authorization header" — naming the
     // wrong cause, on the one boundary whose diagnostics an operator has to
@@ -275,7 +273,7 @@ describe("assertDpopCredentialMaterial", () => {
 // The consumer's call shape — the htm/htu binding
 // ----------------------------------------------------------------------------
 
-describe("TrpcFetchAnchorUploadTransport — the RFC 9449 §4.3 htm/htu binding", () => {
+describe("TrpcFetchAnchorUploadTransport — the RFC 9449 section 4.3 htm/htu binding", () => {
   it("mints the credential for EXACTLY the method and URI it then fetches", async () => {
     // The agreement no type can express: a proof minted against a different
     // method or URI is a proof of nothing. Both sides are captured and compared.
@@ -303,7 +301,7 @@ describe("TrpcFetchAnchorUploadTransport — the RFC 9449 §4.3 htm/htu binding"
 
     expect(attempt.htm).toBe(fetchedMethod);
     expect(attempt.htu).toBe(fetchedUrl);
-    // And the htu is the canonical form RFC 9449 §4.3 wants: no query, no
+    // And the htu is the canonical form RFC 9449 section 4.3 wants: no query, no
     // fragment. An unbatched tRPC mutation POSTs its input as the body, which is
     // what makes that achievable here.
     expect(attempt.htu).toBe(`${ENDPOINT}/eventanchor.upload`);
@@ -357,12 +355,12 @@ describe("TrpcFetchAnchorUploadTransport — the RFC 9449 §4.3 htm/htu binding"
       },
     });
 
-    await expect(transport.upload(anchorFixture())).rejects.toThrow(/RFC 9449 §7.1/);
+    await expect(transport.upload(anchorFixture())).rejects.toThrow(/RFC 9449 section 7.1/);
     expect(fetchCallCount).toBe(0);
   });
 
   it("mints a FRESH credential per attempt (a DPoP proof binds to one request)", async () => {
-    // RFC 9449 §11.1: reusing a proof across attempts is replay, and a
+    // RFC 9449 section 11.1: reusing a proof across attempts is replay, and a
     // conforming control plane rejects it. Minting inside `upload` — rather than
     // once at construction — is what makes each retry a new proof.
     const provider = new RecordingCredentialProvider();

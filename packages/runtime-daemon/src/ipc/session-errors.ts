@@ -3,14 +3,9 @@
 // Mirrors the `SecureDefaultsValidationError` pattern at
 // `packages/runtime-daemon/src/bootstrap/secure-defaults.ts`: a typed Error
 // subclass whose stable `code` string projects directly into the JSON-RPC
-// envelope's `error.data.type` per
-// `docs/architecture/contracts/error-contracts.md §JSON-RPC Wire Mapping`
-// (`session.not_found` is the canonical project dotted-namespace
-// identifier — its §Session row is the HTTP 404 equivalent).
+// envelope's `error.data.type`.
 //
-// Per Plan-007 §Invariants I-007-8 ("handler-thrown errors project to the
-// canonical envelope; secrets and stack traces never leak"), the
-// discriminator branch for this class lives in `mapJsonRpcError` at
+// The discriminator branch for this class lives in `mapJsonRpcError` at
 // `packages/runtime-daemon/src/ipc/jsonrpc-error-mapping.ts`. The numeric
 // mapping is `-32602 InvalidParams` per the project's convention that
 // "requested resource does not exist" is structurally a param-shape

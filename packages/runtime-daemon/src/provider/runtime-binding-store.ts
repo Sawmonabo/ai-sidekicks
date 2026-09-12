@@ -1,5 +1,4 @@
-// RuntimeBindingStore — durable driver-instance ↔ run bindings (Plan-005
-// Phase 2, T2.2).
+// RuntimeBindingStore — durable driver-instance ↔ run bindings.
 //
 // A runtime binding records that a specific `run` is bound to a specific driver
 // contract version, optionally carrying a provider-owned opaque `resume_handle`
@@ -7,8 +6,7 @@
 // authority over the `runtime_bindings` table (created by migration `0003`,
 // extended by `0011` with the CLI-version pair and `spawn_config`).
 //
-// I-005-1 (driver authority remains local even when the provider endpoint is
-// remote): this store is DAEMON-RESIDENT — it holds prepared statements over the
+// This store is DAEMON-RESIDENT — it holds prepared statements over the
 // machine-local SQLite handle. No binding state is ever read from or written to
 // a remote provider; the provider's only contribution is the opaque
 // `contract_version` / `resume_handle` STRINGS it declares, which the daemon
@@ -16,46 +14,42 @@
 // is bound to which driver, and over the durable record of it, never leaves the
 // local daemon.
 //
-// Write-seam validation (DEFENSE-IN-DEPTH, `Spec-005 §Required Behavior`):
-//   FOUR columns are PROVIDER-DECLARED, and they are exactly the columns
-//   carrying DB CHECK constraints — `contract_version` + `resume_handle`
+//   FOUR columns are PROVIDER-DECLARED, and they are exactly the columns carrying
+//   DB CHECK constraints — `contract_version` + `resume_handle`
 //   (`0003-runtime-bindings.ts`) and the `cli_version_raw` / `cli_version_semver`
-//   pair added by T2.6 (`0011-driver-capability-currency.ts`). All four are
-//   validated through `provider-output-validation.ts` BEFORE the write — a
-//   second, semantic layer (canonical-semver shape; all-whitespace rejection) on
-//   top of the SQLite CHECK's length+NUL bounds. The pair is spawn-scoped, so it
-//   is validated at INSERT only; the other two are re-validated on every UPDATE
-//   that patches them.
+//   pair added. All four are validated through `provider-output-validation.ts`
+//   BEFORE the write — a second, semantic layer (canonical-semver shape;
+//   all-whitespace rejection) on top of the SQLite CHECK's length+NUL bounds. The
+//   pair is spawn-scoped, so it is validated at INSERT only; the other two are
+//   re-validated on every UPDATE that patches them.
 //
-// T2.6 extension (campaign B10) — three legs over the migration-`0011` columns:
+// Extension (campaign B10) — three legs over the migration-`0011` columns:
 //   * `findByRuns(runIds)` — the BATCH form of `findByRun`, the local
-//     synchronous ack-barrier input Plan-016 T2.10's fan-out gates on.
+//     synchronous ack-barrier input the fan-out gates on.
 //   * `spawn_config` — the daemon-owned record of the spawn-bound configuration
-//     realized at process spawn, written at EVERY binding write and re-read by
-//     the CP-005-1 recovery seam to reconstruct `ResumeSessionParams`' DATA legs
-//     without the original client request. Required at the create seam, so
-//     "spawned but not persisted" is unrepresentable rather than merely
-//     discouraged.
+//     realized at process spawn, written at EVERY binding write and re-read
+//     recovery seam to reconstruct `ResumeSessionParams`' DATA legs without the
+//     original client request. Required at the create seam, so "spawned but not
+//     persisted" is unrepresentable rather than merely discouraged.
 //   * `cli_version_raw` / `cli_version_semver` — the provider handshake version
 //     pair, carried as the SINGLE optional `cliVersion` member so the DDL's
 //     both-or-neither CHECK is structural at the type level.
 //
-// T3.23 extension — `withSpawnedVersionCarriers`: the version pair and the
+// Extension — `withSpawnedVersionCarriers`: the version pair and the
 // `spawn_config.resolvedExecutablePath` that names the build which reported it
 // are projected from ONE spawned-build reading, so a row can never record a
-// version taken from an install other than the one it names
-// (`Spec-005 §Required Behavior`, 2026-08-26). The store still validates and
-// persists exactly as before — this is a composition seam over `create`'s input,
-// not a second write path.
+// version taken from an install other than the one it names (2026-08-26). The
+// store still validates and persists exactly as before — this is a composition
+// seam over `create`'s input, not a second write path.
 //
-// Deliberate boundary (NOT an oversight — this mirrors the T2.1 CHECK-scope
-// discipline): `runId`, `driverName`, `id`, and the CONTENT of
-// `runtime_metadata` are DAEMON-CONTROLLED. They have no DB CHECK and no
-// governing validation obligation in the audit, so they are NOT Zod-guarded at
-// this seam. We do not gold-plate beyond the audited obligation (the same reason
-// T2.1 did not add a `supported IN (0,1)` over-check). `id` is store-minted;
-// `runId`/`driverName` originate from trusted daemon callers; `runtime_metadata`
-// is round-tripped as opaque JSON.
+// Deliberate boundary (NOT an oversight — this CHECK-scope discipline): `runId`,
+// `driverName`, `id`, and the CONTENT of `runtime_metadata` are
+// DAEMON-CONTROLLED. They have no DB CHECK and no governing validation
+// obligation in the audit, so they are NOT Zod-guarded at this seam. We do not
+// gold-plate beyond the audited obligation (the same reason did not add a
+// `supported IN (0,1)` over-check). `id` is store-minted; `runId`/`driverName`
+// originate from trusted daemon callers; `runtime_metadata` is round-tripped as
+// opaque JSON.
 //
 // Idiom: mirrors `node/node-registry.ts` — `export class` with `#`-private
 // `readonly` cached prepared `Statement` fields prepared ONCE in the constructor,
@@ -66,8 +60,6 @@
 // on ONE axis — it is dispatched IMMEDIATE, not DEFERRED (see the `#updateTxn`
 // field comment for why a read-first transaction needs `BEGIN IMMEDIATE`).
 //
-// Refs: Plan-005 §Phase 2 / T2.2 + T2.6, `Spec-005 §Required Behavior`,
-// `Spec-005 §State And Data Implications`, invariant I-005-1.
 
 import type {
   CallbackToolInvocation,
@@ -93,21 +85,20 @@ import { mintUuidV7 } from "../ids/uuid-v7.js";
 // --------------------------------------------------------------------------
 // Public domain types (camelCase, parsed). LOCAL to runtime-daemon — NOT hoisted
 // to `@ai-sidekicks/contracts`: a single-package, daemon-internal consumer
-// (T2.3 ProviderRegistry) fails the 2-surface hoist test.
+// (ProviderRegistry) fails the 2-surface hoist test.
 // --------------------------------------------------------------------------
 
 /**
  * The daemon-owned record of the SPAWN-BOUND configuration realized at process
  * spawn, persisted to `runtime_bindings.spawn_config` at every binding write
- * (T2.6, campaign B10).
+ * (campaign B10).
  *
- * WHY IT EXISTS (CP-005-1): resume is a FRESH PROCESS SPAWN, so every
- * spawn-bound surface `CreateSessionParams` bound must RE-REALIZE on
- * `ResumeSessionParams` or the resumed leg silently sheds it — a posture-less
- * resume relaunches UNSANDBOXED, a schema-less one unconstrained. Recovery does
- * NOT have the original client request, so THIS ROW is the durable source the
- * resume assembly (T3.14) and Plan-015's recovery dispatcher re-read to
- * reconstruct those legs.
+ * WHY IT EXISTS: resume is a FRESH PROCESS SPAWN, so every spawn-bound surface
+ * `CreateSessionParams` bound must RE-REALIZE on `ResumeSessionParams` or the
+ * resumed leg silently sheds it — a posture-less resume relaunches UNSANDBOXED,
+ * a schema-less one unconstrained. Recovery does NOT have the original client
+ * request, so THIS ROW is the durable source the resume assembly and the
+ * recovery dispatcher re-read to reconstruct those legs.
  *
  * DATA LEGS ONLY. `CreateSessionParams` / `ResumeSessionParams` also carry two
  * FUNCTION legs (`onCallbackToolCall`, `onMcpServerStatus`); those are
@@ -131,28 +122,26 @@ export interface RuntimeBindingSpawnConfig {
   readonly subagentPolicy?: SubagentPolicy | undefined;
   readonly outputSchema?: Record<string, unknown> | undefined;
   readonly admittedCostCapCents?: number | undefined;
-  // Owner: Plan-005 T3.17 — the Spec-029 provider-account identity bound at
-  // spawn, and a RESUME LEG (see the disposition table below). A run's paying
-  // account is bound for the run's LIFETIME, so a resume that re-resolved
-  // "whichever account is default now" would silently re-bill it.
+  // Owner: — provider-account identity bound at spawn, and a RESUME LEG (see
+  // the disposition table below). A run's paying account is bound for the
+  // run's LIFETIME, so a resume that re-resolved "whichever account is
+  // default now" would silently re-bill it.
   //
-  // OPAQUE. Nothing in this package parses it, derives a path from it, or uses
-  // it to locate credentials. Pinning that account's credential home when the
-  // spawn environment is constructed is the spawn path's obligation (Plan-029's
-  // fail-closed binding) and not yet in-tree work; THIS record's only job is to
-  // make the SAME identity available to a relaunch that no longer holds the
-  // admitting request. Stored as the SERVER-RESOLVED value — a client-supplied
-  // identifier is an input to that resolution, never what lands here.
+  // Nothing in this package parses it, derives a path from it, or uses it to
+  // locate credentials. Pinning that account's credential home when the spawn
+  // environment is constructed is the spawn path's obligation (the fail-closed
+  // binding) and not yet in-tree work; THIS record's only job is to make the
+  // SAME identity available to a relaunch that no longer holds the admitting
+  // request. Stored as the SERVER-RESOLVED value — a client-supplied identifier
+  // is an input to that resolution, never what lands here.
   readonly providerAccountId?: string | undefined;
-  // Owner: Plan-005 T3.23 — `Spec-005 §Required Behavior`: the RESOLVED
-  // executable path rides this carrier, so a resumed leg re-spawns the same
-  // binary the original spawn resolved rather than re-resolving against a PATH
-  // that may have changed underneath it.
+  // Owner:: the RESOLVED executable path rides this carrier, so a resumed
+  // leg re-spawns the same binary the original spawn resolved rather than
+  // re-resolving against a PATH that may have changed underneath it.
   readonly resolvedExecutablePath?: string | undefined;
-  // Owner: Plan-005 T3.26 — `Spec-005 §Desktop Console Parity Surfaces`: the
-  // SIXTH member this table marks `resume-leg` by mint order, and spawn-bound for
-  // the same reason the other six are — re-derived by counting against
-  // `SPAWN_CONFIG_RESUME_DISPOSITION` when T3.17 MOVED `providerAccountId` into
+  // Owner:: the SIXTH member this table marks `resume-leg` by mint order, and
+  // spawn-bound for the same reason the other six are — re-derived by counting
+  // against `SPAWN_CONFIG_RESUME_DISPOSITION` when MOVED `providerAccountId` into
   // that set (the member already existed as a `relaunch-input`).
   //
   // The accelerated-output axis is realized at process spawn on the one provider
@@ -169,8 +158,8 @@ export interface RuntimeBindingSpawnConfig {
   //
   // Like `providerAccountId` above, MINTED NOW and VALUED LATER: this whole
   // record has no in-tree producer yet — the write seam that assembles a
-  // `CreateRuntimeBindingInput` from a client's `CreateSessionParams` is T3.14's,
-  // and the driver-side consumer that turns the stored level back into a spawn
+  // `CreateRuntimeBindingInput` from a client's `CreateSessionParams` is unbuilt, and
+  // the driver-side consumer that turns the stored level back into a spawn
   // argument is each driver's own create path. Minting the member with its resume
   // disposition now is what makes that later seam a copy rather than a widening
   // of this type AND its closed-key-set parser AND its disposition table.
@@ -209,14 +198,11 @@ export interface RuntimeBinding {
  * `runtimeMetadata` are optional; an omitted handle persists as SQL NULL and an
  * omitted metadata defaults to `{}`.
  *
- * `spawnConfig` is REQUIRED (T2.6). Every binding write IS a spawn, and the
- * spawn-bound configuration is what recovery re-reads to rebuild
- * `ResumeSessionParams` — so "spawn a leg, persist nothing" must be
- * UNREPRESENTABLE at this seam rather than merely discouraged. A caller that
- * genuinely realized no spawn-bound surface passes `{}` EXPLICITLY, which is a
- * decision the type system can see. The column's `'{}'` DEFAULT is a
- * pre-B10-ROW artifact (rows written before migration `0011` added the column),
- * never a live-write outcome.
+ * Every binding write IS a spawn, and the spawn-bound configuration is what
+ * recovery re-reads to rebuild `ResumeSessionParams` — so "spawn a leg, persist
+ * nothing" must be UNREPRESENTABLE at this seam rather than merely discouraged.
+ * The column's `'{}'` DEFAULT is a pre-B10-ROW artifact (rows written before
+ * migration `0011` added the column), never a live-write outcome.
  *
  * `cliVersion` is optional and is the pair-or-neither carrier: ABSENT persists
  * both columns as SQL NULL; PRESENT persists both. There is deliberately no way
@@ -234,16 +220,15 @@ export interface CreateRuntimeBindingInput {
 }
 
 /**
- * The two `create` members ONE spawned-build reading fills (Plan-005 T3.23).
+ * The two `create` members ONE spawned-build reading fills.
  *
- * `Spec-005 §Required Behavior` (2026-08-26) binds them together: the version
- * the floor compared, the version this row records, and the version of the
- * process that runs the session are ONE reading, taken in-band from the build at
- * `resolvedExecutablePath` — never from a launcher symlink or a `--version`
- * shell-out. They live on different carriers (`cli_version_raw` /
- * `cli_version_semver` are columns; the path rides the daemon-owned
- * `spawn_config` record), which is exactly why a caller assembling them by hand
- * could record a version from one install beside a path to another.
+ * binds them together: the version the floor compared, the version this row
+ * records, and the version of the process that runs the session are ONE reading,
+ * taken in-band from the build at `resolvedExecutablePath` — never from a
+ * launcher symlink or a `--version` shell-out. They live on different carriers
+ * (`cli_version_raw` / `cli_version_semver` are columns; the path rides the
+ * daemon-owned `spawn_config` record), which is exactly why a caller assembling
+ * them by hand could record a version from one install beside a path to another.
  *
  * Produced by `version-gate.ts`'s `toBindingVersionCarriers`. Declared HERE, in
  * the store, so the projection points at the write seam's own vocabulary and the
@@ -257,7 +242,7 @@ export interface SpawnedVersionBindingCarriers {
 
 /**
  * Compose a `create` input whose version pair and resolved executable path come
- * from one reading (Plan-005 T3.23 — the write seam persists the same reading).
+ * from one reading (the write seam persists the same reading).
  *
  * The carriers are applied LAST and therefore win, so a caller cannot supply a
  * competing `cliVersion` — the input type omits it, and the spread makes an
@@ -379,9 +364,9 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  * set is closed and each present member's shape ONE LEVEL DEEP. It proves
  * NOTHING about a member's INNER shape — an `executionPosture` stored as `{}`
  * passes `isPlainObject` and reads back as a posture object with no `mode`, no
- * `networkAccess`, and no `writableRoots`. The recovery consumer (T3.14 /
- * Plan-015) must therefore guard the inner shape itself before spawning from
- * it; a posture-shaped hole is not a posture, and this table will not catch it.
+ * `networkAccess`, and no `writableRoots`. The recovery consumer must therefore
+ * guard the inner shape itself before spawning from it; a posture-shaped hole
+ * is not a posture, and this table will not catch it.
  *
  * Typed by `satisfies Readonly<Record<keyof RuntimeBindingSpawnConfig, …>>`
  * rather than by a `Record<string, …>` ANNOTATION: the `satisfies` form keys
@@ -406,11 +391,11 @@ const SPAWN_CONFIG_MEMBER_CHECKS = {
 } satisfies Readonly<Record<keyof RuntimeBindingSpawnConfig, (value: unknown) => boolean>>;
 
 // --------------------------------------------------------------------------
-// `spawn_config` -> `ResumeSessionParams` re-realization (Plan-005 T3.14)
+// `spawn_config` -> `ResumeSessionParams` re-realization
 // --------------------------------------------------------------------------
 
 /**
- * The two FUNCTION legs a resume re-injects fresh (Plan-005 T3.14, CP-005-1).
+ * The two FUNCTION legs a resume re-injects fresh.
  *
  * Separate from the stored record ON PURPOSE. `spawn_config` holds DATA LEGS
  * ONLY, so the caller that re-realizes a spawn must supply these itself — and
@@ -435,20 +420,20 @@ export interface ResumeFunctionLegInjection {
  * back to the driver on `ResumeSessionParams` — and which are consumed
  * elsewhere in the relaunch.
  *
- * `satisfies Readonly<Record<keyof RuntimeBindingSpawnConfig, ...>>` for the
- * same reason `SPAWN_CONFIG_MEMBER_CHECKS` uses it, one step further: adding a
- * member to the stored record without deciding whether a resumed leg re-realizes
- * it is a COMPILE error. Without this table the failure mode is silent — a new
+ * `satisfies Readonly<Record<keyof RuntimeBindingSpawnConfig,...>>` for the same
+ * reason `SPAWN_CONFIG_MEMBER_CHECKS` uses it, one step further: adding a member
+ * to the stored record without deciding whether a resumed leg re-realizes it is
+ * a COMPILE error. Without this table the failure mode is silent — a new
  * spawn-bound surface lands, `spawn_config` faithfully stores it, and the resume
- * path keeps composing the legs it was written against, so the resumed
- * process sheds the new surface with nothing anywhere reporting it. That is the
- * exact class of loss CP-005-1 exists to prevent, and prose cannot enforce it.
+ * path keeps composing the legs it was written against, so the resumed process
+ * sheds the new surface with nothing anywhere reporting it. That is the exact
+ * class of loss exists to prevent, and prose cannot enforce it.
  *
  * `"relaunch-input"` names the members that ARE re-realized but NOT through this
  * parameter object: `resolvedExecutablePath` names the binary, consumed by the
  * spawn resolution that precedes the driver call rather than by the driver
- * itself. ONE member, re-derived by counting when T3.17 moved
- * `providerAccountId` to `"resume-leg"` below.
+ * itself. ONE member, re-derived by counting when moved `providerAccountId` to
+ * `"resume-leg"` below.
  *
  * The table is not documentation. `ResumeLegSpawnConfigKey` below reads it, and
  * the composer's `satisfies` clause is checked against that key set, so a member
@@ -473,16 +458,12 @@ const SPAWN_CONFIG_RESUME_DISPOSITION = {
   subagentPolicy: "resume-leg",
   outputSchema: "resume-leg",
   admittedCostCapCents: "resume-leg",
-  // A RESUME LEG as of T3.17, and BOTH things are true of it at once: the spawn
-  // RESOLUTION still consumes it to pin that account's credential home before
-  // the process starts — that does not change — and the driver ALSO receives it
-  // on `ResumeSessionParams`, where its only permitted use is to be carried
-  // opaquely. The disposition follows the PARAMETER OBJECT rather than the
-  // consumer count: a member the driver is handed is a resume leg even when the
-  // relaunch reads it too. Composing it is what keeps a resumed run bound to the
-  // account it was ADMITTED against instead of whichever account resolves as the
-  // provider's default at recovery time — a silent re-bill, not a lost feature,
-  // which is why it is not left to the resolution path alone.
+  // The disposition follows the PARAMETER OBJECT rather than the consumer count:
+  // a member the driver is handed is a resume leg even when the relaunch reads
+  // it too. Composing it is what keeps a resumed run bound to the account it was
+  // ADMITTED against instead of whichever account resolves as the provider's
+  // default at recovery time — a silent re-bill, not a lost feature, which is
+  // why it is not left to the resolution path alone.
   providerAccountId: "resume-leg",
   resolvedExecutablePath: "relaunch-input",
   // A RESUME LEG rather than a relaunch input, and the split is exactly the one
@@ -521,7 +502,7 @@ export class RuntimeBindingNotResumableError extends Error {
 
 /**
  * Re-realize a resumed leg's full spawn-bound surface from its durable binding
- * row (Plan-005 T3.14 / CP-005-1).
+ * row.
  *
  * Resume is a FRESH PROCESS SPAWN, so every surface the original
  * `CreateSessionParams` bound has to be re-supplied or the relaunched leg sheds
@@ -561,7 +542,7 @@ export function composeResumeSessionParams(
     subagentPolicy: spawnConfig.subagentPolicy,
     outputSchema: spawnConfig.outputSchema,
     admittedCostCapCents: spawnConfig.admittedCostCapCents,
-    // Read back VERBATIM from the durable record, never re-resolved (T3.17).
+    // Read back VERBATIM from the durable record, never re-resolved.
     providerAccountId: spawnConfig.providerAccountId,
     outputSpeed: spawnConfig.outputSpeed,
   } satisfies { [Key in ResumeLegSpawnConfigKey]: RuntimeBindingSpawnConfig[Key] };
@@ -646,10 +627,10 @@ export class RuntimeBindingStore {
         WHERE run_id = ?
         ORDER BY created_at, id`,
     );
-    // The BATCH form (T2.6). ONE prepared statement for any arity: the run-id
-    // list arrives as a single JSON-array parameter expanded by `json_each`,
-    // NOT as N generated `?` placeholders. Three properties follow from that
-    // choice, and all three are why it is the choice:
+    // ONE prepared statement for any arity: the run-id list arrives as a
+    // single JSON-array parameter expanded by `json_each`, NOT as N generated
+    // `?` placeholders. Three properties follow from that choice, and all
+    // three are why it is the choice:
     //   * PREPARE-ONCE survives — an `IN (?,?,…)` list has a different SQL text
     //     per arity, so it could not be a constructor-prepared field at all
     //     (it would re-prepare on every call, against this class's whole idiom).
@@ -667,7 +648,7 @@ export class RuntimeBindingStore {
         WHERE run_id IN (SELECT value FROM json_each(?))
         ORDER BY run_id, created_at, id`,
     );
-    // Plan-015 recovery seam (see findResumableBindings doc).
+    // Recovery seam (see findResumableBindings doc).
     this.#selectResumableStmt = db.prepare(
       `SELECT id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver, resume_handle, spawn_config, runtime_metadata, created_at, updated_at
          FROM runtime_bindings
@@ -912,12 +893,12 @@ export class RuntimeBindingStore {
 
   /**
    * List all bindings for MANY runs in one query — the batch form of
-   * `findByRun` (T2.6, campaign B10).
+   * `findByRun` (campaign B10).
    *
    * SYNCHRONOUS, like every other method here, and load-bearingly so: this is
-   * the LOCAL ACK-BARRIER input Plan-016 T2.10's fan-out gates on (the same gate
-   * as the driver goal methods). A `Promise` return would push the barrier
-   * across a microtask boundary and stop it being a barrier at all.
+   * the LOCAL ACK-BARRIER input the fan-out gates on (the same gate as the
+   * driver goal methods). A `Promise` return would push the barrier across a
+   * microtask boundary and stop it being a barrier at all.
    *
    * Returns a FLAT array ordered `run_id, created_at, id` — the deterministic
    * extension of `findByRun`'s `created_at, id`. The caller groups by `runId`;
@@ -926,7 +907,7 @@ export class RuntimeBindingStore {
    * Returns ALL rows for those runs, INCLUDING superseded pre-relaunch
    * bindings: a relaunch mints a NEW binding row and the old one is retained as
    * history. There is deliberately NO liveness filtering — the store owns no
-   * liveness column by design (T2.2's seam), so the CALLER owns the liveness
+   * liveness column by design (the seam), so the CALLER owns the liveness
    * intersection. A store-side "only the live one" filter would have to invent
    * the liveness judgement, and inventing it in the storage layer is how two
    * different definitions of live end up in the same daemon.
@@ -938,9 +919,9 @@ export class RuntimeBindingStore {
    * REFUSES THE WHOLE LIST if any matched row's `spawn_config` is unreadable
    * (see `#parseSpawnConfig` for why skipping the row instead would be worse
    * HERE specifically: a silently dropped binding UNDER-COUNTS the ack barrier
-   * Plan-016 T2.10 gates its fan-out on, and that barrier is fail-open — it
-   * proceeds when it believes nothing is outstanding). Reachable only by
-   * out-of-band corruption: both write seams parse before they commit.
+   * gates its fan-out on, and that barrier is fail-open — it proceeds when it
+   * believes nothing is outstanding). Reachable only by out-of-band
+   * corruption: both write seams parse before they commit.
    */
   findByRuns(runIds: readonly string[]): RuntimeBinding[] {
     if (runIds.length === 0) {
@@ -1005,11 +986,11 @@ export class RuntimeBindingStore {
   /**
    * List every binding that carries a non-null `resume_handle`.
    *
-   * This is the Plan-015 recovery-aware-persistence extension seam (CP-005-1).
-   * Plan-015 will REFINE the predicate — joining the dedicated
-   * `recovery_checkpoints` table to surface only bindings that actually NEED
-   * recovery — but the binding-level "has a handle to resume from" semantic
-   * ships FUNCTIONAL now (this is a working query, not a throw-stub).
+   * This is recovery-aware-persistence extension seam. will REFINE the
+   * predicate — joining the dedicated `recovery_checkpoints` table to surface
+   * only bindings that actually NEED recovery — but the binding-level "has a
+   * handle to resume from" semantic ships FUNCTIONAL now (this is a working
+   * query, not a throw-stub).
    *
    * REFUSES THE WHOLE LIST if any resumable row's `spawn_config` is unreadable
    * (see `#parseSpawnConfig`): silently dropping the row would hand the
@@ -1079,23 +1060,23 @@ export class RuntimeBindingStore {
    * key, or a known key with the wrong shape — throwing a plain internal-
    * invariant `Error` naming the binding row.
    *
-   * WHY LOUD, and why this is a security property rather than tidiness: the
-   * CP-005-1 consumer rebuilds `ResumeSessionParams` FROM this record, and
-   * resume is a fresh process spawn. A parser that shrugged at a malformed value
-   * and returned an all-absent record would hand the resume path a posture-less
-   * configuration — and a posture-less relaunch is an UNSANDBOXED one. Silent
-   * degradation here converts local data corruption into a sandbox escape, so
-   * the only safe reading of a record we cannot read is a refusal.
+   * WHY LOUD, and why this is a security property rather than tidiness: consumer
+   * rebuilds `ResumeSessionParams` FROM this record, and resume is a fresh
+   * process spawn. A parser that shrugged at a malformed value and returned an
+   * all-absent record would hand the resume path a posture-less configuration —
+   * and a posture-less relaunch is an UNSANDBOXED one. Silent degradation here
+   * converts local data corruption into a sandbox escape, so the only safe
+   * reading of a record we cannot read is a refusal.
    *
    * ACCEPTED CONSEQUENCE — one unreadable row REFUSES THE WHOLE LIST at the
    * enumeration seams (`findByRun`, `findByRuns`, `findResumableBindings`,
    * `findById`), because the throw propagates out of the `.map`. That is
    * deliberate, not an oversight: the alternative (skip the row, return the
    * rest) is SILENT UNDER-COUNTING, and both enumerations feed consumers that
-   * read a short list as good news — `findByRuns` feeds the Plan-016 T2.10 ack
-   * barrier, which is FAIL-OPEN (it proceeds when nothing appears outstanding),
-   * and `findResumableBindings` feeds the recovery dispatcher, where a dropped
-   * row reads as "nothing to recover". A loud refusal costs an operator a
+   * read a short list as good news — `findByRuns` feeds ack barrier, which is
+   * FAIL-OPEN (it proceeds when nothing appears outstanding), and
+   * `findResumableBindings` feeds the recovery dispatcher, where a dropped row
+   * reads as "nothing to recover". A loud refusal costs an operator a
    * diagnosis; a silent skip costs a barrier that never fired. The exposure is
    * bounded to OUT-OF-BAND corruption in any case: both write seams (`create`
    * pre-INSERT, `update` pre-commit) parse the record before it lands, so this
@@ -1105,9 +1086,8 @@ export class RuntimeBindingStore {
    * set is CLOSED and each present member's shape ONE LEVEL DEEP. It proves
    * nothing about a member's INNER shape — `{"executionPosture":{}}` parses
    * clean and yields a posture object with no `mode`, no `networkAccess`, and
-   * no `writableRoots`. The recovery consumer (T3.14 / Plan-015) owns that
-   * guard; a posture-shaped hole is not a posture, and this parser will not
-   * catch it.
+   * no `writableRoots`. The recovery consumer owns that guard; a
+   * posture-shaped hole is not a posture, and this parser will not catch it.
    *
    * NOT a `ProviderOutputValidationError`: that type is the leak-safe envelope
    * for rejected PROVIDER input crossing the write seam. This value is
@@ -1118,13 +1098,11 @@ export class RuntimeBindingStore {
    * it wrote". Member names are safe to embed for the same reason (a closed,
    * daemon-owned key vocabulary — no provider value ever enters the message).
    *
-   * `{}` is a VALID record (all members absent) and is what a pre-B10 row —
-   * written before migration `0011` added the column, so carrying its `'{}'`
-   * DEFAULT — parses as. That leaves ONE ambiguity, named here rather than
-   * papered over: a genuinely-empty live record and a pre-B10 default row are
+   * That leaves ONE ambiguity, named here rather than papered over: a
+   * genuinely-empty live record and a pre-B10 default row are
    * indistinguishable BY VALUE. It is inert in practice because Phase-3 spawn
-   * writers always record `resolvedExecutablePath` (T3.23), so a live-written
-   * record is never empty — but a reader that must be certain has to look at
+   * writers always record `resolvedExecutablePath`, so a live-written record
+   * is never empty — but a reader that must be certain has to look at
    * `created_at` against the migration, not at this value.
    */
   #parseSpawnConfig(bindingId: string, rawSpawnConfig: string): RuntimeBindingSpawnConfig {

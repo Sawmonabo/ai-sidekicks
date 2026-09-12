@@ -1,26 +1,25 @@
-// BL-142 — `METHOD_NAME_FORMAT` canonical-format pin.
+// `METHOD_NAME_FORMAT` canonical-format pin.
 //
 // `METHOD_NAME_FORMAT` (packages/contracts/src/jsonrpc-registry.ts) is the
-// single runtime source for the JSON-RPC method-name format ratified at
-// docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name
-// Registry (Tier 1 Ratified). The daemon's `MethodRegistry.register()` check
-// imports it (no per-package re-declaration). This test is the anti-drift pin
-// in the package that OWNS the constant: it asserts the exact accept/reject
-// vectors the ratification enumerates, so any future edit that loosens the
-// root or drops the camelCase tail (the BL-142 regression) fails here — at the
-// source — independent of the daemon's integration tests.
+// single runtime source for the JSON-RPC method-name format. The daemon's
+// `MethodRegistry.register()` check imports it (no per-package
+// re-declaration). This test is the anti-drift pin in the package that OWNS
+// the constant: it asserts the exact accept/reject vectors the ratification
+// enumerates, so any future edit that loosens the root or drops the camelCase
+// tail (regression) fails here — at the source — independent of the daemon's
+// integration tests.
 //
 // Coverage shape:
 //   • Accepts: names whose every segment starts lowercase, with all-lowercase
 //     OR camelCase segments — the Tier-1 `session.*` surface, the doc's
-//     permitted `settings.effectiveRead` / `driver.listCapabilities`, the
-//     BL-142 per-plan camelCase-tail strings (Plan-009/010/012/016), and
-//     since the 2026-09-05 root widening the camelCase-ROOTED
-//     `providerAccount.*` verbs plus the LSP-shaped `textDocument.didOpen`.
+//     permitted `settings.effectiveRead` / `driver.listCapabilities` per-plan
+//     camelCase-tail strings (010/012/016), and since the 2026-09-05 root
+//     widening the camelCase-ROOTED `providerAccount.*` verbs plus the
+//     LSP-shaped `textDocument.didOpen`.
 //   • Rejects: uppercase-STARTING segments in any position (the "didn't
 //     over-loosen" guard — the widening admits an uppercase letter inside a
 //     segment, never at its start), bare camelCase (no dot), slash forms,
-//     PascalCase, underscores (the Spec-006 event form), and malformed dots.
+//     PascalCase, underscores (event form), and malformed dots.
 //   • Excludes: LSP `$/`-prefixed system methods — those match the daemon-
 //     local `METHOD_NAME_LSP_REGEX`, NOT this canonical format (asserted as a
 //     non-match here so the two shapes stay distinct).
@@ -28,7 +27,7 @@ import { describe, expect, it } from "vitest";
 
 import { METHOD_NAME_FORMAT } from "../jsonrpc-registry.js";
 
-describe("METHOD_NAME_FORMAT — canonical JSON-RPC method-name format (BL-142)", () => {
+describe("METHOD_NAME_FORMAT — canonical JSON-RPC method-name format", () => {
   const ACCEPTED = [
     // Tier-1 `session.*` surface (all-lowercase segments).
     "session.create",
@@ -40,7 +39,6 @@ describe("METHOD_NAME_FORMAT — canonical JSON-RPC method-name format (BL-142)"
     // camelCase tails — the registry ratification cites these as permitted.
     "settings.effectiveRead",
     "driver.listCapabilities",
-    // BL-142 per-plan camelCase-tail strings (Plan-009/010/012/016 Phase 3).
     "repo.mountRead",
     "repo.executionModeSelect",
     "approval.requestCreate",
@@ -51,9 +49,9 @@ describe("METHOD_NAME_FORMAT — canonical JSON-RPC method-name format (BL-142)"
     "orchestration.budgetUpdate",
     "agent.configUpdate",
     // camelCase ROOTS — admitted by the 2026-09-05 first-segment widening.
-    // `providerAccount.*` is the corpus's only camelCase-rooted namespace
-    // (Spec-029 / Plan-029 / ADR-028); the daemon's `register()` guard threw
-    // on all ten of its verbs under the prior root class.
+    // `providerAccount.*` is the corpus's only camelCase-rooted namespace;
+    // the daemon's `register()` guard threw on all ten of its verbs under
+    // the prior root class.
     "providerAccount.list",
     "providerAccount.resetCredentialHome",
     // The LSP precedent the ratification cites for the dotted-camelCase style
@@ -75,7 +73,7 @@ describe("METHOD_NAME_FORMAT — canonical JSON-RPC method-name format (BL-142)"
     "sessionCreate", // no namespace dot
     "session/create", // slash separator (HTTP-path conflation)
     "SessionCreate", // PascalCase (type-name collision)
-    // Underscores are the Spec-006 durable-event form — invalid as a method.
+    // Underscores are durable-event form — invalid as a method.
     "runtime_node.attach",
     "approval.rule_revoked",
     // Malformed dots.

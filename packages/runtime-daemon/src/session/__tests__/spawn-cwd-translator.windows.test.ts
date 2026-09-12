@@ -20,7 +20,7 @@
 // land the test infrastructure now with a minimal in-memory `PtyHost`
 // that records the translated `SpawnRequest` and simulates a long-
 // running session via a deferred resolution. Swap in the real
-// `NodePtyHost` once NS-05 ships — the assertion shape is stable.
+// `NodePtyHost` once ships — the assertion shape is stable.
 
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -75,12 +75,12 @@ class RecordingPtyHost implements PtyHost {
 
   /**
    * Structural-conformance stub for the polymorphic `PtyHost.shutdown()`
-   * contract surface added by Plan-001 Phase 5 T5.3 (sidecar-lifecycle
-   * drain). The recording mock has no sessions to drain and no sidecar
-   * process to wind down — it returns the vacuous drain result so the
-   * `PtyHost` interface check holds. The translator's behavior is
-   * orthogonal to shutdown, so this method is never exercised by the
-   * tests in this file; the existence of the stub is the assertion.
+   * contract surface added. The recording mock has no sessions to drain
+   * and no sidecar process to wind down — it returns the vacuous drain
+   * result so the `PtyHost` interface check holds. The translator's
+   * behavior is orthogonal to shutdown, so this method is never
+   * exercised by the tests in this file; the existence of the stub is
+   * the assertion.
    */
   async shutdown(_options: {
     readonly perSessionTimeoutMs: number;
@@ -156,7 +156,7 @@ afterEach(() => {
 // claim (the wire-layer `SpawnRequest.cwd` carries the stable parent,
 // not the worktree path) is exactly what holds the Windows
 // `ERROR_SHARING_VIOLATION` failure mode at bay. When a real backend
-// lands at NS-05, swap RecordingPtyHost for it; the assertion stays.
+// lands swap RecordingPtyHost for it; the assertion stays.
 
 describe.skipIf(process.platform !== "win32")(
   "translateSpawnCwd × PtyHost.spawn — Windows worktree teardown",
@@ -194,7 +194,7 @@ describe.skipIf(process.platform !== "win32")(
 
       // The worktree path is recoverable from the wrapped cmd.exe
       // script — it lives in the command-string layer, not the
-      // spawn-call cwd, per Plan-024 I-024-5.
+      // spawn-call cwd.
       expect(seen?.args[4]).toContain(`cd /d "${ctx.worktree}"`);
     });
 

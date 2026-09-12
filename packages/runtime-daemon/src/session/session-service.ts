@@ -1,35 +1,31 @@
 // SessionService — durable append + replay over Local SQLite.
 //
-// Append path (Plan-001 owned — GUARDED, test-only, 2026-07-28):
-//   - `append()` refuses to run unless the service was constructed with
-//     the module-private `UnsignedPlaceholderAppendToken` singleton
-//     (`UnsignedPlaceholderAppendToken.forTestsOnly()`). The rows this
-//     path writes carry zero-filled integrity placeholders — exactly the
-//     never-signed rows Plan-006's `verifyRow` refuses fail-closed
+// Append path (owned — GUARDED, test-only, 2026-07-28):
+//   - `append()` refuses to run unless the service was constructed with the
+//     module-private `UnsignedPlaceholderAppendToken` singleton
+//     (`UnsignedPlaceholderAppendToken.forTestsOnly()`). The rows this path
+//     writes carry zero-filled integrity placeholders — exactly the
+//     never-signed rows the `verifyRow` refuses fail-closed
 //     (`signature_placeholder`) — so no production composition root may
-//     reach it, per the `Plan-006 §T3.1 — Append-path service writing integrity columns + Plan-022 Path 1 shred callback` precondition
-//     (added 2026-07-27): durable production writes belong to T3.1's
-//     `EventLogService.append`, the sole durable writer. Tests seeding
-//     placeholder rows opt in explicitly at construction. The read
-//     paths (`readEvents` / `replay`) need no opt-in.
+//     reach it precondition (added 2026-07-27): durable production writes
+//     belong to the `EventLogService.append`, the sole durable writer. Tests
+//     seeding placeholder rows opt in explicitly at construction.
 //   - Writes one `session_events` row per event. Single-statement
-//     INSERT is implicitly atomic in SQLite; Plan-006 will introduce a
+//     INSERT is implicitly atomic in SQLite will introduce a
 //     `db.transaction(...)` wrapper once snapshot writes land alongside
 //     event writes (so the row + snapshot commit as a unit).
 //   - Materializes hash-chain placeholder bytes (zero-fill) so the NOT
 //     NULL constraints in the schema are satisfied without claiming
-//     Plan-006 hash-chain semantics. Plan-006 (Session Event Taxonomy +
-//     Audit Log) replaces this with real BLAKE3 + Ed25519 over RFC 8785
-//     JCS-canonical bytes.
+//     hash-chain semantics. replaces this with real BLAKE3 + Ed25519
+//     over RFC 8785 JCS-canonical bytes.
 //   - Materializes `monotonic_ns` from the writer (caller-supplied) so
 //     tests can drive non-monotonic values to exercise D3.
 //   - Writes `pii_payload = NULL` always — no V1 SessionEvent variant
-//     carries PII per Spec-022 §PII Data Map. Plan-022 owns the wrapping
-//     pipeline that populates this column for sensitive event variants.
+//     carries PII. owns the wrapping pipeline that populates this column
+//     for sensitive event variants.
 //
-// Replay path (Plan-001 owned):
 //   - Reads events for a session by `sequence ASC` — the canonical replay
-//     key per ADR-017 §Decision and local-sqlite-schema.md §session_events.
+//     key.
 //   - Returns hydrated `StoredEvent` objects (parsed JSON payload). The
 //     projector consumes these to build `DaemonSessionSnapshot`.
 //   - `monotonic_ns` is hydrated as `bigint` (SQLite INTEGER → JS Number
@@ -40,11 +36,10 @@
 // What this service does NOT do (deferred):
 //   - Snapshot persistence to `session_snapshots`. D4 proves replay
 //     reproducibility from the event log alone; snapshot caching is a
-//     read-perf optimization Plan-001 reserves for later in the slice
-//     and that Plan-006 (BL-050 hash-chain integrity) and Plan-015
-//     (replay cursors) refine.
+//     read-perf optimization reserves for later in the slice and that
+//     and refine.
 //   - Real hash-chain or signature material. See top-of-file note.
-//   - Recovery from torn writes mid-batch. Plan-015 owns recovery.
+//   - Recovery from torn writes mid-batch.
 
 import type { Database, RunResult, Statement } from "better-sqlite3";
 
@@ -217,18 +212,17 @@ export class SessionService {
    * is fully synchronous by design. Throws on UNIQUE(session_id,
    * sequence) violations (the caller must coordinate sequence assignment).
    *
-   * GUARDED (the `Plan-006 §T3.1 — Append-path service writing integrity columns + Plan-022 Path 1 shred callback` precondition): throws unless the
-   * service was constructed with the genuine
-   * `UnsignedPlaceholderAppendToken` — see the file header, the token's
-   * class doc, and `SessionServiceOptions`.
+   * GUARDED (precondition): throws unless the service was constructed with
+   * the genuine `UnsignedPlaceholderAppendToken` — see the file header, the
+   * token's class doc, and `SessionServiceOptions`.
    *
    * Returns `undefined` (not `void`) as a deliberate residue of the
    * SYNCHRONOUS-transactional `SessionEventLog` seam this method was
    * once shaped to satisfy: that seam's `undefined` return type
    * rejected Promise-returning implementations at compile time.
    *
-   * The T3.1 re-point INVERTED that seam — it is async-transactional
-   * now, backed by `EventLogService.append`, and this method no longer
+   * Re-point INVERTED that seam — it is async-transactional now,
+   * backed by `EventLogService.append`, and this method no longer
    * satisfies it (nor should it: the seam's whole point is that a
    * production append is signed and chained, which this one is not).
    * The signature is kept as-is anyway, because the tests that seed
@@ -240,8 +234,8 @@ export class SessionService {
       throw new Error(
         "SessionService.append is guarded: it writes zero-filled prev_hash / row_hash / " +
           "daemon_signature placeholders, which integrity verification refuses fail-closed " +
-          "(failureMode signature_placeholder). Durable production writes belong to Plan-006 " +
-          "T3.1's EventLogService.append. Tests seeding placeholder rows opt in explicitly " +
+          "(failureMode signature_placeholder). Durable production writes belong to" +
+          "the EventLogService.append. Tests seeding placeholder rows opt in explicitly" +
           "with the identity-checked capability token: new SessionService(db, " +
           "{ allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly() }).",
       );
@@ -330,10 +324,10 @@ function hydrateRow(row: SessionEventRow): StoredEvent {
 //
 // The wire-layer `SessionEventSchema` (packages/contracts/src/event.ts)
 // constrains every V1 variant's payload to an object schema; this
-// boundary mirrors that constraint at the storage seam. Plan-006
-// (event-taxonomy + integrity protocol) will land a payload-
-// canonicalization step that re-validates against the discriminated-
-// union schema on read; until then, structural shape is what we enforce.
+// boundary mirrors that constraint at the storage seam. will land a
+// payload- canonicalization step that re-validates against the
+// discriminated- union schema on read; until then, structural shape is
+// what we enforce.
 function parsePayload(row: SessionEventRow): Record<string, unknown> {
   let parsed: unknown;
   try {

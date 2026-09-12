@@ -9,7 +9,7 @@
 /**
  * Canonicalize a UUID string to its lowercase hex form, preserving the brand.
  *
- * UUID hex text is case-INSENSITIVE (RFC 9562 §4): `0197F00D-…` and
+ * UUID hex text is case-INSENSITIVE (RFC 9562 section 4): `0197F00D-…` and
  * `0197f00d-…` denote the SAME logical UUID. The canonical text
  * representation is lowercase. The branded-UUID schemas in this package
  * (`SessionIdSchema`, `ParticipantIdSchema`, … — all `brandedUuidIdSchema`)
@@ -25,10 +25,10 @@
  * EXACT LOWERCASE string literals on a regex with no `i` flag, and its general
  * alternative could not rescue the Max UUID because a `[1-8]` version nibble
  * rejects `f`. So `FFFFFFFF-…` refused while `ffffffff-…` parsed. Producers of
- * the Spec-006 daemon-scope anchoring sentinel are no longer OBLIGED to emit it
- * lowercase for the parse to succeed — but they should still emit the canonical
- * lowercase form this helper outputs, for the Map-key reason below rather than
- * for the validator's.
+ * daemon-scope anchoring sentinel are no longer OBLIGED to emit it lowercase
+ * for the parse to succeed — but they should still emit the canonical lowercase
+ * form this helper outputs, for the Map-key reason below rather than for the
+ * validator's.
  *
  * Whenever a UUID is used as a **Map key** or a **hash input**, two
  * case-variants of one logical id must collapse to a single key or they

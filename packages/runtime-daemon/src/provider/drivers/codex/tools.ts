@@ -1,18 +1,18 @@
-// Codex per-tool metadata declaration (Plan-005 Phase 3, T3.4).
+// Codex per-tool metadata declaration.
 //
 // This module is the Codex driver's ONLY source of per-tool
-// `idempotency_class` metadata. `DriverCapabilitiesWriter` (T2.4) explodes the
+// `idempotency_class` metadata. `DriverCapabilitiesWriter` explodes the
 // declared array into `driver_tools` rows so the daemon's two-phase
 // command-receipt protocol can dispatch crash recovery on a tool's class
-// WITHOUT round-tripping the provider (`Spec-005 §Tool Metadata`).
+// WITHOUT round-tripping the provider.
 //
 // -- The tool-name namespace, and why it is the ThreadItem discriminant --
 //
 // The `codex app-server` protocol at the pinned build publishes NO census of
 // the model-facing built-in tool names: regenerating the JSON Schema per
-// `docs/reference/provider-wire/codex.md §Regeneration` yields a `Tool`
-// definition whose `name` is an open `string` (the MCP-style descriptor), a
-// `ToolsV2` config object carrying a single `web_search` toggle, and a
+// `docs/reference/provider-wire/codex.md ` yields a `Tool` definition whose
+// `name` is an open `string` (the MCP-style descriptor), a `ToolsV2` config
+// object carrying a single `web_search` toggle, and a
 // `GuardianCommandSource` enum — none of which enumerates the tools an agent
 // turn can invoke. The ONE closed, wire-verified enumeration of invocation
 // identities the protocol does publish is the `ThreadItem` `type`
@@ -24,12 +24,12 @@
 // silently vacuous class table. So the namespace here is the observed one.
 //
 // `CODEX_TOOL_NAMES` is exported as a `const` tuple (and `CodexToolName` as
-// its derived union) SPECIFICALLY so the T3.5 event normalizer imports the
-// identity rather than restating string literals: a namespace change becomes a
-// compile error at the consumer instead of a dead database lookup at recovery
-// time. This is the seam T3.5 must consume.
+// its derived union) SPECIFICALLY so event normalizer imports the identity
+// rather than restating string literals: a namespace change becomes a compile
+// error at the consumer instead of a dead database lookup at recovery time.
+// This is the seam must consume.
 //
-// -- I-005-3 is structural, not documented --
+// -- is structural, not documented --
 //
 // Every entry leaves this module as a `NormalizedProviderToolMetadata`, whose
 // `idempotency_class` is REQUIRED. The only constructor of that shape here is
@@ -52,22 +52,17 @@
 // -- Classification basis --
 //
 // `idempotent` is claimed ONLY where re-execution after a crash changes no
-// state the session or any external system can observe (`Spec-005 §Tool
-// Metadata`: "safe to re-execute ... either a pure read ... or a write whose
-// external target is server-side idempotent"). Each such claim carries its
-// one-line rationale inline. No Codex built-in qualifies as `compensable` —
-// that class requires a remote side honoring a client-supplied idempotency
-// key, and none of these invocations exposes one — so the class is absent
-// here by evidence, not by oversight.
+// state the session or any external system can observe ("safe to
+// re-execute... either a pure read... Each such claim carries its one-line
+// rationale inline. No Codex built-in qualifies as `compensable` — that
+// class requires a remote side honoring a client-supplied idempotency key,
+// and none of these invocations exposes one — so the class is absent here by
+// evidence, not by oversight.
 //
 // -- Deliberate omissions (each is a decision, not a gap) --
 //
-//   * `mcpToolCall` — MCP-discovered tools are keyed by (server, tool), not by
-//     the item discriminant, and are ALWAYS `manual_reconcile_only` with
-//     derivation from `ToolAnnotations` prohibited (`Spec-005 §Tool
-//     Metadata`). Declaring a single `"mcpToolCall"` row would assert a class
-//     for an identity no receipt ever records. The MCP idempotency floor and
-//     the server-status census are Plan-005 T3.13 (PR-B).
+//   * Declaring a single `"mcpToolCall"` row would assert a class for an
+//     identity no receipt ever records.
 //   * `dynamicToolCall` — the daemon-curated callback-tool path. Those tools
 //     are registered per session (`SessionCallbackTool`), so their classes
 //     come from the session registry, never from this static declaration.
@@ -78,17 +73,10 @@
 //     `exitedReviewMode`, `contextCompaction`) are message/lifecycle rows and
 //     carry no tool identity at all.
 //
-// SCOPE BOUNDARY: this task declares the census only. The MCP idempotency
-// floor + server-status census (T3.13) and the CLI-version floor / refresh
-// cadence (T3.12) EXTEND this driver in PR-B and are NOT implemented here.
+// SCOPE BOUNDARY: this task declares the census only.
 //
-// Spec coverage: `Spec-005 §Required Behavior` (per-tool `idempotency_class`
-// required alongside the tool list), `Spec-005 §Tool Metadata`
-// (`manual_reconcile_only` conservative default).
-//
-// Refs: Plan-005 §Phase 3 / T3.4, invariant I-005-3,
-// `docs/reference/provider-wire/codex.md` (wire surface at the pinned
-// `codex-cli` build; regenerate-don't-transcribe).
+// Invariant `docs/reference/provider-wire/codex.md` (wire surface at
+// the pinned `codex-cli` build; regenerate-don't-transcribe).
 
 import { McpServerStatusEmissionSchema } from "@ai-sidekicks/contracts";
 import type {
@@ -99,7 +87,6 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 /**
- * The conservative floor an unannotated tool closes to (I-005-3).
  *
  * Exported so a consumer asserting the floor names the same constant this
  * module defaults with, rather than restating the literal.
@@ -125,15 +112,15 @@ export const CODEX_TOOL_NAMES = [
   "sleep",
 ] as const;
 
-/** The closed union of Codex tool identities — the T3.5 normalizer's seam. */
+/** The closed union of Codex tool identities — normalizer's seam. */
 export type CodexToolName = (typeof CODEX_TOOL_NAMES)[number];
 
 /**
  * A tool as AUTHORED in this module.
  *
  * `idempotency_class` is OPTIONAL here and REQUIRED on the way out: that
- * asymmetry IS invariant I-005-3, expressed in the type system rather than in
- * prose. `description` is required because an operator reconciling a halted
+ * asymmetry IS invariant expressed in the type system rather than in prose.
+ * `description` is required because an operator reconciling a halted
  * `manual_reconcile_only` receipt reads it, and an unexplained row is a worse
  * default than a verbose one.
  */
@@ -190,7 +177,7 @@ const CODEX_TOOL_DECLARATIONS: Record<CodexToolName, CodexToolDeclaration> = {
 
 /**
  * The single constructor of an emitted tool row. Its REQUIRED
- * `idempotency_class` return field is what closes the set (I-005-3).
+ * `idempotency_class` return field is what closes the set.
  */
 function closeCodexToolDeclaration(
   name: CodexToolName,
@@ -230,24 +217,23 @@ export function getCodexToolMetadata(): NormalizedProviderToolMetadata[] {
 }
 
 // ==========================================================================
-// T3.13 — MCP idempotency floor + MCP server-status census (EXTENDs T3.4)
+// MCP idempotency floor + MCP server-status census
 // ==========================================================================
 //
-// Three additions, each scoped to what `Spec-005 §Tool Metadata` and Plan-005
-// T3.13 (P2-7, P2-10-L1) assign to the DRIVER side:
+// Three additions, each scoped to what and assign to the DRIVER side:
 //
 //   1. The MCP idempotency floor: an MCP-discovered tool is ALWAYS
 //      `manual_reconcile_only`, and the class is NEVER derived from MCP
 //      `ToolAnnotations` self-claims (readOnlyHint / idempotentHint). The
-//      only upgrade path is the operator-governed assignment surface
-//      (Spec-028 §Tool-Level Overrides) — which is Plan-028's, not here.
+//      only upgrade path is the operator-governed assignment surface —
+//      which lives outside this driver, not here.
 //   2. The durable-task-handle seam: where an MCP call is dispatched
 //      task-augmented (MCP 2025-11-25 Tasks utility), the receiver-generated
-//      `taskId` from the `CreateTaskResult` acceptance is the handle Spec-015
-//      recovery polls instead of halting. This module OBSERVES the handle at
-//      dispatch and does not store it; the storage half is
+//      `taskId` from the `CreateTaskResult` acceptance is the handle recovery
+//      polls instead of halting. This module OBSERVES the handle at dispatch
+//      and does not store it; the storage half is
 //      `provider/mcp-task-handle-recorder.ts`, the sole writer of
-//      `command_receipts.mcp_task_id` (T5.1, on the column its own migration
+//      `command_receipts.mcp_task_id` (on the column its own migration
 //      lands). The split is deliberate and survives activation: parsing an
 //      acceptance is provider-shaped, persisting a handle is not. A dispatch
 //      whose handle is absent, malformed, or refused by the recorder stores
@@ -256,15 +242,14 @@ export function getCodexToolMetadata(): NormalizedProviderToolMetadata[] {
 //   3. The MCP server-status census normalizers: `mcpServerStatus/list` rows
 //      and `mcpServer/startupStatus/updated` notifications, normalized into
 //      the closed `McpServerStatus` enum and Zod-bounded
-//      (`McpServerStatusEmissionSchema` — `serverName` is untrusted
-//      provider output) BEFORE anything reaches the daemon-injected
+//      (`McpServerStatusEmissionSchema` — `serverName` is untrusted provider
+//      output) BEFORE anything reaches the daemon-injected
 //      `onMcpServerStatus` producer. SERVERS ONLY — no per-server tool-list
 //      assumption (support is not visibility). Producer-only: the consumer
-//      is Plan-028's `McpStatusNormalizer` (CP-028-2).
+//      is the `McpStatusNormalizer`.
 //
 // Wire grounding (first-party, generated JSON Schema at the pinned codex-cli
-// `0.150.1` — regenerate per
-// `docs/reference/provider-wire/codex.md §Regeneration`):
+// `0.150.1` — regenerate per `docs/reference/provider-wire/codex.md `):
 //   * `McpServerStatus` list row: required `name` + `authStatus`
 //     (`unknown | unsupported | notLoggedIn | bearerToken | oAuth`), optional
 //     `runtimeStatus` (`McpServerConnectionStatus`: `notStarted | starting |
@@ -275,7 +260,7 @@ export function getCodexToolMetadata(): NormalizedProviderToolMetadata[] {
 //     optional `failureReason` (`reauthenticationRequired`) and `error`.
 
 /**
- * The class of EVERY MCP-discovered tool (`Spec-005 §Tool Metadata`).
+ * The class of EVERY MCP-discovered tool.
  *
  * Exported as its own constant — rather than reusing
  * {@link DEFAULT_CODEX_TOOL_IDEMPOTENCY_CLASS} at call sites — because the two
@@ -301,15 +286,11 @@ export interface McpToolAnnotationHints {
 /**
  * Classify an MCP-discovered tool's `idempotency_class`.
  *
- * Always {@link MCP_DISCOVERED_TOOL_IDEMPOTENCY_CLASS}. The `annotations`
- * parameter is accepted and IGNORED — that is the contract, not an oversight:
- * MCP 2025-11-25 binds clients to treat `ToolAnnotations` as untrusted unless
- * from trusted servers, and `Spec-005 §Tool Metadata` forbids deriving the
- * class from them at MUST strength. A `readOnlyHint: true` /
- * `idempotentHint: true` self-claim therefore has NO effect on recovery
- * dispatch. The only upgrade path is the operator-governed, Cedar-gated,
- * always-audited assignment surface (Spec-028 §Tool-Level Overrides), which
- * is Plan-028's and never consulted at this seam.
+ * The `annotations` parameter is accepted and IGNORED — that is the contract,
+ * not an oversight: MCP 2025-11-25 binds clients to treat `ToolAnnotations`
+ * as untrusted unless from trusted servers, and forbids deriving the class
+ * from them at MUST strength. A `readOnlyHint: true` / `idempotentHint: true`
+ * self-claim therefore has NO effect on recovery dispatch.
  */
 export function classifyMcpDiscoveredTool(
   annotations?: McpToolAnnotationHints | undefined,
@@ -324,21 +305,21 @@ export function classifyMcpDiscoveredTool(
 // Durable-task-handle seam (observation half)
 // --------------------------------------------------------------------------
 //
-// LIVE, BUT UNCALLED. `observeMcpTaskAcceptance` no longer discards: Plan-005
-// T5.1 replaced the no-op sink this seam was born with by the real writer in
+// `observeMcpTaskAcceptance` no longer discards: replaced the no-op sink this
+// seam was born with by the real writer in
 // `provider/mcp-task-handle-recorder.ts`, which stores the handle on the
-// dispatch's `command_receipts` row so Plan-015 T15.3 recovery can poll
-// `tasks/get` / `tasks/result` instead of halting.
+// dispatch's `command_receipts` row so recovery can poll `tasks/get` /
+// `tasks/result` instead of halting.
 //
 // What is missing is the CALLER. Nothing in the daemon issues a task-augmented
-// MCP call, and no plan task owns one — T3.13 owns this observation half, T5.1
-// owns the write half, Plan-015 T15.3 owns the read, and the dispatch itself is
-// unassigned. `Spec-028 §Purpose` moreover holds that the provider CLIs are the
-// MCP clients and "the daemon never joins the MCP wire", which is in tension
-// with the `CreateTaskResult`-at-dispatch observation this seam performs; the
-// method string `tools/call` appears nowhere in the corpus or the code. Resolve
-// that before wiring a caller here — see the header of
-// `provider/mcp-task-handle-recorder.ts` for the full statement.
+// MCP call, and no plan task owns one — owns this observation half owns the
+// write half owns the read, and the dispatch itself is unassigned. moreover
+// holds that the provider CLIs are the MCP clients and "the daemon never joins
+// the MCP wire", which is in tension with the `CreateTaskResult`-at-dispatch
+// observation this seam performs; the method string `tools/call` appears
+// nowhere in the corpus or the code. Resolve that before wiring a caller here —
+// see the header of `provider/mcp-task-handle-recorder.ts` for the full
+// statement.
 
 /**
  * The identity of one task-augmented MCP dispatch, as the observation seam
@@ -451,7 +432,7 @@ export interface McpServerStatusIngestResult {
  *     connection — a terminal not-connected state, not an absent observation.
  *   * `disabled` → `unknown`: deliberately not running; there IS no live
  *     connection state. The enabled/disabled semantics live on the CONSUMER's
- *     inventory entry (Spec-028 §Status Observation), never in this enum.
+ *     inventory entry, never in this enum.
  */
 const CODEX_CONNECTION_STATUS_MAP: Readonly<Record<string, McpServerStatus>> = {
   notStarted: "starting",

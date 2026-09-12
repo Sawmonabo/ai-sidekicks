@@ -1,7 +1,6 @@
-// Plan-003 §Phase 3 §T3.8 + §Phase 5 §T5.0c: router-level tRPC tests for the
-// runtime-node sibling router (`runtimenode.attach` / `.heartbeat` /
-// `.capabilityupdate` / `.detach` / `.roster`) against a pglite-backed
-// `Querier`. These pin the NEW transport wiring that no service test covers:
+// `runtimenode.attach` / `.heartbeat` / `.capabilityupdate` / `.detach` /
+// `.roster`) against a pglite-backed `Querier`. These pin the NEW transport
+// wiring that no service test covers:
 //
 //   * Mounting — every procedure resolves under the `runtimenode.*` namespace
 //     (the sibling-router composition) with input -> backing service -> output
@@ -12,15 +11,15 @@
 //     `CONFLICT` (HTTP 409): the attach conflict + revoked refusals and the
 //     capability-update refusal. The services already test the typed throwables
 //     directly (attach-service.test.ts); these tests assert ONLY the
-//     transport-layer code translation, which is T3.8's sole new behavior.
-//   * The roster QUERY registration (T5.0c) — `runtimenode.roster` is the
-//     namespace's FIRST (and only) `query` per the api-payload-contracts.md
-//     Runtime-Node Method-Name Registry (its four siblings are mutations),
-//     its input gated by RuntimeNodeRosterRequestSchema and its output the
-//     schema-valid RuntimeNodeRosterResponse. Roster READ breadth (visibility,
-//     axis independence, derived readOnly, isolation) is the service suite's
-//     domain (attach-service.test.ts) — not re-tested here, mirroring how the
-//     four mutations split service-vs-transport coverage.
+//     transport-layer code translation, which is the sole new behavior.
+//   * The roster QUERY registration — `runtimenode.roster` is the namespace's
+//     FIRST (and only) `query` Runtime-Node Method-Name Registry (its four
+//     siblings are mutations), its input gated by
+//     RuntimeNodeRosterRequestSchema and its output the schema-valid
+//     RuntimeNodeRosterResponse. Roster READ breadth (visibility, axis
+//     independence, derived readOnly, isolation) is the service suite's domain
+//     (attach-service.test.ts) — not re-tested here, mirroring how the four
+//     mutations split service-vs-transport coverage.
 //
 // REAL services over PGlite (not a structural stub): `RuntimeNodeRouterDeps`
 // holds the concrete `AttachService` / `HeartbeatService` classes (nominal,
@@ -32,10 +31,6 @@
 // is a LOCAL copy (sibling tests each carry their own — the dispatch contract
 // forbids exporting a shared test fixture from `packages/control-plane/`).
 //
-// Refs: docs/plans/003-runtime-node-attach.md §T3.8 + §T5.0c, ADR-014,
-//       `docs/architecture/contracts/api-payload-contracts.md §Runtime-Node Method-Name Registry (Tier 3)`
-//       (the roster registry row — query, control-plane tRPC only — and the
-//       procedure-type paragraph).
 
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { TRPCError } from "@trpc/server";
@@ -224,7 +219,7 @@ afterEach(async () => {
 // routes input -> service -> output.
 // ----------------------------------------------------------------------------
 
-describe("runtime-node router — happy-path mounting (T3.8)", () => {
+describe("runtime-node router — happy-path mounting", () => {
   it("runtimenode.attach mounts and resolves with the attach response (input -> service -> output)", async () => {
     await seedParticipant(harness.querier, PARTICIPANT_ID);
     await seedSession(harness.querier, SESSION_ID);
@@ -305,11 +300,11 @@ describe("runtime-node router — attach resolves the acting participant from ct
 
 // ----------------------------------------------------------------------------
 // Catch-arms — the typed service exceptions map to tRPC CONFLICT (HTTP 409).
-// This is T3.8's sole NEW behavior (the services raise the typed throwables; the
+// This is the sole NEW behavior (the services raise the typed throwables; the
 // router translates them at the transport boundary).
 // ----------------------------------------------------------------------------
 
-describe("runtime-node router — typed exception -> CONFLICT (T3.8 catch-arms)", () => {
+describe("runtime-node router — typed exception -> CONFLICT (catch-arms)", () => {
   it("runtimenode.attach maps the cross-session conflict (RuntimeNodeAttachConflictException) to CONFLICT", async () => {
     await seedParticipant(harness.querier, PARTICIPANT_ID);
     await seedSession(harness.querier, SESSION_ID);
@@ -384,13 +379,12 @@ describe("runtime-node router — typed exception -> CONFLICT (T3.8 catch-arms)"
   });
 
   it("runtimenode.capabilityupdate maps the below-floor write-refusal (VersionFloorExceededException) to CONFLICT", async () => {
-    // The version-floor write-refusal catch-arm (T3.4): a below-floor (read-only)
-    // node's capability WRITE is refused with VersionFloorExceededException,
-    // which the capabilityupdate catch-arm maps to tRPC CONFLICT (HTTP 409 per
-    // error-contracts.md §Version) ALONGSIDE the capability-update conflict. A
-    // floored session (floor 2.0) holds the node's active attachment at a
-    // below-floor client_version (1.0) — the read-only verdict the gate
-    // re-derives at write time.
+    // The version-floor write-refusal catch-arm: a below-floor (read-only) node's
+    // capability WRITE is refused with VersionFloorExceededException, which the
+    // capabilityupdate catch-arm maps to tRPC CONFLICT (HTTP 409) ALONGSIDE the
+    // capability-update conflict. A floored session (floor 2.0) holds the node's
+    // active attachment at a below-floor client_version (1.0) — the read-only
+    // verdict the gate re-derives at write time.
     await seedParticipant(harness.querier, PARTICIPANT_ID);
     await seedSession(harness.querier, SESSION_ID, "2.0");
     await seedAttachment(harness.querier, {
@@ -430,7 +424,7 @@ describe("runtime-node router — typed exception -> CONFLICT (T3.8 catch-arms)"
 // "does NOT translate a session_id FK violation (23503)").
 // ----------------------------------------------------------------------------
 
-describe("runtime-node router — non-typed error rethrows raw (T3.8 catch-arm discriminates)", () => {
+describe("runtime-node router — non-typed error rethrows raw (catch-arm discriminates)", () => {
   it("runtimenode.attach rethrows a raw session_id FK violation (23503) as INTERNAL_SERVER_ERROR, NOT CONFLICT", async () => {
     // Seed the participant but DELIBERATELY NOT the session: the NULL-floor read
     // tolerates a missing session (no row -> floor = null, no throw), then the
@@ -464,19 +458,18 @@ describe("runtime-node router — non-typed error rethrows raw (T3.8 catch-arm d
 });
 
 // ----------------------------------------------------------------------------
-// runtimenode.roster — the namespace's FIRST (and only) query (T5.0c)
+// runtimenode.roster — the namespace's FIRST (and only) query
 // ----------------------------------------------------------------------------
 //
-// api-payload-contracts.md §Runtime-Node Method-Name Registry: the roster row
-// registers `runtimenode.roster` as a `query` (its four siblings are
-// mutations), control-plane tRPC ONLY — no daemon JSON-RPC registration. The
-// three tests pin T5.0c's NEW transport wiring: the procedure-TYPE
-// registration (query, not mutation — a registry-conformance property no
-// service test can observe), the input gate (RuntimeNodeRosterRequestSchema),
-// and the input -> AttachService.readRoster -> output round-trip returning the
-// schema-valid RuntimeNodeRosterResponse.
+// `runtimenode.roster` as a `query` (its four siblings are mutations),
+// control-plane tRPC ONLY — no daemon JSON-RPC registration. The three tests
+// pin the NEW transport wiring: the procedure-TYPE registration (query, not
+// mutation — a registry-conformance property no service test can observe), the
+// input gate (RuntimeNodeRosterRequestSchema), and the input ->
+// AttachService.readRoster -> output round-trip returning the schema-valid
+// RuntimeNodeRosterResponse.
 
-describe("runtime-node router — runtimenode.roster registers as the namespace's first query (T5.0c)", () => {
+describe("runtime-node router — runtimenode.roster registers as the namespace's first query", () => {
   it("mounts roster as a QUERY procedure while the four siblings stay mutations (registry conformance)", () => {
     // `_def.type` is the runtime procedure-type discriminator tRPC v11 carries
     // on every built procedure. Asserting all five re-derives the registry

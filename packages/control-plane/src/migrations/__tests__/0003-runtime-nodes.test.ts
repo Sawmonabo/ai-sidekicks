@@ -1,4 +1,4 @@
-// Plan-003 Phase 3 T3.1 — `0003-runtime-nodes.ts` migration shape regression.
+// `0003-runtime-nodes.ts` migration shape regression.
 //
 // Phase 3 acceptance criterion: applying `0003` against a Postgres DB already
 // migrated through `0002` creates `runtime_node_attachments` +
@@ -18,8 +18,7 @@
 //        (`information_schema.columns`, sorted).
 //   P4 — `state` CHECK accepts EXACTLY the five lifecycle states
 //        {registering, online, degraded, offline, revoked} and rejects an
-//        out-of-set value (`Spec-003 §Interfaces And Contracts`; `state` CHECK in
-//        `shared-postgres-schema.md` §Runtime Node Attachments).
+//        out-of-set value (`state` CHECK).
 //   P5 — `health_state` CHECK on `runtime_node_presence` accepts {online,
 //        degraded, offline} and rejects an out-of-set value.
 //   P6 — composite UNIQUE `idx_node_attachments_node (node_id, session_id)` is
@@ -27,10 +26,10 @@
 //        `offline` state so this test pins ONLY the composite key).
 //   P7 — partial-active UNIQUE `idx_node_attachments_active` is enforced AND
 //        scoped to active states: two ACTIVE rows with the same `node_id` but
-//        DIFFERENT `session_id` collide (the I-003-5 single-active-session
-//        substrate fires), while an `offline` + active pair with the same
-//        `node_id` / different `session_id` both succeed (proving the
-//        `WHERE state IN (...)` clause is present and load-bearing).
+//        DIFFERENT `session_id` collide (single-active-session substrate
+//        fires), while an `offline` + active pair with the same `node_id` /
+//        different `session_id` both succeed (proving the `WHERE state IN
+//        (...)` clause is present and load-bearing).
 //   P8 — `runtime_node_presence` PRIMARY KEY on `node_id` rejects a duplicate.
 //   P9 — `session_id` FK and `participant_id` FK on `runtime_node_attachments`
 //        are enforced (FK violation surfaces a Postgres `23503`).
@@ -51,13 +50,13 @@
 //
 // This file exercises `RUNTIME_NODES_MIGRATION_SQL` semantics in isolation at
 // the SQL layer — column shape, CHECK clauses, FK enforcement, the two unique
-// indexes, the presence PK, idempotency on repeated direct exec. Post Plan-003
+// indexes, the presence PK, idempotency on repeated direct exec. Post
 // `applyMigrations()` iterates every registered migration and applies them all
-// in one call, so using `applyMigrations()` in this file's
-// `beforeEach` would pre-apply v3 — defeating the point of every test below
-// (P1's "runtime_node tables should not yet exist" probe, P2-P9's "apply v3
-// cleanly, then probe" structure, P10's "re-exec v3 SQL stays idempotent at
-// the SQL layer" assertion).
+// in one call, so using `applyMigrations()` in this file's `beforeEach` would
+// pre-apply v3 — defeating the point of every test below (P1's "runtime_node
+// tables should not yet exist" probe, P2-P9's "apply v3 cleanly, then probe"
+// structure, P10's "re-exec v3 SQL stays idempotent at the SQL layer"
+// assertion).
 //
 // Instead, `beforeEach` direct-execs `INITIAL_MIGRATION_SQL` (v1) so each test
 // starts at exactly the precondition — a DB at v1 with the runtime-node tables
@@ -90,10 +89,6 @@
 // `internal/` extraction would add more indirection than it removes; if the
 // call-site count grows further, revisit the extraction trade-off.
 //
-// Refs: Plan-003 Phase 3 T3.1, `Spec-003 §State And Data Implications` (durable
-// runtime-node records for reconnect/audit),
-// docs/architecture/schemas/shared-postgres-schema.md §Runtime Node
-// Attachments (Plan-003).
 
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -106,11 +101,11 @@ import { applyMigrations, type Querier } from "../../sessions/migration-runner.j
 // Test fixtures — UUIDs and helpers
 // ----------------------------------------------------------------------------
 //
-// UUID v4 fixtures stand in for daemon-assigned UUID v7 IDs (BL-069 — the
-// schema accepts any RFC 9562 UUID). Two distinct session ids are seeded
-// because the partial-active uniqueness reject (P7) needs a SECOND session so
-// the composite `(node_id, session_id)` key does NOT also collide — isolating
-// the partial-active index as the constraint under test.
+// UUID v4 fixtures stand in for daemon-assigned UUID v7 IDs (the schema
+// accepts any RFC 9562 UUID). Two distinct session ids are seeded because the
+// partial-active uniqueness reject (P7) needs a SECOND session so the
+// composite `(node_id, session_id)` key does NOT also collide — isolating the
+// partial-active index as the constraint under test.
 
 const SESSION_ID = "01970000-0000-7000-8000-00000000a001";
 const SESSION_ID_2 = "01970000-0000-7000-8000-00000000a002";
@@ -178,14 +173,14 @@ interface TestContext {
 let ctx: TestContext;
 
 beforeEach(async () => {
-  // Fresh in-memory PGlite per test — no tmpdir cleanup needed. Bootstraps
-  // v1 via direct `tx.exec(...)` so each test starts at exactly the
-  // AC's precondition (a DB "migrated through 0002") with the runtime-node
-  // tables absent. Using `applyMigrations(querier)` here would pre-apply v3
-  // post Plan-003 PR #145 — see the file-level "Why this file uses direct-exec
-  // v1 bootstrap" header for the full rationale. The transaction wrappers
-  // mirror the canonical `applyMigrations` atomicity boundary so a torn write
-  // in the bootstrap leaves the DB cleanly at the prior version.
+  // Fresh in-memory PGlite per test — no tmpdir cleanup needed. Bootstraps v1
+  // via direct `tx.exec(...)` so each test starts at exactly the AC's
+  // precondition (a DB "migrated through 0002") with the runtime-node tables
+  // absent. Using `applyMigrations(querier)` here would pre-apply v3 post PR
+  // #145 — see the file-level "Why this file uses direct-exec v1 bootstrap"
+  // header for the full rationale. The transaction wrappers mirror the
+  // canonical `applyMigrations` atomicity boundary so a torn write in the
+  // bootstrap leaves the DB cleanly at the prior version.
   const pg: PGlite = new PGlite();
   const querier: Querier = adaptPGlite(pg);
   await querier.transaction(async (tx) => {
@@ -352,12 +347,10 @@ describe("0003-runtime-nodes migration (P3 — exact column set)", () => {
 // ----------------------------------------------------------------------------
 
 describe("0003-runtime-nodes migration (P4 — state CHECK pins {registering, online, degraded, offline, revoked})", () => {
-  // `Spec-003 §Interfaces And Contracts` + the `state` CHECK in shared-postgres-schema.md §Runtime
-  // Node Attachments: the attachment lifecycle is EXACTLY {registering, online,
-  // degraded, offline, revoked}. Each valid state is inserted with a DISTINCT
-  // node_id so the partial-active unique index (which constrains the active
-  // states registering/online/degraded) does not collide across the positive
-  // cases — isolating the `state` CHECK as the property under test.
+  // the `state` CHECK online, degraded, offline, revoked}. Each valid state is inserted
+  // with a DISTINCT node_id so the partial-active unique index (which constrains the active
+  // states registering/online/degraded) does not collide across the positive cases —
+  // isolating the `state` CHECK as the property under test.
   const VALID_STATES = ["registering", "online", "degraded", "offline", "revoked"] as const;
 
   beforeEach(async () => {
@@ -366,7 +359,7 @@ describe("0003-runtime-nodes migration (P4 — state CHECK pins {registering, on
   });
 
   for (const [index, state] of VALID_STATES.entries()) {
-    it(`accepts state = '${state}' (canonical lifecycle per Spec-003 §Interfaces And Contracts)`, async () => {
+    it(`accepts state = '${state}' (canonical lifecycle)`, async () => {
       await expect(
         ctx.querier.query(
           `INSERT INTO runtime_node_attachments
@@ -398,11 +391,10 @@ describe("0003-runtime-nodes migration (P4 — state CHECK pins {registering, on
 // ----------------------------------------------------------------------------
 
 describe("0003-runtime-nodes migration (P5 — health_state CHECK pins {online, degraded, offline})", () => {
-  // The `health_state` CHECK in shared-postgres-schema.md §Runtime Node
-  // Attachments: presence health is EXACTLY {online, degraded, offline}.
-  // runtime_node_presence has no FK, so no ancestor seeding is needed; each
-  // valid value uses a distinct node_id (the PK) to avoid a PK collision
-  // masking a CHECK failure.
+  // The `health_state` CHECK degraded, offline}. runtime_node_presence has
+  // no FK, so no ancestor seeding is needed; each valid value uses a
+  // distinct node_id (the PK) to avoid a PK collision masking a CHECK
+  // failure.
   const VALID_HEALTH_STATES = ["online", "degraded", "offline"] as const;
 
   beforeEach(async () => {
@@ -470,21 +462,21 @@ describe("0003-runtime-nodes migration (P6 — composite UNIQUE (node_id, sessio
 });
 
 // ----------------------------------------------------------------------------
-// P7 — partial-active UNIQUE idx_node_attachments_active (I-003-5 substrate)
+// P7 — partial-active UNIQUE idx_node_attachments_active (substrate)
 // ----------------------------------------------------------------------------
 
-describe("0003-runtime-nodes migration (P7 — partial-active UNIQUE enforces single-active-session, I-003-5)", () => {
+describe("0003-runtime-nodes migration (P7 — partial-active UNIQUE enforces single-active-session)", () => {
   beforeEach(async () => {
     await applyRuntimeNodesMigration(ctx.querier);
     await seedSessionAndParticipant(ctx.querier);
   });
 
   it("rejects two ACTIVE rows for the same node across different sessions (partial-active fires)", async () => {
-    // I-003-5 single-active-session: a node has at most one attachment in an
-    // active state across ALL sessions. Both rows default to state
-    // `registering` (active) with the SAME node_id but DIFFERENT session_id —
-    // the composite `(node_id, session_id)` key PASSES (sessions differ), so
-    // the ONLY constraint that can reject is the partial-active unique index.
+    // Single-active-session: a node has at most one attachment in an active
+    // state across ALL sessions. Both rows default to state `registering`
+    // (active) with the SAME node_id but DIFFERENT session_id — the composite
+    // `(node_id, session_id)` key PASSES (sessions differ), so the ONLY
+    // constraint that can reject is the partial-active unique index.
     await expect(
       ctx.querier.query(
         `INSERT INTO runtime_node_attachments

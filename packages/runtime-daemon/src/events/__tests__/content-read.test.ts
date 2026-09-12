@@ -1,6 +1,5 @@
 // Contract coverage for verify-on-read over the machine-authored content
-// partition — the digest binding and the hydrated read projection
-// (Plan-006 T3.8).
+// partition — the digest binding and the hydrated read projection.
 //
 // ---------------------------------------------------------------------------
 // THE TWO QUESTIONS THIS FILE KEEPS APART
@@ -24,9 +23,6 @@
 // union carries a completeness assertion: a seventh reason added without an arm
 // fails this file.
 //
-// Spec coverage: `Spec-006 §Canonical Serialization Rules`,
-// `Spec-006 §Compacted Event Format`. Refs: Plan-006 T3.8, I-006-3-07,
-// I-006-3-08.
 
 import { blake3 } from "@noble/hashes/blake3.js";
 import { bytesToHex } from "@noble/hashes/utils.js";

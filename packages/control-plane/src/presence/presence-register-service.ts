@@ -546,7 +546,7 @@ export class PresenceRegisterService {
   // ------------------------------------------------------------------------
   //
   // `#sessions` is keyed by `SessionId`, a branded UUID whose validator is case-
-  // INSENSITIVE (RFC 9562 §4), and ids in this codebase are branded by bare cast
+  // INSENSITIVE (RFC 9562 section 4), and ids in this codebase are branded by bare cast
   // at DB-row reads (not parsed through the schema), so an uppercase and a
   // lowercase spelling of the SAME logical session can both reach this map.
   // Routing EVERY keyed access through these accessors (which canonicalize via

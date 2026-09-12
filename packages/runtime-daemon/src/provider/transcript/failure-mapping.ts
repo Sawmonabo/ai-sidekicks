@@ -1,12 +1,12 @@
-// Permanent-vs-transient refusal classification (Plan-005 Phase 3, T3.22).
+// Permanent-vs-transient refusal classification.
 //
-// `Spec-005 §Required Behavior` states the rule this module exists to enforce: a
-// structurally invalid history is a PERMANENT refusal, never a retry. A poisoned
-// history — an unpaired tool call, a reasoning item the target forbids — is
-// rejected identically on every subsequent request, so a retry ladder over it
-// buys nothing and spends a provider request per rung. The driver's answer is to
-// classify the refusal permanent, dispose the run's provider binding, and let the
-// caller reconstitute from the canonical transcript.
+// states the rule this module exists to enforce: a structurally invalid history
+// is a PERMANENT refusal, never a retry. A poisoned history — an unpaired tool
+// call, a reasoning item the target forbids — is rejected identically on every
+// subsequent request, so a retry ladder over it buys nothing and spends a
+// provider request per rung. The driver's answer is to classify the refusal
+// permanent, dispose the run's provider binding, and let the caller reconstitute
+// from the canonical transcript.
 //
 // The classifier owns BOTH arms of the distinction, and owning both is the point.
 // A module that only recognized the permanent class would leave "everything else"
@@ -17,10 +17,6 @@
 // UNSENT, and the outcome a connection loss left unknown gets its own arm with
 // its own evidence requirement.
 //
-// Spec coverage: `Spec-005 §Required Behavior` (a structurally invalid history is
-// a permanent refusal, never a retry); `Spec-005 §Fallback Behavior`.
-// Verifies invariant I-005-9.
-//
 // Driver-agnostic on purpose, for the reason the sibling assertion module is:
 // both legs refuse over different transports and both owe the identical verdict,
 // so the rules live once, here, and each driver supplies only a NORMALIZED
@@ -29,20 +25,20 @@
 //
 // What this module deliberately does NOT do:
 //
-//   * It never reads a provider message string. `Spec-005 §Pitfalls To Avoid`
-//     prohibits classifying a refusal by matching its text, and a classifier that
-//     accepted prose would make every provider wording change a silent behaviour
-//     change. The permanent arm is reachable only from a TYPED refusal shape the
-//     driver derived from the provider's own enumerated refusal vocabulary.
-//   * It never produces a `RecoveryCondition`. That taxonomy (T3.14) describes
-//     what a RESUME needs; a permanent structural refusal describes a history the
-//     target will never accept, and absorbing it into `recovery-needed` would send
-//     the daemon to re-establish a session whose next request refuses identically.
-//     The two vocabularies stay separate by construction: nothing here imports
-//     that type, and the permanent arm's carrier is this module's own error class.
+//   * It never reads a provider message string. prohibits classifying a refusal
+//     by matching its text, and a classifier that accepted prose would make every
+//     provider wording change a silent behaviour change. The permanent arm is
+//     reachable only from a TYPED refusal shape the driver derived from the
+//     provider's own enumerated refusal vocabulary.
+//   * It never produces a `RecoveryCondition`. That taxonomy describes what a
+//     RESUME needs; a permanent structural refusal describes a history the target
+//     will never accept, and absorbing it into `recovery-needed` would send the
+//     daemon to re-establish a session whose next request refuses identically. The
+//     two vocabularies stay separate by construction: nothing here imports that
+//     type, and the permanent arm's carrier is this module's own error class.
 //   * It never re-enters a replay. Mid-replay ambiguity and replay-interior
-//     refusals are T3.20's target-lifecycle rules (`./replay-assertion.ts`) and
-//     settle on T3.21's memo floor (`./memo-projection.ts`). The "exactly one
+//     refusals are the target-lifecycle rules (`./replay-assertion.ts`) and
+//     settle on the memo floor (`./memo-projection.ts`). The "exactly one
 //     reconstitution" property is kept STRUCTURALLY rather than by a counter: the
 //     ladder below is absent from the replay path, so there is no rung a replay
 //     could climb.
@@ -204,12 +200,11 @@ export function classifyProviderRequestFailure(
  * the run onto the same poisoned session forever.
  *
  * Deliberately NOT a `RecoveryCondition`, and deliberately not convertible to
- * one. `Spec-005 §Required Behavior` keeps the classes distinct, and the
- * distinction is operational rather than taxonomic: `recovery-needed` sends the
- * daemon to re-establish the session, which reproduces this refusal on the first
- * request against the rebuilt history. What this failure asks for is a
- * RECONSTITUTION — a canonical-transcript replay into a fresh target — which is a
- * different act by a different owner.
+ * one. keeps the classes distinct, and the distinction is operational rather than
+ * taxonomic: `recovery-needed` sends the daemon to re-establish the session,
+ * which reproduces this refusal on the first request against the rebuilt history.
+ * What this failure asks for is a RECONSTITUTION — a canonical-transcript replay
+ * into a fresh target — which is a different act by a different owner.
  */
 export class PermanentStructuralRefusalError extends Error {
   readonly providerSessionId: string;
@@ -262,12 +257,9 @@ export class PermanentStructuralRefusalError extends Error {
  * comparison and the marker scan, neither of which has a use for roles, and would
  * make every existing binding restate a dimension it does not read.
  *
- * A leg that binds no reader answers `unreadable`, and that is a CORRECT
- * SETTLEMENT rather than a gap to be repaired later: `Spec-005 §Fallback Behavior`
- * and the reconcile rule both specify the unreadable target as a first-class arm —
- * nothing is sent and the turn fails visibly. An unbound reader therefore behaves
- * exactly as a reader that answered "I cannot tell you", which is the honest
- * answer when no provider surface can supply the count.
+ * An unbound reader therefore behaves exactly as a reader that answered "I cannot
+ * tell you", which is the honest answer when no provider surface can supply the
+ * count.
  */
 export type ParticipantTurnReadback =
   | { readonly kind: "counted"; readonly participantOriginatedTurns: number }
@@ -311,12 +303,11 @@ export const PARTICIPANT_TURN_READ_FAILED: string =
  * Reconciles an ambiguous delivery positionally, and holds the send window open
  * around the caller's response to it.
  *
- * POSITIONAL, NEVER CONTENT-BASED. An ordinary turn carries no identity marker —
- * that carriage is T3.21's memo mechanism, minted for exactly this problem on a
- * path that could afford it — and participant text may legitimately repeat, so
- * matching bodies would settle a participant who asked the same question twice as
- * a duplicate. Counting is the one comparison both sides can perform on the same
- * unit.
+ * An ordinary turn carries no identity marker — that carriage is the memo
+ * mechanism, minted for exactly this problem on a path that could afford it — and
+ * participant text may legitimately repeat, so matching bodies would settle a
+ * participant who asked the same question twice as a duplicate. Counting is the
+ * one comparison both sides can perform on the same unit.
  *
  * RECONCILE BEFORE SEND, and the ordering is enforced here rather than asked of
  * the caller. {@link AmbiguousDeliveryReconciler.reconcileThenAct} runs the read

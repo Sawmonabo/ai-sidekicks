@@ -1,22 +1,22 @@
-// Coverage map for `intervention.ts` (Plan-005 Phase 3, T3.7):
-//   * `Spec-005 §Required Behavior` — one generic `applyIntervention` dispatcher plus the
-//     degraded-fallback answer, rather than a per-intervention method set.
-//   * ADR-011 (generic intervention dispatch) — `queue_and_interrupt` is the
-//     documented daemon fallback for a provider with no native steer.
-//   * I-005-4 — an intervention type this driver cannot dispatch natively returns
-//     a `degraded` RESULT: never a throw, and never a silent no-op. The
+// Coverage map for `intervention.ts`:
+//   * One generic `applyIntervention` dispatcher plus the degraded-fallback
+//     answer, rather than a per-intervention method set.
+//   * `queue_and_interrupt` is the documented daemon fallback for a provider
+//     with no native steer.
+//   * An intervention type this driver cannot dispatch natively returns a
+//     `degraded` RESULT: never a throw, and never a silent no-op. The
 //     no-silent-no-op conjunct is asserted by counting OUTBOUND TRAFFIC, not by
 //     reading the return value: a degraded steer must send zero user-text frames
 //     and zero control requests, because a driver that delivered the steer text
 //     and then reported `degraded` would double-apply the intervention the daemon
 //     is about to queue.
-//   * P0-3 (T3.14) — the requester's `clientIdempotencyKey` has no pinned wire
-//     home on the interrupt control request, so no substitute is invented: the
-//     dispatched request carries exactly `{ subtype, cancelQueued }`.
-//   * P3-1 (T3.14) — an acknowledged CANCEL that reports surviving queued
-//     messages (`still_queued`, the `interrupt_receipt_v1` receipt) degrades
-//     instead of reading as success; the same field on an INTERRUPT is the
-//     contract working, and applies.
+//   * The requester's `clientIdempotencyKey` has no pinned wire home on the
+//     interrupt control request, so no substitute is invented: the dispatched
+//     request carries exactly `{ subtype, cancelQueued }`.
+//   * An acknowledged CANCEL that reports surviving queued messages
+//     (`still_queued`, the `interrupt_receipt_v1` receipt) degrades instead of
+//     reading as success; the same field on an INTERRUPT is the contract
+//     working, and applies.
 
 import {
   DRIVER_FALLBACK_ACTION_MAX_LEN,
@@ -78,7 +78,7 @@ describe("CLAUDE_STEER_FALLBACK_ACTION", () => {
   });
 });
 
-describe("ClaudeInterventionDispatcher steer (I-005-4)", () => {
+describe("ClaudeInterventionDispatcher steer", () => {
   it("degrades with the documented queue_and_interrupt fallback", async () => {
     const harness = buildHarness();
 
@@ -261,7 +261,7 @@ describe("ClaudeInterventionDispatcher cancel receipt grading (P3-1)", () => {
   });
 });
 
-describe("ClaudeInterventionDispatcher unrouted intervention types (I-005-4)", () => {
+describe("ClaudeInterventionDispatcher unrouted intervention types", () => {
   it("degrades instead of throwing when an unrouted type reaches the dispatcher", async () => {
     const harness = buildHarness();
     // Reachable only from an untyped boundary: the compile-time half of this

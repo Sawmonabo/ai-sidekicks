@@ -1,10 +1,6 @@
-// GOLDEN VECTOR - Claude turn-evidence result frames (T3.18).
+// GOLDEN VECTOR - Claude turn-evidence result frames.
 //
-//   Source doc      : docs/reference/provider-wire/claude.md
-//   Section         : §Client-side command interception on the programmatic
-//                     input surface
-//   Pin             : Claude Code 2.1.251 (the native single-file build named
-//                     in that doc's §Version pin)
+//   Pin             : Claude Code 2.1.251 (the native single-file build)
 //   Provenance      : Binary probe. Three live `claude -p --output-format
 //                     stream-json` runs against the on-disk build on
 //                     2026-08-29, in one pass, same model and same session
@@ -12,11 +8,10 @@
 //                     command-shaped first word, that same body with one
 //                     prepended newline, and ordinary prose.
 //   Trust           : Verified at 2.1.251. Every number below is a reading, not
-//                     an illustration. The `2.1.245` behaviour Spec-005 records
+//                     an illustration. The same behaviour recorded at `2.1.245`
 //                     reproduced unchanged at this pin, so it is a standing
 //                     property of this input surface rather than one build's
 //                     regression.
-//   Derived by      : Plan-005 T3.18.
 //
 // WHAT THIS FIXTURE IS FOR.
 //

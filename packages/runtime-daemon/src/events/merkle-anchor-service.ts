@@ -1,4 +1,4 @@
-// Plan-006 T3.3 — the Merkle-anchor service.
+// The Merkle-anchor service.
 //
 // Produces the integrity witness for a daemon's local event log: a BLAKE3
 // Merkle root over a contiguous range of `session_events.row_hash` values,
@@ -10,12 +10,10 @@
 //
 //   * {@link MerkleAnchorService.onEventAppended} — the CADENCE path. Called by
 //     the append path after each committed row; fires an anchor on the earlier
-//     of `ANCHOR_INTERVAL_EVENTS` rows or `ANCHOR_INTERVAL_SECONDS` seconds
-//     (`Spec-006 §Anchoring Cadence`).
+//     of `ANCHOR_INTERVAL_EVENTS` rows or `ANCHOR_INTERVAL_SECONDS` seconds.
 //   * {@link MerkleAnchorService.anchorRange} — the FORCE-FIRE path. Called by
 //     the compactor before it discards canonical bytes, so that a covering
-//     anchor exists for the range being compacted
-//     (`Spec-006 §Post-Compaction Integrity`).
+//     anchor exists for the range being compacted.
 //   * {@link MerkleAnchorService.uploadPendingAnchors} — the DRAIN path. Ships
 //     queued anchors to the control plane through {@link AnchorUploadTransport},
 //     one freshly-minted DPoP credential per attempt, under the retry backoff
@@ -29,18 +27,17 @@
 // agreement is easiest to keep honest when both live side by side.
 //
 // ----------------------------------------------------------------------------
-// The Merkle construction — RFC 9162 §2.1.1 MTH, conformant
+// The Merkle construction — RFC 9162 section 2.1.1 MTH, conformant
 // ----------------------------------------------------------------------------
 //
 // Phase 4's verifier and any external audit reader must recompute this root
-// EXACTLY, from stored bytes, years later. The tree is RFC 9162 §2.1.1's Merkle
+// EXACTLY, from stored bytes, years later. The tree is RFC 9162 section 2.1.1's Merkle
 // Tree Hash with BLAKE3 as HASH, over the range's `session_events.row_hash`
 // values as the data entries `d[i]`:
 //
 //   1. LEAF HASH IS `BLAKE3(0x00 || row_hash)`. The 32-byte `row_hash` is the
-//      data entry, not the leaf hash — `Spec-006 §Post-Compaction Integrity`
-//      step 2 names `row_hash` as the leaf BASIS, and the hook signature carries
-//      `rowHash` for that reason.
+//      data entry, not the leaf hash — step 2 names `row_hash` as the leaf
+//      BASIS, and the hook signature carries `rowHash` for that reason.
 //   2. AN INTERIOR NODE IS `BLAKE3(0x01 || left || right)`.
 //   3. FOR n > 1 THE LIST SPLITS AT `k`, THE LARGEST POWER OF TWO SMALLER THAN
 //      `n` (so `k < n <= 2k`), and the root is
@@ -66,25 +63,20 @@
 // list with the same root. `merkle-root.test.ts` kills prefix-removal mutants
 // for exactly this reason.
 //
-// GLOSS REPAIR (2026-08-04). Before this date the canonical DDL comment on
-// `pending_anchor_uploads.merkle_root` in
-// `docs/architecture/schemas/local-sqlite-schema.md` read "RFC 9162 §2.1
-// odd-leaf duplication", and `Spec-006 §Post-Compaction Integrity` carried the
-// same parenthetical. That prescription was self-contradictory: §2.1.1 splits at
-// the largest power of two and domain-separates, while odd-leaf duplication is
-// the Bitcoin construction, which admits the CVE-2012-2459 root collapse the RFC
-// exists to avoid. Resolved in favour of the cited RFC — the citation was the
-// intent, the wording was the defect. No production anchors existed, so the
-// signed format was free.
+// Before this date the canonical DDL comment on
+// `pending_anchor_uploads.merkle_root` read "RFC 9162 section 2.1 odd-leaf
+// duplication", and carried the same parenthetical. That prescription was
+// self-contradictory: while odd-leaf duplication is the Bitcoin construction,
+// which admits the CVE-2012-2459 root collapse the RFC exists to avoid. Resolved
+// in favour of the cited RFC — the citation was the intent, the wording was the
+// defect. No production anchors existed, so the signed format was free.
 //
 // A FOURTH surface carried a DIFFERENT wrong construction and was repaired in
-// the same pass: `security-architecture.md` §Merkle Anchors described plain
-// `left‖right` concatenation and stated outright that "RFC 9162's leaf-prefix is
-// omitted because this is an internal log, not a CT log". It is the doc a
-// verifier implementer reads for this protocol, so it now carries the §2.1.1
-// statement and a dated correction note. Changing the construction again is a
-// corpus edit first (schema doc + Spec-006 + security architecture), then this
-// file, then T4.1's verifier, in that order.
+// the same pass: `left‖right` concatenation and stated outright that "RFC 9162's
+// leaf-prefix is omitted because this is an internal log, not a CT log". It is
+// the doc a verifier implementer reads for this protocol, so it now carries.
+// Changing the construction again is a corpus edit first (schema doc + security
+// architecture), then this file, then the verifier, in that order.
 //
 // PREIMAGE AMENDMENT (2026-08-12; Codex PR #323 round 2, landed by that
 // corpus-first order). `root_signature` covers the UTF-8 bytes of the RFC 8785
@@ -99,9 +91,8 @@
 // disjoint from every event canonical form and stub projection, so no claim
 // byte string doubles as a signed-event or signed-stub byte string. Amended
 // pre-first-release with no production anchors in existence. Canonical text:
-// `Spec-006 §Anchoring Cadence`; {@link buildAnchorClaimBytes} is the one
-// preimage builder, exported so T4.1's verifier consumes it rather than
-// re-deriving the shape.
+// {@link buildAnchorClaimBytes} is the one preimage builder, exported so the
+// verifier consumes it rather than re-deriving the shape.
 //
 // ----------------------------------------------------------------------------
 // Why leaves are read from the DATABASE and never accumulated in memory
@@ -147,19 +138,15 @@
 // Idempotency — two independent mechanisms, deliberately
 // ----------------------------------------------------------------------------
 //
-// `IdempotencyClass: idempotent` on the T3.3 plan row is carried by both:
+// `IdempotencyClass: idempotent` on plan row is carried by both:
 //
 //   * A COVERAGE pre-check short-circuits before any signing work when an
-//     existing anchor already covers the requested range
-//     (`start_sequence <= fromSeq AND end_sequence >= toSeq`). This is the
-//     `Spec-006 §Post-Compaction Integrity` step-1 test and is deliberately NOT
-//     an exact-start match: an anchor over [1,5000] covers a compaction of
-//     [2000,3000], and an exact-match probe would miss it and force a redundant
-//     re-anchor.
+//     existing anchor already covers the requested range (`start_sequence <=
+//     fromSeq AND end_sequence >= toSeq`).
 //   * The `UNIQUE (session_id, node_id, start_sequence, end_sequence)` key makes
 //     a genuine re-fire of an IDENTICAL range a no-op insert; the service then
 //     reads the queued row back and returns it rather than re-signing. (Ed25519
-//     is deterministic per RFC 8032 §5.1.6, so re-signing would produce the same
+//     is deterministic per RFC 8032 section 5.1.6, so re-signing would produce the same
 //     bytes — the point is that the queue must not accumulate duplicate rows,
 //     and that the returned `anchoredAt` must be the ORIGINAL commitment's, not
 //     a fresh timestamp.)
@@ -172,19 +159,10 @@
 // ----------------------------------------------------------------------------
 //
 // `anchorRange` returns once the row is QUEUED. It does not await, or even
-// attempt, a control-plane upload. `Spec-006 §Post-Compaction Integrity` step 3
-// pins that landing in `pending_anchor_uploads` — not a successful upload — is
-// what satisfies the compactor's precondition, and Plan-006 §Merkle Anchor
-// Emission makes queue-locally-flush-on-reconnect the partition-tolerance
-// contract. A daemon partitioned from the control plane keeps anchoring and
-// keeps compacting; the witness copies converge when the link returns.
+// attempt, a control-plane upload. A daemon partitioned from the control plane
+// keeps anchoring and keeps compacting; the witness copies converge when the
+// link returns.
 //
-// Spec coverage: `Spec-006 §Anchoring Cadence` (ANCHOR_INTERVAL_EVENTS),
-// `Spec-006 §Post-Compaction Integrity` (force-fire; pending_anchor_uploads).
-// Verifies invariant: I-006-3-02 (the uploaded shape is metadata-only —
-// structurally enforced by `AnchorPayload` in `@ai-sidekicks/contracts`).
-// Refs: Plan-006 T3.3, Plan-006 §Merkle Anchor Emission, ADR-017,
-// `docs/architecture/schemas/local-sqlite-schema.md`.
 
 import {
   AnchorPayloadSchema,
@@ -208,14 +186,13 @@ import { mintUuidV7 } from "../ids/uuid-v7.js";
 
 /**
  * The Ed25519 preimage of `root_signature` — the RFC 8785 canonicalization of
- * the five-member anchor claim per `Spec-006 §Anchoring Cadence` (2026-08-11
- * amendment; see the module header's PREIMAGE AMENDMENT note).
+ * the five-member anchor claim.
  *
  * `merkleRoot` enters the claim in the base64 spelling the upload wire carries
  * ({@link AnchorPayload}`.merkleRoot`), the sequences as JSON numbers, the ids
  * as their wire strings. RFC 8785 orders members itself; the literal below is
  * written pre-sorted for the reader. Exported as the ONE preimage builder so
- * the T4.1 verifier and the golden tests consume this construction rather than
+ * verifier and the golden tests consume this construction rather than
  * re-deriving it — a second builder that drifted would mint signatures nothing
  * can verify.
  */
@@ -236,14 +213,13 @@ export function buildAnchorClaimBytes(claim: {
 }
 
 /**
- * Rows per cadence anchor — `Spec-006 §Anchoring Cadence`
- * (`ANCHOR_INTERVAL_EVENTS = 1000`).
+ * Rows per cadence anchor
  */
 export const ANCHOR_INTERVAL_EVENTS: number = 1000;
 
 /**
  * Seconds since the previous anchor after which the cadence fires regardless of
- * row count — `Spec-006 §Anchoring Cadence` (`ANCHOR_INTERVAL_SECONDS = 300`).
+ * row count
  *
  * The two thresholds are an EARLIER-OF, not an AND: a quiet session still gets
  * a witness every five minutes, and a busy one every thousand rows.
@@ -253,7 +229,7 @@ export const ANCHOR_INTERVAL_SECONDS: number = 300;
 /** Width of a `session_events.row_hash` leaf and of a Merkle root, in bytes. */
 const MERKLE_NODE_LENGTH = 32;
 
-/** Width of an Ed25519 signature (RFC 8032 §5.1.6), in bytes. */
+/** Width of an Ed25519 signature (RFC 8032 section 5.1.6), in bytes. */
 const ED25519_SIGNATURE_LENGTH = 64;
 
 /** Delay before the FIRST retry of a failed upload, in seconds. */
@@ -309,14 +285,14 @@ export function uploadRetryDelaySeconds(attemptCount: number): number {
 // The Merkle tree
 // --------------------------------------------------------------------------
 
-/** RFC 9162 §2.1.1 leaf-hash domain-separation prefix. */
+/** RFC 9162 section 2.1.1 leaf-hash domain-separation prefix. */
 const MERKLE_LEAF_PREFIX = 0x00;
 
-/** RFC 9162 §2.1.1 interior-node domain-separation prefix. */
+/** RFC 9162 section 2.1.1 interior-node domain-separation prefix. */
 const MERKLE_INTERIOR_PREFIX = 0x01;
 
 /**
- * Computes the RFC 9162 §2.1.1 Merkle Tree Hash over an ordered list of 32-byte
+ * Computes the RFC 9162 section 2.1.1 Merkle Tree Hash over an ordered list of 32-byte
  * `session_events.row_hash` data entries, with BLAKE3 as HASH.
  *
  * EXPORTED FOR THE VERIFIER. Phase 4's audit reader must recompute this exact
@@ -350,7 +326,7 @@ export function computeMerkleRoot(leaves: ReadonlyArray<Uint8Array>): Uint8Array
   return merkleTreeHash(leaves, 0, leaves.length);
 }
 
-/** `MTH(D[start:end])` — RFC 9162 §2.1.1, over the half-open index range. */
+/** `MTH(D[start:end])` — RFC 9162 section 2.1.1, over the half-open index range. */
 function merkleTreeHash(
   entries: ReadonlyArray<Uint8Array>,
   start: number,
@@ -421,7 +397,7 @@ export interface TrpcFetchAnchorUploadTransportDeps {
   readonly endpoint: string;
   /** This daemon's NodeId, carried into the credential attempt. */
   readonly nodeId: NodeId;
-  /** Mints the per-attempt DPoP credential headers (CP-006-13). */
+  /** Mints the per-attempt DPoP credential headers. */
   readonly credentialProvider: DaemonCredentialProvider;
   /** Injected for tests; defaults to the global `fetch`. */
   readonly fetchImpl?: typeof fetch;
@@ -440,7 +416,7 @@ export const ANCHOR_UPLOAD_PROCEDURE = "eventanchor.upload";
 
 /**
  * Merges provider-supplied headers over a set of defaults, matching names
- * case-insensitively (RFC 9110 §5.1).
+ * case-insensitively (RFC 9110 section 5.1).
  *
  * A plain object spread would compare names by BYTES. A provider that derives
  * its material from a `Headers` instance hands back lowercase names, so
@@ -476,7 +452,7 @@ function mergeRequestHeaders(
  *
  * THE CREDENTIAL IS MINTED PER ATTEMPT, INSIDE THIS METHOD, and the `htm`/`htu`
  * handed to the provider are the method and URI of the very request being
- * built one line later. That co-location is the point: RFC 9449 §4.3 binds the
+ * built one line later. That co-location is the point: RFC 9449 section 4.3 binds the
  * proof to those two values, so a proof minted against anything else is a proof
  * of nothing, and the only way to keep them in agreement is to derive both from
  * the same place.
@@ -496,7 +472,7 @@ export class TrpcFetchAnchorUploadTransport implements AnchorUploadTransport {
 
   async upload(anchor: AnchorPayload): Promise<EventAnchorUploadResponse> {
     // No query string and no fragment: an unbatched tRPC mutation POSTs its
-    // input as the body, so this URL is already the `htu` RFC 9449 §4.3 wants.
+    // input as the body, so this URL is already the `htu` RFC 9449 section 4.3 wants.
     const requestUri = `${this.#endpoint}/${ANCHOR_UPLOAD_PROCEDURE}`;
     const method = "POST";
 
@@ -715,10 +691,9 @@ export class MerkleAnchorService {
     this.#now = deps.now ?? ((): Date => new Date());
     this.#anchorIdFactory = deps.anchorIdFactory ?? mintUuidV7;
 
-    // The COVERAGE query (`Spec-006 §Post-Compaction Integrity` step 1): an
-    // anchor covers a range when it starts at or before it and ends at or after
-    // it. Narrowest covering anchor first, so the short-circuit returns the
-    // tightest witness rather than an arbitrary one.
+    // The COVERAGE query: an anchor covers a range when it starts at or before
+    // it and ends at or after it. Narrowest covering anchor first, so the
+    // short-circuit returns the tightest witness rather than an arbitrary one.
     this.#selectCoveringAnchor = this.#db.prepare(
       `SELECT session_id, node_id, start_sequence, end_sequence, merkle_root, root_signature, anchored_at
          FROM pending_anchor_uploads
@@ -764,9 +739,8 @@ export class MerkleAnchorService {
     );
     // Sentinel-partitioned (node-scope) rows are excluded: they have no
     // `sessions(id)` row for `event_log_anchors` to FK against, and node-scope
-    // witnessing is a V1.1 extension (ADR-017 §Node-Scope Anchor Witnessing).
-    // Their `uploaded_at` stays NULL by design, so this filter is what keeps
-    // them from being retried forever.
+    // witnessing is a V1.1 extension. Their `uploaded_at` stays NULL by design,
+    // so this filter is what keeps them from being retried forever.
     // `attempt_count` and `last_attempt_at` come along because the drain's
     // backoff gate reads them (`uploadRetryDelaySeconds`). The eligibility
     // arithmetic itself stays in TypeScript rather than in this string: a retry
@@ -796,8 +770,8 @@ export class MerkleAnchorService {
    *
    * Fires an anchor over `[windowStart, sequence]` on the earlier of
    * `ANCHOR_INTERVAL_EVENTS` rows or `ANCHOR_INTERVAL_SECONDS` seconds since the
-   * previous anchor (`Spec-006 §Anchoring Cadence`). Below both thresholds it
-   * resolves without touching the queue.
+   * previous anchor. Below both thresholds it resolves without touching the
+   * queue.
    *
    * PROPAGATES ITS FAILURES rather than swallowing them. An anchor that cannot
    * be produced means the integrity witness has stopped being written, and a

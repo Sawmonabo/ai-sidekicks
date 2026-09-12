@@ -1,4 +1,4 @@
-// Plan-029 T1.3 — contract <-> DDL conformance.
+// Contract <-> DDL conformance.
 //
 // The suite IS the test: one row per pinned pair, and every pin reads the LIVE
 // schema rather than a transcription of it. That distinction is the whole point
@@ -22,8 +22,6 @@
 // never been shown to fail proves nothing about a clean result, so it is run
 // against a deliberately-wrong DDL and must report the mismatch.
 //
-// Spec coverage: `Spec-029 §State And Data Implications`.
-// Refs: Plan-029 T1.3, I-029-1, I-029-2, I-029-13.
 
 import {
   BILLING_MODES,

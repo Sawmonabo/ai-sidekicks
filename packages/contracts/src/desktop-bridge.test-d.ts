@@ -1,10 +1,9 @@
 // Conditional-type negative test against the `SidekicksBridge` interface.
 //
-// Verifies invariant (Plan-023 Phase 1 T-023p-1-4):
-//   `Spec-023 §Acceptance Criteria` — "No auth material (daemon
-//   session token, PASETO tokens, DPoP key, WebAuthn PRF output) appears
-//   on the `window.sidekicks` surface — verified by a negative contract
-//   test against the bridge's exposed type."
+//   "No auth material (daemon session token, PASETO tokens, DPoP key,
+//   WebAuthn PRF output) appears on the `window.sidekicks` surface —
+//   verified by a negative contract test against the bridge's exposed
+//   type."
 //
 // How it works
 // ------------
@@ -32,7 +31,6 @@
 // (`AssertNever<T extends never>`) is the canonical TS recipe: TS errors
 // with TS2344 when `T` is non-never, which is the failure we want.
 //
-// Negative-test verification (Plan-023 Phase 1 T-023p-1-4 acceptance):
 //   • inject `sessionToken: string;` under `SidekicksBridge["app"]`
 //   • run `pnpm --filter @ai-sidekicks/contracts typecheck`
 //   • expect TS2344 at the `AssertNever<Offenders>` line below
@@ -84,8 +82,8 @@ type ContainsForbidden<K extends string> = K extends string
   : never;
 
 /**
- * Union of every bridge key matching a forbidden substring. The
- * Spec-023 invariant holds iff this resolves to `never`.
+ * Union of every bridge key matching a forbidden substring.
+ * invariant holds iff this resolves to `never`.
  */
 type Offenders = ContainsForbidden<BridgeKeys>;
 

@@ -1,5 +1,5 @@
-// Driver-boundary provider-bound text neutralization and the runtime tripwire
-// (Plan-005 Phase 3, T3.18 / I-005-7).
+// Driver-boundary provider-bound text neutralization and the runtime
+// tripwire.
 //
 // The hazard under test, stated once: a provider CLI whose programmatic input
 // surface also parses client-side commands consumes a message whose first word
@@ -223,8 +223,8 @@ describe("outbound text frame writer", () => {
 
   it("neutralizes an absent origin and an off-union origin alike, echoing neither", () => {
     // Fail-closed, and the reason this is a frame-origin discriminator rather
-    // than a capability flag: an undeclared capability resolves fail-OPEN under
-    // I-005-2, which is exactly backwards for this hazard.
+    // than a capability flag: an undeclared capability resolves fail-OPEN which
+    // is exactly backwards for this hazard.
     for (const origin of [undefined, "participant-text", "PARTICIPANT_TEXT", "arbitrary"]) {
       const frame = writer("emulated").compose({ text: "/status", origin });
       expect(frame.wireText).toBe("\n/status");

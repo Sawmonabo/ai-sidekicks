@@ -124,7 +124,7 @@ describe("v4.local encrypt / decrypt", () => {
     expect(() => decryptV4Local(tampered, key)).toThrow(InvalidTokenError);
   });
 
-  // PASETO §2 exact-string invariant: `header.payload.` (trailing dot, empty
+  // PASETO section 2 exact-string invariant: `header.payload.` (trailing dot, empty
   // footer) is a third textual form that would otherwise decrypt against the
   // same key as `header.payload`. Without this rejection, an attacker can
   // bypass exact-string replay/revocation caches by appending `.`.

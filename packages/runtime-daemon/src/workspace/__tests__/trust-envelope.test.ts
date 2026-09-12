@@ -1,29 +1,21 @@
 // trust-envelope.test.ts — adversarial containment pins for the bind-time
-// trust-envelope validator (Plan-009 Phase 1 T1.6).
+// trust-envelope validator.
 //
-// Spec coverage:
-//   * `Spec-009 §Required Behavior` — "The system must reject path traversal or
-//     workspace binding outside the declared local trust envelope."
-//     → §traversal and escape, §envelope admission.
-//   * `Spec-009 §Local Trust Envelope (V1 Definition)` — containment is
-//     symlink-resolved, "path-component-boundary-aware (`/repo-evil` is not
-//     within `/repo`)", and "case-folded on case-insensitive filesystems
-//     (Windows tier per ADR-019)".
-//     → §accepted roots, §traversal and escape, §win32 comparison.
-//   * `Spec-009 §Local Trust Envelope (V1 Definition)` — `WorkspaceBind`'s
-//     `directory` is "resolved against the mount's canonical root and
-//     containment is re-checked AFTER symlink resolution"; "`..` traversal,
-//     absolute-path redirection, and symlink escape outside the mount root" are
-//     rejected with the typed error.
-//     → §traversal and escape, §resolution order, §typed refusal.
+//   * "The system must reject path traversal or workspace binding outside the
+//     declared local trust envelope." →.
+//   * containment is symlink-resolved, "path-component-boundary-aware
+//     (`/repo-evil` is not within `/repo`)", and "case-folded on
+//     case-insensitive filesystems (Windows tier)".
+//   * `WorkspaceBind`'s `directory` is "resolved against the mount's canonical
+//     root and containment is re-checked AFTER symlink resolution"; "`..`
+//     traversal, absolute-path redirection, and symlink escape outside the
+//     mount root" are rejected with the typed error.
 //
-// Invariant covered (canonical text in
-// `docs/plans/009-repo-attachment-and-workspace-binding.md §Invariants`):
-//   * I-009-3 — trust-envelope containment. No input — traversal, symlink
-//     escape, prefix collision, absolute redirection, a foreign anchor, or an
-//     unresolvable path — yields a validated root outside the canonical root of
-//     a mount attached to the same session.
-//     → every section below.
+// Invariant covered (canonical text):
+//   * No input — traversal, symlink escape, prefix collision, absolute
+//     redirection, a foreign anchor, or an unresolvable path — yields a
+//     validated root outside the canonical root of a mount attached to the same
+//     session. → every section below.
 //
 // Fixture strategy. Real temp directories, real symlinks, and real permission
 // MODES for everything a POSIX filesystem can express, so the ordering
@@ -72,12 +64,6 @@ import {
  * probe reports case-SENSITIVE and the test skips — the same accepted latency
  * class as the seam-gated win32 paths.
  *
- * Two guards cover the seam on CI instead: the default-implementation pin below,
- * which asserts the identity directly and fails on every platform; and the
- * symlink-escape tests in this file, which fail under a JS-walk substitution for
- * a reason unrelated to casing — that walk collapses `..` inside itself rather
- * than against the resolved target, which is the escape §ORDER IS LOAD-BEARING
- * refuses.
  */
 const filesystemIsCaseInsensitive: boolean = ((): boolean => {
   const probeRoot = mkdtempSync(join(tmpdir(), "trust-envelope-case-probe-"));
@@ -98,7 +84,7 @@ const itOnCaseInsensitiveFilesystem = it.skipIf(!filesystemIsCaseInsensitive);
  * POSIX, and not running as ROOT — the gate for the permission-mode cases.
  *
  * A mode bit asserts nothing under a uid that ignores it: root opens a `0111`
- * directory happily, so these would pass while testing nothing. T1.5's suite
+ * directory happily, so these would pass while testing nothing. the suite
  * gates its own `0111` fixtures the same way, and for the same reason each of
  * them has a seam-driven twin that runs everywhere.
  */
@@ -194,7 +180,7 @@ beforeAll(async () => {
   // absolute, and perfectly resolvable, so every step before the readability
   // probe is satisfied — which is what makes it a test of that probe and of
   // nothing else. Note where it sits: under a mount root that is itself
-  // readable, so T1.5's attach-time refusal would never have seen it.
+  // readable, so the attach-time refusal would never have seen it.
   //
   // The mode is applied here so no failing assertion can leave it behind, and
   // `afterAll` lifts it before the recursive delete, which cannot descend into
@@ -254,7 +240,7 @@ function candidateInMount(directory?: string): WorkspaceExecutionRootCandidate {
 /**
  * Asserts the rejection is the typed carrier. Every refusal in this file goes
  * through here, so the "thrown errors are `TrustEnvelopeViolationError`" clause
- * of the T1.6 test contract is pinned on each case rather than once.
+ * of test contract is pinned on each case rather than once.
  */
 async function expectEnvelopeRefusal(
   validating: Promise<unknown>,
@@ -329,16 +315,15 @@ function rejectingProbe(errnoCode: string): DirectoryReadabilityProbe {
 }
 
 // ----------------------------------------------------------------------------
-// Envelope admission — I-009-3's "attached to the same session" clause
+// Envelope admission — the "attached to the same session" clause
 // ----------------------------------------------------------------------------
 
-describe("envelope admission (I-009-3)", () => {
+describe("envelope admission", () => {
   // The anchor a bind names must BE one of the session's attached canonical
-  // roots. `Spec-009 §Local Trust Envelope (V1 Definition)` defines the
-  // envelope as "the set of fully resolved canonical roots of its attached repo
-  // mounts", so membership is equality — which is what turns "attached to the
-  // same session" from an assertion the caller makes into something the
-  // validator checks.
+  // roots. defines the envelope as "the set of fully resolved canonical roots
+  // of its attached repo mounts", so membership is equality — which is what
+  // turns "attached to the same session" from an assertion the caller makes
+  // into something the validator checks.
 
   it("accepts an anchor that is one of several attached mounts", async () => {
     const validated = await new TrustEnvelopeValidator().validateExecutionRoot({
@@ -430,10 +415,9 @@ describe("envelope admission (I-009-3)", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Accepted roots — Spec-009 §Local Trust Envelope (V1 Definition)
 // ----------------------------------------------------------------------------
 
-describe("accepted execution roots (I-009-3)", () => {
+describe("accepted execution roots", () => {
   it("accepts the mount root itself when no directory is supplied", async () => {
     const validated = await new TrustEnvelopeValidator().validateExecutionRoot(candidateInMount());
     expect(validated).toBe(fixtures.mountRoot);
@@ -484,9 +468,9 @@ describe("accepted execution roots (I-009-3)", () => {
   );
 
   it("accepts an absolute directory that stays inside the mount root", async () => {
-    // `Spec-009 §Local Trust Envelope (V1 Definition)` rejects absolute-path
-    // REDIRECTION outside the mount root, not the absolute spelling itself; the
-    // boundary is containment, not how the caller wrote the path.
+    // rejects absolute-path REDIRECTION outside the mount root, not the
+    // absolute spelling itself; the boundary is containment, not how the caller
+    // wrote the path.
     const validated = await new TrustEnvelopeValidator().validateExecutionRoot(
       candidateInMount(fixtures.realSubdirectory),
     );
@@ -508,11 +492,11 @@ describe("accepted execution roots (I-009-3)", () => {
 // The resolved root must be a directory the daemon can enumerate
 // ----------------------------------------------------------------------------
 
-describe("an unusable execution root is refused (I-009-3)", () => {
+describe("an unusable execution root is refused", () => {
   // Contained but unusable, in either of two ways. The returned value's only
   // destination is `workspaces.fs_root` — a root a process is later asked to run
-  // inside — and T2.4's bind flow resolves, refuses escapes, and persists
-  // without asking anything else about the path. A regular file would persist a
+  // inside — and the bind flow resolves, refuses escapes, and persists without
+  // asking anything else about the path. A regular file would persist a
   // workspace that can never spawn; a `0111` directory would persist one whose
   // contents can never be listed. One probe refuses both, because opening is
   // what the daemon would have to do in either case.
@@ -586,10 +570,10 @@ describe("an unusable execution root is refused (I-009-3)", () => {
   itOnPosixAsNonRoot("refuses a real `0111` subdirectory of the mount", async () => {
     // Mode `0111` grants traversal and refuses listing, so `realpath` resolves
     // it and containment passes — every earlier step is satisfied and only step
-    // 6 refuses. This is the bind-side twin of the attach-side refusal T1.5
-    // makes: without it, a bind naming this directory persists a
-    // `workspaces.fs_root` whose contents the daemon can never enumerate, under
-    // a mount root that is perfectly readable.
+    // 6 refuses. This is the bind-side twin of the attach-side refusal makes:
+    // without it, a bind naming this directory persists a `workspaces.fs_root`
+    // whose contents the daemon can never enumerate, under a mount root that is
+    // perfectly readable.
     await expectEnvelopeRefusal(
       new TrustEnvelopeValidator().validateExecutionRoot(candidateInMount("unreadable-sub")),
     );
@@ -616,7 +600,7 @@ describe("an unusable execution root is refused (I-009-3)", () => {
 // Traversal, symlink escape, prefix collision, absolute redirection
 // ----------------------------------------------------------------------------
 
-describe("escapes from the mount root are refused (I-009-3)", () => {
+describe("escapes from the mount root are refused", () => {
   it("has real escape targets, so the refusals below are about containment", async () => {
     // Without this, a refusal could just as well mean the target did not exist —
     // the fail-closed arm — and the whole section would pass against a validator
@@ -696,10 +680,9 @@ describe("escapes from the mount root are refused (I-009-3)", () => {
   });
 
   it("refuses an escape into ANOTHER mount attached to the same session", async () => {
-    // The mount-scoped reading of `Spec-009 §Local Trust Envelope (V1
-    // Definition)`, pinned: `WorkspaceBind` is mount-first (D-009-4) and the
-    // spec rejects escape "outside the MOUNT root". The result here is inside
-    // the session envelope, and it is still refused.
+    // The mount-scoped reading of pinned: `WorkspaceBind` is mount-first and
+    // the spec rejects escape "outside the MOUNT root". The result here is
+    // inside the session envelope, and it is still refused.
     const envelope = [fixtures.mountRoot, fixtures.secondMountRoot];
     const validator = new TrustEnvelopeValidator();
 
@@ -727,7 +710,7 @@ describe("escapes from the mount root are refused (I-009-3)", () => {
     // The validator never re-resolves the anchor: doing so would make an
     // admitted root that was later replaced by a symlink agree with its new
     // target. The cost is that a caller who supplies an un-canonicalized root
-    // is refused — the safe direction, and the one T1.5's postcondition makes
+    // is refused — the safe direction, and the one the postcondition makes
     // unreachable in production.
     await expectEnvelopeRefusal(
       new TrustEnvelopeValidator().validateExecutionRoot({
@@ -750,8 +733,8 @@ describe("escapes from the mount root are refused (I-009-3)", () => {
   it("refuses a candidate the filesystem will not resolve", async () => {
     // Fail-closed: containment cannot be PROVEN for a path that does not
     // resolve. The residual — a vanished mount root reporting as an envelope
-    // violation rather than as `stale` — is documented on the module, and T2.4
-    // probes reachability (T2.5 health) before binding.
+    // violation rather than as `stale` — is documented on the module, and
+    // probes reachability (health) before binding.
     await expectEnvelopeRefusal(
       new TrustEnvelopeValidator().validateExecutionRoot(candidateInMount("does-not-exist")),
     );
@@ -764,7 +747,7 @@ describe("escapes from the mount root are refused (I-009-3)", () => {
   });
 
   it("never returns a root outside the mount for ANY of the adversarial inputs", async () => {
-    // The T1.6 acceptance criterion as one statement over the whole set.
+    // Acceptance criterion as one statement over the whole set.
     const adversarialDirectories = [
       "../sibling",
       "../repo-evil",
@@ -828,10 +811,10 @@ describe("the filesystem resolves before the boundary check runs", () => {
 });
 
 // ----------------------------------------------------------------------------
-// The refusal carrier — T1.4 typed, path-redacted contract
+// The refusal carrier — typed, path-redacted contract
 // ----------------------------------------------------------------------------
 
-describe("refusals carry the typed, path-free error (T1.4)", () => {
+describe("refusals carry the typed, path-free error", () => {
   it("throws the registry-canonical code and notional status", async () => {
     const violation = await expectEnvelopeRefusal(
       new TrustEnvelopeValidator().validateExecutionRoot(candidateInMount("../sibling")),
@@ -842,10 +825,9 @@ describe("refusals carry the typed, path-free error (T1.4)", () => {
   });
 
   it("leaks no path into the message or the wire detail", async () => {
-    // `error-contracts.md §Repo` bars this code from echoing the attempted
-    // path; T1.4 extends the ban to `fields`. The carrier takes no arguments,
-    // so the guarantee is structural — this asserts the validator did not find
-    // some other way to attach one.
+    // bars this code from echoing the attempted path extends the ban to
+    // `fields`. The carrier takes no arguments, so the guarantee is structural
+    // — this asserts the validator did not find some other way to attach one.
     const violation = await expectEnvelopeRefusal(
       new TrustEnvelopeValidator().validateExecutionRoot(candidateInMount("link-outside")),
     );
@@ -861,10 +843,10 @@ describe("refusals carry the typed, path-free error (T1.4)", () => {
 });
 
 // ----------------------------------------------------------------------------
-// win32 comparison semantics, driven from POSIX CI (ADR-019 V1 tier)
+// win32 comparison semantics, driven from POSIX CI (V1 tier)
 // ----------------------------------------------------------------------------
 
-describe("win32 case folding and root shapes (Spec-009 §Local Trust Envelope (V1 Definition))", () => {
+describe("win32 case folding and root shapes", () => {
   // Injecting `path.win32` is what makes the Windows branch observable on an
   // ubuntu runner. Every physical path here comes from the synthetic
   // filesystem, so nothing depends on the host's own case sensitivity.
@@ -1039,13 +1021,13 @@ describe("win32 case folding and root shapes (Spec-009 §Local Trust Envelope (V
   });
 });
 
-describe("the default realpath implementation is pinned (I-009-3)", () => {
+describe("the default realpath implementation is pinned", () => {
   it("is `node:fs/promises.realpath`, never the JS-walk implementation", () => {
     // Structural deliberately, and it guards more than casing here. `node:fs`'s
-    // callback `realpath` performs "No case conversion ... on case-insensitive
+    // callback `realpath` performs "No case conversion... on case-insensitive
     // file systems" (Node's own wording), AND collapses `..` within its own walk
     // rather than against a symlink's resolved target — which would reopen the
-    // escape the §ORDER IS LOAD-BEARING header section exists to refuse.
+    // escape.
     //
     // The casing half is unobservable on CI's ubuntu-only daemon leg. This
     // assertion fails on every platform.
@@ -1053,7 +1035,7 @@ describe("the default realpath implementation is pinned (I-009-3)", () => {
   });
 });
 
-describe("case folding stays win32-scoped (Spec-009 §Local Trust Envelope (V1 Definition))", () => {
+describe("case folding stays win32-scoped", () => {
   // The POSIX control. Same shapes as the win32 block, same synthetic
   // filesystem — only the injected platform differs, so a folding rule that
   // leaked onto POSIX would show up here and nowhere else.

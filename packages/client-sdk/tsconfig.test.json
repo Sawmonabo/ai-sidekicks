@@ -5,8 +5,7 @@
   // `dist/`; integration tests under `test/` are outside the production
   // `include` glob entirely. This config covers BOTH via a `noEmit` typecheck
   // pass — `rootDir` widens to the package root so `test/**/*` is in-scope
-  // (per Plan-008 §T-008b-1-5 the SSE round-trip integration test lives at
-  // `test/transport/sse-roundtrip.test.ts`).
+  // (`test/transport/sse-roundtrip.test.ts`).
   "extends": "../../tsconfig.node22.json",
   "compilerOptions": {
     "noEmit": true,

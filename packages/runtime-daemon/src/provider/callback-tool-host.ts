@@ -1,4 +1,4 @@
-// Callback-tool host (Plan-005 Phase 3, T3.15 leg 3).
+// Callback-tool host (leg 3).
 //
 // The daemon-side dispatcher behind `CreateSessionParams.onCallbackToolCall`.
 // A driver translates its provider's wire request into a
@@ -12,27 +12,21 @@
 // Where the adjudication happens, and why it is a seam
 // ---------------------------------------------------------------------------
 //
-// Every invocation routes through Plan-012's approval pipeline via the
-// Plan-012-REGISTERED evaluation seam (CP-005-7). Plan-005 authors no Plan-012
-// symbol: the seam below is a port this package declares and Plan-012's
-// composed `check()` satisfies, so a callback tool is Cedar-governed exactly as
-// a provider-native tool is and this file contains no policy of its own.
-//
-// EVALUATE-FIRST, never a bare create (Plan-012 T2.10 / D-012-18). The seam is
-// asked to EVALUATE, and only an ask-policy outcome mints an approval request:
-// a policy allow or a valid remembered rule completes with no request minted at
-// all, and a deny refuses outright. That ordering is why this port has one
-// `evaluate` method rather than a `create`-then-await pair — a host that minted
-// first would put an approval request in front of a participant for every
-// invocation their own policy already settled.
+// EVALUATE-FIRST, never a bare create. The seam is asked to EVALUATE, and only
+// an ask-policy outcome mints an approval request: a policy allow or a valid
+// remembered rule completes with no request minted at all, and a deny refuses
+// outright. That ordering is why this port has one `evaluate` method rather
+// than a `create`-then-await pair — a host that minted first would put an
+// approval request in front of a participant for every invocation their own
+// policy already settled.
 //
 // ---------------------------------------------------------------------------
 // Fail-closed availability
 // ---------------------------------------------------------------------------
 //
 // The pipeline this host depends on is a SIBLING PLAN's, so the daemon can be
-// running with no seam registered. That is not a machine gate on Plan-012 and
-// never blocks a session; it degrades in one direction only:
+// running with no seam registered. That is not a machine gate on and never
+// blocks a session; it degrades in one direction only:
 //
 //   AT SPAWN — with no registered seam, the callback-tool registry is WITHHELD
 //   from the provider entirely (the leg-4 disabled-at-spawn pattern). A tool
@@ -61,15 +55,6 @@
 // `failed` WITHOUT dispatch, so malformed provider output never reaches the
 // approval pipeline at all.
 //
-// Spec coverage: `Spec-005 §Required Behavior` (the driver answers every
-// callback-tool invocation and invents no approval bypass);
-// `Spec-012 §Required Behavior` (every tool invocation is adjudicated, and a
-// remembered grant is an evaluation input rather than a bypass);
-// `Spec-016 §Provider-Native Subagents` (a child's tool calls route through the
-// same pipeline as the parent's).
-//
-// Refs: Plan-005 §Phase 3 / T3.15 leg 3, CP-005-7, `Spec-005 §Required
-// Behavior`, `Spec-012 §Required Behavior`.
 
 import {
   CallbackToolInvocationSchema,
@@ -85,12 +70,11 @@ import {
 import type { DriverDiagnosticsEmitter, DriverProviderName } from "./driver-diagnostics.js";
 
 // --------------------------------------------------------------------------
-// The Plan-012 evaluation seam.
 // --------------------------------------------------------------------------
 
 /**
  * One evaluation input, shaped as the canonical `approval.requestCreate`
- * payload Plan-012's composed `check()` consumes.
+ * payload the composed `check()` consumes.
  *
  * `arguments` rides along because a Cedar policy may condition on the call's
  * own parameters — a path outside the workspace, a host outside the allow-list
@@ -117,8 +101,8 @@ export interface CallbackToolApprovalRequest {
  * There is deliberately no third `ask` arm. Minting the request and awaiting
  * the participant's answer belong to the pipeline that owns approval state;
  * exposing an intermediate state here would put this host in the business of
- * tracking pending approvals, which is a second record of something Plan-012
- * already stores durably.
+ * tracking pending approvals, which is a second record of something already
+ * stores durably.
  */
 export type CallbackToolApprovalOutcome =
   | {
@@ -132,9 +116,9 @@ export type CallbackToolApprovalOutcome =
     };
 
 /**
- * The port Plan-012's composed `check()` satisfies. Declared here and
- * implemented there: this package authors no Plan-012 symbol, and the daemon
- * composition root binds the two.
+ * The port the composed `check()` satisfies. Declared here and implemented
+ * there: this package authors no symbol, and the daemon composition root
+ * binds the two.
  */
 export interface CallbackToolApprovalSeam {
   evaluate(request: CallbackToolApprovalRequest): Promise<CallbackToolApprovalOutcome>;
@@ -167,9 +151,9 @@ export type CallbackToolActivityDisposition =
 /**
  * One settled invocation, as the event pipeline records it.
  *
- * PRODUCER-ONLY at Plan-005, the same posture `onMcpServerStatus` takes: this
- * host states what happened and the consumer mints the envelope, so no driver-
- * adjacent module composes a `session_events` row.
+ * PRODUCER-ONLY the same posture `onMcpServerStatus` takes: this host states
+ * what happened and the consumer mints the envelope, so no driver- adjacent
+ * module composes a `session_events` row.
  */
 export interface CallbackToolActivityRecord {
   readonly sessionId: SessionId;
@@ -198,7 +182,7 @@ export interface CallbackToolActivitySink {
 
 /** Why a spawn withheld the callback-tool registry from the provider. */
 export type CallbackToolRegistryWithholdingReason =
-  /** No Plan-012 evaluation seam is registered, so nothing could be adjudicated. */
+  /** No evaluation seam is registered, so nothing could be adjudicated. */
   | "no-approval-seam"
   /** The provider cannot register the tools at this negotiated posture. */
   | "provider-registration-unavailable";
@@ -277,9 +261,9 @@ export interface CallbackToolHostOptions {
   readonly executor: CallbackToolExecutor;
   readonly activitySink: CallbackToolActivitySink;
   /**
-   * The Plan-012 evaluation seam. OPTIONAL by design rather than by oversight:
-   * the daemon must be able to run before Plan-012's pipeline is composed, and
-   * the two fail-closed behaviours above are what make that safe.
+   * OPTIONAL by design rather than by oversight: the daemon must be able to
+   * run before the pipeline is composed, and the two fail-closed behaviours
+   * above are what make that safe.
    */
   readonly approvalSeam?: CallbackToolApprovalSeam | undefined;
 }
@@ -1168,16 +1152,14 @@ export interface RoutedProviderAskResponder {
 export interface CallbackToolAskResponderOptions {
   readonly host: CallbackToolHost;
   /**
-   * The responder for `askKind: "approval"` asks — Plan-012's, whose questions
-   * are permission decisions rather than tool calls — or an EXPLICIT `null` for
-   * a daemon composed without one.
+   * The responder for `askKind: "approval"` asks — the, whose questions are
+   * permission decisions rather than tool calls — or an EXPLICIT `null` for a
+   * daemon composed without one.
    *
    * REQUIRED-BUT-NULLABLE rather than optional, on the reasoning that makes
    * `resolveCredentialEnvPolicy` required: one responder answers BOTH ask kinds
    * because the provider band binds exactly one port, so this adapter
-   * unavoidably stands in front of the approval methods too. An optional arm
-   * would let a composition root that simply never bound Plan-012's responder
-   * refuse every approval without anyone having decided to.
+   * unavoidably stands in front of the approval methods too.
    */
   readonly approvalAskResponder: RoutedProviderAskResponder | null;
 }
@@ -1185,7 +1167,7 @@ export interface CallbackToolAskResponderOptions {
 /**
  * Compose the responder a provider band binds for its routed asks: callback
  * tool calls answered by this daemon's {@link CallbackToolHost}, approval asks
- * delegated to Plan-012's responder.
+ * delegated to the responder.
  *
  * EVERY PATH ANSWERS. The band this feeds turns a refusal into the asking
  * method's own refusal shape, so a refusal here answers the question that was

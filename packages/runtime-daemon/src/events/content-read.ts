@@ -1,7 +1,7 @@
 /**
  * THE READ PROJECTION FOR MACHINE-AUTHORED PROSE — pairs a verified event with
  * the body its `session_events.content_payload` column holds, WITHOUT ever
- * altering the event (Plan-006 T3.8, invariant I-006-3-08).
+ * altering the event (invariant).
  *
  * ---------------------------------------------------------------------------
  * THE ONE PROHIBITION THIS MODULE EXISTS TO ENFORCE

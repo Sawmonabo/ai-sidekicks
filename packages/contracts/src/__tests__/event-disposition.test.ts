@@ -1,11 +1,8 @@
-// Plan-006 T1.8 — NormalizedEventKind disposition registry exhaustiveness
-// suite.
+// NormalizedEventKind disposition registry exhaustiveness suite.
 //
-// Backstops Spec-006 §Event Type Summary (the taxonomy the dispositions
-// target, incl. the Total enumerated event types prose) through the
-// Plan-006 §Event-Kind Disposition Table — the disposition contract the
-// Plan-005 T3.5/T3.10 normalizers (the B10 bundle) consume under the
-// no-silent-capability-loss default. Coverage shape:
+// The Total enumerated event types prose) through — the disposition
+// contract normalizers (the B10 bundle) consume under the
+// no-silent-capability-loss default.
 //   • Registry keys set-equal NORMALIZED_EVENT_KINDS in BOTH directions
 //     (sorted-array equality, never a bare size assertion): every census
 //     kind present AND no extra key. The Record-keyed source already makes
@@ -15,17 +12,17 @@
 //     plan table (which kinds, which targets, which reasons) — the
 //     registry cannot drift from the table without this suite failing.
 //   • Structural discipline over the LIVE registry, independent of the
-//     pinned tables: every adopt/rename names a valid EventCategory
-//     (T1.1's union, widened to 20 by B18's `mcp_governance`) and carries
-//     exactly one of `eventType` XOR `typePending: "B18"`; every named
-//     eventType is census-registered with a matching
-//     SESSION_EVENT_CATEGORY_BY_TYPE category; every correlate/discard
-//     carries a non-empty reason and NO taxonomy target.
+//     pinned tables: every adopt/rename names a valid EventCategory (the
+//     union, widened to 20 by B18's `mcp_governance`) and carries exactly
+//     one of `eventType` XOR `typePending: "B18"`; every named eventType
+//     is census-registered with a matching SESSION_EVENT_CATEGORY_BY_TYPE
+//     category; every correlate/discard carries a non-empty reason and NO
+//     taxonomy target.
 //   • The typePending census set is EMPTY, pinned by exact set-equality.
-//     T1.10 registered the fifteen B18 literals in the census and flipped
-//     all eight pending rows to their `eventType`, so the shrink-only
-//     ratchet is CONSUMED. The pin stays as its forward guard: a later
-//     amendment that re-introduces a `typePending` row must edit this set
+//     registered the fifteen B18 literals in the census and flipped all
+//     eight pending rows to their `eventType`, so the shrink-only ratchet
+//     is CONSUMED. The pin stays as its forward guard: a later amendment
+//     that re-introduces a `typePending` row must edit this set
 //     deliberately, and it can still only SHRINK as literals land. What
 //     holds registry and census together from here is the per-row
 //     `SESSION_EVENT_CATEGORY_BY_TYPE.get(eventType)` cross-check — a
@@ -40,10 +37,10 @@
 //     walks resolve to `undefined`).
 // Out of scope, deliberately: the nine wire-level Claude system-channel
 // discards and the current-wire delta families (incl. the
-// `worker_shutting_down` orphan — the ninth B18 target, closed by T1.10's
-// union widening alone) are Plan-005 normalizer wire-layer concerns, not
-// registry keys — pinned below as `.get()` negative controls; the unknown
-// residual is backstopped by the Plan-005 default-branch diagnostic (B10).
+// `worker_shutting_down` orphan — the ninth B18 target, closed by the
+// union widening alone) are normalizer wire-layer concerns, not registry
+// keys — pinned below as `.get()` negative controls; the unknown residual
+// is backstopped default-branch diagnostic (B10).
 import { describe, expect, it } from "vitest";
 
 import {
@@ -66,7 +63,7 @@ const kindsWithDisposition = (wanted: EventKindDisposition["disposition"]): Norm
     .map(([kind]) => kind)
     .sort();
 
-describe("EVENT_DISPOSITION_BY_KIND — census exhaustiveness (T1.8)", () => {
+describe("EVENT_DISPOSITION_BY_KIND — census exhaustiveness", () => {
   it("registry keys set-equal NORMALIZED_EVENT_KINDS in both directions", () => {
     // Sorted-array equality is the both-direction set check in one
     // assertion: every census kind present (⊇) AND no extra registry key
@@ -122,7 +119,7 @@ describe("EVENT_DISPOSITION_BY_KIND — census exhaustiveness (T1.8)", () => {
   });
 });
 
-describe("EventKindDisposition discipline over the live registry (T1.8)", () => {
+describe("EventKindDisposition discipline over the live registry", () => {
   const adoptRenameEntries = registryEntries.filter(
     ([, entry]) => entry.disposition === "adopt" || entry.disposition === "rename",
   );
@@ -151,8 +148,8 @@ describe("EventKindDisposition discipline over the live registry (T1.8)", () => 
           // One lookup proves both halves: `.get()` returns `undefined`
           // for an unregistered literal (so the target must be a
           // registered SessionEventType), and the returned category must
-          // equal the row's own — the I-006-1-01 bijection extended to
-          // disposition targets.
+          // equal the row's own — bijection extended to disposition
+          // targets.
           expect(SESSION_EVENT_CATEGORY_BY_TYPE.get(eventType)).toBe(entry.category);
         }
       } else {
@@ -180,16 +177,15 @@ describe("EventKindDisposition discipline over the live registry (T1.8)", () => 
   });
 
   // EMPTY — the terminal state of the shrink-only ratchet. Eight census
-  // kinds carried `typePending: "B18"` while the 2026-07-22 Spec-006 B18
-  // amendment's literals existed in Spec-006 §Event Type Summary but not
-  // yet in this package's census union; T1.10 registered all fifteen and
-  // flipped those eight to their `eventType`, emptying this set. (The
-  // ninth B18 target — the `worker_shutting_down` delta orphan's
-  // `run.worker_shutdown` — was always wire-layer, outside the registry,
-  // so it never appeared here.) The set is still pinned BY VALUE rather
-  // than derived, because that is what keeps the ratchet one-way: a later
-  // amendment re-introducing a pending row must add its kind here in a
-  // deliberate edit, and names can only ever be REMOVED as literals land.
+  // kinds carried `typePending: "B18"` while the 2026-07-22 B18
+  // amendment's literals existed registered all fifteen and flipped those
+  // eight to their `eventType`, emptying this set. (The ninth B18 target
+  // — the `worker_shutting_down` delta orphan's `run.worker_shutdown` —
+  // was always wire-layer, outside the registry, so it never appeared
+  // here.) The set is still pinned BY VALUE rather than derived, because
+  // that is what keeps the ratchet one-way: a later amendment
+  // re-introducing a pending row must add its kind here in a deliberate
+  // edit, and names can only ever be REMOVED as literals land.
   const B18_PENDING_KINDS: readonly NormalizedEventKind[] = [];
 
   it("typePending census set is empty — the B18 ratchet is fully consumed", () => {
@@ -220,7 +216,7 @@ describe("EventKindDisposition discipline over the live registry (T1.8)", () => 
 // by a runtime `expect` to keep it used for lint; the load-bearing check is
 // the compile.
 
-describe("EventKindDisposition — compile-time shape pins (T1.8)", () => {
+describe("EventKindDisposition — compile-time shape pins", () => {
   it("rejects an adopt/rename row carrying BOTH eventType and typePending", () => {
     const bothTargets: EventKindDisposition = {
       disposition: "adopt",
@@ -279,13 +275,12 @@ describe("EventKindDisposition — compile-time shape pins (T1.8)", () => {
 });
 
 // --------------------------------------------------------------------------
-// Content census — Plan-006 §Event-Kind Disposition Table pins.
 // --------------------------------------------------------------------------
 //
 // The registry transcribed row-for-row from the plan table (the same
 // expected-value duplication idiom as session-event.test.ts's
 // CENSUS_BASELINE): every taxonomy row pins the eventType the table names,
-// including the eight T1.10 flipped off `typePending` onto their B18-minted
+// including the eight flipped off `typePending` onto their B18-minted
 // literals. `toStrictEqual` per row also pins the ABSENCE of stray members
 // — a `reason` on an adopt row, a `typePending` left behind on a flipped
 // row.
@@ -411,15 +406,15 @@ const EXPECTED_TAXONOMY_TARGETS: ReadonlyArray<
 // Reason-content pins for the three lossy rows. The full prose lives in
 // event.ts; each row here asserts the LOAD-BEARING substance of its table
 // reason via substring — foremost user_text's correlate target naming
-// `user.message` (B18-minted, registered by T1.10, so the target literal
-// resolves; the echo keeps routing to the B10 default-branch diagnostic
-// until Plan-004 T2.9 lands its payload variant) and its correlation_id
-// fold. A correlate row names no `eventType`, so this substring pin is the
-// ONLY thing tying it to its target literal. The routing caveat is pinned
-// as well (`payload variant`): it is the clause a reword is likeliest to
-// re-drop, and when Plan-004 T2.9 lands the variant, retiring the caveat
-// has to be a deliberate edit here. Structural discipline (non-empty
-// reason, no taxonomy target) is asserted over the live registry above.
+// `user.message` (B18-minted, registered so the target literal resolves;
+// the echo keeps routing to the B10 default-branch diagnostic until lands
+// its payload variant) and its correlation_id fold. A correlate row names
+// no `eventType`, so this substring pin is the ONLY thing tying it to its
+// target literal. The routing caveat is pinned as well (`payload
+// variant`): it is the clause a reword is likeliest to re-drop, and when
+// lands the variant, retiring the caveat has to be a deliberate edit here.
+// Structural discipline (non-empty reason, no taxonomy target) is asserted
+// over the live registry above.
 const EXPECTED_FOLDED_ROWS: ReadonlyArray<
   readonly [NormalizedEventKind, "correlate" | "discard", readonly string[]]
 > = [
@@ -428,7 +423,7 @@ const EXPECTED_FOLDED_ROWS: ReadonlyArray<
   ["user_text", "correlate", ["correlation_id", "user.message", "payload variant"]],
 ];
 
-describe("Disposition content census — plan-table pins (T1.8)", () => {
+describe("Disposition content census — plan-table pins", () => {
   it("the pinned tables cover the census exactly (32 taxonomy rows + 3 lossy rows)", () => {
     // Completeness self-check for the expected tables (the CENSUS_BASELINE
     // row-sum idiom): a row silently dropped from either pin table fails
@@ -464,7 +459,7 @@ describe("Disposition content census — plan-table pins (T1.8)", () => {
   );
 });
 
-describe("EVENT_DISPOSITION_BY_KIND `.get()` safety (T1.8)", () => {
+describe("EVENT_DISPOSITION_BY_KIND `.get()` safety", () => {
   it("is a ReadonlyMap, not a plain object (the SESSION_EVENT_CATEGORY_BY_TYPE idiom)", () => {
     expect(EVENT_DISPOSITION_BY_KIND).toBeInstanceOf(Map);
   });
@@ -472,12 +467,12 @@ describe("EVENT_DISPOSITION_BY_KIND `.get()` safety (T1.8)", () => {
   it.each([["__proto__"], ["constructor"], ["toString"], ["hasOwnProperty"]])(
     "rejects prototype-chain walks: %s",
     (untrusted) => {
-      // Map (NOT object-literal) lookup is load-bearing: a Plan-005
-      // normalizer that calls `.get(kind)` on an unvalidated wire string
-      // MUST resolve to `undefined` for every key outside the explicit
-      // table, including built-in object prototype keys (same `as never`
-      // idiom as the SESSION_EVENT_CATEGORY_BY_TYPE suite — the literal is
-      // deliberately outside the NormalizedEventKind union).
+      // Map (NOT object-literal) lookup is load-bearing: a normalizer that
+      // calls `.get(kind)` on an unvalidated wire string MUST resolve to
+      // `undefined` for every key outside the explicit table, including
+      // built-in object prototype keys (same `as never` idiom as the
+      // SESSION_EVENT_CATEGORY_BY_TYPE suite — the literal is deliberately
+      // outside the NormalizedEventKind union).
       expect(EVENT_DISPOSITION_BY_KIND.get(untrusted as never)).toBeUndefined();
     },
   );
@@ -487,12 +482,12 @@ describe("EVENT_DISPOSITION_BY_KIND `.get()` safety (T1.8)", () => {
     (wireLayerString) => {
       // Negative controls for the registry's scope boundary: the
       // `worker_shutting_down` delta orphan (the ninth B18 target — its
-      // `run.worker_shutdown` was closed by T1.10's union widening alone,
+      // `run.worker_shutdown` was closed by the union widening alone,
       // never a registry row), the `hook_started` wire-level discard, and
       // the raw Claude wire string `rate_limit_event` (the registry keys
       // the NORMALIZED `rate_limits` kind it renames onto). All are
-      // Plan-005 normalizer wire-layer concerns; a future edit promoting
-      // them into the census registry must fail here first.
+      // normalizer wire-layer concerns; a future edit promoting them into
+      // the census registry must fail here first.
       expect(EVENT_DISPOSITION_BY_KIND.get(wireLayerString as never)).toBeUndefined();
     },
   );

@@ -167,9 +167,9 @@ describe("translateSpawnCwd — cd-prefix (POSIX shell wrapping)", () => {
   });
 
   it("worktree path round-trips: it can be recovered from the wrapped script", () => {
-    // I-024-5 / CP-001-2: the worktree path must live in the command
-    // string layer, not the spawn-call cwd. The test asserts the
-    // path is in fact present in the wrapped script (no silent loss).
+    // The worktree path must live in the command string layer, not
+    // the spawn-call cwd. The test asserts the path is in fact
+    // present in the wrapped script (no silent loss).
     const result: SpawnRequest = translateSpawnCwd(
       makeInput("cd-prefix", { wrappingShell: "posix" }),
     );

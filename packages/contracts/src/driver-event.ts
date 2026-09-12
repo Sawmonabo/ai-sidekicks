@@ -1,22 +1,17 @@
-// DriverEvent — the driver-runtime slice of the Plan-006 event census, in a
-// downstream leaf module so Plan-005 can author its own derived view without
-// editing the taxonomy file that supplies it (Plan-005 T4.4).
+// DriverEvent — the driver-runtime slice of event census, in a downstream
+// leaf module so can author its own derived view without editing the
+// taxonomy file that supplies it.
 //
 // `driver.subscribeEvents` streams one run's driver activity, and `DriverEvent`
-// is the name for what may travel on it. The CATEGORY LIST is ratified by
-// `Plan-005 §Phase 4 — Client SDK exposure + degraded-fallback` decision #4 —
-// seven categories that ALREADY EXIST in the Plan-006 census, no new one. So
-// what this file adds is a derived VIEW over Plan-006-owned categories, not a
-// taxonomy edit: `event.ts` names the categories and the per-category arrays,
-// and everything below is mechanical off them.
+// is the name for what may travel on it. The CATEGORY LIST is ratified decision
+// #4 — seven categories that ALREADY EXIST census, no new one.
 //
-// OWNERSHIP — the categories are Plan-006's; these four derived symbols are
-// Plan-005 contract surface, which is why they live here rather than beside the
-// arrays. Plan-005's consumption edge on `event.ts` is already registered
-// (`docs/architecture/cross-plan-dependencies.md` §3, the Plan-006 entry on the
-// Plan-005 row), and reading exports across that edge is what this file does;
-// authoring these symbols INTO `event.ts` would instead have been a Plan-005
-// edit to a file it does not own.
+// OWNERSHIP — these four derived symbols are contract surface, which is why
+// they live here rather than beside the arrays. The consumption edge on
+// `event.ts` is already registered, and
+// reading exports across that edge is what this file does; authoring these
+// symbols INTO `event.ts` would instead have been an edit to a file it does not
+// own.
 //
 // The derivation is authored ONCE here and consumed on both sides of the wire:
 // the daemon handler filters against the set before buffering, the SDK
@@ -27,9 +22,7 @@
 // it (Codex review, PR #396).
 //
 // WHY A SEPARATE MODULE RATHER THAN A BLOCK IN `provider-driver.ts` — the
-// eager cycle it avoids. `provider-driver.ts` is Plan-005's domain file and is
-// the natural home by ownership, but it is the one file in this package that
-// cannot hold these symbols:
+// eager cycle it avoids.
 //
 //     provider-driver.ts → event.ts → event-core.ts → provider-driver.ts
 //
@@ -95,8 +88,8 @@ import {
 // per-category arrays. Module-local: the exported surface is the set, the two
 // types, and the schema — a consumer narrowing by category narrows through
 // `DriverEvent` itself. `runtime_node_lifecycle` is on the list for
-// `runtime_node.capability_declared` / `runtime_node.capability_updated`
-// (CP-005-5), not for node administration.
+// `runtime_node.capability_declared` / `runtime_node.capability_updated`, not
+// for node administration.
 type DriverEventCategory =
   | "run_lifecycle"
   | "assistant_output"

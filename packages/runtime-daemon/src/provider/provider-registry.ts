@@ -1,18 +1,16 @@
-// ProviderRegistry — in-memory driver registry + capability-flag gate (Plan-005
-// Phase 2, T2.3).
+// ProviderRegistry — in-memory driver registry + capability-flag gate.
 //
 // The registry is the daemon-resident lookup + capability authority over the set
 // of live `ProviderDriver` instances. It does ONE job each across two seams:
 //   1. registration / lookup — bind a canonical driver id (e.g. `"claude"`,
 //      `"codex"`) to a `ProviderDriver` instance and its capability snapshot.
 //   2. capability gating — `checkCapability` is a throwing assertion that
-//      ENFORCES I-005-2 (undeclared capability = unsupported) BEFORE a direct
-//      capability-bound call reaches the driver.
+//      ENFORCES BEFORE a direct capability-bound call reaches the driver.
 //
 // DELIBERATELY pure in-memory — NO database, NO `RuntimeBindingStore`, NO
-// constructor dependencies. `runtime_bindings` persistence (T2.2) and the
-// driver-capability DB cache (T2.4) are SEPARATE orchestration-layer seams; the
-// Phase-2 integration (T2.5) wires `RuntimeBindingStore`, `ProviderRegistry`, and
+// constructor dependencies. `runtime_bindings` persistence and the
+// driver-capability DB cache are SEPARATE orchestration-layer seams; the Phase-2
+// integration wires `RuntimeBindingStore`, `ProviderRegistry`, and
 // `DriverCapabilitiesWriter` as three independent components — the store is NOT
 // nested inside this registry. Injecting a store this class never calls would be a
 // dead constructor param, so it is intentionally absent.
@@ -25,7 +23,6 @@
 // in-memory refresh seam for "on driver registration + on capability-refresh
 // events").
 //
-// I-005-2 (undeclared capability = unsupported), realized two ways:
 //   * The contract type `Record<DriverCapabilityFlag, boolean>` makes a flag
 //     structurally un-omittable (every flag must be answered) — the static half.
 //   * `checkCapability` is the RUNTIME half: it FAIL-CLOSES on `!== true` (not
@@ -37,27 +34,19 @@
 // Gating SCOPE: `checkCapability` gates ONLY direct capability-bound calls (a
 // future `driver.steer` entrypoint, or `getCapabilities` against an unregistered
 // driver). `applyIntervention` is EXCLUDED from pre-dispatch gating — its
-// intervention-type-aware degraded-fallback per ADR-011 must reach the driver to
-// return `{ status: 'degraded', fallbackAction }` (`Spec-005 §Required Behavior`). That exclusion
-// is realized simply by `checkCapability` being the only gate and the registry
-// never calling/special-casing `applyIntervention` — there is no exclusion branch.
+// intervention-type-aware degraded-fallback must reach the driver to return `{
+// status: 'degraded', fallbackAction }`. That exclusion is realized simply by
+// `checkCapability` being the only gate and the registry never
+// calling/special-casing `applyIntervention` — there is no exclusion branch.
 //
 // Typed-error convention: mirrors `ipc/session-errors.ts` — a stable `code`
-// literal in the `driver.*` dotted namespace, REGISTERED in
-// `docs/architecture/contracts/error-contracts.md` §Driver (closed at seven),
-// and a leak-safe message + structured `fields`. Internal validation errors
+// literal in the `driver.*` dotted namespace, REGISTERED and a leak-safe
+// message + structured `fields`. Internal validation errors
 // (`ProviderOutputValidationError`) deliberately carry NO code — class identity
 // discriminates; only registered wire/domain errors mint one. Both error
-// classes are exported because T2.5's integration test asserts the gate throws
-// the right type/code.
+// classes are exported because the integration test asserts the gate throws the
+// right type/code.
 //
-// Spec coverage: `Spec-005 §Required Behavior` (every provider integration implements a normalized
-// driver contract — the registry is keyed on that contract), `Spec-005 §Required Behavior` (runtime
-// treats undeclared capabilities as unsupported — the `checkCapability` gate).
-//
-// Refs: Plan-005 §Phase 2 / T2.3, `Spec-005 §Required Behavior`, invariant I-005-2,
-// ADR-011 (capability flags + intervention modeling), `docs/architecture/contracts/error-contracts.md §Driver`
-// (`driver.unavailable` HTTP 503 + `driver.capability_unsupported` HTTP 400).
 
 import type {
   DriverCapabilities,
@@ -73,11 +62,10 @@ import type {
 /**
  * Thrown when a capability check targets a `driverId` that is not registered.
  *
- * `code === "driver.unavailable"` (`docs/architecture/contracts/error-contracts.md §Driver`, HTTP 503 —
- * "Provider driver is currently unavailable"). This covers the plan's
- * "`driver.getCapabilities` … called against an unregistered driver" case: a
- * direct capability-bound call cannot proceed against a driver the registry has
- * never seen.
+ * `code === "driver.unavailable"` (HTTP 503 — "Provider driver is currently
+ * unavailable"). This covers the plan's "`driver.getCapabilities` … called against
+ * an unregistered driver" case: a direct capability-bound call cannot proceed
+ * against a driver the registry has never seen.
  *
  * Leak-safe by construction: the message is the canonical stable sentence and
  * `fields` carries only the structured throw-site detail `{ driverId }` — no
@@ -95,14 +83,12 @@ export class DriverUnavailableError extends Error {
 }
 
 /**
- * Thrown when a registered driver is asked for a capability it has not declared
- * `true` — the primary runtime realization of I-005-2.
  *
- * `code === "driver.capability_unsupported"` (`docs/architecture/contracts/error-contracts.md §Driver`, HTTP
- * 400 — "Requested capability is not supported by the driver"). Raised by the
- * fail-closed gate for BOTH a declared-`false` flag AND a flag absent from the
- * cached snapshot (an undeclared/bogus flag), because "unsupported" is the
- * complement of "explicitly declared true".
+ * `code === "driver.capability_unsupported"` (HTTP 400 — "Requested capability is
+ * not supported by the driver"). Raised by the fail-closed gate for BOTH a
+ * declared-`false` flag AND a flag absent from the cached snapshot (an
+ * undeclared/bogus flag), because "unsupported" is the complement of "explicitly
+ * declared true".
  *
  * Leak-safe by construction: message is the canonical sentence; `fields` carries
  * only `{ driverId, flag }`.
@@ -189,7 +175,7 @@ export class ProviderRegistry {
     // `contractVersion`), NOT `result` itself: `getCapabilities` returns a
     // `GetCapabilitiesResult` wrapper, and the gated `flags` live one level down
     // at `result.capabilities.flags`. `tools` (the ingress tool metadata) is a
-    // T2.4 hydration concern, not a gating input, so it is not cached here.
+    // hydration concern, not a gating input, so it is not cached here.
     //
     // DEFENSIVE CLONE — not an alias. The class header promises an immutable
     // snapshot "resolved ONCE at registration"; caching `result.capabilities` by
@@ -229,11 +215,10 @@ export class ProviderRegistry {
    *
    * FAIL-CLOSED: the second branch tests `!== true`, not `=== false`, so a flag
    * whose cached value is `undefined` (e.g. a bogus flag arriving via an untyped
-   * boundary) is ALSO rejected. A capability is supported ONLY when explicitly
-   * declared `true` — this is the runtime half of I-005-2.
+   * boundary) is ALSO rejected.
    *
    * `applyIntervention` is intentionally NOT gated here — there is no branch for
-   * it. Its ADR-011 degraded-fallback must reach the driver (`Spec-005 §Required Behavior`).
+   * it. Its degraded-fallback must reach the driver.
    */
   checkCapability(driverId: string, flag: DriverCapabilityFlag): void {
     const entry = this.#drivers.get(driverId);

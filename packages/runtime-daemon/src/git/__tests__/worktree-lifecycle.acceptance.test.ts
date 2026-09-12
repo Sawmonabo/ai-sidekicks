@@ -1,12 +1,12 @@
-// Plan-010 Phase 2 acceptance suite — T2.6.
+// Worktree-lifecycle acceptance suite.
 //
-// The ACCEPTANCE tier for the Phase 2 git services: `../worktree-service.ts`
-// (T2.2), `../ephemeral-clone-service.ts` (T2.3) and
-// `../../workspace/execution-root-service.ts` (T2.4), driven over REAL git
-// repositories in temporary directories. The sibling unit suites assert what the
-// services ASK git to do by recording argv against a fake; this suite asserts
-// what git actually DID, which is the only tier where a modelling mistake in
-// those fakes can be caught.
+// The ACCEPTANCE tier for the Phase 2 git services: `../worktree-service.ts`,
+// `../ephemeral-clone-service.ts` and
+// `../../workspace/execution-root-service.ts`, driven over REAL git repositories
+// in temporary directories. The sibling unit suites assert what the services ASK
+// git to do by recording argv against a fake; this suite asserts what git
+// actually DID, which is the only tier where a modelling mistake in those fakes
+// can be caught.
 //
 // Two harness choices carry the evidential weight:
 //
@@ -24,49 +24,48 @@
 //     markers DO appear — without it, "no hooks fired" would be satisfied by
 //     sentinels that were never armed.
 //
-// Fixtures are built PER TEST rather than once per file, unlike the Plan-009
-// acceptance precedent this pattern comes from. Several arms mutate the
-// repository (branch creation, a real merge, a pre-created colliding branch, a
-// detached HEAD), and a shared repository would let one case's refs decide
-// another case's outcome. The cost is one `git init` + commit per test.
+// Several arms mutate the repository (branch creation, a real merge, a
+// pre-created colliding branch, a detached HEAD), and a shared repository
+// would let one case's refs decide another case's outcome. The cost is one
+// `git init` + commit per test.
 //
 // Coverage map (the cites are the contract, not just the ACs):
 //
-//   * `Spec-010 §Pitfalls To Avoid` — the main checkout is never mutated as a hidden fallback.
-//     Asserted as GROUND TRUTH: a content hash of every working-tree file, plus
-//     HEAD's symbolic ref, HEAD's commit, `status --porcelain` and the branch
-//     roster, compared before and after every failure path in one pass.
-//   * `Spec-010 §Acceptance Criteria` — AC1: a writable run on a git repo defaults to worktree
-//     mode. Asserted at the capability projection AND end-to-end through
-//     `ExecutionRootService.prepare`, which materializes a real linked worktree.
-//   * `Spec-010 §Acceptance Criteria` — AC3: worktree creation failure blocks the run instead of
-//     mutating the main checkout. Both divergence arms (`refuse` and `suffix`)
-//     surface a typed refusal, mark the row `failed`, leave no root behind, and
-//     leave the checkout byte-identical.
-//   * `Spec-010 §Acceptance Criteria` — AC4: a reused worktree stays explicitly linked to its
-//     branch and prior run context — same worktree, same root, same
-//     `branch_contexts` row (id and `created_at` preserved), provenance intact.
+//   * the main checkout is never mutated as a hidden fallback. Asserted as GROUND
+//     TRUTH: a content hash of every working-tree file, plus HEAD's symbolic ref,
+//     HEAD's commit, `status --porcelain` and the branch roster, compared before and
+//     after every failure path in one pass.
+//   * : a writable run on a git repo defaults to worktree mode. Asserted at the
+//     capability projection AND end-to-end through `ExecutionRootService.prepare`,
+//     which materializes a real linked worktree.
+//   * : worktree creation failure blocks the run instead of mutating the main
+//     checkout. Both divergence arms (`refuse` and `suffix`) surface a typed
+//     refusal, mark the row `failed`, leave no root behind, and leave the checkout
+//     byte-identical.
+//   * : a reused worktree stays explicitly linked to its branch and prior run
+//     context — same worktree, same root, same `branch_contexts` row (id and
+//     `created_at` preserved), provenance intact.
 //
 // Verifies invariant:
 //
-//   * I-010-6  — no Plan-010 path checks out, creates, switches or merges
-//     branches inside the mount's main checkout. The byte-identity pass is the
-//     ground truth; the merge arm shows that even a MERGED branch is observed as
-//     a git fact rather than produced by the daemon.
-//   * I-010-7  — no silent mode substitution: a failed materialization refuses
-//     with the typed carrier and lands the workspace in `stale` with the failure
+//   * No path checks out, creates, switches or merges branches inside the
+//     mount's main checkout. The byte-identity pass is the ground truth; the
+//     merge arm shows that even a MERGED branch is observed as a git fact rather
+//     than produced by the daemon.
+//   * No silent mode substitution: a failed materialization refuses with the
+//     typed carrier and lands the workspace in `stale` with the failure
 //     recorded, rather than returning a lesser mode or a fallback root.
-//   * I-010-8  — explicit reuse only: a candidate binds solely via
-//     `reuseWorktreeId`, a dirty candidate needs `acknowledgeDirtyCandidate` as
-//     well, and a prepare that omits the id REFUSES rather than rebinding.
-//   * I-010-10 — no repository-controlled code executes during provisioning:
-//     the hostile hooks never fire for any service invocation — the
+//   * Explicit reuse only: a candidate binds solely via `reuseWorktreeId`, a
+//     dirty candidate needs `acknowledgeDirtyCandidate` as well, and a prepare
+//     that omits the id REFUSES rather than rebinding.
+//   * No repository-controlled code executes during provisioning: the
+//     hostile hooks never fire for any service invocation — the
 //     `hooks/`-resident sentinels `core.hooksPath` redirects away AND the
 //     config-named fsmonitor hook `-c core.fsmonitor=false` suppresses — and
 //     the neutralization directory the services point `core.hooksPath` at is
 //     empty.
-//   * I-010-13 (producer half) — every observed lifecycle transition emits its
-//     mapped event: the full-sequence event assertions on the lifecycle walks
+//   * Every observed lifecycle transition emits its mapped event: the
+//     full-sequence event assertions on the lifecycle walks
 //     (create→reuse→retire→cleanup, the failure arms, and the clone walk's
 //     empty sequence) are the evidence the emitter and its unit suite delegate
 //     to this tier — a thinned sequence assertion here breaks that hand-off.
@@ -152,12 +151,12 @@ const ACCEPTANCE_TEST_TIMEOUT_MS: number = 60_000;
 /**
  * The hooks installed in every fixture repository.
  *
- * Chosen for what a provisioning invocation would actually trip:
- * `git worktree add -b` writes a ref (`reference-transaction`) and populates a
- * checkout (`post-checkout`); `post-merge`, `pre-commit` and `post-commit` cover
- * the mutating verbs I-010-6 says are never issued at all. Each script exits 0 —
- * a `reference-transaction` hook that failed would abort the ref update and turn
- * a hook-neutralization case into a git-failure case.
+ * Chosen for what a provisioning invocation would actually trip: `git worktree
+ * add -b` writes a ref (`reference-transaction`) and populates a checkout
+ * (`post-checkout`); `post-merge`, `pre-commit` and `post-commit` cover the
+ * mutating verbs says are never issued at all. Each script exits 0 — a
+ * `reference-transaction` hook that failed would abort the ref update and turn a
+ * hook-neutralization case into a git-failure case.
  */
 const SENTINEL_HOOK_NAMES: readonly string[] = [
   "post-checkout",
@@ -283,7 +282,7 @@ function spawnGit(
 
 /**
  * One real git repository under a temporary root, plus the sentinel-hook
- * apparatus that makes I-010-10 assertable.
+ * apparatus that makes assertable.
  *
  * Fixture-side invocations are hook-neutralized by DEFAULT, the same way the
  * services neutralize theirs. That is what gives the marker directory its
@@ -451,9 +450,9 @@ async function buildFixtureRepository(options: {
  *
  * "No hook ran" is only evidence if a hook could have run, and the negative
  * control below uses a throwaway repository of its own — so a mount fixture that
- * silently failed to install its hooks would satisfy every I-010-10 assertion
- * vacuously. A ref update is the smallest un-neutralized trigger available for
- * the `hooks/`-resident sentinels: it fires `reference-transaction` and leaves
+ * silently failed to install its hooks would satisfy every assertion vacuously.
+ * A ref update is the smallest un-neutralized trigger available for the
+ * `hooks/`-resident sentinels: it fires `reference-transaction` and leaves
  * nothing behind once the branch is deleted. The fsmonitor sentinel needs its
  * own arming probe because no `hooks/`-resident trigger reaches it — an
  * un-neutralized `status` refreshes the index and must consult the repo-local
@@ -489,8 +488,8 @@ interface MainCheckoutSnapshot {
  * Hash the working tree, skipping `.git`.
  *
  * `.git` is excluded deliberately: a lawful `worktree add` DOES write
- * administrative files there, and I-010-6's claim is about the CHECKOUT — the
- * files a user has open and the branch they are on. The ref roster and HEAD are
+ * administrative files there, and the claim is about the CHECKOUT — the files a
+ * user has open and the branch they are on. The ref roster and HEAD are
  * captured separately, through git, so ref-level changes are still in the
  * comparison without dragging worktree bookkeeping into it.
  */
@@ -720,10 +719,10 @@ function insertMount(repoMountId: string, canonicalRoot: string): void {
 /**
  * Seed a workspace directly.
  *
- * Raw INSERT rather than `WorkspaceService.bind`, following the T2.4 suite:
- * binding resolves a directory through the trust envelope, which is Plan-009's
- * subject, not this suite's. Every case that cares about a TRANSITION still
- * drives the real Plan-009 primitives through the service under test.
+ * Raw INSERT rather than `WorkspaceService.bind` suite: binding resolves a
+ * directory through the trust envelope, which is the subject, not this
+ * suite's. Every case that cares about a TRANSITION still drives the real
+ * primitives through the service under test.
  */
 function insertWorkspace(options: {
   readonly workspaceId: string;
@@ -873,7 +872,7 @@ function requireValue(value: string | undefined, label: string): string {
   return value;
 }
 
-/** The happy-path create, at the T2.2 layer, with `refuse` (the wire posture). */
+/** The happy-path create layer, with `refuse` (the wire posture). */
 function createWorktree(branchName: string, onCollision: "refuse" | "suffix" = "refuse") {
   return ctx.worktrees.create({
     repoMountId: REPO_MOUNT_ID,
@@ -885,10 +884,10 @@ function createWorktree(branchName: string, onCollision: "refuse" | "suffix" = "
 }
 
 // ----------------------------------------------------------------------------
-// AC1 — a writable run on a git mount lands in worktree mode
+// A writable run on a git mount lands in worktree mode
 // ----------------------------------------------------------------------------
 
-describe("Spec-010 AC1 — a writable run on a git repository defaults to worktree mode", () => {
+describe("a writable run on a git repository defaults to worktree mode", () => {
   it("projects worktree as the default mode for a git mount", () => {
     const capabilities = computeExecutionModeCapabilities({ vcsType: "git" });
 
@@ -921,8 +920,8 @@ describe("Spec-010 AC1 — a writable run on a git repository defaults to worktr
         runId: RUN_ID,
       });
 
-      // I-010-7: the dispatched mode is the requested one, and the root is the
-      // D-010-6 path rather than any fallback.
+      // The dispatched mode is the requested one, and the root is path rather
+      // than any fallback.
       expect(prepared.executionMode).toBe("worktree");
       expect(prepared.branchName).toBe(branchName);
       const worktreeId = requireValue(prepared.worktreeId, "prepared.worktreeId");
@@ -1022,7 +1021,7 @@ describe("the worktree lifecycle on real git: create -> dirty -> merged -> retir
       // reads it, nothing is modelled.
       writeFileSync(join(created.fsRoot, "scratch-notes.txt"), "work in progress\n");
 
-      // I-010-8 / D-010-15: the unacknowledged candidate REFUSES.
+      // The unacknowledged candidate REFUSES.
       const refusal = await captureRejection(() =>
         ctx.worktrees.validateReuse({
           worktreeId: created.worktreeId,
@@ -1040,7 +1039,7 @@ describe("the worktree lifecycle on real git: create -> dirty -> merged -> retir
         acknowledgeDirtyCandidate: true,
       });
       expect(acknowledged.dirty).toBe(true);
-      // Provenance survives the check (I-010-3).
+      // Provenance survives the check.
       expect(acknowledged.createdBySessionId).toBe(SESSION_ID);
       expect(acknowledged.createdByRunId).toBe(RUN_ID);
 
@@ -1072,7 +1071,7 @@ describe("the worktree lifecycle on real git: create -> dirty -> merged -> retir
       await ctx.repository.git(["commit", "-q", "-m", "add login"], created.fsRoot);
 
       // The MERGE is performed by the fixture, standing in for the human or the
-      // Phase 3 binder. No Plan-010 service merges anything (I-010-6).
+      // Phase 3 binder. No service merges anything.
       await ctx.repository.git(["merge", "--no-ff", "-m", "merge login", "feature/login"]);
 
       // "Merged" as git answers it, not as a row claims it.
@@ -1103,8 +1102,8 @@ describe("the worktree lifecycle on real git: create -> dirty -> merged -> retir
       const retired = await ctx.worktrees.retire(created.worktreeId);
       expect(retired.state).toBe("retired");
 
-      // I-010-9: the retirement is recorded, the root survives, and the row is
-      // still queryable with its provenance.
+      // The retirement is recorded, the root survives, and the row is still
+      // queryable with its provenance.
       const afterRetire = readWorktreeRow(created.worktreeId);
       expect(afterRetire.state).toBe("retired");
       expect(afterRetire.cleaned_at).toBeNull();
@@ -1145,7 +1144,7 @@ describe("the worktree lifecycle on real git: create -> dirty -> merged -> retir
       });
       const worktreeId = requireValue(prepared.worktreeId, "prepared.worktreeId");
 
-      // The real Plan-009 hold, taken against a root that really exists.
+      // The real hold, taken against a root that really exists.
       await ctx.workspaces.markBusy(WORKSPACE_ID, RUN_ID);
 
       const conflict = await captureRejection(() => ctx.worktrees.retire(worktreeId));
@@ -1163,10 +1162,10 @@ describe("the worktree lifecycle on real git: create -> dirty -> merged -> retir
 });
 
 // ----------------------------------------------------------------------------
-// I-010-10 — repository-controlled code never runs
+// Repository-controlled code never runs
 // ----------------------------------------------------------------------------
 
-describe("I-010-10 — no repository-controlled code executes during provisioning", () => {
+describe("no repository-controlled code executes during provisioning", () => {
   it(
     "negative control: an un-neutralized worktree add DOES fire the repository's hooks",
     async () => {
@@ -1285,10 +1284,9 @@ describe("I-010-10 — no repository-controlled code executes during provisionin
 });
 
 // ----------------------------------------------------------------------------
-// D-010-7 — derived-name collisions
 // ----------------------------------------------------------------------------
 
-describe("D-010-7 — derived-name collisions against real git", () => {
+describe("derived-name collisions against real git", () => {
   it(
     "suffixes a colliding derived name into the next free ordinals",
     async () => {
@@ -1364,7 +1362,7 @@ describe("a branch free in the index but taken in git", () => {
       expect(failure).toMatchObject({ reason: "git_invocation_failed" });
 
       // Fail-closed: the row records the failure, no root survives, and the
-      // creation event is the only one — `-> failed` emits nothing (D-010-12).
+      // creation event is the only one — `-> failed` emits nothing.
       const rows = readWorktreeRows();
       expect(rows).toHaveLength(1);
       const failedRow = rows[0];
@@ -1399,10 +1397,9 @@ describe("a branch free in the index but taken in git", () => {
 });
 
 // ----------------------------------------------------------------------------
-// I-010-6 ground truth
 // ----------------------------------------------------------------------------
 
-describe("I-010-6 — the main checkout across every failure path", () => {
+describe("the main checkout across every failure path", () => {
   it(
     "leaves the working tree, HEAD and the branch roster byte-identical",
     async () => {
@@ -1487,8 +1484,8 @@ describe("I-010-6 — the main checkout across every failure path", () => {
         }),
       );
 
-      // I-010-7 / Spec-010 AC3: the run is BLOCKED with the original typed cause
-      // — no lesser mode, no fallback root — and the workspace records why.
+      // The run is BLOCKED with the original typed cause — no lesser mode, no
+      // fallback root — and the workspace records why.
       expect(failure).toBeInstanceOf(WorktreeCreateFailedError);
       const workspace = readWorkspaceRow(WORKSPACE_ID);
       expect(workspace.state).toBe("stale");
@@ -1501,10 +1498,10 @@ describe("I-010-6 — the main checkout across every failure path", () => {
 });
 
 // ----------------------------------------------------------------------------
-// AC4 — reuse stays explicit and stays linked
+// Reuse stays explicit and stays linked
 // ----------------------------------------------------------------------------
 
-describe("Spec-010 AC4 — a reused worktree stays linked to its branch and prior context", () => {
+describe("a reused worktree stays linked to its branch and prior context", () => {
   it(
     "rebinds the same worktree, root and branch-context row",
     async () => {
@@ -1522,7 +1519,7 @@ describe("Spec-010 AC4 — a reused worktree stays linked to its branch and prio
       const priorContexts = readBranchContexts();
       expect(priorContexts).toHaveLength(1);
 
-      // A later run names the candidate EXPLICITLY (I-010-8).
+      // A later run names the candidate EXPLICITLY.
       advanceClock(60_000);
       const second = await ctx.executionRoots.prepare({
         workspaceId: WORKSPACE_ID,
@@ -1582,7 +1579,7 @@ describe("Spec-010 AC4 — a reused worktree stays linked to its branch and prio
       const worktreeId = requireValue(first.worktreeId, "the first prepare's worktreeId");
 
       // The same branch, no `reuseWorktreeId`. An implicit-reuse implementation
-      // would hand back the existing worktree; I-010-8 says it refuses.
+      // would hand back the existing worktree says it refuses.
       const refusal = await captureRejection(() =>
         ctx.executionRoots.prepare({
           workspaceId: WORKSPACE_ID,
@@ -1844,7 +1841,7 @@ describe("the ephemeral-clone lifecycle on real git", () => {
 
       // The recorded outcome of the residual on `../ephemeral-clone-service.ts`:
       // the source's own default branch is REFUSED rather than bound, and the
-      // failure is queryable on the row because a clone emits nothing (D-010-11).
+      // failure is queryable on the row because a clone emits nothing.
       expect(failure).toBeInstanceOf(ClonePrepareFailedError);
       expect(failure).toMatchObject({ reason: "head_branch_unavailable" });
       const rows = ctx.db
@@ -1888,9 +1885,9 @@ describe("the ephemeral-clone lifecycle on real git", () => {
       expect(tick.retiredCloneIds).toEqual([cloneId]);
       expect(tick.returnedToProvisioningWorkspaceIds).toEqual([CLONE_WORKSPACE_ID]);
       expect(tick.cleanedCloneIds).toEqual([cloneId]);
-      // `Spec-010 §Fallback Behavior`: back to `provisioning`, never `stale`.
+      // back to `provisioning`, never `stale`.
       expect(readWorkspaceRow(CLONE_WORKSPACE_ID).state).toBe("provisioning");
-      // I-010-9: the row survives its own cleanup, stamped and queryable.
+      // The row survives its own cleanup, stamped and queryable.
       const cloneRow = readCloneRow(cloneId);
       expect(cloneRow.state).toBe("retired");
       expect(cloneRow.cleaned_at).not.toBeNull();
@@ -1902,7 +1899,7 @@ describe("the ephemeral-clone lifecycle on real git", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Ambient GIT_OBJECT_DIRECTORY — the Plan-009 strip both services inherit
+// Ambient GIT_OBJECT_DIRECTORY — strip both services inherit
 // ----------------------------------------------------------------------------
 //
 // THIS TIER OR NOWHERE. Both services build their child environment inside their
@@ -2014,7 +2011,7 @@ describe("ambient GIT_OBJECT_DIRECTORY cannot reach either service's git", () =>
 });
 
 // ----------------------------------------------------------------------------
-// D-010-9 — branch mode against real git
+// Branch mode against real git
 // ----------------------------------------------------------------------------
 
 describe("branch mode — the main checkout as the execution root", () => {
@@ -2022,8 +2019,8 @@ describe("branch mode — the main checkout as the execution root", () => {
     "binds the mount's own checkout and mutates nothing",
     async () => {
       // The one writable mode whose execution root IS the user's checkout —
-      // the exact I-010-6 blast radius this tier polices — driven through the
-      // real bracket: `assertWritable` → bind-verify (real `symbolic-ref`) →
+      // the exact blast radius this tier polices — driven through the real
+      // bracket: `assertWritable` → bind-verify (real `symbolic-ref`) →
       // `beginReprovision` → `completeReprovision`.
       const before = await snapshotMainCheckout(ctx.repository);
       insertWorkspace({
@@ -2041,9 +2038,9 @@ describe("branch mode — the main checkout as the execution root", () => {
       expect(prepared.executionMode).toBe("branch");
       expect(prepared.executionRoot).toBe(ctx.repository.root);
       expect(readWorkspaceRow(BRANCH_WORKSPACE_ID).state).toBe("ready");
-      // The context row fills NEITHER root column (I-010-5's branch-mode arm)
-      // and self-anchors — branch mode cuts nothing, so there is no cut point
-      // to record.
+      // The context row fills NEITHER root column (the branch-mode arm) and
+      // self-anchors — branch mode cuts nothing, so there is no cut point to
+      // record.
       const contextRow = ctx.db
         .prepare<
           [string],
@@ -2106,8 +2103,7 @@ describe("branch mode — the main checkout as the execution root", () => {
         currentBranchName: "(detached HEAD)",
       });
       // Bind-only verification: the refusal switched no branch, wrote no row,
-      // and left the detached checkout exactly as it found it (D-010-9,
-      // I-010-6).
+      // and left the detached checkout exactly as it found it.
       expect(readWorkspaceRow(BRANCH_WORKSPACE_ID).state).toBe("ready");
       expect(await snapshotMainCheckout(ctx.repository)).toEqual(before);
       expect(ctx.repository.firedHooks()).toEqual([]);

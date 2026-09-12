@@ -1,11 +1,10 @@
-// The post-replay assertion (Plan-005 Phase 3, T3.20).
+// The post-replay assertion.
 //
-// `Spec-005 §Required Behavior` states the rule this module exists to enforce:
-// a replay is verified by what the session ANSWERS, never by what the call
-// returned. `replayTranscript` therefore completes only after the reconstituted
-// session is read back and answers consistently with the transcript's tail, and
-// a session that answers with zero turns, cannot be read, or contradicts the
-// tail fails the operation.
+// states the rule this module exists to enforce: a replay is verified by what
+// the session ANSWERS, never by what the call returned. `replayTranscript`
+// therefore completes only after the reconstituted session is read back and
+// answers consistently with the transcript's tail, and a session that answers
+// with zero turns, cannot be read, or contradicts the tail fails the operation.
 //
 // The rule is not defensive pedantry. Both pinned seeding surfaces are UNTYPED
 // at the wire — Codex's `thread/inject_items` takes `Array<JsonValue>` — so a
@@ -14,11 +13,6 @@
 // nothing. A provider that lies by omission is the ordinary case here, not the
 // adversarial one, which is why the success return is worth exactly nothing as
 // evidence.
-//
-// Spec coverage: `Spec-005 §Required Behavior` (a replay is verified by what the
-// session answers); `Spec-005 §Canonical Transcript Export And Replay` (the
-// post-replay assertion as the only admissible evidence a replay worked).
-// Verifies invariant I-005-8.
 //
 // Driver-agnostic on purpose. Both legs seed over different transports and both
 // owe the identical verdict, so the comparison rules live once, here, and each
@@ -129,10 +123,10 @@ export type PostReplayVerdict =
  * Three rather than one because a single-turn comparison is satisfied by a
  * provider that kept only the last frame, and rather than all because the
  * comparison's cost is the transcript's length and its evidentiary value is
- * concentrated at the end: `Spec-005 §Required Behavior` binds the answer to be
- * consistent with the transcript's TAIL. The count check below is what covers
- * the interior — a provider that dropped anything anywhere answers with fewer
- * turns than were seeded.
+ * concentrated at the end: binds the answer to be consistent with the
+ * transcript's TAIL. The count check below is what covers the interior — a
+ * provider that dropped anything anywhere answers with fewer turns than were
+ * seeded.
  */
 export const POST_REPLAY_TAIL_DEPTH: number = 3;
 
@@ -233,9 +227,9 @@ export function assertReplayReconstituted(
   // A SEEDED tail with no bodies has nothing for the target to be consistent
   // with: every pair the loop below would compare is `"" === ""`, so the
   // assertion would silently degrade to the count check alone against a target
-  // that could have stored empty placeholders for frames it discarded.
-  // `Spec-005 §Required Behavior` requires the answer to be consistent with the
-  // transcript's TAIL, and a tail with no content supplies none.
+  // that could have stored empty placeholders for frames it discarded. requires
+  // the answer to be consistent with the transcript's TAIL, and a tail with no
+  // content supplies none.
   //
   // The predicate reads the EXPECTED side only, deliberately. Reading the
   // observed side too — "either side carries a body" — would let a target that

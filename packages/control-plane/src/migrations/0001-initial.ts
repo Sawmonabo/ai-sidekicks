@@ -13,11 +13,10 @@
 //   3. Bundlers handle `import.meta.url` inconsistently; inline strings
 //      survive every transform stage.
 //
-// The canonical schema source-of-truth is
-// `docs/architecture/schemas/shared-postgres-schema.md` — when extending
-// this migration (or adding a later one), copy the per-table block from
-// that file verbatim (including `-- Owner:` and per-column comments) so the
-// inline constant stays in lockstep with the canonical doc.
+// The canonical schema source-of-truth is — when extending this migration
+// (or adding a later one), copy the per-table block from that file verbatim
+// (including `-- Owner:` and per-column comments) so the inline constant
+// stays in lockstep with the canonical doc.
 //
 // ----------------------------------------------------------------------------
 // Scope (this migration)

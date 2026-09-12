@@ -1,7 +1,7 @@
-// Plan-005 T5.1 — the MCP Tasks durable recovery handle's write seam.
+// The MCP Tasks durable recovery handle's write seam.
 //
-// T3.13 shipped both drivers' observation halves (`observeMcpTaskAcceptance`)
-// bound to a no-op sink, because the column they observe FOR did not exist.
+// Shipped both drivers' observation halves (`observeMcpTaskAcceptance`) bound
+// to a no-op sink, because the column they observe FOR did not exist.
 // Migration `0017-command-receipt-mcp-task-handle.ts` lands it; this module is
 // the sink that replaces the no-op, and it is the ONLY writer of
 // `command_receipts.mcp_task_id` anywhere in the daemon.
@@ -24,45 +24,43 @@
 //
 // That is not an oversight to be fixed by wiring it somewhere. NO PLAN TASK
 // OWNS THE DISPATCH CALLER. The three adjacent owners each own something
-// deliberately else: Plan-005 T3.13 owns the acceptance-observation seam,
-// Plan-005 T5.1 (this task) owns the column and the write, and Plan-015 T15.3
-// READS the stored handle to poll `tasks/get` / `tasks/result` in place of the
-// halt. Its own task text scopes T5.1 to the migration, the runner
+// deliberately else: owns the acceptance-observation seam owns the column and
+// the write, and READS the stored handle to poll `tasks/get` / `tasks/result`
+// in place of the halt. Its own task text scopes to the migration, the runner
 // registration, both `tools.ts` files, and two doc verifications — no wiring
 // site appears in it.
 //
 // There is a live contradiction above this file that a future wiring attempt
-// must resolve FIRST rather than paper over: `Spec-028 §Purpose` states that
-// the provider CLIs are the MCP clients and "the daemon never joins the MCP
-// wire", and its Non-Goals repeat it, while `Spec-005 §Tool Metadata` and
-// `Spec-015` require the daemon to see a `CreateTaskResult` at dispatch and
-// later poll `tasks/get` — which only a party on that wire can do. The method
-// string `tools/call` appears nowhere in the corpus or the code. Wiring a
-// caller would be picking a side of that contradiction in code, which is a
-// governance decision and not this task's to make.
+// must resolve FIRST rather than paper over: states that the provider CLIs
+// are the MCP clients and "the daemon never joins the MCP wire", and its
+// Non-Goals repeat it, while and require the daemon to see a
+// `CreateTaskResult` at dispatch and later poll `tasks/get` — which only a
+// party on that wire can do. The method string `tools/call` appears nowhere
+// in the corpus or the code. Wiring a caller would be picking a side of that
+// contradiction in code, which is a governance decision and not this task's
+// to make.
 //
 // The state is also not peculiar to this module: RuntimeBindingStore,
 // DriverCapabilitiesWriter, CallbackToolHost, and ThreadFrameRouter are every
-// other Plan-005 service that takes a `Database`, and not one of them has a
-// production construction site either. They are all owed by the same composition
-// root `bootstrap/index.ts` says does not exist yet ("no composition root that
-// owns one — Phase 2 / Tier 4 bring the listener lifecycle"). That directory is
-// additionally single-owner Plan-007, and the dependency map's §2 row enumerates
-// the six plans whose wiring calls are sanctioned inside `index.ts`; Plan-005 is
-// not among them. Constructing this recorder there would be an unsanctioned edit
-// wiring a sink that nothing can call.
+// other service that takes a `Database`, and not one of them has a production
+// construction site either. They are all owed by the same composition root
+// `bootstrap/index.ts` says does not exist yet ("no composition root that owns
+// one — Phase 2 / Tier 4 bring the listener lifecycle"). That directory is
+// additionally single-owner and the dependency map's `index.ts` is not among
+// them. Constructing this recorder there would be an unsanctioned edit wiring a
+// sink that nothing can call.
 //
 // ----------------------------------------------------------------------------
 // Why the bound is restated here when the column already CHECKs it
 // ----------------------------------------------------------------------------
 //
 // `MCP_TASK_ID_MAX_LENGTH` is the same 256 the migration's CHECK expresses, and
-// the duplication is the point (the T2.1 defense-in-depth convention the
+// the duplication is the point (defense-in-depth convention the
 // `runtime_bindings` provider-declared strings follow). The database bound is
-// the one no code path can talk its way past; this one exists so a violation
-// is REFUSED with a named diagnostic naming the server, the tool, and the
-// length, instead of unwinding out of a driver frame as an opaque
-// SQLITE_CONSTRAINT with no MCP identity attached to it.
+// the one no code path can talk its way past; this one exists so a violation is
+// REFUSED with a named diagnostic naming the server, the tool, and the length,
+// instead of unwinding out of a driver frame as an opaque SQLITE_CONSTRAINT
+// with no MCP identity attached to it.
 //
 // The constant is minted here rather than borrowed from an existing bounded
 // wire string. `@ai-sidekicks/contracts` exports several `*_MAX_LEN` values,
@@ -71,11 +69,11 @@
 // the exact failure the second bound exists to prevent.
 //
 // An over-bound handle is REFUSED and never truncated. A truncated handle is
-// not a degraded handle — it names a different task or no task, and Spec-015
-// recovery would poll `tasks/get` against it and act on the answer. Refusing
-// leaves the column NULL, which is the state the recovery path already
-// handles: the receipt stays on the `manual_reconcile_only` halt (I-005-3).
-// Silent loss is not possible either — every refusal emits a diagnostic.
+// not a degraded handle — it names a different task or no task, and recovery
+// would poll `tasks/get` against it and act on the answer. Refusing leaves
+// the column NULL, which is the state the recovery path already handles: the
+// receipt stays on the `manual_reconcile_only` halt. Silent loss is not
+// possible either — every refusal emits a diagnostic.
 //
 // ----------------------------------------------------------------------------
 // Why the UPDATE is conditional on NULL

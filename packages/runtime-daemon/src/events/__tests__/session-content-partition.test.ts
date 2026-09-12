@@ -1,6 +1,6 @@
 // Contract coverage for the machine-authored content partition — the sealing
 // codec's content half, the session content key store behind it, and the
-// end-to-end append that joins them (Plan-006 T3.6).
+// end-to-end append that joins them.
 //
 // ---------------------------------------------------------------------------
 // THE ENUMERATION THIS FILE OPENS WITH, AND WHY IT IS A TEST
@@ -60,11 +60,6 @@
 // truncation arms hold the same discipline across the bound: one body under it,
 // one exactly on it, one over it.
 //
-// Spec coverage: `Spec-006 §Canonical Serialization Rules` (the digest inside
-// the signed payload, the ciphertext outside it), `Spec-022 §Daemon Master Key`
-// (the wrap custody shape), `Spec-022 §Retention Policy` (the rotation the
-// re-wrap entry point serves). Refs: Plan-006 T3.6, I-006-3-05, I-006-3-06,
-// I-006-3-08.
 
 import { randomBytes } from "node:crypto";
 
@@ -1314,15 +1309,14 @@ describe("codec refusals over the content partition", () => {
   });
 
   it("parses the composed row VERBATIM — nothing is projected away before the guard", async () => {
-    // THE CLAIM THE SEAM RESTS ON. An earlier revision of this guard cut the
-    // two participant bindings out of its parse subject, because no registered
+    // THE CLAIM THE SEAM RESTS ON. An earlier revision of this guard cut the two
+    // participant bindings out of its parse subject, because no registered
     // variant declared them and every payload schema is `.strict()`, so a
     // verbatim parse would have refused every participant row ever written.
     // `packages/contracts/src/event.ts` now registers both as schema-optional
     // members on every variant whose category may carry a PII partition, which
-    // is what `Spec-006 §Canonical Serialization Rules` requires of such a row —
-    // so the cut is gone and the guard judges the signed row exactly as a reader
-    // will get it back.
+    // is what requires of such a row — so the cut is gone and the guard judges
+    // the signed row exactly as a reader will get it back.
     //
     // Asserted on the SUCCESS path, in three legs, because a regression here
     // would be silent: a guard that quietly went back to projecting would still
@@ -2419,9 +2413,8 @@ describe("appending a row that carries machine-authored prose", () => {
 // indirection pair, and each spells it in its own vocabulary:
 //
 //   * the codec, per CATEGORY, at `PII_REFUSED_CATEGORY_NAMES` and the switch
-//     that reads it — the refusal that keeps a `pii_payload` off a row
-//     `Plan-006 §Audit Integrity Invariant` says is never compacted and never
-//     crypto-shredded;
+//     that reads it — the refusal that keeps a `pii_payload` off a row says
+//     is never compacted and never crypto-shredded;
 //   * `packages/contracts/src/event.ts`, per registered VARIANT, as the
 //     presence or absence of the two optional members in that variant's payload
 //     shape.

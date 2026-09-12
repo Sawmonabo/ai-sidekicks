@@ -1,17 +1,15 @@
 // Ingest-halt seam — the administrative "stop accepting writes for this session"
-// switch the append path consults (Plan-006 T3.1, F-006-HALT-*).
+// switch the append path consults (-*).
 //
 // ----------------------------------------------------------------------------
 // What halts ingest, and why the read side must be trivial
 // ----------------------------------------------------------------------------
 //
-// Phase 4's key-reuse observer detects a daemon signing key appearing under more
-// than one identity — the `refuse_on_rotation` Sigstore-precedent violation of
-// I-006-4-03. A key in that state can no longer attest anything: every row it
-// signs is repudiable, because a second holder could have produced it. The
-// correct response is to STOP APPENDING on every locally-hosted identity the
-// colliding key appears under, and to keep refusing until the collision leaves
-// the observable set. That refusal is what this seam publishes.
+// A key in that state can no longer attest anything: every row it signs is
+// repudiable, because a second holder could have produced it. The correct
+// response is to STOP APPENDING on every locally-hosted identity the colliding
+// key appears under, and to keep refusing until the collision leaves the
+// observable set. That refusal is what this seam publishes.
 //
 // The READ side (`isHalted`) is deliberately the narrowest possible surface:
 // synchronous, no I/O, no lock. It is consulted on EVERY append, first, while
@@ -21,10 +19,9 @@
 //
 // The WRITE side is separated into `IngestHaltRegistry` rather than folded into
 // the same interface, because the two have opposite consumer sets: everything
-// that APPENDS depends on the read side, and exactly one component (the T4.2
-// observer) publishes. Keeping `IngestHaltSource` read-only means
-// `EventLogService` cannot halt a session even by accident, and a test double is
-// one method.
+// that APPENDS depends on the read side, and exactly one component (observer)
+// publishes. Keeping `IngestHaltSource` read-only means `EventLogService` cannot
+// halt a session even by accident, and a test double is one method.
 //
 // ----------------------------------------------------------------------------
 // Construction order, and the cycle it breaks
@@ -117,13 +114,13 @@ export class NeverHaltedIngestHaltSource implements IngestHaltSource {
 }
 
 /**
- * The WRITE side — the in-memory halted-session registry the T4.2 key-reuse
- * observer publishes to, and the `IngestHaltSource` the append service reads.
+ * The WRITE side — the in-memory halted-session registry key-reuse observer
+ * publishes to, and the `IngestHaltSource` the append service reads.
  *
  * THE GUARANTEE CALLERS CODE AGAINST: when `await halt(S)` resolves,
  * `isHalted(S)` is true and no `clear(S)` already in flight can still undo it —
  * INCLUDING when the caller holds `S`'s append lock and the halt therefore runs
- * reentrantly, which is the T4.2 observer's own pattern. The observer halts on a
+ * reentrantly, which is observer's own pattern. The observer halts on a
  * key-reuse observation and then proceeds believing ingest is stopped, so this
  * guarantee is the whole point of the seam rather than a nicety. Two mechanisms
  * together produce it — `#pendingClears` and `#haltGenerations` — and neither
@@ -179,22 +176,22 @@ export class IngestHaltRegistry implements IngestHaltSource {
    * THE PROPERTY THIS METHOD OWES ITS CALLER: when the returned promise
    * resolves, `isHalted(sessionId)` is true and no `clear()` already in flight
    * can still undo it. A resolved `halt()` that leaves the session admitting
-   * writes is fail-OPEN on a security gate — the T4.2 observer halts on a
-   * key-reuse OBSERVATION and then proceeds believing ingest is stopped — and
-   * "the next reconciler tick fixes it" is not an answer, because the window is
-   * unbounded by a parked append and the tick is not synchronous with the
-   * caller's decision. Two DIFFERENT interleavings threaten that property, and
-   * two separate mechanisms are needed; neither alone is sufficient.
+   * writes is fail-OPEN on a security gate — observer halts on a key-reuse
+   * OBSERVATION and then proceeds believing ingest is stopped — and "the next
+   * reconciler tick fixes it" is not an answer, because the window is unbounded
+   * by a parked append and the tick is not synchronous with the caller's
+   * decision. Two DIFFERENT interleavings threaten that property, and two
+   * separate mechanisms are needed; neither alone is sufficient.
    *
-   * ORDERING (F-006-HALT-07) — the already-halted no-op is decided BEFORE lock
-   * acquisition, and this asymmetry with `clear()` is deliberate. The reconciler
-   * tick re-issues `halt()` for every session still in the collision set on
-   * every pass; those re-issues are the common case by a wide margin. Deciding
-   * the no-op pre-lock means a re-issue never queues behind an in-flight append
-   * — which matters because an append can PARK for a long time (a signing-key
-   * unseal may await a WebAuthn ceremony), and serializing the reconciliation
-   * tick behind a parked append would stall halt publication for every other
-   * session in the same tick.
+   * ORDERING — the already-halted no-op is decided BEFORE lock acquisition, and
+   * this asymmetry with `clear()` is deliberate. The reconciler tick re-issues
+   * `halt()` for every session still in the collision set on every pass; those
+   * re-issues are the common case by a wide margin. Deciding the no-op pre-lock
+   * means a re-issue never queues behind an in-flight append — which matters
+   * because an append can PARK for a long time (a signing-key unseal may await a
+   * WebAuthn ceremony), and serializing the reconciliation tick behind a parked
+   * append would stall halt publication for every other session in the same
+   * tick.
    *
    * MECHANISM 1 — `#pendingClears`, which makes the fast path SAFE TO TAKE.
    * Membership alone is NOT a sound fast-path predicate, and the earlier claim
@@ -220,8 +217,8 @@ export class IngestHaltRegistry implements IngestHaltSource {
    * REENTRANT caller it is not — and reentrancy is the pattern this file's
    * header names as the intended one:
    *
-   *   1. S is halted. `clear(S)` registers its pendency and queues behind the
-   *      T4.2 observer, which holds S's append lock.
+   *   1. `clear(S)` registers its pendency and queues behind observer, which
+   *      holds S's append lock.
    *   2. The observer calls `halt(S)` from inside its critical section. The
    *      fast path correctly refuses (a clear is pending) — and then the lock
    *      acquisition is REENTRANT, so the `add` runs immediately, ahead of the
@@ -236,12 +233,11 @@ export class IngestHaltRegistry implements IngestHaltSource {
    * mattering: the halt wins because it advanced the counter, whether it ran
    * before or after the clear's critical section.
    *
-   * F-006-HALT-07 is untouched by all of this. The fast-path predicate is
-   * unchanged, and the case that argument is about — the reconciler re-issuing
-   * `halt()` for a session still in the collision set — has no pending clear by
-   * construction (nothing is re-admitting a session that is still colliding), so
-   * those re-issues still take the fast path and still never queue behind a
-   * parked append.
+   * The fast-path predicate is unchanged, and the case that argument is about —
+   * the reconciler re-issuing `halt()` for a session still in the collision set
+   * — has no pending clear by construction (nothing is re-admitting a session
+   * that is still colliding), so those re-issues still take the fast path and
+   * still never queue behind a parked append.
    *
    * The MUTATING path does take the lock, so the set change is published inside
    * the same critical section appends run in: an append either sees the halt or
@@ -250,7 +246,7 @@ export class IngestHaltRegistry implements IngestHaltSource {
   async halt(requestedSessionId: SessionId): Promise<void> {
     // CANONICALIZE FIRST — before the sentinel guard, the membership check, and
     // the lock. The halted set and both counters are Map-key boundaries in
-    // `uuid-canonical.ts`'s sense: UUID hex is case-insensitive (RFC 9562 §4)
+    // `uuid-canonical.ts`'s sense: UUID hex is case-insensitive (RFC 9562 section 4)
     // and the branded schema admits either case unchanged, so a halt issued
     // under one spelling must be observed by an append arriving under another,
     // and the sentinel guard below compares the CANONICAL form so an uppercase
@@ -294,14 +290,14 @@ export class IngestHaltRegistry implements IngestHaltSource {
   /**
    * Re-admit ingest for `sessionId`. Idempotent.
    *
-   * ORDERING (F-006-HALT-07) — the never-halted no-op is decided AFTER lock
-   * acquisition, the mirror image of `halt()`. `clear()` is the RE-ADMISSION
-   * decision: it declares that the collision has left the observable set and
-   * writes may resume. Deciding that pre-lock would let it interleave with an
-   * append that is mid-flight under a halt — the append could pass its
-   * halt-gate check against a set this call is concurrently mutating, and the
-   * resulting row's admissibility would depend on scheduling. Re-admission is
-   * rare (once per resolved collision, versus per-tick re-issues on the halt
+   * ORDERING — the never-halted no-op is decided AFTER lock acquisition, the
+   * mirror image of `halt()`. `clear()` is the RE-ADMISSION decision: it
+   * declares that the collision has left the observable set and writes may
+   * resume. Deciding that pre-lock would let it interleave with an append
+   * that is mid-flight under a halt — the append could pass its halt-gate
+   * check against a set this call is concurrently mutating, and the resulting
+   * row's admissibility would depend on scheduling. Re-admission is rare
+   * (once per resolved collision, versus per-tick re-issues on the halt
    * side), so the cost of always acquiring is negligible and the ordering
    * guarantee is worth strictly more here than the fast path would be.
    *
@@ -355,7 +351,7 @@ export class IngestHaltRegistry implements IngestHaltSource {
    * take a second, symmetric counter and a second set of interleavings to
    * verify, to chase a hazard in the safe direction, so it is recorded here
    * rather than fixed — and it is vacuous today in any case, since no production
-   * consumer of this registry exists yet, T4.2's key-reuse observer being the
+   * consumer of this registry exists yet, the key-reuse observer being the
    * first.
    */
   async clear(requestedSessionId: SessionId): Promise<void> {
@@ -436,11 +432,6 @@ export class IngestHaltRegistry implements IngestHaltSource {
  * strict-equality comparison against the lowercase sentinel literal is sound
  * for every spelling the branded schema admits.
  *
- * A plain `Error`, NOT a `DaemonDomainError`: this is an internal programming
- * error on a daemon-internal seam, not a refusal any remote caller can provoke
- * or should see a typed wire code for. The registry's write methods are reached
- * only from daemon-resident components (the T4.2 observer and its tests), so
- * there is no wire boundary to render a typed error onto.
  */
 function assertNotDaemonScopeSentinel(sessionId: SessionId, operation: string): void {
   if (sessionId === DAEMON_SCOPE_SENTINEL_SESSION_ID) {

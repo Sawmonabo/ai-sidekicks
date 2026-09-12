@@ -1,4 +1,4 @@
-// Test doubles for the T3.24 capability-probe transport.
+// Test doubles for capability-probe transport.
 //
 // Excluded from `tsconfig.json`'s build (`src/**/__fixtures__/**`), so nothing
 // here ships in `dist/` — it exists so every suite that needs a probe surface
@@ -23,8 +23,6 @@
 //     (`-32602`) would let a broken classifier pass. That code is kept below as
 //     a SECOND accepted shape rather than as the default.
 //
-// Refs: Plan-005 T3.24, `docs/reference/provider-wire/claude.md`,
-// `docs/reference/provider-wire/codex.md`.
 
 import type { CapabilityDetectionSource, DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 

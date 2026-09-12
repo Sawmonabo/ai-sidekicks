@@ -1,9 +1,8 @@
 // The memo projection floor — the daemon-side fallback that stands in when a
-// conversation cannot be reconstituted natively (Plan-005 Phase 3, T3.21).
+// conversation cannot be reconstituted natively.
 //
-// `Spec-005 §Canonical Transcript Export And Replay` states four normative
-// properties for this floor, and this module is shaped so each is a mechanism
-// rather than a promise:
+// states four normative properties for this floor, and this module is shaped
+// so each is a mechanism rather than a promise:
 //
 //   * A budget expressed as a FRACTION of the target's context window, never an
 //     absolute token count, so the same rule holds across models with different
@@ -24,7 +23,7 @@
 // and has none: `runtime_bindings` is ruled out for recovery state and the local
 // schema carries no generic claim store, so a claim would mint a table to hold a
 // single in-flight marker for something the event log already determines — the
-// second record of an ordered fact ADR-029 rejects on its own terms.
+// second record of an ordered fact rejects on its own terms.
 //
 // Once-only delivery therefore rests on two legs that are each inert alone:
 //
@@ -35,7 +34,7 @@
 //
 //   CARRIAGE puts the value in the target to be found. The key is rendered into
 //   the memo turn's own prose as visible ASCII — never an invisible or
-//   zero-width sentinel, which `Spec-005 §Pitfalls To Avoid` prohibits outright.
+//   zero-width sentinel, which prohibits outright.
 //
 // So EVERY send reconciles first: recompute the key, read the target's turns
 // for it, treat a match as already delivered.
@@ -93,11 +92,6 @@
 // replay call. A driver whose native replay applied never reaches the gateway at
 // all.
 //
-// Spec coverage: `Spec-005 §Canonical Transcript Export And Replay` (the four
-// normative memo properties); `Spec-005 §Fallback Behavior`. Verifies invariant
-// I-005-9.
-//
-// Refs: Plan-005 §Phase 3 / T3.21, ADR-029.
 
 import { blake3 } from "@noble/hashes/blake3.js";
 import { bytesToHex } from "@noble/hashes/utils.js";

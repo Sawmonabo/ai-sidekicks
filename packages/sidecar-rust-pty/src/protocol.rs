@@ -1,13 +1,9 @@
 //! Wire protocol types for the daemon ↔ sidecar JSON envelope.
 //!
 //! Every message that crosses the Content-Length framing layer is one
-//! variant of [`Envelope`]. The envelope is internally-tagged on `kind`
-//! (per F-024-1-02), so the on-wire JSON for any variant carries
-//! `{"kind": "<snake_case_variant>", ...payload fields...}`. Mirror types
-//! live in `packages/contracts/src/pty-host-protocol.ts` and are
-//! hand-authored parity — there is no code-gen in V1 (Plan-024
-//! §Implementation Step 3; trade-off accepted: two-sided hand edit vs
-//! adding a schema compiler).
+//! variant of [`Envelope`]. The envelope is internally-tagged on `kind`,
+//! so the on-wire JSON for any variant carries `{"kind":
+//! "<snake_case_variant>",...payload fields...}`.
 //!
 //! ## Field-shape decisions
 //!
@@ -18,9 +14,9 @@
 //!   recover. The TS mirror is `Array<[string, string]>`.
 //!
 //! - **`DataFrame.bytes` and `WriteRequest.bytes`** are `Vec<u8>` with
-//!   `#[serde_as(as = "Base64")]` (per F-024-1-01). On the wire they
-//!   serialize as standard-alphabet base64 strings (no padding stripping;
-//!   the `serde_with` 3.x default is `STANDARD`). The TS mirror declares
+//!   `#[serde_as(as = "Base64")]`. On the wire they serialize as
+//!   standard-alphabet base64 strings (no padding stripping; the
+//!   `serde_with` 3.x default is `STANDARD`). The TS mirror declares
 //!   `bytes: string` — decoder is the consumer's responsibility.
 //!
 //! - **`PingRequest` / `PingResponse`** are empty structs. The plan does
@@ -57,7 +53,6 @@
 //!   — the empty `session_id` signals "no session was minted" so the
 //!   daemon's supervisor MUST NOT register tracking on it.
 //!
-//! Plan-024 Phase 1 / T-024-1-3.
 
 use serde::{Deserialize, Serialize};
 use serde_with::{base64::Base64, serde_as};
@@ -65,10 +60,10 @@ use serde_with::{base64::Base64, serde_as};
 /// POSIX signal name accepted by `KillRequest.signal`.
 ///
 /// On Windows the sidecar translates these to console-control events and
-/// `taskkill` invocations per Plan-024 §Windows Implementation Gotchas;
-/// this enum is the on-wire shape only. Variants serialize verbatim
-/// (`"SIGINT"`, `"SIGTERM"`, etc.) so the JSON value matches the symbol
-/// a POSIX user expects, not the lowercase `snake_case` mass-rename.
+/// `taskkill` invocations this enum is the on-wire shape only. Variants
+/// serialize verbatim (`"SIGINT"`, `"SIGTERM"`, etc.) so the JSON value
+/// matches the symbol a POSIX user expects, not the lowercase
+/// `snake_case` mass-rename.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PtySignal {
     #[serde(rename = "SIGINT")]
@@ -91,10 +86,9 @@ pub enum DataStream {
 
 /// Spawn a new PTY session.
 ///
-/// The daemon-layer `spawn-cwd-translator` (see
-/// `docs/plans/024-rust-pty-sidecar.md` §Gotcha 5 / I-024-5) rewrites
-/// `cwd` to a stable parent directory before this struct reaches the
-/// sidecar; the sidecar forwards `cwd` verbatim to `portable-pty`.
+/// The daemon-layer `spawn-cwd-translator` rewrites `cwd` to a stable
+/// parent directory before this struct reaches the sidecar; the
+/// sidecar forwards `cwd` verbatim to `portable-pty`.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct SpawnRequest {
     pub command: String,
@@ -141,9 +135,8 @@ pub struct ResizeRequest {
     pub cols: u16,
 }
 
-/// Acknowledgment of [`ResizeRequest`]. Explicit response per F-024-1-03
-/// so request-correlation is symmetric across every control-message
-/// kind.
+/// Explicit response so request-correlation is symmetric across every
+/// control-message kind.
 ///
 /// `error` is set when the dispatcher's resize handler returned
 /// `Err(...)` — most often [`crate::pty_session::PtySessionError::UnknownSession`]
@@ -162,9 +155,9 @@ pub struct ResizeResponse {
 
 /// Write payload to a session's stdin.
 ///
-/// `bytes` is base64-encoded on the wire per F-024-1-01. The Rust type
-/// stays `Vec<u8>` — `serde_with::Base64` handles encoding both
-/// directions transparently.
+/// `bytes` is base64-encoded on the wire. The Rust type stays
+/// `Vec<u8>` — `serde_with::Base64` handles encoding both directions
+/// transparently.
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct WriteRequest {
@@ -173,7 +166,6 @@ pub struct WriteRequest {
     pub bytes: Vec<u8>,
 }
 
-/// Acknowledgment of [`WriteRequest`]. Explicit response per F-024-1-03.
 ///
 /// `error` is set when the dispatcher's write handler returned
 /// `Err(...)` — typically
@@ -193,20 +185,19 @@ pub struct WriteResponse {
 
 /// Signal a session's child process.
 ///
-/// On Windows the sidecar translates per Plan-024 §Gotcha 1 + 2:
-/// `SIGINT` → `CTRL_C_EVENT`, `SIGTERM` → `CTRL_BREAK_EVENT` then
-/// `taskkill /T /F` on bounded timeout, `SIGKILL` → `taskkill /T /F`
-/// directly, `SIGHUP` → ditto-treat-as-hard-stop.
+/// On Windows the sidecar translates `SIGINT` → `CTRL_C_EVENT`,
+/// `SIGTERM` → `CTRL_BREAK_EVENT` then `taskkill /T /F` on bounded
+/// timeout, `SIGKILL` → `taskkill /T /F` directly, `SIGHUP` →
+/// ditto-treat-as-hard-stop.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct KillRequest {
     pub session_id: String,
     pub signal: PtySignal,
 }
 
-/// Acknowledgment of [`KillRequest`]. Explicit response per F-024-1-03;
-/// the sidecar acks once it has begun the kill cascade, NOT when the
-/// child has actually exited — [`ExitCodeNotification`] carries the
-/// terminal status.
+/// Explicit response the sidecar acks once it has begun the kill
+/// cascade, NOT when the child has actually exited —
+/// [`ExitCodeNotification`] carries the terminal status.
 ///
 /// `error` is set when the dispatcher's kill handler returned
 /// `Err(...)` — most often
@@ -253,10 +244,10 @@ pub struct PingResponse {}
 
 /// Asynchronous stdout/stderr chunk emitted by the sidecar.
 ///
-/// `seq` is monotonically increasing per `(session_id, stream)` pair
-/// (per Plan-024 §Implementation Step 4); consumers reassemble a stream
-/// in `seq` order. `bytes` is base64-encoded on the wire per
-/// F-024-1-01; decoding is the consumer's responsibility.
+/// `seq` is monotonically increasing per `(session_id, stream)` pair;
+/// consumers reassemble a stream in `seq` order. `bytes` is
+/// base64-encoded on the wire decoding is the consumer's
+/// responsibility.
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct DataFrame {

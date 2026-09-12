@@ -1,18 +1,14 @@
-// I-007-3-T4 — SDK Zod-wrapper test suite (T-007p-3-4).
+// SDK Zod-wrapper test suite.
 //
-// Spec coverage:
-//   * `Spec-007 §Wire Format` — typed JSON-RPC client transport surface owed to
-//     desktop renderer + CLI consumers
-//     (docs/specs/007-local-ipc-and-daemon-control.md).
-//   * Plan-007 §Cross-Plan Obligations CP-007-4 — `transport/jsonRpcClient.ts`
-//     is the SDK-side wrapping primitive that mirrors the daemon-side
-//     I-007-7 schema-validates-before-dispatch invariant on the wire's other
-//     end. Every outbound payload is Zod-validated BEFORE the wire write;
-//     every inbound payload is Zod-validated BEFORE it surfaces to the
-//     caller.
+//   * typed JSON-RPC client transport surface owed to desktop renderer + CLI
+//     consumers.
+//   * `transport/jsonRpcClient.ts` is the SDK-side wrapping primitive that
+//     mirrors the daemon-side schema-validates-before-dispatch invariant on
+//     the wire's other end. Every outbound payload is Zod-validated BEFORE the
+//     wire write; every inbound payload is Zod-validated BEFORE it surfaces to
+//     the caller.
 //
 // Acceptance Criterion verified here (per task contract):
-//   * I-007-3-T4 — `JsonRpcClient.call`:
 //     a) Corrupted server response → `JsonRpcSchemaError(phase: "result")`
 //        (server-corruption signal; the daemon returned a value that does
 //        not match the caller's `resultSchema`). The promise rejects;
@@ -22,8 +18,8 @@
 //        rejects; the transport's `send` is NEVER called; the pending
 //        request map stays empty.
 //
-// CP-007-4 verification: the test asserts BOTH phases share a single error
-// class (`JsonRpcSchemaError`) discriminated by the `phase` field so test
+// Verification: the test asserts BOTH phases share a single error class
+// (`JsonRpcSchemaError`) discriminated by the `phase` field so test
 // observability and downstream telemetry can route the two surfaces
 // uniformly. The SDK's contract is "fail-fast-with-typed-error on either
 // end of validation"; this file pins both directions of that contract.
@@ -33,8 +29,8 @@
 //     + runtime — per package.json line 29). So unlike the daemon-side
 //     fixtures, this file imports `zod` directly and constructs real Zod
 //     schemas for the `paramsSchema` / `resultSchema` slots. This matches
-//     the realistic call-site pattern downstream consumers (Plan-001 Phase
-//     5 sessionClient) follow.
+//     the realistic call-site pattern downstream consumers (sessionClient)
+//     follow.
 //   * The transport double is a hand-rolled in-memory class that captures
 //     outbound `send()` calls in an array and exposes a `dispatchInbound`
 //     method for the test to drive a server-corrupted reply through the
@@ -70,11 +66,10 @@ import type { ClientTransport } from "../types.js";
 // In-memory ClientTransport double
 // ----------------------------------------------------------------------------
 //
-// Captures every outbound `send(envelope)` call into `sentEnvelopes`. Holds
-// the inbound `onMessage` callback so the test can drive a hand-built reply
-// envelope through the client's dispatcher. Mirrors the pattern from MCP
-// SDK's in-memory transport (per `Plan-007 §Phase 3: session.* Handlers + SDK Zod Layer` T-007p-3-2 reference) but trimmed to the
-// fields T4 actually needs.
+// Captures every outbound `send(envelope)` call into `sentEnvelopes`. Holds the inbound
+// `onMessage` callback so the test can drive a hand-built reply envelope through the client's
+// dispatcher. Mirrors the pattern from MCP SDK's in-memory transport (reference) but trimmed
+// to the fields T4 actually needs.
 
 class InMemoryTransport implements ClientTransport {
   /**
@@ -127,10 +122,10 @@ class InMemoryTransport implements ClientTransport {
 }
 
 // ----------------------------------------------------------------------------
-// I-007-3-T4 — corrupted server response → JsonRpcSchemaError(phase: "result")
+// Corrupted server response → JsonRpcSchemaError(phase: "result")
 // ----------------------------------------------------------------------------
 
-describe("I-007-3-T4 — JsonRpcClient.call rejects with JsonRpcSchemaError on schema violations", () => {
+describe("JsonRpcClient.call rejects with JsonRpcSchemaError on schema violations", () => {
   it("corrupted server response (result fails resultSchema) rejects with `JsonRpcSchemaError(phase: 'result')`", async () => {
     // Arrange — a real Zod schema demanding a specific shape on the result.
     // The server's response will deliberately violate it. We pair this with
@@ -359,14 +354,14 @@ describe("InMemoryTransport double — sanity", () => {
 // `#handleNotification` BEFORE the registration microtask fired, hitting the
 // unknown-id silent-drop branch and losing the first event.
 //
-// The daemon-side wire-ordering invariant (Plan-007 I-007-10 — daemon
-// writes the subscribe response BEFORE the first notify frame) was a
-// necessary precondition but not sufficient on its own; the SDK had to
-// install `#subscriptions` synchronously in the same frame as the response
-// dispatch. The fix moved registration into `#handleResponse` (between
-// `pending.delete` and `pending.resolve`) so the very next inbound
-// `#handleInbound` call — even if dispatched in the same synchronous parse
-// loop — finds the subscription registered.
+// The daemon-side wire-ordering invariant (daemon writes the subscribe
+// response BEFORE the first notify frame) was a necessary precondition but
+// not sufficient on its own; the SDK had to install `#subscriptions`
+// synchronously in the same frame as the response dispatch. The fix moved
+// registration into `#handleResponse` (between `pending.delete` and
+// `pending.resolve`) so the very next inbound `#handleInbound` call — even
+// if dispatched in the same synchronous parse loop — finds the
+// subscription registered.
 //
 // This test pins that synchronous-registration contract by driving exactly
 // the coalesced delivery scenario through the in-memory transport: it
@@ -377,11 +372,9 @@ describe("InMemoryTransport double — sanity", () => {
 // `#subscriptions` map and `subscription.next()` would never resolve (or
 // would resolve `undefined` once the test transport closed).
 //
-// Spec coverage:
-//   * Plan-007 §Cross-Plan Obligations CP-007-4 — SDK-side wrapping
-//     primitive must respect the daemon's wire-ordering invariant.
-//   * Plan-007 I-007-10 — wire-ordering invariant (daemon side, paired
-//     contract).
+//   * SDK-side wrapping primitive must respect the daemon's
+//     wire-ordering invariant.
+//   * Wire-ordering invariant (daemon side, paired contract).
 
 describe("subscribe-init registers #subscriptions synchronously (Codex P1 regression)", () => {
   it("a coalesced response+notify pair (delivered in one synchronous frame) lands the first event", async () => {
@@ -527,9 +520,8 @@ describe("subscribe-init registers #subscriptions synchronously (Codex P1 regres
 // `z.string().min(1)`, or restores the raw shape probe) fails one of the
 // three assertions.
 //
-// Spec coverage:
-//   * Plan-007 §Cross-Plan Obligations CP-007-4 — SDK-side wrapping
-//     primitive must enforce the canonical contracts schemas.
+//   * SDK-side wrapping primitive must enforce the canonical
+//     contracts schemas.
 //   * `jsonrpc-streaming.ts:166` — `SubscriptionIdSchema` is the canonical
 //     UUID-branded schema.
 
@@ -632,10 +624,10 @@ describe("Phase D Round 4 F2 — malformed subscriptionId rejected at SDK bounda
       // Include an additional field beyond `subscriptionId` to verify
       // `.loose()` (passthrough) semantics survive the F2 tightening. The
       // SDK's subscribe primitive only consumes `subscriptionId`; the
-      // typed wrapper layer (Plan-001 Phase 5 sessionClient) handles the
-      // full shape. Dropping `.loose()` would mean future subscribe
-      // handlers couldn't piggy-back additional fields on the init
-      // response — a contract regression.
+      // typed wrapper layer (sessionClient) handles the full shape.
+      // Dropping `.loose()` would mean future subscribe handlers couldn't
+      // piggy-back additional fields on the init response — a contract
+      // regression.
       result: { subscriptionId, cursor: "evt-0042" },
     });
     transport.dispatchInbound({
@@ -672,10 +664,9 @@ describe("Phase D Round 4 F2 — malformed subscriptionId rejected at SDK bounda
 // concurrent caller observes a non-undefined `cancelInFlight` and awaits
 // the same promise. The wire frame is emitted exactly once.
 //
-// Spec coverage:
 //   * `types.ts:245-247` — cancel idempotency contract.
-//   * Plan-007 §Cross-Plan Obligations CP-007-4 — SDK-side wrapping
-//     primitive must enforce its public surface contract.
+//   * SDK-side wrapping primitive must enforce its public surface
+//     contract.
 
 describe("Phase D Round 5 F3 — cancel() idempotency (Codex P2 regression)", () => {
   it("concurrent cancel() emits exactly one wire frame; both promises resolve", async () => {
@@ -1175,7 +1166,7 @@ describe("Fix #6 / Codex P1 regression — protocolVersion REQUIRED + emitted un
 });
 
 // ----------------------------------------------------------------------------
-// BL-143 — JsonRpcRemoteError surfaces the structured error.data on rejection
+// JsonRpcRemoteError surfaces the structured error.data on rejection
 // ----------------------------------------------------------------------------
 //
 // The daemon's `mapJsonRpcError` projects a typed domain error into the
@@ -1184,7 +1175,7 @@ describe("Fix #6 / Codex P1 regression — protocolVersion REQUIRED + emitted un
 // `JsonRpcRemoteError` carrying that `data` verbatim, so clients discriminate
 // on the dotted `data.type` rather than the coarse numeric `code`.
 
-describe("BL-143 — JsonRpcRemoteError surfaces error.data on rejection", () => {
+describe("JsonRpcRemoteError surfaces error.data on rejection", () => {
   it("rejects with data.type + data.fields when the daemon returns a typed domain error", async () => {
     const transport = new InMemoryTransport();
     const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });

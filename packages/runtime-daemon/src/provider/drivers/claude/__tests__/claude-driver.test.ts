@@ -1,13 +1,14 @@
-// Coverage map for `index.ts` (Plan-005 Phase 3, T3.6 composition root):
-//   * `Spec-005 §Required Behavior` — the six normalized operations this PR owns are reachable
-//     through one driver object, with the signatures the `ProviderDriver`
-//     contract declares (bound by the `ClaudeDriverOperations` `Pick`).
-//   * I-005-4 / I-005-5 end-to-end through the composed entry: a steer degrades
-//     and a native interrupt reaches the very channel the lifecycle band bound
-//     the run to, which is the one coupling between the two bands.
-//   * T3.12 C-8 — `listModels()` is reachable through the composed entry and
-//     answers the catalog the bound exchange decides, the declaration standing
-//     in only where a composition explicitly binds none.
+// Coverage map for `index.ts`, the composition root:
+//   * The six normalized operations this module owns are reachable through one
+//     driver object, with the signatures the `ProviderDriver` contract declares
+//     (bound by the `ClaudeDriverOperations` `Pick`).
+//   * The degraded-steer and resume-identity rules end to end through the
+//     composed entry: a steer degrades and a native interrupt reaches the very
+//     channel the lifecycle band bound the run to, which is the one coupling
+//     between the two bands.
+//   * `listModels()` is reachable through the composed entry and answers the
+//     catalog the bound exchange decides, the declaration standing in only where
+//     a composition explicitly binds none.
 
 import { describe, expect, it } from "vitest";
 
@@ -130,7 +131,7 @@ describe("ClaudeDriver", () => {
   });
 
   it("serves the binding-held output-speed observation through the EXTERNALLY reachable driver", async () => {
-    // The read-back T3.26 promises has exactly one reader — the lifecycle band's
+    // The read-back has exactly one reader — the lifecycle band's
     // `observedOutputSpeedFor` — and the band is a PRIVATE field of this class.
     // What a `ProviderRegistry` caller holds is the driver, so without this
     // accessor the held state is reachable only from the band's own tests.
@@ -241,7 +242,7 @@ describe("ClaudeDriver", () => {
   });
 });
 
-describe("ClaudeDriver model catalog (T3.12 C-8)", () => {
+describe("ClaudeDriver model catalog", () => {
   it("serves the declared catalog through the composed entry", async () => {
     const harness = buildHarness();
 
@@ -292,7 +293,7 @@ describe("ClaudeDriver model catalog (T3.12 C-8)", () => {
 });
 
 // --------------------------------------------------------------------------
-// T3.15 leg 3 — the callback-tool host reaches the Claude spawn end to end.
+// The callback-tool host reaches the Claude spawn end to end.
 // --------------------------------------------------------------------------
 //
 // WHAT "END TO END" MEANS ON THIS LEG, AND WHY IT DIFFERS FROM CODEX'S. The
@@ -306,12 +307,10 @@ describe("ClaudeDriver model catalog (T3.12 C-8)", () => {
 // the translate-then-dispatch step a real transport performs — rather than
 // asserting code this driver runs.
 //
-// Spec coverage under test:
-//   `Spec-005 §Required Behavior` — the driver answers every callback-tool
-//     invocation and invents no approval bypass; a spawn with no dispatcher
-//     bound serves no registry at all.
-//   `Spec-012 §Required Behavior` — the invocation reaching the host is
-//     adjudicated before it is executed.
+// What is under test:
+//   * The driver answers every callback-tool invocation and invents no approval
+//     bypass; a spawn with no dispatcher bound serves no registry at all.
+//   * The invocation reaching the host is adjudicated before it is executed.
 
 const SEARCH_CALLBACK_TOOL: SessionCallbackTool = {
   name: "search_workspace",
@@ -382,7 +381,7 @@ async function callbackToolSpawnHarness(options?: {
   return { transport, binding, executedInvocations, evaluatedToolNames, withheldDiagnostics };
 }
 
-describe("ClaudeDriver callback-tool spawn wiring (T3.15 leg 3)", () => {
+describe("ClaudeDriver callback-tool spawn wiring", () => {
   it("serves the admitted registry with the provider-facing names a transport must use", async () => {
     const harness = await callbackToolSpawnHarness();
 

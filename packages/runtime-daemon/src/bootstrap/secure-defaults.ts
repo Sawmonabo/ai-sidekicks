@@ -1,61 +1,47 @@
 // SecureDefaults — daemon bootstrap configuration + enforcement layer.
 //
-// This is the substrate Plan-007 Tier 1 ships for Spec-027 daemon-side
-// secure defaults. It runs as the FIRST step of daemon bootstrap, before
-// any listener binds. Downstream daemon modules (gateway, banner,
-// supervision) consume `effectiveSettings()` to discover the validated
-// non-secret view of the configuration. The orchestrator-throw on
-// out-of-order bind attempts (I-007-1) is wired by T-007p-1-3 on top of
-// this module's API-internal guard.
+// This is the substrate Tier 1 ships for daemon-side secure defaults. It
+// runs as the FIRST step of daemon bootstrap, before any listener binds.
+// Downstream daemon modules (gateway, banner, supervision) consume
+// `effectiveSettings()` to discover the validated non-secret view of the
+// configuration. The orchestrator-throw on out-of-order bind attempts is
+// wired on top of this module's API-internal guard.
 //
-// Invariants this module enforces (canonical text in
-// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-1 through I-007-9):
-//   * I-007-1 (load-before-bind, API-internal guard): `effectiveSettings()`
-//     throws if called before `load()` resolves.
-//   * I-007-2 (fail-closed on invalid security settings, including
-//     refuse-unknown-keys with `unknown_setting`).
-//   * I-007-3 (`effectiveSettings` exposes only non-secret typed values).
-//   * I-007-5 (validation surface widens with bind surface — Tier 1 ships
-//     loopback OS-local socket only; Tier-4-scope keys refused).
+// Invariants this module enforces (canonical text through):
+//   * `effectiveSettings()` throws if called before `load()` resolves.
 //
-// Spec-027 rows this module covers (canonical text in
-// docs/specs/027-self-host-secure-defaults.md §Required Behavior):
+// Rows this module covers (canonical text):
 //   * Row 4 — loopback bind by default (daemon).
-//   * Row 10 — loud first-run banner (daemon content); `effectiveSettings`
-//     IS the content contract that the Plan-026-owned banner consumer
-//     reads from.
 //
-// Canonical source: this file. Per BL-102 no-mirror disposition, the
+// Canonical source: this file. no-mirror disposition, the
 // `SecureDefaults` config + effective-settings shape is canonical in
-// code; api-payload-contracts.md does not maintain a doc-side mirror.
-// The interfaces below are the authoritative contract for the Tier 1
-// loopback-bind validation surface; Plan-007-remainder widens the
-// surface (Tier 4) by extending the schema additively per ADR-018
-// §Decision #1 (MINOR widening).
+// code does not maintain a doc-side mirror. The interfaces below are
+// the authoritative contract for the Tier 1 loopback-bind validation
+// surface -remainder widens the surface (Tier 4) by extending the
+// schema additively.
 //
 // What this module does NOT do (deferred):
 //   * Port-availability or interface-reachability probing (a listener
-//     concern; deferred to T-007p-1-3 / Phase 2 wire substrate).
-//   * Override-event emission — owned by `secure-defaults-events.ts`
-//     (T-007p-1-2). I-007-4 (single-emit-per-startup) is enforced there.
+//     concern; deferred to Phase 2 wire substrate).
+//   * Override-event emission — owned by `secure-defaults-events.ts`.
 //   * Tier-4-scope validation (TLS mode, non-loopback bind, first-run
 //     keys policy). At Tier 1 those keys are refused with
-//     `unknown_setting` per I-007-2 + I-007-5.
+//     `unknown_setting`.
 
 // --------------------------------------------------------------------------
-// Inline contract types — canonical source per BL-102 no-mirror disposition.
+// Inline contract types — canonical source no-mirror disposition.
 // --------------------------------------------------------------------------
 
 /**
- * SecureDefaults configuration input. The fields cover the bind paths
- * Tier 1 actually exposes (loopback OS-local socket + banner format);
- * any other key is refused with `unknown_setting` per I-007-5.
+ * The fields cover the bind paths Tier 1 actually exposes (loopback
+ * OS-local socket + banner format); any other key is refused with
+ * `unknown_setting`.
  */
 export interface SecureDefaultsConfig {
   /**
    * Loopback bind address for the daemon. Tier 1 accepts only the
    * loopback set: `127.0.0.1`, `::1`, `localhost`. Non-loopback values
-   * are refused (Tier 4 widens this surface per I-007-5).
+   * are refused (Tier 4 widens this surface).
    */
   readonly bindAddress: string;
 
@@ -70,13 +56,12 @@ export interface SecureDefaultsConfig {
   /**
    * Filesystem path for the OS-local IPC socket / named pipe. Validated
    * here only as "non-empty string"; deeper path-shape validation
-   * (existence, parent-dir permissions) is a listener concern wired by
-   * T-007p-1-3.
+   * (existence, parent-dir permissions) is a listener concern wired.
    */
   readonly localIpcPath: string;
 
   /**
-   * First-run-banner output format (Spec-027 row 10). `text` is the
+   * First-run-banner output format (row 10). `text` is the
    * single-screen stdout default; `json` emits the same payload as a
    * single JSON line for log-formatting environments.
    */
@@ -85,12 +70,11 @@ export interface SecureDefaultsConfig {
 
 /**
  * Effective-settings view returned by `effectiveSettings()`. Mirrors
- * `SecureDefaultsConfig` minus any future secret-bearing fields per
- * I-007-3 (this module never returns raw keys / secrets). At Tier 1
- * the two shapes are structurally identical because no input field
- * carries a secret; the type is preserved separately so Tier 4 can
- * widen `SecureDefaultsConfig` with secret-bearing fields without
- * leaking them through this view.
+ * `SecureDefaultsConfig` minus any future secret-bearing fields. At
+ * Tier 1 the two shapes are structurally identical because no input
+ * field carries a secret; the type is preserved separately so Tier 4
+ * can widen `SecureDefaultsConfig` with secret-bearing fields
+ * without leaking them through this view.
  */
 export interface SecureDefaultsEffectiveSettings {
   readonly bindAddress: string;
@@ -100,10 +84,10 @@ export interface SecureDefaultsEffectiveSettings {
 }
 
 // --------------------------------------------------------------------------
-// Allowlists (closed set; widens with bind surface at Tier 4 per I-007-5)
+// Allowlists (closed set; widens with bind surface at Tier 4)
 // --------------------------------------------------------------------------
 
-// The KNOWN_KEYS set is the load-bearing enforcement surface for I-007-2's
+// The KNOWN_KEYS set is the load-bearing enforcement surface for the
 // refuse-unknown-keys clause. A denylist of the three named Tier-4-scope
 // keys (`tlsMode`, `firstRunKeysPolicy`, `nonLoopbackHost`) would silently
 // accept any future Tier-4 key added before the corpus catches up; the
@@ -117,8 +101,8 @@ const KNOWN_KEYS: ReadonlySet<string> = new Set<string>([
 ]);
 
 // Tier 1 scope: loopback-only. Non-loopback (`0.0.0.0`, public addresses,
-// hostnames) is refused per I-007-5. Tier 4 widens this set when TLS +
-// non-loopback bind paths land (Plan-007-remainder).
+// hostnames) is refused. Tier 4 widens this set when TLS + non-loopback
+// bind paths land (-remainder).
 const LOOPBACK_BIND_ADDRESSES: ReadonlySet<string> = new Set<string>([
   "127.0.0.1",
   "::1",
@@ -136,8 +120,7 @@ const VALID_BANNER_FORMATS: ReadonlySet<string> = new Set<string>(["text", "json
  * is the stable identifier downstream consumers (and tests) assert on;
  * `fields` carries the structured detail (offending setting name, value)
  * that `mapJsonRpcError` projects into the JSON-RPC envelope's
- * `error.data.fields` per error-contracts.md §JSON-RPC Wire Mapping
- * (BL-103 closed 2026-05-01).
+ * `error.data.fields`.
  *
  * Distinct codes per failure mode are kept (rather than collapsing every
  * validation failure to a single `invalid_config`) so downstream
@@ -165,15 +148,15 @@ export class SecureDefaultsValidationError extends Error {
 // settings (or `null` before `load()`). The class exposes only static
 // methods; this matches the plan's `SecureDefaults.load(config)` /
 // `SecureDefaults.effectiveSettings()` phrasing and gives every
-// downstream consumer (gateway, banner, T-007p-1-3 orchestrator) a
-// single import-and-call surface without needing to plumb an instance
-// through bootstrap.
+// downstream consumer (gateway, banner orchestrator) a single
+// import-and-call surface without needing to plumb an instance through
+// bootstrap.
 //
 // The trade-off vs an instance-per-call shape: the singleton requires a
 // test-only reset hook (`__resetForTest()`) so each Vitest case starts
 // from `loaded === false`. The hook is documented as test-only and
 // carries no production callers. The instance-per-call alternative
-// would make AC1's "calling effectiveSettings() before load throws"
+// would make the "calling effectiveSettings() before load throws"
 // trivially compile-time impossible (there's no instance to call
 // effectiveSettings on yet), which weakens the runtime guard the plan
 // explicitly names as load-bearing.
@@ -197,10 +180,9 @@ export class SecureDefaults {
    * loaded settings (the orchestrator owns single-call semantics; this
    * module's contract is "the most recent successful load wins").
    *
-   * Throws `SecureDefaultsValidationError` (fail-closed per I-007-2) on
-   * any validation failure. The previous loaded state, if any, is
-   * preserved on failure — a failed reload does not undo a prior
-   * successful load.
+   * Throws `SecureDefaultsValidationError` (fail-closed) on any
+   * validation failure. The previous loaded state, if any, is preserved
+   * on failure — a failed reload does not undo a prior successful load.
    */
   static load(config: SecureDefaultsConfig): void {
     const validated: SecureDefaultsEffectiveSettings = validateConfig(config);
@@ -210,13 +192,12 @@ export class SecureDefaults {
   /**
    * Return the validated, frozen, non-secret effective-settings view.
    * Throws if `load()` has not yet succeeded (API-internal surface of
-   * I-007-1; the orchestrator-throw on bind-before-load is wired by
-   * T-007p-1-3).
+   * the orchestrator-throw on bind-before-load is wired).
    */
   static effectiveSettings(): SecureDefaultsEffectiveSettings {
     if (loadedSettings === null) {
       throw new Error(
-        "SecureDefaults.effectiveSettings: SecureDefaults.load(config) must succeed before this view is read (I-007-1)",
+        "SecureDefaults.effectiveSettings: SecureDefaults.load(config) must succeed before this view is read",
       );
     }
     return loadedSettings;
@@ -224,7 +205,7 @@ export class SecureDefaults {
 
   /**
    * True iff `load()` has succeeded at least once for the current
-   * process. Exposed so the orchestrator (T-007p-1-3) can implement the
+   * process. Exposed so the orchestrator can implement the
    * load-before-bind throw without inspecting module-private state.
    */
   static isLoaded(): boolean {
@@ -256,13 +237,12 @@ function validateConfig(config: SecureDefaultsConfig): SecureDefaultsEffectiveSe
     );
   }
 
-  // Refuse-unknown-keys per I-007-2 + I-007-5. Walk the actual input
-  // keys (not the typed shape) so Tier-4-scope keys riding through a JS
-  // escape hatch are still caught at runtime. The double cast through
-  // `unknown` is intentional: `SecureDefaultsConfig` has no index
-  // signature, so a direct cast to `Record<string, unknown>` is rejected
-  // — but we explicitly want the runtime key set, including any keys
-  // outside the typed shape.
+  // Walk the actual input keys (not the typed shape) so Tier-4-scope
+  // keys riding through a JS escape hatch are still caught at runtime.
+  // The double cast through `unknown` is intentional:
+  // `SecureDefaultsConfig` has no index signature, so a direct cast to
+  // `Record<string, unknown>` is rejected — but we explicitly want the
+  // runtime key set, including any keys outside the typed shape.
   const inputKeys: ReadonlyArray<string> = Object.keys(
     config as unknown as Record<string, unknown>,
   );
@@ -270,7 +250,7 @@ function validateConfig(config: SecureDefaultsConfig): SecureDefaultsEffectiveSe
     if (!KNOWN_KEYS.has(key)) {
       throw new SecureDefaultsValidationError(
         "unknown_setting",
-        `SecureDefaults.load: unknown setting "${key}" — Tier 1 validation surface accepts only ${listKeys(KNOWN_KEYS)} (I-007-5)`,
+        `SecureDefaults.load: unknown setting "${key}" — Tier 1 validation surface accepts only ${listKeys(KNOWN_KEYS)}`,
         { setting: key, value: (config as unknown as Record<string, unknown>)[key] },
       );
     }
@@ -312,7 +292,7 @@ function validateConfig(config: SecureDefaultsConfig): SecureDefaultsEffectiveSe
   if (!LOOPBACK_BIND_ADDRESSES.has(bindAddress)) {
     throw new SecureDefaultsValidationError(
       "invalid_bind_address",
-      `SecureDefaults.load: bindAddress "${bindAddress}" is not in the Tier 1 loopback set ${listKeys(LOOPBACK_BIND_ADDRESSES)} — non-loopback bind paths widen at Tier 4 (I-007-5)`,
+      `SecureDefaults.load: bindAddress "${bindAddress}" is not in the Tier 1 loopback set ${listKeys(LOOPBACK_BIND_ADDRESSES)} — non-loopback bind paths widen at Tier 4`,
       { setting: "bindAddress", value: bindAddress },
     );
   }
@@ -339,8 +319,7 @@ function validateConfig(config: SecureDefaultsConfig): SecureDefaultsEffectiveSe
     bindPort = candidate;
   }
 
-  // localIpcPath: non-empty string. Deeper path-shape checks are a
-  // listener concern (T-007p-1-3 / Phase 2).
+  // Deeper path-shape checks are a listener concern.
   const { localIpcPath } = config;
   if (typeof localIpcPath !== "string" || localIpcPath.length === 0) {
     throw new SecureDefaultsValidationError(
@@ -350,7 +329,7 @@ function validateConfig(config: SecureDefaultsConfig): SecureDefaultsEffectiveSe
     );
   }
 
-  // bannerFormat: closed set per Spec-027 row 10.
+  // bannerFormat: closed set row 10.
   const { bannerFormat } = config;
   if (typeof bannerFormat !== "string" || !VALID_BANNER_FORMATS.has(bannerFormat)) {
     throw new SecureDefaultsValidationError(

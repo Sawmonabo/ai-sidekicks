@@ -419,7 +419,7 @@ describe("PresenceHeartbeatSchema (2 outer + 5 metadata fields)", () => {
     expect(PresenceHeartbeatSchema.safeParse(broken).success).toBe(false);
   });
 
-  it("accepts ISO lastActivityAt with numeric offset (RFC 3339 §5.6)", () => {
+  it("accepts ISO lastActivityAt with numeric offset (RFC 3339 section 5.6)", () => {
     const valid = buildHeartbeatPayload();
     const ok = {
       ...valid,
@@ -657,7 +657,7 @@ describe("PresenceReadResponseSchema (device projection)", () => {
     expect(PresenceReadResponseSchema.safeParse({ devices: [broken] }).success).toBe(false);
   });
 
-  it("accepts lastSeen with numeric offset (RFC 3339 §5.6)", () => {
+  it("accepts lastSeen with numeric offset (RFC 3339 section 5.6)", () => {
     const payload = {
       devices: [{ ...buildDeviceEntry(), lastSeen: "2026-05-22T08:29:45-04:00" }],
     };

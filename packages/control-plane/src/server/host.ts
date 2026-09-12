@@ -1,8 +1,7 @@
-// Plan-008 §Phase 1 §T-008b-1-1: tRPC v11 host scaffolding for the
-// control-plane bootstrap, deployed as a Cloudflare Worker via
-// `@trpc/server/adapters/fetch`'s `fetchRequestHandler` (per BL-104 resolution).
+// Deployed as a Cloudflare Worker via `@trpc/server/adapters/fetch`'s
+// `fetchRequestHandler` (resolution).
 //
-// I-008-1 dual-gate enforcement runs at request entry:
+// Dual-gate enforcement runs at request entry:
 //   1. CONTROL_PLANE_BOOTSTRAP_ENABLED === '1'  (kill-switch; default off)
 //   2. ENVIRONMENT === 'development'            (allow-list; only one passing value)
 // Both refusals return HTTP 503 immediately, before any router dispatch. Logging
@@ -10,17 +9,15 @@
 // dev instances.
 //
 // This module exposes TWO surfaces:
-//   - `buildControlPlaneFetchHandler(deps)` — the test-friendly factory. Accepts
-//     a directoryService (constructor injection per I-008-3 #1). All Phase 1 tests
-//     drive this function.
+//   - `buildControlPlaneFetchHandler(deps)` — the test-friendly factory. Accepts a
+//     directoryService (constructor injection #1). All Phase 1 tests drive this
+//     function.
 //   - `default { fetch }` — the deployable Worker module. Production wiring of
 //     SessionDirectoryService (Hyperdrive / D1 / WorkerPg adapter) is deferred
-//     to Tier 5 per I-008-2; the deployable surface throws on Querier use.
-//     The dual-gate intercepts before that throw is reachable in normal flows;
-//     the throw is defense-in-depth for any hypothetical gate bypass.
+//     to Tier 5 the deployable surface throws on Querier use. The dual-gate
+//     intercepts before that throw is reachable in normal flows; the throw is
+//     defense-in-depth for any hypothetical gate bypass.
 //
-// Refs: docs/plans/008-control-plane-relay-and-session-join.md §I-008-1, §I-008-2,
-//       §I-008-3 #1, §T-008b-1-1, ADR-014, BL-104.
 
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { EventLogAnchorStore } from "../event-anchors/anchor-store.js";
@@ -65,7 +62,7 @@ export interface ControlPlaneHandlerOptions {
   readonly requestIdGenerator?: () => string;
   /**
    * Refusal logger — defaults to `console.warn`. Tests inject a capture sink
-   * to assert the refusal-logging contract from §T-008b-1-T1.
+   * to assert the refusal-logging contract.
    */
   readonly refusalLogger?: (message: string) => void;
 }
@@ -89,16 +86,16 @@ export function buildControlPlaneFetchHandler(
   const log = options.refusalLogger ?? ((message: string) => console.warn(message));
 
   // Build the router once at handler-construction time. Each procedure closes
-  // over its constructor-injected service per I-008-3 #1 — the directory
-  // dependency (session procedures), the attach/heartbeat services
-  // (runtime-node procedures), and the anchor store (the event-anchor
-  // procedure). The three routers are MERGED as siblings: every factory returns
-  // an already-namespaced router (`session:` / `runtimenode:` / `eventanchor:`),
-  // so `t.mergeRouters` composes them flat (no re-nesting) and the merged
-  // router inherits the shared `trpc.ts` context + errorFormatter.
+  // over its constructor-injected service #1 — the directory dependency (session
+  // procedures), the attach/heartbeat services (runtime-node procedures), and
+  // the anchor store (the event-anchor procedure). The three routers are MERGED
+  // as siblings: every factory returns an already-namespaced router (`session:`
+  // / `runtimenode:` / `eventanchor:`), so `t.mergeRouters` composes them flat
+  // (no re-nesting) and the merged router inherits the shared `trpc.ts` context
+  // + errorFormatter.
   //
-  // The `eventanchor` mount is Plan-006 CP-006-2: Plan-008 owns this file, and
-  // Plan-006 registers its router here rather than standing up a second host.
+  // The `eventanchor` mount is: owns this file, and registers its router here
+  // rather than standing up a second host.
   const router = t.mergeRouters(
     createSessionRouter(deps),
     createRuntimeNodeRouter(deps),
@@ -124,12 +121,11 @@ export function buildControlPlaneFetchHandler(
   };
 }
 
-// Production Worker entrypoint. The service production wiring (Hyperdrive
-// binding → Querier adapter) is deferred to Plan-008-remainder at Tier 5 per
-// §I-008-2. At Tier 1, the deployable surface composes through
-// `buildControlPlaneFetchHandler` with placeholder services — the
-// directoryService (session procedures) AND the runtime-node attach/heartbeat
-// services (Plan-003 Phase 3), all constructed with the SAME throwing
+// The service production wiring (Hyperdrive binding → Querier adapter) is
+// deferred to -remainder at Tier 5. At Tier 1, the deployable surface
+// composes through `buildControlPlaneFetchHandler` with placeholder services
+// — the directoryService (session procedures) AND the runtime-node
+// attach/heartbeat services, all constructed with the SAME throwing
 // `productionPlaceholderQuerier` so any reachable query throws — meaning:
 //   - Gate-fail requests (any production deploy without .dev.vars) → 503 (gate refusal).
 //   - Gate-pass requests (only `wrangler dev` with both .dev.vars keys) → 500
@@ -143,9 +139,9 @@ export function buildControlPlaneFetchHandler(
 
 function tier5DeferralError(symbol: string): Error {
   return new Error(
-    `Plan-008 Tier 1: ${symbol} wiring is deferred to Tier 5; Phase 1 is ` +
-      "operator-development-only behind I-008-1 dual-gate. See " +
-      "docs/plans/008-control-plane-relay-and-session-join.md §I-008-2.",
+    `Tier 1: ${symbol} wiring is deferred to Tier 5; Phase 1 is` +
+      "operator-development-only behind dual-gate." +
+      ".",
   );
 }
 
@@ -154,8 +150,8 @@ function tier5DeferralError(symbol: string): Error {
 // the type without an `as unknown as` double-cast. Instead of casting (which
 // would silently mask any future surface drift on the class), construct the
 // real class with a throwing `Querier` adapter. Production wiring at Tier 5
-// (per §I-008-2) replaces this adapter with a Hyperdrive-backed Pool; until
-// then the gates intercept any traffic before this querier is reached.
+// replaces this adapter with a Hyperdrive-backed Pool; until then the gates
+// intercept any traffic before this querier is reached.
 const productionPlaceholderQuerier: Querier = {
   query() {
     throw tier5DeferralError("Querier.query (Hyperdrive binding pending)");
@@ -201,7 +197,7 @@ const productionFetchHandler = buildControlPlaneFetchHandler({
     throw tier5DeferralError("generateSessionId (UUID v7)");
   },
   eventStreamProvider: () => {
-    throw tier5DeferralError("eventStreamProvider (Plan-006 event log)");
+    throw tier5DeferralError("eventStreamProvider (event log)");
   },
 });
 

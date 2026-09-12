@@ -1,4 +1,4 @@
-// Plan-005 T4.4 — DriverEvent: the driver-runtime slice of the census.
+// DriverEvent: the driver-runtime slice of the census.
 //
 // `driver.subscribeEvents` streams one run's driver activity. The daemon
 // handler filters on `DRIVER_EVENT_TYPES` before buffering and the client SDK
@@ -90,8 +90,7 @@ const buildChannelCreated = () => ({
   },
 });
 
-// The seven categories `Plan-005 §Phase 4 — Client SDK exposure +
-// degraded-fallback` decision #4 ratifies, hand-transcribed. The
+// The seven categories decision #4 ratifies, hand-transcribed. The
 // `EventCategory` element type is the first bind: a category string that is
 // not a canonical category fails to compile here.
 const DRIVER_EVENT_CATEGORIES: readonly EventCategory[] = [
@@ -107,9 +106,8 @@ const DRIVER_EVENT_CATEGORIES: readonly EventCategory[] = [
 // The census size of the seven driver categories: 13 + 2 + 7 + 16 + 6 + 8 + 9.
 // Hand-maintained on purpose — it is the one number here derived from neither
 // the arrays nor the registry, so it fails when a category grows or when the
-// driver list itself changes, which no derivation-versus-derivation assert
-// can catch. Per-category counts are the ones session-event.test.ts's
-// CENSUS_BASELINE transcribes from Spec-006.
+// driver list itself changes, which no derivation-versus-derivation assert can
+// catch.
 const DRIVER_EVENT_TYPE_COUNT = 61;
 
 // One sample per driver category that currently REGISTERS a payload variant —
@@ -130,7 +128,7 @@ const DRIVER_EVENT_TYPE_SAMPLES: readonly DriverEventType[] = [
   "runtime_node.capability_declared",
 ];
 
-describe("DriverEvent — the driver slice of the census (Plan-005 T4.4)", () => {
+describe("DriverEvent — the driver slice of the census", () => {
   it("DRIVER_EVENT_TYPES is exactly the census filtered to the seven driver categories", () => {
     const driverCategories = new Set<EventCategory>(DRIVER_EVENT_CATEGORIES);
     expect(driverCategories.size).toBe(7);

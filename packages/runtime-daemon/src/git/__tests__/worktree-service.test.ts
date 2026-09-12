@@ -1,55 +1,35 @@
-// WorktreeService + the Plan-010 typed error vocabulary — Phase 2 T2.2.
+// WorktreeService + typed error vocabulary — Phase 2.
 //
 // Drives the real service over a real test SQLite database (same lifecycle as
-// the T2.1 emitter suite: `openDatabase` factory → per-test tmp file →
-// `afterEach` close + remove) with Plan-006's `EventLogService` as the durable
-// append path and a RECORDING fake git runner in place of the child process.
-// The fake is what makes the invocation-shape invariants assertable: argv is
-// the whole invocation (the seam takes no `cwd`), so a recorded argv is the
-// complete claim about what git was asked to do.
+// emitter suite: `openDatabase` factory → per-test tmp file → `afterEach`
+// close + remove) with the `EventLogService` as the durable append path and a
+// RECORDING fake git runner in place of the child process. The fake is what
+// makes the invocation-shape invariants assertable: argv is the whole
+// invocation (the seam takes no `cwd`), so a recorded argv is the complete
+// claim about what git was asked to do.
 //
 // Coverage map (the cites are the contract, not just the ACs):
-//   * `Spec-010 §Default Behavior` — the branch-name PATTERN
-//     `sidekicks/<session-short-id>/<task-slug>`, which is all that section
-//     carries about naming.
-//   * `Spec-010 §Resolved Questions and V1 Scope Decisions` — three rules. The
-//     slug MECHANICS, table-driven over lowercasing, non-alphanumeric collapse,
-//     trimming, the 40-character truncation at a `-` boundary, and the
+//   * the branch-name PATTERN `sidekicks/<session-short-id>/<task-slug>`,
+//     which is all that section carries about naming.
+//   * The slug MECHANICS, table-driven over lowercasing, non-alphanumeric
+//     collapse, trimming, the 40-character truncation at a `-` boundary, and the
 //     `run-<run-short-id>` fallback (they are locked here, not in the section
 //     that states the pattern). The provenance-split collision policy, carried
 //     by the explicit `onCollision` parameter (`refuse` raises the typed
 //     collision error; `suffix` takes `-2` then `-3` and reports the chosen name
 //     verbatim) — both arms exercised on the SAME branch name, which is what
 //     pins the behavior to the parameter rather than to how the name happened to
-//     be obtained. And the base-ref policy (a detached-HEAD mount with no
-//     explicit base ref refuses rather than guessing).
-//   * `Spec-010 §Fallback Behavior` — a dirty candidate without acknowledgement
-//     refuses and with one binds; an INCOMPATIBLE candidate refuses even with an
-//     acknowledgement; a failed provisioning records the failure rather than
-//     substituting anything.
-//   * `Spec-010 §Required Behavior` — reuse of an existing checkout is explicit
-//     and preserves the candidate's branch and provenance context.
-//   * `Spec-010 §State And Data Implications` — the row's provenance columns are
-//     populated at creation and survive retirement.
-//   * `error-contracts.md §Worktree` / `§Ephemeral Clone` / `§Workspace` — the
-//     carrier census: every class reports its ratified code and notional status,
-//     the three registries are covered exactly, and `workspace.busy` (Plan-009's,
-//     already shipped as `WorkspaceBusyError`) is absent.
-//
-// Verifies invariant: I-010-3 (provenance columns are populated at creation and
-// preserved across retirement), I-010-4 (the partial-unique index arbitrates the
-// collision — a losing attempt leaves NEITHER a row nor an event, and a
-// constraint failure it does not explain is never laundered into a collision),
-// I-010-6 (no recorded invocation names a working-tree-mutating verb), I-010-8
-// (reuse refuses rather than substituting), I-010-9 (retire leaves `cleaned_at`
-// NULL and the root on disk; only a cleanup pass removes, prunes and stamps —
-// and the busy refusal that guards it is decided inside the retirement
-// transaction, so a hold taken mid-flight still refuses), I-010-10 (EVERY
-// recorded invocation carries `-c core.hooksPath=<empty dir>` and
-// `-c core.fsmonitor=false`, asserted over all four invocation shapes rather
-// than only the two `create` issues), I-010-13
-// (one event per real transition; `-> failed` emits none; a failed
-// `worktree.ready` emission leaves no `ready` row behind).
+//     be obtained.
+//   * a dirty candidate without acknowledgement refuses and with one binds; an
+//     INCOMPATIBLE candidate refuses even with an acknowledgement; a failed
+//     provisioning records the failure rather than substituting anything.
+//   * reuse of an existing checkout is explicit and preserves the candidate's
+//     branch and provenance context.
+//   * the row's provenance columns are populated at creation and survive
+//     retirement.
+//   * the carrier census: every class reports its ratified code and notional
+//     status, the three registries are covered exactly, and `workspace.busy`
+//     (the, already shipped as `WorkspaceBusyError`) is absent.
 //
 // The interleaving-sensitive cases drive their races through a SUBCLASSED
 // `WorktreeEventEmitter` whose overridden emit method performs the interfering
@@ -88,7 +68,7 @@ import {
   CloneNotFoundError,
   ClonePrepareFailedError,
   EPHEMERAL_CLONE_ERROR_CODES,
-  PLAN_010_WORKSPACE_ERROR_CODES,
+  WORKSPACE_ERROR_CODES,
   WORKTREE_ERROR_CODES,
   WorkspaceBranchMismatchError,
   WorkspaceBranchNameRequiredError,
@@ -142,19 +122,17 @@ const HEAD_BRANCH: string = "main";
 const NOW: string = "2026-08-04T00:00:00.000Z";
 
 // The name the run-setup gate would derive for these fixtures, COMPOSED the way
-// T2.4 composes it: derive first, then hand `create` an explicit name (D-010-19).
-// Calling the helper rather than restating its output as a literal is what makes
-// the collision cases exercise the real two-layer path — the service itself
-// holds no summary and derives nothing.
+// composes it: derive first, then hand `create` an explicit name. Calling the
+// helper rather than restating its output as a literal is what makes the
+// collision cases exercise the real two-layer path — the service itself holds no
+// summary and derives nothing.
 const DERIVED_BRANCH_NAME: string = deriveWorktreeBranchName({
   sessionId: SESSION_ID,
   runId: RUN_ID,
   taskSummary: "Fix login",
 });
 
-// The git verbs that would mutate the mount's main checkout. I-010-6 is the
-// claim that NONE of them is ever issued, so the roster is spelled out here
-// rather than inferred from the service's own source.
+// The git verbs that would mutate the mount's main checkout.
 const MAIN_CHECKOUT_MUTATING_VERBS: readonly string[] = [
   "checkout",
   "switch",
@@ -348,12 +326,11 @@ function makeService(overrides: Partial<WorktreeServiceDeps> = {}): WorktreeServ
 // Row fixtures and reads
 // ----------------------------------------------------------------------------
 
-// Options objects rather than positionals, matching the T2.4 and T2.6 suites:
-// the sibling T2.3 suite's same-named workspace seeder keys its one slot on the
-// workspace ID where this one keys the STATE, and the acceptance suite's mount
-// seeder puts a PATH in the slot this one gives a state — same-arity `(string)`
-// signatures with opposite meanings let a miscopied call type-check while
-// seeding garbage.
+// Options objects rather than positionals, matching suites: the sibling suite's
+// same-named workspace seeder keys its one slot on the workspace ID where this
+// one keys the STATE, and the acceptance suite's mount seeder puts a PATH in
+// the slot this one gives a state — same-arity `(string)` signatures with
+// opposite meanings let a miscopied call type-check while seeding garbage.
 function insertMount(options: {
   readonly repoMountId: string;
   readonly state?: string;
@@ -469,7 +446,7 @@ async function captureRejection(work: () => Promise<unknown>): Promise<unknown> 
 
 /**
  * The happy path, reused by the reuse / retire / cleanup blocks. `refuse` is
- * the wire-prepare arm (D-010-7), so it is the default posture here.
+ * the wire-prepare arm, so it is the default posture here.
  */
 async function createReadyWorktree(service: WorktreeService): Promise<CreatedWorktree> {
   return service.create({
@@ -506,7 +483,7 @@ class BusyHolderInjectingEmitter extends WorktreeEventEmitter {
   override async emitWorktreeRetired(
     input: EmitWorktreeEventInput,
   ): Promise<EventLogAppendReceipt> {
-    // The hold is what CP-009-7 means by one: a `busy` workspace whose CURRENT
+    // The hold is what means by one: a `busy` workspace whose CURRENT
     // `fs_root` is the worktree's own directory.
     const row = ctx.db
       .prepare<[string], { fs_root: string }>(`SELECT fs_root FROM worktrees WHERE id = ?`)
@@ -595,8 +572,7 @@ function assertNoInvocationMutatesTheMainCheckout(): void {
 }
 
 // ----------------------------------------------------------------------------
-// deriveWorktreeBranchName — the `Spec-010 §Default Behavior` pattern, filled in
-// by the `Spec-010 §Resolved Questions and V1 Scope Decisions` slug rule
+// deriveWorktreeBranchName — pattern, filled slug rule
 // ----------------------------------------------------------------------------
 
 // The rule's clauses, one row each. The third column is the SLUG SEGMENT alone;
@@ -692,7 +668,7 @@ describe("WorktreeService.create", () => {
     const row = readWorktreeRow(created.worktreeId);
     expect(row.state).toBe("ready");
     expect(row.repo_mount_id).toBe(REPO_MOUNT_ID);
-    // I-010-3: both provenance columns, populated at creation.
+    // Both provenance columns, populated at creation.
     expect(row.created_by_session_id).toBe(SESSION_ID);
     expect(row.created_by_run_id).toBe(RUN_ID);
     expect(row.cleaned_at).toBeNull();
@@ -763,7 +739,7 @@ describe("WorktreeService.create", () => {
     expect(collision.code).toBe("worktree.branch_collision");
     expect(collision.branchName).toBe("feature/login");
     expect(collision.repoMountId).toBe(REPO_MOUNT_ID);
-    // The losing attempt left NEITHER a row nor an event (I-010-4 / I-010-13).
+    // The losing attempt left NEITHER a row nor an event.
     expect(readAllWorktreeIds()).toHaveLength(1);
     expect(readEventTypes()).toHaveLength(eventsBeforeCollision);
   });
@@ -790,9 +766,9 @@ describe("WorktreeService.create", () => {
 
   it("selects the arm from `onCollision`, never from how the name was obtained", async () => {
     // The regression guard for a presence-based discriminant: ONE name, both
-    // arms, opposite outcomes. Under D-010-19 every production request carries
-    // an explicit name, so any policy inferred from the name's shape or its
-    // presence would collapse to a single arm and make the other dead code.
+    // arms, opposite outcomes. every production request carries an explicit
+    // name, so any policy inferred from the name's shape or its presence would
+    // collapse to a single arm and make the other dead code.
     const service = makeService();
     // Annotated `Omit<…, "onCollision">` so the type states the case's own
     // claim: every input except the policy is identical across the three calls.
@@ -814,7 +790,7 @@ describe("WorktreeService.create", () => {
   it("refuses a suffix that would outgrow the ref cap instead of persisting it", async () => {
     // A name accepted AT `WORKTREE_GIT_REF_MAX_LEN` collides; every suffixed
     // candidate is strictly longer than the cap, and a persisted over-cap
-    // `branch_name` would fail response validation for the WHOLE T2.5 status
+    // `branch_name` would fail response validation for the WHOLE status
     // projection. The write refuses instead — `branch_name_unavailable`, the
     // same answer ordinal exhaustion gives: the request's policy has no usable
     // name left.
@@ -854,7 +830,7 @@ describe("WorktreeService.create", () => {
     // excludes retired rows, so the bare name is free again and the "live"
     // reads agree with it. It is deliberately NOT a claim that the name is
     // reusable end to end — git keeps the branch after the worktree goes (see
-    // the service header's residual section), and only T2.6's real-git tier can
+    // the service header's residual section), and only the real-git tier can
     // observe that leg at all.
     expect(second.branchName).toBe("sidekicks/5b3e8f00/fix-login");
   });
@@ -1004,7 +980,7 @@ describe("WorktreeService.create", () => {
 
     expect(created.baseRef).toBe("release/1.0");
     expect(ctx.git.argvFor("worktree").at(-1)).toBe("release/1.0");
-    // No HEAD query at all — the supplied ref short-circuits D-010-8's default.
+    // No HEAD query at all — the supplied ref short-circuits the default.
     expect(ctx.git.verbs()).toEqual(["worktree"]);
   });
 
@@ -1028,7 +1004,7 @@ describe("WorktreeService.create", () => {
     expect(failure.message).not.toContain(ctx.executionRootsDirectory);
 
     expect(readWorktreeRow(readSoleWorktreeId()).state).toBe("failed");
-    // D-010-11: the row records the failure; no `worktree.failed` event exists.
+    // The row records the failure; no `worktree.failed` event exists.
     expect(readEventTypes()).toEqual(["worktree.created"]);
     // The interrupted create leaks the same administrative entry a completed
     // one would, so the recovery prunes it too.
@@ -1079,7 +1055,7 @@ describe("WorktreeService.create", () => {
     ]);
   });
 
-  it("refuses an unknown mount with Plan-009's carrier", async () => {
+  it("refuses an unknown mount with the carrier", async () => {
     const service = makeService();
 
     const thrown = await captureRejection(() =>
@@ -1294,7 +1270,7 @@ describe("WorktreeService.validateReuse", () => {
 // ----------------------------------------------------------------------------
 
 describe("WorktreeService.retire", () => {
-  it("records the retirement and leaves the root on disk (I-010-9)", async () => {
+  it("records the retirement and leaves the root on disk", async () => {
     const service = makeService();
     const created = await createReadyWorktree(service);
 
@@ -1306,7 +1282,6 @@ describe("WorktreeService.retire", () => {
     // The observable form of recorded-then-cleaned: retire stamps nothing.
     expect(row.cleaned_at).toBeNull();
     expect(existsSync(created.fsRoot)).toBe(true);
-    // Provenance survives retirement (I-010-3).
     expect(row.created_by_session_id).toBe(SESSION_ID);
     expect(row.created_by_run_id).toBe(RUN_ID);
     expect(row.branch_name).toBe("feature/login");
@@ -1395,8 +1370,8 @@ describe("WorktreeService.retire", () => {
 
     expect(response).toEqual({ worktreeId: created.worktreeId, state: "retired" });
     expect(readWorktreeRow(created.worktreeId).state).toBe("retired");
-    // No SECOND `worktree.retired`: one event per real transition (I-010-13),
-    // and this call performed none.
+    // No SECOND `worktree.retired`: one event per real transition, and this
+    // call performed none.
     expect(readEventTypes()).toEqual(["worktree.created", "worktree.ready"]);
   });
 
@@ -1437,9 +1412,9 @@ describe("WorktreeService.retire", () => {
     expect(response.state).toBe("retired");
     const retiredRow = readWorktreeRow(failedWorktreeId);
     expect(retiredRow.state).toBe("retired");
-    // Provenance survives (I-010-3), and it is the ROW's own session the
-    // retirement event rode — the only prior event is `worktree.created`,
-    // because `-> failed` emits none (D-010-11).
+    // Provenance survives, and it is the ROW's own session the retirement
+    // event rode — the only prior event is `worktree.created`, because
+    // `-> failed` emits none.
     expect(retiredRow.created_by_session_id).toBe(SESSION_ID);
     expect(retiredRow.created_by_run_id).toBe(RUN_ID);
     expect(readEventTypes()).toEqual(["worktree.created", "worktree.retired"]);
@@ -1550,11 +1525,11 @@ describe("WorktreeService.cleanupPass", () => {
     // busy probe is structural on this arm rather than absent — and the sweep
     // documents the resulting conflict as propagating fail-closed.
     //
-    // The state is one Plan-009's detach guard makes unreachable (it refuses to
-    // detach while a dependent workspace is busy), so it is constructed directly
-    // here. That is the point of the pin: if the two plans' tables ever disagree,
-    // the sweep must report it rather than retire a root a live run is using and
-    // then remove it from disk in the same pass.
+    // The state is one the detach guard makes unreachable (it refuses to detach
+    // while a dependent workspace is busy), so it is constructed directly here.
+    // That is the point of the pin: if the two plans' tables ever disagree, the
+    // sweep must report it rather than retire a root a live run is using and then
+    // remove it from disk in the same pass.
     const service = makeService();
     const created = await createReadyWorktree(service);
     ctx.db.prepare(`UPDATE repo_mounts SET state = 'detached' WHERE id = ?`).run(REPO_MOUNT_ID);
@@ -1576,7 +1551,7 @@ describe("WorktreeService.cleanupPass", () => {
   });
 
   it("defers leg (d) removal while a busy workspace holds the retired root", async () => {
-    // The retire-time probe decides at the retirement instant, and Plan-009's
+    // The retire-time probe decides at the retirement instant, and the
     // `markBusy` requires only `ready` — so a workspace still pointing at the
     // root can become busy AFTERWARD. Without the sweep-side deferral the next
     // pass would remove a working tree out from under the run holding it.
@@ -1703,8 +1678,7 @@ describe("WorktreeService.cleanupPass", () => {
 });
 
 // ----------------------------------------------------------------------------
-// The typed error vocabulary — `error-contracts.md` §Worktree / §Ephemeral
-// Clone / §Workspace
+// The typed error vocabulary
 // ----------------------------------------------------------------------------
 
 // `name` is spelled as a LITERAL per case, never derived from the instance.
@@ -1813,14 +1787,10 @@ function countExportedCarrierClasses(): number {
 }
 
 function registeredPlan010Codes(): readonly string[] {
-  return [
-    ...WORKTREE_ERROR_CODES,
-    ...EPHEMERAL_CLONE_ERROR_CODES,
-    ...PLAN_010_WORKSPACE_ERROR_CODES,
-  ];
+  return [...WORKTREE_ERROR_CODES, ...EPHEMERAL_CLONE_ERROR_CODES, ...WORKSPACE_ERROR_CODES];
 }
 
-describe("Plan-010 error vocabulary", () => {
+describe("error vocabulary", () => {
   it("carries the ratified code and notional status on every class", () => {
     for (const carrier of allCarriers()) {
       expect(carrier.error.code).toBe(carrier.code);
@@ -1844,10 +1814,10 @@ describe("Plan-010 error vocabulary", () => {
     expect(allCarriers()).toHaveLength(countExportedCarrierClasses());
   });
 
-  it("declares no carrier for the Plan-009-owned workspace.busy code", () => {
-    // `workspace.busy` ships as `WorkspaceBusyError` in the Plan-009 workspace
-    // service. Re-declaring it here would fork a live symbol — two classes
-    // minting one code, with `instanceof` depending on the import site.
+  it("declares no carrier for -owned workspace.busy code", () => {
+    // `workspace.busy` ships as `WorkspaceBusyError` workspace service.
+    // Re-declaring it here would fork a live symbol — two classes minting one
+    // code, with `instanceof` depending on the import site.
     expect(registeredPlan010Codes()).not.toContain("workspace.busy");
   });
 

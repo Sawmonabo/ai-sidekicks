@@ -1,12 +1,10 @@
-// Per-capability zero-turn detection and its declared detection source
-// (Plan-005 Phase 3, T3.24 — EXTENDs T3.12).
+// Per-capability zero-turn detection and its declared detection source.
 //
-// `Spec-005 §Capability discovery` makes a capability declaration a READING OF
-// THE INSTALLED BUILD rather than a table lookup, but only where a reading is
-// honestly obtainable. This module is the place that distinction is written
-// down and enforced: one entry per `DriverCapabilityFlag` per driver, each
-// naming the mechanism that decides it, and — where no mechanism is admissible
-// — naming the conjunct that fails.
+// makes a capability declaration a READING OF THE INSTALLED BUILD rather than
+// a table lookup, but only where a reading is honestly obtainable. This module
+// is the place that distinction is written down and enforced: one entry per
+// `DriverCapabilityFlag` per driver, each naming the mechanism that decides
+// it, and — where no mechanism is admissible — naming the conjunct that fails.
 //
 // -- Admissibility is conjunctive, and a failing conjunct must be NAMED --
 //
@@ -34,40 +32,38 @@
 // CapabilityDetectionMechanism>>`. A flag added to the contract's canonical
 // `DRIVER_CAPABILITY_FLAGS` and not answered here is a MISSING-PROPERTY compile
 // error in this file, which is exactly the loud failure a union growth needs
-// (Plan-005 T3.26 grows it by three). The annotation is preferred over a bare
-// `satisfies` because `isolatedDeclarations` is on repo-wide and the neighbours
+// (grows it by three). The annotation is preferred over a bare `satisfies`
+// because `isolatedDeclarations` is on repo-wide and the neighbours
 // (`CODEX_CAPABILITY_FLAGS`, `CLAUDE_CAPABILITY_FLAGS`) already carry the
 // annotated form.
 //
 // -- The transport is an injected seam, and a turn is UNREPRESENTABLE on it --
 //
-// `CapabilityProbeExchange` mirrors T3.23's `ProviderVersionHandshake`: a
-// REQUIRED injected seam with no default. This module composes the probe names
-// and adjudicates the replies; the seam's implementer executes them against the
-// build T3.23 resolved and owns their deadline. The request shape carries a
-// driver, a channel, and a WIRE NAME — and no field for message content — so a
-// turn-start or a user message cannot be expressed through it at all. That is
-// the structural half of "zero billed turns"; the suite asserts the other half
-// at a recording transport double, because a daemon-side assertion on
+// `CapabilityProbeExchange` mirrors the `ProviderVersionHandshake`: a REQUIRED
+// injected seam with no default. This module composes the probe names and
+// adjudicates the replies; the seam's implementer executes them against the
+// build resolved and owns their deadline. The request shape carries a driver, a
+// channel, and a WIRE NAME — and no field for message content — so a turn-start
+// or a user message cannot be expressed through it at all. That is the
+// structural half of "zero billed turns"; the suite asserts the other half at a
+// recording transport double, because a daemon-side assertion on
 // `usage.cost_update` could not see a turn billed before event handling
 // attached.
 //
 // The seam's implementer carries one further obligation, and it is what makes
 // **non-mutating** structural rather than behavioural: probes run on a
-// DEDICATED PROBE CONNECTION — the one T3.23 already spawns to read the version
+// DEDICATED PROBE CONNECTION — the one already spawns to read the version
 // in-band — which has never started a thread (Codex `thread/start`) and never
-// sent a user message (Claude). There is therefore no session state for a probe
-// to mutate even if a provider chose to act on one, and a probe never touches
-// the connection a participant's run is bound to.
+// sent a user message (Claude).
 //
 // -- Withdraw-only resolution --
 //
 // `applyCapabilityDetection` intersects: `declared && !withdrawn`. A probe may
 // WITHDRAW a flag the matrix declares `true`; it may never GRANT one the matrix
-// declares `false`. `Spec-005 §Capability discovery` forbids a flag declared
-// ahead of the code that reads it, and Codex `transcript_replay` is `false` for
-// exactly that reason (the replay leg is T3.20's) — a probe that flipped it
-// would promise a caller a capability with no implementation behind it.
+// declares `false`. A flag may not be declared ahead of the code that reads it,
+// and Codex `transcript_replay` is `false` for exactly that reason (the replay
+// leg is unbuilt) — a probe that flipped it would promise a caller a capability
+// with no implementation behind it.
 //
 // -- Failure is per capability, except where it is not --
 //
@@ -86,19 +82,17 @@
 //
 // -- A probe answers about a NAME, and only a NAME-LEVEL refusal withdraws --
 //
-// Both channels are read the same way, and the Codex side is where that is
-// delicate: the app-server answers `-32600` for a name its `ClientRequest`
-// enumeration does not carry AND for an accepted name whose payload does not
-// deserialize, so the code alone decides nothing. The discriminator is the
-// deserializer's own message
-// (`docs/reference/provider-wire/codex.md §Refusal shapes on the client-request channel`):
-// an unaccepted name answers an `unknown variant` message naming that variant
-// and enumerating the accepted set, while an ACCEPTED method handed this
-// probe's deliberately payload-free request answers a missing-field message and
-// a capability-gated one answers a plain-prose reason. Reading `-32600` alone
-// as a name refusal would withdraw `steer` and `session_goals` on every real
-// read, because both of their methods take a thread identity a probe never
-// composes.
+// Both channels are read the same way, and the Codex side is where that is delicate:
+// the app-server answers `-32600` for a name its `ClientRequest` enumeration does
+// not carry AND for an accepted name whose payload does not deserialize, so the code
+// alone decides nothing. The discriminator is the deserializer's own message
+// (`docs/reference/provider-wire/codex.md `): an unaccepted name answers an `unknown
+// variant` message naming that variant and enumerating the accepted set, while an
+// ACCEPTED method handed this probe's deliberately payload-free request answers a
+// missing-field message and a capability-gated one answers a plain-prose reason.
+// Reading `-32600` alone as a name refusal would withdraw `steer` and
+// `session_goals` on every real read, because both of their methods take a thread
+// identity a probe never composes.
 //
 // AMBIGUITY RESOLVES TOWARD `accepted`, and the direction is the point: because
 // resolution is withdraw-only, a wrong `accepted` leaves the declared matrix
@@ -119,9 +113,9 @@
 // -- A reading is bound to the BUILD it was read from --
 //
 // Every read request, every dispatch, and the reading itself carry
-// `boundExecutablePath`: the resolved, symlink-dereferenced path the T3.23
-// version handshake proved, threaded from that handshake's own product rather
-// than re-resolved here. A capability report is a statement about one build, so
+// `boundExecutablePath`: the resolved, symlink-dereferenced path version
+// handshake proved, threaded from that handshake's own product rather than
+// re-resolved here. A capability report is a statement about one build, so
 // "these capabilities and this version describe the same executable" is a
 // property the composition sites CHECK rather than assume — which is exactly
 // the case a second resolution could get wrong (a `PATH` change or an installer
@@ -139,28 +133,19 @@
 // -- What this module deliberately does NOT do --
 //
 // It mints no event type (a changed snapshot rides the shipped
-// `runtime_node.capability_updated` through the T2.4 writer's own change
-// detection, CP-005-5), no error code (an invocation against a withdrawn flag
-// refuses as the already-registered `driver.capability_unsupported`), and no
-// durable column (`detectionSource` is live-scoped and absent on
+// `runtime_node.capability_updated` through writer's own change detection), no
+// error code (an invocation against a withdrawn flag refuses as the
+// already-registered `driver.capability_unsupported`), and no durable column
+// (`detectionSource` is live-scoped and absent on
 // `DriverCapabilitiesWriter.hydrate()`, so the cache stores flag VALUES and not
 // provenance).
 //
-// And it never issues `mcp_set_servers` under any flag's mechanism. That
-// control request is not a capability flag, and `Spec-028 §Required Behavior`
-// defines it as replacing the full named-server set — an empty-set call would
-// clear a live session's servers. Its runtime availability is Plan-028's to
-// establish from that plan's own full-desired-set reconcile (CP-005-11), and a
-// refusal there withdraws no flag here — least of all `mcp`, which denotes MCP
-// tool INVOCATION and is unaffected. The prohibition is enforced twice: the
-// table may name only allowed wire names (checked at module load), and the
-// runner issues only names the table declares plus the negative control.
+// That control request is not a capability flag, and defines it as replacing
+// the full named-server set — an empty-set call would clear a live session's
+// servers. The prohibition is enforced twice: the table may name only allowed
+// wire names (checked at module load), and the runner issues only names the
+// table declares plus the negative control.
 //
-// Refs: Plan-005 T3.24 (verifies I-005-10), `Spec-005 §Required Behavior`,
-// `Spec-005 §Capability discovery`,
-// `docs/architecture/contracts/api-payload-contracts.md §Plan-005 — Provider Driver Contract (Internal Interface)`,
-// `docs/reference/provider-wire/claude.md`,
-// `docs/reference/provider-wire/codex.md`.
 
 import type { CapabilityDetectionSource, DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
@@ -171,8 +156,8 @@ import type { FlooredDriverName } from "./capability-refresh.js";
 // --------------------------------------------------------------------------
 
 /**
- * The three conjuncts `Spec-005 §Capability discovery` requires of an
- * admissible probe. A `static` entry names the one (or more) that fails.
+ * The three conjuncts requires of an admissible probe. A `static` entry
+ * names the one (or more) that fails.
  */
 export type ProbeAdmissibilityConjunct =
   | "zero-turn"
@@ -325,13 +310,13 @@ export const CODEX_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = 
     detectionSource: "static",
     failingConjuncts: ["decisive-at-consumption-granularity"],
     rationale:
-      "An item-injection method being accepted does not establish that a seeded history is faithfully adopted — which is what the flag's consumers depend on, and what T3.20's post-replay assertion is the only admissible evidence of.",
+      "An item-injection method being accepted does not establish that a seeded history is faithfully adopted — which is what the flag's consumers depend on, and what the post-replay assertion is the only admissible evidence of.",
   },
   cost_cap: {
     detectionSource: "static",
     failingConjuncts: ["decisive-at-consumption-granularity"],
     rationale:
-      "A spawn-time budget property. No client-request method names it, so the one zero-turn channel cannot decide it; the `false` is a complete declaration and Spec-016's unpriced-family escape consumes it fail-closed.",
+      "A spawn-time budget property. No client-request method names it, so the one zero-turn channel cannot decide it; the `false` is a complete declaration and the unpriced-family escape consumes it fail-closed.",
   },
   context_compaction: {
     detectionSource: "probed",
@@ -374,16 +359,15 @@ export const CODEX_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = 
  * a stream-output shape are not addressable on the control channel at all and
  * fail **decisiveness**.
  *
- * NO ENTRY IS CURRENTLY `probed`, AND THAT IS A FINDING RATHER THAN AN
- * OVERSIGHT. The one flag whose mechanism this channel could plausibly reach —
- * `interactive_requests` — names subtypes the provider RAISES; the pinned
- * build's inbound dispatcher refuses every one of them by name, exactly as it
- * refuses the negative control
- * (`docs/reference/provider-wire/claude.md §Direction: some censused subtypes are refused BY NAME on the inbound channel`),
- * so the channel's answer is decisive in the wrong direction. The channel
- * doctrine above is kept because it is what a future probeable subtype would be
- * admitted under, and the negative control is deliberately still declared for
- * this driver: it becomes live again the moment an entry here becomes `probed`.
+ * NO ENTRY IS CURRENTLY `probed`, AND THAT IS A FINDING RATHER THAN AN OVERSIGHT.
+ * The one flag whose mechanism this channel could plausibly reach —
+ * `interactive_requests` — names subtypes the provider RAISES; the pinned build's
+ * inbound dispatcher refuses every one of them by name, exactly as it refuses the
+ * negative control (`docs/reference/provider-wire/claude.md `), so the channel's
+ * answer is decisive in the wrong direction. The channel doctrine above is kept
+ * because it is what a future probeable subtype would be admitted under, and the
+ * negative control is deliberately still declared for this driver: it becomes live
+ * again the moment an entry here becomes `probed`.
  */
 export const CLAUDE_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = Object.freeze({
   resume: {
@@ -462,7 +446,7 @@ export const CLAUDE_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable =
     detectionSource: "static",
     failingConjuncts: ["decisive-at-consumption-granularity"],
     rationale:
-      "No stable prior-turn seeding contract is published for this provider, so no control-request answer establishes that a seeded history is adopted. The matrix cell records this as an open probe; supplying it is T3.20's, together with the post-replay assertion that is the only admissible evidence a replay worked.",
+      "No stable prior-turn seeding contract is published for this provider, so no control-request answer establishes that a seeded history is adopted. The matrix cell records this as an open probe; supplying it is future work, together with the post-replay assertion that is the only admissible evidence a replay worked.",
   },
   cost_cap: {
     detectionSource: "static",
@@ -505,11 +489,11 @@ export const CAPABILITY_DETECTION_TABLES: Readonly<
 /**
  * The deliberately-unsupported name each driver's channel must still refuse.
  *
- * `Spec-005 §Capability discovery`: a probe is admissible only alongside a
- * negative control, because a probe surface that silently stopped refusing
- * reports every capability available. The Claude sentinel is the one the wire
- * reference's own first-party probes used, so a control answering here is a
- * change in the provider rather than in this daemon's choice of name.
+ * a probe is admissible only alongside a negative control, because a probe
+ * surface that silently stopped refusing reports every capability available.
+ * The Claude sentinel is the one the wire reference's own first-party probes
+ * used, so a control answering here is a change in the provider rather than
+ * in this daemon's choice of name.
  *
  * DECLARED PER DRIVER, DISPATCHED ONLY WHERE IT VALIDATES SOMETHING. The entry
  * is total over the drivers so a table that becomes probeable is never left
@@ -578,10 +562,10 @@ export interface CapabilityProbeRequest {
 }
 
 /**
- * The injected probe transport (the T3.23 `ProviderVersionHandshake` doctrine).
- * REQUIRED, with no default: a module-supplied default would let a caller probe
- * a build it never resolved. The implementer dispatches against the resolved
- * probe connection and owns the deadline; this module composes and adjudicates.
+ * The injected probe transport (`ProviderVersionHandshake` doctrine). REQUIRED,
+ * with no default: a module-supplied default would let a caller probe a build
+ * it never resolved. The implementer dispatches against the resolved probe
+ * connection and owns the deadline; this module composes and adjudicates.
  *
  * Returns `unknown` because everything it yields is UNTRUSTED provider output.
  */

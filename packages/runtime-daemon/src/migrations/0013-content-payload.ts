@@ -1,5 +1,5 @@
-// Plan-006 T3.6 — version-13 migration: the durable encrypted home for
-// machine-authored prose, and the wrapped home of the key that seals it.
+// Version-13 migration: the durable encrypted home for machine-authored
+// prose, and the wrapped home of the key that seals it.
 //
 // SQL is inlined as a TypeScript string constant rather than loaded from a
 // sibling `.sql` file, for the reasons the `0001-initial.ts` header sets out in
@@ -7,9 +7,8 @@
 // would exclude `src/migrations/` from the published tarball; bundlers handle
 // `import.meta.url` inconsistently).
 //
-// PROVENANCE. Both statements below are transcribed from the canonical
-// `session_events` and `session_content_keys` blocks in
-// `docs/architecture/schemas/local-sqlite-schema.md` — the same convention
+// Both statements below are transcribed from the canonical `session_events` and
+// `session_content_keys` blocks — the same convention
 // `0007-pii-participant-id.ts` states, and the same direction of authority: the
 // schema doc defines the column and the table, this file applies them. Change
 // the doc first, then mirror it here.
@@ -60,15 +59,12 @@
 // committing in the SAME transaction as both statements is what keeps the guard
 // and the physical schema from ever disagreeing.
 //
-// Spec coverage: `Spec-006 §Assistant Output (assistant_output)`,
-// `Spec-006 §Tool Activity (tool_activity)`,
-// `Spec-006 §Canonical Serialization Rules`, `Spec-022 §PII Data Map`. Refs:
-// Plan-006 T3.6, invariants I-006-3-05, I-006-3-06, I-006-3-08,
-// `CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY` in `@ai-sidekicks/contracts`, and
-// `events/session-content-key-store.ts`, this table's sole reader and minter.
+// Invariants `CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY` in
+// `@ai-sidekicks/contracts`, and `events/session-content-key-store.ts`, this
+// table's sole reader and minter.
 
 export const CONTENT_PAYLOAD_MIGRATION_SQL: string = `
--- Owner: Plan-006 | Migration: 0013-content-payload.ts (Tier 4 Phase 3B)
+-- Owner: | Migration: 0013-content-payload.ts (Tier 4 Phase 3B)
 
 -- Machine-authored prose: the assistant message body, the reasoning-update
 -- body, and tool-call arguments / result / error bodies. Sealed AES-256-GCM

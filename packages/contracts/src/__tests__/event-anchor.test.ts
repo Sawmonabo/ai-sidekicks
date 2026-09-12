@@ -1,24 +1,19 @@
-// Plan-006 T3.3 — `event-anchor.ts` contract coverage.
+// `event-anchor.ts` contract coverage.
 //
 // Two cites drive this file, and each owns a describe block below:
 //
-//   * Spec coverage — `Spec-006 §Anchoring Cadence`: the anchor payload is
-//     "(session_id, node_id, start_sequence, end_sequence, merkle_root,
-//     root_signature, anchored_at) — metadata only". The member set is
-//     asserted EXACTLY, in both directions (a member the schema stopped
-//     carrying, and a member the schema started carrying).
-//   * Verifies invariant — I-006-3-02 (metadata-only witness; ADR-017 rejected
-//     a shared event log for V1). The three named negative arms — `payload`,
-//     `events`, `pii_payload` — are the shapes that would carry event bytes to
-//     the control plane, and each must be REFUSED, not silently stripped.
+//   * Spec coverage: the anchor payload is "(session_id, node_id,
+//     start_sequence, end_sequence, merkle_root, root_signature,
+//     anchored_at) — metadata only". The member set is asserted EXACTLY,
+//     in both directions (a member the schema stopped carrying, and a
+//     member the schema started carrying).
+//   * The three named negative arms — `payload`, `events`, `pii_payload` — are
+//     the shapes that would carry event bytes to the control plane, and each
+//     must be REFUSED, not silently stripped.
 //
 // The daemon-side `MerkleAnchorService` behavior (cadence, force-fire, queue
-// idempotency) is Plan-006 T3.5's file set; this file covers the wire contract
-// only.
+// idempotency) is the file set; this file covers the wire contract only.
 //
-// Refs: Plan-006 T3.3, ADR-017,
-// `docs/architecture/schemas/shared-postgres-schema.md` §Event Log Anchors
-// (Plan-006 — Integrity Witness).
 
 import { describe, expect, it } from "vitest";
 
@@ -55,10 +50,9 @@ const VALID_ANCHOR = {
 } as const;
 
 // ----------------------------------------------------------------------------
-// Spec-006 §Anchoring Cadence — the seven-member payload
 // ----------------------------------------------------------------------------
 
-describe("AnchorPayload — the seven-member metadata payload (Spec-006 §Anchoring Cadence)", () => {
+describe("AnchorPayload — the seven-member metadata payload", () => {
   it("accepts the canonical seven-member anchor", () => {
     const result = AnchorPayloadSchema.safeParse(VALID_ANCHOR);
     expect(result.success).toBe(true);
@@ -111,15 +105,14 @@ describe("AnchorPayload — the seven-member metadata payload (Spec-006 §Anchor
 });
 
 // ----------------------------------------------------------------------------
-// I-006-3-02 — metadata-only, structurally enforced
 // ----------------------------------------------------------------------------
 
-describe("I-006-3-02 — the anchor is metadata-only (ADR-017: no shared event log in V1)", () => {
-  // The three named shapes from the T3.3 acceptance criteria. Each is a way
-  // event content could ride an anchor to the control plane; each must fail
-  // the parse rather than be silently dropped, because a silent strip leaves
-  // a caller believing it uploaded data that never arrived AND leaves the
-  // invariant asserted by nothing.
+describe("the anchor is metadata-only (no shared event log in V1)", () => {
+  // The three named shapes acceptance criteria. Each is a way event content
+  // could ride an anchor to the control plane; each must fail the parse
+  // rather than be silently dropped, because a silent strip leaves a caller
+  // believing it uploaded data that never arrived AND leaves the invariant
+  // asserted by nothing.
   for (const smuggledMember of ["payload", "events", "pii_payload"] as const) {
     it(`REFUSES an anchor carrying \`${smuggledMember}\` (not a silent strip)`, () => {
       const result = AnchorPayloadSchema.safeParse({

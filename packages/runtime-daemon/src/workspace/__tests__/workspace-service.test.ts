@@ -1,27 +1,10 @@
-// WorkspaceService — Plan-009 Phase 2 T2.4.
+// WorkspaceService behaviour.
 //
 // Drives the real service against a real temp-file SQLite database (canonical
 // `openDatabase` factory → per-test tmp dir → `afterEach` close + unlink), a
 // real `EventLogService` append path, and REAL directories on disk, so that
 // "the execution root vanished" is an actual `rmSync` rather than a mocked
 // verdict.
-//
-// Spec coverage: `Spec-009 §Default Behavior` (the default workspace is
-// read-only and rooted at the mount's canonical root; a writable mode must be
-// requested explicitly); `Spec-009 §Required Behavior` (binding is explicit and
-// resolves ONE concrete execution root); `Spec-009 §Local Trust Envelope (V1
-// Definition)` (traversal and out-of-envelope binding are refused);
-// `Spec-009 §Execution Mode Transitions` (the
-// reprovision cycle, its recorded failure detail, and its retry);
-// `Spec-009 §Repo Mount Health (V1 Definition)` (the on-read probe floor and
-// the stale transition it derives).
-//
-// Verifies invariant: I-009-3 (containment), I-009-6 (workspace-id stability
-// across a mode switch), I-009-7 (stale is observable AND refuses writes),
-// I-009-8 (no silent mode substitution), I-009-9 (one event per real
-// transition, committed with its row).
-//
-// Cross-plan obligations exercised: CP-009-2, CP-009-3, CP-009-7, CP-009-8.
 //
 // Three deliberate test-only mechanisms, used ONLY to reach states the
 // production code refuses to write or cannot be raced into on a single thread:
@@ -352,7 +335,7 @@ function readEventEnvelopes(): ReadonlyArray<StoredEventEnvelopeRow> {
     .all(SESSION_ID) as ReadonlyArray<StoredEventEnvelopeRow>;
 }
 
-/** One instance of each carrier, in `error-contracts.md §Workspace` row order. */
+/** One instance of each carrier, in `` row order. */
 function everyCarrier(): readonly DaemonDomainError[] {
   return [
     new WorkspaceNotFoundError(UNKNOWN_WORKSPACE_ID),
@@ -426,7 +409,6 @@ afterEach(() => {
 });
 
 // ----------------------------------------------------------------------------
-// createDefaultWorkspace — `Spec-009 §Default Behavior`
 // ----------------------------------------------------------------------------
 
 describe("createDefaultWorkspace", () => {
@@ -437,7 +419,7 @@ describe("createDefaultWorkspace", () => {
       canonicalRoot: harness.gitMountRoot,
     });
 
-    // The composition T2.3's attach uses: the mount row and the workspace row
+    // The composition the attach uses: the mount row and the workspace row
     // land in ONE transaction, driven by the `repo.attached` append.
     await harness.emitter.emitRepoAttached({
       sessionId: SESSION_ID,
@@ -451,11 +433,11 @@ describe("createDefaultWorkspace", () => {
 
     const row = readWorkspaceRow(creation.workspaceId);
     expect(row).toBeDefined();
-    // `Spec-009 §Default Behavior` — read-only, and immediately usable. A
-    // writable mode is never the fresh-workspace posture.
+    // read-only, and immediately usable. A writable mode is never the
+    // fresh-workspace posture.
     expect(row?.execution_mode).toBe("read-only" satisfies ExecutionMode);
     expect(row?.state).toBe("ready" satisfies WorkspaceState);
-    // CP-009-8 — the persisted root is the canonical one, verbatim.
+    // The persisted root is the canonical one, verbatim.
     expect(row?.fs_root).toBe(harness.gitMountRoot);
     expect(row?.session_id).toBe(SESSION_ID);
     expect(row?.repo_mount_id).toBe(GIT_MOUNT_ID);
@@ -482,8 +464,8 @@ describe("createDefaultWorkspace", () => {
     ).rejects.toThrow("attach failed after both rows were written");
 
     // Neither row, and no event: the atomicity the two-closure shape exists to
-    // provide (I-009-9). A mount with no default workspace would be a mount
-    // D-009-7's REQUIRED `defaultWorkspaceId` could not render.
+    // provide. A mount with no default workspace would be a mount the REQUIRED
+    // `defaultWorkspaceId` could not render.
     expect(countRows("workspaces")).toBe(0);
     expect(countRows("repo_mounts")).toBe(0);
     expect(readEventTypes()).toEqual([]);
@@ -517,7 +499,7 @@ describe("createDefaultWorkspace", () => {
 
     // Unlike `insertRow`, this half has no compare-and-swap to make a repeat
     // harmless — a second call would simply append a second `workspace.ready`
-    // for one transition (I-009-9).
+    // for one transition.
     await expect(creation.emitReady()).rejects.toBeInstanceOf(WorkspaceServiceInvariantError);
     expect(readEventTypes()).toEqual(["workspace.ready"]);
   });
@@ -545,7 +527,7 @@ describe("createDefaultWorkspace", () => {
     expect(readEventPayloads("workspace.ready")[0]?.["actor"]).toBe(PARTICIPANT_ACTOR);
   });
 
-  it("refuses a canonical root that does not name one complete location (CP-009-8)", () => {
+  it("refuses a canonical root that does not name one complete location", () => {
     // Three shapes, each missing a different piece only the daemon's own
     // context could supply: a working directory, a home directory, a drive.
     for (const incompleteRoot of ["repos/git-mount", "~/repos/git-mount", "\\repos\\git-mount"]) {
@@ -580,8 +562,6 @@ describe("createDefaultWorkspace", () => {
 });
 
 // ----------------------------------------------------------------------------
-// bind — `Spec-009 §Required Behavior`,
-// `Spec-009 §Local Trust Envelope (V1 Definition)`, I-009-3, I-009-8
 // ----------------------------------------------------------------------------
 
 describe("bind", () => {
@@ -635,7 +615,7 @@ describe("bind", () => {
     );
   });
 
-  it("rejects a traversal escape on the `directory` argument (I-009-3)", async () => {
+  it("rejects a traversal escape on the `directory` argument", async () => {
     // The escape target EXISTS on disk, so the refusal is containment, not
     // absence.
     await expect(
@@ -697,9 +677,9 @@ describe("bind", () => {
 
     const row = readWorkspaceRow(response.workspaceId);
     expect(row?.state).toBe("provisioning" satisfies WorkspaceState);
-    // CP-009-8 — the validated root is DISCARDED rather than persisted: a
-    // worktree does not execute in the requested directory, and storing it
-    // would hand Plan-012 an approval scope the workspace never uses.
+    // The validated root is DISCARDED rather than persisted: a worktree
+    // does not execute in the requested directory, and storing it would
+    // hand an approval scope the workspace never uses.
     expect(row?.fs_root).toBeNull();
     expect(row?.execution_mode).toBe("worktree" satisfies ExecutionMode);
     expect(readEventTypes()).toEqual(["workspace.provisioning"]);
@@ -719,7 +699,7 @@ describe("bind", () => {
     expect(countRows("workspaces")).toBe(0);
   });
 
-  it("refuses a mode the mount cannot offer, naming the reason (I-009-8)", async () => {
+  it("refuses a mode the mount cannot offer, naming the reason", async () => {
     const refusal = await captureRejection(() =>
       harness.service.bind({ repoMountId: PLAIN_MOUNT_ID, executionMode: "worktree" }),
     );
@@ -729,7 +709,7 @@ describe("bind", () => {
     expect(modeRefusal.code).toBe("workspace.mode_unsupported");
     expect(modeRefusal.httpStatus).toBe(400);
 
-    // Compared against T2.5's matrix rather than a copy of it: a suite that
+    // Compared against the matrix rather than a copy of it: a suite that
     // restates the reason string pins the copy, not the matrix.
     const capabilities = computeExecutionModeCapabilities({ vcsType: "none" });
     expect(modeRefusal.availableModes).toEqual(capabilities.availableModes);
@@ -784,7 +764,7 @@ describe("bind", () => {
     // detach moves the mount's `state`, it does not delete the row. Without the
     // insert's attachment predicate this commits a `ready` workspace on a
     // detached mount: a live execution root outside the session's trust
-    // envelope (I-009-3) that `assertWritable` then passes.
+    // envelope that `assertWritable` then passes.
     const validator = new TrustEnvelopeValidator();
     const validateExecutionRootOriginal = validator.validateExecutionRoot.bind(validator);
     vi.spyOn(validator, "validateExecutionRoot").mockImplementationOnce(async (candidate) => {
@@ -803,7 +783,7 @@ describe("bind", () => {
     ).rejects.toBeInstanceOf(WorkspaceServiceInvariantError);
 
     // The whole write rolled back — no orphan row, and no `workspace.ready`
-    // announcing a workspace that does not exist (I-009-9).
+    // announcing a workspace that does not exist.
     expect(countRows("workspaces")).toBe(0);
     expect(readEventTypes()).toEqual([]);
   });
@@ -876,7 +856,7 @@ describe("bind", () => {
 });
 
 // ----------------------------------------------------------------------------
-// list — AC2, the on-read floor, and the four per-row throw sources
+// list — the on-read floor, and the four per-row throw sources
 // ----------------------------------------------------------------------------
 
 describe("list", () => {
@@ -885,7 +865,7 @@ describe("list", () => {
     insertMount({ id: SECOND_GIT_MOUNT_ID, canonicalRoot: harness.secondGitMountRoot });
   });
 
-  it("returns every workspace across two mounts with its state (Spec-009 AC2)", async () => {
+  it("returns every workspace across two mounts with its state", async () => {
     const first = await harness.service.bind({
       repoMountId: GIT_MOUNT_ID,
       executionMode: "read-only",
@@ -912,8 +892,8 @@ describe("list", () => {
       new Set([String(GIT_MOUNT_ID), String(SECOND_GIT_MOUNT_ID)]),
     );
 
-    // The response is representable — I-009-10 validates outbound payloads, so
-    // a projection that only satisfies TypeScript is not enough.
+    // The response is representable — validates outbound payloads, so a
+    // projection that only satisfies TypeScript is not enough.
     expect(() => WorkspaceListResponseSchema.parse(response)).not.toThrow();
   });
 
@@ -936,7 +916,7 @@ describe("list", () => {
     expect(otherSession.workspaces).toEqual([]);
   });
 
-  it("reports and PERSISTS a stale transition when the root vanished (I-009-7)", async () => {
+  it("reports and PERSISTS a stale transition when the root vanished", async () => {
     const bound = await harness.service.bind({
       repoMountId: GIT_MOUNT_ID,
       executionMode: "read-only",
@@ -950,8 +930,8 @@ describe("list", () => {
     expect(readWorkspaceRow(bound.workspaceId)?.state).toBe("stale");
     expect(readEventTypes()).toEqual(["workspace.ready", "workspace.stale"]);
 
-    // Exactly one event per real transition (I-009-9): a second read observes
-    // the same fact and must not re-announce it.
+    // Exactly one event per real transition: a second read observes the same
+    // fact and must not re-announce it.
     const second = await harness.service.list({ sessionId: SESSION_ID });
     expect(second.workspaces[0]?.state).toBe("stale" satisfies WorkspaceState);
     expect(readEventTypes()).toEqual(["workspace.ready", "workspace.stale"]);
@@ -1081,7 +1061,7 @@ describe("list", () => {
     expect(invariantFailure.workspaceId).toBe(bound.workspaceId);
     expect((invariantFailure.cause as Error).message).toBe("database is locked");
     // Not swallowed: reporting `stale` for a row the database still calls
-    // `ready` is precisely what I-009-7's persistence half forbids.
+    // `ready` is precisely what the persistence half forbids.
     expect(readWorkspaceRow(bound.workspaceId)?.state).toBe("ready" satisfies WorkspaceState);
   });
 
@@ -1134,7 +1114,6 @@ describe("list", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Reprovision cycle — CP-009-2, I-009-6
 // ----------------------------------------------------------------------------
 
 describe("reprovision cycle", () => {
@@ -1149,7 +1128,7 @@ describe("reprovision cycle", () => {
     workspaceId = bound.workspaceId;
   });
 
-  it("keeps the id and the row count across a full cycle (I-009-6)", async () => {
+  it("keeps the id and the row count across a full cycle", async () => {
     const rowsBefore = countRows("workspaces");
     const worktreeRoot = join(harness.tmpDir, "worktrees", "feature");
     mkdirSync(worktreeRoot, { recursive: true });
@@ -1157,8 +1136,8 @@ describe("reprovision cycle", () => {
     await harness.service.beginReprovision(workspaceId, "worktree");
     const midCycle = readWorkspaceRow(workspaceId);
     expect(midCycle?.state).toBe("provisioning" satisfies WorkspaceState);
-    // The released root does not linger: CP-009-8 would otherwise keep matching
-    // Plan-012 approvals against a root the workspace no longer owns.
+    // The released root does not linger: would otherwise keep matching
+    // approvals against a root the workspace no longer owns.
     expect(midCycle?.fs_root).toBeNull();
     // The target mode is persisted at BEGIN because `completeReprovision` takes
     // no mode argument — nothing downstream could persist it.
@@ -1183,7 +1162,7 @@ describe("reprovision cycle", () => {
   it("adopts an execution root OUTSIDE the mount, without re-checking containment", async () => {
     // A worktree lives outside the mount's canonical root by construction, so
     // re-running the containment validator here would reject every writable mode
-    // it exists to support. The root's legitimacy is its provenance: Plan-010's
+    // it exists to support. The root's legitimacy is its provenance: the
     // provisioner created it under daemon control.
     const outsideRoot = join(harness.tmpDir, "worktrees", "outside");
     mkdirSync(outsideRoot, { recursive: true });
@@ -1194,12 +1173,12 @@ describe("reprovision cycle", () => {
     expect(readWorkspaceRow(workspaceId)?.fs_root).toBe(outsideRoot);
   });
 
-  it("refuses a non-absolute execution root at completion (CP-009-8)", async () => {
+  it("refuses a non-absolute execution root at completion", async () => {
     await harness.service.beginReprovision(workspaceId, "worktree");
 
-    // Provenance does not make a relative path safe: Plan-012 scopes approvals
-    // against this value, and a relative one would be completed against whatever
-    // working directory the tool process happens to have.
+    // Provenance does not make a relative path safe: scopes approvals against
+    // this value, and a relative one would be completed against whatever working
+    // directory the tool process happens to have.
     await expect(
       harness.service.completeReprovision(workspaceId, "worktrees/relative"),
     ).rejects.toBeInstanceOf(WorkspaceServiceInvariantError);
@@ -1250,9 +1229,8 @@ describe("reprovision cycle", () => {
     await harness.service.failReprovision(workspaceId, "fatal: first attempt failed");
     expect(readWorkspaceMetadata(workspaceId)["lastError"]).toBeDefined();
 
-    // `Spec-009 §Execution Mode Transitions` — the switch may be retried, and a
-    // failed switch left the row `stale`. A gate that refused `stale` would make
-    // the documented retry impossible.
+    // the switch may be retried, and a failed switch left the row `stale`. A
+    // gate that refused `stale` would make the documented retry impossible.
     await harness.service.beginReprovision(workspaceId, "worktree");
 
     // MID-RETRY, before the outcome is known. `packages/contracts/src/repo.ts`
@@ -1284,7 +1262,7 @@ describe("reprovision cycle", () => {
     await expect(
       harness.service.beginReprovision(plainBound.workspaceId, "branch"),
     ).rejects.toBeInstanceOf(WorkspaceModeUnsupportedError);
-    // I-009-8 — refused by name, never substituted, and the row is untouched.
+    // Refused by name, never substituted, and the row is untouched.
     expect(readWorkspaceRow(plainBound.workspaceId)?.state).toBe("ready" satisfies WorkspaceState);
     expect(readWorkspaceRow(plainBound.workspaceId)?.execution_mode).toBe(
       "read-only" satisfies ExecutionMode,
@@ -1500,7 +1478,6 @@ describe("lastError normalisation", () => {
 });
 
 // ----------------------------------------------------------------------------
-// assertWritable — CP-009-3, I-009-7
 // ----------------------------------------------------------------------------
 
 describe("assertWritable", () => {
@@ -1540,7 +1517,7 @@ describe("assertWritable", () => {
       WorkspaceStaleError,
     );
     // The refusal is not a private verdict: the next reader sees it too, which
-    // is what makes I-009-7's "observably stale" true.
+    // is what makes the "observably stale" true.
     expect(readWorkspaceRow(workspaceId)?.state).toBe("stale" satisfies WorkspaceState);
     expect(readEventTypes()).toEqual(["workspace.ready", "workspace.stale"]);
   });
@@ -1580,7 +1557,7 @@ describe("assertWritable", () => {
 });
 
 // ----------------------------------------------------------------------------
-// markBusy / releaseBusy / markStale — CP-009-7 and the busy -> stale decision
+// markBusy / releaseBusy / markStale — and the busy -> stale decision
 // ----------------------------------------------------------------------------
 
 describe("run holds", () => {
@@ -1600,8 +1577,8 @@ describe("run holds", () => {
 
     expect(readWorkspaceRow(workspaceId)?.state).toBe("busy" satisfies WorkspaceState);
     expect(readWorkspaceMetadata(workspaceId)["holdingRunId"]).toBe(RUN_ID);
-    // CP-009-7 carves `busy` out of the six-type registry deliberately; the
-    // run's own `run.*` events carry the hold's timeline visibility.
+    // Carves `busy` out of the six-type registry deliberately; the run's
+    // own `run.*` events carry the hold's timeline visibility.
     expect(readEventTypes()).toEqual(["workspace.ready"]);
   });
 
@@ -1657,14 +1634,14 @@ describe("run holds", () => {
 
   // -- Decide-and-document #6: `busy -> stale` is legal and IS persisted --
 
-  it("stales a HELD workspace whose root vanished mid-run (I-009-7)", async () => {
+  it("stales a HELD workspace whose root vanished mid-run", async () => {
     await harness.service.markBusy(workspaceId, RUN_ID);
     rmSync(harness.gitMountRoot, { recursive: true, force: true });
 
     const response = await harness.service.list({ sessionId: SESSION_ID });
 
-    // Refusing this transition would make I-009-7 false for exactly the rows
-    // doing damage: a live run writing into a root that no longer exists.
+    // Refusing this transition would make false for exactly the rows doing
+    // damage: a live run writing into a root that no longer exists.
     expect(response.workspaces[0]?.state).toBe("stale" satisfies WorkspaceState);
     expect(readWorkspaceRow(workspaceId)?.state).toBe("stale" satisfies WorkspaceState);
     expect(readEventTypes()).toEqual(["workspace.ready", "workspace.stale"]);
@@ -1687,7 +1664,7 @@ describe("run holds", () => {
     expect(await harness.service.markStale(workspaceId)).toBe(true);
     expect(readEventTypes()).toEqual(["workspace.ready", "workspace.stale"]);
 
-    // Already stale — no second transition, so no second event (I-009-9).
+    // Already stale — no second transition, so no second event.
     expect(await harness.service.markStale(workspaceId)).toBe(false);
     expect(readEventTypes()).toEqual(["workspace.ready", "workspace.stale"]);
 
@@ -1700,7 +1677,7 @@ describe("run holds", () => {
     expect(await harness.service.markStale(UNKNOWN_WORKSPACE_ID)).toBe(false);
   });
 
-  // -- Two readers racing ONE stale transition (I-009-9) --
+  // -- Two readers racing ONE stale transition --
 
   it("appends exactly ONE workspace.stale when a second reader wins the race", async () => {
     // The window this opens: `markStale` reads the row, sees a live state, and
@@ -1818,16 +1795,14 @@ describe("run holds", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Error-carrier census — `error-contracts.md §Workspace`
 // ----------------------------------------------------------------------------
 
 describe("error carriers", () => {
   it("emit the same set as WORKSPACE_SERVICE_ERROR_CODES — no orphan row, no invented code", () => {
-    // Drift detector, scoped to what this helper enumerates: a §Workspace row
-    // with no carrier fails here, as does one of THESE four minting a code the
-    // roster does not list. A fifth carrier added to the module but not to the
-    // helper is invisible to this assertion — the export census below closes
-    // that gap.
+    // Drift detector, scoped to what this helper enumerates: a as does one of
+    // THESE four minting a code the roster does not list. A fifth carrier
+    // added to the module but not to the helper is invisible to this assertion
+    // — the export census below closes that gap.
     const emittedCodes = everyCarrier().map((carrier) => carrier.code);
     expect([...emittedCodes].sort()).toEqual([...WORKSPACE_SERVICE_ERROR_CODES].sort());
   });

@@ -1,5 +1,5 @@
-// Plan-001 Phase 5 Lane A T5.1: integration tests for `sessionClient`
-// across BOTH transports (daemon JSON-RPC + control-plane HTTP/SSE).
+// Lane A: integration tests for `sessionClient` across BOTH
+// transports (daemon JSON-RPC + control-plane HTTP/SSE).
 //
 // Coverage:
 //   * I1 — `SessionCreate` then `SessionRead` returns identical session id
@@ -217,8 +217,8 @@ function buildSubscribeOnlyDeps(provider: SessionEventStreamProvider): ControlPl
     // preserving the never-reached posture (same as the throwing callbacks).
     attachService: new AttachService(throwingQuerier),
     heartbeatService: new HeartbeatService(throwingQuerier),
-    // Plan-006 CP-006-2 — same never-reached posture as the runtime-node
-    // services above: holds the throwing querier, throws only on use.
+    // Same never-reached posture as the runtime-node services above:
+    // holds the throwing querier, throws only on use.
     anchorStore: new EventLogAnchorStore(throwingQuerier),
     resolveCurrentParticipantId: (): ParticipantId => {
       throw NEVER_REACHED("resolveCurrentParticipantId");
@@ -267,8 +267,8 @@ function buildCrudOnlyDeps(directoryService: FixtureDirectoryService): ControlPl
     // never reach `runtimenode.*`, so the services throw on use.
     attachService: new AttachService(throwingQuerier),
     heartbeatService: new HeartbeatService(throwingQuerier),
-    // Plan-006 CP-006-2 — same never-reached posture as the runtime-node
-    // services above: holds the throwing querier, throws only on use.
+    // Same never-reached posture as the runtime-node services above:
+    // holds the throwing querier, throws only on use.
     anchorStore: new EventLogAnchorStore(throwingQuerier),
     resolveCurrentParticipantId: (): ParticipantId => OWNER_PARTICIPANT_ID,
     generateSessionId: (): SessionId => SESSION_ID,
@@ -343,10 +343,10 @@ async function drain<T>(iter: AsyncIterable<T>): Promise<T[]> {
 
 // ---------------------------------------------------------------------------
 // I1 — SessionCreate then SessionRead returns identical session id
-// (Spec-001 AC1, AC3) — daemon transport
+// — daemon transport
 // ---------------------------------------------------------------------------
 
-describe("I1 / Spec-001 AC1+AC3 — SessionCreate then SessionRead returns identical session id (round-trip)", () => {
+describe("I1 / — SessionCreate then SessionRead returns identical session id (round-trip)", () => {
   it("daemon transport: create returns sessionId X; read({X}) returns the same X with persisted snapshot", async () => {
     // The scripted "fake daemon": session.create returns a synthesized
     // SessionCreateResponse; session.read returns a SessionReadResponse
@@ -447,11 +447,11 @@ describe("C1 / Codex RT-1 Finding 1 — daemon subscribe pre-aborted signal does
 });
 
 // ---------------------------------------------------------------------------
-// I3 — SessionSubscribe yields events in sequence ASC across reconnect
-// (Spec-001 AC3, AC7-partial) — control-plane transport
+// I3 — SessionSubscribe yields events in sequence ASC across reconnect over the
+// control-plane transport
 // ---------------------------------------------------------------------------
 
-describe("I3 / Spec-001 AC3+AC7 — SessionSubscribe yields events in sequence ASC across reconnect", () => {
+describe("I3 — SessionSubscribe yields events in sequence ASC across reconnect", () => {
   it("control-plane transport: cold subscribe yields all events ASC; reconnect with afterCursor resumes ASC after that cursor", async () => {
     // Build the scripted history. Sequences are 0, 1, 2 (monotonically
     // ascending). The recording provider synthesizes the resume semantics:
@@ -497,10 +497,10 @@ describe("I3 / Spec-001 AC3+AC7 — SessionSubscribe yields events in sequence A
 
 // ---------------------------------------------------------------------------
 // I4 — Reconnect after lost stream restores from snapshot, NOT client cache
-// (Spec-001 AC6) — control-plane transport
+// — control-plane transport
 // ---------------------------------------------------------------------------
 
-describe("I4 / Spec-001 AC6 — Reconnect after lost stream restores from snapshot, NOT client cache", () => {
+describe("I4 / — Reconnect after lost stream restores from snapshot, NOT client cache", () => {
   it("control-plane transport: server-side post-reconnect history MUTATES underneath the consumer; reconnect surfaces server's authoritative state, not the client's cache", async () => {
     // The snapshot-authority claim: when the client reconnects, its
     // payload comes from the SERVER's projection, not from any local
@@ -624,7 +624,7 @@ describe("I4 / Spec-001 AC6 — Reconnect after lost stream restores from snapsh
 
 // ---------------------------------------------------------------------------
 // C2 / Codex RT-1 Finding 2 — control-plane SSE parser handles CRLF separators
-// (WHATWG HTML §9.2.6 — line terminators may be CRLF, LF, or CR; this fix
+// (WHATWG HTML section 9.2.6 — line terminators may be CRLF, LF, or CR; this fix
 // covers CRLF + LF, the two forms the bug report cited and the two tRPC's
 // producer plus typical proxies emit). Regression test for the bug where the
 // parser only matched LF (`\n\n`) frame separators and never emitted any
@@ -1105,7 +1105,7 @@ describe("C7 / Codex RT-5 Finding A — daemon subscribe re-checks AbortSignal a
 // frames and the async generator ended cleanly, misreporting a failed
 // subscription as a normal empty stream.
 //
-// WHATWG HTML §9.2.6 SSE parsing requires the response Content-Type to be
+// WHATWG HTML section 9.2.6 SSE parsing requires the response Content-Type to be
 // `text/event-stream` (optional `; charset=utf-8` parameter). The fetch spec
 // mandates the user agent fail processing if the type does not match — the
 // SDK MUST do the same since we parse the body manually rather than via

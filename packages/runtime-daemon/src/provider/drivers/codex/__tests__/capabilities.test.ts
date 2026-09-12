@@ -1,18 +1,17 @@
-// T3.3 — Codex capability declaration + refresh seam.
+// Codex capability declaration + refresh seam.
 //
 // Coverage targets (audit-derived, not just the plan ACs):
-//   * `Spec-005 §Required Behavior` — the driver DECLARES its capability
-//     flags; the runtime treats an undeclared capability as unsupported.
-//   * `Spec-005 §Per-Driver Capability Matrix` — the Codex column, restated
-//     independently below so a typo in the module is a failing test rather
-//     than a silently wrong matrix.
-//   * I-005-2 — the flags record is TOTAL over the canonical flag set. Proven
-//     three ways: a type-level exactness assertion, a runtime key-set compare,
-//     and the production write-seam guard `assertValidCapabilityFlags`, which
-//     is the code that actually decides whether a declaration is admissible.
-//   * CP-005-5 — the refresh trigger declares through the T2.4 writer and
-//     surfaces its change-detected emission discriminant unchanged. No new
-//     event type, no local change detection.
+//   * the driver DECLARES its capability flags; the runtime treats an
+//     undeclared capability as unsupported.
+//   * the Codex column, restated independently below so a typo in the
+//     module is a failing test rather than a silently wrong matrix.
+//   * The flags record is TOTAL over the canonical flag set. Proven three
+//     ways: a type-level exactness assertion, a runtime key-set compare, and
+//     the production write-seam guard `assertValidCapabilityFlags`, which is
+//     the code that actually decides whether a declaration is admissible.
+//   * The refresh trigger declares through writer and surfaces its
+//     change-detected emission discriminant unchanged. No new event type,
+//     no local change detection.
 
 import { DRIVER_CAPABILITY_FLAGS, ProviderToolMetadataSchema } from "@ai-sidekicks/contracts";
 import type {
@@ -61,9 +60,9 @@ import {
 import type { DriverCapabilityDeclarationSink } from "../capabilities.js";
 import { CODEX_TOOL_METADATA } from "../tools.js";
 
-// `Spec-005 §Per-Driver Capability Matrix`, Codex column — transcribed here
-// from the spec rather than imported from the module under test, so this
-// assertion is an INDEPENDENT restatement and not a tautology.
+// Codex column — transcribed here from the spec rather than imported from
+// the module under test, so this assertion is an INDEPENDENT restatement
+// and not a tautology.
 const SPEC_CODEX_MATRIX: Record<DriverCapabilityFlag, boolean> = {
   resume: true,
   steer: true,
@@ -79,13 +78,13 @@ const SPEC_CODEX_MATRIX: Record<DriverCapabilityFlag, boolean> = {
   subagents: true,
   transcript_replay: true,
   cost_cap: false,
-  // T3.26 console parity. `context_compaction` and `provider_commands` are
-  // NATIVE on this provider (`thread/compact/start` + `thread/compacted`, and
-  // `skills/list`), while `output_speed` is `false` because this CLI declares
-  // neither conjunct that axis needs — no settable level vocabulary and no
-  // declared-state read — which is a complete declaration rather than an
-  // unmeasured one, and the reason nothing is emulated onto it. NOT because the
-  // wire is speed-silent: it carries a per-turn `serviceTier` override.
+  // `context_compaction` and `provider_commands` are NATIVE on this provider
+  // (`thread/compact/start` + `thread/compacted`, and `skills/list`), while
+  // `output_speed` is `false` because this CLI declares neither conjunct that
+  // axis needs — no settable level vocabulary and no declared-state read —
+  // which is a complete declaration rather than an unmeasured one, and the
+  // reason nothing is emulated onto it. NOT because the wire is speed-silent:
+  // it carries a per-turn `serviceTier` override.
   context_compaction: true,
   provider_commands: true,
   output_speed: false,
@@ -96,15 +95,15 @@ const CLI_VERSION_REPORT: DriverCliVersionReport = {
   semver: "0.149.1",
 };
 
-// The build a T3.23 reading names — a Cellar path, deliberately NOT the
+// The build a reading names — a Cellar path, deliberately NOT the
 // `/opt/homebrew/bin/codex` launcher symlink that points at it, because the
 // whole point of the reading is that it carries the dereferenced build.
 const RESOLVED_CODEX_EXECUTABLE = "/opt/homebrew/Cellar/codex/0.149.1/bin/codex";
 
 /**
- * A T3.23 in-band reading of a spawned Codex build. Composition takes a READING
- * and not a bare report since T3.23, so a declaration cannot be composed from a
- * version that did not come from the process this node spawned.
+ * A in-band reading of a spawned Codex build. Composition takes a READING and
+ * not a bare report since so a declaration cannot be composed from a version
+ * that did not come from the process this node spawned.
  */
 function codexReading(
   report: DriverCliVersionReport = CLI_VERSION_REPORT,
@@ -118,10 +117,10 @@ function codexReading(
 
 const CLI_VERSION_READING: SpawnedProviderVersionReading = codexReading();
 
-// T3.24: the composition now takes a detection reading beside the version
-// reading, so a matrix-only declaration is unrepresentable. These two carry the
-// happy path for the pre-existing assertions below; the probe table, the
-// classifier, the negative control, and the withdrawal paths are exercised in
+// The composition now takes a detection reading beside the version reading, so
+// a matrix-only declaration is unrepresentable. These two carry the happy path
+// for the pre-existing assertions below; the probe table, the classifier, the
+// negative control, and the withdrawal paths are exercised in
 // `provider/__tests__/capability-probe.test.ts`.
 const CODEX_DETECTION: CapabilityDetectionReading = fullyProbedDetectionReading(
   "codex",
@@ -134,8 +133,8 @@ function silentDiagnostics(): DriverDiagnosticsEmitter {
   return new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
 }
 
-// Type-level half of I-005-2: the declared key set is EXACTLY the canonical
-// flag union. A missing flag or a stray one fails to compile — the assignment
+// Type-level half of: the declared key set is EXACTLY the canonical flag
+// union. A missing flag or a stray one fails to compile — the assignment
 // below is the assertion.
 type MutuallyAssignable<Left, Right> = [Left] extends [Right]
   ? [Right] extends [Left]
@@ -167,13 +166,13 @@ class RecordingDeclarationSink implements DriverCapabilityDeclarationSink {
   }
 }
 
-describe("Codex capability declaration (T3.3)", () => {
-  it("declares exactly the Spec-005 Codex matrix", () => {
+describe("Codex capability declaration", () => {
+  it("declares exactly Codex matrix", () => {
     expect(declaredFlagKeysAreExactlyCanonical).toBe(true);
     expect({ ...CODEX_CAPABILITY_FLAGS }).toEqual(SPEC_CODEX_MATRIX);
   });
 
-  it("answers EVERY canonical capability flag (I-005-2 totality)", () => {
+  it("answers EVERY canonical capability flag (totality)", () => {
     const declaredKeys = Object.keys(CODEX_CAPABILITY_FLAGS).sort();
     expect(declaredKeys).toEqual([...DRIVER_CAPABILITY_FLAGS].sort());
     for (const flag of DRIVER_CAPABILITY_FLAGS) {
@@ -193,7 +192,7 @@ describe("Codex capability declaration (T3.3)", () => {
     }).not.toThrow();
   });
 
-  it("declares transcript_replay TRUE now that the replay leg reads it (T3.20)", () => {
+  it("declares transcript_replay TRUE now that the replay leg reads it", () => {
     // The flag and the code it gates flip TOGETHER, which is the condition the
     // scope boundary this replaces actually named: `thread/inject_items` is
     // documented and non-experimental at the pin, and the driver's replay leg —
@@ -206,13 +205,13 @@ describe("Codex capability declaration (T3.3)", () => {
   it("declares reasoning_stream and cost_cap FALSE (the two fail-closed rows)", () => {
     // Called out separately from the matrix compare because both `false` rows
     // are load-bearing downstream: the reasoning surface renders unavailable,
-    // and Spec-016's native-cap escape refuses reservation on a capless leg.
+    // and the native-cap escape refuses reservation on a capless leg.
     expect(CODEX_CAPABILITY_FLAGS.reasoning_stream).toBe(false);
     expect(CODEX_CAPABILITY_FLAGS.cost_cap).toBe(false);
   });
 });
 
-describe("Codex getCapabilities() wrapper (T3.3)", () => {
+describe("Codex getCapabilities() wrapper", () => {
   it("returns the V1 GetCapabilitiesResult wrapper shape", () => {
     const result: GetCapabilitiesResult = getCodexCapabilities(
       CLI_VERSION_READING,
@@ -230,12 +229,12 @@ describe("Codex getCapabilities() wrapper (T3.3)", () => {
     expect(result.capabilities.contractVersion).toBe(CODEX_CAPABILITY_CONTRACT_VERSION);
   });
 
-  it("pins the contract version the T3.20 flag flip moved it to, as a MAJOR bump", () => {
+  it("pins the contract version flag flip moved it to, as a MAJOR bump", () => {
     // Change detection only works if the token actually MOVES when the declared
     // shape does — the writer compares whole snapshots, and a frozen token on a
     // changed declaration is the failure mode this pins against.
     //
-    // MAJOR, unlike T3.26's additive MINOR: no flag joined the census,
+    // MAJOR, unlike the additive MINOR: no flag joined the census,
     // `transcript_replay` changed VALUE, and a previously declared flag changing
     // meaning is exactly what separates the two. It is also the move that has to
     // be seen — migration `0012` backfilled this flag's row `supported = 0`, so
@@ -270,7 +269,7 @@ describe("Codex getCapabilities() wrapper (T3.3)", () => {
     expect(Object.hasOwn(result, "outputSpeedLevels")).toBe(false);
   });
 
-  it("carries the T3.4 tool census, and every row passes the write-seam schema", () => {
+  it("carries tool census, and every row passes the write-seam schema", () => {
     const result = getCodexCapabilities(CLI_VERSION_READING, CODEX_DETECTION);
     expect(result.tools).toEqual([...CODEX_TOOL_METADATA]);
     for (const tool of result.tools) {
@@ -279,8 +278,8 @@ describe("Codex getCapabilities() wrapper (T3.3)", () => {
   });
 
   it("threads cliVersion through VERBATIM without parsing or normalizing it", () => {
-    // The version is never invented here; the T3.12 floor gate below REFUSES
-    // an inadmissible report but never rewrites an admissible one — a
+    // The version is never invented here floor gate below REFUSES an
+    // inadmissible report but never rewrites an admissible one — a
     // non-canonical raw string must survive untouched.
     const oddReport: DriverCliVersionReport = {
       raw: "codex-cli 0.149.1 (build abc123)",
@@ -309,8 +308,8 @@ describe("Codex getCapabilities() wrapper (T3.3)", () => {
   });
 });
 
-describe("Codex capability refresh seam (T3.3, CP-005-5)", () => {
-  it("declares through the T2.4 writer with the Codex driver key and composed report", async () => {
+describe("Codex capability refresh seam", () => {
+  it("declares through writer with the Codex driver key and composed report", async () => {
     const sink = new RecordingDeclarationSink({ emitted: "declared", cliVersionRefreshed: true });
     const emission = await refreshCodexCapabilities(sink, {
       sessionId: "session-1",
@@ -387,7 +386,7 @@ describe("Codex capability refresh seam (T3.3, CP-005-5)", () => {
   });
 });
 
-describe("Codex CLI-version floor (T3.12, P0-2)", () => {
+describe("Codex CLI-version floor (P0-2)", () => {
   it("refuses a below-floor report at composition, so attach and refresh both hit the gate", () => {
     let thrown: unknown;
     try {
@@ -448,7 +447,7 @@ describe("Codex CLI-version floor (T3.12, P0-2)", () => {
   });
 });
 
-describe("Codex cost_cap static refusal (T3.12)", () => {
+describe("Codex cost_cap static refusal", () => {
   it("refuses a cost_cap-gated admission against Codex statically at the registry gate", async () => {
     const registry = new ProviderRegistry();
     // `register` calls exactly one driver operation (`getCapabilities`), and
@@ -482,11 +481,11 @@ describe("Codex cost_cap static refusal (T3.12)", () => {
   });
 });
 
-describe("Codex composition is bound to the spawned build (T3.23, I-005-10)", () => {
+describe("Codex composition is bound to the spawned build", () => {
   it("threads the SPAWNED reading's report, not a caller-chosen version", () => {
-    // `Spec-005 §Required Behavior`: "the version a driver reports is the
-    // version that spawned". The composition takes the reading, so the wrapper
-    // it emits carries exactly the version the resolved build reported.
+    // "the version a driver reports is the version that spawned". The
+    // composition takes the reading, so the wrapper it emits carries exactly
+    // the version the resolved build reported.
     const reading = codexReading({ raw: "0.150.1", semver: "0.150.1" });
     const result = getCodexCapabilities(reading, CODEX_DETECTION);
     expect(result.cliVersion).toStrictEqual({ raw: "0.150.1", semver: "0.150.1" });
@@ -520,7 +519,7 @@ describe("Codex composition is bound to the spawned build (T3.23, I-005-10)", ()
 });
 
 // --------------------------------------------------------------------------
-// T3.12 C-8 — the current model catalog + per-model effort vocabularies
+// C-8 — the current model catalog + per-model effort vocabularies
 // --------------------------------------------------------------------------
 
 /**
@@ -603,7 +602,7 @@ function codexRecordedModel(
   };
 }
 
-describe("Codex model catalog (T3.12 C-8)", () => {
+describe("Codex model catalog (C-8)", () => {
   it("reads the recorded reply into the provider's own eight models, in order", () => {
     const models = normalizeCodexModelCatalog(CODEX_RECORDED_MODEL_LIST_REPLY);
 

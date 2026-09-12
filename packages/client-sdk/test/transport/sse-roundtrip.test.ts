@@ -1,21 +1,13 @@
-// Plan-008 §Phase 1 §T-008b-1-T12: client-sdk SSE round-trip integration test.
+// Client-SDK SSE round-trip integration test against the control-plane substrate.
 //
-// Per the plan's T-008b-1-T12 test row, this is the "highest-value Phase 1
-// test" — it
-// proves the F-008b-1-09 unblock contract: that Plan-001 Phase 5's
-// `sessionClient.subscribe` can consume the Phase 1 control-plane SSE
-// substrate without modification. The test stubs that future production
-// surface (Plan-001 Phase 5 owns the `sessionClient` shipping form) and
-// round-trips it against an in-process `buildControlPlaneFetchHandler`
-// instance.
+// The test stubs that future production surface (owns the `sessionClient`
+// shipping form) and round-trips it against an in-process
+// `buildControlPlaneFetchHandler` instance.
 //
-// SSE wire frame ratified per
-// `docs/architecture/contracts/api-payload-contracts.md §SSE Wire Frame (Tier 1 Ratified)`:
-// Content-Type text/event-stream; one
-// EventEnvelope per `data:` line as single-line JSON; `id:` carries
-// EventCursor; `retry: 5000`; heartbeat every 15s; tRPC fetch adapter
-// handles SSE natively per BL-104. The assertions below pin that shape
-// against the tRPC v11.17.0 `sseStreamProducer` surface citations.
+// SSE wire frame ratified: Content-Type text/event-stream; one EventEnvelope per `data:`
+// line as single-line JSON; `id:` carries EventCursor; `retry: 5000`; heartbeat every 15s;
+// tRPC fetch adapter handles SSE natively. The assertions below pin that shape against the
+// tRPC v11.17.0 `sseStreamProducer` surface citations.
 //
 // The round-trip exercise:
 //
@@ -41,10 +33,10 @@
 // What the assertions pin (and why):
 //   * `recorded.afterCursor` — the wire-substrate's cursor injection AT
 //     the seam between the HTTP/SSE transport and the abstract provider
-//     contract. This is the integration boundary CP-008-1 is about.
+//     contract. This is the integration boundary is about.
 //   * `events.map(eventId)` — the consumer-side cursor surface that
-//     Plan-001 Phase 5's sessionClient will expose to its callers, used
-//     for client-cached resumption on reconnect.
+//     sessionClient will expose to its callers, used for client-cached
+//     resumption on reconnect.
 //   * Per-event `event.id` payload field — wire-format integrity through
 //     the SSE producer's JSON.stringify + the consumer's JSON.parse +
 //     `SessionEventSchema.parse`. Without this we'd have only structural
@@ -53,7 +45,7 @@
 // Posture choices documented for review-time:
 //
 //   * Path: `test/transport/...` (NOT `src/transport/__tests__/...`) per
-//     the plan's T-008b-1-5 task row. The deviation from the package's
+//     the plan's task row. The deviation from the package's
 //     `src/__tests__/` discovery glob is deliberate — it signals
 //     "integration test crossing a workspace boundary" — distinct from
 //     in-package unit tests under `src/transport/__tests__/`. The
@@ -67,18 +59,17 @@
 //     it never ships, only exists for the integration harness.
 //
 //   * Stub-in-test: `sessionClient.subscribe` does NOT exist in
-//     `client-sdk/src/**` yet — Plan-001 Phase 5 owns that production
-//     surface. The function `sessionClientSubscribeStub` defined below
-//     is a TEST DOUBLE for that surface; its shape
-//     (`AsyncIterable<{eventId, event}>`) matches the documented Phase 5
-//     contract; its body uses raw `fetch` + an SSE frame parser +
-//     `SessionEventSchema.parse` so the test depends ONLY on contracts
-//     schemas + the wire substrate. No HTTP/SSE consumer primitive is
-//     added to `client-sdk/src/` as part of T12 — that's Phase 5's
-//     scope. If/when Phase 5 lands a production primitive, it will
-//     implement this same shape and pass this test without modification.
-//     That round-trip-stability guarantee IS the F-008b-1-09 unblock
-//     contract this test verifies.
+//     `client-sdk/src/**` yet — owns that production surface. The
+//     function `sessionClientSubscribeStub` defined below is a TEST
+//     DOUBLE for that surface; its shape (`AsyncIterable<{eventId,
+//     event}>`) matches the documented Phase 5 contract; its body uses
+//     raw `fetch` + an SSE frame parser + `SessionEventSchema.parse` so
+//     the test depends ONLY on contracts schemas + the wire substrate.
+//     No HTTP/SSE consumer primitive is added to `client-sdk/src/` as
+//     part of T12 — that's Phase 5's scope. If/when Phase 5 lands a
+//     production primitive, it will implement this same shape and pass
+//     this test without modification. That round-trip-stability
+//     guarantee IS unblock contract this test verifies.
 //
 //   * Refusal-asserting deps factory inlined here: `session.subscribe`
 //     does NOT exercise the directoryService / participant / id-generator
@@ -91,8 +82,6 @@
 //     coupling on the internal `__tests__/` path from a sibling
 //     workspace.
 //
-// Refs: docs/plans/008-control-plane-relay-and-session-join.md §T-008b-1-5,
-//       §T-008b-1-T12, §F-008b-1-09, §CP-008-1, §I-008-3 #1.
 
 import {
   type EventCursor,
@@ -174,7 +163,7 @@ const SCRIPTED_EVENTS: readonly ScriptedRow[] = [
 const NEVER_REACHED = (symbol: string): Error =>
   new Error(
     `T12 integration: ${symbol} reached during a session.subscribe round-trip. ` +
-      "The subscribe path must not consume CRUD-side dependencies (per CP-008-1).",
+      "The subscribe path must not consume CRUD-side dependencies.",
   );
 
 const throwingQuerier: Querier = {
@@ -196,8 +185,8 @@ function makeIntegrationDeps(provider: SessionEventStreamProvider): ControlPlane
     // harness never reaches `runtimenode.*`, so the services throw on use.
     attachService: new AttachService(throwingQuerier),
     heartbeatService: new HeartbeatService(throwingQuerier),
-    // Plan-006 CP-006-2 — same never-reached posture as the runtime-node
-    // services above: holds the throwing querier, throws only on use.
+    // Same never-reached posture as the runtime-node services above:
+    // holds the throwing querier, throws only on use.
     anchorStore: new EventLogAnchorStore(throwingQuerier),
     resolveCurrentParticipantId: () => {
       throw NEVER_REACHED("resolveCurrentParticipantId");
@@ -403,10 +392,9 @@ async function drain<T>(iter: AsyncIterable<T>): Promise<T[]> {
 }
 
 // ---------------------------------------------------------------------------
-// T-008b-1-T12: SSE round-trip integration
 // ---------------------------------------------------------------------------
 
-describe("T12 / §T-008b-1-T12 / F-008b-1-09: SSE round-trip — sessionClient.subscribe stub against in-process control-plane handler", () => {
+describe("T12 / — sessionClient.subscribe stub against in-process control-plane handler", () => {
   it("cold subscribe (no Last-Event-ID): provider sees afterCursor=undefined; consumer receives all 3 scripted events with cursors", async () => {
     const { provider, recorded } = makeRecordingProvider();
     const handler = buildControlPlaneFetchHandler(makeIntegrationDeps(provider));

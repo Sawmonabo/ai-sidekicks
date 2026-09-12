@@ -123,7 +123,7 @@ export const DEVICE_TYPE_MAX_LEN = 64;
 // unknown keys at parse time, surfacing schema drift early.
 //
 // `lastActivityAt` follows the session.ts ISO 8601 convention (RFC 3339
-// §5.6 — accepts both Z-suffixed UTC and numeric offsets like "+00:00").
+// — accepts both Z-suffixed UTC and numeric offsets like "+00:00").
 
 export interface PresenceHeartbeat {
   deviceId: string;
@@ -204,7 +204,7 @@ export const PresenceUpdateSchema: z.ZodType<PresenceUpdate, PresenceUpdate> = z
 // no participant axis: every device belongs to the same user.
 //
 // `lastSeen` follows the same ISO 8601 wire convention as `lastActivityAt`
-// on `PresenceHeartbeat.metadata` (RFC 3339 §5.6 — accepts Z-suffixed UTC
+// on `PresenceHeartbeat.metadata` (RFC 3339 section 5.6 — accepts Z-suffixed UTC
 // and numeric offsets). The presence register service is the authority on
 // canonical normalization at projection time.
 

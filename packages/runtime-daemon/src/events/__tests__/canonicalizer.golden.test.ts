@@ -1,37 +1,34 @@
-// Golden-vector suite for the RFC 8785 JCS canonicalizer (Plan-006 T2.3).
+// Golden-vector suite for the RFC 8785 JCS canonicalizer.
 //
 // WHY GOLDEN VECTORS AND NOT ROUND-TRIP TESTS. The canonical bytes this module
-// produces are the input to every `row_hash` and `daemon_signature` on disk
-// (`Spec-006 §Canonical Serialization Rules`), so the property that matters is
-// not "canonicalization is self-consistent" — it is "these exact bytes, today
-// and after every future refactor and dependency bump" (I-006-2-03). A
-// self-consistent implementation that changed one byte would invalidate the
-// whole chain silently. Hence inline hex fixtures (the crypto-paseto
-// convention) and RFC-sourced expected values rather than values recomputed
-// from the code under test.
+// produces are the input to every `row_hash` and `daemon_signature` on disk,
+// so the property that matters is not "canonicalization is self-consistent" —
+// it is "these exact bytes, today and after every future refactor and
+// dependency bump". A self-consistent implementation that changed one byte
+// would invalidate the whole chain silently. Hence inline hex fixtures (the
+// crypto-paseto convention) and RFC-sourced expected values rather than values
+// recomputed from the code under test.
 //
 // PROVENANCE OF THE RFC VECTORS. All three RFC 8785 vector sets are transcribed
 // from the published RFC, NOT from this implementation's output:
-//   • RFC 8785 §3.2.2 sample document → §3.2.4 expected UTF-8 bytes.
-//   • RFC 8785 §3.2.3 property-sorting test data and its expected order.
+//   • RFC 8785 section 3.2.2 sample document → section 3.2.4 expected UTF-8 bytes.
+//   • RFC 8785 section 3.2.3 property-sorting test data and its expected order.
 //   • RFC 8785 Appendix B, Table 1 — "ECMAScript-Compatible JSON Number
 //     Serialization Samples", 26 rows. NOT Appendix A, which is the
 //     illustrative "ECMAScript Sample Canonicalizer" source and publishes no
-//     vectors at all — keep this cite on B.
+//     vectors at all — keep this reference on B.
 //
 // The RFC also imposes exactly two MUST-TERMINATE obligations — the only two
 // sentences in it reading "MUST cause a compliant JCS implementation to
 // terminate", counted over the published text — and NEITHER publishes an
 // expected-output vector, so both are bound here as refusals rather than as
-// byte tables. They are not published alike, though: §3.2.2.3 on `NaN` /
-// `Infinity` does get two INPUT rows in Appendix B Table 1
-// (`7fffffffffffffff` and `7ff0000000000000`, output column empty, footnote (3)
-// pointing back at §3.2.2.3), transcribed below as that block's two
-// null-expectation rows; §3.2.2.2 on lone surrogates publishes nothing at all,
-// so its block further down is sourced from the prose alone. Same normative
-// register either way, so neither is read as advisory.
+// byte tables. They are not published alike, though: `NaN` / `Infinity` does
+// get two INPUT rows in Appendix B Table 1 (`7fffffffffffffff` and
+// `7ff0000000000000`, output column empty, footnote (3) pointing back),
+// transcribed below as that block's two null-expectation rows so its block
+// further down is sourced from the prose alone. Same normative register either
+// way, so neither is read as advisory.
 //
-// Refs: `Spec-006 §Canonical Serialization Rules`, `Spec-006 §Integrity Protocol`.
 import {
   EVENT_ENVELOPE_SEQUENCE_MAX,
   EventEnvelopeSchema,
@@ -103,7 +100,7 @@ function captureThrownMessage(thunk: () => unknown): string {
 // RFC 8785 conformance vectors.
 // --------------------------------------------------------------------------
 
-// RFC 8785 §3.2.2, verbatim: "Assume the following JSON object is parsed".
+// RFC 8785 section 3.2.2, verbatim: "Assume the following JSON object is parsed".
 //
 // Held as JSON SOURCE TEXT and parsed at runtime rather than transcribed into a
 // TypeScript object literal, because the vector's whole point is the gap
@@ -125,7 +122,7 @@ const RFC_8785_SAMPLE_DOCUMENT_SOURCE =
   '  "literals": [null, true, false]\n' +
   "}";
 
-// RFC 8785 §3.2.4, verbatim — the expected UTF-8 bytes for the document above,
+// RFC 8785 section 3.2.4, verbatim — the expected UTF-8 bytes for the document above,
 // in the RFC's own 20-bytes-per-line grouping so the fixture can be diffed
 // against the published table by eye.
 const RFC_8785_SAMPLE_DOCUMENT_BYTES = `
@@ -137,7 +134,7 @@ const RFC_8785_SAMPLE_DOCUMENT_BYTES = `
   30 66 5c 6e 41 27 42 5c 22 5c 5c 5c 5c 5c 22 2f 22 7d
 `;
 
-// RFC 8785 §3.2.3, verbatim — "The following JSON test data can be used for
+// RFC 8785 section 3.2.3, verbatim — "The following JSON test data can be used for
 // verifying the correctness of the sorting scheme in a JCS implementation".
 const RFC_8785_SORTING_SAMPLE_SOURCE =
   "{\n" +
@@ -150,7 +147,7 @@ const RFC_8785_SORTING_SAMPLE_SOURCE =
   '  "\\u00f6": "Latin Small Letter O With Diaeresis"\n' +
   "}";
 
-// RFC 8785 §3.2.3, verbatim — "Expected argument order after sorting property
+// RFC 8785 section 3.2.3, verbatim — "Expected argument order after sorting property
 // strings". Stated as VALUES because each value names its own key, so the
 // assertion reads as the RFC prints it.
 const RFC_8785_EXPECTED_SORTED_VALUES: readonly string[] = [
@@ -213,10 +210,10 @@ const RFC_8785_NUMBER_SAMPLES: ReadonlyArray<{
 ];
 
 describe("RFC 8785 conformance — the published JCS vectors", () => {
-  it("§3.2.2 sample document canonicalizes to the exact UTF-8 bytes of §3.2.4", () => {
+  it("", () => {
     const canonicalBytes = canonicalizeJson(JSON.parse(RFC_8785_SAMPLE_DOCUMENT_SOURCE));
 
-    // The byte assertion is the normative one — RFC 8785 §3.2.4 fixes UTF-8 as
+    // The byte assertion is the normative one — RFC 8785 section 3.2.4 fixes UTF-8 as
     // the canonical output encoding, and these are the bytes a signature
     // commits to. Asserted as hex so a failure prints a readable diff.
     expect(bytesToHex(canonicalBytes)).toBe(bytesToHex(hexToBytes(RFC_8785_SAMPLE_DOCUMENT_BYTES)));
@@ -230,7 +227,7 @@ describe("RFC 8785 conformance — the published JCS vectors", () => {
     );
   });
 
-  it("§3.2.3 sorts property names by UTF-16 code unit, not by code point", () => {
+  it("not by code point", () => {
     const canonicalText = decodeUtf8(canonicalizeJson(JSON.parse(RFC_8785_SORTING_SAMPLE_SOURCE)));
 
     // Read the ORDER off the canonical TEXT, never off a re-parsed object:
@@ -258,7 +255,7 @@ describe("RFC 8785 conformance — the published JCS vectors", () => {
 
     if (sample.expectedJson === null) {
       it(`Appendix B — ${label} is refused: JSON admits no such value`, () => {
-        // RFC 8785 §3.2.2.3: "occurrences of NaN or Infinity MUST cause a
+        // RFC 8785 section 3.2.2.3: "occurrences of NaN or Infinity MUST cause a
         // compliant JCS implementation to terminate with an appropriate error."
         // These two refusals originate inside `canonicalize@3.0.0` and surface
         // with its bare wording — pinned here so a library swap that started
@@ -290,7 +287,7 @@ describe("RFC 8785 conformance — the published JCS vectors", () => {
 });
 
 // --------------------------------------------------------------------------
-// canonicalizeEvent — the canonical eleven-member envelope (I-006-1-03).
+// canonicalizeEvent — the canonical eleven-member envelope.
 // --------------------------------------------------------------------------
 
 const SESSION_ID: SessionId = SessionIdSchema.parse("0192f3a4-5b6c-7d8e-9f01-234567890abc");
@@ -298,17 +295,17 @@ const ENVELOPE_VERSION: EventEnvelopeVersion = EventEnvelopeVersionSchema.parse(
 
 // EVERY MEMBER CARRIES A DISTINCT, NON-INTERCHANGEABLE VALUE, AND THAT IS THE
 // POINT — do not "tidy" this fixture into repeated placeholders.
-// `canonicalizer.ts` documents one drift its mapped-type annotation cannot
-// catch: a SAME-TYPED transposition such as `causationId: envelope.correlationId`
+// `canonicalizer.ts` documents one drift its mapped-type annotation cannot catch:
+// a SAME-TYPED transposition such as `causationId: envelope.correlationId`
 // compiles clean under any annotation, and it explicitly assigns that residue to
-// this suite ("That residue is T2.3's golden vectors' to close, by construction
+// this suite ("That residue is the golden vectors' to close, by construction
 // rather than by annotation"). The construction that closes it is exactly this:
 // no two members share a value, so any crosswire moves the bytes below.
 const GOLDEN_ENVELOPE: EventEnvelope = {
   id: "01960b3c-e1d0-7a41-b2c9-5f8e37d6a204",
   sessionId: SESSION_ID,
-  // The T2.3 row's "numeric edge cases per ECMA-262 ToString" obligation,
-  // applied to the one canonical member that is a number. This is
+  // Row's "numeric edge cases per ECMA-262 ToString" obligation, applied to
+  // the one canonical member that is a number. This is
   // `Number.MAX_SAFE_INTEGER` — exactly the upper bound RFC 8785 Appendix B
   // note (1) recommends for values "interpreted as true integers", and exactly
   // `EVENT_ENVELOPE_SEQUENCE_MAX`, the largest `sequence` the contract admits.
@@ -338,8 +335,8 @@ const GOLDEN_ENVELOPE: EventEnvelope = {
 // Produced by this module and pinned as a REGRESSION constant: unlike the RFC
 // vectors above there is no external publication of what an AI-Sidekicks
 // envelope must hash to, so what this fixture buys is byte-stability across
-// refactors and dependency bumps (I-006-2-03) — the property that keeps every
-// `row_hash` already on disk verifiable.
+// refactors and dependency bumps — the property that keeps every `row_hash`
+// already on disk verifiable.
 const GOLDEN_ENVELOPE_CANONICAL_TEXT =
   '{"actor":"participant-7f3a","category":"audit_integrity","causationId":"causation-4b1d",' +
   '"correlationId":"correlation-9c2e","id":"01960b3c-e1d0-7a41-b2c9-5f8e37d6a204",' +
@@ -376,7 +373,7 @@ const GOLDEN_ENVELOPE_CANONICAL_BYTES = `
   3a 22 31 2e 30 22 7d
 `;
 
-describe("canonicalizeEvent — the canonical eleven-member envelope (I-006-1-03)", () => {
+describe("canonicalizeEvent — the canonical eleven-member envelope", () => {
   it("produces byte-stable canonical bytes for the golden envelope", () => {
     const canonicalBytes = canonicalizeEvent(GOLDEN_ENVELOPE);
     expect(decodeUtf8(canonicalBytes)).toBe(GOLDEN_ENVELOPE_CANONICAL_TEXT);
@@ -385,7 +382,7 @@ describe("canonicalizeEvent — the canonical eleven-member envelope (I-006-1-03
     );
   });
 
-  it("ignores declaration order — RFC 8785 §3.2.3 lex-sort fixes the byte order", () => {
+  it("ignores declaration order — RFC 8785 section 3.2.3 lex-sort fixes the byte order", () => {
     // Same eleven members, written in reverse declaration order. The wire
     // authority calls declaration order non-load-bearing; this pins it.
     const reverseDeclarationOrder: EventEnvelope = {
@@ -418,19 +415,19 @@ describe("canonicalizeEvent — the canonical eleven-member envelope (I-006-1-03
   });
 
   it("serializes version as a quoted string, never as a JSON number", () => {
-    // ADR-018 makes `version` a "MAJOR.MINOR" semver STRING on the wire. A
-    // regression to a numeric `1.0` would serialize as `1` and change the bytes
-    // of every row.
+    // Makes `version` a "MAJOR.MINOR" semver STRING on the wire. A regression
+    // to a numeric `1.0` would serialize as `1` and change the bytes of every
+    // row.
     expect(decodeUtf8(canonicalizeEvent(GOLDEN_ENVELOPE))).toContain('"version":"1.0"');
     expect(decodeUtf8(canonicalizeEvent(GOLDEN_ENVELOPE))).not.toContain('"version":1');
   });
 
   it("projects only the canonical set — a runtime-only member is not serialized", () => {
-    // `pii_payload` is a storage column, deliberately NOT an envelope member
-    // (`Spec-006 §Canonical Serialization Rules`): the Spec-022 crypto-shred
-    // clears that column and the canonical bytes must survive it. The explicit
-    // projection in `canonicalizeEvent` is what guarantees a member the
-    // envelope happens to carry at runtime never reaches the signed bytes.
+    // `pii_payload` is a storage column, deliberately NOT an envelope member:
+    // crypto-shred clears that column and the canonical bytes must survive it.
+    // The explicit projection in `canonicalizeEvent` is what guarantees a
+    // member the envelope happens to carry at runtime never reaches the signed
+    // bytes.
     const withStorageOnlyMember: EventEnvelope = {
       ...GOLDEN_ENVELOPE,
       ...{ pii_payload: "ciphertext-that-must-not-be-signed" },
@@ -515,7 +512,7 @@ const CANONICAL_MEMBER_NAMES: readonly (keyof EventEnvelope)[] = [
 ];
 
 describe("actor is the canonical set's only null-admitting member", () => {
-  it("set-equals the wire authority's declared member set (I-006-1-03)", () => {
+  it("set-equals the wire authority's declared member set", () => {
     // DERIVED SET-EQUALITY, NEVER A COUNT. The drift a pair of count
     // assertions leaves wide open is a SCHEMA-side edit: `EventEnvelopeSchema`
     // gaining a twelfth member — or losing one — while this hand-written list
@@ -535,13 +532,13 @@ describe("actor is the canonical set's only null-admitting member", () => {
     // `EventEnvelopeSchema` is exported as `z.ZodType<EventEnvelope>` (the
     // `isolatedDeclarations` annotation), which erases `.shape` from the
     // declared type while leaving it on the runtime object. Same internals-cast
-    // idiom as the T1.3 membership pin in contracts' `session-event.test.ts`.
+    // idiom as membership pin in contracts' `session-event.test.ts`.
     const declaredMembers = Object.keys(
       (EventEnvelopeSchema as unknown as { shape: Record<string, unknown> }).shape,
     ).sort();
 
-    // The count pin rides the DERIVED array, so I-006-1-03's "eleven" is tied
-    // to the wire authority rather than to this file's transcription of it.
+    // The count pin rides the DERIVED array, so the "eleven" is tied to the
+    // wire authority rather than to this file's transcription of it.
     expect(declaredMembers).toHaveLength(11);
     expect([...CANONICAL_MEMBER_NAMES].sort()).toEqual(declaredMembers);
     // Only the hand-written list can carry a duplicate — the schema side is
@@ -570,10 +567,10 @@ describe("actor is the canonical set's only null-admitting member", () => {
   });
 
   it("keeps present-null and absent distinguishable in the canonical bytes", () => {
-    // `Spec-006 §Canonical Serialization Rules`: "fields with value null MUST be
-    // included". JSON has no `undefined`, so an absent member is an absent key —
-    // and the two MUST NOT collapse, which is why `canonicalizeEvent`'s
-    // precondition puts the absent-vs-null choice on the append path.
+    // "fields with value null MUST be included". JSON has no `undefined`, so an
+    // absent member is an absent key — and the two MUST NOT collapse, which is
+    // why `canonicalizeEvent`'s precondition puts the absent-vs-null choice on
+    // the append path.
     const presentNullActor: EventEnvelope = { ...GOLDEN_ENVELOPE, actor: null };
     const { actor: _absentActor, ...withoutActorMember } = GOLDEN_ENVELOPE;
     const absentActor: EventEnvelope = withoutActorMember;
@@ -649,17 +646,16 @@ describe("canonicalizeJson — the nesting-depth ceiling", () => {
 });
 
 // --------------------------------------------------------------------------
-// Unicode well-formedness — RFC 8785 §3.2.2.2's MUST-terminate obligation.
+// Unicode well-formedness — RFC 8785 section 3.2.2.2's MUST-terminate obligation.
 // --------------------------------------------------------------------------
 //
-// RFC 8785 §3.2.2.2, verbatim: "Since invalid Unicode data like "lone
+// RFC 8785 section 3.2.2.2, verbatim: "Since invalid Unicode data like "lone
 // surrogates" (e.g., U+DEAD) may lead to interoperability issues including
 // broken signatures, occurrences of such data MUST cause a compliant JCS
 // implementation to terminate with an appropriate error."
 //
-// The same normative register as the §3.2.2.3 NaN / Infinity Note this suite
-// already pins in the Appendix B block above — so both are tested as
-// requirements, not as advice.
+// The same normative register as — so both are tested as requirements, not
+// as advice.
 //
 // WHAT THE LIBRARY DOES INSTEAD, and why the defect is quiet: `canonicalize@3.0.0`
 // routes strings and property names through `JSON.stringify`, whose ES2019
@@ -679,7 +675,7 @@ const VALID_SURROGATE_PAIR = "😀";
 
 const LONE_SURROGATE_REFUSAL = /canonicalization refused: .* carries an unpaired UTF-16 surrogate/;
 
-describe("canonicalizeJson — RFC 8785 §3.2.2.2 refuses lone surrogates", () => {
+describe("canonicalizeJson — RFC 8785 section 3.2.2.2 refuses lone surrogates", () => {
   const refusedPlacements: ReadonlyArray<{
     readonly label: string;
     readonly value: unknown;
@@ -697,9 +693,8 @@ describe("canonicalizeJson — RFC 8785 §3.2.2.2 refuses lone surrogates", () =
     },
     {
       label: "a lone surrogate in a PROPERTY NAME",
-      // §3.2.2.2 legislates over "JSON string data (which includes JSON object
-      // property names as well)", and §3.2.3 lex-sorts those names into the byte
-      // order — so an ill-formed name is load-bearing twice over.
+      // "JSON string data (which includes JSON object property names as well)",
+      // and — so an ill-formed name is load-bearing twice over.
       value: { [LONE_HIGH_SURROGATE]: "well-formed value" },
       position: /a property name/,
     },
@@ -732,23 +727,17 @@ describe("canonicalizeJson — RFC 8785 §3.2.2.2 refuses lone surrogates", () =
       const message = captureThrownMessage(() => canonicalizeJson(value));
       expect(message).toMatch(LONE_SURROGATE_REFUSAL);
       expect(message).toMatch(position);
-      // The cite is load-bearing: it is what tells a reader this is a
+      // The RFC reference is load-bearing: it is what tells a reader this is a
       // conformance requirement rather than a local policy choice.
-      expect(message).toMatch(/RFC 8785 §3\.2\.2\.2/);
+      expect(message).toMatch(/RFC 8785 section 3\.2\.2\.2/);
     });
   }
 
   it("accepts a VALID surrogate pair and serializes it 'as is', never escaped", () => {
-    // THE POSITIVE CONTROL, and the reason the refusals above prove anything: a
-    // guard that simply rejected every surrogate code unit would pass every test
-    // in the loop above while breaking every emoji, every astral-plane script,
-    // and the §3.2.3 sorting vector at the top of this file — which carries
-    // "😀" as a property name and is the standing regression control
-    // for exactly this.
     const canonicalText = decodeUtf8(canonicalizeJson({ pair: VALID_SURROGATE_PAIR }));
     expect(canonicalText).toBe('{"pair":"😀"}');
-    // §3.2.2.2: a value outside the ASCII control range "MUST be serialized 'as
-    // is'" — so the pair must reach the bytes as UTF-8, not as a \uXXXX escape.
+    // "MUST be serialized 'as is'" — so the pair must reach the bytes as UTF-8,
+    // not as a \uXXXX escape.
     expect(bytesToHex(canonicalizeJson({ pair: VALID_SURROGATE_PAIR }))).toContain("f09f9880");
     expect(canonicalText).not.toContain("\\u");
     // The same pair as a property NAME, since names take a separate check.
@@ -769,7 +758,7 @@ describe("canonicalizeJson — RFC 8785 §3.2.2.2 refuses lone surrogates", () =
   });
 
   it("reports the code unit and index but NEVER the offending string", () => {
-    // T2.4's PII codec calls `canonicalizeJson(input.piiPayload)` directly, so
+    // The PII codec calls `canonicalizeJson(input.piiPayload)` directly, so
     // this guard runs over PII PLAINTEXT and its message reaches logs. The
     // locator must be precise without quoting the value.
     const secret = `patient-record-4417-${LONE_HIGH_SURROGATE}`;
@@ -872,13 +861,9 @@ describe("canonicalizeEvent — inherits the well-formedness refusal, no second 
 // --------------------------------------------------------------------------
 //
 // `canonicalize@3.0.0` tests `typeof object.toJSON === 'function'` before every
-// other branch and serializes the RESULT of calling it. Whatever this module's
-// walks concluded about the value is then a conclusion about a tree the
-// serializer did not read — which bypasses the depth ceiling and the §3.2.2.2
-// refusal alike, and, worse, makes the canonical form of a value stop being a
-// FUNCTION of that value. `canonicalizeJson` refuses the whole class rather than
-// patching either axis; this block pins the premise, the refusal, and the shapes
-// that must keep serializing.
+// other branch and serializes the RESULT of calling it. `canonicalizeJson`
+// refuses the whole class rather than patching either axis; this block pins the
+// premise, the refusal, and the shapes that must keep serializing.
 //
 // The block sits after the well-formedness suites rather than in module order so
 // it can reuse their surrogate fixtures; the guard itself runs BETWEEN the depth
@@ -927,7 +912,7 @@ describe("canonicalizeJson — refuses a callable toJSON", () => {
   });
 
   it("locates the offender by NESTING DEPTH and never by property path", () => {
-    // Same trade `assertNoLoneSurrogate` makes: T2.4's PII codec calls
+    // Same trade `assertNoLoneSurrogate` makes: the PII codec calls
     // `canonicalizeJson(input.piiPayload)` directly, so property NAMES are
     // caller data and this message reaches logs. Depth is structure, which the
     // depth ceiling's own refusal already discloses.
@@ -952,7 +937,7 @@ describe("canonicalizeJson — refuses a callable toJSON", () => {
   it("admits every shape the library would NOT divert — the positive controls", () => {
     // THE REASON THE REFUSALS ABOVE PROVE SOMETHING. A guard that refused every
     // non-plain object, or every member NAMED `toJSON`, would pass all of them
-    // while breaking live callers and the untrusted CP-006-3 path.
+    // while breaking live callers and the untrusted path.
     //
     // `Uint8Array` carries no `toJSON` at all, which matters because it is the
     // crypto-relevant byte type on this path. The widening cast is what makes
@@ -964,7 +949,7 @@ describe("canonicalizeJson — refuses a callable toJSON", () => {
     );
     // A member literally NAMED `toJSON` whose VALUE is a string is exactly what
     // `JSON.parse` produces for that key — JSON has no function values — so
-    // refusing it would reject a well-formed Spec-024 dispatch body. This is the
+    // refusing it would reject a well-formed dispatch body. This is the
     // discriminating case for `typeof … === "function"` over a name check.
     const parsedBody: unknown = JSON.parse('{"toJSON":"not-a-function"}');
     expect(() => canonicalizeJson(parsedBody)).not.toThrow();
@@ -974,8 +959,8 @@ describe("canonicalizeJson — refuses a callable toJSON", () => {
     const nullPrototype: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
     nullPrototype["a"] = 1;
     expect(decodeUtf8(canonicalizeJson(nullPrototype))).toBe('{"a":1}');
-    // ...and the RFC's own §3.2.2 sample document still canonicalizes, which is
-    // the standing regression control the conformance block at the top owns.
+    // ...and the RFC's own which is the standing regression control the
+    // conformance block at the top owns.
     expect(() =>
       canonicalizeJson(JSON.parse(RFC_8785_SAMPLE_DOCUMENT_SOURCE) as unknown),
     ).not.toThrow();
@@ -995,9 +980,9 @@ describe("canonicalizeJson — refuses a callable toJSON", () => {
     expect(canonicalize(statefulProjection)).toBe('{"v":2}');
 
     // Step 2 — that is fatal for the integrity protocol specifically.
-    // Verification RE-CANONICALIZES a rehydrated row and compares bytes
-    // (`Spec-006 §Integrity Protocol`), so a second draw that differs makes the
-    // row's own `row_hash` unreproducible from the row.
+    // Verification RE-CANONICALIZES a rehydrated row and compares bytes, so a
+    // second draw that differs makes the row's own `row_hash` unreproducible
+    // from the row.
     projectionCount = 0;
     expect(canonicalize(statefulProjection)).not.toBe(canonicalize(statefulProjection));
 
@@ -1062,10 +1047,9 @@ describe("canonicalizeJson — refuses a callable toJSON", () => {
   it("runs BEFORE the well-formedness walk, so the accurate refusal is the one reported", () => {
     // THE OTHER HALF OF THE ORDER, and load-bearing in the opposite direction.
     // This value carries a lone surrogate in a subtree the serializer would have
-    // DISCARDED — `toJSON` replaces it — so reporting §3.2.2.2 here would
-    // diagnose a defect in bytes that were never going to exist. The `toJSON`
-    // refusal is what makes the well-formedness verdict a claim about the
-    // output, so it has to fire first.
+    // DISCARDED — `toJSON` replaces it — so reporting. The `toJSON` refusal is
+    // what makes the well-formedness verdict a claim about the output, so it has
+    // to fire first.
     const carriesBoth = {
       discarded: LONE_HIGH_SURROGATE,
       toJSON: (): unknown => ({ kept: "well-formed" }),
@@ -1137,7 +1121,7 @@ const OCCURRED_AT_NORMALIZATIONS: ReadonlyArray<{
   {
     input: "2026-01-01T00:00:00.000-00:00",
     normalized: "2026-01-01T00:00:00.000Z",
-    why: "the NEGATIVE zero offset is the Z instant too — RFC 3339 §4.3 gives -00:00 the premise 'the time in UTC is known', and §4.2's local-minus-UTC arithmetic makes the fold exact (the sign yields -0, and x - (-0) === x). What -00:00 additionally conveyed in RFC 3339 — an unknown LOCAL offset — is provenance about the producer's clock, never a different instant, and RFC 9557 §2.2 (Standards Track, Updates: 3339) has since reassigned that meaning to Z itself. The sibling +00:00 row above says 'a numeric zero offset', sign-agnostic, but pinned only the positive spelling; this row is the other half of that claim",
+    why: "the NEGATIVE zero offset is the Z instant too — RFC 3339 section 4.3 gives -00:00 the premise 'the time in UTC is known', and section 4.2's local-minus-UTC arithmetic makes the fold exact (the sign yields -0, and x - (-0) === x). What -00:00 additionally conveyed in RFC 3339 — an unknown LOCAL offset — is provenance about the producer's clock, never a different instant, and RFC 9557 section 2.2 (Standards Track, Updates: 3339) has since reassigned that meaning to Z itself. The sibling +00:00 row above says 'a numeric zero offset', sign-agnostic, but pinned only the positive spelling; this row is the other half of that claim",
   },
   {
     input: "2026-01-01T00:00:00.1Z",
@@ -1201,7 +1185,7 @@ const OCCURRED_AT_REFUSALS: ReadonlyArray<{
     input: "2026-01-01t00:00:00.000Z",
     expected: /must be an RFC 3339 date-time with an uppercase T separator/,
     rejected: /sub-millisecond/,
-    why: "RFC 3339 §5.6 permits lowercase t, but the wire schema does not",
+    why: "RFC 3339 section 5.6 permits lowercase t, but the wire schema does not",
   },
   {
     input: "2026-01-01 00:00:00.000Z",
@@ -1289,9 +1273,9 @@ describe("normalizeOccurredAt — normalize where the instant survives, refuse o
 // below is the load-bearing one — without it "canonical" and "what was signed"
 // are two different claims.
 //
-// NOT WIRED INTO ANY PRODUCTION CALL PATH. T4.1's audit range-walk is the
-// consumer and does not exist yet; this ships as a forward-declared contract, so
-// every assertion here is against the exported function directly.
+// NOT WIRED INTO ANY PRODUCTION CALL PATH. the audit range-walk is the consumer
+// and does not exist yet; this ships as a forward-declared contract, so every
+// assertion here is against the exported function directly.
 
 /**
  * `OCCURRED_AT_REFUSALS` inputs the predicate ALSO rejects — five of the seven.
@@ -1403,7 +1387,7 @@ describe("isCanonicalOccurredAt — the stored spelling, not just the instant", 
       { input: "2026-01-00T00:00:00.000Z", guard: /does not exist on the calendar/ },
       { input: "2026-01-01T25:00:00.000Z", guard: /must be an RFC 3339 date-time/ },
       { input: "2026-01-01T00:60:00.000Z", guard: /must be an RFC 3339 date-time/ },
-      // RFC 3339 §5.8's leap-second spelling. The accepted-input pattern's
+      // RFC 3339 section 5.8's leap-second spelling. The accepted-input pattern's
       // `[0-5]\d` refuses `:60`, so it is guard 1, not a calendar refusal.
       { input: "2026-12-31T23:59:60.000Z", guard: /must be an RFC 3339 date-time/ },
     ];
@@ -1416,9 +1400,9 @@ describe("isCanonicalOccurredAt — the stored spelling, not just the instant", 
     }
   });
 
-  it("RETURNS on garbage rather than throwing — the property T4.1's range-walk needs", () => {
+  it("RETURNS on garbage rather than throwing — the property the range-walk needs", () => {
     // WHY A THROW WOULD BE WORSE THAN A WRONG ANSWER, and the reason this test
-    // exists at all. T4.1 walks a RANGE of rows; a throw aborts the walk and
+    // exists at all. walks a RANGE of rows; a throw aborts the walk and
     // suppresses verification of every row after the offending one, so one
     // malformed `occurred_at` would buy an attacker a range-wide blind spot. The
     // read path already has three layers that throw
@@ -1449,7 +1433,7 @@ describe("isCanonicalOccurredAt — the stored spelling, not just the instant", 
 
   it("is stateless across calls — the pattern carries no g flag", () => {
     // A `g`-flagged pattern would make `.test` advance `lastIndex` and alternate
-    // `true` / `false` on repeated calls with the SAME input. T4.1's walk calls
+    // `true` / `false` on repeated calls with the SAME input. the walk calls
     // this once per row over a shared module-level pattern, so that regression
     // would silently flag every other row. Cheap to pin, invisible otherwise.
     const canonical = "2026-03-04T05:06:07.008Z";
@@ -1555,8 +1539,7 @@ describe("canonicalizeJson — values with no JSON representation", () => {
 //
 // Above 2^53 − 1 distinct integers share one IEEE-754 double, so two different
 // events canonicalize to identical bytes and collide on `row_hash` — inside the
-// structure `Spec-006 §Integrity Protocol` builds precisely to make tampering
-// detectable.
+// structure builds precisely to make tampering detectable.
 
 describe("canonicalizeEvent — sequence must be faithfully representable", () => {
   const sequenceRefusalPattern = /canonicalization refused: sequence .* is not a safe integer/;

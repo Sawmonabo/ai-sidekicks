@@ -1,55 +1,49 @@
-// Canonical repo-root resolver (Plan-009 Phase 1 T1.5) — the single place a
-// user-entered local path becomes the `{canonicalRoot, vcsType}` pair Phase 2
-// persists as `repo_mounts.canonical_root` / `repo_mounts.vcs_type`.
+// Canonical repo-root resolver — the single place a user-entered local path
+// becomes the `{canonicalRoot, vcsType}` pair Phase 2 persists as
+// `repo_mounts.canonical_root` / `repo_mounts.vcs_type`.
 //
-// Spec coverage:
-//   * `Spec-009 §Required Behavior` — "Repo attach must resolve and persist the
-//     canonical repository root, not only the user-entered path."
-//   * `Spec-009 §Implementation Notes` — "Repo attach should not assume that
-//     the user-selected path is already the repo root."
-//   * `Spec-009 §Fallback Behavior` — "If a path is not a git repository, the
-//     system may bind it as a plain directory workspace with git-specific
-//     features disabled" AND "If canonical root resolution fails, repo attach
-//     must fail explicitly rather than guessing."
+//   * "Repo attach must resolve and persist the canonical repository root, not
+//     only the user-entered path."
+//   * "Repo attach should not assume that the user-selected path is already
+//     the repo root."
+//   * "If a path is not a git repository, the system may bind it as a plain
+//     directory workspace with git-specific features disabled" AND "If
+//     canonical root resolution fails, repo attach must fail explicitly
+//     rather than guessing."
 //
-// Invariants enforced here (canonical text in
-// `docs/plans/009-repo-attachment-and-workspace-binding.md §Invariants`):
-//   * I-009-1 — canonical-root fidelity. Every value this module returns has
-//     been through `realpath`, so the persisted root is the physical path and
-//     never an alias or the raw user input. The absoluteness of the result is
-//     re-asserted structurally before it is returned, and a git-reported root
-//     is VERIFIED against the supplied path rather than trusted — see the
-//     repo-owned-config section below.
-//   * I-009-2 — explicit resolution failure. Every path that is not a
-//     successful resolution THROWS `RepoRootResolutionError`. There is no
-//     partial-success return, no fallback to the user-entered path, and no
-//     inferred root — including no root inferred by completing an input that
-//     does not name one whole location (a relative path, `~`, or a driveless
-//     Windows root) out of daemon-side state, which the step-1 gate refuses.
-//   * I-009-4 — honest non-git classification. `vcsType: "none"` needs TWO
-//     conditions, not one. It is produced ONLY on a positive "git ran and
-//     reported not-a-repository" verdict, ONLY for the DISCOVERY query on the
-//     supplied path, and ONLY when that path visibly carries no `.git` entry.
-//     Every git-invocation failure — git missing, git non-executable, git
-//     killed, git failing for any other reason — routes to `vcs_error`. See the
-//     fail-closed note on `classifyGitFailure` below. The same verdict from the
-//     VERIFICATION query is a refusal (`root_mismatch`), never a
-//     reclassification: a claimed root that is not a repository at all cannot
-//     be attached as a plain directory either, because it is not the path the
-//     operator supplied. And the verdict is refused outright when the supplied
-//     directory contradicts it by carrying metadata git could not use — see the
-//     consistency gate on the plain-directory arm.
+// Invariants enforced here (canonical text):
+//   * Every value this module returns has been through `realpath`, so the
+//     persisted root is the physical path and never an alias or the raw user
+//     input. The absoluteness of the result is re-asserted structurally
+//     before it is returned, and a git-reported root is VERIFIED against the
+//     supplied path rather than trusted — see the repo-owned-config section
+//     below.
+//   * Every path that is not a successful resolution THROWS
+//     `RepoRootResolutionError`. There is no partial-success return, no
+//     fallback to the user-entered path, and no inferred root — including no
+//     root inferred by completing an input that does not name one whole
+//     location (a relative path, `~`, or a driveless Windows root) out of
+//     daemon-side state, which the step-1 gate refuses.
+//   * `vcsType: "none"` needs TWO conditions, not one. It is produced ONLY on a
+//     positive "git ran and reported not-a-repository" verdict, ONLY for the
+//     DISCOVERY query on the supplied path, and ONLY when that path visibly
+//     carries no `.git` entry. Every git-invocation failure — git missing, git
+//     non-executable, git killed, git failing for any other reason — routes to
+//     `vcs_error`. The same verdict from the VERIFICATION query is a refusal
+//     (`root_mismatch`), never a reclassification: a claimed root that is not a
+//     repository at all cannot be attached as a plain directory either, because
+//     it is not the path the operator supplied.
 //
 // Mechanism, and why it is not a `.git` walk
 // --------------------------------------------------------------------------
 // Resolution asks git itself: `git -C <path> rev-parse --show-toplevel`,
 // invoked argv-only through `execFile` (never `shell: true`, so no path a user
-// types can reach a shell). Plan-009 T1.5 ratifies this over the obvious
-// alternative — walking parent directories looking for a `.git` DIRECTORY —
-// because in a linked worktree and in a submodule `.git` is a FILE containing a
-// `gitdir:` pointer, so the walk either misses the repository entirely or
-// reports the wrong root. `rev-parse` answers with git's own discovery rules,
-// which is the only answer that stays correct as those rules evolve.
+// types can reach a shell). ratifies this over the obvious alternative —
+// walking parent directories looking for a `.git` DIRECTORY — because in a
+// linked worktree and in a submodule `.git` is a FILE containing a `gitdir:`
+// pointer, so the walk either misses the repository entirely or reports the
+// wrong root. `rev-parse` answers with git's own discovery rules, which is the
+// only answer that stays correct as those rules evolve.
 //
 // The plain-directory arm's consistency gate is NOT a retreat from that, and
 // the difference is what makes it safe. The rejected walk ASCENDS and
@@ -62,12 +56,9 @@
 // not-a-repository verdict the supplied directory visibly contradicts.
 //
 // ORDER IS LOAD-BEARING: the input is realpath'd BEFORE git sees it. That is
-// what makes the symlink case (I-009-1) correct rather than incidental — git
-// never observes the alias, so its discovery runs against the physical path and
-// cannot report a toplevel reached through the symlink. git's output is then
-// realpath'd AGAIN: git generally reports a physical path already, but that is
-// a property of how git computes the current directory rather than a documented
-// contract, and I-009-1 is not a guarantee to hold conditionally.
+// what makes the symlink case correct rather than incidental — git never
+// observes the alias, so its discovery runs against the physical path and
+// cannot report a toplevel reached through the symlink.
 //
 // Ambient `GIT_*` hijacking
 // --------------------------------------------------------------------------
@@ -78,18 +69,18 @@
 // indirectly. A daemon launched from a shell that exported `GIT_DIR` or
 // `GIT_WORK_TREE` would otherwise have every attach answered about the ambient
 // repository instead of the supplied path — a resolved root with no relation to
-// its input, which is precisely the guessed root I-009-1 forbids.
-// TWO variables carry the mirror-image hazard, by different mechanisms.
-// `GIT_CEILING_DIRECTORIES` bounds upward discovery. `GIT_OBJECT_DIRECTORY` is
-// substituted into git's own is-this-a-repository predicate, so a value naming
-// nothing accessible makes EVERY candidate fail it. Either way an ambient value
-// makes git report not-a-repository for a REAL repository, and an attach from a
-// nested subdirectory then persists that subdirectory as `vcsType: "none"` — an
-// I-009-4 breach that is silent, because nothing in git's answer distinguishes
-// it from an honest plain directory. `DISCOVERY_REDIRECTING_GIT_ENV_KEYS`
-// carries the observation and the second, opposite wrong answer.
-// The omission is case-insensitive, which is a Windows correctness requirement
-// rather than fastidiousness; `buildGitEnvironment` states why.
+// its input, which is precisely the guessed root forbids. TWO variables carry
+// the mirror-image hazard, by different mechanisms. `GIT_CEILING_DIRECTORIES`
+// bounds upward discovery. `GIT_OBJECT_DIRECTORY` is substituted into git's own
+// is-this-a-repository predicate, so a value naming nothing accessible makes
+// EVERY candidate fail it. Either way an ambient value makes git report
+// not-a-repository for a REAL repository, and an attach from a nested
+// subdirectory then persists that subdirectory as `vcsType: "none"` — an breach
+// that is silent, because nothing in git's answer distinguishes it from an
+// honest plain directory. `DISCOVERY_REDIRECTING_GIT_ENV_KEYS` carries the
+// observation and the second, opposite wrong answer. The omission is
+// case-insensitive, which is a Windows correctness requirement rather than
+// fastidiousness; `buildGitEnvironment` states why.
 //
 // Locale is pinned to `C` for the same class of reason: the not-a-repository
 // verdict is read off git's own stderr, and git translates its messages through
@@ -129,7 +120,7 @@
 // Both hostile shapes were reproduced:
 //
 //   * SIBLING — the reported root is an unrelated tree. Attaching would persist
-//     a `canonical_root` the operator never named, and T1.6's
+//     a `canonical_root` the operator never named, and the
 //     `TrustEnvelopeValidator` would then admit binds all over it.
 //   * ANCESTOR — the reported root is a PARENT of the attached directory,
 //     widening the mount and its trust envelope to a tree that merely contains
@@ -148,13 +139,12 @@
 // be attached, even where its owner arranged that deliberately — the
 // dotfiles-style layout is the familiar example. That is an accepted
 // limitation, not an oversight. Nothing distinguishes a deliberate redirect
-// from a hostile one at this layer, and I-009-1 makes refusing the safe
-// direction; the refusal is an explicit typed error (I-009-2), never a
-// `vcsType: "none"` misclassification (I-009-4). Every shape git produces on
-// its own is unaffected, each pinned against real git in the suite: a plain
-// repository, a nested subdirectory, a linked worktree, a submodule, and a
-// `--separate-git-dir` repository whose gitfile sits in its own toplevel all
-// self-report.
+// from a hostile one at this layer, and makes refusing the safe direction; the
+// refusal is an explicit typed error, never a `vcsType: "none"`
+// misclassification. Every shape git produces on its own is unaffected, each
+// pinned against real git in the suite: a plain repository, a nested
+// subdirectory, a linked worktree, a submodule, and a `--separate-git-dir`
+// repository whose gitfile sits in its own toplevel all self-report.
 //
 // How a bare `git` is found, and the Windows exposure
 // --------------------------------------------------------------------------
@@ -170,8 +160,7 @@
 // per git resolution, once to discover the root and once to verify it — and the
 // same search rule applies to every one of those spawns.
 //
-// Both primary sources are linked, with confirmation dates, from
-// `Plan-009 §References`:
+// Both primary sources are linked, with confirmation dates:
 //   * libuv `src/win/process.c` v1.51.0 —
 //     https://github.com/libuv/libuv/blob/v1.51.0/src/win/process.c
 //     `search_path`, for a name with no directory in it: "The file is really
@@ -189,11 +178,10 @@
 //
 // Environment scrubbing cannot close it, because the search is not driven by
 // the environment. The seam that closes it is `gitExecutablePath`: set to an
-// absolute path, it skips the search entirely, and a Windows deployment
-// (ADR-019 V1 tier) should set it. Making an absolute path the DEFAULT is
-// Phase 2 configuration work — Phase 1 has no daemon config surface to read
-// one from — so this module states the exposure rather than carrying it
-// silently.
+// absolute path, it skips the search entirely, and a Windows deployment (V1
+// tier) should set it. Making an absolute path the DEFAULT is Phase 2
+// configuration work — Phase 1 has no daemon config surface to read one from
+// — so this module states the exposure rather than carrying it silently.
 //
 // The input must name ONE COMPLETE LOCATION — step 1 refuses everything else
 // --------------------------------------------------------------------------
@@ -203,12 +191,11 @@
 // missing piece out of its OWN state: the working directory for a relative
 // path, `os.homedir()` for `~`, the process's CURRENT DRIVE for `\repos\foo`.
 // Under the cross-node model the daemon may run on a different machine and as a
-// different OS user than the client that typed the path
-// (`Spec-009 §Implementation Notes` — mount ownership belongs to the node that
-// can actually reach it), so none of those three is the author's context, and a
-// root completed from any of them is a guess. I-009-2 forbids guessing, and
-// `error-contracts.md §Repo` puts it plainly: attach "fails explicitly rather
-// than guessing".
+// different OS user than the client that typed the path (mount ownership
+// belongs to the node that can actually reach it), so none of those three is
+// the author's context, and a root completed from any of them is a guess.
+// forbids guessing, and puts it plainly: attach "fails explicitly rather than
+// guessing".
 //
 // `isAbsolute` alone cannot express that rule on Windows, where it asks only
 // whether a path starts with a separator. See `namesCompleteLocation` for the
@@ -218,8 +205,8 @@
 // is derived from the injected module's `sep` rather than from
 // `process.platform`: that is what lets POSIX CI drive the Windows branch by
 // handing the resolver `path.win32`. Keyed off the real platform instead, the
-// branch that matters most on an ADR-019 V1 tier would be exercised only on a
-// Windows runner. The rule as a whole is the "cross-platform absoluteness rule"
+// branch that matters most on an V1 tier would be exercised only on a Windows
+// runner. The rule as a whole is the "cross-platform absoluteness rule"
 // `packages/contracts/src/repo.ts` assigns to this resolver when it explains why
 // the WIRE schema stays permissive.
 //
@@ -258,19 +245,18 @@ import {
 // --------------------------------------------------------------------------
 
 /**
- * The resolver's only successful output — and, per the T1.5 acceptance
- * criterion, the only value Phase 2 may persist as `canonical_root` /
- * `vcs_type`.
+ * The resolver's only successful output — and acceptance criterion,
+ * the only value Phase 2 may persist as `canonical_root` / `vcs_type`.
  *
  * `canonicalRoot` is always absolute and symlink-resolved, and was openable for
  * enumeration at the moment it was resolved. `finish` proves the first and the
  * third — the third only for that moment (see the probe seam). The second holds
  * by CONSTRUCTION rather than by check: both call sites hand `finish` realpath
  * output, so an absolute-but-unresolved alias from a broken realpath seam would
- * pass undetected. `vcsType` composes T1.1's closed two-value union
- * (`@ai-sidekicks/contracts`) rather than a local string: I-009-4 pins that
- * union CLOSED, and re-spelling it here would be the widening seam the
- * invariant forbids.
+ * pass undetected. `vcsType` composes the closed two-value union
+ * (`@ai-sidekicks/contracts`) rather than a local string: pins that union
+ * CLOSED, and re-spelling it here would be the widening seam the invariant
+ * forbids.
  */
 export interface RepoRootResolution {
   readonly canonicalRoot: string;
@@ -290,11 +276,11 @@ export interface RepoRootResolution {
 // underlying `execFile` rejects with, and the git/no-git discrimination stays
 // in this module. The tempting alternative, a seam that returns an already
 // classified `{kind: "exited" | "spawn-failed" | "signaled"}` union, was
-// rejected: it would move the I-009-4 discrimination into the default
-// implementation, which is exactly the code an injected test double replaces
-// and therefore never exercises. Keeping the raw shape means the resolver's
-// classifier can be driven by REAL Node errors (point `gitExecutablePath` at a
-// nonexistent file and the real `execFile` produces a real `ENOENT`).
+// rejected: it would move discrimination into the default implementation,
+// which is exactly the code an injected test double replaces and therefore
+// never exercises. Keeping the raw shape means the resolver's classifier can
+// be driven by REAL Node errors (point `gitExecutablePath` at a nonexistent
+// file and the real `execFile` produces a real `ENOENT`).
 
 /** Successful stdio capture of the git invocation. */
 export interface GitCommandResult {
@@ -308,7 +294,7 @@ export interface GitCommandResult {
  *
  *   * `code` — the EXIT CODE (a number) when git ran and exited, or an errno
  *     string such as `"ENOENT"` when the process could not be spawned at all.
- *     That number/string split is the primary I-009-4 discriminator.
+ *     That number/string split is the primary discriminator.
  *   * `signal` / `killed` — set when the child was terminated rather than
  *     having exited on its own (including the executor's own timeout kill).
  *
@@ -368,7 +354,7 @@ export interface RepoRootResolverDeps {
    * "using the same semantics as the `fs.realpath.native()` function" and which
    * therefore returns each component's ON-DISK spelling. That is what makes the
    * step-4 containment comparison casing-safe on a case-insensitive filesystem,
-   * and it is what I-009-1 means by the persisted root being the physical path.
+   * and it is what means by the persisted root being the physical path.
    *
    * `node:fs`'s CALLBACK `realpath` is a different implementation and is not
    * interchangeable here: Node lists "No case conversion is performed on
@@ -390,15 +376,14 @@ export interface RepoRootResolverDeps {
    *     casing one is benign HERE precisely because the win32 comparison branch
    *     folds case, so a drive letter arriving either way compares equal.
    *
-   * Primary sources, also in `Plan-009 §References`:
    *   * Node `fs` — https://nodejs.org/api/fs.html#fsrealpathnativepath-options-callback
    *   * libuv `uv_fs_realpath` — https://docs.libuv.org/en/v1.x/fs.html
    */
   readonly realpath: PathRealpathResolver;
   /**
-   * Defaults to `DEFAULT_DIRECTORY_READABILITY_PROBE`, imported from T1.6 along
-   * with the seam's type. ONE binding serves both modules, so the attach-time
-   * and bind-time answers cannot drift; that module's declaration carries the
+   * Defaults to `DEFAULT_DIRECTORY_READABILITY_PROBE`, imported along with the
+   * seam's type. ONE binding serves both modules, so the attach-time and
+   * bind-time answers cannot drift; that module's declaration carries the
    * primitive choice (`opendir` over `access` and over `readdir`) and says why
    * the declaration sits on its side of the import edge.
    *
@@ -428,16 +413,16 @@ export interface RepoRootResolverDeps {
    *
    * An ADMISSION check, made once, at resolution time. A root that stops being
    * readable AFTER attach is an availability condition, not a resolution
-   * failure; D-009-2 puts it in T2.5's health projection, and nothing here
-   * re-probes on that projection's behalf.
+   * failure puts it in the health projection, and nothing here re-probes on
+   * that projection's behalf.
    */
   readonly probeDirectoryReadable: DirectoryReadabilityProbe;
   /**
    * Defaults to the bare `"git"`, left to the platform's executable search.
    * Injectable for tests (pointing it at a nonexistent file yields a genuine
-   * spawn `ENOENT`, the headline I-009-4 case), as the seam a later phase would
-   * use to honor a daemon-configured git path, and — see the header — as the
-   * only way to escape Windows' cwd-first search for a separator-less name.
+   * spawn `ENOENT`, the headline case), as the seam a later phase would use to
+   * honor a daemon-configured git path, and — see the header — as the only way
+   * to escape Windows' cwd-first search for a separator-less name.
    */
   readonly gitExecutablePath: string;
   /** Wall-clock bound on the git invocation; see the constant below. */
@@ -446,8 +431,8 @@ export interface RepoRootResolverDeps {
    * Defaults to `node:path`, already bound to the host platform. Injected as
    * `path.win32` by the suite so the two Windows-only shapes — the
    * driveless-root refusal and the `\r` terminator strip, both of them live on
-   * an ADR-019 V1 tier — are exercised on POSIX CI rather than only on a
-   * Windows runner.
+   * an V1 tier — are exercised on POSIX CI rather than only on a Windows
+   * runner.
    *
    * Read by exactly those two: the step-1 input gate and
    * `stripSingleLineTerminator`. Every check that guards an OUTGOING value
@@ -508,9 +493,9 @@ export const GIT_FATAL_EXIT_CODE: number = 128;
  * The anchor is not cosmetic. An unanchored match would also fire on a
  * different fatal error whose quoted PATH happened to contain the phrase (a
  * directory literally named `not a git repository`), turning a failure into a
- * plain-directory classification — an I-009-4 breach reachable by naming a
- * directory. git renders control characters in quoted paths in C-style escaped
- * form, so no path can inject a leading newline to defeat the anchor.
+ * plain-directory classification — an breach reachable by naming a directory.
+ * git renders control characters in quoted paths in C-style escaped form, so
+ * no path can inject a leading newline to defeat the anchor.
  *
  * Deliberately NOT exported: a test that asserted against this same pattern
  * would be circular. The suite fixes the wording from what real git emits.
@@ -568,8 +553,7 @@ const GIT_METADATA_ENTRY_NAME = ".git";
  * repository takes the plain-directory arm — the consistency gate below looks
  * for `<supplied>/.git`, and a subdirectory has none — so the daemon persists
  * `vcs_type: 'none'` rooted at the subdirectory instead of `'git'` rooted at the
- * repository. That is I-009-4 and the I-009-1 guessed-root family at once, and
- * it is silent. The second survives steps 4 and 5 unchallenged, because the
+ * repository. The second survives steps 4 and 5 unchallenged, because the
  * fixpoint query runs under the same poisoned environment and self-reports.
  *
  * The last two are the env-borne CONFIG-INJECTION channels, and they are
@@ -768,18 +752,13 @@ const WINDOWS_PATH_SEPARATOR = "\\";
  * `C:foo` needs no special case: it is drive-RELATIVE, and `isAbsolute`
  * already reports false for it.
  *
- * T1.6's `joinCandidatePath` (`./trust-envelope.js`) re-spells this same
+ * The `joinCandidatePath` (`./trust-envelope.js`) re-spells this same
  * driveless-root rule inline for its absolute `directory` arm, so a change to
  * the predicate here belongs there too; that module's `PlatformPathModule`
  * note enumerates the six surfaces the two files duplicate: five held by that
  * note alone, this rule among them, and `DEFAULT_REALPATH` held by an identity
- * pin in both suites. Exactly one of the five diverges deliberately —
- * `resolveDeps`, because this module additionally defaults three
- * git-execution seams T1.6 has no use for. Its member set is otherwise a
- * strict subset of this one's, and every member the two share defaults to the
- * same thing. `probeDirectoryReadable` is the strongest case: its type and its
- * default are DECLARED in T1.6 and imported here, so the readability question
- * attach asks and the one bind asks cannot diverge at all. The
+ * pin in both suites. Its member set is otherwise a strict subset of this
+ * one's, and every member the two share defaults to the same thing. The
  * component-comparison helpers arrive the same way — shared by construction,
  * which is the relationship to prefer wherever the import direction allows.
  */
@@ -863,18 +842,17 @@ function namesMissingEntry(thrown: unknown): boolean {
 }
 
 /**
- * THE I-009-4 DECISION POINT. Did git run and report "this is not a
- * repository", or did the query fail to complete?
+ * Did git run and report "this is not a repository", or did the
+ * query fail to complete?
  *
- * FAIL-CLOSED BY CONSTRUCTION. The two mistakes are not symmetric. Calling a
- * broken git invocation "not a repository" reclassifies a real repository as a
- * plain directory and every downstream capability projection then lies about
- * git-backed modes — the breach I-009-4 exists to prevent, and one that
- * persists into `repo_mounts.vcs_type`. Calling a genuine plain directory a
- * `vcs_error` merely refuses an attach, loudly, with an explicit typed error
- * (`Spec-009 §Fallback Behavior`). So `"not-a-repository"` is returned ONLY on
- * a positive, three-part verdict, and everything else — including any shape
- * this function does not recognize — is `"abnormal"`:
+ * The two mistakes are not symmetric. Calling a broken git invocation "not a
+ * repository" reclassifies a real repository as a plain directory and every
+ * downstream capability projection then lies about git-backed modes — the
+ * breach exists to prevent, and one that persists into `repo_mounts.vcs_type`.
+ * Calling a genuine plain directory a `vcs_error` merely refuses an attach,
+ * loudly, with an explicit typed error. So `"not-a-repository"` is returned
+ * ONLY on a positive, three-part verdict, and everything else — including any
+ * shape this function does not recognize — is `"abnormal"`:
  *
  *   1. the child was NOT killed and did NOT die on a signal (so the exit code
  *      below is git's own verdict rather than a corpse's);
@@ -966,10 +944,10 @@ function stripSingleLineTerminator(output: string, platformPath: PlatformPathMod
  * Only two outcomes are RETURNED: a canonicalized toplevel, or git's positive
  * not-a-repository verdict. Every other outcome — a git that could not run, a
  * zero exit carrying no usable path, a toplevel `realpath` will not resolve —
- * throws `vcs_error` from inside the query, so no caller has to re-derive the
- * I-009-4 discrimination. What the two callers do differ on is the
- * not-a-repository verdict: for the discovery query it is the plain-directory
- * classification, and for the verification query it is a refusal.
+ * throws `vcs_error` from inside the query, so no caller has to re-derive
+ * discrimination. What the two callers do differ on is the not-a-repository
+ * verdict: for the discovery query it is the plain-directory classification,
+ * and for the verification query it is a refusal.
  */
 type ToplevelQueryOutcome =
   | { readonly kind: "toplevel"; readonly canonicalRoot: string }
@@ -982,7 +960,7 @@ type ToplevelQueryOutcome =
  * Stateless and safe to share: every call reads the environment afresh and
  * keeps no cache. Caching would be a correctness hazard rather than an
  * optimization — a mount's git-ness changes when someone runs `git init`, and a
- * stale `"none"` is exactly the lie I-009-4 forbids.
+ * stale `"none"` is exactly the lie forbids.
  */
 export class RepoRootResolver {
   private readonly deps: RepoRootResolverDeps;
@@ -998,23 +976,21 @@ export class RepoRootResolver {
    * absolute AND naming a volume, since a driveless root like `\repos\foo`
    * would be completed from the daemon's own current drive. Callers hand this
    * method the path the operator typed, and `RepoAttachRequest.localPath` keeps
-   * that raw value as provenance (I-009-5) — this return value is what gets
-   * persisted.
+   * that raw value as provenance — this return value is what gets persisted.
    *
    * A `vcsType: "git"` root is not simply what git reported: it has been proven
    * to contain the supplied path and to report itself as its own toplevel. The
    * header explains what that refuses and why it must.
    *
    * @throws {RepoRootResolutionError} on every non-resolution. There is no
-   *   other exit: no fallback to the input, no partial result (I-009-2).
+   *   other exit: no fallback to the input, no partial result.
    */
   public async resolveCanonicalRoot(localPath: string): Promise<RepoRootResolution> {
     // Step 1 — refuse any input that does not name one complete location. This
     // runs BEFORE `realpath`, which would otherwise complete a relative path
     // against the daemon's working directory — or, on Windows, a driveless root
     // against its current drive — and hand back a root that looks entirely
-    // plausible. See the header: a missing piece supplied out of daemon-side
-    // state is the guessed root I-009-2 forbids.
+    // plausible.
     if (!namesCompleteLocation(localPath, this.deps.platformPath)) {
       throw new RepoRootResolutionError("not_absolute");
     }
@@ -1034,22 +1010,21 @@ export class RepoRootResolver {
     // path.
     const canonicalInputPath = await this.realpathOrThrow(localPath, classifyRealpathFailure);
 
-    // Step 3 — ask git where the toplevel is. Note that the answer is NOT
-    // assumed to be `canonicalInputPath`: attaching from a nested subdirectory
-    // is the case `Spec-009 §Implementation Notes` calls out, and it is the
-    // reason this query exists at all.
+    // Note that the answer is NOT assumed to be `canonicalInputPath`:
+    // attaching from a nested subdirectory is the case calls out, and it is
+    // the reason this query exists at all.
     const discovery = await this.queryCanonicalToplevel(canonicalInputPath);
     if (discovery.kind === "not-a-repository") {
       // VERDICT CONSISTENCY, before the classification is accepted. git's
       // not-a-repository answer is positive evidence about GIT's view, and
-      // I-009-4 lets that stand as the plain-directory classification only
-      // when nothing visibly contradicts it. A directory that carries a `.git`
+      // lets that stand as the plain-directory classification only when
+      // nothing visibly contradicts it. A directory that carries a `.git`
       // entry contradicts it: git looked, found metadata it could not use, and
       // said "not a repository" — an answer that is true from where git stands
       // and false about the directory. Persisting `vcs_type: 'none'` there
       // records a permission-damaged or corrupt CHECKOUT as a plain directory,
       // and every capability projection downstream then offers `read-only`
-      // only, for a repository that is merely broken (D-009-5).
+      // only, for a repository that is merely broken.
       //
       // Observed on git 2.50.1, all three exiting 128 with the anchored
       // marker, i.e. indistinguishable from an honest plain directory by
@@ -1066,19 +1041,17 @@ export class RepoRootResolver {
         throw new RepoRootResolutionError("vcs_error");
       }
 
-      // `Spec-009 §Fallback Behavior` — the plain-directory classification.
       // The root is the already-canonicalized input: a non-git directory IS
       // its own root, and it has been realpath'd, so this arm returns a
-      // canonical value like every other (I-009-1).
+      // canonical value like every other.
       //
-      // RESIDUAL, deliberate. A permission-damaged repository attached from a
-      // NESTED subdirectory still classifies `"none"`, rooted at that
-      // subdirectory: git walks UP to the damaged `.git` while this gate looks
-      // only at the supplied path. Crawling ancestors to close it would be
-      // unbounded and racy, and the answer would still be defensible without
-      // it — the subdirectory genuinely enumerates and genuinely carries no
-      // metadata, and D-009-7's read-only default workspace bounds what the
-      // resulting mount can do.
+      // A permission-damaged repository attached from a NESTED subdirectory
+      // still classifies `"none"`, rooted at that subdirectory: git walks UP
+      // to the damaged `.git` while this gate looks only at the supplied path.
+      // Crawling ancestors to close it would be unbounded and racy, and the
+      // answer would still be defensible without it — the subdirectory
+      // genuinely enumerates and genuinely carries no metadata, and the
+      // read-only default workspace bounds what the resulting mount can do.
       return this.finish(canonicalInputPath, "none");
     }
     const canonicalRoot = discovery.canonicalRoot;
@@ -1189,11 +1162,10 @@ export class RepoRootResolver {
       throw new RepoRootResolutionError("vcs_error");
     }
 
-    // Canonicalize git's answer too. See the header: git's toplevel is usually
-    // already physical, and I-009-1 is not held conditionally on "usually". A
-    // failure here is a VCS-query anomaly (git named a root that cannot be
-    // resolved), not a bad user path, so it keeps the `vcs_error` reason rather
-    // than being re-classified as a missing input path.
+    // Canonicalize git's answer too. A failure here is a VCS-query anomaly (git
+    // named a root that cannot be resolved), not a bad user path, so it keeps
+    // the `vcs_error` reason rather than being re-classified as a missing input
+    // path.
     return {
       kind: "toplevel",
       canonicalRoot: await this.realpathOrThrow(reportedToplevel, () => "vcs_error"),
@@ -1255,8 +1227,8 @@ export class RepoRootResolver {
       return await this.deps.realpath(path);
     } catch (thrown: unknown) {
       // The attempted path stays in this scope and never enters the carrier —
-      // `error-contracts.md §Repo` bars this code from echoing it, and T1.4
-      // gives the constructor no channel that could carry one.
+      // bars this code from echoing it, and gives the constructor no channel
+      // that could carry one.
       throw new RepoRootResolutionError(classify(thrown));
     }
   }
@@ -1265,9 +1237,9 @@ export class RepoRootResolver {
    * Last gate before any value escapes this module. Two properties are proven
    * of the outgoing root, in this order.
    *
-   * ABSOLUTE (I-009-1). Both call sites have already realpath'd their value, so
-   * this can only fire on a platform or seam that broke that guarantee — which
-   * is exactly when a silent relative root would be most damaging.
+   * Both call sites have already realpath'd their value, so this can only fire
+   * on a platform or seam that broke that guarantee — which is exactly when a
+   * silent relative root would be most damaging.
    *
    * Deliberately the REAL `node:path`, not the injected `platformPath` — the
    * rule every outgoing-value check follows, step 3's completeness rule and
@@ -1295,13 +1267,10 @@ export class RepoRootResolver {
    * enumerate.
    *
    * The check sits HERE, at the one chokepoint, rather than on the plain-
-   * directory arm alone, and that placement is the substance of it. D-009-7 has
-   * attach create a default workspace rooted at this value for git and non-git
-   * mounts alike, so an unreadable root births the same unusable workspace
-   * either way — a mount the operator can neither browse nor run in, recorded
-   * as healthy. `Plan-009` T1.5 states the contract being kept: the plain-
-   * directory classification is for a directory that exists and is READABLE,
-   * and an unreadable path throws rather than resolving.
+   * directory arm alone, and that placement is the substance of it. has attach
+   * create a default workspace rooted at this value for git and non-git mounts
+   * alike, so an unreadable root births the same unusable workspace either way
+   * — a mount the operator can neither browse nor run in, recorded as healthy.
    *
    * What is probed is the OUTGOING root, which on the git arm need not be the
    * supplied path. Attaching a readable subdirectory of an unreadable
@@ -1312,7 +1281,7 @@ export class RepoRootResolver {
    * the same at both call sites: `EACCES` ⇒ `not_readable`, and a root that
    * VANISHED between discovery and this line ⇒ `path_not_found`. ADMISSION
    * only — `probeDirectoryReadable` explains why later readability drift is
-   * T2.5's health projection rather than a resolution failure.
+   * the health projection rather than a resolution failure.
    */
   private async finish(canonicalRoot: string, vcsType: VcsType): Promise<RepoRootResolution> {
     if (!nodePath.isAbsolute(canonicalRoot)) {
@@ -1322,8 +1291,8 @@ export class RepoRootResolver {
       await this.deps.probeDirectoryReadable(canonicalRoot);
     } catch (thrown: unknown) {
       // Path-free like every other refusal here, for the reason
-      // `realpathOrThrow` states: `error-contracts.md §Repo` bars this module
-      // from echoing the path, and T1.4's carrier has no channel for one.
+      // `realpathOrThrow` states: bars this module from echoing the path, and
+      // the carrier has no channel for one.
       throw new RepoRootResolutionError(classifyRealpathFailure(thrown));
     }
     return { canonicalRoot, vcsType };

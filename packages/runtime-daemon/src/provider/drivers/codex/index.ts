@@ -1,54 +1,52 @@
-// Codex driver — entry point (Plan-005 Phase 3, T3.1 + T3.2).
+// Codex driver — entry point.
 //
 // Composes the two collaborators this chunk owns and exposes them behind the
 // slice of `ProviderDriver` they implement:
 //
-//   * `CodexLifecycleManager` (T3.1) — `createSession`, `resumeSession`,
+//   * `CodexLifecycleManager` — `createSession`, `resumeSession`,
 //     `startRun`, `interruptRun`, `closeSession`.
-//   * `CodexInterventionDispatcher` (T3.2) — `applyIntervention`.
-//   * `CodexLifecycleManager` (T3.15) — `rollbackTo`, `setSessionGoal`,
+//   * `CodexLifecycleManager` — `rollbackTo`, `setSessionGoal`,
 //     `clearSessionGoal`, the three R8 parity operations whose Codex mechanism
 //     is a request on the session's own connection (`thread/fork`,
 //     `thread/goal/set`, `thread/goal/clear`).
-//   * `CodexLifecycleManager` (T3.26) — `compactContext`,
-//     `listProviderCommands`, the two console-parity operations whose Codex
-//     mechanism is likewise a request on the session's own connection
-//     (`thread/compact/start`, `skills/list`).
+//   * `CodexLifecycleManager` — `compactContext`, `listProviderCommands`,
+//     the two console-parity operations whose Codex mechanism is likewise a
+//     request on the session's own connection (`thread/compact/start`,
+//     `skills/list`).
 //
-// The three T3.15 operations are NOT capability-gated here, and that is
-// deliberate rather than an omission: I-005-2's static refusal is the
-// registry's `checkCapability`, which reads the snapshot captured at
-// registration. A second gate in this class would read a DIFFERENT snapshot
-// through `readCapabilities` — a live one — so the two could disagree about
-// whether a call that already passed the gate may proceed, and the driver would
-// be answering a question the registry has already answered.
+// The three operations are NOT capability-gated here, and that is deliberate
+// rather than an omission: the static refusal is the registry's
+// `checkCapability`, which reads the snapshot captured at registration. A
+// second gate in this class would read a DIFFERENT snapshot through
+// `readCapabilities` — a live one — so the two could disagree about whether a
+// call that already passed the gate may proceed, and the driver would be
+// answering a question the registry has already answered.
 //
-// `implements Pick<ProviderDriver, ...>` rather than a hand-written interface, so
+// `implements Pick<ProviderDriver,...>` rather than a hand-written interface, so
 // each signature is checked against the canonical contract and drifts with it.
 // The canonical surface is EIGHTEEN operations and the `Pick` below names
-// FOURTEEN of them — both counted from their own declarations rather than
-// carried forward, because each side of that subtraction moved three times this
-// phase: the earlier "14-op" figure in this comment predated `exportTranscript` /
-// `replayTranscript` (T3.19–T3.22) and `compactContext` / `listProviderCommands`
-// (T3.26), while `listModels` joined the `Pick` with T3.12's currency duty (C-8)
-// and `replayTranscript` joined it with T3.20's replay leg.
-// The four remaining (`respondToRequest`, `listModes`, `getCapabilities`,
-// `exportTranscript`) are authored by the sibling Phase-3
-// tasks, and this class is widened to the full `ProviderDriver` when they land,
-// which the `Pick` makes a purely additive edit. The enumeration above is
-// re-derived from the type argument rather than restated, so it cannot drift
-// from what the class actually implements.
+// FOURTEEN of them — both counted from their own declarations rather than carried
+// forward, because each side of that subtraction moved three times this phase:
+// the earlier "14-op" figure in this comment predated `exportTranscript` /
+// `replayTranscript` () and `compactContext` / `listProviderCommands`, while
+// `listModels` joined the `Pick` with the currency duty (C-8) and
+// `replayTranscript` joined it with the replay leg. The four remaining
+// (`respondToRequest`, `listModes`, `getCapabilities`, `exportTranscript`) are
+// authored by the sibling Phase-3 tasks, and this class is widened to the full
+// `ProviderDriver` when they land, which the `Pick` makes a purely additive edit.
+// The enumeration above is re-derived from the type argument rather than
+// restated, so it cannot drift from what the class actually implements.
 //
 // ---------------------------------------------------------------------------
 // Why every collaborator is injected
 // ---------------------------------------------------------------------------
 //
 // The capability snapshot is read through an injected function rather than
-// imported from `capabilities.ts` (T3.3). Two reasons, and the second is the real
-// one: the sibling module is authored in a parallel task and importing it would
-// couple two chunks at the file level, AND the snapshot must be read LIVE at each
+// imported from `capabilities.ts`. Two reasons, and the second is the real one:
+// the sibling module is authored in a parallel task and importing it would couple
+// two chunks at the file level, AND the snapshot must be read LIVE at each
 // dispatch so a refreshed capability record is honoured — a value captured at
-// construction would freeze the gate that I-005-4 depends on.
+// construction would freeze the gate that depends on.
 //
 // The process substrate (`PtyHost`), the per-session subscription, the timeout
 // scheduler, and the binding-id minter are injected for the same reason the rest
@@ -56,14 +54,6 @@
 // owns lifetimes and identity minting, and tests drive the real code paths through
 // fakes instead of stubbing the code under test.
 //
-// Spec coverage: `Spec-005 §Required Behavior` (the normalized driver contract);
-// `Spec-005 §Fallback Behavior` (resume-handle failure surfaces a recovery-needed
-// condition); `Spec-005 §Desktop Console Parity Surfaces` (the two T3.26
-// console-parity operations).
-//
-// Refs: Plan-005 §Phase 3 / T3.1 + T3.2 + T3.26, `Spec-005 §Required Behavior`,
-// `Spec-005 §Fallback Behavior`, invariants I-005-4, I-005-5 and I-005-13,
-// ADR-011.
 
 import type {
   ApplyInterventionParams,
@@ -189,8 +179,8 @@ export interface CodexDriverOptions extends CodexLifecycleOptions {
   /** Read live at every intervention dispatch — see the note above. */
   readonly readCapabilities: CodexCapabilitySnapshotReader;
   /**
-   * The daemon driver-registry transport config (T3.15 leg 6). ABSENT is the
-   * V1 default and means `stdio`; a present config selects `unix-socket` or
+   * The daemon driver-registry transport config (leg 6). ABSENT is the V1
+   * default and means `stdio`; a present config selects `unix-socket` or
    * `websocket` per its discriminated shape.
    *
    * Consumed HERE, at construction, and nowhere else. Resolving it once at the
@@ -201,9 +191,9 @@ export interface CodexDriverOptions extends CodexLifecycleOptions {
    */
   readonly transportConfig?: DriverTransportConfig | undefined;
   /**
-   * The live `model/list` read backing `listModels()` (T3.12 C-8), or an
-   * EXPLICIT `null` for a composition that binds none — in which case the
-   * driver answers the provenance-stamped declaration in `./capabilities.ts`.
+   * The live `model/list` read backing `listModels()` (C-8), or an EXPLICIT
+   * `null` for a composition that binds none — in which case the driver
+   * answers the provenance-stamped declaration in `./capabilities.ts`.
    *
    * REQUIRED, on the same reasoning as `resolveCredentialEnvPolicy`: an
    * optional arm would let a construction site that simply never bound it reach
@@ -319,7 +309,7 @@ export class CodexDriver implements Pick<
   }
 
   /**
-   * The selectable model catalog (T3.12 C-8).
+   * The selectable model catalog (C-8).
    *
    * Delegates rather than deciding: `./capabilities.ts` owns both the declared
    * catalog and the normalization of a live reply, so the wire shape and its
@@ -338,13 +328,12 @@ export class CodexDriver implements Pick<
   }
 
   /**
-   * Reconstitutes the canonical transcript into a fresh provider session (T3.20).
+   * Reconstitutes the canonical transcript into a fresh provider session.
    *
-   * NOT capability-gated here, for the reason the T3.15 operations above are
-   * not: I-005-2's static refusal is the registry's `checkCapability`, reading
-   * the snapshot captured at registration. A second gate in this class would read
-   * a live snapshot and could disagree with the one that already admitted the
-   * call.
+   * NOT capability-gated here, for the reason operations above are not: the
+   * static refusal is the registry's `checkCapability`, reading the snapshot
+   * captured at registration. A second gate in this class would read a live
+   * snapshot and could disagree with the one that already admitted the call.
    */
   replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult> {
     return this.#lifecycle.replayTranscript(params);

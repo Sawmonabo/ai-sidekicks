@@ -1,31 +1,25 @@
 // DaemonDomainError — generic base for daemon namespace errors that project
-// into the JSON-RPC error envelope (Plan-007 error-mapping seam, BL-143).
+// into the JSON-RPC error envelope (error-mapping seam).
 //
-// Spec coverage:
-//   * error-contracts.md §JSON-RPC Wire Mapping — the canonical two-layer
-//     envelope (numeric `code` + `data: { type, fields? }`) this class
-//     projects into. Per that section's §Numeric Code Space, the project
-//     mints NO custom numeric domain codes: a domain error rides a standard
-//     JSON-RPC numeric (default `-32603 InternalError`) and carries its
-//     dotted project identifier in `data.type`. Consumers discriminate on
-//     `data.type`, never on the coarse numeric — and a bare `-32603` with
-//     NO `data.type` remains a genuine daemon-internal failure (the
-//     `gdpr.*` / `transport.unavailable` precedent at error-contracts.md
-//     §JSON-RPC Wire Mapping is the same shape).
-//   * Plan-007 §Invariants I-007-8 — handler-thrown errors project to the
-//     canonical envelope with secrets / stack traces stripped. The single
-//     `instanceof DaemonDomainError` branch in `mapJsonRpcError`
-//     (`jsonrpc-error-mapping.ts`) does the projection; `detail` flows
-//     through that module's `sanitizeFields` seam before reaching the wire.
+//   * the canonical two-layer envelope (numeric `code` + `data: { type,
+//     fields? Consumers discriminate on `data.type`, never on the coarse
+//     numeric — and a bare `-32603` with NO `data.type` remains a genuine
+//     daemon-internal failure (the `gdpr.*` / `transport.unavailable`
+//     precedent).
+//   * Handler-thrown errors project to the canonical envelope with secrets
+//     / stack traces stripped. The single `instanceof DaemonDomainError`
+//     branch in `mapJsonRpcError` (`jsonrpc-error-mapping.ts`) does the
+//     projection; `detail` flows through that module's `sanitizeFields`
+//     seam before reaching the wire.
 //
 // Why a base class: the daemon already has per-error typed surfaces
 // (`SessionNotFoundError`, `SecureDefaultsValidationError`, …) each with its
 // own `instanceof` branch in `mapJsonRpcError`. As the Tier-6/7 namespace
-// plans (Plan-009 repo, Plan-010 worktree, Plan-012 approvals, Plan-016
-// channels/orchestration) come online, every new namespace would otherwise
-// add another near-identical branch. `DaemonDomainError` collapses that to
-// ONE branch: any error extending it (or thrown as it directly) carries its
-// own wire mapping, so the mapper projects the whole family uniformly.
+// plans (repo worktree approvals channels/orchestration) come online, every
+// new namespace would otherwise add another near-identical branch.
+// `DaemonDomainError` collapses that to ONE branch: any error extending it
+// (or thrown as it directly) carries its own wire mapping, so the mapper
+// projects the whole family uniformly.
 //
 // Additive, not a migration: the existing typed-error branches
 // (`RegistryDispatchError`, `FramingError`, `NegotiationError`,
@@ -49,7 +43,7 @@ import { JsonRpcErrorCode } from "@ai-sidekicks/contracts";
  *     as a param-shape failure (the supplied id does not resolve); a
  *     not-found namespace error rides `-32602`, like `session.not_found`.
  *   * `InternalError` (`-32603`) — the default when a domain error declares
- *     no more specific numeric (per error-contracts.md §Numeric Code Space).
+ *     no more specific numeric.
  *
  * A domain error never mints a parse (`-32700`) or method-not-found
  * (`-32601`) numeric — those are framing / registry substrate concerns, not
@@ -68,31 +62,26 @@ export type DomainErrorJsonRpcCode =
  */
 export interface DaemonDomainErrorOptions {
   /**
-   * The canonical dotted project identifier (e.g. `repo.not_found`). Projects
-   * VERBATIM into the envelope's `data.type` — the discriminator consumers
-   * switch on. Registered in error-contracts.md §Error Codes for its
-   * namespace.
+   * The canonical dotted project identifier (e.g. Projects VERBATIM into the
+   * envelope's `data.type` — the discriminator consumers switch on.
    */
   readonly code: string;
   /**
-   * The JSON-RPC numeric this error maps to. Optional — when omitted the
-   * mapper defaults to `-32603 InternalError` per error-contracts.md
-   * §Numeric Code Space.
+   * Optional — when omitted the mapper defaults to `-32603
+   * InternalError`.
    */
   readonly jsonRpcCode?: DomainErrorJsonRpcCode;
   /**
-   * The error-contracts.md §Error Codes notional HTTP status for this code
-   * (e.g. 404 for a not-found). Carried for control-plane / observability
-   * symmetry with the tRPC surface — it is NOT read by the JSON-RPC wire
-   * seam (`mapJsonRpcError` selects the numeric from `jsonRpcCode`). Optional.
+   * Carried for control-plane / observability symmetry with the tRPC surface —
+   * it is NOT read by the JSON-RPC wire seam (`mapJsonRpcError` selects the
+   * numeric from `jsonRpcCode`).
    */
   readonly httpStatus?: number;
   /**
-   * Structured throw-site detail (e.g. `{ repoId }`). Projects into the
-   * envelope's `data.fields` AFTER passing through `mapJsonRpcError`'s
-   * `sanitizeFields` seam (path redaction + JSON-safety + depth/width caps,
-   * I-007-8). Named `detail` here (not `fields`) to keep the daemon-side
-   * throw contract distinct from the wire field it lands in. Optional.
+   * Structured throw-site detail (e.g. Projects into the envelope's
+   * `data.fields` AFTER passing through `mapJsonRpcError`'s
+   * `sanitizeFields` seam (path redaction + JSON-safety + depth/width
+   * caps).
    */
   readonly detail?: Record<string, unknown>;
 }
@@ -123,7 +112,7 @@ export class DaemonDomainError extends Error {
   readonly code: string;
   /** JSON-RPC numeric → envelope `error.code` (mapper default `-32603`). */
   readonly jsonRpcCode?: DomainErrorJsonRpcCode;
-  /** Notional HTTP status (error-contracts.md §Error Codes); not read by the wire seam. */
+  /** Notional HTTP status; not read by the wire seam. */
   readonly httpStatus?: number;
   /** Structured detail → envelope `data.fields` (sanitized at the mapper seam). */
   readonly detail?: Record<string, unknown>;

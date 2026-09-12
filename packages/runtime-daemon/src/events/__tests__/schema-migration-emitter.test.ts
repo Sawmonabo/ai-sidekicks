@@ -1,5 +1,5 @@
 // Contract coverage for `SchemaMigrationEmitter` — the `schema.migrated`
-// hybrid emitter (Plan-006 T3.4).
+// hybrid emitter.
 //
 // HYBRID means two paths that must not double-record the same migration: the
 // PRIMARY one records a batch the caller just committed, and the FALLBACK one
@@ -20,10 +20,6 @@
 // partial case — some migrations committed, then a throw — is the one that
 // produces a `success: false` row, and it is covered below.
 //
-// Spec coverage: `Spec-006 §Event Maintenance (event_maintenance)`
-// (`schema.migrated`, and why these rows are never compacted or shredded),
-// `Spec-006 §Daemon-Scope Event Binding And Node-Scope Anchoring` (the sentinel
-// this event binds to). Refs: Plan-006 T3.4, T3.5.
 
 import { blake3 } from "@noble/hashes/blake3.js";
 import { ed25519 } from "@noble/curves/ed25519.js";

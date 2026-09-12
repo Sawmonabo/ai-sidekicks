@@ -1,14 +1,10 @@
-// Plan-013 T1.4 — the daemon-side binder for the four `timeline.*` methods.
+// The daemon-side binder for the four `timeline.*` methods.
 //
-// Spec coverage:
-//   * `Spec-013 §Interfaces And Contracts` — the four operations.
-//   * `docs/architecture/contracts/api-payload-contracts.md` §"Timeline
-//     Method-Name Registry (Tier 8, Plan-013 T1.4)" — the canonical
-//     method/procedure-type/schema table, whose code-side mirror is
-//     `TIMELINE_METHOD_DESCRIPTORS` in `packages/contracts/src/timeline/`.
-//   * Plan-007 CP-007-3 — the `MethodRegistry.register()` substrate this binds
-//     against (the §5 substrate-vs-namespace carve-out: Plan-007 owns the
-//     registry, each namespace plan owns its own registrations).
+//   * the canonical method/procedure-type/schema table, whose code-side
+//     mirror is `TIMELINE_METHOD_DESCRIPTORS` in
+//     `packages/contracts/src/timeline/`.
+//   * The `MethodRegistry.register()` substrate this binds against (each
+//     namespace plan owns its own registrations).
 //
 // ----------------------------------------------------------------------------
 // Why a binder and not four `registry.register(...)` calls
@@ -34,18 +30,12 @@
 //
 // NOT from the request. None of the four request types declares a principal
 // member, and each is `.strict()`, so a caller that supplies one is refused
-// rather than having it stripped — the settled contract recorded at
-// `api-payload-contracts.md` §"Authenticated Principal And Authorization
-// Model" and on the `ReasoningSurfaceReadRequest` block beneath §Plan-013.
+// rather than having it stripped. The settled contract is recorded on the
+// `ReasoningSurfaceReadRequest` block beneath.
 //
 // A handler receives the principal through `HandlerContext`, the second
 // parameter every `Handler<P, R>` takes (`@ai-sidekicks/contracts`,
-// `jsonrpc-registry.ts`). That type carries `transportId` alone today and is
-// documented there as widening ADDITIVELY, so the identity arrives on the
-// context when Plan-007 widens it — never on the params object, which is the
-// only thing a client controls. Phase 1 registers no handler, so there is no
-// reader to point at yet; what it fixes is that no wire member exists for a
-// later reader to be tempted by.
+// `jsonrpc-registry.ts`).
 //
 // ----------------------------------------------------------------------------
 // Why the subscription binds through its own function
@@ -67,8 +57,8 @@
 // passing the descriptor's own `emissionSchema`, and hands the caller a
 // `LocalSubscriptionProducer<TimelineRow>` — a producer whose `next()`
 // validates against `TimelineRowSchema` before any frame leaves the daemon
-// (the I-007-7 streaming analog). A Phase-2 producer cannot emit a
-// non-`TimelineRow` value, because it never gets to choose the schema.
+// (streaming analog). A Phase-2 producer cannot emit a non-`TimelineRow`
+// value, because it never gets to choose the schema.
 //
 // ----------------------------------------------------------------------------
 // No handlers are registered here
@@ -400,11 +390,11 @@ const TIMELINE_REQUEST_CORRELATION_CHECKS: {
 export interface TimelineMethodRegistration<MethodName extends TimelineQueryMethodName> {
   readonly method: MethodName;
   /**
-   * The async handler. It is GUARANTEED a request that already passed the
-   * canonical request schema (I-007-7), and its resolved value is validated
-   * against the canonical response schema before it reaches the wire. Both
-   * types are derived from `method`, so a handler written against a sibling
-   * operation fails to compile.
+   * It is GUARANTEED a request that already passed the canonical request
+   * schema, and its resolved value is validated against the canonical
+   * response schema before it reaches the wire. Both types are derived from
+   * `method`, so a handler written against a sibling operation fails to
+   * compile.
    */
   readonly handler: Handler<TimelineMethodRequest<MethodName>, TimelineMethodResponse<MethodName>>;
 }
@@ -430,16 +420,16 @@ export interface TimelineMethodRegistration<MethodName extends TimelineQueryMeth
  * fails to compile rather than failing on the wire.
  *
  * @throws RegistryRegistrationError synchronously on a duplicate registration
- *   (I-007-6) or a name that fails the canonical format (I-007-9). All four
- *   `timeline.*` names are lowercase-root camelCase-tail and pass that gate;
- *   the registry test in `../__tests__/timeline-methods.test.ts` asserts it
- *   against the real `MethodRegistryImpl` rather than against the regex alone.
+ *   All four `timeline.*` names are lowercase-root camelCase-tail and pass
+ *   that gate; the registry test in `../__tests__/timeline-methods.test.ts`
+ *   asserts it against the real `MethodRegistryImpl` rather than against the
+ *   regex alone.
  *
  * Mutating flag: every timeline operation is a read — three idempotent `query`
  * rows and one `subscription` — so all four register `mutating: false` and pass
- * the version-mismatch gate when `DaemonHelloAck.compatible === false`, per
- * `Spec-007 §Fallback Behavior`'s read-only-continues rule. The flag comes from
- * the canonical descriptor, so no caller can raise it.
+ * the version-mismatch gate when `DaemonHelloAck.compatible === false`, per the
+ * read-only-continues rule. The flag comes from the canonical descriptor, so no
+ * caller can raise it.
  *
  * `MethodName` is the QUERY subset. `timeline.subscribe` is refused at compile
  * time and binds through {@link registerTimelineSubscription}, which is the
@@ -559,8 +549,8 @@ export interface TimelineSubscriptionRegistration {
    * A throw — session not found, an invalid cursor, a permission refusal —
    * cancels the just-allocated subscription before it propagates, so a failed
    * setup does not leave an entry stranded on the primitive's maps until the
-   * transport closes. The registry's `dispatch()` wrapper then maps the throw
-   * per I-007-8.
+   * transport closes. The registry's `dispatch()` wrapper then maps the
+   * throw.
    */
   readonly attachProjection: (
     request: TimelineSubscribeRequest,
@@ -589,10 +579,10 @@ export interface TimelineSubscriptionRegistration {
  * cancel-log-stop posture a schema-invalid row gets; see
  * {@link TimelineSubscriptionScopeError} for why it cannot be a wire error.
  *
- * ORDERING IS THIS BINDER'S, NOT THE CALLER'S. I-007-10 requires the init ack
- * to land before the first notification for that subscription. The producer
- * handed to `attachProjection` is a GATED facade over the real one: every
- * `next` and `complete` routes through the shared subscribe-init barrier
+ * ORDERING IS THIS BINDER'S, NOT THE CALLER'S. requires the init ack to land
+ * before the first notification for that subscription. The producer handed to
+ * `attachProjection` is a GATED facade over the real one: every `next` and
+ * `complete` routes through the shared subscribe-init barrier
  * (`../subscription-ack-barrier.ts`), which buffers until the ack has been
  * written. Placing the barrier here rather than obliging `attachProjection` to
  * hold the line is deliberate — a projection cannot observe when its own
@@ -604,7 +594,6 @@ export interface TimelineSubscriptionRegistration {
  * given.
  *
  * @throws RegistryRegistrationError synchronously on a duplicate registration
- *   (I-007-6) or a name that fails the canonical format (I-007-9).
  */
 export function registerTimelineSubscription(
   registry: MethodRegistry,

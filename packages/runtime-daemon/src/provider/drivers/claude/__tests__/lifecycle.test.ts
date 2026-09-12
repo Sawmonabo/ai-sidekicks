@@ -1,30 +1,28 @@
-// Coverage map for `lifecycle.ts` (Plan-005 Phase 3, T3.6):
-//   * `Spec-005 §Required Behavior` — the five lifecycle operations of the normalized
-//     driver surface (`createSession`, `resumeSession`, `startRun`,
-//     `interruptRun`, `closeSession`), including the spawn-bound parity legs a
-//     resume must re-realize because resume is a FRESH process spawn.
-//   * `Spec-005 §Fallback Behavior` (AC3) — a resume-handle failure surfaces `provider failure`
-//     detail plus a visible recovery condition.
-//   * I-005-5 — a failed resume returns the typed `failed` arm AND leaves no
-//     replacement Claude session behind: the refused channel is disposed, no
-//     route is registered, and the canonical session is left free for an explicit
+// Coverage map for `lifecycle.ts`:
+//   * The five lifecycle operations of the normalized driver surface
+//     (`createSession`, `resumeSession`, `startRun`, `interruptRun`,
+//     `closeSession`), including the spawn-bound parity legs a resume must
+//     re-realize because resume is a FRESH process spawn.
+//   * A resume-handle failure surfaces `provider failure` detail plus a visible
+//     recovery condition.
+//   * A failed resume returns the typed `failed` arm AND leaves no replacement
+//     Claude session behind: the refused channel is disposed, no route is
+//     registered, and the canonical session is left free for an explicit
 //     re-create. Exercised across all four failure mechanisms this band can see
 //     (transport rejection, identity divergence, contract-invalid position, and a
 //     resume attempted beside a live session), plus the `reauth-required`
 //     classification a typed credential failure must produce. The enforcement
-//     check the `Plan-005 §Invariants` I-005-5 entry names by hand — no
-//     `createSession()` call is issued, watched by a spy on the driver's own
-//     method — runs against every one of those four mechanisms.
+//     check — no `createSession()` call is issued, watched by a spy on the
+//     driver's own method — runs against every one of those four mechanisms.
 //   * Positive controls for the spawn-bound realization gate: an agreeing cap,
 //     posture, and output schema each START a run, so a guard that refused too
 //     much could not hide behind the mismatch tests.
-//   * `Spec-016 §Cost Derivation And Absent-Cost Semantics` — the cap rule is
-//     ONE-DIRECTIONAL. A cap-declaring run is refused against both an uncapped
-//     and a differently-capped process; a run declaring no cap is admitted into a
-//     capped session, because the native cap sits beneath the daemon accountant
-//     rather than being it.
-//   * P0-5 (T3.14) — the zero-turn auth probe classifies the transport's reading
-//     onto the contract's three values, is TOTAL over every throw, and keeps
+//   * The cost-cap rule is ONE-DIRECTIONAL. A cap-declaring run is refused
+//     against both an uncapped and a differently-capped process; a run declaring
+//     no cap is admitted into a capped session, because the native cap sits
+//     beneath the daemon accountant rather than being it.
+//   * The zero-turn auth probe classifies the transport's reading onto the
+//     contract's three values, is TOTAL over every throw, and keeps
 //     `unauthenticated` distinguishable from `indeterminate` through a typed
 //     error rather than a message-substring test.
 
@@ -117,7 +115,7 @@ function buildHarness(
     diagnostics,
     mintProviderSessionId: () => TEST_PINNED_PROVIDER_SESSION_ID,
     mintBindingId: () => TEST_BINDING_ID,
-    // Required rather than optional (T3.18): a trip's run terminal is the only
+    // Required rather than optional: a trip's run terminal is the only
     // user-visible surface a swallowed turn has, so no construction site may
     // leave it unbound.
     onTextNeutralizationFailure: (sessionId, runId, failure) => {
@@ -158,11 +156,11 @@ const TRUSTED_POSTURE: ExecutionPosture = {
   writableRoots: ["/workspace"],
 };
 
-// Every way this band can refuse a resume. `Plan-005 §Invariants` I-005-5 asks for
-// one specific check against all of them — "verifying that no `createSession()`
-// call is issued ... (mock-spy on the driver's `createSession` method)" — because
-// the typed `failed` arm alone cannot distinguish a driver that refused from one
-// that refused AND quietly spawned a replacement behind the daemon's back.
+// Every way this band can refuse a resume. One specific check runs against all
+// of them — no `createSession()` call is issued, watched by a mock spy on the
+// driver's `createSession` method — because the typed `failed` arm alone cannot
+// distinguish a driver that refused from one that refused AND quietly spawned a
+// replacement behind the daemon's back.
 const RESUME_FAILURE_MECHANISMS: ReadonlyArray<{
   readonly label: string;
   readonly arrange: (harness: LifecycleHarness) => Promise<void> | void;
@@ -304,7 +302,7 @@ describe("ClaudeSessionLifecycle.resumeSession", () => {
     expect(request?.subagentPolicy).toStrictEqual({ enabled: false });
   });
 
-  it("I-005-5: a rejected resume yields recovery-needed and leaves no replacement session", async () => {
+  it("a rejected resume yields recovery-needed and leaves no replacement session", async () => {
     const harness = buildHarness();
     harness.transport.resumeFailure = new Error("claude exited before init");
 
@@ -330,7 +328,7 @@ describe("ClaudeSessionLifecycle.resumeSession", () => {
     ).resolves.toBeDefined();
   });
 
-  it("I-005-5: a provider answering with a FRESH session is refused and disposed", async () => {
+  it("a provider answering with a FRESH session is refused and disposed", async () => {
     const harness = buildHarness();
     // The documented Claude behaviour on a working-directory mismatch: the
     // resume silently becomes a brand-new session announcing its own id.
@@ -359,7 +357,7 @@ describe("ClaudeSessionLifecycle.resumeSession", () => {
     ).resolves.toBeDefined();
   });
 
-  it("I-005-5: a resumed arm failing the driver contract becomes a failure, not a success", async () => {
+  it("a resumed arm failing the driver contract becomes a failure, not a success", async () => {
     const harness = buildHarness();
     harness.transport.resumedSessionPosition = -1;
 
@@ -375,7 +373,7 @@ describe("ClaudeSessionLifecycle.resumeSession", () => {
     expect(DriverResumeResultSchema.safeParse(result).success).toBe(true);
   });
 
-  it("I-005-5: a resume beside a live session is refused without touching the live channel", async () => {
+  it("a resume beside a live session is refused without touching the live channel", async () => {
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
 
@@ -425,7 +423,7 @@ describe("ClaudeSessionLifecycle.resumeSession", () => {
   });
 
   it.each(RESUME_FAILURE_MECHANISMS)(
-    "I-005-5: issues no createSession call on a failed resume ($label)",
+    "issues no createSession call on a failed resume ($label)",
     async ({ arrange }) => {
       const harness = buildHarness();
       await arrange(harness);
@@ -566,11 +564,10 @@ describe("ClaudeSessionLifecycle.startRun", () => {
     expect(harness.textNeutralizationFailures).toStrictEqual([]);
   });
 
-  // `Spec-016 §Cost Derivation And Absent-Cost Semantics` names both refusal
-  // shapes for a cap-declaring run: "an existing uncapped (or differently-capped)
-  // process forces a capped relaunch ... never a start inside an uncapped
-  // process." Both are asserted, since only the uncapped one is restated in the
-  // sentence's final clause and a guard could pass it while missing the other.
+  // The cost-cap rule names both refusal shapes for a cap-declaring run: an
+  // existing uncapped or differently-capped process forces a capped relaunch,
+  // and never a start inside an uncapped process. Both are asserted, because a
+  // guard could refuse the uncapped case while missing the other.
   it("never starts a cap-admitted run inside a session spawned with NO cap", async () => {
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
@@ -1596,7 +1593,7 @@ describe("ClaudeSessionLifecycle adoption window", () => {
 // the refused-channel disposal path's whole job is to not throw, so a renderer
 // that could throw would defeat the guard calling it. Exercised through the
 // resume failure path, which is the surface that persists the detail.
-describe("ClaudeSessionLifecycle.probeAuth (T3.14 P0-5)", () => {
+describe("ClaudeSessionLifecycle.probeAuth", () => {
   it("reports authenticated when the transport takes the reading", async () => {
     const harness = buildHarness();
 
@@ -1770,23 +1767,22 @@ describe("ClaudeSessionUnavailableError", () => {
 });
 
 // --------------------------------------------------------------------------
-// T3.15 — the R8 parity driver legs, Claude arm.
+// The parity driver legs, Claude arm.
 // --------------------------------------------------------------------------
 //
-// Spec coverage under test:
-//   `Spec-005 §Interfaces And Contracts` — `rollbackTo` reports the `bindingId`
-//     the daemon rebinds on; the goal operations answer the typed results.
-//   `Spec-005 §Parity Capability Mechanism Grades` — this provider's EMULATED
-//     cells: the goal as a spawn-bound system-prompt append, the concurrency cap
-//     as a daemon-side boundary serialization, and the callback-tool registry as
-//     a daemon-hosted ephemeral MCP server.
-//   `Spec-012 §Required Behavior` — a registry with no dispatcher to adjudicate
-//     through is withheld rather than offered.
-//   `Spec-016 §Provider-Native Subagents` — a definition that cannot be held at
-//     the daemon boundary is withheld and recorded, never silently admitted.
-//   CP-005-1 — a rewind is a spawn, so it re-realizes every spawn-bound leg.
+// What is under test:
+//   * `rollbackTo` reports the `bindingId` the daemon rebinds on; the goal
+//     operations answer the typed results.
+//   * This provider's EMULATED cells: the goal as a spawn-bound system-prompt
+//     append, the concurrency cap as a daemon-side boundary serialization, and
+//     the callback-tool registry as a daemon-hosted ephemeral MCP server.
+//   * A registry with no dispatcher to adjudicate through is withheld rather
+//     than offered.
+//   * A subagent definition that cannot be held at the daemon boundary is
+//     withheld and recorded, never silently admitted.
+//   * A rewind is a spawn, so it re-realizes every spawn-bound leg.
 
-describe("ClaudeSessionLifecycle.rollbackTo (T3.15 leg 1, EMULATED as a fork)", () => {
+describe("ClaudeSessionLifecycle.rollbackTo (EMULATED as a fork)", () => {
   it("reports the rebinding `bindingId` on the applied arm", async () => {
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
@@ -1828,7 +1824,7 @@ describe("ClaudeSessionLifecycle.rollbackTo (T3.15 leg 1, EMULATED as a fork)", 
   });
 });
 
-describe("ClaudeSessionLifecycle session goals (T3.15 leg 2, EMULATED)", () => {
+describe("ClaudeSessionLifecycle session goals (EMULATED)", () => {
   it("answers `degraded` and names the boundary the goal binds at", async () => {
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
@@ -2036,7 +2032,7 @@ describe("ClaudeSessionLifecycle mandated spawn environment", () => {
   });
 });
 
-describe("ClaudeSessionLifecycle callback-tool registry (T3.15 leg 3, Claude arm)", () => {
+describe("ClaudeSessionLifecycle callback-tool registry (Claude arm)", () => {
   const SEARCH_TOOL = {
     name: "search_workspace",
     description: "Searches the workspace.",
@@ -2136,7 +2132,7 @@ describe("ClaudeSessionLifecycle callback-tool registry (T3.15 leg 3, Claude arm
   });
 });
 
-describe("composeClaudeCallbackMcpServer (T3.15 leg 3)", () => {
+describe("composeClaudeCallbackMcpServer", () => {
   it("mangles each tool into the provider-facing MCP name", () => {
     const descriptor = composeClaudeCallbackMcpServer([
       { name: "search_workspace", description: "d", inputSchema: {} },
@@ -2179,7 +2175,7 @@ describe("composeClaudeCallbackMcpServer (T3.15 leg 3)", () => {
   });
 });
 
-describe("ClaudeSubagentConcurrencyGate (T3.15 leg 4)", () => {
+describe("ClaudeSubagentConcurrencyGate", () => {
   function buildGate(maxConcurrent: number): {
     readonly gate: ClaudeSubagentConcurrencyGate;
     readonly diagnostics: DriverDiagnosticsEmitter;
@@ -2287,7 +2283,7 @@ function readRealizedMaxDepth(harness: LifecycleHarness): number | undefined {
   return policy?.enabled === true ? policy.maxDepth : undefined;
 }
 
-describe("ClaudeSessionLifecycle subagent admission wiring (T3.15 leg 4)", () => {
+describe("ClaudeSessionLifecycle subagent admission wiring", () => {
   const ENABLED_POLICY: SubagentPolicy = {
     enabled: true,
     maxConcurrent: 2,
@@ -2400,7 +2396,7 @@ describe("ClaudeSessionLifecycle subagent admission wiring (T3.15 leg 4)", () =>
   });
 });
 
-describe("composeClaudeSandboxSettings (T3.15 leg 5)", () => {
+describe("composeClaudeSandboxSettings", () => {
   it("pins the always-armed permission prompt on every sandboxed arm", () => {
     // RATIFIED MAPPING (user decision, 2026-08-25): `supervised` maps to
     // `on-request` UNCONDITIONALLY. On this provider that is realized as
@@ -2435,7 +2431,7 @@ describe("composeClaudeSandboxSettings (T3.15 leg 5)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// T3.11 — the routing / metering band, driven through the REAL inbound seam.
+// The routing / metering band, driven through the REAL inbound seam.
 // ---------------------------------------------------------------------------
 //
 // The double honours the whole `onInboundFrame` transport obligation: it
@@ -2443,7 +2439,7 @@ describe("composeClaudeSandboxSettings (T3.15 leg 5)", () => {
 // what a real transport would do with the driver's answer, not what a test
 // helper decided to record.
 
-describe("ClaudeSessionLifecycle thread routing and usage metering (T3.11, I-005-11, I-005-12)", () => {
+describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
   const CHILD_SUBAGENT_ID = "subagent-7";
 
   interface RoutingHarness extends LifecycleHarness {
@@ -2592,7 +2588,7 @@ describe("ClaudeSessionLifecycle thread routing and usage metering (T3.11, I-005
     expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
   });
 
-  it("the eleventh I-005-12 case: a fully suppressed child still leaves its started/completed pair", async () => {
+  it("a fully suppressed child still leaves its started/completed pair", async () => {
     const harness = buildRoutingHarness();
     const channel = await liveChannel(harness);
 
@@ -2949,9 +2945,9 @@ describe("ClaudeSessionLifecycle thread routing and usage metering (T3.11, I-005
 });
 
 // ---------------------------------------------------------------------------
-// The pending-frame settlement matrix (T3.18).
+// The pending-frame settlement matrix.
 //
-// The invariant, stated once and enforced by ENUMERATION rather than by
+// The rule, stated once and enforced by ENUMERATION rather than by
 // whichever cell a review happened to name: no reachable lifecycle transition
 // leaves a frame whose delivery was never proven both unruled and unreported.
 // Every row below drives one transition against a session that is holding a
@@ -3134,7 +3130,7 @@ const PENDING_FRAME_TRANSITIONS: readonly PendingFrameTransitionCase[] = [
   },
 ];
 
-describe("ClaudeSessionLifecycle pending-frame settlement matrix (T3.18)", () => {
+describe("ClaudeSessionLifecycle pending-frame settlement matrix", () => {
   async function arrangePendingFrame(harness: LifecycleHarness): Promise<FakeClaudeSessionChannel> {
     await harness.lifecycle.createSession(buildCreateSessionParams());
     harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
@@ -3235,7 +3231,7 @@ describe("ClaudeSessionLifecycle pending-frame settlement matrix (T3.18)", () =>
 // happening where it took a sibling's correlation with it. A guard asked in the
 // wrong order passes one and fails the other, which is why neither alone is
 // enough.
-describe("ClaudeSessionLifecycle unsent opening frame — route retirement (T3.18)", () => {
+describe("ClaudeSessionLifecycle unsent opening frame — route retirement", () => {
   async function arrangeSession(harness: LifecycleHarness): Promise<FakeClaudeSessionChannel> {
     await harness.lifecycle.createSession(buildCreateSessionParams());
     harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
@@ -3290,7 +3286,7 @@ describe("ClaudeSessionLifecycle unsent opening frame — route retirement (T3.1
 });
 
 // --------------------------------------------------------------------------
-// T3.22 — the transient arm at the Claude dispatch seam
+// The transient arm at the Claude dispatch seam
 // --------------------------------------------------------------------------
 //
 // `unsent` is the one delivery on this leg that is a POSITIVE claim about bytes:
@@ -3299,7 +3295,7 @@ describe("ClaudeSessionLifecycle unsent opening frame — route retirement (T3.1
 // `indeterminate`, and the ladder must not touch it — the whole point of the
 // classification is that the two classes are provably distinguishable rather
 // than merged into one hopeful retry.
-describe("ClaudeSessionLifecycle definitely-unsent dispatch retry (T3.22)", () => {
+describe("ClaudeSessionLifecycle definitely-unsent dispatch retry", () => {
   async function arrangeSession(harness: LifecycleHarness): Promise<FakeClaudeSessionChannel> {
     await harness.lifecycle.createSession(buildCreateSessionParams());
     harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
@@ -3389,7 +3385,7 @@ describe("ClaudeSessionLifecycle definitely-unsent dispatch retry (T3.22)", () =
 // retention cannot cover it — the frame is ruled fail-closed and the binding is
 // condemned, because silence here is exactly a swallowed directive escaping
 // detection.
-describe("ClaudeSessionLifecycle indeterminate opening-write death (T3.18)", () => {
+describe("ClaudeSessionLifecycle indeterminate opening-write death", () => {
   it("rules the frame fail-closed and condemns the binding on both axes", async () => {
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
@@ -3426,7 +3422,7 @@ describe("ClaudeSessionLifecycle indeterminate opening-write death (T3.18)", () 
   });
 });
 
-describe("ClaudeSessionLifecycle rewind supersede (T3.18)", () => {
+describe("ClaudeSessionLifecycle rewind supersede", () => {
   async function arrangePendingFrameAcrossRewind(harness: LifecycleHarness): Promise<void> {
     await harness.lifecycle.createSession(buildCreateSessionParams());
     harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
@@ -3503,7 +3499,7 @@ describe("ClaudeSessionLifecycle rewind supersede (T3.18)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Console parity — `Spec-005 §Desktop Console Parity Surfaces` (T3.26)
+// Console parity
 // ---------------------------------------------------------------------------
 
 /**
@@ -4503,8 +4499,8 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
   });
 
   it("stamps the account the CREATE was admitted against when no registry port is bound", async () => {
-    // THE FAIL-OPEN THIS CLOSES. T3.17 made `providerAccountId` a typed member of
-    // `CreateSessionParams`, and this band read it nowhere: a caller following the
+    // THE FAIL-OPEN THIS CLOSES. `providerAccountId` became a typed member of
+    // `CreateSessionParams` and this band read it nowhere: a caller following the
     // typed contract stamped `null`, and because the consuming routing check
     // treats `null` as matching NOTHING, every account-bound Claude session's
     // enumeration was unroutable. The record is the source; the registry port is
@@ -4595,7 +4591,7 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
   });
 
   it("keeps the registry as the ONLY source when the request named no account", async () => {
-    // The pre-T3.17 flow, pinned so making the record primary cannot be satisfied
+    // The registry-only flow, pinned so making the record primary cannot be satisfied
     // by an implementation that simply stopped consulting the port. A caller that
     // omits the typed member leaves the registry as the only source there has
     // ever been.
@@ -4697,7 +4693,7 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
   });
 
   it("REFUSES a resume whose typed account member is EMPTY, through the `failed` ARM", async () => {
-    // I-005-5: resume's contractual failure channel is the arm, never a throw. A
+    // Resume's contractual failure channel is the arm, never a throw. A
     // rejection here would reach a caller that has no arm for it.
     const harness = buildHarness();
 
@@ -4945,11 +4941,11 @@ describe("ClaudeSessionLifecycle.observedOutputSpeedFor — absent until observe
   });
 });
 
-describe("ClaudeSessionLifecycle.replayTranscript (T3.20)", () => {
-  // Plan-005 T3.20 / invariant I-005-8. `Spec-005`'s Claude `transcript_replay`
-  // cell is the matrix's only probe-valued one, so the leg ships behind that
-  // probe: refusing on every build published at this pin, and driving the
-  // surface the probe carries on any build that does publish one.
+describe("ClaudeSessionLifecycle.replayTranscript", () => {
+  // The Claude `transcript_replay` cell is the capability matrix's only
+  // probe-valued one, so the leg ships behind that probe: refusing on every
+  // build published at this pin, and driving the surface the probe carries on
+  // any build that does publish one.
 
   const TARGET = { providerSessionId: "claude-session-77", resumeHandle: "claude-session-77" };
 
@@ -5129,7 +5125,7 @@ describe("ClaudeSessionLifecycle.replayTranscript (T3.20)", () => {
     expect(double.seededPositions).toStrictEqual([]);
   });
 
-  // NS-89's replay-target lifecycle, asserted ACROSS BOTH TARGETS: the abandoned
+  // The replay-target lifecycle, asserted ACROSS BOTH TARGETS: the abandoned
   // one holds native frames and never receives a memo, the replacement holds the
   // memo and never receives native frames, and no surviving session holds both —
   // which is the property that keeps a participant from reading the same
@@ -5194,7 +5190,7 @@ describe("ClaudeSessionLifecycle.replayTranscript (T3.20)", () => {
     expect(double.seededPositions).toStrictEqual([1, 2]);
   });
 
-  // T3.22's half of the same seam, and it asserts a COUNT rather than a route:
+  // The dispatch-seam half of this, asserting a COUNT rather than a route:
   // a refusal raised inside the replay settles on the memo floor with exactly ONE
   // reconstitution attempted. The property is structural rather than counted at
   // runtime — the dispatch-seam ladder is absent from `replayTranscript`, so
@@ -5306,7 +5302,7 @@ describe("ClaudeSessionLifecycle.replayTranscript (T3.20)", () => {
   // The other half of the `transcript_replay: false` contract: the refusal is a
   // ROUTE, not a dead end. A driver that declares the flag `false` settles
   // reconstitution on the memo projection and the caller reports `degraded`,
-  // which is the outcome `Spec-005 §Fallback Behavior` names — so this composes
+  // which is the outcome the fallback contract names — so this composes
   // the driver's own refusal into the disposition the router consumes and drives
   // the real memo floor with it.
   it("routes a `transcript_replay: false` refusal to the memo floor, reported degraded", async () => {

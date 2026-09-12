@@ -1,4 +1,4 @@
-// workspace-projector — Plan-009 Phase 2.
+// workspace-projector behaviour.
 //
 // Exercises the three read-side projections the daemon's health and capability
 // surfaces answer from. No database, no temp directory, no clock: the module
@@ -10,9 +10,9 @@
 // may import, so no sibling can pull I/O in behind it.
 //
 // Coverage map (cites are the authoritative contract, not just the ACs):
-//   * Mount health: both verdicts of the D-009-2 shape, the probe's own
-//     `checkedAt` carried through verbatim, and a malformed timestamp refused
-//     at the projection that produced it rather than at the outbound wire.
+//   * Mount health: both verdicts of shape, the probe's own `checkedAt`
+//     carried through verbatim, and a malformed timestamp refused at the
+//     projection that produced it rather than at the outbound wire.
 //   * Workspace health: the stale verdict derived for a probe-failed root in
 //     BOTH probe-bearing states, the reachable case leaving the row's state
 //     untouched, and the three non-probe-bearing states answered without a
@@ -26,14 +26,9 @@
 //     a row that owes none each throw rather than answering from a partial or
 //     mispaired input — and a state outside the closed vocabulary is refused
 //     outright rather than assigned a probe policy by guess.
-//   * Shared root: the D-009-7 default workspace is rooted at the mount's own
-//     canonical root, so the two rows legitimately share one path and one
-//     probe measurement lawfully serves both projections.
-//   * Capability matrix: the git profile's four modes with the ADR-006 default
-//     and NO `restrictions` key; the plain-directory profile's single mode with
-//     three reasoned, mutually DISTINCT restrictions; and the exhaustive
-//     partition over BOTH profiles — every mode is available or restricted,
-//     never neither and never both.
+//   * Shared root: default workspace is rooted at the mount's own canonical
+//     root, so the two rows legitimately share one path and one probe
+//     measurement lawfully serves both projections.
 //   * Wire validity: each projection parses clean against the canonical
 //     response schema, so a reason string that outgrew its ratified cap fails
 //     here rather than taking down the read surface that would return it.
@@ -46,19 +41,6 @@
 //     no dynamic-import or require escape hatch, checked by an extractor that
 //     is itself negative-controlled across all three static import forms.
 //
-// Spec coverage: `Spec-009 §Fallback Behavior` (the capability gap exposed
-// explicitly rather than silently substituted; the unavailable path
-// transitioning to `stale`); `Spec-009 §Interfaces And Contracts` (the
-// capabilities read exposes which modes are currently valid);
-// `Spec-009 §State And Data Implications` (health is daemon-owned projection
-// state, computed per read); `Spec-009 §Repo Mount Health (V1 Definition)`
-// (reachability of the canonical root, with the probe instant); and
-// `Spec-009 §Acceptance Criteria` AC3 (a non-git mount stays usable without
-// pretending to support git-only features).
-// Verifies invariant: I-009-7 (the derivation half — an unavailable execution
-// root reads as `stale`; the persisted transition and the write gate ride the
-// workspace service), I-009-8 (every mode absent from `availableModes` carries
-// a reason).
 
 import { describe, expect, it } from "vitest";
 
@@ -103,18 +85,15 @@ const MOUNT_ROW: RepoMountHealthRow = { canonicalRoot: MOUNT_CANONICAL_ROOT };
 const PROBE_INSTANT: string = "2026-08-04T12:00:00.000Z";
 const LATER_PROBE_INSTANT: string = "2026-08-04T12:00:30.000Z";
 
-// The full workspace vocabulary. The canonical four-mode taxonomy
-// (`ADR-006 §Decision`). These literals are the contracts the censuses below
-// are checked against — the projector is never asked what its own vocabulary
-// is.
+// The full workspace vocabulary. The canonical four-mode taxonomy.
 //
 // Each roster carries the SAME pair of checks the module applies to its own
 // taxonomy array, and both directions are needed: `satisfies` proves every
 // element is a real member, and the `_AssertExtends` pins below prove every
 // member is an element. With only the first, a state or mode added to
 // contracts would leave the census and the partition test passing VACUOUSLY
-// over a stale roster — which is precisely the drift the I-009-8 verification
-// exists to catch.
+// over a stale roster — which is precisely the drift verification exists to
+// catch.
 const ALL_WORKSPACE_STATES = [
   "provisioning",
   "ready",
@@ -172,10 +151,9 @@ function restrictedModesOf(
 }
 
 // ----------------------------------------------------------------------------
-// Repo-mount health (D-009-2)
 // ----------------------------------------------------------------------------
 
-describe("computeRepoMountHealth — the D-009-2 derived projection", () => {
+describe("computeRepoMountHealth — derived projection", () => {
   it("reports healthy for a reachable canonical root, carrying the probe instant", () => {
     const probe = probeOf(MOUNT_CANONICAL_ROOT, true);
 
@@ -243,7 +221,6 @@ describe("computeRepoMountHealth — the D-009-2 derived projection", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Workspace health (I-009-7)
 // ----------------------------------------------------------------------------
 
 describe("computeWorkspaceHealth — probe-bearing census", () => {
@@ -272,9 +249,9 @@ describe("computeWorkspaceHealth — stale derivation", () => {
   });
 
   it("derives stale from a failed probe of a BUSY workspace too", () => {
-    // The run holding this workspace does not shield it: I-009-7 makes the
-    // unavailable root observable on every read surface. Whether the
-    // `busy -> stale` write is legal to persist is the service's call.
+    // The run holding this workspace does not shield it: makes the
+    // unavailable root observable on every read surface. Whether the `busy
+    // -> stale` write is legal to persist is the service's call.
     const health = computeWorkspaceHealth(workspaceRow("busy"), probeOf(WORKSPACE_FS_ROOT, false));
 
     expect(health.observedState).toBe("stale");
@@ -311,11 +288,10 @@ describe("computeWorkspaceHealth — states that owe no probe", () => {
   }
 
   it("NEVER auto-heals a stale workspace — a reachable probe is refused outright", () => {
-    // The repair contract is explicit (`Spec-009 §Execution Mode Transitions`:
-    // blocked until the workspace is repaired or the switch is retried), and
-    // `stale` is also written by a failed mode switch whose path is perfectly
-    // reachable. So the projector will not accept a probe here at all, and the
-    // no-probe answer stays `stale`.
+    // The repair contract is explicit (blocked until the workspace is repaired
+    // or the switch is retried), and `stale` is also written by a failed mode
+    // switch whose path is perfectly reachable. So the projector will not
+    // accept a probe here at all, and the no-probe answer stays `stale`.
     const reachable = probeOf(WORKSPACE_FS_ROOT, true);
 
     expect(() => computeWorkspaceHealth(workspaceRow("stale"), reachable)).toThrow(
@@ -393,8 +369,8 @@ describe("computeWorkspaceHealth — fail-closed pairing", () => {
 
 describe("health projections — one outage, two surfaces", () => {
   it("reads an unreachable filesystem as BOTH an unreachable mount and a stale workspace", () => {
-    // The closest a pure module gets to the "every read surface" half of
-    // I-009-7: one filesystem fault, two projections, neither masking it.
+    // The closest a pure module gets to the "every read surface" half of:
+    // one filesystem fault, two projections, neither masking it.
     const mountHealth = computeRepoMountHealth(MOUNT_ROW, probeOf(MOUNT_CANONICAL_ROOT, false));
     const outage = probeOf(WORKSPACE_FS_ROOT, false);
     const workspaceHealth = computeWorkspaceHealth(workspaceRow("ready"), outage);
@@ -405,10 +381,10 @@ describe("health projections — one outage, two surfaces", () => {
   });
 
   it("accepts one probe for both surfaces when the workspace root IS the mount root", () => {
-    // The D-009-7 default workspace is rooted at the mount's own canonical
-    // root — the shape most production reads take, since attach
-    // unconditionally creates it. The two rows legitimately share one path,
-    // so one measurement of it lawfully feeds both projections; the
+    // Default workspace is rooted at the mount's own canonical root — the
+    // shape most production reads take, since attach unconditionally
+    // creates it. The two rows legitimately share one path, so one
+    // measurement of it lawfully feeds both projections; the
     // subject-binding guards reject mispairing, not sharing.
     const sharedOutage = probeOf(MOUNT_CANONICAL_ROOT, false);
     const mountHealth = computeRepoMountHealth(MOUNT_ROW, sharedOutage);
@@ -424,11 +400,10 @@ describe("health projections — one outage, two surfaces", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Execution-mode capabilities (D-009-5, I-009-8)
 // ----------------------------------------------------------------------------
 
 describe("computeExecutionModeCapabilities — git mounts", () => {
-  it("offers the full four-mode taxonomy with the ADR-006 worktree default", () => {
+  it("offers the full four-mode taxonomy with worktree default", () => {
     const capabilities = capabilitiesFor("git");
 
     expect(capabilities.availableModes).toEqual([
@@ -450,7 +425,7 @@ describe("computeExecutionModeCapabilities — git mounts", () => {
   });
 });
 
-describe("computeExecutionModeCapabilities — plain-directory mounts (AC3)", () => {
+describe("computeExecutionModeCapabilities — plain-directory mounts", () => {
   it("offers read-only alone and defaults to it", () => {
     const capabilities = capabilitiesFor("none");
 
@@ -458,7 +433,7 @@ describe("computeExecutionModeCapabilities — plain-directory mounts (AC3)", ()
     expect(capabilities.defaultMode).toBe("read-only");
   });
 
-  it("names all three excluded git-backed modes with a populated reason (I-009-8)", () => {
+  it("names all three excluded git-backed modes with a populated reason", () => {
     const capabilities = capabilitiesFor("none");
     const restricted = restrictedModesOf(capabilities);
 
@@ -466,7 +441,7 @@ describe("computeExecutionModeCapabilities — plain-directory mounts (AC3)", ()
     for (const mode of restricted) {
       // `toMatch` fails outright on a missing reason. An optional-chained
       // `reason?.trim()).not.toBe("")` would PASS on `undefined` — the exact
-      // input I-009-8 forbids — so the non-blankness is asserted directly.
+      // input forbids — so the non-blankness is asserted directly.
       expect(capabilities.restrictions?.[mode]).toMatch(/\S/);
     }
   });
@@ -487,15 +462,11 @@ describe("computeExecutionModeCapabilities — plain-directory mounts (AC3)", ()
       (mode) => capabilities.restrictions?.[mode],
     );
 
-    // The reasons render VERBATIM to an operator (I-009-14), so a copy-pasted
-    // or mode-swapped reason would pass every populated-and-non-blank
-    // assertion above while telling the operator the wrong fact about the
-    // mode it sits under. Distinctness is the cheapest pin against that.
     expect(new Set(reasons).size).toBe(reasons.length);
   });
 });
 
-describe("computeExecutionModeCapabilities — the I-009-8 partition", () => {
+describe("computeExecutionModeCapabilities — partition", () => {
   for (const vcsType of ALL_VCS_TYPES) {
     it(`partitions every execution mode for a ${vcsType} mount`, () => {
       const capabilities = capabilitiesFor(vcsType);
@@ -521,9 +492,9 @@ describe("computeExecutionModeCapabilities — the I-009-8 partition", () => {
     it(`emits a wire-valid capabilities response for a ${vcsType} mount`, () => {
       const capabilities = capabilitiesFor(vcsType);
 
-      // Response validation runs on the outbound wire too (I-009-10), so a
-      // reason string that outgrew its ratified cap would break the read
-      // surface rather than this projection. Pinned here instead.
+      // Response validation runs on the outbound wire too, so a reason
+      // string that outgrew its ratified cap would break the read surface
+      // rather than this projection.
       expect(() =>
         WorkspaceExecutionModeCapabilitiesReadResponseSchema.parse(capabilities),
       ).not.toThrow();

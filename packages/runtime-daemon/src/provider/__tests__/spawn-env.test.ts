@@ -1,8 +1,7 @@
 /**
- * Plan-005 T3.25 — the provider-neutral child-environment builder (I-005-10).
+ * The provider-neutral child-environment builder.
  *
- * Coverage targets, taken from the task's own Tests field and from
- * `Spec-005 §Required Behavior` / `Spec-012 §Required Behavior` rather than
+ * Coverage targets, taken from the task's own Tests field and rather than
  * restated from the module under test:
  *
  *   * Every driver-spawned child's environment carries its provider's
@@ -416,7 +415,7 @@ describe("provider spawn environment — host name-matching semantics", () => {
 });
 
 // --------------------------------------------------------------------------
-// T3.17 — a bound account's child environment, asserted over its FULL set
+// A bound account's child environment, asserted over its FULL set
 // --------------------------------------------------------------------------
 
 describe("bound-account child environment carries no ambient credential inheritance", () => {

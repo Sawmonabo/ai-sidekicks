@@ -1,38 +1,32 @@
-// Plan-006 T3.1 — version-6 migration: the run_lifecycle TERMINAL-KEY backstop.
+// Version-6 migration: the run_lifecycle TERMINAL-KEY backstop.
 //
 // SQL is inlined as a TypeScript string constant rather than loaded from a
 // sibling `.sql` file, for the reasons the `0001-initial.ts` header sets out in
 // full (tsc -b does not copy non-TS assets into `dist/`; `"files": ["dist"]`
 // would exclude `src/migrations/` from the published tarball; bundlers handle
-// `import.meta.url` inconsistently). The canonical schema source-of-truth is
-// `docs/architecture/schemas/local-sqlite-schema.md` — the index and the three
-// triggers below are transcribed from that file's `session_events` block
-// VERBATIM, so the inline constant stays in lockstep with the canonical doc.
+// `import.meta.url` inconsistently). The canonical schema source-of-truth is —
+// the index and the three triggers below are transcribed from that file's
+// `session_events` block VERBATIM, so the inline constant stays in lockstep
+// with the canonical doc.
 //
 // ----------------------------------------------------------------------------
 // What this migration enforces, and why it needs FOUR objects instead of one
 // ----------------------------------------------------------------------------
 //
-// `Spec-006 §Run Lifecycle (run_lifecycle)` admits AT MOST ONE terminal event
-// per (runId, runVersion) — a run completes, fails, or is interrupted exactly
-// once. The natural spelling of that rule is a table CHECK constraint, and
-// SQLite cannot express it: `ALTER TABLE ... ADD CONSTRAINT` / `ADD CHECK` does
-// not exist in SQLite's ALTER TABLE grammar, and rewriting `session_events`
-// (the 12-table create-new/copy/drop/rename dance) to attach one would rewrite
-// an append-only audit log whose every row is hash-chained — a
-// chain-invalidating operation this plan will not perform for a constraint. So
-// the rule is enforced by a PARTIAL UNIQUE INDEX plus a TRIGGER TRIO, each
-// closing a hole the others leave open:
+// The natural spelling of that rule is a table CHECK constraint, and SQLite
+// cannot express it: `ALTER TABLE... ADD CONSTRAINT` / `ADD CHECK` does not
+// exist in SQLite's ALTER TABLE grammar, and rewriting `session_events` (the
+// 12-table create-new/copy/drop/rename dance) to attach one would rewrite an
+// append-only audit log whose every row is hash-chained — a chain-invalidating
+// operation this plan will not perform for a constraint. So the rule is
+// enforced by a PARTIAL UNIQUE INDEX plus a TRIGGER TRIO, each closing a hole
+// the others leave open:
 //
 //   1. `idx_session_events_run_terminal_once` — the uniqueness itself. PARTIAL
 //      (`WHERE category = 'run_lifecycle' AND type IN (...)`) so it indexes only
 //      terminal rows: non-terminal events carry no runId/runVersion obligation
 //      and must not be constrained, and a partial index also keeps the index
-//      small on a table dominated by output/tool events. Keyed on
-//      `json_extract(payload, '$.runId')` / `'$.runVersion'` because the run
-//      identity lives INSIDE the JSON payload — `session_events` has no runId
-//      column, and adding one would be a Plan-006-owned schema widening this
-//      task does not take.
+//      small on a table dominated by output/tool events.
 //
 //   2. `trg_run_terminal_key_insert` — the NULL hole. SQLite treats NULLs as
 //      DISTINCT in a UNIQUE index (SQL-standard behavior), so a terminal row
@@ -83,13 +77,10 @@
 // `hasMigrationApplied(db, 6)` block with its in-transaction re-check and
 // `.immediate()` dispatch); this constant is a plain DDL script.
 //
-// Spec coverage: `Spec-006 §Run Lifecycle (run_lifecycle)` (the
-// at-most-one-terminal-event rule), `Spec-006 §Event Type Summary` (the three
-// terminal run_lifecycle types). Refs: Plan-006 T3.1,
-// `docs/architecture/schemas/local-sqlite-schema.md`.
 
 export const RUN_LIFECYCLE_TERMINAL_BACKSTOP_MIGRATION_SQL: string = `
--- Owner: Plan-006 | Migration: 0006-run-lifecycle-terminal-backstop-index.ts (Tier 4 Phase 3)
+-- Owner: | Migration: 0006-run-lifecycle-terminal-backstop-index.ts (Tier 4
+-- Phase 3)
 
 -- At most ONE terminal event per (runId, runVersion). PARTIAL so only terminal
 -- run_lifecycle rows are indexed; keyed on json_extract because run identity

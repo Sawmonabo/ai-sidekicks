@@ -11,9 +11,9 @@ import {
   type SeededTranscriptFrame,
 } from "../replay-assertion.js";
 
-// The post-replay assertion (Plan-005 T3.20), verifying invariant I-005-8: a
-// replay is complete only when the reconstituted session's own answer confirms
-// it, and a provider's success return is not evidence that a replay worked.
+// The post-replay assertion, verifying invariant: a replay is complete only
+// when the reconstituted session's own answer confirms it, and a provider's
+// success return is not evidence that a replay worked.
 
 function seededFrames(...bodies: readonly string[]): SeededTranscriptFrame[] {
   return bodies.map((text, index) => ({
@@ -41,12 +41,12 @@ describe("assertReplayReconstituted", () => {
     expect(verdict.answeredTurns).toBe(4);
   });
 
-  // THE MANDATORY CASE. A provider that accepts every seeding frame and stores
-  // none of them answers with zero turns, and every layer above sees four
-  // successful calls. This is what `Spec-005 §Required Behavior` means by "a
-  // replay is verified by what the session answers, never by what the call
-  // returned", and it is the only thing standing between a caller and a session
-  // that will answer the next turn having forgotten the conversation.
+  // A provider that accepts every seeding frame and stores none of them answers
+  // with zero turns, and every layer above sees four successful calls. This is
+  // what means by "a replay is verified by what the session answers, never by
+  // what the call returned", and it is the only thing standing between a caller
+  // and a session that will answer the next turn having forgotten the
+  // conversation.
   it("REFUTES a provider that lies: every frame accepted, zero turns answered", () => {
     const verdict = assertReplayReconstituted(
       seededFrames("hello", "hi there", "what is the plan?", "here it is"),
@@ -124,10 +124,10 @@ describe("assertReplayReconstituted", () => {
     expect(refuted.refutation).toBe("tail-mismatch");
   });
 
-  // The condition CP-005-13's task-scoped hold was about: over content-free
-  // turns the assertion cannot separate a provider that accepted every frame
-  // from one that discarded them all, so it refuses rather than confirming on
-  // the count alone.
+  // The condition the task-scoped hold was about: over content-free turns the
+  // assertion cannot separate a provider that accepted every frame from one
+  // that discarded them all, so it refuses rather than confirming on the
+  // count alone.
   it("refutes a seeded tail carrying no bodies, rather than confirming on the count", () => {
     const verdict = assertReplayReconstituted(seededFrames("", "", ""), answered("", "", ""));
     expect(verdict.outcome).toBe("refuted");

@@ -1,10 +1,8 @@
-// Plan-001 PR #2 — Test C1: `SessionId.parse rejects malformed UUIDs`.
+// PR #2 — Test C1: `SessionId.parse rejects malformed UUIDs`.
 //
-// Asserts the id-format invariant that backstops Spec-001 acceptance criteria
-// AC1 (session id stable from create), AC3 (id stable across reconnect), and
-// AC4 (rejoin returns the same id). If `SessionIdSchema` ever silently accepts
-// a malformed identifier, the daemon and control-plane lose the ability to
-// route reconnects to the right authoritative state.
+// If `SessionIdSchema` ever silently accepts a malformed identifier, the
+// daemon and control-plane lose the ability to route reconnects to the right
+// authoritative state.
 //
 // Coverage shape:
 //   • Accepts valid RFC 9562 UUIDs (v4 admin-provisioned, v7 daemon-emitted)

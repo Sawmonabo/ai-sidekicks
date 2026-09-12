@@ -1,4 +1,4 @@
-// Plan-005 T3.26 — the pending-compaction wait, shared by both driver legs.
+// The pending-compaction wait, shared by both driver legs.
 //
 // WHY A WAIT EXISTS AT ALL. Both compaction mechanisms answer BEFORE the work is
 // done: the Codex request resolves with an empty acknowledgement the moment the
@@ -59,8 +59,6 @@
 // and cancels exactly one timer, and every sibling on the key stays armed for the
 // evidence it is still waiting on.
 //
-// Spec coverage: `Spec-005 §Desktop Console Parity Surfaces`. Refs: Plan-005
-// T3.26, I-005-13.
 
 /**
  * How one wait ended.

@@ -1,45 +1,35 @@
-// `session.read` JSON-RPC handler — Plan-007 Phase 3 (T-007p-3-1).
+// `session.read` JSON-RPC handler.
 //
-// Spec coverage:
-//   * `Spec-007 §Required Behavior` + `Spec-007 §Interfaces And Contracts` —
-//     `session.read` is the V1 vertical-slice READ method: a peer process
-//     opens a connection, completes the `daemon.hello` handshake (Plan-007
-//     Phase 2 / T-007p-2-4), then dispatches `session.read` to fetch a
-//     session's current snapshot + timeline cursor metadata.
-//   * Plan-007 §Tier-1 Implementation Tasks (T-007p-3-1) — bind the four
-//     `session.*` handlers; this file is the `read` slice.
-//   * CP-007-1 — verifies the handler is registered against the canonical
-//     method name with the correct mutating-flag (read methods register
+//   * `session.read` is the V1 vertical-slice READ method: a peer process
+//     opens a connection, completes the `daemon.hello` handshake, then
+//     dispatches `session.read` to fetch a session's current snapshot +
+//     timeline cursor metadata.
+//   * Bind the four `session.*` handlers; this file is the `read` slice.
+//   * Verifies the handler is registered against the canonical method
+//     name with the correct mutating-flag (read methods register
 //     `mutating: false`).
 //
-// Invariants this module participates in (canonical text in
-// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-6 through I-007-9):
-//   * I-007-1 / I-007-6 / I-007-7 / I-007-8 — same posture as the
-//     `session.create` slice. See `session-create.ts` for the canonical
-//     write-up; this file inherits the same registry-side guarantees.
+// Invariants this module participates in (canonical text through):
+//   * Same posture as the `session.create` slice.
 //
 // Why `mutating: false`: `session.read` does not mutate domain state. The
 // pre-handshake mutating-op gate's predicate is `isMutating(method) ===
 // true`; flagging `read` as `false` means a connection in `pre` or
-// `done-incompatible` state can still call `read`. This matches
-// `Spec-007 §Fallback Behavior` — "If version negotiation fails,
-// read-only compatibility may continue, but mutating operations must be
-// blocked."
+// `done-incompatible` state can still call `read`. This matches — "If
+// version negotiation fails, read-only compatibility may continue, but
+// mutating operations must be blocked."
 //
 // What this file does NOT do (deferred to siblings):
 //   * Snapshot construction / projection assembly — owned by the daemon's
-//     session service / projector (Plan-001 Phase 3). This file consumes
-//     the resulting projection through `SessionReadDeps.readSession`.
+//     session service / projector. This file consumes the resulting
+//     projection through `SessionReadDeps.readSession`.
 //   * Cursor materialization — `timelineCursors.latest` is the head of
 //     the per-session sequence; `acknowledged` is the optional last-
 //     viewed cursor for the calling participant. The deps' implementor
 //     is responsible for both.
-//   * Test coverage — owned by T-007p-3-4 (sibling task).
 //
-// Method-name format ratified: dotted-camelCase per
-// `docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name Registry (Tier 1 Ratified)`.
-// The `register` call site below passes `"session.read"`, which matches the
-// canonical regex.
+// Method-name format ratified: dotted-camelCase. The `register` call site
+// below passes `"session.read"`, which matches the canonical regex.
 
 import type {
   Handler,
@@ -54,7 +44,7 @@ import { SessionReadRequestSchema, SessionReadResponseSchema } from "@ai-sidekic
  *
  * The deps interface mirrors the pattern in `session-create.ts`: a
  * single async callback per handler. The bootstrap orchestrator
- * (Plan-001 Phase 5) supplies the concrete implementation.
+ * supplies the concrete implementation.
  */
 export interface SessionReadDeps {
   /**
@@ -63,14 +53,13 @@ export interface SessionReadDeps {
    * (`SessionReadResponse`) the wire client receives.
    *
    * Domain-side errors MUST surface as thrown subclasses of `Error` so
-   * the registry's `dispatch()` wrapper applies `mapJsonRpcError` per
-   * I-007-8. Unknown sessionIds MUST throw `SessionNotFoundError` from
+   * the registry's `dispatch()` wrapper applies `mapJsonRpcError`.
+   * Unknown sessionIds MUST throw `SessionNotFoundError` from
    * `packages/runtime-daemon/src/ipc/session-errors.ts` so the
    * discriminator chain produces the canonical wire envelope `-32602
-   * InvalidParams` + `data.type: "session.not_found"` per
-   * error-contracts.md §JSON-RPC Wire Mapping (Spec-007 AC-N2). Other
-   * domain failures (permission denied, persistence failure) without
-   * registered discriminator branches collapse to `-32603 InternalError`
+   * InvalidParams` + `data.type: "session.not_found"`. Other domain
+   * failures (permission denied, persistence failure) without registered
+   * discriminator branches collapse to `-32603 InternalError`
    * (catch-all) — register new typed subclasses as the V1 surface
    * widens.
    */
@@ -84,11 +73,11 @@ export interface SessionReadDeps {
  * domain state, so the pre-handshake mutating-op gate's
  * `isMutating(method) === true` predicate evaluates to `false`, and
  * the call passes through regardless of negotiation state. This
- * matches Spec-007 §Fallback Behavior — read-only compatibility
- * continues across version-mismatch.
+ * matches — read-only compatibility continues across
+ * version-mismatch.
  *
  * Idempotency / re-registration: see `registerSessionCreate` JSDoc.
- * I-007-6 rejects duplicate registration at register-time.
+ * rejects duplicate registration at register-time.
  */
 export function registerSessionRead(registry: MethodRegistry, deps: SessionReadDeps): void {
   const handler: Handler<SessionReadRequest, SessionReadResponse> = async (params) => {

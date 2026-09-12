@@ -1,12 +1,12 @@
-// WorktreeEventEmitter — Plan-010 Phase 2 T2.1.
+// WorktreeEventEmitter behaviour.
 //
 // Exercises the single seam every worktree state transition appends its
 // `session_lifecycle` event through, over a real test SQLite DB (same lifecycle
-// as the Plan-009 emitter suite this file instantiates for the worktree domain:
+// as emitter suite this file instantiates for the worktree domain:
 // `openDatabase` factory → per-test tmp file → `afterEach` close + unlink), with
-// Plan-006's `EventLogService` as the durable append path. A structural block at
-// the bottom drives the same emitter through a plain-object log to pin the parts
-// of the seam contract a real database cannot show.
+// the `EventLogService` as the durable append path. A structural block at the
+// bottom drives the same emitter through a plain-object log to pin the parts of
+// the seam contract a real database cannot show.
 //
 // Coverage map (cites are the authoritative contract, not just the ACs):
 //   * Registry anchor: `SESSION_EVENT_CATEGORY_BY_TYPE` maps all five types to
@@ -17,14 +17,14 @@
 //   * Per-event persistence: each of the five methods appends exactly ONE row
 //     carrying its own type, its registry category, and the schema-parsed
 //     payload — including the post-transition state the method determines.
-//   * The D-010-12 mapping AS A SET: all five methods driven through one
-//     recording log yield exactly the five `{type, state}` pairs the decision
-//     names, and no other.
-//   * The D-010-11 carve-out, emitter-side: the seam exposes exactly five emit
-//     surfaces, no `emitFailed` under either plausible spelling, and no
-//     emission carries `state: "failed"` — even though the payload schema
-//     deliberately ADMITS that state (it is the row vocabulary). The census
-//     absence and union rejection of `worktree.failed` are already pinned in
+//   * Mapping AS A SET: all five methods driven through one recording log
+//     yield exactly the five `{type, state}` pairs the decision names, and no
+//     other.
+//   * Carve-out, emitter-side: the seam exposes exactly five emit surfaces, no
+//     `emitFailed` under either plausible spelling, and no emission carries
+//     `state: "failed"` — even though the payload schema deliberately ADMITS
+//     that state (it is the row vocabulary). The census absence and union
+//     rejection of `worktree.failed` are already pinned in
 //     `packages/contracts/src/__tests__/worktree.test.ts`; re-asserting them
 //     here would test contracts, not this seam.
 //   * Integrity columns: the emitter never computes them, and the append path
@@ -50,11 +50,11 @@
 //     caller's `transactionalPrelude` verbatim and WITHOUT invoking it itself
 //     (the invocation count is what separates forwarding from double-applying
 //     the producer's row write) — and against the real append path a THROWING
-//     prelude aborts before the INSERT, so no row persists,
-//     which is the transactional half of I-010-13 — admits any thenable,
-//     propagates a rejecting append unchanged, and refuses a synchronous append
-//     at both layers (the compile-time `Promise` return, pinned by a
-//     `@ts-expect-error` control, plus the runtime fail-closed tripwire).
+//     prelude aborts before the INSERT, so no row persists, which is the
+//     transactional half of — admits any thenable, propagates a rejecting
+//     append unchanged, and refuses a synchronous append at both layers (the
+//     compile-time `Promise` return, pinned by a `@ts-expect-error` control,
+//     plus the runtime fail-closed tripwire).
 //
 // One arm is deliberately ABSENT: there is no "rejects an out-of-vocabulary
 // state" test, because the emitter accepts no state to reject. Each method
@@ -64,20 +64,6 @@
 // `packages/contracts/src/__tests__/worktree.test.ts`'s beat, and asserting it
 // from here would test contracts, not this seam.
 //
-// Spec coverage: `Spec-006 §Repo, Workspace, and Worktree Lifecycle (session_lifecycle)`
-// (the five `worktree.*` event types and their shared payload shape);
-// `Spec-010 §Resolved Questions and V1 Scope Decisions` (worktree and
-// ephemeral-clone transitions are not separately evented beyond the registered
-// worktree lifecycle events — the `failed` transition surfaces through the
-// owning workspace's `workspace.stale`, and the registry stays closed);
-// `Spec-010 §State And Data Implications` (the `worktrees` rows whose
-// transitions these events witness).
-// Verifies invariant: I-010-13 (emitter-side half: one emit, one row, with the
-// method-determined state; the prelude commits the row write inside the append
-// transaction; `failed` and clone transitions have no surface to emit through.
-// The producer-side "every transition" quantifier rides T2.2 — this suite
-// constructs no producer, so that half is closed by T2.6's acceptance walk
-// rather than here).
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -131,7 +117,7 @@ const DAEMON_SIGNATURE_LEN: number = 64;
 // The five types this emitter owns. `SessionEventType`-annotated so a literal
 // that left the census fails this file's compile rather than silently asserting
 // against a name nothing registers — which is also why `worktree.failed` can
-// appear NOWHERE in this list: it is not a census member (D-010-11).
+// appear NOWHERE in this list: it is not a census member.
 const WORKTREE_EVENT_TYPES: readonly SessionEventType[] = [
   "worktree.created",
   "worktree.ready",
@@ -140,13 +126,13 @@ const WORKTREE_EVENT_TYPES: readonly SessionEventType[] = [
   "worktree.retired",
 ];
 
-// The D-010-12 mapping, restated INDEPENDENTLY of the emitter's own table (the
-// emitter reads its private `WORKTREE_STATE_BY_EVENT_NAME`; this file spells the
-// decision out), so a mis-keyed table entry fails here rather than being
-// confirmed by its own source. The `WorktreeState` annotation binds the state
-// half to the contract enum — and `"failed"` is deliberately absent from every
-// row, which is the mapping half of the carve-out.
-const D_010_12_MAPPING: ReadonlyArray<readonly [SessionEventType, WorktreeState]> = [
+// Mapping, restated INDEPENDENTLY of the emitter's own table (the emitter reads
+// its private `WORKTREE_STATE_BY_EVENT_NAME`; this file spells the decision
+// out), so a mis-keyed table entry fails here rather than being confirmed by its
+// own source. The `WorktreeState` annotation binds the state half to the
+// contract enum — and `"failed"` is deliberately absent from every row, which is
+// the mapping half of the carve-out.
+const STATE_TO_EVENT_MAPPING: ReadonlyArray<readonly [SessionEventType, WorktreeState]> = [
   ["worktree.created", "creating"],
   ["worktree.ready", "ready"],
   ["worktree.dirty", "dirty"],
@@ -295,9 +281,9 @@ function makeEmitter(overrides: Partial<WorktreeEventEmitterDeps> = {}): Worktre
 
 /**
  * Read back the single row an emit is expected to have appended, asserting the
- * "exactly once" half of I-010-13 plus the envelope fields every one of the five
- * carries. The category comes from the registry rather than a literal — the
- * anchor test above is what stops that from being circular.
+ * "exactly once" half of plus the envelope fields every one of the five carries.
+ * The category comes from the registry rather than a literal — the anchor test
+ * above is what stops that from being circular.
  */
 function readSingleRow(expectedType: SessionEventType): LifecycleRow {
   const rows: ReadonlyArray<LifecycleRow> = readRawRows(ctx.db, SESSION_ID);
@@ -313,8 +299,8 @@ function readSingleRow(expectedType: SessionEventType): LifecycleRow {
 }
 
 /**
- * Assert the persisted payload BOTH matches the literal shape Spec-006 mandates
- * and equals what the family schema itself returns for that input.
+ * Assert the persisted payload BOTH matches the literal shape mandates and
+ * equals what the family schema itself returns for that input.
  *
  * The literal comparison is the load-bearing one: `toEqual` fails on a missing
  * key AND on an extra one, so an envelope-only field leaking into the payload —
@@ -352,7 +338,7 @@ describe("WorktreeEventEmitter — category registry anchor", () => {
 
 // ----------------------------------------------------------------------------
 // One method per event type — exactly one row, right type, right category,
-// schema-parsed payload, method-determined state (I-010-13, D-010-12)
+// schema-parsed payload, method-determined state
 // ----------------------------------------------------------------------------
 
 describe("WorktreeEventEmitter — per-event emission", () => {
@@ -438,8 +424,8 @@ describe("WorktreeEventEmitter — per-event emission", () => {
     await makeEmitter().emitWorktreeRetired({
       sessionId: SESSION_ID,
       worktreeId: WORKTREE_ID,
-      // @ts-expect-error — callers cannot pair a type with a state D-010-12
-      // does not give it.
+      // @ts-expect-error — callers cannot pair a type with a state does not
+      // give it.
       state: "dirty",
     });
 
@@ -478,10 +464,10 @@ describe("WorktreeEventEmitter — per-event emission", () => {
 });
 
 // ----------------------------------------------------------------------------
-// The D-010-12 mapping as a SET, and the D-010-11 carve-out, emitter-side
+// Mapping as a SET, and carve-out, emitter-side
 // ----------------------------------------------------------------------------
 
-describe("WorktreeEventEmitter — D-010-12 mapping and the D-010-11 carve-out", () => {
+describe("WorktreeEventEmitter — mapping and carve-out", () => {
   it("emits exactly the five mapped {type, state} pairs across all five methods", async () => {
     // The per-event arms above each prove ONE pairing against a persisted row.
     // This one proves the mapping as a whole, through a recording log so all
@@ -506,7 +492,7 @@ describe("WorktreeEventEmitter — D-010-12 mapping and the D-010-11 carve-out",
     await emitter.emitWorktreeRetired(input);
 
     const emittedPairs = appended.map((envelope) => [envelope.type, payloadState(envelope)]);
-    expect(emittedPairs).toEqual(D_010_12_MAPPING);
+    expect(emittedPairs).toEqual(STATE_TO_EVENT_MAPPING);
   });
 
   it("never emits state `failed`, though the payload schema admits it", async () => {
@@ -514,9 +500,9 @@ describe("WorktreeEventEmitter — D-010-12 mapping and the D-010-11 carve-out",
     // family payload parses it clean (worktree.ts — "FIVE OF THE SIX STATES
     // appear on the wire"), so nothing downstream of this seam would refuse a
     // `worktree.retired` carrying `state: "failed"`. What makes the `-> failed`
-    // transition unevented is that no method here resolves to that state
-    // (D-010-11 / I-010-13); the failure incident is evented as
-    // `workspace.stale` by the coupled `failReprovision` instead.
+    // transition unevented is that no method here resolves to that state; the
+    // failure incident is evented as `workspace.stale` by the coupled
+    // `failReprovision` instead.
     const failedStatePayload = WorktreeLifecyclePayloadSchema.safeParse({
       sessionId: SESSION_ID,
       worktreeId: WORKTREE_ID,
@@ -578,7 +564,7 @@ describe("WorktreeEventEmitter — D-010-12 mapping and the D-010-11 carve-out",
     const emitter: WorktreeEventEmitter = makeEmitter();
 
     // @ts-expect-error — there is no `emitWorktreeFailed`: the `-> failed`
-    // transition emits no worktree event (D-010-11 / I-010-13).
+    // transition emits no worktree event.
     const worktreeFailedSurface: unknown = emitter.emitWorktreeFailed;
     // @ts-expect-error — nor under the plan's own spelling, `emitFailed`.
     const failedSurface: unknown = emitter.emitFailed;
@@ -723,8 +709,8 @@ describe("WorktreeEventEmitter — envelope/payload reconciliation", () => {
   });
 
   it("omits the optional associations when the producer carries neither", async () => {
-    // Negative control for the arm above, and it matters more here than in the
-    // Plan-009 precedent because there are TWO optional associations: a
+    // Negative control for the arm above, and it matters more here than
+    // precedent because there are TWO optional associations: a
     // present-but-undefined key would be as wrong as a populated one, since
     // which ids a payload carries is how a reader attributes the event. The
     // `worktreeId` floor is what every emission still guarantees.
@@ -950,16 +936,14 @@ describe("WorktreeEventEmitter — WorktreeEventLog seam", () => {
   });
 
   it("forwards a caller-supplied transactionalPrelude verbatim and never runs it", async () => {
-    // The prelude is how the `worktrees` row write commits atomically with its
-    // event — the transactional half of I-010-13. This emitter's job is to
-    // FORWARD it, not to wrap, re-order, or invoke it, so the assertions are
-    // identity AND a zero invocation count: anything done to the closure would
-    // break the atomicity the append path provides around it. The count is what
-    // separates "forwards it" from "forwards it AND runs it" — the capturing
-    // log below never invokes what it captures, so the only thing that could
-    // move the counter is the emitter itself, which would apply T2.2's row
-    // write twice (once here, OUTSIDE any transaction, and once inside the real
-    // append path's).
+    // This emitter's job is to FORWARD it, not to wrap, re-order, or invoke it,
+    // so the assertions are identity AND a zero invocation count: anything done
+    // to the closure would break the atomicity the append path provides around
+    // it. The count is what separates "forwards it" from "forwards it AND runs
+    // it" — the capturing log below never invokes what it captures, so the only
+    // thing that could move the counter is the emitter itself, which would
+    // apply the row write twice (once here, OUTSIDE any transaction, and once
+    // inside the real append path's).
     const forwardedOptions: Array<{ transactionalPrelude?: () => void }> = [];
     const capturingEventLog: WorktreeEventLog = {
       append: (envelope, options) => {
@@ -1005,15 +989,15 @@ describe("WorktreeEventEmitter — WorktreeEventLog seam", () => {
 
   it("aborts the append when the forwarded prelude throws against the real path — no row persists", async () => {
     // The identity arms above prove the closure REACHES the options object; this
-    // arm proves the mechanism I-010-13's "transactionally with the row write"
-    // rests on: against the real append path the prelude runs INSIDE the
-    // transaction, so its throw aborts before the INSERT and the failure
-    // surfaces to the producer. An emitter that wrapped, deferred, or invoked
-    // the prelude itself already fails the identity/invocation arms above; one
-    // that swallowed the append rejection, or whose forwarding stopped reaching
-    // the real transaction boundary, passes those and fails HERE. (The positive
-    // control, a prelude whose `worktrees` write commits atomically with the
-    // row, ships with T2.2, the first real dual-write producer.)
+    // arm proves the mechanism the "transactionally with the row write" rests
+    // on: against the real append path the prelude runs INSIDE the transaction,
+    // so its throw aborts before the INSERT and the failure surfaces to the
+    // producer. An emitter that wrapped, deferred, or invoked the prelude itself
+    // already fails the identity/invocation arms above; one that swallowed the
+    // append rejection, or whose forwarding stopped reaching the real
+    // transaction boundary, passes those and fails HERE. (The positive control,
+    // a prelude whose `worktrees` write commits atomically with the row, ships
+    // with the first real dual-write producer.)
     await expect(
       makeEmitter().emitWorktreeCreated({
         sessionId: SESSION_ID,

@@ -1,4 +1,4 @@
-// Plan-006 T3.6 — the sole reader and minter of `session_content_keys`.
+// The sole reader and minter of `session_content_keys`.
 //
 // The table holds ONE row per session: the AES-256 data-encryption key that
 // seals every `content_payload` in that session, persisted only as an
@@ -10,14 +10,14 @@
 //
 // A key derived from the daemon master key would be cheaper — no table, no
 // mint, no rotation story. It is prohibited anyway, and the reason is a
-// mechanism this repository already ships: `Spec-022 §Retention Policy`'
-// rotate-on-shred generates a fresh master `M'`, re-wraps the stored key rows,
-// and DESTROYS `M`. A derived key cannot be recovered once `M` is gone, so the
-// first time any unrelated participant exercised erasure, every existing
-// machine-authored body on this daemon would become permanently unreadable —
-// destroying co-owned session work product the erasure request has no claim on,
-// and doing it silently. A stored key is re-wrappable: rotation moves only its
-// envelope and no ciphertext is rewritten.
+// mechanism this repository already ships: ' rotate-on-shred generates a fresh
+// master `M'`, re-wraps the stored key rows, and DESTROYS `M`. A derived key
+// cannot be recovered once `M` is gone, so the first time any unrelated
+// participant exercised erasure, every existing machine-authored body on this
+// daemon would become permanently unreadable — destroying co-owned session work
+// product the erasure request has no claim on, and doing it silently. A stored
+// key is re-wrappable: rotation moves only its envelope and no ciphertext is
+// rewritten.
 //
 // ----------------------------------------------------------------------------
 // The wrap format, and what the AAD is actually for
@@ -49,11 +49,10 @@
 // ----------------------------------------------------------------------------
 //
 // {@link SessionContentKeyStore.resolve} is ASYNC because obtaining the daemon
-// master key can block on a human: `Spec-022 §Daemon Master Key` wipes the
-// in-memory master on an idle timer and re-unwraps it via a keystore + PRF
-// assertion or a passphrase prompt, so the first read after an idle wipe can
-// await a WebAuthn ceremony. That is the same reason `DaemonSigningKeySealer`'s
-// `unseal` is async.
+// master key can block on a human: wipes the in-memory master on an idle timer
+// and re-unwraps it via a keystore + PRF assertion or a passphrase prompt, so
+// the first read after an idle wipe can await a WebAuthn ceremony. That is the
+// same reason `DaemonSigningKeySealer`'s `unseal` is async.
 //
 // {@link SessionContentKeyStore.rewrapAll} is SYNCHRONOUS and takes both master
 // keys as already-materialized bytes. This is not an oversight to be tidied
@@ -79,12 +78,12 @@
 // the row is still in the minter's hand.
 //
 // THE FENCE IS AN EPOCH, NOT A LOCK, and adding no second lock is the point —
-// `Spec-022 §Ordering And Atomicity` fixes one lock order and a mint that took a
-// lock of its own would be a second one. The store counts rotations in memory;
-// `resolveForWrite` SAMPLES the count BEFORE it reads the master key and the
-// mint transaction RE-CHECKS it, synchronously, in the same better-sqlite3
-// transaction that runs the INSERT. A mismatch throws, which rolls that
-// transaction back, and the mint retries against the new master.
+// fixes one lock order and a mint that took a lock of its own would be a second
+// one. The store counts rotations in memory; `resolveForWrite` SAMPLES the count
+// BEFORE it reads the master key and the mint transaction RE-CHECKS it,
+// synchronously, in the same better-sqlite3 transaction that runs the INSERT. A
+// mismatch throws, which rolls that transaction back, and the mint retries
+// against the new master.
 //
 // SAMPLED BEFORE THE READ, NEVER AFTER IT, and the direction is the whole
 // correctness argument. `DaemonMasterKeySource.read()` may resolve with material
@@ -118,8 +117,6 @@
 // material in a process map plus an invalidation problem at session purge, when
 // a cached key would keep sealing bodies for a row that no longer exists.
 //
-// Refs: Plan-006 T3.6, invariant I-006-3-08, `Spec-022 §Daemon Master Key`,
-// `docs/architecture/schemas/local-sqlite-schema.md §Session Content Keys (Plan-006)`.
 
 import { randomBytes } from "node:crypto";
 
@@ -169,10 +166,10 @@ export const SESSION_CONTENT_WRAP_INFO = "ais.session-content-wrap.v1";
  *
  * An INJECTED interface with no production implementation in this package —
  * the `DaemonSigningKeySealer` shape, for the same reason: the custody ladder
- * (`@napi-rs/keyring`, Keychain / Credential Manager / Secret Service) is
- * Plan-022's at Tier 5, and importing it here would pull a native binding into
- * the append path's consumers and invert the tier order. This module holds the
- * FORMAT and the table; the key's provenance stays behind this seam.
+ * (`@napi-rs/keyring`, Keychain / Credential Manager / Secret Service) is the
+ * at Tier 5, and importing it here would pull a native binding into the append
+ * path's consumers and invert the tier order. This module holds the FORMAT and
+ * the table; the key's provenance stays behind this seam.
  *
  * Asynchronous because a read can block on a human — see the module header.
  */
@@ -389,16 +386,16 @@ function readKeyVersion(value: unknown, sessionId: string): number {
  * Declared separately from the class on the `DaemonSigningKeyProvisioner`
  * precedent: the append path needs exactly one operation, and handing it the
  * whole store would hand it {@link SessionContentKeyStore.rewrapAll} — a
- * rotation primitive that belongs to Plan-022's erasure orchestrator and to
- * nothing on the append path.
+ * rotation primitive that belongs to the erasure orchestrator and to nothing
+ * on the append path.
  */
 export interface SessionContentKeySource {
   resolveForWrite(sessionId: SessionId): Promise<ResolvedSessionContentKey>;
 }
 
 /**
- * The READ half of the same seam, narrowed the same way and for the same reason
- * (Plan-006 T3.8).
+ * The READ half of the same seam, narrowed the same way and for the same
+ * reason.
  *
  * Split from {@link SessionContentKeySource} rather than merged with it because
  * the two operations differ in a way that matters: `resolveForWrite` MINTS on a
@@ -827,15 +824,15 @@ export class SessionContentKeyStore
    * session — the compactor's per-row path is one — reuses it rather than
    * deadlocking.
    *
-   * CALLERS. Every path in this branch that clears `content_payload` must run
-   * this after clearing. Today there is exactly ONE: `compactor.ts`'s stub
-   * UPDATE, which is the only `content_payload = NULL` writer in the tree (there
-   * is no `DELETE FROM session_events` anywhere, and no purge or shred sweep has
-   * shipped yet). FUTURE CONSUMERS — a session purge, and `Spec-022`'s erasure
-   * sweep if it is ever widened past `pii_payload` to clear content columns —
-   * must call this too; it is idempotent and safe to call when nothing was
-   * cleared, so the cheap discipline is to call it after any clearing pass
-   * rather than to reason about whether the last body just went.
+   * Every path in this branch that clears `content_payload` must run this after
+   * clearing. Today there is exactly ONE: `compactor.ts`'s stub UPDATE, which is
+   * the only `content_payload = NULL` writer in the tree (there is no `DELETE
+   * FROM session_events` anywhere, and no purge or shred sweep has shipped yet).
+   * FUTURE CONSUMERS — a session purge, and the erasure sweep if it is ever
+   * widened past `pii_payload` to clear content columns — must call this too; it
+   * is idempotent and safe to call when nothing was cleared, so the cheap
+   * discipline is to call it after any clearing pass rather than to reason about
+   * whether the last body just went.
    */
   async deleteIfUnreferenced(sessionId: SessionId): Promise<boolean> {
     return withSessionAppendLock(sessionId, async () =>

@@ -1,5 +1,5 @@
-// Plan-006 T3.2 — version-9 migration: the compaction retention discriminator
-// and the post-compaction stub commitment.
+// Version-9 migration: the compaction retention discriminator and the
+// post-compaction stub commitment.
 //
 // SQL is inlined as a TypeScript string constant rather than loaded from a
 // sibling `.sql` file, for the reasons the `0001-initial.ts` header sets out in
@@ -7,12 +7,11 @@
 // would exclude `src/migrations/` from the published tarball; bundlers handle
 // `import.meta.url` inconsistently).
 //
-// PROVENANCE. Every statement below is transcribed from the canonical
-// `session_events` block in `docs/architecture/schemas/local-sqlite-schema.md`
-// — the same convention `0006-run-lifecycle-terminal-backstop-index.ts` and
-// `0007-pii-participant-id.ts` state, and the same direction of authority: the
-// schema doc defines the columns and the index, this file applies them. Change
-// the doc first, then mirror it here.
+// Every statement below is transcribed from the canonical `session_events`
+// block — the same convention `0006-run-lifecycle-terminal-backstop-index.ts`
+// and `0007-pii-participant-id.ts` state, and the same direction of authority:
+// the schema doc defines the columns and the index, this file applies them.
+// Change the doc first, then mirror it here.
 //
 // ----------------------------------------------------------------------------
 // Why a TYPED COLUMN rather than a JSON probe into the stub (Design B)
@@ -20,11 +19,10 @@
 //
 // A compacted row is discriminated from a live one on EVERY read that matters:
 // the compactor's own re-entry selector (`retention_class IS NULL`, the
-// property that makes a mid-pass crash resumable), the T4.1 verifier's
-// per-row branch (live rows take chain recomputation, stubs take the
-// three post-compaction checks of `Spec-006 §Post-Compaction Integrity`), and
-// replay's live/stub rendering split. Design A would have read the
-// discriminator back out of the stored projection with
+// property that makes a mid-pass crash resumable) verifier's per-row branch
+// (live rows take chain recomputation, stubs take the three post-compaction
+// checks of), and replay's live/stub rendering split. Design A would have read
+// the discriminator back out of the stored projection with
 // `json_extract(payload, '$.retentionClass')`. That loses on all three counts:
 // it is unindexable in the partial-index sense used below, it costs a JSON
 // parse per row on the hottest read in the daemon, and — decisively — it puts
@@ -41,14 +39,12 @@
 //
 // WHAT THIS MIGRATION DELIBERATELY DOES NOT ENFORCE. The co-presence invariant
 // — `retention_class = 'audit_stub'` ⟺ non-NULL `stub_signature` — is a
-// TWO-column constraint. SQLite has no `ALTER TABLE ... ADD CHECK`, and a
+// TWO-column constraint. SQLite has no `ALTER TABLE... ADD CHECK`, and a
 // table-level CHECK would require the 12-step rebuild of the append-only audit
 // log (sqlite.org/lang_altertable.html), which is exactly the operation an
 // append-only hash chain must never undergo. It is enforced at the verification
-// layer instead: T4.1 reports `stub_signature_invalid` on an `audit_stub` row
-// whose `stub_signature` is NULL, per `Spec-006 §Post-Compaction Integrity`
-// ("the signature is REQUIRED on every compacted row; its absence is a
-// verification failure, never a skip").
+// layer instead: reports `stub_signature_invalid` on an `audit_stub` row whose
+// `stub_signature` is NULL.
 //
 // ----------------------------------------------------------------------------
 // Why `stub_signature` is a SEPARATE commitment from `daemon_signature`
@@ -56,14 +52,14 @@
 //
 // `row_hash` and `daemon_signature` commit to the canonical bytes of the
 // PRE-compaction envelope. Compaction discards those bytes, so neither can be
-// recomputed afterwards — and I-006-3-03 freezes both precisely so the
-// commitment to the original survives. That leaves the bytes a reader actually
-// SEES after compaction (the stub projection now sitting in `payload`)
-// unauthenticated, which is the P1 finding the 2026-05-28 `stub_signature`
-// amendment closed. This column holds the Ed25519 signature over the exact
-// canonical byte string the compactor stored in `payload`, so a verifier
-// authenticates the visible stub directly over the stored bytes with no JCS
-// round-trip — catching any byte-level edit, not only semantic ones.
+// recomputed afterwards — and freezes both precisely so the commitment to the
+// original survives. That leaves the bytes a reader actually SEES after
+// compaction (the stub projection now sitting in `payload`) unauthenticated,
+// which is the P1 finding the 2026-05-28 `stub_signature` amendment closed.
+// This column holds the Ed25519 signature over the exact canonical byte string
+// the compactor stored in `payload`, so a verifier authenticates the visible
+// stub directly over the stored bytes with no JCS round-trip — catching any
+// byte-level edit, not only semantic ones.
 //
 // ----------------------------------------------------------------------------
 // The live-row partial index
@@ -73,10 +69,9 @@
 // created by any earlier migration: its predicate references `retention_class`,
 // which this migration is the first to add. It keeps hot-path replay and the
 // compactor's own candidate scan off the compacted suffix, which grows without
-// bound (stubs are retained indefinitely per `Spec-006 §Event Compaction Policy`
-// §Retention Windows) while the live set stays bounded by the very thresholds
-// the compactor enforces. Without it every live-row scan degrades linearly in
-// total retained history rather than in live history.
+// bound (stubs are retained indefinitely) while the live set stays bounded by
+// the very thresholds the compactor enforces. Without it every live-row scan
+// degrades linearly in total retained history rather than in live history.
 //
 // Idempotency + concurrency are the migration runner's job (the guarded
 // `hasMigrationApplied(db, 9)` block with its in-transaction re-check and
@@ -93,14 +88,10 @@
 // serialization covers the eleven-member envelope and never the physical column
 // set — so the append-only hash chain is untouched.
 //
-// Spec coverage: `Spec-006 §Post-Compaction Integrity` (the per-row stub
-// commitment and the anchor-before-compaction protocol these columns record the
-// outcome of), `Spec-006 §Compacted Event Format` (the projection
-// `stub_signature` signs). Refs: Plan-006 T3.2, `Plan-006 §Data And Storage Changes`,
-// invariant I-006-3-03, `events/compactor.ts`.
 
 export const RETENTION_CLASS_AND_STUB_SIGNATURE_MIGRATION_SQL: string = `
--- Owner: Plan-006 | Migration: 0009-retention-class-and-stub-signature.ts (Tier 4 Phase 3)
+-- Owner: | Migration: 0009-retention-class-and-stub-signature.ts (Tier 4 Phase
+-- 3)
 
 -- The typed retention discriminator. NULL = live row (per-row chain-verified);
 -- 'audit_stub' = compacted (anchor + stub_signature verified). Column-level

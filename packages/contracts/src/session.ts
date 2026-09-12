@@ -20,16 +20,13 @@ import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc
 // Branded ID schemas
 // --------------------------------------------------------------------------
 //
-// Brand declarations match docs/architecture/contracts/api-payload-contracts.md
-// § Branded ID Types verbatim:
 //   `type SessionId = string & { readonly __brand: "SessionId" };`
-// This is a TypeScript-only nominal type — runtime is a plain UUID string.
-// We keep our own `__brand` field rather than using `z.core.$brand` because
-// the spec's documented brand symbol is the structural shape we want cross-
-// package consumers to see (`packages/runtime-daemon`, `packages/control-plane`
-// etc. read api-payload-contracts.md to verify their type imports — making the
-// consuming type structurally identical to the doc's declaration eliminates a
-// foot-gun).
+// This is a TypeScript-only nominal type — runtime is a plain UUID string. We
+// keep our own `__brand` field rather than using `z.core.$brand` because the
+// spec's documented brand symbol is the structural shape we want cross- package
+// consumers to see (`packages/runtime-daemon`, `packages/control-plane` etc.
+// read to verify their type imports — making the consuming type structurally
+// identical to the doc's declaration eliminates a foot-gun).
 //
 // All exported schemas are annotated to satisfy `isolatedDeclarations: true`
 // from tsconfig.base.json (TS9010 — exported values must have explicit type
@@ -37,11 +34,11 @@ import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc
 // whole-program inference).
 //
 // UUID-based IDs use the `brandedUuidIdSchema` helper from `./internal/branded`
-// which encapsulates the `RFC_9562_TEXT_FORM` predicate plus the
-// `.brand().as unknown as z.ZodType<T, T>` cast
-// pattern that bridges Zod's single-T `$ZodBranded` output to the double-T
-// shape required for Standard-Schema-V1 input inference in tRPC v11 (ADR-014).
-// Non-UUID branded scalars (see EventCursorSchema below) keep the inline cast.
+// which encapsulates the `RFC_9562_TEXT_FORM` predicate plus the `.brand().as
+// unknown as z.ZodType<T, T>` cast pattern that bridges Zod's single-T
+// `$ZodBranded` output to the double-T shape required for Standard-Schema-V1
+// input inference in tRPC v11. Non-UUID branded scalars (see EventCursorSchema
+// below) keep the inline cast.
 
 export type SessionId = string & { readonly __brand: "SessionId" };
 export const SessionIdSchema: z.ZodType<SessionId, SessionId> =
@@ -51,33 +48,26 @@ export type ParticipantId = string & { readonly __brand: "ParticipantId" };
 export const ParticipantIdSchema: z.ZodType<ParticipantId, ParticipantId> =
   brandedUuidIdSchema<ParticipantId>("ParticipantId");
 
-export type MembershipId = string & { readonly __brand: "MembershipId" };
-export const MembershipIdSchema: z.ZodType<MembershipId, MembershipId> =
-  brandedUuidIdSchema<MembershipId>("MembershipId");
-
 export type ChannelId = string & { readonly __brand: "ChannelId" };
 export const ChannelIdSchema: z.ZodType<ChannelId, ChannelId> =
   brandedUuidIdSchema<ChannelId>("ChannelId");
 
-// EventCursor is opaque — wire form is a string but its internal structure
-// (sequence + monotonic_ns) is owned by Plan-006. Plan-001 only needs to
-// pass it through unchanged on `SessionRead.timelineCursors` and
-// `SessionSubscribe.afterCursor`.
+// Only needs to pass it through unchanged on `SessionRead.timelineCursors`
+// and `SessionSubscribe.afterCursor`.
 //
-// We deliberately use `.min(1)` only — Plan-006 owns the cursor's internal
-// format. The `.max(EVENT_CURSOR_MAX_LEN)` cap below is defense-in-depth
-// against pathological lengths (mirrors the framework body-size cap pattern
-// used elsewhere in this package). If Plan-006 later publishes a structural
-// cursor format (e.g. `<sequence>_<monotonic_ns>`), tighten this regex; until
-// then, any non-empty bounded string is accepted.
+// We deliberately use `.min(1)` only — owns the cursor's internal format. The
+// `.max(EVENT_CURSOR_MAX_LEN)` cap below is defense-in-depth against
+// pathological lengths (mirrors the framework body-size cap pattern used
+// elsewhere in this package). If later publishes a structural cursor format
+// (e.g. `<sequence>_<monotonic_ns>`), tighten this regex; until then, any
+// non-empty bounded string is accepted.
 export const EVENT_CURSOR_MAX_LEN = 256;
 export type EventCursor = string & { readonly __brand: "EventCursor" };
-// Non-UUID branded scalar — inline cast (not the `brandedUuidIdSchema` helper)
-// because the underlying parser is `z.string().min(1).max(EVENT_CURSOR_MAX_LEN)`,
-// not the factory's RFC 9562 predicate. The `as unknown as z.ZodType<T, T>` cast matches the
-// helper's pattern (see `./internal/branded.ts` for the load-bearing rationale:
-// bridging single-T `$ZodBranded` output to the double-T shape required for
-// Standard-Schema-V1 input inference in tRPC v11 per ADR-014).
+// Non-UUID branded scalar — inline cast (not the `brandedUuidIdSchema` helper) because the
+// underlying parser is `z.string().min(1).max(EVENT_CURSOR_MAX_LEN)`, not the factory's RFC
+// 9562 predicate. The `as unknown as z.ZodType<T, T>` cast matches the helper's pattern (see
+// `./internal/branded.ts` for the load-bearing rationale: bridging single-T `$ZodBranded`
+// output to the double-T shape required for Standard-Schema-V1 input inference in tRPC v11).
 export const EventCursorSchema: z.ZodType<EventCursor, EventCursor> = z
   .string()
   .min(1)
@@ -93,14 +83,14 @@ export const EventCursorSchema: z.ZodType<EventCursor, EventCursor> = z
 //
 //   1. Length bounds: `.min(1)` rejects empty, `.max(maxLen)` caps the
 //      pathological case (defense in depth — the HTTP/tRPC framework layer
-//      owned by Plan-004/005 is the authoritative body-size enforcer).
+//      005 is the authoritative body-size enforcer).
 //   2. Whitespace-only rejection: `.regex(/\S/)` requires at least one
 //      non-whitespace character anywhere in the string. ASCII-whitespace
 //      only — Unicode zero-width characters (U+200B/200C/200D/2060/FEFF)
-//      bypass this regex by design. Plan-018 owns identity canonical form
-//      including zero-width-character handling (see `R2-4 deferral` note in
-//      PR #2 review thread); preempting Plan-018's grammar choices at the
-//      wire layer would be wrong.
+//      bypass this regex by design. owns identity canonical form including
+//      zero-width-character handling (see `R2-4 deferral` note in PR #2
+//      review thread); preempting the grammar choices at the wire layer
+//      would be wrong.
 //   3. NUL-byte rejection: `\0` corrupts log lines / observability traces
 //      (OpenTelemetry sees NUL as a string terminator) and creates
 //      filesystem / log-injection vectors. The wire layer is exactly where
@@ -122,7 +112,6 @@ export const wireFreeFormString = (maxLen: number, fieldLabel: string): z.ZodStr
     });
 
 // --------------------------------------------------------------------------
-// Shared enums (api-payload-contracts.md § Shared Enums)
 // --------------------------------------------------------------------------
 
 export type SessionState =
@@ -139,25 +128,6 @@ export const SessionStateSchema: z.ZodType<SessionState> = z.enum([
   "closed",
   "purge_requested",
   "purged",
-]);
-
-// "runtime contributor" includes the space — preserved verbatim from the
-// canonical enum (`docs/architecture/contracts/api-payload-contracts.md §Shared Enums`). This is the wire form;
-// editing to "runtime_contributor" or similar is a contract break.
-export type MembershipRole = "owner" | "viewer" | "collaborator" | "runtime contributor";
-export const MembershipRoleSchema: z.ZodType<MembershipRole> = z.enum([
-  "owner",
-  "viewer",
-  "collaborator",
-  "runtime contributor",
-]);
-
-export type MembershipState = "pending" | "active" | "suspended" | "revoked";
-export const MembershipStateSchema: z.ZodType<MembershipState> = z.enum([
-  "pending",
-  "active",
-  "suspended",
-  "revoked",
 ]);
 
 export type ChannelState = "active" | "muted" | "archived";
@@ -193,20 +163,18 @@ export const SessionSnapshotSchema: z.ZodType<SessionSnapshot> = z
     state: SessionStateSchema,
     config: RecordOfUnknownSchema,
     metadata: RecordOfUnknownSchema,
-    // ISO 8601 per api-payload-contracts.md §SessionSnapshot. Default
-    // `z.iso.datetime()` accepts only Z-suffixed UTC; `{ offset: true }`
-    // widens to the full RFC 3339 §5.6 spec (numeric offsets like
-    // "+00:00", "-05:00") which the wire contract permits. The narrower
-    // canonical form (Z + ms) for hashing is owned by Plan-006's
+    // Default `z.iso.datetime()` accepts only Z-suffixed UTC; `{ offset:
+    // true }` widens to the full RFC 3339 section 5.6 spec (numeric
+    // offsets like "+00:00", "-05:00") which the wire contract permits.
+    // The narrower canonical form (Z + ms) for hashing is owned by the
     // normalization step, NOT by the wire schema here.
     createdAt: z.iso.datetime({ offset: true }),
     updatedAt: z.iso.datetime({ offset: true }),
   })
   .strict();
 
-// `name` is optional in the canonical interface (`name?: string`). Per
-// `docs/architecture/contracts/api-payload-contracts.md §Tier 1: Plan-001 — Shared Session Core (Task 4.2)`, omission is the wire signal for a
-// channel without a friendly label (e.g. the implicit `main` channel).
+// `name` is optional in the canonical interface (`name?: string`). omission is the wire
+// signal for a channel without a friendly label (e.g. the implicit `main` channel).
 //
 // Note on `exactOptionalPropertyTypes: true`: the spec's wire form is
 // "key absent" rather than "key present with value undefined" — but Zod's
@@ -238,7 +206,7 @@ export const ChannelSummarySchema: z.ZodType<ChannelSummary> = z
 // --------------------------------------------------------------------------
 //
 // Both request fields are optional; an empty `{}` body is valid (the daemon
-// fills defaults from session config, see Spec-001 §Resource Limits).
+// fills defaults from session config).
 
 export interface SessionCreateRequest {
   config?: Record<string, unknown> | undefined;
@@ -285,8 +253,7 @@ export const SessionReadRequestSchema: z.ZodType<SessionReadRequest, SessionRead
   })
   .strict();
 
-// `timelineCursors.acknowledged` is optional per the canonical interface
-// (`docs/architecture/contracts/api-payload-contracts.md §Tier 1: Plan-001 — Shared Session Core (Task 4.2)`).
+// `timelineCursors.acknowledged` is optional per the canonical interface.
 export interface SessionReadResponse {
   session: SessionSnapshot;
   timelineCursors: {
@@ -310,10 +277,10 @@ export const SessionReadResponseSchema: z.ZodType<SessionReadResponse> = z
 // SessionSubscribe
 // --------------------------------------------------------------------------
 //
-// `session.subscribe` opens a server-side streaming subscription on the
-// Plan-007 Phase 2 streaming primitive. The wire request carries the
-// `sessionId` (and optional `afterCursor` for replay-from-cursor); the
-// wire response carries ONLY the opaque `subscriptionId` returned by
+// `session.subscribe` opens a server-side streaming subscription on
+// streaming primitive. The wire request carries the `sessionId` (and
+// optional `afterCursor` for replay-from-cursor); the wire response
+// carries ONLY the opaque `subscriptionId` returned by
 // `StreamingPrimitive.createSubscription<SessionEvent>(...)`. Subsequent
 // per-event values flow as `$/subscription/notify` frames keyed by that
 // `subscriptionId` (envelope shape owned by `jsonrpc-streaming.ts`); the
@@ -322,33 +289,28 @@ export const SessionReadResponseSchema: z.ZodType<SessionReadResponse> = z
 // same id.
 //
 // Why the response is a separate, minimal schema rather than embedding
-// `SessionEvent` directly: the handler's wire result MUST be JSON-
-// serializable AND Zod-parseable (per I-007-7); a `LocalSubscriptionProducer<T>`
-// is an in-process producer handle with closure-captured methods that
-// satisfies neither. The shape below carries only what the wire client
-// actually needs — the `subscriptionId` it uses to route subsequent
-// inbound notifications. This also matches `streaming-primitive.ts`
-// line 267 which documents: "The handler typically returns the
-// `subscriptionId` to the wire client (e.g. as the `result` of a
+// `SessionEvent` directly: the handler's wire result MUST be JSON- serializable
+// AND Zod-parseable; a `LocalSubscriptionProducer<T>` is an in-process producer
+// handle with closure-captured methods that satisfies neither. The shape below
+// carries only what the wire client actually needs — the `subscriptionId` it
+// uses to route subsequent inbound notifications. This also matches
+// `streaming-primitive.ts` line 267 which documents: "The handler typically
+// returns the `subscriptionId` to the wire client (e.g. as the `result` of a
 // `session.subscribe` request)".
 
 // SessionSubscribeRequest carries TWO replay-cursor fields because the
 // schema is shared across two transports with different injection
 // conventions:
 //
-//   * `afterCursor` — IPC/JSON-RPC clients (Plan-007 daemon transport)
-//     populate this field in the request body. See
-//     `runtime-daemon/src/ipc/handlers/session-subscribe.ts`.
+//   * `afterCursor` — IPC/JSON-RPC clients (daemon transport) populate
+//     this field in the request body.
 //
-//   * `lastEventId` — HTTP/SSE clients (Plan-008 control-plane transport)
-//     send a `Last-Event-ID` header, which tRPC v11's fetch-adapter
-//     substrate injects into the input object PRE-Zod-validation when the
-//     procedure type is `subscription`. See
-//     `@trpc/server` v11 `unstable-core-do-not-import/http/contentType.ts`
-//     lines 151-168. Without `lastEventId` declared in the schema,
-//     `.strict()` would throw on every reconnect that carries the
-//     `Last-Event-ID` resumption header — the very transport feature
-//     §T-008b-1-T8 verifies.
+//   * `lastEventId` — HTTP/SSE clients (control-plane transport) send a
+//     `Last-Event-ID` header, which tRPC v11's fetch-adapter substrate
+//     injects into the input object PRE-Zod-validation when the procedure
+//     type is `subscription`. Without `lastEventId` declared in the
+//     schema, `.strict()` would throw on every reconnect that carries the
+//     `Last-Event-ID` resumption header — the very transport feature.
 //
 // Consumer precedence: `input.lastEventId ?? input.afterCursor`. Header
 // beats body so a reconnect's `Last-Event-ID` overrides any stale
@@ -382,16 +344,14 @@ export const SessionSubscribeRequestSchema: z.ZodType<
 // marker), this seam becomes a per-method extension —
 //   `export interface SessionSubscribeResponse extends SubscribeAckResponse { …new fields }`
 // plus its own `z.object({ subscriptionId: SubscriptionIdSchema, …new fields }).strict()`
-// schema — rather than widening the shared generic. The change is confined to
-// these two declarations: zero consumer import churn (the symbol names are
-// unchanged), and because the `subscriptionId` floor is preserved it is a
-// MINOR widening per ADR-018 §Decision #1, so a response accepted today
-// remains accepted under any future evolution.
+// schema — rather than widening the shared generic. The change is confined to these two
+// declarations: zero consumer import churn (the symbol names are unchanged), and because
+// the `subscriptionId` floor is preserved it is a MINOR widening so a response accepted
+// today remains accepted under any future evolution.
 //
 // Canonical source: this file (the SESSION binding). The generic ack itself
-// is owned by jsonrpc-streaming.ts. Per BL-102 no-mirror disposition,
-// `api-payload-contracts.md` does not maintain a doc-side mirror of either
-// code-side typed surface.
+// is owned by jsonrpc-streaming.ts. no-mirror disposition does not maintain
+// a doc-side mirror of either code-side typed surface.
 //
 // The explicit `z.ZodType<SessionSubscribeResponse>` annotation (identical to
 // `z.ZodType<SubscribeAckResponse>`, since the alias is type-transparent)

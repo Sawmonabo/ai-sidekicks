@@ -1,6 +1,6 @@
-// Plan-003 §T3.8 + §T3.4: runtime-node procedures resolve through the MERGED
-// host, AND the shared errorFormatter projects their typed refusals onto the
-// wire `error.data.aisError` envelope.
+// Runtime-node procedures resolve through the MERGED host, and the shared
+// errorFormatter projects their typed refusals onto the wire `error.data.aisError`
+// envelope.
 //
 // The standalone caller tests (runtime-node-router.test.ts) drive
 // `createRuntimeNodeRouter` directly via `t.createCallerFactory`, which bypasses
@@ -17,12 +17,12 @@
 // 404 — every standalone caller test would still pass.
 //
 // The errorFormatter-projection dispatches are the ONLY tests in the suite that
-// observe the wire `error.data.aisError` envelope: `errorFormatter` runs in
-// tRPC's HTTP/adapter path (`getErrorShape`), NOT in the in-process
-// `createCallerFactory` the caller tests use, so the envelope is unobservable
-// there. They close the T3.8 deferral — proving the formatter, collapsed onto a
-// single `AisWireException` base `instanceof` (T3.4), projects EVERY subclass
-// uniformly (each previously only set `cause` with no per-class formatter branch).
+// observe the wire `error.data.aisError` envelope: `errorFormatter` runs in tRPC's
+// HTTP/adapter path (`getErrorShape`), NOT in the in-process `createCallerFactory`
+// the caller tests use, so the envelope is unobservable there. They close deferral
+// — proving the formatter, collapsed onto a single `AisWireException` base
+// `instanceof`, projects EVERY subclass uniformly (each previously only set
+// `cause` with no per-class formatter branch).
 //
 // Coverage is deliberately whole-family: the `AisWireException` base
 // (../../ais-wire-exception.ts) has exactly FOUR concrete subclasses, and the
@@ -80,7 +80,7 @@ const NODE_ID: NodeId = "node-alpha-01" as NodeId;
 
 // A second session id for the attach cross-session-conflict projection: the node
 // holds an ACTIVE attachment HERE, so a `runtimenode.attach` to `SESSION_ID`
-// trips the single-active-attachment refusal (I-003-5).
+// trips the single-active-attachment refusal.
 const OTHER_SESSION_ID: SessionId = "01970000-0000-7000-8000-0000000e0002" as SessionId;
 
 // ----------------------------------------------------------------------------
@@ -251,7 +251,7 @@ afterEach(async () => {
   await pg.close();
 });
 
-describe("merged host — runtimenode.* resolves through t.mergeRouters (T3.8)", () => {
+describe("merged host — runtimenode.* resolves through t.mergeRouters", () => {
   it("dispatches runtimenode.heartbeat through buildControlPlaneFetchHandler and returns 200 + null", async () => {
     // First-beat upsert needs no seeding — `runtime_node_presence.node_id` is a
     // bare TEXT PK (no FK), so ingest succeeds standalone (the first-heartbeat
@@ -277,7 +277,7 @@ describe("merged host — runtimenode.* resolves through t.mergeRouters (T3.8)",
 
 // ----------------------------------------------------------------------------
 // errorFormatter projection — the AisWireException base covers all FIVE
-// subclasses via the HTTP path (T3.4; closes the T3.8 deferral).
+// subclasses via the HTTP path (closes deferral).
 // ----------------------------------------------------------------------------
 //
 // These are the only suite tests that observe the wire `error.data.aisError`
@@ -295,12 +295,10 @@ describe("merged host — runtimenode.* resolves through t.mergeRouters (T3.8)",
 
 describe("errorFormatter projection — AisWireException base covers all subtypes via the HTTP path", () => {
   it("projects version.floor_exceeded as {code, message} (no details) for a below-floor write", async () => {
-    // A floored session (floor 2.0) holds the node's active attachment at a
-    // below-floor client_version (1.0): the read-only verdict the write-gate
-    // re-derives. The capability WRITE is refused with the typed
-    // VersionFloorExceededException, which the catch-arm maps to CONFLICT and the
-    // shared formatter projects onto error.data.aisError (`Spec-003 §Acceptance Criteria` AC4 /
-    // ADR-018 §Decision #4 / I-003-1).
+    // A floored session (floor 2.0) holds the node's active attachment at a below-floor
+    // client_version (1.0): the read-only verdict the write-gate re-derives. The capability
+    // WRITE is refused with the typed VersionFloorExceededException, which the catch-arm maps
+    // to CONFLICT and the shared formatter projects onto error.data.aisError.
     const querier = adaptPGlite(pg);
     await seedParticipant(querier, PARTICIPANT_ID);
     await seedFlooredSession(querier, SESSION_ID, "2.0");
@@ -314,7 +312,6 @@ describe("errorFormatter projection — AisWireException base covers all subtype
 
     const response = await handler(buildCapabilityUpdateRequest(), PASSING_ENV);
 
-    // HTTP 409 (error-contracts.md §Version row).
     expect(response.status).toBe(409);
     const body = (await response.json()) as WireErrorEnvelope;
     expect(body.error?.data?.httpStatus).toBe(409);
@@ -330,14 +327,8 @@ describe("errorFormatter projection — AisWireException base covers all subtype
     expect(aisError).not.toHaveProperty("details");
   });
 
-  it("projects runtimenode.capabilityupdate_conflict as {code, message} (no details) — the T3.8-deferred sibling now projects via the base", async () => {
-    // A sibling runtime-node refusal proves the T3.8-deferred projection is now
-    // LIVE for the whole family (not just version-floor): a capability update
-    // against a node with NO active attachment throws
-    // RuntimeNodeCapabilityUpdateConflictException, which now projects onto
-    // error.data.aisError via the shared AisWireException base `instanceof` (it
-    // previously only set `cause` with no formatter branch). No seeding -> no
-    // active attachment.
+  it("projects runtimenode.capabilityupdate_conflict as {code, message} (no details) — -deferred sibling now projects via the base", async () => {
+    // No seeding -> no active attachment.
     const response = await handler(buildCapabilityUpdateRequest(), PASSING_ENV);
 
     expect(response.status).toBe(409);
@@ -353,14 +344,13 @@ describe("errorFormatter projection — AisWireException base covers all subtype
   });
 
   it("projects runtime_node.attach_conflict as {code, message} (no details) for a cross-session active attach", async () => {
-    // The node already holds an ACTIVE attachment in ANOTHER session: the
-    // partial-unique idx_node_attachments_active raises 23505, which the service
-    // translates to the typed RuntimeNodeAttachConflictException (I-003-5). The
-    // attach catch-arm maps it to CONFLICT and the shared formatter projects it.
-    // This is the in-process router test's attach-conflict assertion —
-    // `packages/control-plane/src/runtime-nodes/__tests__/runtime-node-router.test.ts#runtimenode.attach maps the cross-session conflict (RuntimeNodeAttachConflictException) to CONFLICT`
-    // — re-run on the HTTP path, the only surface where `aisError` is
-    // observable.
+    // The node already holds an ACTIVE attachment in ANOTHER session: the partial-unique
+    // idx_node_attachments_active raises 23505, which the service translates to the typed
+    // RuntimeNodeAttachConflictException. The attach catch-arm maps it to CONFLICT and the shared
+    // formatter projects it. This is the in-process router test's attach-conflict assertion —
+    // `packages/control-plane/src/runtime-nodes/__tests__/runtime-node-router.test.ts#runtimenode.attach
+    // maps the cross-session conflict (RuntimeNodeAttachConflictException) to CONFLICT` — re-run on
+    // the HTTP path, the only surface where `aisError` is observable.
     const querier = adaptPGlite(pg);
     await seedParticipant(querier, PARTICIPANT_ID);
     await seedSession(querier, SESSION_ID);
@@ -375,7 +365,6 @@ describe("errorFormatter projection — AisWireException base covers all subtype
 
     const response = await handler(buildAttachRequest(), PASSING_ENV);
 
-    // HTTP 409 (error-contracts.md §Runtime Node row).
     expect(response.status).toBe(409);
     const body = (await response.json()) as WireErrorEnvelope;
     expect(body.error?.data?.httpStatus).toBe(409);

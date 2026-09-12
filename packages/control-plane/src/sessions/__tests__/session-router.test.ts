@@ -10,10 +10,10 @@
 // The integration substrate is `t.createCallerFactory(router)` — tRPC v11's
 // canonical in-process caller. This bypasses HTTP transport but exercises
 // the same router middleware chain (input parser, output parser, procedure
-// dispatch) — sufficient for verifying I-008-3 + the per-procedure auth/
-// not-found contracts. SSE wire-frame behavior is covered separately by
-// the SSE suite against `fetchRequestHandler`, because the SSE producer is
-// a fetch-side artifact.
+// dispatch) — sufficient for verifying the per-procedure auth/ not-found
+// contracts. SSE wire-frame behavior is covered separately by the SSE suite
+// against `fetchRequestHandler`, because the SSE producer is a fetch-side
+// artifact.
 //
 // Lock-ordering inheritance is verified TRANSITIVELY: the directory service
 // tests already assert lock-ordering directly via `wrapWithLog` SQL capture;
@@ -190,7 +190,6 @@ describe("session.create — end-to-end tRPC roundtrip via pglite", () => {
 });
 
 // ---------------------------------------------------------------------------
-// T-008b-1-T5: session.read round-trip
 // ---------------------------------------------------------------------------
 
 describe("T5 / session.read — end-to-end tRPC roundtrip via pglite", () => {
@@ -205,8 +204,8 @@ describe("T5 / session.read — end-to-end tRPC roundtrip via pglite", () => {
     // proves the snapshot persisted the create-time payload.
     expect(response.session.config).toEqual({ topic: "round-trip" });
     // Tier 1 placeholder cursors are deterministic strings authored by the
-    // service; their exact values are owned by Plan-001 PR #4 and aren't
-    // re-asserted here. We just verify the field is present.
+    // service; their exact values are PR #4 and aren't re-asserted here.
+    // We just verify the field is present.
     expect(typeof response.timelineCursors.latest).toBe("string");
   });
 

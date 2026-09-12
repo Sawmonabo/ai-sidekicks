@@ -1,42 +1,40 @@
 /**
- * Claude driver capability declaration (Plan-005 T3.8).
+ * Claude driver capability declaration.
  *
  * Owns the Claude driver's `getCapabilities()` answer — the V1
  * `GetCapabilitiesResult` wrapper (flags + contract version, tool metadata,
  * CLI version report) — and the refresh trigger that hands a fresh reading to
  * the capability-declaration sink, which is what emits
- * `runtime_node.capability_declared` / `runtime_node.capability_updated`
- * (CP-005-5).
+ * `runtime_node.capability_declared` / `runtime_node.capability_updated`.
  *
- * ## I-005-2 — declaration is TOTAL, and absence never means "supported"
+ * ## Declaration is TOTAL, and absence never means "supported"
  *
- * `Spec-005 §Required Behavior`: a driver declares its capabilities
- * explicitly; a flag the driver does not declare is unsupported, and no caller
- * may infer support from a method existing on the provider's wire. Two things
- * realize that here:
+ * A driver declares its capabilities explicitly; a flag the driver does not
+ * declare is unsupported, and no caller may infer support from a method
+ * existing on the provider's wire. Two things realize that here:
  *
  *   1. {@link CLAUDE_CAPABILITY_FLAGS} is annotated
  *      `Record<DriverCapabilityFlag, boolean>` and written as an explicit
  *      literal — every canonical flag present, each with a decided boolean.
  *      A flag added to `DRIVER_CAPABILITY_FLAGS` in `@ai-sidekicks/contracts`
  *      therefore breaks THIS file's compilation until someone decides its
- *      value for Claude. That is the point: the failure mode I-005-2 forbids
- *      is a new flag silently reading as absent, and a missing-property error
- *      is the cheapest place to catch it.
+ *      value for Claude. That is the point: the failure mode this rule
+ *      forbids is a new flag silently reading as absent, and a
+ *      missing-property error is the cheapest place to catch it.
  *   2. Nothing here is derived, inferred, or defaulted. There is no
  *      `?? false`, no partial record spread over a base, and no "unknown
  *      flags are false" fallback — a fallback would make the absence of a
  *      decision indistinguishable from a decision, which is exactly the
  *      inference the invariant prohibits.
  *
- * The values mirror `Spec-005 §Per-Driver Capability Matrix`; each flag below
- * carries the mechanism that makes its value true (or the absence that makes
- * it false), so a reviewer can check the declaration against the wire
- * reference rather than against this file's own say-so.
+ * Each flag below carries the mechanism that makes its value true (or the
+ * absence that makes it false), so a reviewer can check the declaration
+ * against the provider's own wire surface rather than against this file's own
+ * say-so.
  *
  * ## Deliberately NOT here (scope boundaries, not omissions)
  *
- * * **`transcript_replay`'s PROBED value** — LANDED (T3.20). The spec matrix
+ * * **`transcript_replay`'s PROBED value** — LANDED. The capability matrix
  *   records this cell as `probe`, not as a constant, because no stable seeding
  *   contract is published for this provider, and it is the ONLY cell in that
  *   matrix whose value is decided at runtime. {@link CLAUDE_CAPABILITY_FLAGS}
@@ -58,12 +56,12 @@
  *   bound" is unrepresentable rather than merely forbidden. An unbound or
  *   refusing probe answers `false`, the flag declares `false`, and reconstitution
  *   routes to the memo floor — a supported outcome, not a failure.
- * * **Probe-based declaration + `detectionSource`** — LANDED (T3.24).
- *   `Spec-005 §Capability discovery` binds every flag carrying an *admissible*
- *   probe to be read from the installed build and to carry its detection source
- *   on the report. `../../capability-probe.ts` owns the mechanism table, the
- *   probes, their negative control, and the withdraw-only resolution; what this
- *   module owns is the ORDERING — floor first, probe second, compose third — so
+ * * **Probe-based declaration + `detectionSource`** — LANDED. Every flag
+ *   carrying an *admissible* probe is read from the installed build and carries
+ *   its detection source on the report. `../../capability-probe.ts` owns the
+ *   mechanism table, the probes, their negative control, and the withdraw-only
+ *   resolution; what this module owns is the ORDERING — floor first, probe
+ *   second, compose third — so
  *   no probe is ever issued against a build the daemon has already refused.
  *   {@link CLAUDE_CAPABILITY_FLAGS} remains the declaration a probe INTERSECTS
  *   with: a probe may withdraw a flag from a build that turns out not to carry
@@ -73,33 +71,29 @@
  *   cache reconstruction rather than as unknown provenance.
  * * **The refresh cadence** — the 15-minute poll and its pairing with the
  *   zero-turn auth probe are the `CapabilityRefreshScheduler`'s
- *   (`../../capability-refresh.ts`, T3.12 P2-9).
- *   {@link ClaudeCapabilityReporter.refreshDeclaration} is the emission seam
- *   that scheduler drives, not the scheduler. The CLI-version FLOOR, by
- *   contrast, is enforced HERE since T3.12: {@link
+ *   (`../../capability-refresh.ts`). {@link
+ *   ClaudeCapabilityReporter.refreshDeclaration} is the emission seam that
+ *   scheduler drives, not the scheduler. The CLI-version FLOOR, by
+ *   contrast, is enforced HERE: {@link
  *   ClaudeCapabilityReporter.getCapabilities} refuses a below-floor reading
  *   fail-closed (`driver.cli_version_below_floor`) through the shared
  *   `assertCliVersionMeetsFloor` seam, so attach and refresh both hit the
  *   gate; the unparseable refusal (`driver.cli_version_unparseable`) fires at
- *   report construction (`parseCliVersionReport`), inside the T3.23 reading of
- *   the spawned process.
+ *   report construction (`parseCliVersionReport`), inside the reading of the
+ *   spawned process.
  * * **Resolution, the spawn, and the in-band read** — `../../version-gate.ts`
- *   (T3.23) owns them. Since that task the reporter's injected dependency is a
+ *   owns them. The reporter's injected dependency is a
  *   `SpawnedProviderVersionReading` reader rather than a bare report reader, so
  *   a declaration composed from a version that did not come from the spawned
- *   build is unrepresentable rather than merely discouraged
- *   (`Spec-005 §Required Behavior`: "the version a driver reports is the
- *   version that spawned"). The reader is called on EVERY declaration, so a
- *   refresh takes a new reading rather than replaying the attach-time one.
+ *   build is unrepresentable rather than merely discouraged: the version a
+ *   driver reports is the version that spawned. The reader is called on EVERY
+ *   declaration, so a refresh takes a new reading rather than replaying the
+ *   attach-time one.
  * * **Validation of the reported wrapper** — the write seam owns it
  *   (`assertValidGetCapabilitiesResultShape`, `assertValidCapabilityFlags`,
  *   `assertValidContractVersion`, `assertValidCliVersionReport` in
  *   `../../provider-output-validation.ts`), and re-validating here would fork
  *   the leak-safe rejection surface into two places that could disagree.
- *
- * @see Spec-005 §Required Behavior, §Per-Driver Capability Matrix
- * @see Plan-005 T3.8 (I-005-2, CP-005-5)
- * @see `docs/reference/provider-wire/claude.md`
  */
 
 import {
@@ -139,26 +133,26 @@ import { getClaudeToolMetadata } from "./tools.js";
 /**
  * The registry key for this driver. The capability writer keys
  * `driver_capabilities` / `driver_tools` / `driver_contract_meta` on it and
- * derives the evented capability key `provider-driver-claude` from it
- * (CP-005-5), so it is daemon-controlled identity — never provider output.
+ * derives the evented capability key `provider-driver-claude` from it, so it
+ * is daemon-controlled identity — never provider output.
  */
 export const CLAUDE_DRIVER_NAME = "claude" as const;
 
 /**
  * The Claude driver's capability-contract version — a change-detection signal
- * for the capability writer, NOT a negotiation surface (`Spec-005 §Capability
- * discovery`). It must be a canonical identifying semver
+ * for the capability writer, NOT a negotiation surface. It must be a canonical
+ * identifying semver
  * (`assertValidContractVersion`), and it is bumped when the DECLARED SHAPE
  * changes — a flag's value, the FLAG CENSUS, a tool's class, the tool census,
  * or a member joining the report — so a node that already has a row re-reads
  * rather than trusting its cache.
  *
- * `1.1.0` (T3.26): additive growth, hence a MINOR move. The declared flag set
+ * `1.1.0`: additive growth, hence a MINOR move. The declared flag set
  * grew from fourteen to seventeen (`context_compaction`, `provider_commands`,
  * `output_speed`) and the report gained `outputSpeedLevels`. Nothing previously
  * declared changed meaning, which is what keeps this off a major.
  *
- * DELIBERATELY UNMOVED at T3.20, where `transcript_replay` became probe-derived.
+ * DELIBERATELY UNMOVED where `transcript_replay` became probe-derived.
  * The rule above lists "a flag's value" as a trigger, and no flag's value moves:
  * with no probe bound — which is every node at this pin, since no build publishes
  * a seeding surface — the composed declaration is byte-identical to the one
@@ -174,7 +168,7 @@ export const CLAUDE_DRIVER_NAME = "claude" as const;
 export const CLAUDE_CAPABILITY_CONTRACT_VERSION: string = "1.1.0";
 
 // --------------------------------------------------------------------------
-// The declaration (I-005-2)
+// The declaration
 // --------------------------------------------------------------------------
 
 /**
@@ -194,8 +188,8 @@ export const CLAUDE_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, bool
     resume: true,
     // FALSE: no mid-turn content injection exists on the programmatic surface.
     // The steer intervention degrades to queue + interrupt, which is a REPORTED
-    // degradation (Spec-004 §Driver-Level Steer Mechanics) — declaring `true`
-    // here would silently convert that into a lost directive.
+    // degradation — declaring `true` here would silently convert that into a
+    // lost directive.
     steer: false,
     // Control-request registry: tool-permission and clarification requests.
     interactive_requests: true,
@@ -215,35 +209,35 @@ export const CLAUDE_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, bool
     // Composed natively from resume-at + `--fork-session`. Conversation
     // rollback only; file-state restore is the daemon's turn-snapshot leg.
     rollback: true,
-    // Driver-EMULATED (Spec-005 §Parity Capability Mechanism Grades): the goal
-    // is daemon-stored and composed into the system prompt at the next turn or
-    // resume boundary. The flag answers "does the driver deliver it", and it
-    // does — the grade records that the delivery is not live mid-turn.
+    // Driver-EMULATED: the goal is daemon-stored and composed into the system
+    // prompt at the next turn or resume boundary. The flag answers "does the
+    // driver deliver it", and it does — the grade records that the delivery is
+    // not live mid-turn.
     session_goals: true,
     // Daemon-hosted ephemeral MCP server surfaces callback tools into the run.
     callback_tools: true,
     // `--agents` AgentDefinitions (provider-native in-session subagents).
     subagents: true,
-    // The MATRIX reading, and NOT this driver's declared answer: `Spec-005`'s
-    // Claude cell for this flag is `probe`, and `getCapabilities` replaces this
-    // entry with the probe's own reading in both directions (see the header
-    // note). `false` is the right value to sit here because it is what an
+    // The MATRIX reading, and NOT this driver's declared answer: the Claude
+    // cell for this flag is `probe`, and `getCapabilities` replaces this entry
+    // with the probe's own reading in both directions (see the header note).
+    // `false` is the right value to sit here because it is what an
     // unprobed build declares — no stable prior-turn seeding contract is
     // published for this provider, and an unprobed `true` would route a switch
     // into a replay the target may silently discard.
     transcript_replay: false,
     // TRUE for Claude (and false for Codex): `--max-budget-usd` realizes a hard
-    // cost cap at spawn. Spec-016's native-cap unpriced-family escape reserves
+    // cost cap at spawn. The native-cap unpriced-family budget escape reserves
     // only against legs whose driver declares this flag, so a wrong `true` here
     // admits unpriced work with no cap behind it.
     cost_cap: true,
     // TRUE, and EMULATED: the provider publishes no compaction method, so this
     // driver dispatches the provider's OWN compaction command as a
     // `driver_command` frame — the one tripwire-exempt origin, admitted only
-    // against the two guards `Spec-005 §Required Behavior` requires of it
-    // (pre-dispatch presence in the provider's own enumeration, post-dispatch
-    // typed evidence). The flag answers "does the driver deliver it", and it
-    // does; the grade records that the delivery is not a native method.
+    // against the two guards required of it (pre-dispatch presence in the
+    // provider's own enumeration, post-dispatch typed evidence). The flag
+    // answers "does the driver deliver it", and it does; the grade records that
+    // the delivery is not a native method.
     context_compaction: true,
     // TRUE: the session handshake enumerates the provider's own command and
     // skill sets, so the enumeration is a read of what the provider published
@@ -260,12 +254,11 @@ export const CLAUDE_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, bool
 /**
  * Claude's output-speed value vocabulary — the SETTABLE levels.
  *
- * `Spec-005 §Provider Parameter Vocabularies` requires a driver declaring
- * `output_speed` to publish this set, and `Spec-005 §The output-speed axis`
- * requires it to come from a static table rather than from the provider:
- * obtaining the provider's declared state costs a turn-bearing request, which is
- * the very conjunct that makes the flag `static`, so a vocabulary sourced by
- * reading would contradict its own detection source.
+ * A driver declaring `output_speed` publishes this set, and it comes from a
+ * static table rather than from the provider: obtaining the provider's declared
+ * state costs a turn-bearing request, which is the very conjunct that makes the
+ * flag `static`, so a vocabulary sourced by reading would contradict its own
+ * detection source.
  *
  * The VALUES live in `../../driver-output-speed.ts`, which also carries the
  * settable-vs-reportable doctrine, because the durable capability cache's
@@ -282,7 +275,7 @@ export const CLAUDE_OUTPUT_SPEED_LEVELS: readonly string[] = DRIVER_OUTPUT_SPEED
  * Takes one in-band reading of the Claude build this node spawns — resolve,
  * spawn, `get_binary_version`, floor-compare — normally
  * `readSpawnedProviderVersion` bound to this node's configured command
- * (`../../version-gate.ts`, T3.23). Injected because `getCapabilities()` takes
+ * (`../../version-gate.ts`). Injected because `getCapabilities()` takes
  * no arguments on the `ProviderDriver` interface, so the dependency is
  * constructor-bound.
  *
@@ -406,7 +399,7 @@ export type ClaudeTranscriptReplaySurfaceReader = () => Promise<ClaudeTranscript
 export interface ClaudeCapabilityReporterDependencies {
   readonly readSpawnedVersion: () => Promise<SpawnedProviderVersionReading>;
   /**
-   * The zero-turn probe transport (T3.24) — a control-request exchange against
+   * The zero-turn probe transport — a control-request exchange against
    * the same resolved build `readSpawnedVersion` read. Injected as the SEAM and
    * not as a reading, because every declaration re-probes: the refresh cadence
    * drives {@link ClaudeCapabilityReporter.refreshDeclaration}, and a detection
@@ -430,7 +423,7 @@ export interface ClaudeCapabilityReporterDependencies {
    */
   readonly diagnostics: DriverDiagnosticsEmitter;
   /**
-   * The transcript-replay probe (T3.20) whose reading DECIDES the
+   * The transcript-replay probe whose reading DECIDES the
    * `transcript_replay` flag.
    *
    * OPTIONAL, and absent means `false`. Optional rather than required-nullable
@@ -445,8 +438,8 @@ export interface ClaudeCapabilityReporterDependencies {
 
 /**
  * The write seam this module declares through — structurally a
- * `DriverCapabilitiesWriter` (Plan-005 T2.4, which performs the atomic
- * dual-write and emits `runtime_node.capability_declared` /
+ * `DriverCapabilitiesWriter` (which performs the atomic dual-write and emits
+ * `runtime_node.capability_declared` /
  * `runtime_node.capability_updated`), narrowed to the one method used.
  *
  * A `Pick` of the real class rather than a hand-written mirror: a mirror keeps
@@ -543,7 +536,7 @@ export class ClaudeCapabilityReporter {
    * ways, and callers hold replies across refreshes) must not be able to
    * rewrite the next caller's declaration.
    *
-   * The T3.12 floor gate sits between the read and the composition: a reading
+   * The floor gate sits between the read and the composition: a reading
    * below the ratified Claude floor refuses fail-closed
    * (`driver.cli_version_below_floor`) before any report exists for the
    * registry or the writer to cache — the attach path and the refresh path
@@ -563,11 +556,11 @@ export class ClaudeCapabilityReporter {
     }
     const cliVersion: DriverCliVersionReport = reading.report;
     assertCliVersionMeetsFloor(CLAUDE_DRIVER_NAME, cliVersion);
-    // STRICTLY AFTER the floor gate. `Spec-005` refuses every use of a
-    // below-floor build beyond the version handshake itself, and a probe is such
-    // a use — so a build this daemon has already refused is never asked what it
-    // can do. Sequencing this read rather than racing it with the version read
-    // is what makes that ordering structural.
+    // STRICTLY AFTER the floor gate. Every use of a below-floor build beyond
+    // the version handshake itself is refused, and a probe is such a use — so a
+    // build this daemon has already refused is never asked what it can do.
+    // Sequencing this read rather than racing it with the version read is what
+    // makes that ordering structural.
     const detection: CapabilityDetectionReading = await readCapabilityDetection({
       driverName: CLAUDE_DRIVER_NAME,
       // Bound to the executable the version handshake resolved, taken from that
@@ -588,8 +581,8 @@ export class ClaudeCapabilityReporter {
       flags: {
         ...applyCapabilityDetection(CLAUDE_CAPABILITY_FLAGS, detection),
         // The ONE cell composed outside the withdraw-only intersection, because
-        // `Spec-005`'s Claude matrix cell for it is `probe` rather than a
-        // constant. See the header note: an intersection can never carry a
+        // the Claude matrix cell for it is `probe` rather than a constant.
+        // See the header note: an intersection can never carry a
         // `false` constant up, so a probe-decided cell resolved that way would
         // answer `false` on every build forever and the probe would be
         // decoration. The override is placed AFTER the spread deliberately —
@@ -621,7 +614,7 @@ export class ClaudeCapabilityReporter {
   }
 
   /**
-   * The refresh trigger (CP-005-5): re-read the declaration and hand it to
+   * The refresh trigger: re-read the declaration and hand it to
    * the sink, which decides `declared` / `updated` / `noop` by comparing
    * against the stored row and emits `runtime_node.capability_declared` or
    * `runtime_node.capability_updated` accordingly. This method deliberately
@@ -629,8 +622,8 @@ export class ClaudeCapabilityReporter {
    * stored state, and a second opinion here could disagree with the row.
    *
    * WHEN this runs is not this module's business either: the 15-minute
-   * cadence and its pairing with the auth probe are T3.12. This is the seam
-   * that cadence drives.
+   * cadence and its pairing with the auth probe belong to the refresh
+   * scheduler. This is the seam that cadence drives.
    */
   async refreshDeclaration(
     sink: DriverCapabilityDeclarationSink,
@@ -648,15 +641,12 @@ export class ClaudeCapabilityReporter {
 }
 
 // --------------------------------------------------------------------------
-// The model catalog (T3.12 C-8)
+// The model catalog
 // --------------------------------------------------------------------------
 
 /**
  * GOLDEN VECTOR — the Claude model catalog this driver declares.
  *
- *   Source doc      : `docs/reference/provider-wire/claude.md`
- *   Section         : §`list_models` and the per-model effort vocabulary
- *                     (the control request answers `{"subtype":"success", …}`)
  *   Pin             : Claude Code 2.1.251
  *   Provenance      : Binary probe. One live `claude -p --input-format
  *                     stream-json` control request `{"subtype":"list_models"}`
@@ -665,15 +655,13 @@ export class ClaudeCapabilityReporter {
  *                     billed.
  *   Trust           : Verified at 2.1.251. Every id, name, and effort level
  *                     below is a reading, not an illustration.
- *   Derived by      : Plan-005 T3.12 (currency duty C-8).
  *
  * WHY A DECLARATION EXISTS AT ALL, given the read is admissible.
  *
- * `Spec-005 §Capability discovery` treats a value obtainable by a zero-turn,
- * non-mutating, decisive read as one that must be READ from the installed
- * build. This catalog is exactly that, which is why {@link
- * ClaudeModelCatalogExchange} is the preferred source and why this constant is
- * NOT presented as truth about the running build. It is the answer for a
+ * A value obtainable by a zero-turn, non-mutating, decisive read must be READ
+ * from the installed build rather than declared. This catalog is exactly that,
+ * which is why {@link ClaudeModelCatalogExchange} is the preferred source and
+ * why this constant is NOT presented as truth about the running build. It is the answer for a
  * composition that has bound no exchange — a real state while no production
  * composition root exists — and it is stamped above so a reader can tell a
  * reading from a declaration without trusting this file's say-so.
@@ -687,10 +675,9 @@ export class ClaudeCapabilityReporter {
  * * **The per-model auxiliary axes** (`supportsAdaptiveThinking`,
  *   `supportsFastMode`, `supportsAutoMode`). They are recorded here rather than
  *   flattened into `capabilities`, which carries no registered vocabulary
- *   anywhere in the corpus and is read by nothing: populating it would mint a
- *   tag set ahead of its reader, and one shared string list cannot mean both
- *   "this model has a fast mode" and whatever the sibling provider's per-model
- *   axes mean. At the pin, both `claude-opus-5[1m]` rows carry all three;
+ *   anywhere and is read by nothing: populating it would mint a tag set ahead
+ *   of its reader, and one shared string list cannot mean both "this model has
+ *   a fast mode" and whatever the sibling provider's per-model axes mean. At the pin, both `claude-opus-5[1m]` rows carry all three;
  *   `claude-fable-5` and `claude-sonnet-5` carry adaptive-thinking and
  *   auto-mode but not fast-mode; `claude-haiku-4-5-20251001` carries none.
  * * **A provider-wide effort vocabulary.** There is none to copy: the levels
@@ -702,8 +689,8 @@ export class ClaudeCapabilityReporter {
  * One declared catalog entry, frozen at construction.
  *
  * `capabilities` is `[]` by CONSTRUCTION rather than by omission — the helper
- * takes no argument for it, so no declaration can populate a member the corpus
- * registers no vocabulary for and nothing reads.
+ * takes no argument for it, so no declaration can populate a member that has no
+ * registered vocabulary and nothing reads.
  */
 function declaredClaudeModel(
   id: string,
@@ -808,9 +795,9 @@ function readNonEmptyString(source: Record<string, unknown>, key: string): strin
  *   1. **Alias collapse.** Entries are keyed by `resolvedModel`, not by
  *      `value`: at the pin, four of five `value`s are short aliases
  *      (`sonnet` → `claude-sonnet-5`), so keying on `value` would publish
- *      selector strings as model ids — and `Spec-016 §Same-Agent Provider
- *      Switch` validates a switch's model against this list, so an alias
- *      admitted here is a switch whose target can move under the participant.
+ *      selector strings as model ids — and a same-agent provider switch
+ *      validates its model against this list, so an alias admitted here is a
+ *      switch whose target can move under the participant.
  *      Where several entries resolve to one model, the reserved
  *      `default` pointer loses to a row that names the model, and it is kept
  *      only when it is that model's only row.

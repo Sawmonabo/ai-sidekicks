@@ -4,24 +4,22 @@
 //! session keyed by an internally-minted `session_id: String`, plus the
 //! reader / waiter background tasks that emit [`Envelope::DataFrame`] and
 //! [`Envelope::ExitCodeNotification`] to a single outbound channel. The
-//! dispatcher loop in `src/main.rs` (T-024-1-5) holds one registry instance,
-//! forwards inbound control requests (`spawn`, `write`, `resize`, `kill`) to
-//! the registry's async methods, and pumps the outbound channel through the
+//! dispatcher loop in `src/main.rs` holds one registry instance, forwards
+//! inbound control requests (`spawn`, `write`, `resize`, `kill`) to the
+//! registry's async methods, and pumps the outbound channel through the
 //! framing writer to stdout.
 //!
-//! Plan-024 Phase 1 / T-024-1-4 — implements Plan-024 §Implementation Step 4
-//! (per-session PTY holder + 8 KiB stdout/stderr pump with monotonic `seq`)
-//! and Step 5 (exit-code latch).
+//! Implements `seq`) and Step 5 (exit-code latch).
 //!
 //! ## Design decisions
 //!
 //! ### 1. Registry as a struct, not a global
 //!
-//! [`PtySessionRegistry`] is a struct that owns
-//! `HashMap<String, SessionHandle>` and an `mpsc::UnboundedSender<Envelope>`.
-//! The dispatcher in T-024-1-5 will construct one instance, hold it for the
-//! life of the runtime, and route inbound `kind`-discriminant matches to
-//! `registry.spawn(...)`, `registry.write(...)`, etc.
+//! [`PtySessionRegistry`] is a struct that owns `HashMap<String,
+//! SessionHandle>` and an `mpsc::UnboundedSender<Envelope>`. The dispatcher
+//! will construct one instance, hold it for the life of the runtime, and
+//! route inbound `kind`-discriminant matches to `registry.spawn(...)`,
+//! `registry.write(...)`, etc.
 //!
 //! Alternative considered: free functions with a global `OnceLock<Mutex<...>>`.
 //! Rejected — testability suffers (can't construct two independent
@@ -30,11 +28,10 @@
 //!
 //! ### 2. `session_id` minting — monotonic counter, format `s-{n}`
 //!
-//! Plan-024 §Implementation Step 4 pins the id as "internally-minted" but
-//! does not pin a format. We use an `AtomicU64` counter rendered as
-//! `s-{n}`. The id is opaque to the daemon (it round-trips verbatim through
-//! `SpawnResponse` / subsequent `WriteRequest.session_id` / etc.), so the
-//! shape is local-only.
+//! "internally-minted" but does not pin a format. We use an `AtomicU64`
+//! counter rendered as `s-{n}`. The id is opaque to the daemon (it
+//! round-trips verbatim through `SpawnResponse` / subsequent
+//! `WriteRequest.session_id` / etc.), so the shape is local-only.
 //!
 //! Alternative considered: UUID v4. Rejected — would add `uuid` (and
 //! `getrandom`) as new dependencies for no daemon-visible benefit. The
@@ -81,17 +78,13 @@
 //! Phase 1 contract: emit `signal_code: None` for every exit, including
 //! signal-terminated children. The `exit_code` field still carries the
 //! `portable_pty`-mapped value (signal-terminated children get `exit_code: 1`
-//! with `signal_code: None` at Phase 1). Phase 3 may refine this when
-//! direct `waitpid` plumbing replaces the `portable-pty` wrapper —
-//! tracked under the Phase 3 audit row for T-024-3-1.
+//! with `signal_code: None` at Phase 1).
 //!
 //! ### 7. Windows kill-translation is deferred to Phase 3
 //!
-//! Plan-024 §Invariants I-024-1 + I-024-2 pin POSIX→`CTRL_C_EVENT` /
-//! `CTRL_BREAK_EVENT` / `taskkill /T /F` translation as the Windows kill
-//! path. The audit row for this task explicitly defers that to Phase 3
-//! T-024-3-1 ("Verifies invariant: none (Phase 1; I-024-1/I-024-2 land in
-//! Phase 3 sidecar-side per the audit row's explicit note)").
+//! `CTRL_C_EVENT` / `CTRL_BREAK_EVENT` / `taskkill /T /F` translation as
+//! the Windows kill path. The audit row for this task explicitly defers
+//! that to Phase 3.
 //!
 //! Phase 1 [`PtySessionRegistry::kill`] therefore:
 //! - On unix: delivers the requested [`PtySignal`] via `libc::kill(2)`.
@@ -130,17 +123,15 @@ type KillerEntry = (Box<dyn ChildKiller + Send + Sync>, Option<u32>);
 
 /// Size of one [`DataFrame`] payload as emitted by the reader task.
 ///
-/// Plan-024 §Implementation Step 4 + §Target Areas pin "8 KiB
-/// chunks". Bound on the read-loop's stack buffer; matches the framing-layer
-/// headroom (8 MiB body cap ÷ 8 KiB chunks = 1024× margin per envelope).
+/// Bound on the read-loop's stack buffer; matches the framing-layer headroom
+/// (8 MiB body cap ÷ 8 KiB chunks = 1024× margin per envelope).
 const READ_CHUNK_BYTES: usize = 8 * 1024;
 
 /// Error type returned by [`PtySessionRegistry`] methods.
 ///
 /// Each variant carries the load-bearing context the dispatcher needs to
 /// shape the on-wire response (success/failure code, log line, ack envelope
-/// shape). The dispatcher in T-024-1-5 will map these to its own response
-/// envelopes.
+/// shape). The dispatcher will map these to its own response envelopes.
 ///
 /// Hand-rolled `Display` + `Error` rather than `#[derive(thiserror::Error)]`
 /// — `thiserror` would be a new transitive dependency for the marginal
@@ -171,7 +162,7 @@ pub enum PtySessionError {
     /// I/O error during a read/write/resize operation.
     Io(std::io::Error),
 
-    /// Windows kill-translation is owned by Phase 3 T-024-3-1.
+    /// Windows kill-translation is owned by Phase 3.
     ///
     /// Phase 1 ships unix-only kill. A Windows caller hitting this branch
     /// is the documented Phase boundary; the daemon-layer
@@ -180,22 +171,21 @@ pub enum PtySessionError {
     /// `NodePtyHost` until Phase 3 lands.
     ///
     /// `#[cfg_attr(not(windows), allow(dead_code))]` because this variant is
-    /// *constructed* only in the `#[cfg(windows)]` [`PtySessionRegistry::kill`]
-    /// arm — off Windows it is never built, so the binary-crate `dead_code`
-    /// pass flags it (the `Display` arm reads it, but reading is not
-    /// constructing). Polarity is inverted vs. [`SessionHandle::pid`]'s
-    /// `#[cfg_attr(windows, allow(dead_code))]`: that field is dead *on*
-    /// Windows; this variant is dead *off* it. `#[allow]`, not `#[expect]` —
-    /// under the lib + bin double-compile the library build sees this `pub`
-    /// variant as live, so `#[expect(dead_code)]` would fire
-    /// `unfulfilled_lint_expectations` there. Interim hygiene only: the variant is
-    /// *already* constructed on Windows today, in the `#[cfg(windows)]`
-    /// [`PtySessionRegistry::kill`] stub. Phase 3 T-024-3-1 replaces that stub with
-    /// the real translation, removing the sole construction site — at which point the
-    /// variant and this attribute are removed together. Because T-024-3-1 edits the
-    /// `#[cfg(windows)]` arm (not the non-Windows build), it does **not** render this
-    /// `not(windows)` allow inert; the allow stays load-bearing off Windows until the
-    /// variant itself is removed.
+    /// *constructed* only in the `#[cfg(windows)]` [`PtySessionRegistry::kill`] arm —
+    /// off Windows it is never built, so the binary-crate `dead_code` pass flags it
+    /// (the `Display` arm reads it, but reading is not constructing). Polarity is
+    /// inverted vs. [`SessionHandle::pid`]'s `#[cfg_attr(windows,
+    /// allow(dead_code))]`: that field is dead *on* Windows; this variant is dead
+    /// *off* it. `#[allow]`, not `#[expect]` — under the lib + bin double-compile the
+    /// library build sees this `pub` variant as live, so `#[expect(dead_code)]` would
+    /// fire `unfulfilled_lint_expectations` there. Interim hygiene only: the variant
+    /// is *already* constructed on Windows today, in the `#[cfg(windows)]`
+    /// [`PtySessionRegistry::kill`] stub. Phase 3 replaces that stub with the real
+    /// translation, removing the sole construction site — at which point the variant
+    /// and this attribute are removed together. Because edits the `#[cfg(windows)]`
+    /// arm (not the non-Windows build), it does **not** render this `not(windows)`
+    /// allow inert; the allow stays load-bearing off Windows until the variant itself
+    /// is removed.
     #[cfg_attr(not(windows), allow(dead_code))]
     WindowsKillNotImplemented,
 
@@ -228,7 +218,7 @@ impl std::fmt::Display for PtySessionError {
             }
             Self::Io(e) => write!(f, "I/O error: {e}"),
             Self::WindowsKillNotImplemented => {
-                write!(f, "Windows kill-translation deferred to Phase 3 T-024-3-1")
+                write!(f, "Windows kill-translation deferred to Phase 3")
             }
             Self::PidUnavailable(id) => write!(
                 f,
@@ -266,7 +256,7 @@ impl From<std::io::Error> for PtySessionError {
 /// on PTY EOF (child closed its slave end); the waiter task self-
 /// terminates on `Child::wait` return.
 ///
-/// ## Registry-drop cleanup (Phase 3, T-024-3-1 — was the deferred TODO)
+/// ## Registry-drop cleanup (Phase 3 — was the deferred TODO)
 ///
 /// A Phase 1 misbehaving child that ignores its eventual SIGHUP /
 /// SIGKILL would in principle keep both tasks alive indefinitely
@@ -312,10 +302,10 @@ struct SessionHandle {
     /// a missing pid surfaces as [`PtySessionError::PidUnavailable`].
     /// In practice on Linux / macOS this is always `Some` post-spawn.
     ///
-    /// `#[cfg_attr(windows, allow(dead_code))]` because the Windows
-    /// kill arm currently returns
+    /// `#[cfg_attr(windows, allow(dead_code))]` because the Windows kill
+    /// arm currently returns
     /// [`PtySessionError::WindowsKillNotImplemented`] without consulting
-    /// the pid. Phase 3 T-024-3-1 will read this field for the
+    /// the pid. Phase 3 will read this field for the
     /// `GenerateConsoleCtrlEvent` + `taskkill` paths.
     #[cfg_attr(windows, allow(dead_code))]
     pid: Option<u32>,
@@ -374,8 +364,8 @@ struct SessionHandle {
 /// The session-id-keyed registry the dispatcher consumes.
 ///
 /// One instance per sidecar process, constructed by `main.rs`'s dispatcher
-/// at startup (T-024-1-5). Asynchronous methods (`spawn`, `write`, `resize`,
-/// `kill`) form the inbound surface; the outbound surface is the
+/// at startup. Asynchronous methods (`spawn`, `write`, `resize`, `kill`)
+/// form the inbound surface; the outbound surface is the
 /// [`mpsc::UnboundedReceiver`] returned by [`PtySessionRegistry::new`],
 /// which carries every [`Envelope::DataFrame`] and
 /// [`Envelope::ExitCodeNotification`] toward the framing writer.
@@ -390,12 +380,11 @@ struct SessionHandle {
 ///
 /// ## Sequence numbers
 ///
-/// `seq` is monotonically increasing per `(session_id, stream)` pair, per
-/// Plan-024 §Implementation Step 4 + the [`DataFrame`] rustdoc on
-/// `protocol.rs`. Since Phase 1 only emits `Stdout`, the per-session
-/// counter is effectively a single counter. The counter is reset per
-/// session at spawn time (i.e., session A's seq 0 is unrelated to
-/// session B's seq 0).
+/// `seq` is monotonically increasing per `(session_id, stream)` pair
+/// `DataFrame`] rustdoc on `protocol.rs`. Since Phase 1 only emits
+/// `Stdout`, the per-session counter is effectively a single counter. The
+/// counter is reset per session at spawn time (i.e., session A's seq 0 is
+/// unrelated to session B's seq 0).
 pub struct PtySessionRegistry {
     /// `Arc<Mutex<...>>` so the waiter task can also remove its session
     /// from the map on exit. Lock-held duration is the
@@ -405,7 +394,7 @@ pub struct PtySessionRegistry {
 
     /// Outbound queue feeding the dispatcher's stdout pump. Unbounded so
     /// reader tasks never block — backpressure on the framing layer is
-    /// the dispatcher's concern (T-024-1-5).
+    /// the dispatcher's concern.
     outbound: mpsc::UnboundedSender<Envelope>,
 
     /// Monotonic session-id source. Atomic so spawn calls are
@@ -481,9 +470,9 @@ impl PtySessionRegistry {
     /// Construct a fresh registry plus the outbound channel receiver
     /// the dispatcher should pump.
     ///
-    /// The receiver MUST be drained by the caller (the T-024-1-5
-    /// dispatcher) — backpressure is not implemented at this layer. If
-    /// the dispatcher drops the receiver, the reader pump's next
+    /// The receiver MUST be drained by the caller (dispatcher) —
+    /// backpressure is not implemented at this layer. If the
+    /// dispatcher drops the receiver, the reader pump's next
     /// `outbound.send(...)` fails and the task exits quietly; the
     /// waiter task's send is fire-and-forget and follows the same
     /// drop-and-exit discipline.
@@ -508,8 +497,7 @@ impl PtySessionRegistry {
     ///
     /// `env` is applied via `CommandBuilder::env_clear()` followed by
     /// `env(k, v)` for each pair — the daemon-layer caller owns
-    /// inheritance semantics (Plan-024 §Implementation Step 1 +
-    /// protocol.rs module rustdoc).
+    /// inheritance semantics.
     pub async fn spawn(&self, req: SpawnRequest) -> Result<SpawnResponse, PtySessionError> {
         let session_id = self.mint_session_id();
 
@@ -529,11 +517,8 @@ impl PtySessionRegistry {
         for arg in &req.args {
             cmd.arg(arg);
         }
-        // Plan-024 §Implementation Step 1 doesn't mandate env_clear, but
-        // the daemon-layer contract assumes the env passed in the request
-        // is authoritative (the daemon constructs the full env it wants
-        // the child to see). Clearing the inherited environment first
-        // makes the spawn request hermetic.
+        // Clearing the inherited environment first makes the spawn
+        // request hermetic.
         cmd.env_clear();
         for (k, v) in &req.env {
             cmd.env(k, v);
@@ -553,8 +538,8 @@ impl PtySessionRegistry {
         // `process_id()` is the only path to a unix kill at Phase 1 (we
         // bypass `portable-pty`'s default killer because its unix path
         // hardcodes SIGHUP — see [`PtySessionRegistry::kill`] rustdoc).
-        // Phase 3 T-024-3-1 will additionally stash a `ChildKiller`
-        // clone here for the Windows kill-translation arm.
+        // Phase 3 will additionally stash a `ChildKiller` clone here
+        // for the Windows kill-translation arm.
         let pid = child.process_id();
 
         // Clone a killer BEFORE moving `child` into the waiter. The
@@ -753,9 +738,8 @@ impl PtySessionRegistry {
     /// number corresponding to `req.signal` via `libc::kill(2)`.
     ///
     /// Windows kill-translation (POSIX→`CTRL_C_EVENT` /
-    /// `CTRL_BREAK_EVENT` / `taskkill /T /F` + tree-kill escalation per
-    /// Plan-024 §Invariants I-024-1 + I-024-2) is owned by Phase 3
-    /// T-024-3-1; the Windows arm returns
+    /// `CTRL_BREAK_EVENT` / `taskkill /T /F` + tree-kill escalation) is
+    /// owned by Phase 3 the Windows arm returns
     /// [`PtySessionError::WindowsKillNotImplemented`] until then.
     ///
     /// `node-pty`'s default `kill()` and `portable-pty`'s default
@@ -806,11 +790,9 @@ impl PtySessionRegistry {
         })
     }
 
-    /// Windows kill stub — substrate-only ship per Plan-024 §Invariants
-    /// I-024-1 + I-024-2 and §Implementation Phase Sequence Phase 3 header;
-    /// end-to-end wire-through is deferred to a follow-up task.
-    /// Translator substrate is verified in `kill_translation::tests`
-    /// (I-024-1) and `tree_kill::tests` (I-024-2).
+    /// Windows kill stub — substrate-only ship end-to-end wire-through is
+    /// deferred to a follow-up task. Translator substrate is verified in
+    /// `kill_translation::tests` and `tree_kill::tests`.
     #[cfg(windows)]
     pub async fn kill(&self, _req: KillRequest) -> Result<KillResponse, PtySessionError> {
         Err(PtySessionError::WindowsKillNotImplemented)
@@ -1031,20 +1013,19 @@ const DROP_KILL_ESCALATION_DEADLINE: std::time::Duration = std::time::Duration::
 ///   - **Windows:** `TerminateProcess(handle, 127)` via portable-pty's
 ///     `ProcessSignaller`. This is **already a hard kill** — the
 ///     process cannot install a TerminateProcess handler — so no
-///     Windows escalation is needed. The Phase 2 escalation block
-///     is gated with `#[cfg(unix)]` accordingly. Note that
+///     Windows escalation is needed. The Phase 2 escalation block is
+///     gated with `#[cfg(unix)]` accordingly. Note that
 ///     `TerminateProcess` is single-PID: session grandchildren that
 ///     the child itself spawned will orphan when the sidecar exits
-///     cleanly. Plan-024 §Invariants I-024-4's daemon-side
-///     `taskkill /T /F /PID <sidecar-pid>` escalation fires only on
-///     sidecar-exit **timeout**, so a successful Drop here does NOT
-///     trigger that defense; the I-024-2 tree-kill structural intent
-///     is honored only on the in-band [`PtySessionRegistry::kill`]
+///     cleanly. `taskkill /T /F /PID <sidecar-pid>` escalation fires
+///     only on sidecar-exit **timeout**, so a successful Drop here
+///     does NOT trigger that defense tree-kill structural intent is
+///     honored only on the in-band [`PtySessionRegistry::kill`]
 ///     Windows arm (deferred to Phase 4 per the file header — the
 ///     current Windows arm returns
 ///     [`PtySessionError::WindowsKillNotImplemented`]). Acceptable for
-///     Phase 3 because this Drop's Windows compile arm is dead code
-///     on the current test matrix (`tests/pty_session.rs` is
+///     Phase 3 because this Drop's Windows compile arm is dead code on
+///     the current test matrix (`tests/pty_session.rs` is
 ///     `#![cfg(unix)]`); when Phase 4 wires the Windows in-band kill
 ///     path, this Drop arm should be reconsidered (likely a fire-and-
 ///     forget `taskkill /T /F` matching the in-band cascade so
@@ -1170,8 +1151,8 @@ fn posix_signal_number(signal: PtySignal) -> libc::c_int {
 ///
 /// Runs the blocking `read` loop on `spawn_blocking`; each chunk
 /// becomes one [`Envelope::DataFrame`] with monotonically increasing
-/// `seq` per session (Plan-024 §Implementation Step 4). Exits on EOF
-/// (child closed its end of the PTY) or read error.
+/// `seq` per session. Exits on EOF (child closed its end of the PTY)
+/// or read error.
 fn spawn_reader_task(
     session_id: String,
     mut reader: Box<dyn Read + Send>,
@@ -1237,8 +1218,7 @@ fn spawn_reader_task(
 ///
 /// `reader_task` is the [`JoinHandle`] returned by [`spawn_reader_task`]
 /// for the same session. The waiter `await`s it WITHOUT a timeout before
-/// emitting the notification, so the Plan-024 §Implementation Step 5
-/// ordering contract — every `DataFrame` arrives before the
+/// emitting the notification, so — every `DataFrame` arrives before the
 /// `ExitCodeNotification` — is enforced by happens-before rather than
 /// scheduling luck.
 ///
@@ -1315,15 +1295,13 @@ fn spawn_waiter_task(
         //
         // After `Child::wait()` returns the child has closed its slave
         // end and the master-side `read()` will observe `Ok(0)` (EOF)
-        // on the next call — the reader's `loop { ... }` then exits
-        // and the `JoinHandle` resolves. Awaiting that resolution here
+        // on the next call — the reader's `loop {... }` then exits and
+        // the `JoinHandle` resolves. Awaiting that resolution here
         // forces a happens-before edge: every `DataFrame` the reader
         // emitted (including any chunks the child wrote in its final
         // moments) reaches the outbound channel before the waiter's
-        // notification can. Per Plan-024 §Implementation Step 5 the
-        // notification ordering MUST be DataFrame-first; the natural
-        // drain is how Phase 1 enforces it across both fast unix EOF
-        // and slower Windows ConPTY EOF.
+        // notification can. the natural drain is how Phase 1 enforces
+        // it across both fast unix EOF and slower Windows ConPTY EOF.
         //
         // No timeout: aborting a `spawn_blocking` task via
         // `JoinHandle::abort()` is a no-op once the closure has
@@ -1424,8 +1402,8 @@ fn spawn_waiter_task(
         //
         // Phase 1 limitation: portable-pty discards the raw POSIX
         // signal number during `From<std::process::ExitStatus>` (see
-        // module rustdoc §6). We emit `signal_code: None` for every
-        // exit; Phase 3 T-024-3-1 may refine this via direct waitpid.
+        // module rustdoc). We emit `signal_code: None` for every
+        // exit; Phase 3 may refine this via direct waitpid.
         //
         // `as i32` cast: portable-pty returns u32; the wire shape is
         // i32. The wrap is intentional so Windows NTSTATUS-style
@@ -1486,11 +1464,11 @@ fn spawn_waiter_task(
 /// double-compile that this module's sibling `WindowsKillNotImplemented`
 /// allow also addresses), these tests compile into both the lib-test and
 /// bin-test harnesses and execute under both — harmless (each test builds
-/// its own registry in its own process) but they appear twice in
-/// `cargo test` output. The lib crate and the `tests/` integration crate
-/// are separate compilation units and cannot share helpers, so the small
+/// its own registry in its own process) but they appear twice in `cargo
+/// test` output. The lib crate and the `tests/` integration crate are
+/// separate compilation units and cannot share helpers, so the small
 /// `drain_until_exit` / `empty_env` / `EXIT_TIMEOUT` helpers below are
-/// duplicated from that file. Plan-024 Phase 1 / T-024-1-4.
+/// duplicated from that file..
 #[cfg(all(test, unix))]
 mod registry_lifecycle_tests {
     use std::time::Duration;

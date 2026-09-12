@@ -15,10 +15,10 @@ import {
   type ProviderRefusalShape,
 } from "../failure-mapping.js";
 
-// The permanent-vs-transient refusal classifier (Plan-005 T3.22), verifying
-// invariant I-005-9: a structurally invalid history is a permanent refusal and
-// never a retry, and the outcome a connection loss left unknown is settled by
-// reading the target rather than by guessing at it.
+// The permanent-vs-transient refusal classifier, verifying invariant: a
+// structurally invalid history is a permanent refusal and never a retry, and
+// the outcome a connection loss left unknown is settled by reading the target
+// rather than by guessing at it.
 //
 // The routing these rules produce is asserted at each driver's dispatch seam,
 // where the provider call count is observable; what is asserted here is the

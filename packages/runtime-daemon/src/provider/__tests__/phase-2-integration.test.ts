@@ -1,6 +1,6 @@
 // Phase-2 end-to-end integration — RuntimeBindingStore + ProviderRegistry +
-// DriverCapabilitiesWriter wired together over ONE real Local SQLite handle
-// (Plan-005 §Phase 2 / T2.5).
+// DriverCapabilitiesWriter wired together over ONE real Local SQLite
+// handle.
 //
 // This is the CROSS-COMPONENT integration suite. Each of the three components
 // owns its own unit suite (`runtime-binding-store.test.ts`,
@@ -11,46 +11,33 @@
 // the `ProviderDriver`. The composition mirrors the production root:
 //   SessionService(db) → RuntimeNodeEventEmitter({ sessionEvents, newEventId })
 //   → DriverCapabilitiesWriter(db, emitter, now), with RuntimeBindingStore(db)
-//   and ProviderRegistry() over the SAME `db` (the T2.5 wiring contract — the
-//   writer's atomic dual-write depends on the emitter appending on this
-//   connection).
+//   and ProviderRegistry() over the SAME `db` (wiring contract — the writer's
+//   atomic dual-write depends on the emitter appending on this connection).
 //
 // Coverage map (cites are the authoritative contract, not just the ACs):
-//   * `Spec-005 §Required Behavior` (the runtime treats undeclared capabilities as unsupported):
-//     `checkCapability` gates the integration boundary across registry-A,
-//     the cold-start re-seeded registry-B, and the refreshed registry.
-//   * `Spec-005 §Required Behavior` (drivers persist provider-owned resume handles separately
-//     from canonical session/run ids): `RuntimeBindingStore.create` carries the
-//     opaque `resumeHandle` beside the DAEMON-owned `spawnConfig` record (T2.6),
-//     and the binding round-trips through a FRESH store over the same `db` with
-//     both halves intact.
-//   * T2.6 (the durable `driver_contract_meta` CLI-version pair): the
-//     COMPOSITION-level consequence, not the per-component persistence proof
+//   * `checkCapability` gates the integration boundary across registry-A, the
+//     cold-start re-seeded registry-B, and the refreshed registry.
+//   * `RuntimeBindingStore.create` carries the opaque `resumeHandle` beside the
+//     DAEMON-owned `spawnConfig` record, and the binding round-trips through a
+//     FRESH store over the same `db` with both halves intact.
+//   * The COMPOSITION-level consequence, not the per-component persistence proof
 //     (`driver-capabilities-writer.test.ts` owns that) — a hydration hit now
 //     re-seeds a cold-start registry UNAIDED, and a NULL pair collapses that
 //     path into a `cli_version_missing` miss whose only remedy is a refresh from
 //     the live driver.
-//   * `Spec-005 §Acceptance Criteria` (AC2 — unsupported capabilities remain unavailable and
-//     cannot be invoked accidentally): the capability round-trip + cold-start
-//     re-seed proves the durable cache reconstitutes the gating set identically
-//     across a daemon restart.
-//   * `Spec-005 §Required Behavior` + ADR-011 (intervention dispatch routes by type to the driver;
-//     a driver lacking native support returns a `degraded` result): the gate's
-//     SCOPE boundary — `applyIntervention` is NOT pre-gated, so a `steer:false`
-//     driver still receives the steer call and degrades.
-//   * CP-005-5 (the emitted `capability` is the `"provider-driver-<driverName>"`
-//     suffixed key): asserted as the literal `"provider-driver-claude"`.
-//   * I-005-1 (driver authority remains local even when the provider endpoint is
-//     remote): the run↔driver binding, the capability cache, and the registry
-//     all resolve to the SAME daemon-local driver identity; no state is sourced
-//     from the mock (conceptually-remote) provider beyond the opaque strings it
-//     declared, and the binding survives a fresh-store cold read.
-//   * I-005-2 (undeclared capability = unsupported): the gate matrix at the
-//     integration boundary (unregistered → `driver.unavailable`; declared-false
-//     → `driver.capability_unsupported`; declared-true → void).
+//   * the capability round-trip + cold-start re-seed proves the durable cache
+//     reconstitutes the gating set identically across a daemon restart.
+//   * the gate's SCOPE boundary — `applyIntervention` is NOT pre-gated, so a
+//     `steer:false` driver still receives the steer call and degrades.
+//   * Asserted as the literal `"provider-driver-claude"`.
+//   * The run↔driver binding, the capability cache, and the registry all resolve
+//     to the SAME daemon-local driver identity; no state is sourced from the
+//     mock (conceptually-remote) provider beyond the opaque strings it declared,
+//     and the binding survives a fresh-store cold read.
+//   * The gate matrix at the integration boundary (unregistered →
+//     `driver.unavailable`; declared-false → `driver.capability_unsupported`;
+//     declared-true → void).
 //
-// Refs: Plan-005 §Phase 2 / T2.5 + T2.6, `Spec-005 §Required Behavior` + `Spec-005 §Acceptance Criteria` (AC2),
-// CP-005-1, CP-005-5, ADR-011, invariants I-005-1 + I-005-2.
 
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -113,12 +100,12 @@ const NODE_ID: string = "node-01J0ND0000NN5J5J5J5J5J5J";
 const DRIVER_NAME: string = "claude";
 // Canonical semver — accepted by the write-seam `assertValidContractVersion`
 // used by BOTH the capability declare AND the binding `create`. Sharing ONE
-// version across the two write seams is what makes the I-005-1 coherence
-// assertion (binding.contractVersion === hydrated.contractVersion) hold by
+// version across the two write seams is what makes coherence assertion
+// (binding.contractVersion === hydrated.contractVersion) hold by
 // construction, not by coincidence.
 const CONTRACT_VERSION: string = "1.2.3";
-// The CP-005-5 suffixed capability key for this driver — the literal the writer
-// must emit on every `runtime_node.capability_*` event.
+// Suffixed capability key for this driver — the literal the writer must emit on
+// every `runtime_node.capability_*` event.
 const CAPABILITY_KEY: string = "provider-driver-claude";
 
 // ----------------------------------------------------------------------------
@@ -139,24 +126,23 @@ function makeFlags(
   return { ...base, resume: true, tool_calls: true, ...overrides };
 }
 
-// The REQUIRED `cliVersion` reading (T1.8) every advertised snapshot carries.
-// Post-T2.6 it is ALSO a durable property of the capability cache: the writer
-// persists the `driver_contract_meta.cli_version_raw` / `cli_version_semver`
-// pair on every mutating declare, so `hydrate()` reproduces this exact reading
-// and the cold-start re-seeds below carry it out of the CACHE rather than
-// re-attaching it from the live driver.
+// The REQUIRED `cliVersion` reading every advertised snapshot carries. Post-
+// it is ALSO a durable property of the capability cache: the writer persists
+// the `driver_contract_meta.cli_version_raw` / `cli_version_semver` pair on
+// every mutating declare, so `hydrate()` reproduces this exact reading and the
+// cold-start re-seeds below carry it out of the CACHE rather than re-attaching
+// it from the live driver.
 const CLI_VERSION_REPORT: DriverCliVersionReport = {
   raw: "mock-provider-cli 2.1.234 (build 7)",
   semver: "2.1.234",
 };
 
-// The spawn-bound record a REAL spawn of this stack would realize (T2.6,
-// CP-005-1): the posture the process was sandboxed under plus the executable
-// path the spawn resolved. Two members rather than the full closed key set —
-// this suite's claim is that the daemon-local record survives the cold read
-// intact, not that every member parses (`runtime-binding-store.test.ts` owns the
-// full-key-set round-trip). `{}` would have satisfied the compiler and proved
-// nothing.
+// The spawn-bound record a REAL spawn of this stack would realize: the posture
+// the process was sandboxed under plus the executable path the spawn resolved.
+// Two members rather than the full closed key set — this suite's claim is that
+// the daemon-local record survives the cold read intact, not that every member
+// parses (`runtime-binding-store.test.ts` owns the full-key-set round-trip).
+// `{}` would have satisfied the compiler and proved nothing.
 const EXECUTION_POSTURE: ExecutionPosture = {
   networkAccess: "none",
   writableRoots: ["/workspace/repo"],
@@ -170,8 +156,8 @@ const SPAWN_CONFIG: RuntimeBindingSpawnConfig = {
 
 // The driver's advertised snapshot. Tools are declared already in canonical
 // (name-ascending) order WITH an explicit `idempotency_class`, so the declared
-// input is byte-identical to the `hydrate()` output — the AC2 round-trip is then
-// an identity check rather than a normalize-and-sort comparison.
+// input is byte-identical to the `hydrate()` output — round-trip is then an
+// identity check rather than a normalize-and-sort comparison.
 function makeResult(overrides: Partial<GetCapabilitiesResult> = {}): GetCapabilitiesResult {
   return {
     capabilities: {
@@ -189,11 +175,11 @@ function makeResult(overrides: Partial<GetCapabilitiesResult> = {}): GetCapabili
  * reason-carrying error on a miss.
  *
  * Deliberately a THROW rather than the `expect(x).toBeDefined(); if (x ===
- * undefined) return;` shape this file used pre-T2.6: that guard's early return
- * made a hydration failure PASS the test silently. Post-T2.6 `hydrate()` cannot
- * return `undefined` at all — it returns an explicit miss whose `reason` this
- * helper surfaces in the failure message, so a regression that turns a hit into
- * a miss names its own cause.
+ * undefined) return;` shape this file used pre-: that guard's early return made
+ * a hydration failure PASS the test silently. Post- `hydrate()` cannot return
+ * `undefined` at all — it returns an explicit miss whose `reason` this helper
+ * surfaces in the failure message, so a regression that turns a hit into a miss
+ * names its own cause.
  *
  * Defined locally rather than imported from `driver-capabilities-writer.test.ts`
  * (test files are leaves; a cross-suite import would couple two independent
@@ -237,8 +223,8 @@ function makeMockDriver(capabilitiesResult: GetCapabilitiesResult): MockProvider
     applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult> {
       interventionCalls.push(params);
       // A driver lacking native support for the requested intervention returns a
-      // `degraded` result so the orchestration layer can fall back (`Spec-005 §Required Behavior`,
-      // ADR-011). `fallbackAction` is the suggested fallback hint.
+      // `degraded` result so the orchestration layer can fall back.
+      // `fallbackAction` is the suggested fallback hint.
       return Promise.resolve({ status: "degraded", fallbackAction: "queue_and_interrupt" });
     },
     createSession(): Promise<never> {
@@ -321,10 +307,10 @@ let db: DatabaseType;
 // Wire the Phase-2 object graph over the current `db`. A collision-free
 // deterministic event-id source so `session_events.id` (TEXT PRIMARY KEY) never
 // collides across the multiple emits a declared→updated sequence produces. The
-// seam is ASYNC-TRANSACTIONAL post the Plan-006 T3.1 re-point
-// (node-event-emitter.ts's header owns the contract): `EventLogService.append`
-// over the SAME connection backs it, which is what lets every producer's
-// prelude join the append's transaction.
+// seam is ASYNC-TRANSACTIONAL post re-point (node-event-emitter.ts's header
+// owns the contract): `EventLogService.append` over the SAME connection backs
+// it, which is what lets every producer's prelude join the append's
+// transaction.
 function makeStack(): Stack {
   let eventIdCounter: number = 0;
   const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
@@ -368,10 +354,10 @@ afterEach(() => {
 });
 
 // ----------------------------------------------------------------------------
-// (1) AC2 — capability round-trip + cold-start re-seed (`Spec-005 §Required Behavior`)
+// (1) — capability round-trip + cold-start re-seed
 // ----------------------------------------------------------------------------
 
-describe("Phase 2 integration — AC2 capability round-trip + cold-start re-seed", () => {
+describe("Phase 2 integration — capability round-trip + cold-start re-seed", () => {
   it("registry gate, declare, hydrate, and a re-seeded registry-B all agree on the gating set across a daemon restart", async () => {
     const { sessionService, writer, registry } = makeStack();
 
@@ -410,7 +396,7 @@ describe("Phase 2 integration — AC2 capability round-trip + cold-start re-seed
     ).toEqual({ emitted: "declared", cliVersionRefreshed: true });
 
     // Read the emitted event back off SessionService (same connection): exactly
-    // one capability_declared carrying the CP-005-5 suffixed key.
+    // one capability_declared carrying suffixed key.
     const events = sessionService.readEvents(SESSION_ID);
     expect(events).toHaveLength(1);
     const declaredEvent = events[0];
@@ -421,7 +407,7 @@ describe("Phase 2 integration — AC2 capability round-trip + cold-start re-seed
 
     // --- hydrate: the durable cache reconstructs the nested wrapper faithfully ---
     // Asserted as the WHOLE `GetCapabilitiesResult` (not member-by-member): post
-    // T2.6 the hit arm carries `cliVersion` too, so the cache round-trip is now a
+    // the hit arm carries `cliVersion` too, so the cache round-trip is now a
     // whole-object identity against what the driver advertised. A member-wise
     // assertion would let a silently-dropped `cliVersion` pass.
     const hydrated: GetCapabilitiesResult = expectHydrationHit(writer.hydrate(DRIVER_NAME));
@@ -434,10 +420,10 @@ describe("Phase 2 integration — AC2 capability round-trip + cold-start re-seed
     expect(hydrated.cliVersion).toEqual(CLI_VERSION_REPORT);
 
     // --- cold-start re-seed: registry-B is fed the HYDRATED cache (NOT the live
-    // driver). It must gate IDENTICALLY to registry-A — the AC2 round-trip proof
-    // that the persisted cache reconstitutes the gating set across a restart. ---
+    // It must gate IDENTICALLY to registry-A — round-trip proof that the
+    // persisted cache reconstitutes the gating set across a restart.
     const registryB: ProviderRegistry = new ProviderRegistry();
-    // The hydrated snapshot is now a COMPLETE `GetCapabilitiesResult` — T2.6's
+    // The hydrated snapshot is now a COMPLETE `GetCapabilitiesResult` — the
     // durable version pair means the re-seed hands the cache's own object across
     // UNMODIFIED. It is deliberately NOT spread with a re-attached
     // `CLI_VERSION_REPORT` any more: doing so would re-inject the live reading
@@ -457,10 +443,10 @@ describe("Phase 2 integration — AC2 capability round-trip + cold-start re-seed
 });
 
 // ----------------------------------------------------------------------------
-// (2) I-005-2 — gate matrix at the integration boundary (`Spec-005 §Required Behavior`)
+// (2) — gate matrix at the integration boundary
 // ----------------------------------------------------------------------------
 
-describe("Phase 2 integration — I-005-2 gate matrix at the integration boundary", () => {
+describe("Phase 2 integration — gate matrix at the integration boundary", () => {
   it("unregistered driver → driver.unavailable; declared-false → driver.capability_unsupported; declared-true → void", async () => {
     const { registry } = makeStack();
 
@@ -500,10 +486,10 @@ describe("Phase 2 integration — I-005-2 gate matrix at the integration boundar
 });
 
 // ----------------------------------------------------------------------------
-// (3) I-005-2 gate SCOPE / ADR-011 non-gating boundary (`Spec-005 §Required Behavior`)
+// (3) gate SCOPE / non-gating boundary
 // ----------------------------------------------------------------------------
 
-describe("Phase 2 integration — gate scope: applyIntervention is NOT pre-gated (ADR-011)", () => {
+describe("Phase 2 integration — gate scope: applyIntervention is NOT pre-gated", () => {
   it("a steer:false driver still receives applyIntervention(steer) directly and returns a degraded result", async () => {
     const { registry } = makeStack();
 
@@ -544,17 +530,15 @@ describe("Phase 2 integration — gate scope: applyIntervention is NOT pre-gated
     // The call REACHED the mock (it was not blocked by a capability gate)...
     expect(driver.interventionCalls).toHaveLength(1);
     expect(driver.interventionCalls[0]?.type).toBe("steer");
-    // ...and degraded per ADR-011 / `Spec-005 §Required Behavior`.
     expect(result.status).toBe("degraded");
   });
 });
 
 // ----------------------------------------------------------------------------
-// (4) I-005-1 — daemon-local authority (binding linkage + fresh-store cold read)
-//     (`Spec-005 §Required Behavior`)
+// (4) — daemon-local authority (binding linkage + fresh-store cold read)
 // ----------------------------------------------------------------------------
 
-describe("Phase 2 integration — I-005-1 daemon-local authority (binding linkage)", () => {
+describe("Phase 2 integration — daemon-local authority (binding linkage)", () => {
   it("a runtime binding round-trips through findById/findByRun AND a FRESH store over the same db, cohering with the registered + hydrated driver identity", async () => {
     const { writer, bindingStore, registry } = makeStack();
 
@@ -570,17 +554,14 @@ describe("Phase 2 integration — I-005-1 daemon-local authority (binding linkag
     });
     const hydrated: GetCapabilitiesResult = expectHydrationHit(writer.hydrate(DRIVER_NAME));
 
-    // The provider's ONLY contribution is the opaque strings it declared — here
-    // the `resumeHandle` (`Spec-005 §Required Behavior`, persisted separately from canonical
-    // session/run ids). Authority over the run↔driver binding stays daemon-local.
+    // The provider's ONLY contribution is the opaque strings it declared — here the
+    // `resumeHandle` (persisted separately from canonical session/run ids).
+    // Authority over the run↔driver binding stays daemon-local.
     //
-    // `spawnConfig` is the DAEMON-owned half of that split and is REQUIRED at
-    // this seam (T2.6): every binding write IS a spawn, and the record here is
-    // what recovery re-reads to rebuild `ResumeSessionParams`. It carries the two
-    // legs a real spawn of this stack realizes — the execution posture the
-    // process was sandboxed under and the executable path the spawn resolved —
-    // rather than `{}`, so the cold read below proves the daemon-local record
-    // survives with CONTENT rather than merely parsing.
+    // It carries the two legs a real spawn of this stack realizes — the execution
+    // posture the process was sandboxed under and the executable path the spawn
+    // resolved — rather than `{}`, so the cold read below proves the daemon-local
+    // record survives with CONTENT rather than merely parsing.
     const created = bindingStore.create({
       runId: "run-1",
       driverName: DRIVER_NAME,
@@ -622,7 +603,6 @@ describe("Phase 2 integration — I-005-1 daemon-local authority (binding linkag
 
 // ----------------------------------------------------------------------------
 // (5) Refresh seam coherence — declare 'updated' ties to the registry refresh
-//     (`Spec-005 §Required Behavior` + CP-005-5)
 // ----------------------------------------------------------------------------
 
 describe("Phase 2 integration — refresh seam coherence (updated → re-hydrate → registry gate flips)", () => {
@@ -662,7 +642,7 @@ describe("Phase 2 integration — refresh seam coherence (updated → re-hydrate
     });
 
     // The timeline carries declared THEN updated, the update bearing the suffixed
-    // capability key (CP-005-5).
+    // capability key.
     const events = sessionService.readEvents(SESSION_ID);
     expect(events.map((event) => event.type)).toEqual([
       "runtime_node.capability_declared",
@@ -689,8 +669,7 @@ describe("Phase 2 integration — refresh seam coherence (updated → re-hydrate
 });
 
 // ----------------------------------------------------------------------------
-// (6) T2.6 — the durable cli_version pair is what makes the cold-start re-seed
-//     SELF-SUFFICIENT (`Spec-005 §Required Behavior`)
+// (6) — the durable cli_version pair is what makes the cold-start re-seed
 // ----------------------------------------------------------------------------
 
 describe("Phase 2 integration — durable cliVersion currency gates the cold-start re-seed", () => {
@@ -710,8 +689,8 @@ describe("Phase 2 integration — durable cliVersion currency gates the cold-sta
     // `driver-capabilities-writer.test.ts` owns the per-component proof that the
     // pair persists and that a NULL pair reads as a miss. What only the
     // COMPOSITION can show is the consequence: whether the cold-start re-seed
-    // path is self-sufficient. Pre-T2.6 it was not — the caller had to re-attach
-    // a live `cliVersion` because the cache held none.
+    // path is self-sufficient. Pre- it was not — the caller had to re-attach a
+    // live `cliVersion` because the cache held none.
     const hydrated: GetCapabilitiesResult = expectHydrationHit(writer.hydrate(DRIVER_NAME));
     expect(hydrated.cliVersion).toEqual(CLI_VERSION_REPORT);
 
@@ -725,7 +704,7 @@ describe("Phase 2 integration — durable cliVersion currency gates the cold-sta
       DriverCapabilityUnsupportedError,
     );
 
-    // --- the pre-T1.7 row shape: parent row present, currency pair NULL ---
+    // --- the pre- row shape: parent row present, currency pair NULL ---
     // Staged by direct SQL because the write seam makes it unrepresentable, and
     // BOTH columns in one statement because the table's both-or-neither CHECK
     // rejects NULLing just one.

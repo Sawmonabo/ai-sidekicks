@@ -1,58 +1,50 @@
-// JSON-RPC streaming primitive contracts — `$/subscription/notify` /
-// `$/subscription/cancel` wire envelopes + `LocalSubscriptionProducer<T>` server-side
-// producer interface for Plan-007 Phase 2 (T-007p-2-5).
+// JSON-RPC streaming primitive contracts — the `$/subscription/notify` /
+// `$/subscription/cancel` wire envelopes plus the `LocalSubscriptionProducer<T>`
+// server-side producer interface.
 //
 // This file owns the CROSS-PACKAGE wire shape every streaming participant
 // agrees on. The runtime IMPLEMENTATION (per-subscription state, value-
 // schema validation, transport-scoped cancel authorization, cleanup on
 // disconnect) lives in
-// `packages/runtime-daemon/src/ipc/streaming-primitive.ts` (T-007p-2-5
-// sibling).
+// `packages/runtime-daemon/src/ipc/streaming-primitive.ts` (sibling).
 //
-// Spec coverage:
-//   * `Spec-007 §Wire Format` — JSON-RPC 2.0 + LSP-style framing. The streaming
-//     primitive uses LSP-style `$/`-prefixed method names for system
-//     notifications (mirrors LSP's `$/cancelRequest` convention).
-//   * `Spec-007 §Required Behavior` — Local IPC supports the
-//     bidirectional stream of notifications a streaming subscription
-//     produces.
-//   * `Plan-007 §Phase 2: Wire Substrate` (T-007p-2-5) —
-//     "Streaming primitive `LocalSubscriptionProducer<T>` shipped on top of T-1's
+//   * JSON-RPC 2.0 + LSP-style framing. The streaming primitive uses LSP-style
+//     `$/`-prefixed method names for system notifications (mirrors LSP's
+//     `$/cancelRequest` convention).
+//   * Local IPC supports the bidirectional stream of notifications a
+//     streaming subscription produces.
+//   * "Streaming primitive `LocalSubscriptionProducer<T>` shipped on top of T-1's
 //     wire substrate + T-3's registry."
-//   * F-007p-2-14 — Phase 2 ships the PRIMITIVE only; handler binding
-//     (`session.subscribe`) lands in Phase 3 (T-007p-3-1).
+//   * Phase 2 ships the PRIMITIVE only; handler binding
+//     (`session.subscribe`) lands in Phase 3.
 //
-// Invariants this file's interface enforces (canonical text in
-// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-6 through I-007-9):
-//   * I-007-7 — schema validation runs before handler dispatch. Streaming
-//     analog: every emitted `$/subscription/notify` value MUST conform to
-//     the per-subscription `valueSchema` BEFORE the gateway sends the
-//     frame. Validation failure throws a daemon-internal
+// Invariants this file's interface enforces (canonical text through):
+//   * Schema validation runs before handler dispatch. Streaming analog:
+//     every emitted `$/subscription/notify` value MUST conform to the
+//     per-subscription `valueSchema` BEFORE the gateway sends the frame.
+//     Validation failure throws a daemon-internal
 //     `StreamingValidationError` (programmer error — the producer returned
 //     a malformed value); mirrors the registry's `invalid_result` posture.
 //     The cancel-method dispatch path validates params via the registry's
-//     standard I-007-7 path (`SubscriptionCancelParamsSchema`).
+//     standard path (`SubscriptionCancelParamsSchema`).
 //
 // What this file does NOT define (deferred to sibling tasks / phases):
 //   * The runtime `StreamingPrimitive` class with `createSubscription<T>`,
-//     `cleanupTransport`, `cancelSubscription` methods — owned by
-//     T-007p-2-5 in `packages/runtime-daemon/src/ipc/streaming-primitive.ts`.
-//   * Outbound notification framing — owned by T-007p-2-1
-//     (`local-ipc-gateway.ts`). The streaming primitive's per-instance
-//     `send` callback bridges to the gateway's per-connection write path;
-//     the wire format is the same `Content-Length`-framed JSON-RPC
-//     envelope.
-//   * Concrete `session.subscribe`-style streaming handlers — owned by
-//     Phase 3 (T-007p-3-1). Phase 3 binds Phase 2's primitive into a
-//     domain-method handler that returns a `subscriptionId` and produces
-//     values into the `LocalSubscriptionProducer<T>` returned by the primitive.
+//     `cleanupTransport`, `cancelSubscription` methods — in
+//     `packages/runtime-daemon/src/ipc/streaming-primitive.ts`.
+//   * Outbound notification framing. The streaming primitive's
+//     per-instance `send` callback bridges to the gateway's
+//     per-connection write path; the wire format is the same
+//     `Content-Length`-framed JSON-RPC envelope.
+//   * Concrete `session.subscribe`-style streaming handlers — owned by Phase 3.
+//     Phase 3 binds Phase 2's primitive into a domain-method handler that
+//     returns a `subscriptionId` and produces values into the
+//     `LocalSubscriptionProducer<T>` returned by the primitive.
 //   * The CLIENT-SIDE `LocalSubscriptionConsumer<T>` shape (with `next(): Promise<T>`,
-//     `cancel(): Promise<void>`, `[Symbol.asyncIterator]`) — owned by
-//     `Plan-007 §Client SDK + CLI (packages/client-sdk/, apps/cli/)`. The
-//     SERVER-SIDE producer interface (`LocalSubscriptionProducer<T>` in this
-//     file) is intentionally distinct from the CLIENT-SIDE consumer
-//     (`LocalSubscriptionConsumer<T>`) — BL-115 (landed 2026-05-19) renamed
-//     both to disambiguate at the type level.
+//     `cancel(): Promise<void>`, `[Symbol.asyncIterator]`). The SERVER-SIDE producer
+//     interface (`LocalSubscriptionProducer<T>` in this file) is intentionally
+//     distinct from the CLIENT-SIDE consumer (`LocalSubscriptionConsumer<T>`) —
+//     renamed both to disambiguate at the type level.
 //
 // Streaming-primitive architecture summary:
 //   1. A Phase 3 handler (e.g. `session.subscribe`) calls
@@ -62,8 +54,8 @@
 //      `subscriptionId` to the wire client.
 //   2. The handler-side producer code calls `subscription.next(value)`
 //      zero or more times. Each call validates against `valueSchema`
-//      (I-007-7 streaming analog) and emits a `$/subscription/notify`
-//      JSON-RPC notification on the per-transport wire.
+//      (streaming analog) and emits a `$/subscription/notify` JSON-RPC
+//      notification on the per-transport wire.
 //   3. The handler-side producer calls `subscription.complete()` when
 //      the stream finishes naturally (no further values). Phase 2: this
 //      is a server-side state-only marker (no Phase 2 wire frame); future
@@ -78,14 +70,12 @@
 //      composed `onDisconnect` hook — every subscription owned by the
 //      closed transport is dropped without further wire I/O.
 //
-// Canonical source: this file. `subscriptionId` is a UUID-shaped
-// branded type; `crypto.randomUUID()` (Node 22.12+ native) emits
-// RFC 9562 UUIDs the branded factory's predicate admits. The brand symbol convention
-// follows session.ts §Branded ID Types verbatim. Per BL-102 no-mirror
-// disposition, `api-payload-contracts.md` does not maintain a doc-side
-// mirror of this code-side typed surface; ADR-018 §Decision #1 (MINOR
-// widening) governs additive evolution if the brand string later
-// narrows in place — consumers keep the same import lines.
+// Canonical source: this file. `subscriptionId` is a UUID-shaped branded type;
+// `crypto.randomUUID()` (Node 22.12+ native) emits RFC 9562 UUIDs the branded
+// factory's predicate admits. The brand symbol convention follows session.ts.
+// no-mirror disposition does not maintain a doc-side mirror of this code-side typed
+// surface) governs additive evolution if the brand string later narrows in place —
+// consumers keep the same import lines.
 
 import { z } from "zod";
 
@@ -98,7 +88,7 @@ import { brandedUuidIdSchema } from "./internal/branded.js";
 /**
  * Outbound `$/subscription/notify` notification method name — sent by the
  * daemon to the client whenever a producer calls `subscription.next(value)`.
- * The frame is a JSON-RPC 2.0 notification (no `id` field) per spec §4.1.
+ * The frame is a JSON-RPC 2.0 notification (no `id` field) per spec.
  *
  * The `$/`-prefix follows LSP convention for system-namespace methods that
  * are NOT part of the user-namespace registry (compare LSP's
@@ -107,12 +97,10 @@ import { brandedUuidIdSchema } from "./internal/branded.js";
  * `$/segment[/segment]*` shape; both `$/subscription/notify` and
  * `$/subscription/cancel` match.
  *
- * Canonical source: this file. Per BL-102 no-mirror disposition, the
- * LSP-style streaming method-name taxonomy is canonical in code;
- * api-payload-contracts.md does not maintain a doc-side mirror. The
- * dotted-camelCase regex ratified at §JSON-RPC Method-Name Registry
- * is intentionally limited to user-namespace methods
- * and excludes the `$/`-prefixed system namespace by design.
+ * Canonical source: this file. no-mirror disposition, the LSP-style
+ * streaming method-name taxonomy is canonical in code does not
+ * maintain a doc-side mirror. The dotted-camelCase regex
+ * `$/`-prefixed system namespace by design.
  *
  * Important: this method is OUTBOUND-ONLY (server-emitted). The streaming
  * primitive does NOT register a handler for it on the inbound dispatch
@@ -124,10 +112,10 @@ export type SubscriptionNotifyMethod = typeof SUBSCRIPTION_NOTIFY_METHOD;
 
 /**
  * Inbound `$/subscription/cancel` notification method name — sent by the
- * client to the daemon to tear down a server-side subscription. The
- * daemon registers a handler for this method against the registry surface;
- * dispatch validates `SubscriptionCancelParamsSchema` per I-007-7 before
- * the handler runs.
+ * client to the daemon to tear down a server-side subscription. The daemon
+ * registers a handler for this method against the registry surface;
+ * dispatch validates `SubscriptionCancelParamsSchema` before the handler
+ * runs.
  *
  * Why register as `mutating: false` (mirrors `daemon.hello`'s rationale):
  * tearing down a wire-level subscription is PROTOCOL state, not DOMAIN
@@ -135,8 +123,7 @@ export type SubscriptionNotifyMethod = typeof SUBSCRIPTION_NOTIFY_METHOD;
  * the connection is in `done-incompatible` state — the client could not
  * clean up subscriptions opened pre-mismatch. The non-mutating
  * classification keeps the cancellation surface available regardless of
- * negotiation state. (T-007p-2-4 §registerHandshakeMethod JSDoc lines
- * 539-561 carries the canonical version of this argument.)
+ * negotiation state.
  *
  * Canonical source: this file (no-mirror disposition mirrors
  * `SUBSCRIPTION_NOTIFY_METHOD` above).
@@ -153,7 +140,7 @@ export type SubscriptionCancelMethod = typeof SUBSCRIPTION_CANCEL_METHOD;
  * over a UUID string at runtime — `crypto.randomUUID()` (Node 22.12+
  * native) emits RFC 9562 UUIDs the branded factory's predicate admits.
  *
- * Brand pattern follows session.ts §Branded ID Types verbatim:
+ * Brand pattern follows session.ts
  *   * runtime is a plain UUID string;
  *   * compile-time is a nominal type that prevents accidentally passing a
  *     `SessionId` where a `SubscriptionId` was expected.
@@ -194,12 +181,11 @@ export const SubscriptionIdSchema: z.ZodType<SubscriptionId, SubscriptionId> =
  * own schema. The shared `SubscribeAckResponse` stays minimal so the
  * cross-method floor never carries per-method baggage. Such a per-method
  * extension is additive (the `subscriptionId` floor is preserved), so it is
- * a MINOR widening per ADR-018 §Decision #1 — an ack accepted today remains
- * accepted under any future evolution.
+ * a MINOR widening — an ack accepted today remains accepted under any future
+ * evolution.
  *
- * Canonical source: this file. Per BL-102 no-mirror disposition,
- * `api-payload-contracts.md` does not maintain a doc-side mirror of this
- * code-side typed surface.
+ * Canonical source: this file. no-mirror disposition does not maintain a
+ * doc-side mirror of this code-side typed surface.
  *
  * `readonly` on the field matches this file's interface convention (cf.
  * `SubscriptionCancelParams`, `SubscriptionCancelResult`).
@@ -235,9 +221,9 @@ export const SubscribeAckResponseSchema: z.ZodType<SubscribeAckResponse> = z
  * server-side `LocalSubscriptionProducer`.
  *
  * `T` is the per-subscription value type; the runtime schema at the
- * substrate boundary is constructed via `SubscriptionNotifyParamsSchema(
- * valueSchema)` so each subscription enforces its own value contract
- * (I-007-7 streaming analog).
+ * substrate boundary is constructed via
+ * `SubscriptionNotifyParamsSchema(valueSchema)` so each subscription
+ * enforces its own value contract (streaming analog).
  *
  * Wire shape (one per `subscription.next(value)`):
  *   ```json
@@ -311,7 +297,7 @@ export function SubscriptionNotifyParamsSchema<T>(
  * (which the `SubscriptionCancelResult.canceled` boolean conveys). A
  * client that fires-and-forgets the cancel can still send a `null` id to
  * suppress the response per the `extractIdSafely` discriminator in the
- * gateway (§4.1 spec compliance).
+ * gateway.
  */
 export interface SubscriptionCancelParams {
   readonly subscriptionId: SubscriptionId;
@@ -366,14 +352,14 @@ export const SubscriptionCancelResultSchema: z.ZodType<SubscriptionCancelResult>
  * created the subscription calls these methods to emit values, signal
  * natural completion, or unilaterally cancel from the server side.
  *
- * Naming note (BL-115 landed 2026-05-19):
+ * Naming note (landed 2026-05-19):
  *   The CLIENT-side consumer is declared as `LocalSubscriptionConsumer<T>` at
- *   `packages/client-sdk/src/transport/types.ts` with shape
- *   `next(): Promise<T | undefined>` / `cancel(): Promise<void>` /
+ *   `packages/client-sdk/src/transport/types.ts` with shape `next():
+ *   Promise<T | undefined>` / `cancel(): Promise<void>` /
  *   `[Symbol.asyncIterator]`. The server-side producer (this interface) is
  *   the value-producing handle (`next(value: T): void` / `complete()` /
  *   `cancel()` / `onCancel(handler)`). The two are intentionally distinct
- *   shapes; the rename eliminates the prior symbol collision per BL-115.
+ *   shapes; the rename eliminates the prior symbol collision.
  *
  * Lifecycle:
  *   * `createSubscription` → returns a fresh `LocalSubscriptionProducer<T>` with
@@ -423,16 +409,15 @@ export interface LocalSubscriptionProducer<T> {
 
   /**
    * Emit a value to the client. The runtime validates `value` against the
-   * per-subscription `valueSchema` provided at creation time (I-007-7
-   * streaming analog) and constructs a `$/subscription/notify`
-   * notification frame on the producer's transport.
+   * per-subscription `valueSchema` provided at creation time (streaming
+   * analog) and constructs a `$/subscription/notify` notification frame
+   * on the producer's transport.
    *
    * @throws StreamingValidationError when `value` fails the per-subscription
-   *   schema. Programmer error — the producer returned a value that does
-   *   not match the registered shape. Daemon-internal; T-007p-2-2's
-   *   error-mapping does not promote this to a wire response (the wire
-   *   envelope is a NOTIFICATION, which by spec §4.1 receives no
-   *   response).
+   *   Programmer error — the producer returned a value that does not
+   *   match the registered shape. Daemon-internal; the error-mapping
+   *   does not promote this to a wire response (the wire envelope is a
+   *   NOTIFICATION, which by spec).
    *
    * Silent no-op after `complete()` or `cancel()` — the value is
    * discarded without throwing or sending. The `T` parameter type is

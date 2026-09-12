@@ -1,56 +1,49 @@
-// `driver.subscribeEvents` — the dedicated subscription surface, Plan-005
-// Phase 4, T4.4.
+// `driver.subscribeEvents` — the dedicated subscription surface.
 //
-// THIS MODULE IS THE ONE AND ONLY REGISTRATION OF THIS METHOD. T4.1 authored the
-// six request/response verbs in `driver-handlers.ts` and carried the
-// subscription leg alongside them; T4.4 is the task that gives that leg the
-// dedicated module the plan names, and it does so by MOVING the implementation
-// rather than adding a second one. `driver-handlers.ts` no longer registers
-// `driver.subscribeEvents` and no longer carries the driver event set — a
-// grep for `register("driver.subscribeEvents"` finds exactly this file. Two
-// competing registrations would not have merely been untidy: I-007-6 makes the
-// registry reject a duplicate name at register time, so a daemon binding both
-// would have failed at bootstrap rather than at a test.
+// THIS MODULE IS THE ONE AND ONLY REGISTRATION OF THIS METHOD. authored the six
+// request/response verbs in `driver-handlers.ts` and carried the subscription
+// leg alongside them is the task that gives that leg the dedicated module the
+// plan names, and it does so by MOVING the implementation rather than adding a
+// second one. `driver-handlers.ts` no longer registers `driver.subscribeEvents`
+// and no longer carries the driver event set — a grep for
+// `register("driver.subscribeEvents"` finds exactly this file. Two competing
+// registrations would not have merely been untidy: makes the registry reject a
+// duplicate name at register time, so a daemon binding both would have failed at
+// bootstrap rather than at a test.
 //
 // WHY THE SPLIT IS WORTH A FILE. The eight sibling verbs are stateless
 // request/response dispatches into the in-daemon `ProviderRegistry`. This one
 // allocates PER-CONNECTION state (a streaming-primitive entry keyed by transport
 // id), owns a teardown path that has to survive wire-cancel, transport
 // disconnect, and internal cancellation alike, and carries an ordering
-// obligation (I-007-10) that none of the others do. Those concerns share nothing
-// with the dispatch verbs beyond the namespace, which is exactly the seam the
-// plan draws — and it mirrors the shape the session namespace already ships,
-// where `session-subscribe.ts` sits beside `session-create.ts` / `-read.ts` /
+// obligation that none of the others do. Those concerns share nothing with the
+// dispatch verbs beyond the namespace, which is exactly the seam the plan draws
+// — and it mirrors the shape the session namespace already ships, where
+// `session-subscribe.ts` sits beside `session-create.ts` / `-read.ts` /
 // `-join.ts`.
 //
-// WHAT THE SDK SEES. Plan-007's CP-007-4 splits the streaming primitive across
-// the wire: this side hands the handler a `LocalSubscriptionProducer` (via
+// WHAT THE SDK SEES. the splits the streaming primitive across the wire: this
+// side hands the handler a `LocalSubscriptionProducer` (via
 // `StreamingPrimitive.createSubscription`), and the SDK's
 // `createDaemonProviderClient(...).subscribeEvents(...)` hands its caller a
 // `LocalSubscriptionConsumer`. The wire between them is the shared
 // `SubscribeAckResponse` — the opaque `subscriptionId` and nothing else — with
 // values following as `$/subscription/notify` frames.
 //
-// Invariants this module participates in (canonical text in
-// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`):
-//   * I-007-6 — duplicate registration is rejected at register time, which is
-//     what makes the one-registration claim above enforced rather than merely
+// Invariants this module participates in (canonical text):
+//   * Duplicate registration is rejected at register time, which is what
+//     makes the one-registration claim above enforced rather than merely
 //     asserted.
-//   * I-007-7 — schema-validates-before-dispatch. The registry `safeParse`s the
-//     request against `DriverSubscribeEventsParamsSchema` before this handler
-//     body runs, and the streaming primitive `safeParse`s every emitted value
-//     against `SessionEventSchema` before it reaches the wire.
-//   * I-007-9 — dotted-camelCase method name.
-//   * I-007-10 — the subscribe-init response precedes the first notify frame.
+//   * The registry `safeParse`s the request against
+//     `DriverSubscribeEventsParamsSchema` before this handler body runs, and
+//     the streaming primitive `safeParse`s every emitted value against
+//     `SessionEventSchema` before it reaches the wire.
+//   * The subscribe-init response precedes the first notify frame.
 //
 // Mutating flag: `false`. Opening a subscription allocates per-connection IPC
 // state but mutates no domain row, so a version-mismatched connection keeps this
 // method for the same reason it keeps the three reads.
 //
-// Refs: Plan-005 §Phase 4 / T4.4 (+ ratified decision #4),
-// `Spec-005 §Required Behavior` (drivers emit normalized runtime events),
-// invariant I-005-1, CP-007-4 (the shared streaming primitive),
-// `docs/architecture/contracts/error-contracts.md §Driver`.
 
 import type {
   DriverSubscribeEventsParams,
@@ -103,12 +96,11 @@ export interface DriverSubscribeEventsDeps {
 // --------------------------------------------------------------------------
 //
 // This module CONSUMES `DRIVER_EVENT_TYPES`; it does not author it. The set has
-// its single home in `packages/contracts/src/driver-event.ts` — Plan-005's own
-// derived view over the seven EXISTING Plan-006 categories that
-// `Plan-005 §Phase 4 — Client SDK exposure + degraded-fallback` decision #4
-// ratifies. It was derived module-locally here until that home landed, which is
-// what left the SDK seam with no narrower schema to validate against (Codex
-// review, PR #396); both sides of the wire now read the one derivation.
+// its single home in `packages/contracts/src/driver-event.ts` — its own derived
+// view over the seven EXISTING categories that decision #4 ratifies. It was
+// derived module-locally here until that home landed, which is what left the
+// SDK seam with no narrower schema to validate against (Codex review, PR #396);
+// both sides of the wire now read the one derivation.
 //
 // The filter below is what makes this a stream of DRIVER events rather than of
 // whatever the injected source happens to emit. Without it a source wired to a

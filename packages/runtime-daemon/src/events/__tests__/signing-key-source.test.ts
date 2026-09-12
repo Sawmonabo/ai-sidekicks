@@ -1,4 +1,4 @@
-// Daemon signing-key custody suite (Plan-006 T2.7 — `signing-key-source.ts`).
+// Daemon signing-key custody suite (`signing-key-source.ts`).
 //
 // WHY THIS FILE EXISTS. `signing-key-source.ts` is the one module in the
 // workspace that holds daemon-private key material and the one site where key
@@ -8,10 +8,10 @@
 //   1. THE PUBLIC/PRIVATE SPLIT IS A SECURITY BOUNDARY. `create` resolves to the
 //      PUBLIC key and nothing else; the private half is reachable only through
 //      the signer-local `read`. A regression that widened `create`'s result
-//      would leak daemon-private material into CP-006-7's provisioning
-//      call-sites (the composition-root caller, leg A; the post-attach roster
-//      registrar, leg B) — a boundary crossing the T2.7 row forbids outright,
-//      and one no downstream test would notice.
+//      would leak daemon-private material into the provisioning call-sites (the
+//      composition-root caller, leg A; the post-attach roster registrar, leg B)
+//      — a boundary crossing row forbids outright, and one no downstream test
+//      would notice.
 //   2. THE SEAL IS AN INJECTED BOUNDARY, so a private key at rest is never
 //      cleartext and a test never touches a real keystore. The fakes below are
 //      what a headless CI box gets instead of Secret Service.
@@ -37,20 +37,20 @@
 //      both halves of one keypair into one row, so the row itself is what
 //      refutes the substitution.
 //   6. THE SEALER'S RESULT IS UNCHECKED INPUT, AND THE ROW IT WOULD WRITE
-//      CANNOT BE UNDONE. `seal` crosses the same CP-006-11 injection boundary,
-//      so an empty or non-byte result is a claim nothing verified — and
-//      `BLOB NOT NULL` refuses NULL and nothing else, so such a value
-//      PERSISTS. The `session_id` PRIMARY KEY then bars the re-provisioning
-//      that would fix it, leaving a session whose public half the roster holds
-//      and whose private half exists nowhere: unrecoverable, where every other
-//      failure in this module is at worst a refusal. Both sides are covered
-//      below, because they cover different rows — `create` refuses before the
-//      INSERT, and `read` refuses a zero-length blob that a build predating
-//      that guard already wrote. The same seam carries a WORSE failure that
-//      every shape check admits: a no-op sealer echoing the seed back persists
-//      the Ed25519 secret in CLEARTEXT under a column readers treat as sealed,
-//      so `create` refuses that identity case too — a heuristic that claims
-//      only "not literally the seed", never "sealed".
+//      CANNOT BE UNDONE. `seal` crosses the same injection boundary, so an
+//      empty or non-byte result is a claim nothing verified — and `BLOB NOT
+//      NULL` refuses NULL and nothing else, so such a value PERSISTS. The
+//      `session_id` PRIMARY KEY then bars the re-provisioning that would fix
+//      it, leaving a session whose public half the roster holds and whose
+//      private half exists nowhere: unrecoverable, where every other failure
+//      in this module is at worst a refusal. Both sides are covered below,
+//      because they cover different rows — `create` refuses before the INSERT,
+//      and `read` refuses a zero-length blob that a build predating that guard
+//      already wrote. The same seam carries a WORSE failure that every shape
+//      check admits: a no-op sealer echoing the seed back persists the Ed25519
+//      secret in CLEARTEXT under a column readers treat as sealed, so `create`
+//      refuses that identity case too — a heuristic that claims only "not
+//      literally the seed", never "sealed".
 //
 // TESTED THROUGH THE PUBLIC SURFACE AND A REAL DATABASE. The narrowing helpers
 // (`toEd25519PublicKey` / `toEd25519PrivateKey` / `assertEd25519KeyWidth`) are
@@ -72,9 +72,6 @@
 // less than it costs. The only behaviour distinct to that role is the word
 // "public key" in the message; the guard itself is the same call.
 //
-// Refs: `Spec-022 §Daemon Master Key`, `ADR-004 §Decision`,
-// `Spec-006 §Integrity Protocol`,
-// `docs/architecture/security-architecture.md §Per-Event Daemon Signature`.
 import { SessionIdSchema } from "@ai-sidekicks/contracts";
 import type { SessionId } from "@ai-sidekicks/contracts";
 import { ed25519 } from "@noble/curves/ed25519.js";
@@ -227,9 +224,9 @@ class ThrowingFakeSealer implements DaemonSigningKeySealer {
 /**
  * Fails by RETURNING rather than by throwing: `seal` resolves to whatever the
  * test names. The seal-side counterpart of {@link FixedUnsealResultSealer}, and
- * the shape a stub at the CP-006-11 boundary actually takes — an implementation
- * that is wired but not yet implemented resolves with something, and its
- * declared return type is a claim nothing on this side checked.
+ * the shape a stub boundary actually takes — an implementation that is wired
+ * but not yet implemented resolves with something, and its declared return type
+ * is a claim nothing on this side checked.
  *
  * IT ALIASES THE SEED RATHER THAN COPYING IT, unlike {@link RecordingFakeSealer}
  * and for the reason that fake's note gives in reverse: only a RETAINED VIEW can
@@ -257,8 +254,8 @@ class FixedSealResultSealer implements DaemonSigningKeySealer {
 
 /**
  * Hands the seed straight back — the no-op sealer, and the shape a
- * wired-but-unimplemented CP-006-11 boundary most plausibly takes. Its output
- * clears every shape check in the module: non-empty, `Uint8Array`, 32 bytes.
+ * wired-but-unimplemented boundary most plausibly takes. Its output clears
+ * every shape check in the module: non-empty, `Uint8Array`, 32 bytes.
  *
  * IT RETURNS A COPY RATHER THAN THE ARGUMENT, which is what makes the test
  * meaningful: the guard compares CONTENT, so a stub echoing by reference is
@@ -367,7 +364,7 @@ describe("OsKeystoreSealedDaemonSigningKeySource", () => {
   });
 
   // ========================================================================
-  // The public/private split — the security boundary (CP-006-7).
+  // The public/private split — the security boundary.
   // ========================================================================
 
   describe("create resolves to the public key and nothing else", () => {
@@ -376,9 +373,8 @@ describe("OsKeystoreSealedDaemonSigningKeySource", () => {
 
       // The runtime half of the boundary. A widened result — `{ publicKey,
       // privateKey }`, a `secretKey` echo added "for convenience", a debug
-      // `sealedPrivateKey` — is exactly the regression CP-006-7's provisioning
-      // caller could not detect, because it would simply receive more than it
-      // reads.
+      // `sealedPrivateKey` — is exactly the regression the provisioning caller
+      // could not detect, because it would simply receive more than it reads.
       expect(Object.keys(created)).toEqual(["publicKey"]);
       expect(created.publicKey).toBeInstanceOf(Uint8Array);
       expect(created.publicKey.length).toBe(32);
@@ -404,7 +400,8 @@ describe("OsKeystoreSealedDaemonSigningKeySource", () => {
       // interface the `tsc -p tsconfig.test.json` pass fails.
       const provisioner: DaemonSigningKeyProvisioner = keySource;
 
-      // @ts-expect-error `read` is not on DaemonSigningKeyProvisioner — daemon-private signing material never crosses the provisioning boundary (CP-006-7)
+      // @ts-expect-error `read` is not on DaemonSigningKeyProvisioner —
+      // daemon-private signing material never crosses the provisioning boundary
       const unreachableRead: unknown = provisioner.read;
 
       // THE SPLIT IS A TYPE-LEVEL BOUNDARY AND THE ASSERTION SAYS SO. The
@@ -432,10 +429,9 @@ describe("OsKeystoreSealedDaemonSigningKeySource", () => {
       // The injected clock, not `new Date()` — the constructor's `deps.now` seam.
       expect(row?.created_at).toBe(FIXTURE_CREATED_AT);
       // No rotate operation ships in V1 — no rotation ceremony is specified in
-      // any governing document (V1's rotation policy is refusal, per
-      // `docs/architecture/security-architecture.md §Per-Event Daemon Signature`;
-      // ADR-010 governs CLI-identity custody, not daemon session keys), so
-      // `rotated_at` is reserved storage that nothing writes.
+      // any governing document (V1's rotation policy is refusal governs
+      // CLI-identity custody, not daemon session keys), so `rotated_at` is
+      // reserved storage that nothing writes.
       expect(row?.rotated_at).toBeNull();
 
       // THE AT-REST ASSERTION. The stored private half is the SEALER's output,
@@ -512,7 +508,7 @@ describe("OsKeystoreSealedDaemonSigningKeySource", () => {
   });
 
   // ========================================================================
-  // The seal RESULT — the CP-006-11 shape guard.
+  // The seal RESULT — shape guard.
   // ========================================================================
   //
   // The block above covers a sealer that fails by THROWING, which is loud. This
@@ -568,10 +564,9 @@ describe("OsKeystoreSealedDaemonSigningKeySource", () => {
     });
 
     it("refuses a seal result that is not bytes at all, before Buffer.from coerces it", async () => {
-      // The stub shape CP-006-11 contemplates in the interim: a sealer that
-      // hands back its envelope as a STRING. Nothing in the type system stops
-      // it — `seal` crosses an injection boundary this package neither owns nor
-      // imports.
+      // The stub shape contemplates in the interim: a sealer that hands back
+      // its envelope as a STRING. Nothing in the type system stops it — `seal`
+      // crosses an injection boundary this package neither owns nor imports.
       const stringResult = "fake-seal:v1:not-actually-bytes";
       const stringResultSealer = new FixedSealResultSealer(stringResult);
       const source: DaemonSigningKeySource = new OsKeystoreSealedDaemonSigningKeySource(
@@ -831,12 +826,11 @@ describe("OsKeystoreSealedDaemonSigningKeySource", () => {
       );
       // Refused before the keystore is touched, like both sibling column
       // guards: an empty envelope cannot open, so prompting for the WebAuthn
-      // ceremony `Spec-022 §Daemon Master Key` permits after an idle wipe would
-      // buy a refusal either way.
+      // ceremony permits after an idle wipe would buy a refusal either way.
       expect(sealer.unsealCalls).toHaveLength(0);
     });
 
-    it("refuses an unsealed key of the wrong width (the RFC 8032 §5.1.5 guard)", async () => {
+    it("refuses an unsealed key of the wrong width (the RFC 8032 section 5.1.5 guard)", async () => {
       // The realistic shape of this bug at the injected boundary: a truncating
       // envelope, an off-by-one slice, or a blob sealed under some other format.
       // Unchecked it would be laundered into `Ed25519PrivateKey` and only refused
@@ -850,7 +844,7 @@ describe("OsKeystoreSealedDaemonSigningKeySource", () => {
       await truncatingSource.create(SESSION_ONE);
 
       await expect(truncatingSource.read(SESSION_ONE)).rejects.toThrow(
-        /Ed25519 private key must be 32 bytes per RFC 8032 §5\.1\.5; received 31 bytes\./,
+        /Ed25519 private key must be 32 bytes per RFC 8032 section 5\.1\.5; received 31 bytes\./,
       );
     });
 
@@ -865,7 +859,7 @@ describe("OsKeystoreSealedDaemonSigningKeySource", () => {
       // `describeByteShape` refuses to read `.length` off a string — a character
       // count reported as a byte count sends the reader after the wrong bug.
       await expect(nonByteSource.read(SESSION_ONE)).rejects.toThrow(
-        /Ed25519 private key must be 32 bytes per RFC 8032 §5\.1\.5; received a non-Uint8Array value of type string\./,
+        /Ed25519 private key must be 32 bytes per RFC 8032 section 5\.1\.5; received a non-Uint8Array value of type string\./,
       );
     });
 
@@ -1013,8 +1007,8 @@ describe("OsKeystoreSealedDaemonSigningKeySource", () => {
         /daemon_signing_keys\.public_key for session .* is not a 32-byte BLOB: got a non-Uint8Array value of type string/,
       );
       // Both column guards run ahead of the unseal, so a malformed row costs no
-      // keystore access — `Spec-022 §Daemon Master Key` permits the first unseal
-      // after an idle wipe to block on a WebAuthn ceremony.
+      // keystore access — permits the first unseal after an idle wipe to block
+      // on a WebAuthn ceremony.
       expect(sealer.unsealCalls).toHaveLength(0);
     });
 

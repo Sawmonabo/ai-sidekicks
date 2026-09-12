@@ -55,7 +55,7 @@ const OWNER_PARTICIPANT_ID: ParticipantId = "01970000-0000-7000-8000-0000000d4b0
 const SECOND_PARTICIPANT_ID: ParticipantId =
   "01970000-0000-7000-8000-0000000d4b02" as ParticipantId;
 
-// RFC 9562 §4: a canonical UUID string. The projection's derived id is a
+// RFC 9562 section 4: a canonical UUID string. The projection's derived id is a
 // version-8 (custom/deterministic) UUID; this regex pins the 8-4-4-4-12 hex
 // layout AND the version-8 + variant-10 nibbles the derivation stamps, so a
 // regression that emits a non-UUID or the wrong version surfaces here in

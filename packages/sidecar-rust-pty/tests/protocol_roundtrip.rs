@@ -5,13 +5,12 @@
 //! bearing wire properties:
 //!
 //! - `DataFrame.bytes` and `WriteRequest.bytes` ride the wire as
-//!   base64 strings (per F-024-1-01).
+//!   base64 strings.
 //! - The `kind` discriminant is on-wire at the top level of every
-//!   envelope object (per F-024-1-02).
+//!   envelope object.
 //! - Unknown `kind` values fail deserialization (otherwise the
 //!   dispatcher would silently drop messages it cannot route).
 //!
-//! Plan-024 Phase 1 / T-024-1-3.
 
 use serde_json::{json, Value};
 use sidecar_rust_pty::protocol::{
@@ -412,7 +411,6 @@ fn round_trip_data_frame_stderr() {
 }
 
 // ---------------------------------------------------------------------------
-// Base64 wire-shape verification (F-024-1-01).
 // ---------------------------------------------------------------------------
 
 /// On-wire `bytes` MUST be a base64 string, not a JSON array of numbers.
@@ -486,7 +484,6 @@ fn data_frame_empty_bytes_round_trips() {
 }
 
 // ---------------------------------------------------------------------------
-// `kind` discriminant on-wire (F-024-1-02).
 // ---------------------------------------------------------------------------
 
 /// The dispatcher MUST be able to route by `kind` without a full

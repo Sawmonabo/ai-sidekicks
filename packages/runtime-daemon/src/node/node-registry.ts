@@ -1,17 +1,17 @@
-// NodeRegistry — durable node identity + registration (Plan-003 Phase 2, T2.1)
-// + the explicit-shutdown detach producer (T2.5).
+// NodeRegistry — durable node identity + registration
+// + the explicit-shutdown detach producer.
 //
 // A node is "registered to this daemon" iff a `node_trust_state` row (PK
 // `node_id`, `trust_level DEFAULT 'untrusted'`) exists for it. That row is the
 // AUTHORITATIVE durable state: `lookup` recovers identity by READING the row,
 // not by replaying events, so identity is stable across a daemon restart
-// because it lives in SQLite, not in process memory (D1 — plan §334).
+// because it lives in SQLite, not in process memory (D1 — plan).
 //
-// `detach` (T2.5) emits `runtime_node.offline` (`reason: "explicit_shutdown"`)
-// and LEAVES the `node_trust_state` row INTACT — the untouched row is what lets
-// the node reconnect under the same `node_id` (I-003-3: detach does not revoke
-// membership). It is an emit-only path (no durable write, no transaction); the
-// full rationale lives on the method below.
+// `detach` emits `runtime_node.offline` (`reason: "explicit_shutdown"`) and
+// LEAVES the `node_trust_state` row INTACT — the untouched row is what lets the
+// node reconnect under the same `node_id` (detach does not revoke membership).
+// It is an emit-only path (no durable write, no transaction); the full
+// rationale lives on the method below.
 //
 // Dual-write with single-transaction atomicity
 // --------------------------------------------------------------------------
@@ -23,11 +23,11 @@
 // ship a latent partial-state corruption bug (a trust row with no event, or an
 // event with no row); the transaction is what forecloses it.
 //
-// WHO OWNS THAT TRANSACTION CHANGED with Plan-006 T3.1's re-point, and the
-// atomicity was re-established rather than dropped. This class used to open the
-// transaction itself and emit inside it; the durable append path is async now
-// (it awaits a signing-key unseal) and a better-sqlite3 transaction cannot span
-// an `await`. So the upsert is handed DOWN as `transactionalPrelude`, which
+// WHO OWNS THAT TRANSACTION CHANGED with the re-point, and the atomicity was
+// re-established rather than dropped. This class used to open the transaction
+// itself and emit inside it; the durable append path is async now (it awaits a
+// signing-key unseal) and a better-sqlite3 transaction cannot span an `await`.
+// So the upsert is handed DOWN as `transactionalPrelude`, which
 // `EventLogService.append` runs inside the same transaction as the event-row
 // INSERT, immediately BEFORE it.
 //
@@ -52,10 +52,10 @@
 // keys its per-node work on — the capability/auth refresh cadence starts at one
 // and stops at the other. This class publishes them as an OPTIONAL injected
 // observer rather than calling that subsystem itself: this file stays free of
-// `provider/` imports (node lifecycle is this plan's, the poll is Plan-005's),
-// so the seam is a neutral two-method interface declared HERE and implemented
-// over THERE (`provider/node-provider-plane.ts`). A daemon that injects no
-// observer behaves exactly as it did before the seam existed.
+// `provider/` imports (node lifecycle is this module's concern, the poll is not), so the
+// seam is a neutral two-method interface declared HERE and implemented over
+// THERE (`provider/node-provider-plane.ts`). A daemon that injects no observer
+// behaves exactly as it did before the seam existed.
 //
 // Two properties are load-bearing:
 //   * FIRE-AFTER-SETTLE. Each notification runs after its emit has RESOLVED,
@@ -71,16 +71,9 @@
 //     injected sink whose default is the interim `console.warn` logger the
 //     daemon uses elsewhere (`pty/pty-host-selector.ts`).
 //
-// Refs: Plan-003 (Runtime Node Attach) §Phase 2 / T2.1 + T2.5, `Spec-003 §Fallback Behavior`
-// (disconnected node keeps membership; reconnect under same identity — the T2.5
-// detach guarantee), `Spec-003 §State And Data Implications` (durable
-// runtime-node records for reconnect + audit),
-// `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`
-// (`runtime_node.registered` + `runtime_node.offline` payload shapes), invariant I-003-3
-// (registration records a node without mutating membership; detach does not
-// revoke membership), and — for the observer seam only — Plan-005 §Phase 3 /
-// T3.12 (P2-9), which names "started on runtime-node attach and stopped on
-// detach" as a sanctioned wiring call driven from this lifecycle.
+// Invariant and — for the observer seam only — which names "started on runtime-node
+// attach and stopped on detach" as a sanctioned wiring call driven from this
+// lifecycle.
 
 import type { NodeState } from "@ai-sidekicks/contracts";
 import type { Database, Statement } from "better-sqlite3";
@@ -119,14 +112,13 @@ export interface RegisterNodeInput {
 }
 
 /**
- * `detach` input (Plan-003 §Phase 2 / T2.5). The explicit-shutdown producer for
- * `runtime_node.offline`.
+ * The explicit-shutdown producer for `runtime_node.offline`.
  *
  * `reason` is NOT a parameter: detach IS the explicit-shutdown producer, so the
  * emitted `reason` is HARDCODED `"explicit_shutdown"`. The `heartbeat_lost` /
  * `network_partition` reasons are server-derived (staleness sweep): a V1
- * coordination-record transition, durable event V1.1-gated (ADR-017), never this
- * method (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` authors the full enum; V1.1 adds a producer, not a shape).
+ * coordination-record transition, durable event V1.1-gated, never this method (authors
+ * the full enum; V1.1 adds a producer, not a shape).
  *
  * `previousState` is forwarded as-supplied (omitted from the payload when
  * `undefined` — the method invents NO default; the explicit-shutdown call site
@@ -277,14 +269,12 @@ export class NodeRegistry {
     await this.#emitter.emitRegistered({
       sessionId: input.sessionId,
       nodeId: input.nodeId,
-      // `registering` is the initial lifecycle state (the node has joined and
-      // is completing capability declaration — `docs/domain/runtime-node-model.md §State Model` /
-      // NodeStateSchema). `previousState` is intentionally OMITTED: registration
-      // is the FIRST lifecycle event, so there is no prior state to report.
-      // Omitting the key keeps it absent from the parsed payload (the happy-path
-      // test asserts `not.toHaveProperty("previousState")`). The emitter input
-      // types it `previousState?: NodeState | undefined`, so an explicit
-      // `undefined` would type-check too — omission is simply the cleaner intent.
+      // `previousState` is intentionally OMITTED: registration is the FIRST lifecycle
+      // event, so there is no prior state to report. Omitting the key keeps it absent
+      // from the parsed payload (the happy-path test asserts
+      // `not.toHaveProperty("previousState")`). The emitter input types it
+      // `previousState?: NodeState | undefined`, so an explicit `undefined` would
+      // type-check too — omission is simply the cleaner intent.
       newState: "registering",
       capabilities: input.capabilities,
       nodeVersion: input.nodeVersion,
@@ -312,12 +302,10 @@ export class NodeRegistry {
   }
 
   /**
-   * Detach a node (Plan-003 §Phase 2 / T2.5). Emits `runtime_node.offline`
-   * (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`) for the explicit-shutdown trigger and LEAVES THE
-   * `node_trust_state` REGISTRATION ROW INTACT, so the node can reconnect under
-   * the same `node_id` (`Spec-003 §Fallback Behavior` — a disconnected node keeps membership;
-   * `Spec-003 §Implementation Notes` — node identity stable across reconnect). This is the I-003-3
-   * guarantee that detach does not revoke membership.
+   * Emits `runtime_node.offline` for the explicit-shutdown trigger and LEAVES THE
+   * `node_trust_state` REGISTRATION ROW INTACT, so the node can reconnect under the
+   * same `node_id` (a disconnected node keeps membership — node identity stable across
+   * reconnect). This is guarantee that detach does not revoke membership.
    *
    * LEAVE-INTACT (no durable write, no transaction): `detach` does NOT
    * update/delete/insert `node_trust_state` — it is `emitOffline` ONLY. The
@@ -326,20 +314,20 @@ export class NodeRegistry {
    * there is no dual-write here, there is no atomicity concern, so — unlike
    * `register` — this is NOT wrapped in `db.transaction(...)`.
    *
-   * HARDCODED `reason: "explicit_shutdown"`: detach IS the explicit-shutdown
-   * producer, so the reason is not a parameter. The `heartbeat_lost` /
-   * `network_partition` reasons come from a DIFFERENT Phase-3 heartbeat-service
-   * producer, not this method (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` authors the full enum so Phase 3 adds
-   * producers, not a shape change). `lastHeartbeatAt` defaults to the injected
-   * `now()` — the node IS heard from at explicit shutdown, so this is a real
-   * ISO-8601 timestamp, never null (the schema is `z.iso.datetime({ offset: true })`).
-   * `previousState` is forwarded as the caller supplies it (the method invents no
-   * default; an omitted value is left off the parsed payload — the explicit-shutdown
-   * call site supplies `"online"`). `actor` forwards as `?? null` so an omitted actor
-   * becomes the system-null actor (the emitter input rejects explicit-`undefined`
-   * under `exactOptionalPropertyTypes`). ASYNC because the durable append path
-   * is — there is still no durable write here and so no prelude, but the emit
-   * must be awaited for its failure to reach the caller.
+   * HARDCODED `reason: "explicit_shutdown"`: detach IS the explicit-shutdown producer,
+   * so the reason is not a parameter. The `heartbeat_lost` / `network_partition`
+   * reasons come from a DIFFERENT Phase-3 heartbeat-service producer, not this method
+   * (authors the full enum so Phase 3 adds producers, not a shape change).
+   * `lastHeartbeatAt` defaults to the injected `now()` — the node IS heard from at
+   * explicit shutdown, so this is a real ISO-8601 timestamp, never null (the schema is
+   * `z.iso.datetime({ offset: true })`). `previousState` is forwarded as the caller
+   * supplies it (the method invents no default; an omitted value is left off the
+   * parsed payload — the explicit-shutdown call site supplies `"online"`). `actor`
+   * forwards as `?? null` so an omitted actor becomes the system-null actor (the
+   * emitter input rejects explicit-`undefined` under `exactOptionalPropertyTypes`).
+   * ASYNC because the durable append path is — there is still no durable write here
+   * and so no prelude, but the emit must be awaited for its failure to reach the
+   * caller.
    */
   async detach(input: DetachNodeInput): Promise<void> {
     await this.#emitter.emitOffline({
@@ -350,8 +338,8 @@ export class NodeRegistry {
       previousState: input.previousState,
       newState: "offline",
       actor: input.actor ?? null,
-      // The node IS heard from at explicit shutdown → default to the real wall
-      // clock, never null (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` / `z.iso.datetime`).
+      // The node IS heard from at explicit shutdown → default to the real wall clock,
+      // never null (`z.iso.datetime`).
       lastHeartbeatAt: input.lastHeartbeatAt ?? this.#now(),
       // HARDCODED — detach is the explicit-shutdown producer; heartbeat-driven
       // reasons are a Phase-3 producer, not this method.

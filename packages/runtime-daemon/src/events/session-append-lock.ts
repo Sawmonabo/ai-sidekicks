@@ -1,5 +1,5 @@
-// Per-session append mutex — the serialization primitive under the whole
-// Plan-006 append path (T3.1).
+// Per-session append mutex — the serialization primitive under the whole append
+// path.
 //
 // DEPENDENCY LEAF. This module imports neither of its siblings
 // (`event-log-service.ts`, `ingest-halt-source.ts`) — only contracts types. That
@@ -137,7 +137,7 @@ export async function withSessionAppendLock<T>(
   critical: () => Promise<T>,
 ): Promise<T> {
   // CANONICALIZE AT THE BOUNDARY. Both maps below are keyed by session id, and
-  // UUID hex is case-insensitive (RFC 9562 §4) while the branded schema admits
+  // UUID hex is case-insensitive (RFC 9562 section 4) while the branded schema admits
   // either case unchanged — so without this, one logical session spelled two
   // ways would take two locks, and the whole "one appender per session per
   // process" invariant would hold per SPELLING rather than per session. This is

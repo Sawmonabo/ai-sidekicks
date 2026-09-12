@@ -1,5 +1,4 @@
-// Plan-008 §Phase 1 §T-008b-1-T1: I-008-1 gate #1
-// (`CONTROL_PLANE_BOOTSTRAP_ENABLED === '1'`) refusal contract.
+// `CONTROL_PLANE_BOOTSTRAP_ENABLED === '1'`) refusal contract.
 //
 // What we verify, end-to-end through `buildControlPlaneFetchHandler`:
 //
@@ -19,8 +18,6 @@
 //      `fetchRequestHandler` dispatch — not just that the response came
 //      back as 503 for some other reason.
 //
-// Refs: docs/plans/008-control-plane-relay-and-session-join.md §I-008-1,
-//       docs/plans/008-control-plane-relay-and-session-join.md §T-008b-1-T1.
 
 import { describe, expect, it } from "vitest";
 import { buildControlPlaneFetchHandler, type ControlPlaneEnv } from "../host.js";
@@ -46,7 +43,7 @@ async function runGate(env: ControlPlaneEnv): Promise<HarnessResult> {
   };
 }
 
-describe("T1 / I-008-1 gate #1: feature-flag refusal", () => {
+describe("T1 / gate #1: feature-flag refusal", () => {
   it("refuses when CONTROL_PLANE_BOOTSTRAP_ENABLED is undefined (gate #2 passing)", async () => {
     // Gate #2 is pinned to its allow-list value to isolate gate #1's
     // contribution — only the missing flag should drive the refusal.

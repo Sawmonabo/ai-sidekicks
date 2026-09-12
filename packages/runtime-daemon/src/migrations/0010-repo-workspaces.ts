@@ -1,4 +1,4 @@
-// Plan-009 T2.1 — version-10 migration: the repo-mount and workspace tables.
+// Version-10 migration: the repo-mount and workspace tables.
 //
 // SQL is inlined as a TypeScript string constant rather than loaded from a
 // sibling `.sql` file, for the reasons the `0001-initial.ts` header sets out in
@@ -6,24 +6,22 @@
 // would exclude `src/migrations/` from the published tarball; bundlers handle
 // `import.meta.url` inconsistently).
 //
-// PROVENANCE. The canonical schema source-of-truth is
-// `docs/architecture/schemas/local-sqlite-schema.md`
-// §"Workspace and Git Tables (Plan-009, Plan-010, Plan-011)" — the two Plan-009
-// CREATE TABLE blocks below are copied VERBATIM from that section (including the
-// `-- Owner: Plan-009` headers, the per-column comments, and the four-line
-// rationale above the partial-unique index), the same convention and the same
-// direction of authority `0002-runtime-node.ts` / `0004-worktree-lifecycle.ts`
-// state: the schema doc defines the shape, this file applies it. Change the doc
-// first, then mirror it here.
+// The canonical schema source-of-truth is — the two CREATE TABLE blocks below
+// are copied VERBATIM from that section (including the `-- Owner: ` headers, the
+// per-column comments, and the four-line rationale above the partial-unique
+// index), the same convention and the same direction of authority
+// `0002-runtime-node.ts` / `0004-worktree-lifecycle.ts` state: the schema doc
+// defines the shape, this file applies it. Change the doc first, then mirror it
+// here.
 //
 // ----------------------------------------------------------------------------
-// Plan-009 scope (this migration — version 10)
+// Scope (this migration — version 10)
 // ----------------------------------------------------------------------------
 //
-// Plan-009 owns the physical CREATE for exactly two Local SQLite tables:
+// Owns the physical CREATE for exactly two Local SQLite tables:
 //
 //   * repo_mounts — the durable attach record. It carries BOTH path values
-//                   because both are meaningful (I-009-5): `local_path` is the
+//                   because both are meaningful: `local_path` is the
 //                   user-entered path (provenance) and `canonical_root` is the
 //                   resolver's absolute, symlink-resolved output. Every
 //                   trust-envelope check and every node-ownership routing
@@ -34,22 +32,22 @@
 //                   projection reads.
 //
 // NOT created here: `worktrees` / `ephemeral_clones` / `branch_contexts` /
-// `run_execution_contexts` are Plan-010's, shipped at version 4. Their
-// `REFERENCES repo_mounts(id)` / `REFERENCES workspaces(id)` clauses are the
-// forward references the ratified B23 order left resolvable-but-unresolved:
-// SQLite resolves FK targets lazily at DML time, so version 4 applied cleanly
-// against absent parents and every INSERT into those referencing columns failed
-// as `SQLITE_ERROR: no such table` until THIS version. Applying version 10
-// after version 4 is therefore the intended order, not a repair — and it is
-// what turns those columns' failure class into the ordinary
-// `FOREIGN KEY constraint failed`.
+// `run_execution_contexts` land in a later migration, shipped at version 4. Their `REFERENCES
+// repo_mounts(id)` / `REFERENCES workspaces(id)` clauses are the forward
+// references the ratified B23 order left resolvable-but-unresolved: SQLite
+// resolves FK targets lazily at DML time, so version 4 applied cleanly against
+// absent parents and every INSERT into those referencing columns failed as
+// `SQLITE_ERROR: no such table` until THIS version. Applying version 10 after
+// version 4 is therefore the intended order, not a repair — and it is what
+// turns those columns' failure class into the ordinary `FOREIGN KEY constraint
+// failed`.
 //
-// The active-mount partial unique index (D-009-7) is the deduplication key, and
-// its three columns are each load-bearing: `canonical_root` rather than
-// `local_path` so two entered aliases of one repository are recognized as one
-// mount; `node_id` so the same absolute path on two runtime nodes stays two
-// distinct node-local filesystems; `WHERE state = 'attached'` so a detached row
-// is history rather than a permanent block on re-attach.
+// The active-mount partial unique index is the deduplication key, and its three
+// columns are each load-bearing: `canonical_root` rather than `local_path` so
+// two entered aliases of one repository are recognized as one mount; `node_id`
+// so the same absolute path on two runtime nodes stays two distinct node-local
+// filesystems; `WHERE state = 'attached'` so a detached row is history rather
+// than a permanent block on re-attach.
 //
 // Idempotency + concurrency are the migration runner's job (the guarded
 // `hasMigrationApplied(db, 10)` block with its in-transaction re-check and
@@ -63,16 +61,13 @@
 // leave the attach path admitting duplicate active mounts of one canonical root,
 // silently.
 //
-// The `schema_version` anchor table itself is owned by Plan-001
-// (`0001-initial.ts`); this migration only INSERTs its version-10 row.
+// The `schema_version` anchor table itself is this migration only
+// INSERTs its version-10 row.
 //
-// Spec coverage: `Spec-009 §State And Data Implications` — repo mount records
-// persist canonical root, owner node, and lifecycle state; workspace records
-// persist execution root, repo association, and health. Refs: Plan-009 T2.1,
-// invariant I-009-5, D-009-7.
+// Repo mount records persist canonical root, owner node, and lifecycle state;
+// workspace records persist execution root, repo association, and health.
 
 export const REPO_WORKSPACES_MIGRATION_SQL: string = `
--- Owner: Plan-009
 CREATE TABLE repo_mounts (
   id              TEXT PRIMARY KEY,
   session_id      TEXT NOT NULL,
@@ -89,24 +84,23 @@ CREATE TABLE repo_mounts (
 );
 
 CREATE INDEX idx_repo_mounts_session ON repo_mounts(session_id);
--- Active-mount uniqueness binds the CANONICAL root per owning node (Plan-009 D-009-7): two
--- entered aliases resolving to one root on one node are one mount; the same absolute path on two
--- different nodes is two distinct node-local filesystems (Spec-009 §State And Data Implications) and both attach;
--- detached rows stay re-attachable as new rows.
+-- Active-mount uniqueness binds the CANONICAL root per owning node: two entered aliases
+-- resolving to one root on one node are one mount; the same absolute path on two different nodes
+-- is two distinct node-local filesystems and both attach; detached rows stay re-attachable as
+-- new rows.
 CREATE UNIQUE INDEX idx_repo_mounts_active_root
   ON repo_mounts(session_id, node_id, canonical_root) WHERE state = 'attached';
 
--- Owner: Plan-009
 CREATE TABLE workspaces (
   id              TEXT PRIMARY KEY,
   session_id      TEXT NOT NULL,
   repo_mount_id   TEXT NOT NULL REFERENCES repo_mounts(id),
-  execution_mode  TEXT NOT NULL DEFAULT 'read-only' -- read-only until a writable mode is explicitly selected (Spec-009; 'worktree' is the default WRITABLE run mode per ADR-006, not the row default)
+  execution_mode  TEXT NOT NULL DEFAULT 'read-only' -- read-only until a writable mode is explicitly selected ('worktree' is the default WRITABLE run mode not the row default)
                   CHECK(execution_mode IN ('read-only', 'branch', 'worktree', 'ephemeral clone')),
   fs_root         TEXT,                       -- resolved filesystem root
   state           TEXT NOT NULL DEFAULT 'provisioning'
                   CHECK(state IN ('provisioning', 'ready', 'busy', 'stale', 'archived')),
-  metadata        TEXT NOT NULL DEFAULT '{}', -- JSON; lastError detail on a failed mode switch (Spec-009)
+  metadata        TEXT NOT NULL DEFAULT '{}', -- JSON; lastError detail on a failed mode switch
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL
 );

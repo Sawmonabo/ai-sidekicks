@@ -1,33 +1,30 @@
-// The `driver.*` JSON-RPC handlers — Plan-005 Phase 4, T4.1.
+// The `driver.*` JSON-RPC handlers
 //
-// The EIGHT request/response verbs of the client-facing set, bound onto Plan-007's
-// `MethodRegistry` and dispatched into the IN-DAEMON `ProviderRegistry` (T2.3).
-// The ninth, `driver.subscribeEvents`, is registered by the sibling
-// `driver-subscribe.ts` — T4.4 moved that leg out of this module rather than
-// leaving a second copy behind, so this file no longer binds it and no longer
-// derives the driver event set. That dispatch target is the point rather than an
-// implementation detail: I-005-1 holds driver authority LOCAL even when the
-// provider endpoint is remote, so every handler here resolves a driver instance
-// from the local registry and calls it in this process. Nothing in this module
-// can express "execute via the control plane", which is how the invariant
-// survives contact with a wire surface.
+// The EIGHT request/response verbs of the client-facing set, bound onto the
+// `MethodRegistry` and dispatched into the IN-DAEMON `ProviderRegistry`. The
+// ninth, `driver.subscribeEvents`, is registered by the sibling
+// `driver-subscribe.ts` — moved that leg out of this module rather than leaving a
+// second copy behind, so this file no longer binds it and no longer derives the
+// driver event set. That dispatch target is the point rather than an
+// implementation detail: holds driver authority LOCAL even when the provider
+// endpoint is remote, so every handler here resolves a driver instance from the
+// local registry and calls it in this process. Nothing in this module can express
+// "execute via the control plane", which is how the invariant survives contact
+// with a wire surface.
 //
-// WHY THE CLIENT-FACING SET IS NINE AND NOT THIRTEEN. `ProviderDriver` carries eighteen operations. Four
-// of them — `createSession`, `resumeSession`, `startRun`, `closeSession` — are
-// daemon-internal by Plan-005 §Phase 4 decision #2 and are registered NOWHERE:
-// they establish, restore, start, or tear down a session-or-run domain object,
-// which is orchestration's job, and a client reaching them directly would let a
-// caller mint runtime state behind the orchestrator's back. Their absence from
-// this file is the enforcement — there is no schema for them at the SDK seam and
-// no `register` call here, so a client that guessed the method name gets
-// `method_not_found` from the registry substrate. T4.9's two console-parity
-// verbs (`driver.compactContext`, `driver.listProviderCommands`) extend THIS
-// module (never a second one), taking the set bound here from six to eight: both
-// are request/response dispatches, which is the concern this file owns.
-// `driver-subscribe.ts` is not a counterexample to that rule but an application
-// of it — a subscription allocates per-connection state and owns an ordering
-// obligation none of these verbs carry, which is the seam T4.4 draws and the
-// same one `session-subscribe.ts` already sits on.
+// WHY THE CLIENT-FACING SET IS NINE AND NOT THIRTEEN. `ProviderDriver` carries eighteen operations.
+// Four of them — `createSession`, `resumeSession`, `startRun`, `closeSession` — are daemon-internal
+// restore, start, or tear down a session-or-run domain object, which is orchestration's job, and a
+// client reaching them directly would let a caller mint runtime state behind the orchestrator's
+// back. Their absence from this file is the enforcement — there is no schema for them at the SDK
+// seam and no `register` call here, so a client that guessed the method name gets
+// `method_not_found` from the registry substrate. the two console-parity verbs
+// (`driver.compactContext`, `driver.listProviderCommands`) extend THIS module (never a second one),
+// taking the set bound here from six to eight: both are request/response dispatches, which is the
+// concern this file owns. `driver-subscribe.ts` is not a counterexample to that rule but an
+// application of it — a subscription allocates per-connection state and owns an ordering obligation
+// none of these verbs carry, which is the seam draws and the same one `session-subscribe.ts`
+// already sits on.
 //
 // THE TWO CONSOLE-PARITY VERBS ARE SESSION-ADDRESSED, AND AUTHORIZATION RUNS
 // FIRST. Unlike the run-addressed verbs — whose run id is globally unique — a
@@ -48,13 +45,11 @@
 //
 // THE THREE READS ARE NO-ARG AND REPLY PER DRIVER. `driver.listCapabilities`,
 // `driver.listModels`, and `driver.listModes` take an empty request — the
-// ratified `DriverClient` signature (Plan-005 §Phase 4, T4.3) writes them
-// without a parameter while the three run-addressed verbs take one — and answer
-// with a GROUP LIST keyed by driver name. A flat merged array would hand a
-// caller one arbitrary driver's models with the provenance stripped, and model
-// ids collide across providers with no vendor marker to recover it from. The
-// rosters are sorted by driver name so the reply is stable across daemon
-// restarts, which a renderer that keys list items on position depends on.
+// ratified `DriverClient` signature writes them without a parameter while the
+// three run-addressed verbs take one — and answer with a GROUP LIST keyed by
+// driver name. The rosters are sorted by driver name so the reply is stable
+// across daemon restarts, which a renderer that keys list items on position
+// depends on.
 //
 // THE THREE RUN VERBS ARE RUN-ADDRESSED, AND RESOLUTION IS INJECTED. A run id is
 // globally unique, so the wire shapes carry no session selector — a second
@@ -79,11 +74,11 @@
 // the IPC layer owns the projection, which is the layering the rest of the
 // daemon already uses.
 //
-// Every code this module can raise is already registered in
-// `docs/architecture/contracts/error-contracts.md` — `driver.unavailable` (503),
-// `driver.capability_unsupported` (400), `run.not_found` (404), and, on the two
-// console-parity verbs, `session.not_found` (404) and `agent.not_found` (404).
-// Nothing new is minted; the driver namespace stays closed at its seven codes.
+// Every code this module can raise is already registered — `driver.unavailable`
+// (503), `driver.capability_unsupported` (400), `run.not_found` (404), and, on
+// the two console-parity verbs, `session.not_found` (404) and `agent.not_found`
+// (404). Nothing new is minted; the driver namespace stays closed at its seven
+// codes.
 //
 // ATTACHMENT-BEARING STEERS ARE REFUSED HERE, AT THE ONE INGRESS BOTH DRIVERS
 // SHARE. `SteerPayload.attachments` is typed `ArtifactId[]`, but no seam in this
@@ -96,19 +91,14 @@
 // (which would be the same rule written twice). See
 // `refuseAttachmentDeliveryUnsupported`.
 //
-// Invariants this module participates in (canonical text in
-// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`):
-//   * I-007-6 — duplicate registration is rejected at register-time by the
-//     registry, so binding this namespace twice fails loudly at bootstrap.
-//   * I-007-7 — schema-validates-before-dispatch. The registry `safeParse`s the
-//     request against the T4.2 SDK-seam schema before a handler body runs, and
-//     `safeParse`s the result before it reaches the wire.
-//   * I-007-8 — sanitized error mapping; see the translation note above.
-//   * I-007-9 — dotted-camelCase method names; all eight match the canonical
-//     regex.
-// I-007-10 (the subscribe-init response precedes the first notify frame) is not
-// listed: no method bound here opens a subscription. It moved to
-// `driver-subscribe.ts` with the handler that owes it.
+// Invariants this module participates in (canonical text):
+//   * Duplicate registration is rejected at register-time by the registry,
+//     so binding this namespace twice fails loudly at bootstrap.
+//   * The registry `safeParse`s the request SDK-seam schema before a handler
+//     body runs, and `safeParse`s the result before it reaches the wire.
+//   * Sanitized error mapping; see the translation note above.
+//   * Dotted-camelCase method names; all eight match the canonical regex.
+// It moved to `driver-subscribe.ts` with the handler that owes it.
 //
 // Mutating flags: `false` on the three roster reads and on
 // `listProviderCommands`, which reads live enumeration state and changes
@@ -119,11 +109,6 @@
 // `driver.subscribeEvents` is `false` for the same reason the reads are, and
 // carries that flag in its own module.
 //
-// Refs: Plan-005 §Phase 4 / T4.1 + T4.9, `Spec-005 §Capability discovery`,
-// `Spec-005 §Interfaces And Contracts`, invariants I-005-1 / I-005-2 /
-// I-005-13, CP-007-6 (the `driver.*` namespace registered against Plan-007's
-// registry), `docs/architecture/contracts/error-contracts.md §Driver` + §Run +
-// §Session + §Agent.
 
 import type {
   ApplyInterventionParams,
@@ -192,10 +177,10 @@ export interface DriverListCapabilitiesDeps {
   /** Enumerates the drivers this node has loaded; the reply's roster. */
   readonly providerRegistry: Pick<ProviderRegistry, "listAvailable">;
   /**
-   * The T4.5 read-side cache. `read` serves one driver's client-facing report
-   * from memory (or from ONE durable read on a miss) and never round-trips a
-   * driver process — which is what makes this method cheap enough for a renderer
-   * to call whenever it needs to know which controls to offer.
+   * `read` serves one driver's client-facing report from memory (or from ONE
+   * durable read on a miss) and never round-trips a driver process — which is
+   * what makes this method cheap enough for a renderer to call whenever it needs
+   * to know which controls to offer.
    */
   readonly capabilityCache: Pick<DriverCapabilityCache, "read">;
 }
@@ -221,7 +206,7 @@ export interface DriverDispatchDeps {
 }
 
 // --------------------------------------------------------------------------
-// T4.9 dependency contracts — the two console-parity verbs
+// Dependency contracts — the two console-parity verbs
 // --------------------------------------------------------------------------
 //
 // THE RESOLUTION UNIONS NEVER THROW, AND THAT IS A LOAD-BEARING PROPERTY, not a
@@ -246,17 +231,17 @@ export type RunBindingResolution =
  * One live binding as the daemon resolution hands it to the fan-out.
  *
  * `providerAccountId` is the daemon's OWN record of the account the binding was
- * admitted under (Spec-029 binds a run's account for the run's lifetime; the
- * resolution reads its own registry, never the driver). It is here because it
- * is the verification BASELINE for the driver-stamped routing pair on every
- * returned group and entry — the NS-93 doctrine says the pair is "enforced at
- * the daemon rather than trusted to the renderer", and a daemon that held only
- * the driver name could verify half the pair while trusting the DRIVER for the
- * other half. `null` is the positive statement that no account is bound
- * (mirroring the contracts-side null-doctrine on `ProviderCommandEntry`);
- * in the verification below `null === null` is agreement between two records
- * of the SAME binding, not the cross-binding wildcard match that doctrine
- * forbids on dispatch routing.
+ * admitted under (binds a run's account for the run's lifetime; the resolution
+ * reads its own registry, never the driver). It is here because it is the
+ * verification BASELINE for the driver-stamped routing pair on every returned
+ * group and entry — doctrine says the pair is "enforced at the daemon rather
+ * than trusted to the renderer", and a daemon that held only the driver name
+ * could verify half the pair while trusting the DRIVER for the other half.
+ * `null` is the positive statement that no account is bound (mirroring the
+ * contracts-side null-doctrine on `ProviderCommandEntry`); in the verification
+ * below `null === null` is agreement between two records of the SAME binding,
+ * not the cross-binding wildcard match that doctrine forbids on dispatch
+ * routing.
  */
 export interface ResolvedAgentBinding {
   readonly driverName: string;
@@ -287,7 +272,8 @@ export type AgentBindingsResolution =
 /** Dependencies for `driver.compactContext`. */
 export interface DriverCompactContextDeps {
   /** `checkCapability` joins `lookup` here: this verb IS pre-gated (contrast
-   * `applyIntervention`, whose ADR-011 exclusion is recorded on its binder). */
+   * `applyIntervention`, whose exclusion is recorded on its binder).
+   */
   readonly providerRegistry: Pick<ProviderRegistry, "lookup" | "checkCapability">;
   /**
    * The session-access mask both console-parity verbs run FIRST. Answers
@@ -308,13 +294,13 @@ export interface DriverCompactContextDeps {
    * IDENTICAL `Action::"intervene"` evaluation the `run.pause` / `run.resume`
    * path runs — the Security Architecture permission-matrix run-control row
    * names compaction on that same row, so a second policy here would fork one
-   * decision. No Cedar seam exists in the daemon at this task's landing
-   * (Plan-012 owns it); this dependency is that seam's named socket rather
-   * than a fabricated engine, and it is REQUIRED rather than optional so a
-   * bootstrap that forgot to wire it fails typecheck instead of silently
-   * refusing every compaction at runtime. The handler is fail-closed against a
-   * broken implementor besides: every answer except the literal `"permit"`
-   * settles as the operation's own `not_permitted` refusal.
+   * decision. No Cedar seam exists in the daemon at this task's landing (owns
+   * it); this dependency is that seam's named socket rather than a fabricated
+   * engine, and it is REQUIRED rather than optional so a bootstrap that forgot
+   * to wire it fails typecheck instead of silently refusing every compaction
+   * at runtime. The handler is fail-closed against a broken implementor
+   * besides: every answer except the literal `"permit"` settles as the
+   * operation's own `not_permitted` refusal.
    */
   readonly evaluateInterveneAction: (sessionId: SessionId, runId: RunId) => "permit" | "deny";
   /** The liveness seam — see the union's own doctrine above. */
@@ -334,9 +320,9 @@ export interface DriverListProviderCommandsDeps {
   readonly resolveSessionAccess: (sessionId: SessionId) => boolean;
   /**
    * The agent-to-live-bindings fan-out seam. `agentId` is `string` because the
-   * canonical `AgentId` brand homes in Plan-016's unshipped `orchestration.ts`
-   * — the wire schema UUID-validates the value, and the member narrows to the
-   * brand when that module ships (see the contracts-side note on
+   * canonical `AgentId` brand homes in the unshipped `orchestration.ts` — the
+   * wire schema UUID-validates the value, and the member narrows to the brand
+   * when that module ships (see the contracts-side note on
    * `ListProviderCommandsRequest`).
    */
   readonly resolveAgentBindings: (sessionId: SessionId, agentId: string) => AgentBindingsResolution;
@@ -398,7 +384,7 @@ async function withDriverErrorTranslation<T>(operation: () => Promise<T>): Promi
 /**
  * Resolve the driver instance currently bound to a run, or refuse.
  *
- * Two refusals, in a fixed order that mirrors the one T4.9's console-parity
+ * Two refusals, in a fixed order that mirrors the one the console-parity
  * verbs use for their session-addressed shapes: the ADDRESS fails first
  * (`run.not_found`), then availability (`driver.unavailable`). Checking
  * availability first would report a loaded-driver problem for a run id that
@@ -583,12 +569,12 @@ function sortedDriverNames(providerRegistry: Pick<ProviderRegistry, "listAvailab
 /**
  * Bind `driver.listCapabilities`.
  *
- * Served entirely from the T4.5 cache: no provider round-trip per call, which is
- * the property that makes a no-arg whole-roster read affordable. A driver the
- * cache cannot substantiate refuses the WHOLE read rather than being silently
- * omitted from the roster — an omitted driver is indistinguishable from one that
- * is not loaded, and reporting "this driver has no capabilities" for one whose
- * capabilities are merely unknown is the failure mode I-005-2 exists to prevent.
+ * Served entirely cache: no provider round-trip per call, which is the property
+ * that makes a no-arg whole-roster read affordable. A driver the cache cannot
+ * substantiate refuses the WHOLE read rather than being silently omitted from
+ * the roster — an omitted driver is indistinguishable from one that is not
+ * loaded, and reporting "this driver has no capabilities" for one whose
+ * capabilities are merely unknown is the failure mode exists to prevent.
  */
 export function registerDriverListCapabilities(
   registry: MethodRegistry,
@@ -716,10 +702,10 @@ export function registerDriverInterruptRun(
 /**
  * Bind `driver.applyIntervention`.
  *
- * Deliberately NOT pre-gated by `ProviderRegistry.checkCapability`. ADR-011
- * makes an unsupported intervention DATA rather than an exception: the call must
- * reach the driver so it can answer `{ status: "degraded", fallbackAction }`,
- * and refusing at a gate would replace a usable fallback hint with an error. The
+ * Deliberately NOT pre-gated by `ProviderRegistry.checkCapability`. makes an
+ * unsupported intervention DATA rather than an exception: the call must reach
+ * the driver so it can answer `{ status: "degraded", fallbackAction }`, and
+ * refusing at a gate would replace a usable fallback hint with an error. The
  * registry records the same exclusion on its own side by having no branch for
  * this operation.
  *
@@ -856,15 +842,14 @@ export function registerDriverCompactContext(
  * Verify the driver-stamped routing pair on one returned group against the
  * daemon's own record of the binding the dispatch was addressed to.
  *
- * THE DAEMON VERIFIES, IT DOES NOT TRUST. The NS-93 doctrine makes the
- * `(driverName, providerAccountId)` on every entry "a routing invariant
- * enforced at the daemon rather than trusted to the renderer" — and a daemon
- * that forwarded whatever pair the driver stamped would only have moved the
- * trust one layer down. Every carrier the reply holds is compared: the group's
- * own pair and each entry's pair (the two carriers the contract inlines by
- * design, so a filtered entry keeps its routing key). The expected pair is the
- * resolution's — daemon-owned registry state — never anything read back from
- * the reply.
+ * THE DAEMON VERIFIES, IT DOES NOT TRUST. doctrine makes the `(driverName,
+ * providerAccountId)` on every entry "a routing invariant enforced at the
+ * daemon rather than trusted to the renderer" — and a daemon that forwarded
+ * whatever pair the driver stamped would only have moved the trust one layer
+ * down. Every carrier the reply holds is compared: the group's own pair and
+ * each entry's pair (the two carriers the contract inlines by design, so a
+ * filtered entry keeps its routing key). The expected pair is the resolution's
+ * — daemon-owned registry state — never anything read back from the reply.
  *
  * A mismatch fails the WHOLE read as a plain `Error` (mapped `-32603`), the
  * same class as the one-group structural check: a driver stamping some other
@@ -912,22 +897,21 @@ function verifyDriverStampedRoutingPair(
  * EVERY BINDING IS GATED BEFORE ANY IS DISPATCHED. One declaring-false (or
  * unloaded, or operation-less) driver refuses the WHOLE read with zero
  * dispatches: a partial group list would tell a caller the missing binding
- * enumerates nothing, which is the omission-versus-empty confusion I-005-2
- * forbids — the same whole-read rule the roster reads apply to one failed
- * driver. The dispatch phase then fans out in parallel and MERGES BY
- * CONCATENATION: each driver answers exactly one group for its one binding (a
- * different count is a driver contract violation and fails the read as an
- * internal error rather than being silently flattened or padded), and the
- * handler synthesizes nothing — `runId` attribution, entry order, and
- * truncation marking arrive composed by the driver that owns them, and the
- * routing pair on the group and on every entry is VERIFIED against the
- * resolution's own record before the reply leaves the daemon
- * (`verifyDriverStampedRoutingPair`). The routing invariant (I-005-13) holds
- * twice over: on the DISPATCH side by unrepresentability — no wire request
- * admits a binding member, so a cross-binding dispatch cannot be expressed at
- * all — and on the READ side by that comparison, so a driver stamping some
- * other binding's pair fails the read instead of publishing a lying routing
- * key.
+ * enumerates nothing, which is the omission-versus-empty confusion forbids —
+ * the same whole-read rule the roster reads apply to one failed driver. The
+ * dispatch phase then fans out in parallel and MERGES BY CONCATENATION: each
+ * driver answers exactly one group for its one binding (a different count is
+ * a driver contract violation and fails the read as an internal error rather
+ * than being silently flattened or padded), and the handler synthesizes
+ * nothing — `runId` attribution, entry order, and truncation marking arrive
+ * composed by the driver that owns them, and the routing pair on the group
+ * and on every entry is VERIFIED against the resolution's own record before
+ * the reply leaves the daemon (`verifyDriverStampedRoutingPair`). The routing
+ * invariant holds twice over: on the DISPATCH side by unrepresentability — no
+ * wire request admits a binding member, so a cross-binding dispatch cannot be
+ * expressed at all — and on the READ side by that comparison, so a driver
+ * stamping some other binding's pair fails the read instead of publishing a
+ * lying routing key.
  */
 export function registerDriverListProviderCommands(
   registry: MethodRegistry,

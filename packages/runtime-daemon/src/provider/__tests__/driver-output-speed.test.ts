@@ -1,4 +1,4 @@
-// The per-driver output-speed vocabulary table — Plan-005 T3.26.
+// The per-driver output-speed vocabulary table
 //
 // Guards the property that makes this a table rather than a pair of driver
 // constants: BOTH readers — each driver's live `getCapabilities()` and the
@@ -7,8 +7,6 @@
 // have published. The per-path assertions live with those readers; this suite
 // owns the table's own totality, immutability, and refusal.
 //
-// Refs: Plan-005 T3.26, `Spec-005 §The output-speed axis`,
-// `Spec-005 §Provider Parameter Vocabularies`.
 
 import { describe, expect, it } from "vitest";
 

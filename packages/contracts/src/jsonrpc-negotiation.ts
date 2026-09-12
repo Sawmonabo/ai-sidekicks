@@ -1,26 +1,20 @@
-// JSON-RPC protocol-negotiation contracts — `DaemonHello` / `DaemonHelloAck`
-// wire envelopes for Plan-007 Phase 2 (T-007p-2-4).
+// JSON-RPC protocol-negotiation contracts — the `DaemonHello` / `DaemonHelloAck`
+// wire envelopes.
 //
 // This file owns the CROSS-PACKAGE wire shape every protocol-negotiation
 // participant agrees on. The runtime IMPLEMENTATION (the registry registration,
 // per-connection state machine, and mutating-op gate) lives in
-// `packages/runtime-daemon/src/ipc/protocol-negotiation.ts` (T-007p-2-4
-// sibling).
+// `packages/runtime-daemon/src/ipc/protocol-negotiation.ts` (sibling).
 //
-// Spec coverage:
-//   * `Spec-007 §Required Behavior`
-//     (docs/specs/007-local-ipc-and-daemon-control.md) — "Local IPC must
-//     support protocol version negotiation before mutating operations are
-//     accepted."
-//   * `Spec-007 §Fallback Behavior` — "If version negotiation
-//     fails, read-only compatibility may continue, but mutating operations
-//     must be blocked until versions are compatible."
-//   * `Spec-007 §Interfaces And Contracts` —
-//     "`DaemonHello` and `DaemonHelloAck` must perform version negotiation."
+//   * "Local IPC must support protocol version negotiation before
+//     mutating operations are accepted."
+//   * "If version negotiation fails, read-only compatibility may continue,
+//     but mutating operations must be blocked until versions are
+//     compatible."
+//   * "`DaemonHello` and `DaemonHelloAck` must perform version negotiation."
 //
-// Invariants this file's interface enforces (canonical text in
-// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-6 through I-007-9):
-//   * I-007-7 — schema validation runs before handler dispatch. The
+// Invariants this file's interface enforces (canonical text through):
+//   * Schema validation runs before handler dispatch. The
 //     `DaemonHelloRequestSchema` / `DaemonHelloAckSchema` are registered
 //     against the registry surface so the standard schema-validates-before-
 //     dispatch path applies to the negotiation envelopes themselves.
@@ -31,13 +25,9 @@
 //     owned by `packages/runtime-daemon/src/ipc/protocol-negotiation.ts`.
 //   * The negotiation algorithm constants (`DAEMON_SUPPORTED_PROTOCOL_VERSIONS`)
 //     — daemon-internal; declared in the runtime file, not exported on the wire.
-//   * JSON-RPC numeric error code mapping for negotiation failures — owned
-//     by T-007p-2-2 (`jsonrpc-error-mapping.ts`). Per the canonical mapping
-//     table at error-contracts.md §JSON-RPC Wire Mapping (BL-103 ratified
-//     2026-05-01), `protocol.handshake_required` and `protocol.version_mismatch`
-//     ride as `data.type` on a `-32600 InvalidRequest` envelope.
+//   * JSON-RPC numeric error code mapping for negotiation failures.
 //
-// Schema-placement decision (T-007p-2-4 scope extension):
+// Schema-placement decision (scope extension):
 //   The DAG task contract names ONLY
 //   `packages/runtime-daemon/src/ipc/protocol-negotiation.ts`. This file is
 //   a SCOPE EXTENSION — runtime-daemon's
@@ -48,14 +38,12 @@
 //   runtime dep. Cross-package wire-envelope schemas live in
 //   `packages/contracts/` alongside `JsonRpcRequest` / `JsonRpcResponse`.
 //
-// `protocolVersion` ratified as ISO 8601 `YYYY-MM-DD` date-string at
-// api-payload-contracts.md §Tier 1 (cont.): Plan-007 (BL-102 closed
-// 2026-05-01). The same date-string shape rides on
-// `DaemonHello.protocolVersion`, `DaemonHello.supportedProtocols[]`, and
+// `protocolVersion` ratified as ISO 8601 `YYYY-MM-DD` date-string):. The
+// same date-string shape rides on `DaemonHello.protocolVersion`,
+// `DaemonHello.supportedProtocols[]`, and
 // `DaemonHelloAck.protocolVersion`. Format follows the MCP precedent
-// (modelcontextprotocol.io §Architecture overview); the negotiation
-// algorithm uses lex-sort to find max version (lex order ≡ chronological
-// for ISO 8601).
+// (modelcontextprotocol.io); the negotiation algorithm uses lex-sort to
+// find max version (lex order ≡ chronological for ISO 8601).
 
 import { z } from "zod";
 
@@ -66,9 +54,7 @@ import { z } from "zod";
 /**
  * Canonical JSON-RPC method name for the negotiation handshake. The
  * `daemon.hello` string conforms to the dotted-camelCase canonical format
- * ratified at api-payload-contracts.md §JSON-RPC Method-Name Registry
- * (Tier 1 Ratified, 2026-04-30) — registration succeeds against the
- * I-007-9 register-time regex check.
+ * — registration succeeds register-time regex check.
  */
 export const DAEMON_HELLO_METHOD = "daemon.hello" as const;
 export type DaemonHelloMethod = typeof DAEMON_HELLO_METHOD;
@@ -100,27 +86,25 @@ export const NEGOTIATION_FIELD_MAX_LEN = 256;
 export const SUPPORTED_PROTOCOLS_MAX_LEN = 32;
 
 // --------------------------------------------------------------------------
-// protocolVersion — ISO 8601 date-string (per api-payload-contracts.md §Tier 1 (cont.): Plan-007)
+// protocolVersion — ISO 8601 date-string:)
 // --------------------------------------------------------------------------
 
 /**
- * The canonical regex for an ISO 8601 `YYYY-MM-DD` date-string. Exported
- * so the substrate's envelope-level enforcement gate (`Spec-007 §Wire Format` per-
- * request `protocolVersion` field, see `local-ipc-gateway.ts#dispatchFrame`)
- * shares the EXACT shape that `ProtocolVersionSchema` validates inside
- * `daemon.hello` payloads — a single source of truth prevents drift
- * between the wire-frame gate (substrate) and the negotiation handler
- * (registry). The Zod schema below wraps this regex; do not redeclare it.
+ * The canonical regex for an ISO 8601 `YYYY-MM-DD` date-string. Exported so the
+ * substrate's envelope-level enforcement gate (per- request `protocolVersion`
+ * field, see `local-ipc-gateway.ts#dispatchFrame`) shares the EXACT shape that
+ * `ProtocolVersionSchema` validates inside `daemon.hello` payloads — a single
+ * source of truth prevents drift between the wire-frame gate (substrate) and the
+ * negotiation handler (registry). The Zod schema below wraps this regex; do not
+ * redeclare it.
  */
 export const PROTOCOL_VERSION_REGEX: RegExp = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
- * The `protocolVersion` field type — ISO 8601 `YYYY-MM-DD` date-string per
- * api-payload-contracts.md §Tier 1 (cont.): Plan-007 (BL-102 ratified
- * 2026-05-01). The regex (`PROTOCOL_VERSION_REGEX`) enforces the calendar-
- * date shape; the F-007p-2-10 negotiation algorithm uses lex-sort over
- * conforming strings (lex order ≡ chronological for ISO 8601), so no
- * semver parser is needed.
+ * The `protocolVersion` field type — ISO 8601 `YYYY-MM-DD` date-string):.
+ * The regex (`PROTOCOL_VERSION_REGEX`) enforces the calendar- date shape
+ * negotiation algorithm uses lex-sort over conforming strings (lex order ≡
+ * chronological for ISO 8601), so no semver parser is needed.
  */
 export const ProtocolVersionSchema: z.ZodString = z.string().regex(PROTOCOL_VERSION_REGEX);
 
@@ -142,12 +126,12 @@ const NegotiationFreeFormString = z.string().min(1).max(NEGOTIATION_FIELD_MAX_LE
  *
  * Required fields:
  *   * `protocolVersion` — the client's PRIMARY proposed protocol version
- *     (`Spec-007 §Wire Format` per-request requirement). The daemon uses this as a
- *     fallback when `supportedProtocols` is absent.
+ *     (per-request requirement). The daemon uses this as a fallback when
+ *     `supportedProtocols` is absent.
  *
  * Optional fields:
  *   * `supportedProtocols` — the full set of protocol versions the client
- *     can speak. Required by F-007p-2-10's negotiation algorithm
+ *     can speak. Required by the negotiation algorithm
  *     (`max(client.supportedProtocols ∩ daemon.supported)`); when absent,
  *     the daemon falls back to treating `protocolVersion` as a singleton
  *     `[protocolVersion]`. Capped at `SUPPORTED_PROTOCOLS_MAX_LEN`
@@ -196,17 +180,16 @@ export interface DaemonHello {
 // --------------------------------------------------------------------------
 
 /**
- * Discriminated reason field for an INCOMPATIBLE handshake. F-007p-2-10
- * distinguishes "client too old" (`version.floor_exceeded`) from "client too
- * new" (`version.ceiling_exceeded`). The reason ALSO surfaces if the
- * handshake fired twice on the same connection
+ * Discriminated reason field for an INCOMPATIBLE handshake. distinguishes
+ * "client too old" (`version.floor_exceeded`) from "client too new"
+ * (`version.ceiling_exceeded`). The reason ALSO surfaces if the handshake
+ * fired twice on the same connection
  * (`protocol.handshake_already_completed`) — the conservative "fail-second"
  * posture.
  *
- * Strings ratified at error-contracts.md §JSON-RPC Wire Mapping (BL-103
- * closed 2026-05-01). All three are dotted-namespace project codes and
- * surface as `DaemonHelloAck.reason` (NOT as a JSON-RPC numeric — the
- * Ack itself is a successful response that carries `compatible: false`).
+ * All three are dotted-namespace project codes and surface as
+ * `DaemonHelloAck.reason` (NOT as a JSON-RPC numeric — the Ack itself is
+ * a successful response that carries `compatible: false`).
  */
 export const NEGOTIATION_REASON_FLOOR_EXCEEDED = "version.floor_exceeded" as const;
 export const NEGOTIATION_REASON_CEILING_EXCEEDED = "version.ceiling_exceeded" as const;
@@ -224,7 +207,6 @@ export type NegotiationIncompatibleReason =
  *
  *   * `compatible === true`  → all dispatches allowed (read + mutating)
  *   * `compatible === false` → read-only dispatches allowed; mutating
- *                              dispatches refused per `Spec-007 §Fallback Behavior` + I-007-1
  *
  * Required fields:
  *   * `compatible` — the gate's primary read.
@@ -237,8 +219,7 @@ export type NegotiationIncompatibleReason =
  * Optional fields:
  *   * `reason` — populated only when `compatible: false`. Names the
  *     specific failure mode (floor/ceiling/repeated-handshake) per the
- *     canonical dotted-namespace strings ratified at error-contracts.md
- *     §JSON-RPC Wire Mapping (BL-103 closed 2026-05-01).
+ *     canonical dotted-namespace strings.
  *   * `serverCapabilities` — opaque tag list mirroring the client's
  *     `capabilities`. Phase 3 handlers populate; Tier 1 substrate emits an
  *     empty array if no capabilities are advertised.

@@ -1,4 +1,4 @@
-// Plan-006 T3.3 — `createEventAnchorRouter` factory.
+// `createEventAnchorRouter` factory.
 //
 // One procedure, `eventanchor.upload`: the daemon's write path for the
 // integrity witness. Nested under the `eventanchor` namespace so the on-wire
@@ -20,12 +20,11 @@
 // `errorFormatter`, and `host.ts` composes them flat via `t.mergeRouters`.
 //
 // ROUTE-THROUGH-SERVICES: this factory imports no `pg` / `Pool` / `Client` /
-// `Querier`; the injected `EventLogAnchorStore` owns all SQL. Same §I-008-3 #2
-// discipline the runtime-node factory follows, and here it holds by
-// construction since the factory has no querier to misuse.
+// `Querier`; the injected `EventLogAnchorStore` owns all SQL. Same and here it
+// holds by construction since the factory has no querier to misuse.
 //
 // ----------------------------------------------------------------------------
-// I-006-3-02 at the transport boundary
+// At the transport boundary
 // ----------------------------------------------------------------------------
 //
 // `.input(EventAnchorUploadRequestSchema)` is the same `.strict()`
@@ -37,8 +36,6 @@
 // invariant asserted at exactly one layer stops being asserted the moment
 // someone adds a second caller.
 //
-// Refs: Plan-006 T3.3, ADR-014 (tRPC control-plane API), ADR-017,
-// `Plan-006 §Cross-Plan Obligations` CP-006-2 (the host mount).
 
 import {
   TRPCError,
@@ -68,16 +65,12 @@ import { EventLogAnchorStore, UnknownAnchorSessionError } from "./anchor-store.j
  * the REAL class with a throwing `Querier` — a structural stub cannot satisfy
  * the type without an `as unknown as` double-cast that would mask future drift.
  *
- * AUTH POSTURE. This procedure carries no participant-identity check, and that
- * is a Tier-5 deferral with a specific shape rather than an oversight. The
- * caller is a DAEMON, not a participant: the authority it claims is
- * `(sessionId, nodeId)`, and verifying it means checking that the DPoP-bound
- * PASETO token presented by the caller belongs to the node the anchor is
- * attributed to. That check needs the token verification Plan-018 lands at
- * Tier 5 (the daemon side of the same seam is `CP-006-13`'s
- * `DaemonCredentialProvider`, which currently refuses every mint). Until then
- * the host's dual gate intercepts all production traffic, exactly as it does
- * for the session and runtime-node procedures.
+ * This procedure carries no participant-identity check, and that is a Tier-5
+ * deferral with a specific shape rather than an oversight. That check needs
+ * the token verification lands at Tier 5 (the daemon side of the same seam is
+ * the `DaemonCredentialProvider`, which currently refuses every mint). Until
+ * then the host's dual gate intercepts all production traffic, exactly as it
+ * does for the session and runtime-node procedures.
  */
 export interface EventAnchorRouterDeps {
   readonly anchorStore: EventLogAnchorStore;

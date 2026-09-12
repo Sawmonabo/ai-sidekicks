@@ -1,5 +1,4 @@
-// Plan-008 §Phase 1 §T-008b-1-T9: SSE heartbeat cadence verification —
-// the wire emits `event: ping` frames at the configured interval whenever
+// The wire emits `event: ping` frames at the configured interval whenever
 // the source iterable is silent. End-to-end via `fetchRequestHandler`, same
 // substrate as T7/T8.
 //
@@ -26,7 +25,6 @@
 //     between source values.
 //   * sse.ts:133-135 — PING_SYM → `{event: "ping", data: ""}` SSE frame.
 //
-// Refs: docs/plans/008-control-plane-relay-and-session-join.md §T-008b-1-T9,
 //       packages/control-plane/src/sessions/trpc.ts (sse.ping wiring).
 
 import { describe, expect, it, vi } from "vitest";
@@ -71,7 +69,7 @@ function makeQuiescentProvider(): SessionEventStreamProvider {
   };
 }
 
-describe("T9 / §T-008b-1-T9: SSE heartbeat cadence emits `event: ping` frames during source silence", () => {
+describe("T9 / `event: ping` frames during source silence", () => {
   it("emits >= 2 ping frames within ~5x interval against a quiescent source", async () => {
     const handler = buildControlPlaneFetchHandler({
       ...makeRefusalAssertingDeps(),

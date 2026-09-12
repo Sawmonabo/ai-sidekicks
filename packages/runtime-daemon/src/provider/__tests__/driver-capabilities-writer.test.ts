@@ -1,4 +1,4 @@
-// DriverCapabilitiesWriter — Plan-005 Phase 2 (T2.4).
+// DriverCapabilitiesWriter behaviour.
 //
 // Exercises the 3-table atomic dual-write + the `runtime_node.capability_*`
 // emission + cold-start hydration over a REAL Local SQLite handle via
@@ -7,31 +7,22 @@
 // mirrors the production root: `SessionService(db)` →
 // `RuntimeNodeEventEmitter({ sessionEvents })` → `DriverCapabilitiesWriter(db,
 // emitter)`, all over the SAME `db` handle (the dual-write atomicity depends on
-// the emitter's append running on that connection — the T2.5 wiring contract).
+// the emitter's append running on that connection — wiring contract).
 //
 // Coverage map (cites are the authoritative contract, not just the ACs):
-//   * `Spec-005 §Required Behavior` (undeclared capabilities are unsupported — the cache the gate
-//     reads): the flag matrix round-trips through `driver_capabilities` and
-//     `hydrate`, so a `false`/absent flag is faithfully reconstructed.
-//   * `Spec-005 §Default Behavior` (declarations required at attach time, refreshed on provider
-//     state change): the declare → refresh paths (declared / updated / noop).
-//   * `Spec-005 §Recovery Consequences` (cache-as-source-of-truth; cold-start hydration without
-//     round-tripping the driver): `hydrate` reconstructs the COMPLETE nested
-//     `GetCapabilitiesResult` — `cliVersion` included, from the
-//     `driver_contract_meta` currency pair T2.6 persists — from the three tables,
-//     and reports a typed MISS (with its cause) rather than fabricating a version
-//     it does not hold.
-//   * I-005-2 (the capability cache is the durable mirror the in-memory registry
-//     reads): the flat snapshot persists and reconstructs faithfully; the emitted
-//     event carries the FLAT `CapabilityDetails` — and deliberately NOT the
-//     currency pair, which is cache currency rather than a capability.
+//   * the flag matrix round-trips through `driver_capabilities` and `hydrate`, so a
+//     `false`/absent flag is faithfully reconstructed.
+//   * the declare → refresh paths (declared / updated / noop).
+//   * `hydrate` reconstructs the COMPLETE nested `GetCapabilitiesResult` — `cliVersion`
+//     included, from the `driver_contract_meta` currency pair persists — from the three tables,
+//     and reports a typed MISS (with its cause) rather than fabricating a version it does not
+//     hold.
+//   * The flat snapshot persists and reconstructs faithfully; the emitted event
+//     carries the FLAT `CapabilityDetails` — and deliberately NOT the currency
+//     pair, which is cache currency rather than a capability.
 //   * Atomicity / write-then-emit ordering: a throwing emit rolls back all three
 //     table writes (no rows for that driver after the failed declare).
 //
-// Refs: Plan-005 §Phase 2 / T2.4, `Spec-005 §Required Behavior` (normalized
-// events; undeclared-unsupported) + `Spec-005 §Per-Driver Capability Matrix`
-// (Codex reasoning/model-mutation rows), CP-005-5,
-// invariant I-005-2.
 
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -201,9 +192,9 @@ function makeFlags(
   return { ...base, resume: true, tool_calls: true, ...overrides };
 }
 
-// The REQUIRED `cliVersion` reading (T1.8) every advertised snapshot carries. It
-// describes the LIVE READING rather than a capability, which is why T2.6 PERSISTS
-// it (into `driver_contract_meta.cli_version_raw` / `cli_version_semver`, so
+// The REQUIRED `cliVersion` reading every advertised snapshot carries. It
+// describes the LIVE READING rather than a capability, which is why PERSISTS it
+// (into `driver_contract_meta.cli_version_raw` / `cli_version_semver`, so
 // `hydrate()` can return the complete `GetCapabilitiesResult`) while deliberately
 // keeping it OUT of change-detection and out of every event payload.
 const CLI_VERSION_REPORT: DriverCliVersionReport = {
@@ -257,13 +248,13 @@ function makeAdvancingClock(): () => string {
   };
 }
 
-// Wire the Phase-2 object graph over the current `db`, with a collision-
-// free deterministic event-id source so `session_events.id` (TEXT PRIMARY KEY)
-// never collides across emits. Returns the writer + the SessionService (so tests
-// can read the emitted events off the same connection). The seam is
-// ASYNC-TRANSACTIONAL post the Plan-006 T3.1 re-point (node-event-emitter.ts's
-// header owns the contract): `EventLogService.append` over the SAME connection
-// backs it, which is what lets a `transactionalPrelude` join its transaction.
+// Wire the Phase-2 object graph over the current `db`, with a collision- free
+// deterministic event-id source so `session_events.id` (TEXT PRIMARY KEY) never
+// collides across emits. Returns the writer + the SessionService (so tests can
+// read the emitted events off the same connection). The seam is
+// ASYNC-TRANSACTIONAL post re-point (node-event-emitter.ts's header owns the
+// contract): `EventLogService.append` over the SAME connection backs it, which
+// is what lets a `transactionalPrelude` join its transaction.
 function makeWriter(
   now: () => string = makeAdvancingClock(),
   signingKeySource: DaemonSigningKeySource = new FixedDaemonSigningKeySource(),
@@ -348,10 +339,9 @@ interface RawCliVersionPair {
 }
 
 /**
- * The DURABLE currency pair, read by DIRECT SELECT off the raw columns rather
- * than through `hydrate()`. That is the point: routing this assertion through
- * the writer's own reader would let a symmetric bug (write the wrong thing, read
- * it back) pass. The raw columns are the contract with `docs/architecture/schemas/local-sqlite-schema.md`.
+ * The DURABLE currency pair, read by DIRECT SELECT off the raw columns rather than through
+ * `hydrate()`. That is the point: routing this assertion through the writer's own reader would let
+ * a symmetric bug (write the wrong thing, read it back) pass.
  */
 function readCliVersionPair(driverName: string): RawCliVersionPair | undefined {
   return db
@@ -560,7 +550,7 @@ describe("DriverCapabilitiesWriter — contractVersion-only bump", () => {
 });
 
 // ----------------------------------------------------------------------------
-// cli_version currency pair (T2.6) — persisted on every mutating declare,
+// cli_version currency pair — persisted on every mutating declare,
 // refreshed side-band on a version-only re-declare, NEVER evented
 // ----------------------------------------------------------------------------
 
@@ -659,8 +649,8 @@ describe("DriverCapabilitiesWriter — cli_version pair persistence", () => {
     });
     expect(outcome).toEqual({ emitted: "declared", cliVersionRefreshed: true });
 
-    // Read the RAW columns by direct SELECT — the contract with
-    // `docs/architecture/schemas/local-sqlite-schema.md`, not the writer's own reader.
+    // Read the RAW columns by direct SELECT — the contract with not the writer's own
+    // reader.
     expect(readCliVersionPair(DRIVER_NAME)).toEqual({
       cli_version_raw: CLI_VERSION_REPORT.raw,
       cli_version_semver: CLI_VERSION_REPORT.semver,
@@ -810,12 +800,12 @@ describe("DriverCapabilitiesWriter — cli_version pair persistence", () => {
   });
 
   it("keeps the cli_version pair OUT of every event payload (it is cache currency, not a capability)", async () => {
-    // The Spec-005 detection-source precedent applied to the version pair: it is
-    // a property of the READING, not of a capability, so it is deliberately not
-    // mirrored onto the canonical `CapabilityDetails` event payload. Asserted on
-    // the raw serialized bytes of BOTH event kinds, so a later widening that
-    // folded the version into the payload goes red rather than silently changing
-    // what a `runtime_node.capability_*` row means.
+    // Detection-source precedent applied to the version pair: it is a property
+    // of the READING, not of a capability, so it is deliberately not mirrored
+    // onto the canonical `CapabilityDetails` event payload. Asserted on the raw
+    // serialized bytes of BOTH event kinds, so a later widening that folded the
+    // version into the payload goes red rather than silently changing what a
+    // `runtime_node.capability_*` row means.
     const { writer } = makeWriter();
     await writer.declare({
       sessionId: SESSION_ID,
@@ -848,7 +838,7 @@ describe("DriverCapabilitiesWriter — cli_version pair persistence", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Invalid cliVersion — leak-safe typed error, pre-txn (tables untouched) (T2.6)
+// Invalid cliVersion — leak-safe typed error, pre-txn (tables untouched)
 // ----------------------------------------------------------------------------
 
 describe("DriverCapabilitiesWriter — invalid cliVersion report", () => {
@@ -968,7 +958,7 @@ describe("DriverCapabilitiesWriter — tool removed on refresh", () => {
 // Tool with omitted idempotency_class — normalized to manual_reconcile_only
 // ----------------------------------------------------------------------------
 
-describe("DriverCapabilitiesWriter — tool idempotency_class default (I-005-3)", () => {
+describe("DriverCapabilitiesWriter — tool idempotency_class default", () => {
   it("persists an omitted idempotency_class as 'manual_reconcile_only'", async () => {
     const { writer } = makeWriter();
     await writer.declare({
@@ -1494,7 +1484,7 @@ describe("DriverCapabilitiesWriter — toJSON-tainted flags (defensive snapshot 
 // ----------------------------------------------------------------------------
 
 describe("DriverCapabilitiesWriter — contract_version build metadata rejected", () => {
-  it("rejects `1.2.3+build.5` (SemVer §10 build metadata) with a reason that names build metadata + writes NO rows", async () => {
+  it("rejects `1.2.3+build.5` (SemVer section 10 build metadata) with a reason that names build metadata + writes NO rows", async () => {
     const { writer } = makeWriter();
     let thrown: unknown;
     try {
@@ -1502,7 +1492,7 @@ describe("DriverCapabilitiesWriter — contract_version build metadata rejected"
         sessionId: SESSION_ID,
         nodeId: NODE_ID,
         driverName: DRIVER_NAME,
-        // Build metadata is NON-identifying (SemVer §10): `semver.valid` STRIPS it
+        // Build metadata is NON-identifying (SemVer section 10): `semver.valid` STRIPS it
         // to `1.2.3`, so `=== value` fails and the canonical-identity refine
         // rejects it. Accepting it would let `+build.5` / `+build.6` denote the
         // SAME version yet store byte-different strings → spurious capability_updated.
@@ -1813,17 +1803,14 @@ describe("DriverCapabilitiesWriter — hydrate (cold-start cache read)", () => {
           { name: "search", idempotency_class: "idempotent" },
           { name: "write_file", idempotency_class: "compensable", description: "write a file" },
         ],
-        // The whole point of the T2.6 re-widening: `cliVersion` comes BACK from
-        // the cache, so the return is the complete `GetCapabilitiesResult` a
-        // caller can hand straight to the attach-time floor gate.
+        // The whole point of re-widening: `cliVersion` comes BACK from the
+        // cache, so the return is the complete `GetCapabilitiesResult` a caller
+        // can hand straight to the attach-time floor gate.
         cliVersion: CLI_VERSION_REPORT,
       },
     });
-    // `detectionSource` is naturally ABSENT — it is not declared on
-    // `GetCapabilitiesResult` (T3.24 owns it), and `Spec-005 §Interfaces And
-    // Contracts` specifies its absence as reading "reconstructed from cache",
-    // which is exactly what this return is. Asserted so a later widening that
-    // fabricated a provenance value here goes red.
+    // Asserted so a later widening that fabricated a provenance value here
+    // goes red.
     expect(Object.keys(expectHydrationHit(hydrated))).not.toContain("detectionSource");
   });
 
@@ -1956,21 +1943,18 @@ describe("DriverCapabilitiesWriter — hydrate (cold-start cache read)", () => {
   });
 
   // --------------------------------------------------------------------------
-  // NULL currency pair — a cache MISS, never a fabricated version (T2.6)
+  // NULL currency pair — a cache MISS, never a fabricated version
   // --------------------------------------------------------------------------
 
-  it("returns a MISS with reason 'cli_version_missing' when the stored pair is NULL (a pre-T1.7 row) — the version is NEVER fabricated", async () => {
-    // THE NEGATIVE CONTROL FOR THE NULL-PAIR BRANCH. `docs/architecture/schemas/local-sqlite-schema.md`
-    // states the rule outright on the `cli_version_semver` column: "cold-start
-    // hydration MUST treat a NULL pair as a cache miss and refresh from the
-    // driver — the required `GetCapabilitiesResult.cliVersion` is never
-    // fabricated from cache". Delete the branch that implements it and this test
-    // goes red three ways at once: the assertion is on `{ hit: false, reason }`
-    // as a WHOLE, so a hit arm carrying `{ raw: null, semver: null }`, a hit arm
-    // carrying `{ raw: "", semver: "" }`, and a miss reporting the OTHER reason
-    // (`"never_written"`) all fail. The `reason` VALUE is what closes the last
-    // of those — `expect(hydrated.hit).toBe(false)` alone would pass a branch
-    // that returned the wrong cause.
+  it("returns a MISS with reason 'cli_version_missing' when the stored pair is NULL (a pre- row) — the version is NEVER fabricated", async () => {
+    // THE NEGATIVE CONTROL FOR THE NULL-PAIR BRANCH. states the rule outright on the
+    // `cli_version_semver` column: "cold-start hydration MUST treat a NULL pair as a cache miss and
+    // refresh from the driver — the required `GetCapabilitiesResult.cliVersion` is never fabricated
+    // from cache". Delete the branch that implements it and this test goes red three ways at once:
+    // the assertion is on `{ hit: false, reason }` as a WHOLE, so a hit arm carrying `{ raw: null,
+    // semver: null }`, a hit arm carrying `{ raw: "", semver: "" }`, and a miss reporting the OTHER
+    // reason (`"never_written"`) all fail. The `reason` VALUE is what closes the last of those —
+    // `expect(hydrated.hit).toBe(false)` alone would pass a branch that returned the wrong cause.
     const { writer } = makeWriter();
     await writer.declare({
       sessionId: SESSION_ID,
@@ -1985,8 +1969,8 @@ describe("DriverCapabilitiesWriter — hydrate (cold-start cache read)", () => {
       cli_version_semver: CLI_VERSION_REPORT.semver,
     });
 
-    // The pre-T1.7 row shape, reproduced out-of-band: the parent row EXISTS (so
-    // the existence gate passes and `#snapshot` reconstructs a full, valid
+    // The pre- row shape, reproduced out-of-band: the parent row EXISTS (so the
+    // existence gate passes and `#snapshot` reconstructs a full, valid
     // capability matrix) but the currency pair is NULL. Both columns together —
     // the table's both-or-neither CHECK rejects NULL-ing just one.
     db.prepare(
@@ -2286,12 +2270,11 @@ describe("DriverCapabilitiesWriter — concurrent declares under DIFFERENT sessi
   });
 
   it("does NOT treat a racer's VERSION-ONLY refresh as a diverged snapshot — the parked declare commits on its FIRST attempt", async () => {
-    // THE ARM THAT PINS T2.6'S LOAD-BEARING SCOPING DECISION. The divergence
-    // sentinel exists to keep an EVENT's payload honest — it must fire when the
-    // CAPABILITY snapshot moved under a parked declare. `cliVersion` is not a
-    // capability, so the in-prelude re-check reads the snapshot WITHOUT the
-    // currency pair (`#snapshot` is deliberately not widened; only `#cachedRead`
-    // carries the pair).
+    // The divergence sentinel exists to keep an EVENT's payload honest — it must
+    // fire when the CAPABILITY snapshot moved under a parked declare.
+    // `cliVersion` is not a capability, so the in-prelude re-check reads the
+    // snapshot WITHOUT the currency pair (`#snapshot` is deliberately not
+    // widened; only `#cachedRead` carries the pair).
     //
     // Fold the pair into `#snapshot` and this arm goes red: the re-check would
     // see the racer's refreshed version, call it divergence, abort a perfectly
