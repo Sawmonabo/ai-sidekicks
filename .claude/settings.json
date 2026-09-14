@@ -25,17 +25,6 @@
     "ask": []
   },
   "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "WebSearch|WebFetch",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/cache-websearch.sh"
-          }
-        ]
-      }
-    ],
     "SessionStart": [
       {
         "matcher": "compact|resume",

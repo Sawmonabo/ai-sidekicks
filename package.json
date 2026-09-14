@@ -18,7 +18,7 @@
     "test:coverage": "turbo run test:coverage",
     "format": "prettier --write \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml,yaml}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml,yaml}\"",
-    "prepare": "lefthook install && node tools/install-lychee.mjs"
+    "prepare": "lefthook install"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.2",
