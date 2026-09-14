@@ -439,6 +439,23 @@ for (const ciStatus of ["red", "pending", "none"]) {
   });
 }
 
+test("advisory mode lets a red CI merge only when no check is marked required", () => {
+  // `all-checks` is the mode the deriver reports when the branch has no
+  // required check: every check is informational, so on an advisory run a red
+  // one is read and fixed forward rather than blocking the merge.
+  const advisorySignals = cleanSignals({ ciStatus: "red", ciMode: "all-checks" });
+  assert.equal(computeVerdict(advisorySignals, { advisory: true }).mergeOk, true);
+  // CONTROL: the same signals without the flag still refuse the merge, so the
+  // assertion above is measuring the flag and not a weakened CI conjunct.
+  assert.equal(computeVerdict(advisorySignals).mergeOk, false);
+  // CONTROL: advisory does not excuse a red check that a required check gates.
+  assert.equal(
+    computeVerdict(cleanSignals({ ciStatus: "red", ciMode: "required-only" }), { advisory: true })
+      .mergeOk,
+    false,
+  );
+});
+
 // -------------------------------------------------------- truncated signals
 
 for (const truncatedSignal of ["threadWindowTruncated", "checkWindowTruncated"]) {

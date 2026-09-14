@@ -234,7 +234,7 @@ A spec-body amendment after promotion (typo, citation, narrowing) does NOT re-tr
 
 ## Per-Phase Audit Semantics
 
-Audit-completeness applies at phase granularity for plans that ship across tiers via the substrate-vs-namespace decomposition pattern. Each phase that opts into the per-phase mechanism declares its status via the `audit_status` precondition entry (see [preflight-contract.md](../../.claude/skills/plan-execution/references/preflight-contract.md) Gate 5); phases without a declaration fall back to the plan-level `Plan-readiness audit complete` checkbox via Gate 2's legacy path. Two values are permitted:
+Audit-completeness applies at phase granularity for plans that ship across tiers via the substrate-vs-namespace decomposition pattern. Each phase that opts into the per-phase mechanism declares its status via the `audit_status` precondition entry (see the preflight contract's Gate 5); phases without a declaration fall back to the plan-level `Plan-readiness audit complete` checkbox via Gate 2's legacy path. Two values are permitted:
 
 | `status` | YAML shape | Meaning |
 | --- | --- | --- |

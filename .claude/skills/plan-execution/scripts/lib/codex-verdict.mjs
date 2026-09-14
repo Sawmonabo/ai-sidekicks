@@ -1004,15 +1004,20 @@ function firingLegAgeMs(ageMs) {
  * @property {boolean} [threadWindowTruncated] Review-thread connection did not drain fully.
  * @property {boolean} [checkWindowTruncated]  Check-rollup connection did not drain fully.
  * @property {"green"|"red"|"pending"|"none"} ciStatus
+ * @property {"required-only"|"all-checks"} [ciMode] Whether any check on the branch is marked required. Read only under `options.advisory`.
  * @property {string}  [mergeStateStatus]      GitHub's own MergeStateStatus for the PR.
  * @property {number}  [settleWindowMs]
  */
 
 /**
  * @param {CodexSignals} signals
+ * @param {{advisory?: boolean}} [options] `advisory: true` drops the CI
+ *   conjunct when no check on the branch is marked required — every check is
+ *   then informational, so a red one is read and fixed forward rather than
+ *   blocking the merge. It never excuses a check a required check gates.
  * @returns {{verdict: string, ackOfHead: boolean, cleanAssertingAck: boolean, mergeOk: boolean, unsettled: boolean, unsettledAckLeg: "review"|"comment"|null, threadBearingAckAgeMs: number, ackAgeUnknown: boolean, shaBoundAckOfHead: boolean, ackAttributionAmbiguous: boolean, timestampOnlyAckUnvouchable: boolean, signalTruncated: boolean}}
  */
-export function computeVerdict(signals) {
+export function computeVerdict(signals, options = {}) {
   const settleWindowMs = signals.settleWindowMs ?? DEFAULT_SETTLE_WINDOW_MS;
 
   const ackOfHead = signals.reviewAcksHead || signals.reactionAcksHead || signals.commentAcksHead;
@@ -1314,7 +1319,8 @@ export function computeVerdict(signals) {
     signals.isOpen === true &&
     signals.headUnchanged === true &&
     signals.pushAnchorKnown === true &&
-    signals.ciStatus === "green" &&
+    (signals.ciStatus === "green" ||
+      (options.advisory === true && signals.ciMode === "all-checks")) &&
     signals.openThreadCount === 0 &&
     !signalTruncated &&
     !ackAttributionAmbiguous &&
