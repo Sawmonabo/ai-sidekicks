@@ -511,7 +511,7 @@ preconditions:
   - **Spec coverage:** Spec-007 AC2 (line 128 — attaching multiple repositories to one session, exercised through the desktop UX)
   - **Verifies invariant:** none
   - **Consumes:** live `window.sidekicks` bridge backend ← Plan-021 Tier 7 remainder (tracked-not-satisfied — CP-007-6; the views render but every wire call throws until then)
-  - Note: the plan-level "Manual verification of attaching multiple repositories to one session" splits per §Test And Verification Plan — its SDK/CLI leg runs at Tier 5 against Phase 3 (Rollout step 2) and belongs to the Phase 3 verification surface; THIS task is the desktop-renderer leg, impossible until the live bridge ships. Record the Plan-002 T5.4 disposition verbatim-pattern (the Plan-002 T5.4 shipped-note precedent): "the live desktop leg is impossible pre-Tier-7; owner = user at Tier 7," on the Phase 4 PR rather than silently dropping the row.
+  - Note: the plan-level "Manual verification of attaching multiple repositories to one session" splits per §Test And Verification Plan — its SDK/CLI leg runs at Tier 5 against Phase 3 (Rollout step 2) and belongs to the Phase 3 verification surface; THIS task is the desktop-renderer leg, impossible until the live bridge ships. Record the Plan-002 T5.4 disposition verbatim-pattern: "the live desktop leg is impossible pre-Tier-7; owner = user at Tier 7," on the Phase 4 PR rather than silently dropping the row.
 
 ## Progress Log
 

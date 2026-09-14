@@ -34,7 +34,7 @@ It is not worth running for cosmetic doc edits, ADR amendments that don't change
 
 ## Audit Procedure
 
-The audit walks **Tiers 1 → 8 strictly sequentially**. Within a tier, plans are walked sequentially by the main agent; within a plan, Phases are audited in parallel by per-Phase subagents.
+The audit walked **Tiers 1 → 8 strictly sequentially**. Within a tier, plans were walked sequentially by the main agent; within a plan, Phases were audited in parallel by per-Phase subagents.
 
 ### Per-Tier Inner Loop
 
@@ -71,7 +71,7 @@ After all plans in Tier:
   11. USER-REVIEW PAUSE: present REVIEW.md; user decides
       approve/reject/escalate per plan. A review is stronger when it
       checks that each Phase exercises the tampering-boundary threat
-      classes its spec names; surface gaps as findings (not amendments
+      classes the plan names; surface gaps as findings (not amendments
       — subagent-fabrication risk).
 
   12. SWAP: cp working copy → corpus location.
@@ -80,7 +80,7 @@ After all plans in Tier:
 
   14. Cleanup: rm -rf .agents/tmp/research/.../working/tier-K/.
 
-  15. Tier-(K+1) waits for tier-K commit on develop.
+  15. Tier-(K+1) waited for tier-K commit on develop.
 ```
 
 ### Concurrency
