@@ -13,8 +13,7 @@
 # concurrently with each other (ADR-023 §Axis 2 Synthesis item 1 — Husky has no
 # parallel primitive at all). Measured cost of the ordering, end-to-end on this
 # repo (three timed runs per shape over the same staged diff): ~1.4s -> ~2.4s
-# p50 (including the docs-anchor-check index materialization), still inside the
-# <5s p99 budget.
+# p50, still inside the <5s p99 budget.
 #
 # CI parity for the `git commit --no-verify` bypass closure (ADR-023 §Axis 2 D-1) is
 # enforced via explicit `eslint .` + `prettier --check .` invocations in
@@ -78,6 +77,13 @@ pre-commit:
                 echo "WARNING: gitleaks not installed locally; CI gitleaks job is the authoritative gate." >&2
                 echo "WARNING: Install per CONTRIBUTING.md §Pre-Commit Hooks or https://github.com/gitleaks/gitleaks" >&2
               fi
+
+          # A markdown table row whose cell count differs from its header renders
+          # as a silently truncated or overflowing row; prettier reflows it into a
+          # format-stable wrong table, so only a source-level check catches it.
+          - name: table-arity
+            glob: "*.md"
+            run: node tools/docs-corpus/table-arity.mjs {staged_files}
 
 commit-msg:
   jobs:

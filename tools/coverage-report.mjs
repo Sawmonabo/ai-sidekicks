@@ -35,7 +35,7 @@ const REPO_ROOT = resolve(SCRIPT_DIR, "..");
 
 // Trees that carry a vitest coverage block but no package.json, so the
 // workspace scan below cannot discover them. Kept explicit and asserted.
-const EXTRA_ROOTS = ["tools/docs-corpus"];
+const EXTRA_ROOTS = [];
 
 /** Every workspace directory whose package.json declares a `test:coverage` script. */
 function discoverWorkspaceRoots() {
