@@ -11,11 +11,12 @@
 # Surface 2 (desktop binary, Spec-024 §7b dual-trust): wired in a later PR.
 # Surface 3 (Rust sidecar, 5 platform packages): wired in a later PR (no sidecar yet).
 #
-# release-please observes `develop` (the integration branch) per the 2026-04-26
-# branch-model amendment to ADR-023; release tags ultimately land on `main`. The
-# release-PR opens against develop; merging it bumps versions; the publish-job
-# fast-forwards develop → main and tags on main. Exact tag-on-main mechanics are
-# finalized when the first real release runs.
+# This workflow is manual until the first release: it runs only on
+# `workflow_dispatch`, never on a push. When dispatched, release-please reads
+# commits on `develop` (the integration branch); release tags ultimately land on
+# `main`. The release-PR opens against develop; merging it bumps versions; the
+# publish-job fast-forwards develop → main and tags on main. Exact tag-on-main
+# mechanics are finalized when the first real release runs.
 #
 # OIDC environment-gate per ADR-023 §Axis 1 / §Axis 5 — federated credentials
 # bind to repo:<org>/<repo>:environment:production, NOT to a tag ref. Without
@@ -64,7 +65,7 @@ jobs:
         # currently resolves to preserves the same upstream contract.
         uses: googleapis/release-please-action@0dfd8538845b8e92600d271a895a5372865d4062 # v5
         with:
-          # release-please observes `develop` per the 2026-04-26 branch-model amendment.
+          # A dispatched run reads commits on `develop`, the integration branch.
           # Without `target-branch`, the action queries the repo's default branch from
           # GitHub (currently `main`), which would skip every commit on `develop`.
           target-branch: develop
