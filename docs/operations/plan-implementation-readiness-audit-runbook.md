@@ -69,10 +69,10 @@ After all plans in Tier:
   10. advisor() sanity check on tier diff bundle.
 
   11. USER-REVIEW PAUSE: present REVIEW.md; user decides
-      approve/reject/escalate per plan. REVIEW.md MUST confirm each
-      Phase exercises the §Adversarial-Tampering Boundary threat classes
-      from `000-plan-template.md` §Test And Verification Plan; surface
-      gaps as findings (not amendments — subagent-fabrication risk).
+      approve/reject/escalate per plan. A review is stronger when it
+      checks that each Phase exercises the tampering-boundary threat
+      classes its spec names; surface gaps as findings (not amendments
+      — subagent-fabrication risk).
 
   12. SWAP: cp working copy → corpus location.
 
@@ -87,8 +87,7 @@ After all plans in Tier:
 
 - Plans within a tier: **sequential** (main agent context).
 - Phases within a plan: **parallel** (subagents are independent; disjoint output files).
-- Tiers: **strictly serialized** (Tier-K cannot start until Tier-(K-1) commits to `develop`).
-- Audit vs. code execution: **Tier 1 is the only blocker for Plan-001 Phase 5**. Once Tier 1 commits, Plan-001 Phase 5 can begin even though Tiers 2-8 are unfinished. The plan-template Precondition gates _each plan on its own tier's audit_ — so Plan-NNN at Tier-K can begin once Tier-K is committed, regardless of Tier-(K+1) status.
+- Tiers, during the original sweep: **serialized** — a tier's walk started after the previous tier's swap had committed to `develop`, so each tier read a settled corpus.
 
 ### Working-Copy + Swap Pattern
 
@@ -116,7 +115,7 @@ Audit edits never touch the corpus directly. The pattern:
 | New invariant promoted from narrative, new CP-NNN-M entry, new Phase added/renumbered, new Required ADR | Flip to `review` |
 | Behavior change in plan body | Flip to `review`; likely also requires spec amendment |
 
-**Default rule (when in doubt):** stay `approved` and surface the ambiguous case to user review in REVIEW.md as an explicit question. The flip-to-`review` path is reserved for amendments that meet the row criteria above; cosmetic, wording, or structural-clarification edits that do not introduce new contracts default to `approved`. This default biases against unnecessary status churn (which would ripple through downstream plan-template Preconditions and gate Plan-001 itself) while keeping the user as final arbiter on edge cases.
+**Default rule (when in doubt):** stay `approved` and surface the ambiguous case to user review in REVIEW.md as an explicit question. The flip-to-`review` path is reserved for amendments that meet the row criteria above; cosmetic, wording, or structural-clarification edits that do not introduce new contracts default to `approved`. This default biases against unnecessary status churn while keeping the user as final arbiter on edge cases.
 
 ### Cross-Tier Amendment Contingency
 
@@ -230,10 +229,6 @@ Criteria (1)+(2) are human-judged at audit time and load-bearing in the plan's o
 **Non-qualifying example:**
 
 - **Plan-006 partial Phases 1-3** cover Spec-024 rows 4+10 (Phase 1), [Spec-006 §Wire Format](../specs/006-local-ipc-and-daemon-control.md#wire-format) (Phase 2), and CP-006-1 + [Spec-006 §Required Behavior](../specs/006-local-ipc-and-daemon-control.md#required-behavior) (Phase 3). They are split via the substrate-vs-namespace decomposition rule but ship behavior — they do NOT qualify under criterion (3). Plan-006 partials are a legacy coverage gap (shipped pre-audit-framework via PRs #16/#17/#19), retroactively audited via the follow-up [BL-113](../archive/backlog-archive.md#bl-113-plan-006-partial-phases-1-3-retroactive-tier-1-audit) (filed and resolved via PR #75) ahead of Plan-006 remainder Tier 3 execution; they are NOT precedent for `substrate_exempt`.
-
-### Status promotion under `substrate_exempt`
-
-A plan whose Tier 1 phase ships under `audit_status: substrate_exempt` does NOT receive a `[x]` on its plan-level audit checkbox. The checkbox flips to `[x]` only when the full plan-level audit completes at the plan's later-tier remainder (Plan-021 at Tier 7). Until then, the plan stays in `approved` status (no regression to `review`); only the audit checkbox remains `[ ]` with a footnote pointing to the deferred-audit work. **Plan-006 is not in this `substrate_exempt` set** — its Tier 1 partials shipped behavior, not a substrate exemption (see the non-qualifying example above), so it took the non-exempt path: a retroactive Tier-1 audit (BL-113 / PR #75) plus the Tier-3 remainder audit (PR #124). Its `approved → review → approved` cycle was a [§Status Flip Rule](#status-flip-rule) consequence of the Tier-3 design reopen, **not** the no-regression `substrate_exempt` promotion path described here.
 
 ### Per-tier inner-loop addition
 
@@ -596,7 +591,7 @@ The Tier-5 swap surfaced four distinct cite forms, each with a different validat
 ## Related Architecture / Specs / Plans
 
 - `docs/architecture/cross-plan-dependencies.md` — the forward phase DAG and its dispatch groups. The dep-trace dimensions (D1-D8) are anchored to this doc and to each plan's own phase table.
-- [`docs/plans/000-plan-template.md`](../plans/000-plan-template.md) — Preconditions section carries the audit gate; new plans inherit it at template-copy time.
+- [`docs/plans/000-plan-template.md`](../plans/000-plan-template.md) — the skeleton a new plan starts from: a goal, non-goals, target areas, and one section per phase carrying a one-sentence `Precondition:` and a one-sentence `Done when:`.
 - [`docs/decisions/023-v1-ci-cd-and-release-automation.md`](../decisions/023-v1-ci-cd-and-release-automation.md) — defines the GitFlow-lite branch model the audit's per-tier commits follow.
 - [`AGENTS.md`](../../AGENTS.md) — owns the parallel-subagent dispatch convention, the transient research-artifact pattern under `.agents/tmp/research/<topic>/`, and the surface-forward-then-delete rule this runbook is itself an instance of.
 - [`CONTRIBUTING.md`](../../CONTRIBUTING.md) — branch naming, commit message format, and squash-merge workflow used for per-tier swap commits.
