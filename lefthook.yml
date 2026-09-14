@@ -11,9 +11,7 @@
 #
 # Parallelism is preserved where it is safe and still pays: the screens run
 # concurrently with each other (ADR-023 §Axis 2 Synthesis item 1 — Husky has no
-# parallel primitive at all). Measured cost of the ordering, end-to-end on this
-# repo (three timed runs per shape over the same staged diff): ~1.4s -> ~2.4s
-# p50, still inside the <5s p99 budget.
+# parallel primitive at all). The whole hook stays inside the <5s p99 budget.
 #
 # CI parity for the `git commit --no-verify` bypass closure (ADR-023 §Axis 2 D-1) is
 # enforced via explicit `eslint .` + `prettier --check .` invocations in

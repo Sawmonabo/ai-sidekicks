@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // coverage-report — renders the per-package v8 coverage numbers produced by
-// `turbo run test:coverage` (plus the tools/docs-corpus tree) as one markdown
-// table, written to $GITHUB_STEP_SUMMARY when running under GitHub Actions and
-// to stdout otherwise.
+// `turbo run test:coverage` as one markdown table, written to
+// $GITHUB_STEP_SUMMARY when running under GitHub Actions and to stdout
+// otherwise.
 //
 // Why first-party rather than a marketplace coverage-comment action
 // (BL-123 Stage 1):
