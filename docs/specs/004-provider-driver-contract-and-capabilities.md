@@ -42,7 +42,7 @@ This spec covers required driver operations, capability advertisement, normalize
 
 - UI behavior for every capability
 - Provider-specific prompt tuning
-- Provider commercial or billing concerns — **narrowed 2026-08-18.** Pricing, plan selection, invoicing, and what a provider charges remain out of scope. Two adjacent facts are **in** scope, because both are driver-contract surfaces rather than commercial ones: the typed provider usage-limit signal (§Fallback Behavior), which is a pacing fact the runtime must act on rather than a billing figure, and the provider-account identity a run is spawned against (§Interfaces And Contracts), which selects a credential environment. Neither carries a price, a rate, or an amount owed. What is spent and what it cost belong to `Spec-014 §Session Cost Receipt`; which account paid and under which billing mode belong to `Spec-026 §Billing mode`.
+- Provider commercial or billing concerns — **narrowed 2026-08-18.** Pricing, plan selection, invoicing, and what a provider charges remain out of scope. Two adjacent facts are **in** scope, because both are driver-contract surfaces rather than commercial ones: the typed provider usage-limit signal (§Fallback Behavior), which is a pacing fact the runtime must act on rather than a billing figure, and the provider-account identity a run is spawned against (§Interfaces And Contracts), which selects a credential environment. Neither carries a price, a rate, or an amount owed. What is spent and what it cost belong to [Spec-014 §Session Cost Receipt](./014-multi-agent-channels-and-orchestration.md#session-cost-receipt); which account paid and under which billing mode belong to [Spec-026 §Billing mode](./026-provider-accounts-and-credential-homes.md#billing-mode).
 
 ## Domain Dependencies
 
@@ -187,7 +187,7 @@ This spec covers required driver operations, capability advertisement, normalize
 For each `false` in the matrix:
 
 - **Codex `reasoning_stream: false`**: reasoning surface shows "unavailable" in timeline UI. No degradation — reasoning simply isn't exposed.
-- **Codex `cost_cap: false`**: the native-cap unpriced-family escape refuses reservation on that leg (`orchestration.budget_exhausted`, `reason: 'driver_capless'`, fail-closed — `Spec-014 §Cost Derivation And Absent-Cost Semantics`). Priced families are unaffected: daemon-ledger accounting needs no provider-side cap.
+- **Codex `cost_cap: false`**: the native-cap unpriced-family escape refuses reservation on that leg (`orchestration.budget_exhausted`, `reason: 'driver_capless'`, fail-closed — [Spec-014 §Cost Derivation And Absent-Cost Semantics](./014-multi-agent-channels-and-orchestration.md#cost-derivation-and-absent-cost-semantics)). Priced families are unaffected: daemon-ledger accounting needs no provider-side cap.
 - **Claude `steer: false`**: steer intervention degrades to queue + interrupt (see [Spec-003](../specs/003-queue-steer-pause-resume.md) § Driver-Level Steer Mechanics). InterventionResult state = `degraded`.
 - **Claude `transcript_replay: false` (probe-declared, 2026-08-26)**: the only cell in this table whose `false` is decided at runtime rather than statically, and the only one with a daemon-side fallback — `replayTranscript` settles on the memo projection, reports `degraded`, and carries a non-empty declared-loss list rather than refusing (§The memo projection is the floor; [ADR-029 §Enumerated Gates And Fallbacks](../decisions/029-canonical-transcript-is-authoritative.md#enumerated-gates-and-fallbacks)). Never `applied`.
 

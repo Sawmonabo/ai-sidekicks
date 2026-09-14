@@ -44,7 +44,7 @@ This plan covers the caller-side dispatch client, target-side dispatch intake an
 - [ ] Plan-010 has landed Cedar policy evaluation and approval category enforcement.
 - [ ] Plan-013 has landed the local replay/recovery substrate and its single writer worker, on which this plan's restart-rebuild of open `cross_node_pending_dispatch` windows depends.
 - [ ] Plan-014 has landed the T2.7 idle-reaper **consult-point scaffolding** — the injectable seam in its pre-gate constant-false posture, not yet consulting `runHasPendingCrossNodeDispatch(runId)` (Tier 5, campaign B15). The exemption leg that actually consults the predicate arms only after this plan's accessor lands (T2.7's own doc-gate), so the Tier-5 dependency is on the seam scaffolding, not on the consulting behavior — required by this plan's Tier-8 registration step (Step 8) only. That step ships live code; it is the cross-node consumer path it feeds that is V1-dormant behind `orchestration.node_not_local`. **Scoped to what Plan-014 declares:** its T2.7 (`packages/runtime-daemon/src/orchestration/idle-sweep.ts`) names `runHasPendingCrossNodeDispatch(runId)`, the constant-false pre-gate, and — as of this same Tier-8 audit PR's housekeeping one-liner on T2.7's `Provides:` line — the campaign-B15 registration seam plus the exemption-end re-arm contract; the mechanisms themselves land with campaign B15. This box depends on the scaffolding, not on the seam's consulting behavior.
-- [ ] Plan-016 has landed the user roster read path this plan uses to retrieve a caller's long-term public key ([Spec-022 §Target-Side Authentication And Cedar Evaluation](../specs/022-cross-node-dispatch-and-approval.md#target-side-authentication-and-cedar-evaluation) step 1). Plan-016 names no Plan-024-facing verification symbol — signature verification is performed by **this** plan over the key that read path returns; the roster-read registration landed as [Plan-016 CP-016-13](./016-identity-and-user-state.md#cross-plan-obligations) in this same Tier-8 audit PR, and the key-material read affordance is authored at Plan-016 T5.1/T5.3/T5.8 (the `user_identity_keys` store + `UserIdentityKeyRoster` read + daemon gateway responder — the promotion-pass decomposition, 2026-08-15; this box still gates on that code LANDING, and rows populate only after Plan-016's client-side presenter carrier box clears). The target-local freshness cache and the `user_roster_stale` refusal (`Spec-022 §Fallback Behavior`) stay this plan's to author at its Tier-8 fold — including that refusal code's `error-contracts.md` registration, which no corpus surface carries today.
+- [ ] Plan-016 has landed the user roster read path this plan uses to retrieve a caller's long-term public key ([Spec-022 §Target-Side Authentication And Cedar Evaluation](../specs/022-cross-node-dispatch-and-approval.md#target-side-authentication-and-cedar-evaluation) step 1). Plan-016 names no Plan-024-facing verification symbol — signature verification is performed by **this** plan over the key that read path returns; the roster-read registration landed as [Plan-016 CP-016-13](./016-identity-and-user-state.md#cross-plan-obligations) in this same Tier-8 audit PR, and the key-material read affordance is authored at Plan-016 T5.1/T5.3/T5.8 (the `user_identity_keys` store + `UserIdentityKeyRoster` read + daemon gateway responder — the promotion-pass decomposition, 2026-08-15; this box still gates on that code LANDING, and rows populate only after Plan-016's client-side presenter carrier box clears). The target-local freshness cache and the `user_roster_stale` refusal ([Spec-022 §Fallback Behavior](../specs/022-cross-node-dispatch-and-approval.md#fallback-behavior)) stay this plan's to author at its Tier-8 fold — including that refusal code's `error-contracts.md` registration, which no corpus surface carries today.
 - [ ] Plan-021 has landed the desktop preload bridge. The target-owner approval modal is authored by **this** plan under `apps/desktop/src/renderer/src/cross-node-dispatch/` — a Plan-024-owned renderer subtree per §Target Areas — and is routed only through that bridge; Plan-021 declares no approval-modal component, so no modal pattern is owed by it.
 - [ ] Plan-028 Phase 8 has landed the relay deploy surface needed for self-host tests.
 
@@ -350,17 +350,6 @@ preconditions:
 - Cross-node execution expands the trust boundary. Fail-open policy behavior, silent fallback, or missing deny persistence are release blockers.
 
 ## Progress Log
-
-### Shipment Manifest
-
-<!-- Machine-readable. Housekeeper-emitted, orchestrator-written, preflight-read.
-     Schema authoritative in:
-       .claude/skills/plan-execution/scripts/lib/manifest.mjs -->
-
-```yaml
-manifest_schema_version: 1
-shipped: []
-```
 
 ### Notes
 

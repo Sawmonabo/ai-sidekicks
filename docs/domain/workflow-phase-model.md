@@ -13,7 +13,7 @@ This document covers `PhaseDefinition` (static), `WorkflowPhaseState` (runtime),
 - `PhaseDefinition`: a static configuration within a workflow version that describes one step in the workflow. Identified by a stable `WorkflowPhaseId`.
 - `WorkflowPhaseState`: the runtime execution record for a specific phase within a specific workflow run. Identified by the combination of `workflow_run_id` and `phase_id`.
 - `WorkflowPhaseId`: a definition-side identifier. It names a phase in the template and remains stable across workflow versions that retain the same phase.
-- `PhaseRunId`: an execution-side identifier. It names one execution attempt of a phase (with iteration number, status, timestamps), derived deterministically as `BLAKE3(workflowRunId || phaseDefinitionId || attemptNumber)` — every bit a function of that preimage, none from a clock or entropy source, so replay reproduces the identical sequence. It is **not** a `RunId` from the run state machine and not a ULID: a phase execution _creates_ runs through `OrchestrationRunCreate`, each with its own `RunId`, while the `PhaseRunId` names the phase attempt that created them (`Spec-015 §Deterministic identity (SA-21)`, clarified 2026-08-10 by the Tier-7 plan-readiness audit; the digest's concrete text rendering is open per `Spec-015 §Open Questions`).
+- `PhaseRunId`: an execution-side identifier. It names one execution attempt of a phase (with iteration number, status, timestamps), derived deterministically as `BLAKE3(workflowRunId || phaseDefinitionId || attemptNumber)` — every bit a function of that preimage, none from a clock or entropy source, so replay reproduces the identical sequence. It is **not** a `RunId` from the run state machine and not a ULID: a phase execution _creates_ runs through `OrchestrationRunCreate`, each with its own `RunId`, while the `PhaseRunId` names the phase attempt that created them ([Spec-015 §Deterministic identity (SA-21)](../specs/015-workflow-authoring-and-execution.md#deterministic-identity-sa-21), clarified 2026-08-10 by the Tier-7 plan-readiness audit; the digest's concrete text rendering is open per [Spec-015 §Open Questions](../specs/015-workflow-authoring-and-execution.md#open-questions)).
 - `Gate`: a checkpoint between phases that must resolve before the next phase can start.
 - `GateState`: the runtime state of a phase's gate (`closed`, `open`, `bypassed`).
 - `FailureBehavior`: the configured response when a phase or its gate check fails (`retry`, `go-back-to`, `stop`).
@@ -31,7 +31,7 @@ The workflow phase model is the source of truth for how individual steps within 
 
 ## Phase Types
 
-V1 ships all four phase types per the 2026-04-22 BL-097 / ADR-015 full-engine amendment (`Spec-015 §Phase-Type and Gate-Type Taxonomy`; this table previously deferred `multi-agent` and `human` to V1.1, a claim the amendment reversed):
+V1 ships all four phase types per the 2026-04-22 BL-097 / ADR-015 full-engine amendment ([Spec-015 §Phase-Type and Gate-Type Taxonomy](../specs/015-workflow-authoring-and-execution.md#phase-type-and-gate-type-taxonomy); this table previously deferred `multi-agent` and `human` to V1.1, a claim the amendment reversed):
 
 | Type | Description |
 | --- | --- |
@@ -116,7 +116,7 @@ When retries are exhausted (iteration count exceeds `max_retries`), the phase tr
 - `Channel` receives phase output. Each phase defaults to one primary target channel.
 - `Artifact` stores phase outputs with `artifactType: 'workflow_output'`. Each phase produces `{artifacts: ArtifactId[], summary: string, metadata: Record<string, unknown>}`.
 - `Approval` (from Plan-010) is used by `human-approval` gates. The approval request uses `category: 'gate'`.
-- `SessionEvent` timeline captures phase events: `workflow.phase_started`, `workflow.phase_completed`, `workflow.phase_failed`, `workflow.phase_suspended`, `workflow.gate_resolved`. The list is illustrative, not the registry: the authoritative set is the 24 `workflow.*` types across five categories enumerated in `Spec-015 §Workflow Timeline Integration`.
+- `SessionEvent` timeline captures phase events: `workflow.phase_started`, `workflow.phase_completed`, `workflow.phase_failed`, `workflow.phase_suspended`, `workflow.gate_resolved`. The list is illustrative, not the registry: the authoritative set is the 24 `workflow.*` types across five categories enumerated in [Spec-015 §Workflow Timeline Integration](../specs/015-workflow-authoring-and-execution.md#workflow-timeline-integration).
 
 ## Example Flows
 
@@ -130,7 +130,7 @@ When retries are exhausted (iteration count exceeds `max_retries`), the phase tr
 - A phase may fail from `running` if the underlying run fails and the configured failure behavior is `stop` with no retries remaining.
 - A `skipped` phase produces no outputs and no artifacts. Its gate transitions to `bypassed`.
 - If a workflow is `cancelled` while a phase is `running`, the phase's underlying run is interrupted (per run state machine child-run behavior) and the phase transitions to `failed`.
-- If a workflow is `cancelled` while a phase is parked, there is nothing to interrupt — a parked phase holds no live process and no pool reservation — so the cancel completes immediately, preserving the phase's recorded park reason and cause while clearing its live resume schedule and attention key in the same unit of work (`Spec-015 §Park integrity and cancellability (SA-42)`).
+- If a workflow is `cancelled` while a phase is parked, there is nothing to interrupt — a parked phase holds no live process and no pool reservation — so the cancel completes immediately, preserving the phase's recorded park reason and cause while clearing its live resume schedule and attention key in the same unit of work ([Spec-015 §Park integrity and cancellability (SA-42)](../specs/015-workflow-authoring-and-execution.md#park-integrity-and-cancellability-sa-42)).
 - An `automated` phase with no agent still creates a run record for provenance and timeline visibility, even though no agent persona executes.
 - Retry iterations appear as sub-entries within the phase section of the session timeline. Each iteration is a distinct event, not a state mutation on a prior event.
 - Phase execution is sequential by default. Parallel execution requires explicit marking in the definition and is bounded.

@@ -1,309 +1,48 @@
-# Plan-{NNN}: {Title}
+# Plan-NNN: Title
 
-<!--
-  Implementation Plan Template
-
-  Purpose:
-  - Defines how an approved spec will be implemented
-  - Must be executable by an implementation agent without inventing missing behavior
-
-  Preconditions:
-  - The paired spec must already be approved
-  - Required ADRs must already exist or be explicitly called out as blockers
-
-  Writing rules:
-  - Be concrete about files, modules, migrations, tests, and rollout order
-  - Do not restate the entire spec; reference it and translate it into execution
--->
-
-| Field               | Value                                         |
-| ------------------- | --------------------------------------------- |
-| **Status**          | `draft` · `review` · `approved` · `completed` |
-| **NNN**             | `{NNN}`                                       |
-| **Slug**            | `{kebab-case-slug}`                           |
-| **Date**            | `YYYY-MM-DD`                                  |
-| **Author(s)**       | `{name(s)}`                                   |
-| **Spec**            | `{link to specs/NNN-...}`                     |
-| **Required ADRs**   | `{link(s)}`                                   |
-| **Dependencies**    | `{Plan-NNN (reason), or None}`                |
-| **Cross-Plan Deps** | Cross-Plan Dependency Graph                   |
+|               |                                                 |
+| ------------- | ----------------------------------------------- |
+| **Status**    | `draft` (set to `ready` when you want it built) |
+| **Spec**      | `[Spec-NNN](../specs/NNN-name.md)`              |
+| **Decisions** | `[ADR-NNN](../decisions/NNN-name.md)`           |
 
 ## Goal
 
-{What this implementation phase will deliver.}
+One paragraph: what exists when this plan is done, and why it matters.
 
-## Scope
+## Non-goals
 
-{What this plan covers.}
+- What this plan deliberately does not do.
 
-## Non-Goals
+## Target areas
 
-- {What this plan intentionally excludes}
+- `packages/<name>/src/<area>` — what changes here
+- `apps/desktop/src/<area>` — what changes here
 
-<!--
-  Invariants section (required for plans with a listener-bind, process-spawn,
-  schema-migration, or cross-plan-dep surface; omit otherwise).
+## Phases
 
-  - Each invariant gets a stable I-NNN-N identifier (NNN = this plan's number)
-    so other plans and this plan's PRs can cite it by name.
-  - Each entry: short header sentence, a grounding reference (governing spec
-    clause, or an explicit plan-owned declaration), why-load-bearing paragraph,
-    and a Verification line naming the test or PR that proves it.
-  - Invariants buried in narrative are review-invisible (the Plan-006 cyclic-dep
-    defect class). Promote MUSTs out of prose into this section.
-  - The three rules rendered below the section boilerplate (grounding,
-    delivery-guarantee vocabulary, Verifies-invariant resolution) are authoring
-    obligations owned by this template, not boilerplate to copy forward — a plan
-    satisfies them in its entries and does not restate them.
--->
+Each phase is one pull request. Keep the precondition to one sentence naming the plan phases it needs (`Precondition: Plan-004 Phase 2 merged.` or `Precondition: none.`), and the done-when to one sentence a reviewer can check.
 
-## Invariants
+### Phase 1 — Short title
 
-The following invariants are **load-bearing** and MUST be preserved across all Plan-NNN PRs and downstream extensions. Any change that would weaken or remove an invariant requires a coordinated cross-plan amendment (see cross-plan-dependencies.md).
+Precondition: none.
 
-**Grounding (required of every invariant authored or amended from 2026-08-08 forward).** Such an invariant MUST either (a) name the governing text it holds the implementation to — a spec clause or an accepted ADR's clause in the durable `Spec-NNN §Heading` / `ADR-NNN §Heading` form per AGENTS.md §Durable-Cite Rule, or a canonical document under `docs/architecture/` — or (b) explicitly declare itself **plan-owned**. Governing means the document binds: specs and ADRs carry their own status lifecycles, and `docs/architecture/` is canonical when merged. What satisfies (a) is the target a clause names, never the label on it: [Plan-004 §Invariants](./004-provider-driver-contract-and-capabilities.md#invariants) writes its grounding as a `Source:` clause naming `Spec-004 §Required Behavior` and is grounded, while [Plan-022 §Invariants](./022-rust-pty-sidecar.md#invariants) writes the same keyword over `Plan-022 §Windows Implementation Gotchas` and is not. A plan citing itself has grounded nothing however well the rationale there is sourced — Plan-022's rests on upstream `microsoft/node-pty` issues, which are evidence and not authority — and a sibling plan's precedent fails the same way. Saying that out loud is what (b) is for. The obligation attaches to the entry, not to a fixed paragraph slot, so it is satisfied in place by whichever entry form the plan uses: the heading form sketched below, a bullet entry with a trailing `Cite:` clause ([Plan-005 §Invariants](./005-session-event-taxonomy-and-audit-log.md#invariants) I-005-4-04, which cites two Spec-005 sections for one claim), or a table row carrying the link inside its cell ([Plan-003 §Invariants](./003-queue-steer-pause-resume.md#invariants) I-003-3). Plan-owned is a first-class outcome, not a failure to find a citation — a cardinality or census count no spec states, and an enforcement mechanism a plan designs on top of a spec's detection-only signal, are legitimately plan-owned. What the rule forbids is the third state: an assertion that reads as if a governing document required it while none does. Exemplars worth copying: [Plan-025 §Invariants](./025-mcp-server-configuration-and-governance.md#invariants) I-025-4, which anchors each half of the claim to the spec clause that half rests on; [Plan-002 §Invariants](./002-runtime-node-attach.md#invariants) I-002-5, which anchors and then quotes the spec sentence it ratifies; [Plan-005 §Invariants](./005-session-event-taxonomy-and-audit-log.md#invariants) I-005-3-02, which grounds a type-level structural claim in `ADR-017 §Decision`, the decision that made it structural.
+What it builds, in a few sentences. Files and tests are decided at build time from this section and the spec.
 
-The obligation is deliberately **prospective**, and a census is the reason rather than courtesy: **118 of the corpus's 255 §Invariants entries, spread across 14 plans, ground in neither form today** — a plan self-cite ([Plan-005 §Invariants](./005-session-event-taxonomy-and-audit-log.md#invariants) I-005-2-02 and I-005-3-01 each cite a Plan-005 section), a sibling-plan precedent (I-005-4-06, `Cite: Plan-004 Phase 4 precedent`), or no grounding clause at all stands in instead; Plans 008 (23 entries), 016 (20), 012 (18), and 007 (13) carry the largest shares. The census is **re-derivable rather than asserted**, and this is the rule that produces it: count every entry in every `## Invariants` section under `docs/plans/`, splitting on the three forms the corpus uses — a `- **I-NNN-M …` bullet, an `### I-NNN-M — …` heading, or an `| I-NNN-M | … |` table row — and count an entry grounded when it carries a §-cite or relative link to a spec, an accepted ADR, or a `docs/architecture/` document, or declares itself plan-owned. Measured 2026-08-08 against the plan tree at this commit. A retroactive MUST would make nearly half of an approved, dispatchable corpus non-conforming overnight while every one of those plans stayed dispatch-eligible, leaving reviewers unable to apply the rule consistently — the failure mode the rule exists to prevent. So an existing entry is conforming until it is touched, and amending it is what attaches the obligation.
+Done when: the sentence.
 
-The accepted grounding set above was arrived at by counterexample rather than by taxonomy, and that is worth recording so a later author does not narrow it back. Written to accept spec text alone, the rule was retroactively violated by entries grounding in binding documents of another kind — I-005-3-02 in `ADR-017 §Decision`, I-005-4-02 in [Security Architecture §Verification Rules](../architecture/security-architecture.md#verification-rules) — both correctly grounded entries that the narrower rule would have forced to misdeclare themselves plan-owned. That is one error with the prospective scoping above, showing up in a second place: an absolute obligation authored without first hunting the corpus counterexample, the same error that produced this rule's first draft as a fixed paragraph slot no bullet-form or table-form entry could have satisfied. What the widening does **not** do is close the classification work. Every entry sampled for the census was plan-ownable in fact — a plan-designed mechanism whose grounding was simply never spelled — rather than a duty no document states, which is the one condition this rule would refuse to grandfather and would escalate instead. Classifying the remaining 118 is a corpus-wide campaign, not a template edit.
+### Phase 2 — Short title
 
-**Delivery-guarantee vocabulary.** `exactly-once`, `at-most-once`, and `at-least-once` are three distinct guarantees, and an invariant's **label** MUST name the same one its **body** establishes — headline, parenthetical, and statement are one claim, not a summary and a detail that may drift apart. Where one sentence names two guarantees it MUST also name the two **referents** they apply to and the mechanism bridging them; two guarantee terms with no named bridge read as a contradiction to every later reader. The three-term distinction and the dedup-key bridge are industry vocabulary rather than repo-local usage, and Amazon SQS publishes both halves on one product: standard queues _"ensure at-least-once message delivery, but due to the highly distributed architecture, more than one copy of a message might be delivered"_ ([Amazon SQS standard queues](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/standard-queues.html), accessed 2026-08-08), while exactly-once is published as a property of **processing**, never of delivery, and is reached through a deduplication identifier — _"Unlike standard queues, FIFO queues don't introduce duplicate messages"_ … _"Explicitly provide the message deduplication ID"_ ([Exactly-once processing in Amazon SQS](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/FIFO-queues-exactly-once-processing.html), accessed 2026-08-08). A caller-supplied key enforced under a uniqueness rule is therefore the canonical bridge, which is also the precedent `Spec-013 §Idempotency Protocol` names for its `compensable` class. The corpus's model forms instantiate it: [api-payload-contracts.md §Plan-003 — Queue Steer Pause Resume](../architecture/contracts/api-payload-contracts.md#plan-003--queue-steer-pause-resume) bridges at-least-once **delivery** to exactly-once **application** through a requester-generated `clientIdempotencyKey` persisted under `UNIQUE(target_run_id, client_idempotency_key)`. This template asserts no general property of acknowledgement protocols; what it holds up as the model is the SHAPE of that entry — two named referents and a named bridge. This rule binds what this template governs — the §Invariants entries of the plans authored from it — and no further: a sentence here has no authority over `docs/architecture/`, so that reach is recorded as a residual rather than asserted. [local-sqlite-schema.md](../architecture/schemas/local-sqlite-schema.md) and [api-payload-contracts.md](../architecture/contracts/api-payload-contracts.md) both carry delivery-guarantee lines and were both swept for this defect shape when the rule landed — both clean, neither bound going forward. Mirroring the rule onto that tree amends a shared cross-tool surface and is owed its own change. It is deliberately documentation and **not** a mechanical gate: a false-positive census over the corpus's guarantee-vocabulary lines found every multi-guarantee line to be a legitimate two-referent construction, while the real defect class is a label-versus-body disagreement spread across two spellings of one guarantee — the shape a co-occurrence screen cannot see at all.
+Precondition: Plan-NNN Phase 1 merged.
 
-**Resolving a task's `Verifies invariant:` field.** The audit-authored `#### Tasks` field admits three value classes, and a plan that declares no §Invariants section is not thereby non-conforming. (1) One or more `I-NNN-M` ids declared in the §Invariants block of the plan each id names — the canonical form, and the only class the preflight Gate-4 screen resolves to a declared entry. (2) A governing spec clause in unbackticked `Spec-NNN §Heading` form (Gate 4 owns those marker lines and parses the bare form), optionally naming the clause it pins, where the property is stated by the spec and the plan declares no invariant of its own for it; [Plan-021 §Tier 1 Partial PR Sequence](./021-desktop-shell-and-renderer.md#tier-1-partial-pr-sequence) is the ratified precedent, each task there pinning the Spec-021 clause its build-time assertion or lint rule enforces. (3) `none`, where the task claims no invariant — optionally followed by a short prose descriptor after an em dash giving the reason. The literal `none` is REQUIRED to lead this class and a bare descriptor is not a legal spelling of it: `parseSegment` in [preflight.mjs](../../.claude/skills/plan-execution/scripts/preflight.mjs) dispatches on the payload's leading token and reaches its `none` arm only through `/^none\b/i`, so `**Verifies invariant:** substrate boots` parses as a blocking `unparseable-cite` and makes an otherwise valid plan undispatchable. The corpus's two bare descriptors both sit on legacy-inline-exempt plans, where the exemption diverts the finding — they are formatting debt the exemption tolerates, never a sanctioned form to copy. Classes (2) and (3) go unresolved by the invariant-id screen **by design**: the preflight contract's Gate 4 (Tasks-block G4 cites) classifies only the structured `I-NNN-…` namespace and leaves what the field may contain to this rule. Unresolved is not unchecked, and class (2) in particular is checked: `verifyAnchorAgainstSpec` in [preflight.mjs](../../.claude/skills/plan-execution/scripts/preflight.mjs) routes a section-only `Spec-NNN §Heading` anchor to its section verifier, which matches the cited name against the spec's real headings under anchored equality and fails a phantom section as a hard error for every dispatch class. That match normalizes case and punctuation away, so it catches a heading that does not exist but not one whose letters are right and whose punctuation is wrong — byte-compare an anchor you introduce against the real heading rather than trusting the gate for that. What the id screen cannot do for class (2) is resolve it to an **entry**: a section anchor names a heading, and a heading is not one. A class-(3) descriptor may legitimately contain an `I-NNN-M` token in its explanation, so the classes are distinguished by the field's leading token, never by a substring scan.
+What it builds, in a few sentences.
 
-### I-NNN-1 — {Short headline sentence}
+Done when: the sentence.
 
-{Statement of the invariant.}
+## Risks
 
-**Grounds in.** {Spec-NNN §Heading — the governing clause this holds the implementation to; or: plan-owned, because {no spec states this cardinality / census total / plan-designed enforcement mechanism}.}
+- A risk and what you would do about it.
 
-**Why load-bearing.** {What breaks if this is violated, and which plans depend on it.}
+## Notes
 
-**Verification.** {Test, PR, or migration check that proves the invariant holds.}
-
-<!--
-  Cross-Plan Obligations section (required when this plan declares an obligation
-  on another plan, or inherits one from another plan; omit otherwise).
-
-  - Bidirectional citation: if Plan-A obliges Plan-B, both plans MUST surface
-    the obligation. Asymmetric forward-deps were the Plan-006 cyclic-dep
-    defect class.
-  - Each entry gets a stable CP-NNN-N identifier and follows the shape:
-    one-sentence header, obligation paragraph, **Resolution.** paragraph naming
-    where/when the consuming plan satisfies it. Optionally include a
-    **Why surfaced here.** paragraph for non-obvious cases.
--->
-
-## Cross-Plan Obligations
-
-Plan-NNN declares the following obligations on adjacent plans (or inherits obligations declared by them). Implementation cannot proceed (or must defer specific surfaces) without these being satisfied or explicitly staged.
-
-### CP-NNN-1 — {Short headline sentence}
-
-{Statement of the obligation, citing the source plan + section anchor.}
-
-**Resolution.** {Where and when the consuming plan satisfies it; cite the PR or step.}
-
-## Preconditions
-
-- [ ] Paired spec is approved
-- [x] Required ADRs are accepted
-- [ ] Blocking open questions are resolved or explicitly deferred
-- [ ] **Plan-readiness audit complete per [`docs/operations/plan-implementation-readiness-audit-runbook.md`](../operations/plan-implementation-readiness-audit-runbook.md)**
-
-<!-- Cite durable forms per AGENTS.md §Durable-Cite Rule: `path#exportedSymbol` for code,
-     `Spec-NNN §Heading` for specs/plans/ADRs; raw :NNN only for frozen/archive content. -->
-
-## Target Areas
-
-- {Target service/module/file area}
-- {Target service/module/file area}
-
-## Data And Storage Changes
-
-- {Schema or persistence change}
-
-## API And Transport Changes
-
-- {IPC, HTTP, WebSocket, event, or protocol change}
-
-## Implementation Steps
-
-1. {Step}
-2. {Step}
-3. {Step}
-
-## Parallelization Notes
-
-- {What can run in parallel}
-- {What must remain sequential}
-
-## Test And Verification Plan
-
-- {Unit tests}
-- {Integration tests}
-- {Manual verification}
-<!--
-  The two bullets below were added 2026-05-22 (BL-127) and apply to plans
-  authored after this template revision. Existing Plans 001-027 are not
-  retroactively required to amend their § Test And Verification Plan.
--->
-- {Adversarial-Tampering Boundary — enumerate per-substrate threat classes the verification suite exercises: canonicalization round-trip; intake validation parity with library-level asserts; mutation-isolation symmetry (clone-in / clone-out); empty-segment / trailing-separator rejection at every parser boundary.}
-- {CI-Pinned Tool Versions — verification commands name CI-pinned tool versions explicitly (e.g., `gitleaks v8.30.1` per [ADR-023 §Axis 4](../decisions/023-v1-ci-cd-and-release-automation.md)) so local-version drift surfaces at plan-authoring time, not at PR push.}
-
-<!--
-  Implementation Phase Sequence section (recommended for plans of ≥3 PRs;
-  mandatory for any Tier 1 plan; omit only for single-PR plans).
-
-  - Each PR carries an explicit **Precondition:** line so the merge order
-    is reviewer-checkable and so cross-plan obligations have an enforceable
-    merge gate (the `Plan-022 §Implementation Phase Sequence` shape).
-  - Each PR cites which §Invariants and §Cross-Plan Obligations entries it
-    satisfies. This is what turns a structural promotion into an enforceable
-    merge gate (per Plan-001 / Plan-006 / Plan-022 precedent).
--->
-
-## Implementation Phase Sequence
-
-Plan-NNN implementation lands as a sequence of small PRs. Each PR exercises one slice of the plan's vertical and carries a `**Precondition:**` line so the merge order is reviewer-checkable.
-
-### Phase 1 — {Short PR title}
-
-**Precondition:** {What must be merged or accepted before this PR can start.}
-
-<!--
-  Machine-readable preconditions (consumed by plan-execution preflight tool).
-  Supported types: pr_merged, adr_accepted, plan_phase, audit_status,
-  external_plan_phase_merged. Required for plans authored from
-  2026-04-30 onward; legacy plans use prose fallback parsing of the
-  `**Precondition:**` line above.
-
-  Prose-parseable forms (case-insensitive, regex-matched on the single
-  `**Precondition:**` line):
-    - `PR #N merged`            → {type: pr_merged, ref: N}
-    - `ADR-NNN accepted`        → {type: adr_accepted, ref: NNN}
-    - `Plan-NNN Phase K merged` → {type: plan_phase, plan: NNN, phase: K, ...}
-    - `Phase K merged` (bare)   → {type: plan_phase, plan: <local plan>, phase: K, ...}
-      The bare form resolves to the plan the precondition lives in
-      (convention across Plan-001/002/006/022). A negative lookbehind in
-      the regex prevents double-counting the bare-form segment inside an
-      already-matched `Plan-NNN Phase K merged`.
-
-  YAML-only (no prose analog — declare in the block below):
-    - audit_status: complete | substrate_exempt
-    - external_plan_phase_merged — the structured cross-plan phase gate:
-      `{ type: external_plan_phase_merged, plan: NNN, phase: <value> }`.
-      Integer phase values delegate to plan_phase semantics; non-numeric
-      section labels — remainder phases (`phase: R2`, the Plan-006
-      R-series) and campaign-supplement phases (`phase: 3B`, the Plan-022
-      Phase 3B shape) — resolve by TASK-SET membership: every task id the
-      `### Phase <label>` section declares must appear in the target
-      plan's shipment manifest (under whatever integer phase it shipped
-      as). Use for gating on a phase whose label the numeric prose regex
-      cannot express.
-    - Any dependency whose prose form interpolates link-text or other
-      tokens between `Phase K` and `merged` (e.g.,
-      `[Plan-NNN Tier K Partial](...) merged`,
-      `Plan-001 Phase 5 CP-001-2 cwd-translator merged`) — neither the
-      explicit-prefix nor bare-form regex matches these shapes, so the
-      dependency drops to "unparseable prose; legacy free-form silent
-      pass" and is NOT machine-enforced. Express it as a YAML
-      `pr_merged` or `external_plan_phase_merged` entry so the gate enforces.
--->
-
-```yaml
-preconditions:
-  - { type: pr_merged, ref: 19 }
-  - { type: adr_accepted, ref: 23 }
-  - { type: plan_phase, plan: 1, phase: 5, status: merged }
-```
-
-For plans that ship across tiers via the substrate-vs-namespace decomposition pattern (Plan-006 / Plan-021 carve-outs), use the `audit_status` precondition type. Two values are permitted (see [audit runbook §Per-Phase Audit Semantics](../operations/plan-implementation-readiness-audit-runbook.md#per-phase-audit-semantics)). The YAML examples below are wrapped in `<!-- prettier-ignore -->` so each list item stays on a single line — `parsePreconditionsBlock` parses flow-form entries one line at a time, so a Prettier-wrapped multi-line `{ ... }` mapping silently fails to parse.
-
-<!-- prettier-ignore -->
-```yaml
-# Phase already covered by the tier audit at its tier's place in the build order
-preconditions:
-  - { type: audit_status, status: complete, evidence_pr: 15, baseline_tag: "plan-readiness-audit-tier-1" }
-```
-
-<!-- prettier-ignore -->
-```yaml
-# Phase is a substrate slice of a carve-out; ships before its tier-level audit
-preconditions:
-  - { type: audit_status, status: substrate_exempt }
-```
-
-**Goal:** {What tests go green; what behavior is delivered.}
-
-- {Scope item}
-- {Scope item}
-
-## Rollout Order
-
-1. {Rollout step}
-2. {Rollout step}
-
-## Rollback Or Fallback
-
-- {Rollback or containment path}
-
-## Risks And Blockers
-
-- {Risk}
-- {Blocker}
-
-<!--
-  Progress Log section (required for plans whose PRs ship through the
-  /plan-execution Phase E housekeeper; omit for one-shot plans that ship
-  outside that path).
-
-  - The `### Shipment Manifest` subsection is machine-readable. The
-    plan-execution orchestrator appends one entry per merged PR; the
-    preflight tool reads this block to decide which phases / tasks are
-    already shipped.
-  - The `### Notes` subsection is per-PR human commentary (round-trips,
-    learnings, partial-ship details). Append-only.
-  - Schema authority for the manifest YAML lives in
-    .claude/skills/plan-execution/scripts/lib/manifest.mjs — the snippet
-    below is illustrative.
--->
-
-## Progress Log
-
-### Shipment Manifest
-
-```yaml
-manifest_schema_version: 1
-shipped: []
-# Entry shape (illustrative — authoritative schema in lib/manifest.mjs):
-# - phase: 5
-#   task: T5.1               # single string default; array allowed for legacy multi-task PRs
-#   pr: 30
-#   sha: 7e4ae47
-#   merged_at: 2026-05-05
-#   files:
-#     - packages/client-sdk/src/sessionClient.ts
-#   verifies_invariant: [I-NNN-1]      # mirrors audit Tasks-block field name
-#   spec_coverage: [Spec-NNN row 4]    # mirrors audit Tasks-block field name
-#   notes: |
-#     Optional free-form context (round-trips, lane, learnings).
-#
-# Optional top-level key (omit unless needed):
-# non_shipment_prs: [216]   # merged PRs whose TITLE carries this plan's
-#                           # Plan-NNN token but which shipped none of its
-#                           # tasks — an operator-ratified exemption from
-#                           # preflight Gate 6 freshness. Add a comment saying
-#                           # why. Never a substitute for a shipped[] entry.
-```
-
-### Notes
-
-<!-- Per-PR human-readable commentary appended by the orchestrator at Phase E. -->
-
-## Done Checklist
-
-- [ ] Code changes implemented
-- [ ] Tests added or updated
-- [ ] Verification completed
-- [ ] Related docs updated
+Dated notes about decisions taken during the build, newest first. What has merged is `git log --oneline --grep 'Plan-NNN'`.

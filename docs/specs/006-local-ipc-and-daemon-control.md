@@ -109,7 +109,7 @@ This spec covers transport choice, version negotiation, request and stream seman
 
 ## Acceptance Criteria
 
-- [ ] Desktop Shell and CLI share one typed daemon client surface; the renderer consumes the preload bridge API per `Spec-021 §Trust Stance`, not this daemon contract directly.
+- [ ] Desktop Shell and CLI share one typed daemon client surface; the renderer consumes the preload bridge API per [Spec-021 §Trust Stance](./021-desktop-shell-and-renderer.md#trust-stance), not this daemon contract directly.
 - [ ] The daemon can be started, pinged, and subscribed to through local IPC.
 - [ ] Version mismatch blocks unsafe mutation while keeping status visibility available.
 - [ ] **AC-N1** (`session.create`) — handler accepts a valid request envelope and returns a `SessionRead`-shape result with a stable `sessionId` (per [Spec-001 §Interfaces And Contracts](./001-session-core.md#interfaces-and-contracts)); a malformed payload rejects with `-32602 InvalidParams` and the handler closure is never invoked (per [I-006-7](../plans/006-local-ipc-and-daemon-control.md), schema-validates-before-dispatch). Verified directly by Plan-006 Phase 3 test IDs `I-006-3-T1` (round-trip identity) + `I-006-3-T2` (malformed-payload rejection + I-006-7 enforcement); both live in `packages/runtime-daemon/src/ipc/handlers/__tests__/session-handlers.test.ts` and are grep-discoverable in [Plan-006 §Phase 3 test plan](../plans/006-local-ipc-and-daemon-control.md).
