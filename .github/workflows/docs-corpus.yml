@@ -215,14 +215,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
-        with:
-          version: 10.33.2
-          run_install: false
+      # No pnpm at all: the checker is dependency-free by design, so this job
+      # needs a Node runtime and nothing else. `package-manager-cache: false` is
+      # load-bearing — setup-node v5 auto-enables pnpm caching from
+      # package.json's `packageManager` field, and its post-job cache save then
+      # fails the job over a pnpm store this job never creates.
       - uses: actions/setup-node@v5
         with:
           node-version: "22.14"
-      # No `pnpm install`: the checker is dependency-free by design.
+          package-manager-cache: false
       - run: git ls-files '*.md' ':!docs/archive/**' | xargs node tools/docs-corpus/table-arity.mjs
 
   docs-corpus-gate:
