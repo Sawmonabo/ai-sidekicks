@@ -212,6 +212,8 @@ jobs:
 
   table-check:
     name: table shape (markdown)
+    # The weekly sweep runs lychee-outbound and nothing else.
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -229,7 +231,7 @@ jobs:
   docs-corpus-gate:
     name: docs-corpus-gate
     runs-on: ubuntu-latest
-    needs: [lychee-inbound, table-check]
+    needs: [changes, lychee-inbound, table-check]
     if: always()
     steps:
       - name: Aggregate required-checks status
@@ -237,6 +239,12 @@ jobs:
         # path-filtered job that did not need to run cannot hold the gate
         # pending. `cancelled` and `failure` are neither accepted result and
         # still fail here.
+        #
+        # `changes` is checked too. A path filter that ERRORS skips every job
+        # that needs it, and a skip is indistinguishable from a filter miss — so
+        # without this line a broken filter would take `lychee-inbound` down
+        # with it and still leave the gate green. On the weekly schedule
+        # `changes` is legitimately skipped, which the helper accepts.
         run: |
           fail=0
           check() {
@@ -245,6 +253,7 @@ jobs:
               fail=1
             fi
           }
+          check changes "${{ needs.changes.result }}"
           check lychee-inbound "${{ needs.lychee-inbound.result }}"
           check table-check "${{ needs.table-check.result }}"
           if [[ $fail -ne 0 ]]; then exit 1; fi
