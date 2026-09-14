@@ -4,7 +4,7 @@
 
 AI Sidekicks is an agentic coding desktop runtime: one user and their AI sidekicks (Claude Code, Codex) building software in live sessions. The session is the primary object ([ADR-001](docs/decisions/001-session-is-the-primary-domain-object.md)). Three layers: a local runtime daemon (provider processes, git worktrees, terminals, SQLite), a control plane (auth, device directory, encrypted relay, Postgres), and clients (the `sidekicks` CLI first, then the Electron desktop). TypeScript throughout; XState v5; tRPC v11; Zod; Cedar for approval policy; a Rust PTY sidecar on Windows. Apache-2.0.
 
-Features: [README.md](README.md). What is left to build and in what order: [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). What has shipped: `git log --oneline --grep 'Plan-NNN'`.
+Features: [README.md](README.md). What is left to build and in what order: [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). What has shipped: `git log --oneline --grep 'Plan-'`.
 
 ## Commands
 
@@ -23,7 +23,7 @@ Branch off `develop` as `<type>/<topic>`, open a PR, squash-merge. CI and Codex 
 1. **No secrets in the tree.** The pre-commit scan and the CI scan both run; a leaked key cannot be un-pushed.
 2. **Never `git commit --no-verify`.** The hook is the secret scan.
 3. **Product code (`packages/`, `apps/`) carries no governance identifiers** — no `Spec-NNN`, `Plan-NNN`, `ADR-NNN`, `BL-NNN`, invariant or task ids, links into `docs/`, PR numbers, review history — and no reference-app branding. A comment says what the code does and why in plain words, or it is deleted. Applied by reading; there is no lint rule and none is to be added.
-4. **Git worktrees live under `.worktrees/<name>/`.** Removing a worktree another session is using breaks that session (2026-07-07 incident); the removal hook refuses while it is occupied. `python3 .claude/hooks/command-guard.py --occupancy <path>` prints the occupants; empty means free. `WORKTREE_REMOVE_ALLOW_OCCUPIED=1` overrides.
+4. **Git worktrees live under `.worktrees/<name>/`.** Removing a worktree another session is using breaks that session (2026-07-07 incident); harness-initiated removals refuse while it is occupied. `python3 .claude/hooks/command-guard.py --occupancy <path>` prints the occupants; empty means free. `WORKTREE_REMOVE_ALLOW_OCCUPIED=1` overrides.
 5. **No home-made structure checkers.** No source-parsing test suites, census tests, or prose-claim gates; a structural rule is a line in a standard tool's config (ESLint, knip, dependency-cruiser) or a sentence in this file. 41,000 lines of such tests were deleted on 2026-09-09.
 
 ## Engineering rules

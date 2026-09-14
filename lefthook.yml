@@ -30,7 +30,7 @@ min_version: "2.1.6"
 # file is the only repo-owned code that can wrap it: the backup opens before the
 # first job below runs and closes after the last one, so nothing declared in this
 # file is inside it. See `tools/lefthook-worktree-lock.mjs` for the primary sources
-# and `CONTRIBUTING.md` §Pre-Commit Hooks for the operator-facing description.
+# and `CONTRIBUTING.md` §Hooks for the operator-facing description.
 rc: tools/lefthook-rc.sh
 
 pre-commit:
@@ -68,12 +68,12 @@ pre-commit:
                 installed=$(gitleaks version 2>/dev/null | sed 's/^v//' | head -1)
                 if [ -n "$installed" ] && [ "$(printf '%s\n%s\n' "$required" "$installed" | sort -V | head -1)" != "$required" ]; then
                   echo "WARNING: gitleaks v$installed is below canonical v$required (CI runs v$required)." >&2
-                  echo "WARNING: Per CONTRIBUTING.md §Pre-Commit Hooks: brew upgrade gitleaks" >&2
+                  echo "WARNING: Per CONTRIBUTING.md §Hooks: brew upgrade gitleaks" >&2
                 fi
                 gitleaks git --pre-commit --staged --no-banner --redact
               else
                 echo "WARNING: gitleaks not installed locally; CI gitleaks job is the authoritative gate." >&2
-                echo "WARNING: Install per CONTRIBUTING.md §Pre-Commit Hooks or https://github.com/gitleaks/gitleaks" >&2
+                echo "WARNING: Install per CONTRIBUTING.md §Hooks or https://github.com/gitleaks/gitleaks" >&2
               fi
 
           # A markdown table row whose cell count differs from its header renders
