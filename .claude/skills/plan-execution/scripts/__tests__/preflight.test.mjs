@@ -36,8 +36,39 @@ function makeRepo({ status = "ready", shippedSubjects = [], boldPreconditions = 
   return root;
 }
 
-function preflight(root, args) {
-  return spawnSync(process.execPath, [SCRIPT, ...args], { cwd: root, encoding: "utf8" });
+// A repo whose history straddles a plan-renumber commit: `oldEraSubjects` are
+// committed under the OLD numbering, then a boundary commit, then the rest.
+// The returned SHA is what `PREFLIGHT_RENUMBER_COMMIT` points the tool at.
+function makeRenumberedRepo({ oldEraSubjects = [], newEraSubjects = [] } = {}) {
+  const root = makeRepo();
+  const run = (args) => spawnSync("git", args, { cwd: root, encoding: "utf8" });
+  // A second plan whose number was retired by the renumbering.
+  writeFileSync(
+    path.join(root, "docs/plans/008-retired.md"),
+    "# Plan-008: Retired\n\n| **Status** | `ready` |\n\n## Phases\n\n### Phase 1 — Work\n\nPrecondition: none.\n",
+  );
+  run(["add", "."]);
+  run(["commit", "-q", "-m", "docs(repo): add the second plan"]);
+  const commitSubject = (subject) => {
+    writeFileSync(path.join(root, "x.txt"), subject);
+    run(["add", "."]);
+    run(["commit", "-q", "-m", subject]);
+  };
+  for (const subject of oldEraSubjects) commitSubject(subject);
+  writeFileSync(path.join(root, "renumber.txt"), "renumbered");
+  run(["add", "."]);
+  run(["commit", "-q", "-m", "docs(repo): renumber the plan corpus contiguously"]);
+  const boundary = run(["rev-parse", "HEAD"]).stdout.trim();
+  for (const subject of newEraSubjects) commitSubject(subject);
+  return { root, boundary };
+}
+
+function preflight(root, args, env = {}) {
+  return spawnSync(process.execPath, [SCRIPT, ...args], {
+    cwd: root,
+    encoding: "utf8",
+    env: { ...process.env, ...env },
+  });
 }
 
 test("ready plan, unshipped phase, no precondition: exit 0", () => {
@@ -124,4 +155,39 @@ test("a task number does not satisfy a different phase, and docs subjects never 
     assert.equal(unmet.status, 1, `${subject} was counted as shipped`);
     assert.match(unmet.stderr, /precondition not met: Plan-003 Phase 1/);
   }
+});
+
+test("a subject written under the old numbering is translated to today's plan", () => {
+  // Old 004 is today's Plan-003, so this subject ships Plan-003 Phase 1 and
+  // satisfies Phase 2's precondition.
+  const { root, boundary } = makeRenumberedRepo({
+    oldEraSubjects: ["feat(daemon): queue core (Plan-004 Phase 1)"],
+  });
+  const met = preflight(root, ["docs/plans/003-queue.md", "2"], {
+    PREFLIGHT_RENUMBER_COMMIT: boundary,
+  });
+  assert.equal(met.status, 0, met.stderr);
+});
+
+test("a retired old number matches nothing, before or after the renumbering", () => {
+  // Old Plan-008 was retired rather than renumbered, so its subject names no
+  // plan that exists today and cannot answer for today's Plan-008.
+  const { root, boundary } = makeRenumberedRepo({
+    oldEraSubjects: ["feat(daemon): retired work (Plan-008 Phase 1)"],
+  });
+  const fresh = preflight(root, ["docs/plans/008-retired.md", "1"], {
+    PREFLIGHT_RENUMBER_COMMIT: boundary,
+  });
+  assert.equal(fresh.status, 0, fresh.stderr);
+  assert.match(fresh.stdout, /ok: phase 1 not in git log/);
+
+  // The same subject written AFTER the boundary is today's Plan-008 and does.
+  const after = makeRenumberedRepo({
+    newEraSubjects: ["feat(daemon): retired work (Plan-008 Phase 1)"],
+  });
+  const shipped = preflight(after.root, ["docs/plans/008-retired.md", "1"], {
+    PREFLIGHT_RENUMBER_COMMIT: after.boundary,
+  });
+  assert.equal(shipped.status, 1);
+  assert.match(shipped.stderr, /phase 1 already in git log/);
 });

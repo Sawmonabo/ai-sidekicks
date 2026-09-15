@@ -58,19 +58,6 @@ const DRIFTED_WINDOW_FIXTURE = [
   "",
 ].join("\n");
 
-const UNBALANCED_TOTAL_FIXTURE = [
-  "# Fixture",
-  "",
-  '<!-- corpus:total-check column="Count" -->',
-  "",
-  "| Item | Count |",
-  "| --- | --- |",
-  "| a | 1 |",
-  "| b | 1 |",
-  "| **Total** | 99 |",
-  "",
-].join("\n");
-
 // Each entry is invoked with arguments guaranteed to make a RUNNING script exit
 // non-zero with a diagnostic. That turns "did the guard fire?" into an
 // observable: guard fires => non-zero + diagnostic; guard no-ops => 0 + silence.
@@ -125,7 +112,6 @@ function withSpacedSymlinkedRepo(runBody) {
   const containingDirectory = mkdtempSync(join(tmpdir(), "entry-guard-"));
   const spacedRepoLink = join(containingDirectory, "repo root with spaces");
   symlinkSync(REPO_ROOT, spacedRepoLink, "dir");
-  writeFileSync(join(containingDirectory, "unbalanced-total.md"), UNBALANCED_TOTAL_FIXTURE);
   writeFileSync(join(containingDirectory, "drifted-window.ts"), DRIFTED_WINDOW_FIXTURE);
   try {
     return runBody(spacedRepoLink, containingDirectory);

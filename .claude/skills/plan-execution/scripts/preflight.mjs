@@ -52,17 +52,83 @@ ok(`phase ${phase} section found`);
 //    a plan it does not ship. `git log --grep` cannot be limited to the
 //    subject and its `-E` engine has no `\b`, so the subjects are read once
 //    and matched here.
+//
+//    Commit 426a4ce3a renumbered the plan corpus, so a subject written before
+//    it names a different plan by the same number; subjects from that era are
+//    translated through the table below before matching, and a number whose
+//    plan was retired translates to a token no query can equal. The tests
+//    point `PREFLIGHT_RENUMBER_COMMIT` at a fixture boundary to drive this.
+const RENUMBER_COMMIT = process.env.PREFLIGHT_RENUMBER_COMMIT ?? "426a4ce3a";
+const PLAN_RENUMBERED = {
+  "001": "001",
+  "003": "002",
+  "004": "003",
+  "005": "004",
+  "006": "005",
+  "007": "006",
+  "009": "007",
+  "010": "008",
+  "011": "009",
+  "012": "010",
+  "013": "011",
+  "014": "012",
+  "015": "013",
+  "016": "014",
+  "017": "015",
+  "018": "016",
+  "019": "017",
+  "020": "018",
+  "021": "019",
+  "022": "020",
+  "023": "021",
+  "024": "022",
+  "026": "023",
+  "027": "024",
+  "028": "025",
+  "029": "026",
+  "030": "027",
+  "031": "028",
+};
+
+function readSubjects(range) {
+  try {
+    return execFileSync("git", ["log", "--format=%s", range], {
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+    }).split("\n");
+  } catch (error) {
+    return fail(`cannot read git history: ${error.message}`);
+  }
+}
+
+function renumber(subject) {
+  return subject.replace(/Plan-(\d{3})/gi, (token, number) =>
+    PLAN_RENUMBERED[number] ? `Plan-${PLAN_RENUMBERED[number]}` : "Plan-retired",
+  );
+}
+
+// A checkout whose history does not carry the renumber commit has not been
+// renumbered either, so all of it is already in today's numbering.
+function historyWasRenumbered() {
+  try {
+    execFileSync("git", ["merge-base", "--is-ancestor", RENUMBER_COMMIT, "HEAD"], {
+      stdio: "ignore",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 let subjectCache = null;
 function commitSubjects() {
   if (subjectCache === null) {
-    try {
-      subjectCache = execFileSync("git", ["log", "--format=%s"], {
-        encoding: "utf8",
-        maxBuffer: 64 * 1024 * 1024,
-      }).split("\n");
-    } catch (error) {
-      fail(`cannot read git history: ${error.message}`);
-    }
+    subjectCache = historyWasRenumbered()
+      ? [
+          ...readSubjects(`${RENUMBER_COMMIT}^..HEAD`),
+          ...readSubjects(`${RENUMBER_COMMIT}^`).map(renumber),
+        ]
+      : readSubjects("HEAD");
   }
   return subjectCache;
 }
