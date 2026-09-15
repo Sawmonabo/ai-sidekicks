@@ -66,10 +66,26 @@ function commitSubjects() {
   }
   return subjectCache;
 }
-function shipped(plan, phaseNumber) {
-  // The trailing guard keeps `Phase 3` from matching `Phase 3B`.
-  const token = new RegExp(`${plan}\\s+Phase\\s+${phaseNumber}(?![0-9A-Za-z])`, "i");
-  return commitSubjects().find((subject) => token.test(subject)) ?? null;
+// A `docs` or `chore` subject names a plan task it did not ship — a cite
+// repair, a manifest row — for the same reason the message body is not
+// searched, so only the types that carry code can answer "shipped".
+const NON_SHIPPING_TYPE = /^(?:docs|chore)(?:\([^)]*\))?!?:/i;
+
+function shipped(plan, phaseLabel) {
+  // History names a plan's phase three ways — `Phase N`, `PN`, and a task
+  // number `TN.k` — and each guards its tail, so `Phase 3` does not match
+  // `Phase 3B`, `P1` does not match `P12`, and `T3.` does not match `T31.5`.
+  // A lettered phase (`3B`) is a split of its parent that only the long form
+  // spells, so it matches `Phase 3B` alone — never `P3`/`T3.`, which would
+  // read the parent's shipment as the split's.
+  const label = String(phaseLabel);
+  const alternatives = [`Phase\\s+${label}(?![0-9A-Za-z])`];
+  if (!/[A-Za-z]$/.test(label)) alternatives.push(`P${label}(?![0-9A-Za-z])`, `T${label}\\.[0-9]`);
+  const token = new RegExp(`${plan}\\s+(?:${alternatives.join("|")})`, "i");
+  return (
+    commitSubjects().find((subject) => !NON_SHIPPING_TYPE.test(subject) && token.test(subject)) ??
+    null
+  );
 }
 const already = shipped(planToken, phase);
 if (already) fail(`phase ${phase} already in git log: ${already}`);
@@ -104,8 +120,7 @@ if (labelIndex !== -1) {
   const collected = [inline, ...block].join(" ").replace(/\s+/g, " ").trim();
   if (collected !== "") preconditionText = collected;
 }
-for (const m of preconditionText.matchAll(/(Plan-\d{3})\s+Phase\s+(\d+)/g)) {
-  if (!shipped(m[1], Number(m[2])))
-    fail(`precondition not met: ${m[1]} Phase ${m[2]} is not in git log`);
+for (const m of preconditionText.matchAll(/(Plan-\d{3})\s+Phase\s+(\d+[A-Za-z]?)/g)) {
+  if (!shipped(m[1], m[2])) fail(`precondition not met: ${m[1]} Phase ${m[2]} is not in git log`);
 }
 ok(`preconditions satisfied (${preconditionText.trim()})`);

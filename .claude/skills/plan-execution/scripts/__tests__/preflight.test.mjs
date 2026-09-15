@@ -92,3 +92,36 @@ test("bold precondition, as the corpus writes it: exit 1; shipped: exit 0", () =
   assert.equal(met.status, 0, met.stderr);
   assert.match(met.stdout, /ok: preconditions satisfied \(Plan-003 Phase 1 merged\.\)/);
 });
+
+// History spells "Plan-003 Phase 1 has shipped" four ways, and a precondition
+// naming the phase must be satisfied by each of them.
+for (const { form, subject } of [
+  { form: "task number", subject: "feat(contracts): currency + parity ops (Plan-003 T1.7/T1.8)" },
+  { form: "short phase", subject: "feat(daemon): close Plan-003 P1 residuals" },
+  { form: "long phase", subject: "feat(daemon): queue core (Plan-003 Phase 1)" },
+]) {
+  test(`a ${form} subject satisfies a precondition on that phase`, () => {
+    const met = preflight(makeRepo({ boldPreconditions: true, shippedSubjects: [subject] }), [
+      "docs/plans/003-queue.md",
+      "2",
+    ]);
+    assert.equal(met.status, 0, met.stderr);
+  });
+}
+
+test("a task number does not satisfy a different phase, and docs subjects never ship", () => {
+  // `T11.` is phase 11, not phase 1; `P12` is phase 12, not phase 1.
+  for (const subject of [
+    "feat(daemon): later work (Plan-003 T11.2)",
+    "feat(daemon): later work (Plan-003 P12)",
+    "docs(repo): fix Plan-003 T1.9 spec-coverage cite anchors",
+    "chore(repo): manifest rows for the Plan-003 Phase 1 shipment",
+  ]) {
+    const unmet = preflight(makeRepo({ boldPreconditions: true, shippedSubjects: [subject] }), [
+      "docs/plans/003-queue.md",
+      "2",
+    ]);
+    assert.equal(unmet.status, 1, `${subject} was counted as shipped`);
+    assert.match(unmet.stderr, /precondition not met: Plan-003 Phase 1/);
+  }
+});
