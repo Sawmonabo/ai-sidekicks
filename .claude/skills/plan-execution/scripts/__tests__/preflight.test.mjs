@@ -10,7 +10,12 @@ import process from "node:process";
 const SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../preflight.mjs");
 
 // A throwaway git repo with one plan and a controllable history.
-function makeRepo({ status = "ready", shippedSubjects = [], boldPreconditions = false } = {}) {
+function makeRepo({
+  status = "ready",
+  shippedSubjects = [],
+  boldPreconditions = false,
+  preconditionText = null,
+} = {}) {
   const root = mkdtempSync(path.join(tmpdir(), "preflight-"));
   const run = (args) => spawnSync("git", args, { cwd: root, encoding: "utf8" });
   run(["init", "-q"]);
@@ -19,9 +24,11 @@ function makeRepo({ status = "ready", shippedSubjects = [], boldPreconditions = 
   mkdirSync(path.join(root, "docs/plans"), { recursive: true });
   // The plan template writes the precondition line bare; every real plan in
   // the corpus writes it bold, so both spellings are built here.
-  const phaseTwoPrecondition = boldPreconditions
-    ? "**Precondition:** Plan-003 Phase 1 merged."
-    : "Precondition: Plan-003 Phase 1 merged.";
+  const phaseTwoPrecondition =
+    preconditionText ??
+    (boldPreconditions
+      ? "**Precondition:** Plan-003 Phase 1 merged."
+      : "Precondition: Plan-003 Phase 1 merged.");
   writeFileSync(
     path.join(root, "docs/plans/003-queue.md"),
     `# Plan-003: Queue\n\n| **Status** | \`${status}\` |\n\n## Phases\n\n### Phase 1 — Queue core\n\nPrecondition: none.\n\n### Phase 2 — Steer\n\n${phaseTwoPrecondition}\n`,
@@ -223,4 +230,23 @@ test("one task number is not a shipped precondition; two are", () => {
     ["docs/plans/003-queue.md", "2"],
   );
   assert.equal(two.status, 0, two.stderr);
+});
+
+test("a later sentence's shipment verb is not credited to an earlier phase mention", () => {
+  // Phase 1 is only described; the claim belongs to Phase 3. A checker whose
+  // window ran past the next phase reference would demand Phase 1 too.
+  const r = preflight(
+    makeRepo({
+      preconditionText: "**Precondition:** Phase 1 is orthogonal. Phase 3 merged.",
+      shippedSubjects: ["feat(daemon): three (Plan-003 Phase 3)"],
+    }),
+    ["docs/plans/003-queue.md", "2"],
+  );
+  assert.equal(r.status, 0, r.stderr);
+  const unmet = preflight(
+    makeRepo({ preconditionText: "**Precondition:** Phase 1 is orthogonal. Phase 3 merged." }),
+    ["docs/plans/003-queue.md", "2"],
+  );
+  assert.equal(unmet.status, 1);
+  assert.match(unmet.stderr, /precondition not met: Plan-003 Phase 3/);
 });

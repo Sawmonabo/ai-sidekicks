@@ -2,7 +2,7 @@
 
 Date: 2026-04-15
 
-Project root: `/home/sabossedgh/dev/external/paseo`
+Project root: `external/paseo`
 
 Scope: Full monorepo audit across all 8 workspace packages, official documentation, and the skills directory.
 

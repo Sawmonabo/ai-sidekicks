@@ -264,8 +264,10 @@ function labelsIn(list) {
 // other reasons — "Phase 1 has no unsatisfied upstream dependency" is a remark,
 // not a gate. A qualified `Plan-NNN Phase K` needs no such evidence: naming
 // another plan's phase inside a precondition block is already the gate.
+// The window stops at the next phase reference or sentence end, so a later
+// sentence's "merged" is never credited to an earlier mention.
 const SHIPMENT_CLAIM =
-  /^.{0,60}?\b(?:merged|landed|shipp(?:ed|ing)|complete[sd]?|green|satisfied|in git log)\b/is;
+  /^(?:(?!\bPhases?\b|\bPlan-\d{3}\b|\.\s|;).){0,60}?\b(?:merged|landed|shipp(?:ed|ing)|complete[sd]?|green|satisfied|in git log)\b/is;
 
 const required = [];
 for (const m of preconditionText.matchAll(PHASE_REFERENCE)) {

@@ -512,6 +512,13 @@ test("mergeStateAllowsMerge accepts exactly the three mergeable MergeStateStatus
   }
 });
 
+test("advisory mode does not excuse pending or absent CI", () => {
+  for (const ciStatus of ["pending", "none"]) {
+    const signals = cleanSignals({ ciStatus, ciMode: "all-checks" });
+    assert.equal(computeVerdict(signals, { advisory: true }).mergeOk, false, ciStatus);
+  }
+});
+
 test("UNSTABLE is mergeable: an advisory check may be red while required checks pass", () => {
   assert.equal(computeVerdict(cleanSignals({ mergeStateStatus: "UNSTABLE" })).mergeOk, true);
 });

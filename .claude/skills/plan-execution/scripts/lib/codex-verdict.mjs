@@ -1319,8 +1319,12 @@ export function computeVerdict(signals, options = {}) {
     signals.isOpen === true &&
     signals.headUnchanged === true &&
     signals.pushAnchorKnown === true &&
+    // Advisory mode excuses a red informational check, never a run that has
+    // not finished or a branch with no checks at all.
     (signals.ciStatus === "green" ||
-      (options.advisory === true && signals.ciMode === "all-checks")) &&
+      (options.advisory === true &&
+        signals.ciMode === "all-checks" &&
+        signals.ciStatus === "red")) &&
     signals.openThreadCount === 0 &&
     !signalTruncated &&
     !ackAttributionAmbiguous &&

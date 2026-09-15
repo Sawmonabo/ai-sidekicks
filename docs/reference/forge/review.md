@@ -2,7 +2,7 @@
 
 Date: 2026-04-14
 
-Project root: `/home/sabossedgh/dev/external/forge`
+Project root: `external/forge`
 
 Scope: Deep architectural review of the full monorepo, covering orchestration engine, persistence/event-sourcing, provider driver model, collaboration model, real-time events, and visibility system. Appendix A contains the full user-facing feature audit with per-feature evidence trails.
 

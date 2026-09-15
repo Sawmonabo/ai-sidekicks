@@ -41,6 +41,12 @@ test("an inner fence of the other marker does not end the block", () => {
   assert.equal(r.status, 0, r.stderr);
 });
 
+test("a four-space-indented fence line is code, not a fence", () => {
+  const r = runOn("    ```\n\n| a | b |\n| --- | --- |\n| 1 | 2 | 3 |\n");
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /t\.md:5: expected 2 cells, found 3/);
+});
+
 test("a table after a closed fence is still checked", () => {
   const r = runOn("```\n| x |\n```\n\n| a | b |\n| --- | --- |\n| 1 | 2 | 3 |\n");
   assert.equal(r.status, 1);

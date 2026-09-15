@@ -1,6 +1,6 @@
 # Paseo Desktop Shell, Relay, Infrastructure, and Configuration Exploration
 
-Source: direct source-code reading of `/home/sabossedgh/dev/external/paseo/`
+Source: direct source-code reading of `external/paseo/`
 Date: 2026-04-14
 
 ---

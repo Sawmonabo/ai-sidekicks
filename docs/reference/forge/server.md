@@ -1,6 +1,6 @@
 # Forge Server — Exhaustive Feature and Implementation Inventory
 
-> Source-code exploration of `/home/sabossedgh/dev/external/forge/apps/server/src/`.
+> Source-code exploration of `external/forge/apps/server/src/`.
 > Paths shown in the source tree below are relative to `apps/server/src/` in the Forge checkout.
 > Generated: 2026-04-14
 

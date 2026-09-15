@@ -31,7 +31,9 @@ function checkFile(file) {
   let headerCells = null;
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
-    const fence = line.match(/^\s*(`{3,}|~{3,})(.*)$/);
+    // CommonMark allows at most three spaces before a fence; four make an
+    // indented code block, which prettier keeps as one.
+    const fence = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
     if (fence) {
       const marker = fence[1][0];
       const length = fence[1].length;
