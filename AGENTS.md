@@ -26,7 +26,7 @@ Branch off `develop` as `<type>/<topic>`, open a PR, squash-merge. CI and Codex 
 2. **Never `git commit --no-verify`.** The hook is the secret scan.
 3. **Product code (`packages/`, `apps/`) carries no governance identifiers** — no `Spec-NNN`, `Plan-NNN`, `ADR-NNN`, `BL-NNN`, invariant or task ids, links into `docs/`, PR numbers, review history — and no reference-app branding. A comment says what the code does and why in plain words, or it is deleted. Applied by reading; there is no lint rule and none is to be added.
 4. **Git worktrees live under `.worktrees/<name>/`.** Removing a worktree another session is using breaks that session (2026-07-07 incident); harness-initiated removals refuse while it is occupied. `python3 .claude/hooks/command-guard.py --occupancy <path>` prints the occupants; empty means free. `WORKTREE_REMOVE_ALLOW_OCCUPIED=1` overrides.
-5. **No home-made structure checkers.** No source-parsing test suites, census tests, or prose-claim gates; a structural rule is a line in a standard tool's config (ESLint, knip, dependency-cruiser) or a sentence in this file. 41,000 lines of such tests were deleted on 2026-09-09.
+5. **No home-made structure checkers.** No source-parsing test suites, census tests, or prose-claim gates; a structural rule is a line in a standard tool's config (ESLint, knip, dependency-cruiser) or a sentence in this file. 41,000 lines of such tests were deleted on 2026-09-09. One exception survives, and adding a second needs the same argument: `tools/docs-corpus/table-arity.mjs`, because a markdown table row with the wrong cell count renders wrong and `prettier` reflows it into a format-stable wrong table, so no standard tool sees it.
 
 ## Engineering rules
 

@@ -224,20 +224,61 @@ if (labelIndex !== -1) {
   const collected = [inline, ...block].join(" ").replace(/\s+/g, " ").trim();
   if (collected !== "") preconditionText = collected;
 }
-// A precondition names a phase either in full (`Plan-005 Phase 1 merged`) or
-// bare (`Phase 1 merged`), and the bare form is the common one because most
-// preconditions point at this plan's own earlier phase. Reading only the
-// qualified form let every bare reference pass unchecked, which is the one
-// failure direction this check exists to prevent.
-for (const m of preconditionText.matchAll(/(?:(Plan-\d{3})\s+)?Phase\s+(\d+[A-Za-z]?)/g)) {
-  const referencedPlan = m[1] ?? planToken;
-  const evidence = shipped(referencedPlan, m[2]);
-  if (!evidence) fail(`precondition not met: ${referencedPlan} Phase ${m[2]} is not in git log`);
+// A precondition names a phase in any of four shapes: qualified
+// (`Plan-005 Phase 1 merged`), bare (`Phase 1 merged` — the commonest, since
+// most preconditions point at this plan's own earlier phase), coordinated
+// (`Phases 2 and 3 merged`), or a range (`Phases 2-4`). Reading only the
+// qualified singular let every other shape pass unchecked, which is the one
+// failure direction this check exists to prevent: a false red costs a re-read,
+// a false green dispatches work whose prerequisite has not shipped.
+const LABEL = "[0-9]+[A-Za-z]?";
+const SEPARATOR = "\\s*(?:,|and|&|\\+|-|–|—|to)\\s*";
+const PHASE_REFERENCE = new RegExp(
+  `(?:(Plan-\\d{3})\\s+)?Phases?\\s+(${LABEL}(?:${SEPARATOR}${LABEL})*)`,
+  "g",
+);
+
+// `2-4` means every phase in the span; `2 and 4` means those two alone. Only a
+// dash between two plain numbers expands, so `3B` and `2 to 4` are left as
+// written rather than guessed at.
+function labelsIn(list) {
+  const labels = [];
+  const parts = list.split(new RegExp(`(${SEPARATOR})`));
+  for (let i = 0; i < parts.length; i += 2) {
+    const label = parts[i].trim();
+    const separator = (parts[i - 1] ?? "").trim();
+    const previous = labels[labels.length - 1];
+    if (/^[-–—]$/.test(separator) && /^\d+$/.test(label) && /^\d+$/.test(previous ?? "")) {
+      for (let n = Number(previous) + 1; n <= Number(label); n += 1) labels.push(String(n));
+      continue;
+    }
+    labels.push(label);
+  }
+  return labels;
+}
+
+// A bare reference is only a requirement when the sentence says the phase has
+// to have SHIPPED. Precondition blocks are prose, and they mention phases for
+// other reasons — "Phase 1 has no unsatisfied upstream dependency" is a remark,
+// not a gate. A qualified `Plan-NNN Phase K` needs no such evidence: naming
+// another plan's phase inside a precondition block is already the gate.
+const SHIPMENT_CLAIM =
+  /^.{0,60}?\b(?:merged|landed|shipp(?:ed|ing)|complete[sd]?|green|satisfied|in git log)\b/is;
+
+const required = [];
+for (const m of preconditionText.matchAll(PHASE_REFERENCE)) {
+  const qualified = m[1] !== undefined;
+  if (!qualified && !SHIPMENT_CLAIM.test(preconditionText.slice(m.index + m[0].length))) continue;
+  for (const label of labelsIn(m[2])) required.push([m[1] ?? planToken, label]);
+}
+for (const [referencedPlan, label] of required) {
+  const evidence = shipped(referencedPlan, label);
+  if (!evidence) fail(`precondition not met: ${referencedPlan} Phase ${label} is not in git log`);
   // One task token is one task, not the phase; two distinct ones are a phase
   // that shipped under task subjects.
   if (evidence.kind === "task" && evidence.taskNumbers.size < 2)
     fail(
-      `precondition not met: ${referencedPlan} Phase ${m[2]} has one task in git log, ` +
+      `precondition not met: ${referencedPlan} Phase ${label} has one task in git log, ` +
         `not the phase: ${evidence.original}`,
     );
 }
