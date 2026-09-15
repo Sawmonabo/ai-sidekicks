@@ -194,6 +194,11 @@ def _run_occupancy_cli(argv):
             file=sys.stderr,
         )
         return 2
+    # A typo'd or already-removed path has no occupants, which would read as
+    # "verified free" — the one answer this probe must never invent.
+    if not os.path.isdir(target):
+        print(f"not a directory: {target}", file=sys.stderr)
+        return 2
     try:
         occupants = _worktree_occupants(target, lsof_output_file)
     except _OccupancyCheckError as error:
@@ -207,7 +212,7 @@ def _run_occupancy_cli(argv):
 def main(argv):
     if argv and argv[0] == "--occupancy":
         return _run_occupancy_cli(argv[1:])
-    sys.stderr.write("usage: command-guard.py --occupancy <absolute-path>\n")
+    sys.stderr.write("usage: command-guard.py --occupancy <path>\n")
     return 2
 
 

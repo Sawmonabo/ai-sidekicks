@@ -37,3 +37,10 @@ test("no arguments prints usage and exits 2", () => {
   const r = spawnSync(process.execPath, [SCRIPT], { encoding: "utf8" });
   assert.equal(r.status, 2);
 });
+
+test("an unreadable path prints a one-line message and exits 2", () => {
+  const missing = path.join(tmpdir(), "table-arity-does-not-exist.md");
+  const r = spawnSync(process.execPath, [SCRIPT, missing], { encoding: "utf8" });
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /^table-arity: cannot read .*table-arity-does-not-exist\.md\n$/);
+});

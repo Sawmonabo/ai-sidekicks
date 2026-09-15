@@ -11,7 +11,16 @@ function cellCount(line) {
 }
 
 function checkFile(file) {
-  const lines = readFileSync(file, "utf8").split("\n");
+  // An unreadable input is a usage error (exit 2), not a bad table (exit 1),
+  // so CI can tell a typo'd path from a real finding.
+  let source;
+  try {
+    source = readFileSync(file, "utf8");
+  } catch {
+    process.stderr.write(`table-arity: cannot read ${file}\n`);
+    process.exit(2);
+  }
+  const lines = source.split("\n");
   const problems = [];
   let inFence = false;
   let headerCells = null;

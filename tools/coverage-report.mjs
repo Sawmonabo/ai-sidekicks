@@ -33,10 +33,6 @@ import { fileURLToPath } from "node:url";
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, "..");
 
-// Trees that carry a vitest coverage block but no package.json, so the
-// workspace scan below cannot discover them. Kept explicit and asserted.
-const EXTRA_ROOTS = [];
-
 /** Every workspace directory whose package.json declares a `test:coverage` script. */
 function discoverWorkspaceRoots() {
   const roots = [];
@@ -61,7 +57,7 @@ function formatPercent(metric) {
 }
 
 function main() {
-  const roots = [...discoverWorkspaceRoots(), ...EXTRA_ROOTS];
+  const roots = discoverWorkspaceRoots();
   if (roots.length === 0) {
     console.error(
       "::error::coverage-report: no coverage roots discovered — workspace layout drift?",

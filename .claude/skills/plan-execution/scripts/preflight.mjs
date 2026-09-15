@@ -55,10 +55,14 @@ ok(`phase ${phase} section found`);
 let subjectCache = null;
 function commitSubjects() {
   if (subjectCache === null) {
-    subjectCache = execFileSync("git", ["log", "--format=%s"], {
-      encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024,
-    }).split("\n");
+    try {
+      subjectCache = execFileSync("git", ["log", "--format=%s"], {
+        encoding: "utf8",
+        maxBuffer: 64 * 1024 * 1024,
+      }).split("\n");
+    } catch (error) {
+      fail(`cannot read git history: ${error.message}`);
+    }
   }
   return subjectCache;
 }
@@ -71,10 +75,35 @@ const already = shipped(planToken, phase);
 if (already) fail(`phase ${phase} already in git log: ${already}`);
 ok(`phase ${phase} not in git log`);
 
-// 4. Every "Plan-MMM Phase K" named in the phase's precondition sentence is
-//    in git history. "Precondition: none." passes.
-const preconditionLine = section.match(/^Precondition[s]?:\s*(.*)$/m);
-const preconditionText = preconditionLine ? preconditionLine[1] : "none";
+// 4. Every "Plan-MMM Phase K" named in the phase's precondition block is in
+//    git history. "Precondition: none." passes. The corpus writes the label
+//    bold, either inline (`**Precondition:** Plan-005 Phase 1 merged.`) or as
+//    a heading over a checklist (`**Preconditions.**`), and the template
+//    writes it bare, so all three shapes are read and a label-only line takes
+//    the block beneath it as its text.
+const sectionLines = section.split("\n");
+const labelIndex = sectionLines.findIndex((line) => /^\s*\*{0,2}Precondition[s]?\b/.test(line));
+let preconditionText = "none";
+if (labelIndex !== -1) {
+  const inline = sectionLines[labelIndex].replace(
+    /^\s*\*{0,2}Precondition[s]?\b[:.]?\*{0,2}[:.]?\s*/,
+    "",
+  );
+  const block = [];
+  if (inline.trim() === "") {
+    for (let i = labelIndex + 1; i < sectionLines.length; i += 1) {
+      const line = sectionLines[i];
+      if (line.trim() === "") {
+        if (block.length > 0) break;
+        continue;
+      }
+      if (/^#+\s/.test(line)) break;
+      block.push(line);
+    }
+  }
+  const collected = [inline, ...block].join(" ").replace(/\s+/g, " ").trim();
+  if (collected !== "") preconditionText = collected;
+}
 for (const m of preconditionText.matchAll(/(Plan-\d{3})\s+Phase\s+(\d+)/g)) {
   if (!shipped(m[1], Number(m[2])))
     fail(`precondition not met: ${m[1]} Phase ${m[2]} is not in git log`);

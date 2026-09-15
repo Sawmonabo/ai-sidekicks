@@ -151,6 +151,16 @@ test("--occupancy exits 2 when enumeration itself fails", () => {
   assert.match(stderr, /occupancy check failed/);
 });
 
+test("--occupancy exits 2 on a path that is not an existing directory", () => {
+  const missing = join(fixture.root, "no-such-worktree");
+  const result = spawnSync("python3", [guardPath, "--occupancy", missing], {
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /not a directory/);
+  assert.equal(result.stdout, "");
+});
+
 test("command-guard: any other invocation prints usage and exits 2", () => {
   const result = spawnSync("python3", [guardPath, "--deny", "git worktree add /tmp/x"], {
     encoding: "utf8",

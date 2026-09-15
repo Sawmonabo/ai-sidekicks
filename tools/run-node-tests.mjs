@@ -262,8 +262,7 @@ function main(argv) {
  * Direct-invocation guard, so the pure helpers above stay importable from unit
  * tests without spawning anything.
  *
- * Same form as `tools/docs-corpus/bin/pre-commit-runner.ts` § isDirectlyInvoked,
- * and NOT the naive `import.meta.url === \`file://${process.argv[1]}\``: that
+ * NOT the naive `import.meta.url === \`file://${process.argv[1]}\``: that
  * compares a percent-ENCODED URL against a raw path, so any directory
  * containing a space (or `#`, `?`, non-ASCII) makes the two unequal — the CLI
  * then does nothing and exits 0. `realpathSync` on both sides additionally
