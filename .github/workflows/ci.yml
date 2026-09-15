@@ -62,9 +62,7 @@ jobs:
       # is unfiltered. That is the safe direction: an integration-branch or nightly
       # run does the full sweep.
       desktop: ${{ steps.filter.outputs.desktop || 'true' }}
-      hooks: ${{ steps.filter.outputs.hooks || 'true' }}
       deps: ${{ steps.filter.outputs.deps || 'true' }}
-      docs: ${{ steps.filter.outputs.docs || 'true' }}
     steps:
       - uses: actions/checkout@v5
       # SHA-pinned like every other third-party action in this file (see
@@ -79,16 +77,10 @@ jobs:
               - 'apps/desktop/**'
               - 'packages/**'
               - 'pnpm-lock.yaml'
-            hooks:
-              - '.claude/hooks/**'
             deps:
               - 'pnpm-lock.yaml'
               - '**/package.json'
               - '.npmrc'
-            docs:
-              - '**/*.md'
-              - 'tools/docs-corpus/**'
-              - '.lychee.toml'
 
   # Tier-1 (Node 22.14 — daemon + Electron renderer + shared packages per ADR-022
   # §Decision row 8). Runs the full repo-wide lint + format check + build +
@@ -574,14 +566,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        tier:
-          - "test:renderer test:main-unit test:console-unit test:console-assets"
-          - "test:console-browser test:console-accessibility"
-          - "test:console-bundle"
-          - "test:smoke"
-          - "test:console-e2e test:console-endurance"
-          - "test:console-bench"
-          - "structure:dead-code structure:layering"
+        # `serial: true` marks a leg whose tasks drive a real browser or
+        # Electron window: only one such process may be alive at a time, and
+        # a build dependency must not overlap the tier it builds for. The
+        # unmarked legs are plain Node test projects and a static analysis
+        # pair, which run at the default concurrency.
+        include:
+          - tier: "test:renderer test:main-unit test:console-unit test:console-assets"
+          - tier: "test:console-browser test:console-accessibility"
+            serial: true
+          - tier: "test:console-bundle"
+            serial: true
+          - tier: "test:smoke"
+            serial: true
+          - tier: "test:console-e2e test:console-endurance"
+            serial: true
+          - tier: "test:console-bench"
+          - tier: "structure:dead-code structure:layering"
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -777,8 +778,10 @@ jobs:
         if: contains(matrix.tier, 'browser') || contains(matrix.tier, 'smoke') || contains(matrix.tier, 'e2e')
         run: pnpm --filter @ai-sidekicks/desktop exec playwright install --with-deps chromium
 
-      # `--concurrency=1` unconditionally: a leg naming two tasks is naming two
-      # tasks that must not overlap, and a single-task leg is unaffected by it.
+      # `--continue` so a leg naming two tasks reports both results: neither
+      # `knip` and `dependency-cruiser` nor any other pair here subsumes the
+      # other, and without it the first failure hides the second's finding.
+      # `--concurrency=1` only on the legs the matrix marks `serial`.
       #
       # `CONSOLE_BENCH_LEDGER_PATH` redirects the bench tier's absolutes to the
       # runner's temp directory. `test/console/bench/ledger.json` is a curated
@@ -788,7 +791,7 @@ jobs:
       - name: Run tier
         env:
           CONSOLE_BENCH_LEDGER_PATH: ${{ runner.temp }}/console-bench-ledger.json
-        run: pnpm turbo run ${{ matrix.tier }} --filter=@ai-sidekicks/desktop --concurrency=1 ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
+        run: pnpm turbo run ${{ matrix.tier }} --filter=@ai-sidekicks/desktop --continue ${{ matrix.serial && '--concurrency=1' || '' }} ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
   # Tier-2 (Node 24 — control-plane + CLI per ADR-022 §Decision row 8). The
   # control-plane package declares `engines.node: ">=24.0.0"`, so its build /

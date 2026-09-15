@@ -72,8 +72,9 @@ jobs:
   lychee-inbound:
     name: lychee — inbound anchors (required)
     needs: [changes]
-    # `main` always sweeps, whatever the diff touched: it is the branch whose
-    # protection names this workflow's gate.
+    # A push to `main` always sweeps, whatever the diff touched: it is the
+    # branch whose protection names this workflow's gate. On a pull request
+    # `github.ref` is the merge ref, so the filter alone decides there.
     if: needs.changes.outputs.docs == 'true' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
