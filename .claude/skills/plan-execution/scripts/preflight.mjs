@@ -90,21 +90,28 @@ const PLAN_RENUMBERED = {
   "031": "028",
 };
 
+// Each entry keeps the subject as it was written alongside the copy matching
+// reads, so every message quotes what a person will find in `git log`.
 function readSubjects(range) {
   try {
     return execFileSync("git", ["log", "--format=%s", range], {
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
-    }).split("\n");
+    })
+      .split("\n")
+      .map((original) => ({ subject: original, original }));
   } catch (error) {
     return fail(`cannot read git history: ${error.message}`);
   }
 }
 
-function renumber(subject) {
-  return subject.replace(/Plan-(\d{3})/gi, (token, number) =>
-    PLAN_RENUMBERED[number] ? `Plan-${PLAN_RENUMBERED[number]}` : "Plan-retired",
-  );
+function renumber(entry) {
+  return {
+    subject: entry.original.replace(/Plan-(\d{3})/gi, (token, number) =>
+      PLAN_RENUMBERED[number] ? `Plan-${PLAN_RENUMBERED[number]}` : "Plan-retired",
+    ),
+    original: entry.original,
+  };
 }
 
 // A checkout whose history does not carry the renumber commit has not been
@@ -121,7 +128,7 @@ function historyWasRenumbered() {
 }
 
 let subjectCache = null;
-function commitSubjects() {
+function commitEntries() {
   if (subjectCache === null) {
     subjectCache = historyWasRenumbered()
       ? [
@@ -137,24 +144,51 @@ function commitSubjects() {
 // searched, so only the types that carry code can answer "shipped".
 const NON_SHIPPING_TYPE = /^(?:docs|chore)(?:\([^)]*\))?!?:/i;
 
+// History names a plan's phase two different things: `Phase N` and `PN` claim
+// the whole phase shipped, while a task number `TN.k` claims only that one
+// task inside it landed. `shipped()` reports which claim it found — `kind`
+// `"phase"` or `"task"`, with every distinct task number it saw — so a caller
+// can tell a finished phase from a partly-landed one. Each form guards its
+// tail, so `Phase 3` does not match `Phase 3B`, `P1` does not match `P12`, and
+// `T3.` does not match `T31.5`; a lettered phase (`3B`) is a split of its
+// parent that only the long form spells, so it matches `Phase 3B` alone.
 function shipped(plan, phaseLabel) {
-  // History names a plan's phase three ways — `Phase N`, `PN`, and a task
-  // number `TN.k` — and each guards its tail, so `Phase 3` does not match
-  // `Phase 3B`, `P1` does not match `P12`, and `T3.` does not match `T31.5`.
-  // A lettered phase (`3B`) is a split of its parent that only the long form
-  // spells, so it matches `Phase 3B` alone — never `P3`/`T3.`, which would
-  // read the parent's shipment as the split's.
   const label = String(phaseLabel);
-  const alternatives = [`Phase\\s+${label}(?![0-9A-Za-z])`];
-  if (!/[A-Za-z]$/.test(label)) alternatives.push(`P${label}(?![0-9A-Za-z])`, `T${label}\\.[0-9]`);
-  const token = new RegExp(`${plan}\\s+(?:${alternatives.join("|")})`, "i");
-  return (
-    commitSubjects().find((subject) => !NON_SHIPPING_TYPE.test(subject) && token.test(subject)) ??
-    null
-  );
+  const lettered = /[A-Za-z]$/.test(label);
+  const phaseForms = [`Phase\\s+${label}(?![0-9A-Za-z])`];
+  if (!lettered) phaseForms.push(`P${label}(?![0-9A-Za-z])`);
+  const phaseToken = new RegExp(`${plan}\\s+(?:${phaseForms.join("|")})`, "i");
+  const taskAnchor = lettered ? null : new RegExp(`${plan}\\s+T${label}\\.[0-9]`, "i");
+  const taskNumber = lettered ? null : new RegExp(`T${label}\\.([0-9]+)`, "gi");
+
+  const taskNumbers = new Set();
+  let phaseEntry = null;
+  let taskEntry = null;
+  for (const entry of commitEntries()) {
+    if (NON_SHIPPING_TYPE.test(entry.subject)) continue;
+    if (phaseEntry === null && phaseToken.test(entry.subject)) phaseEntry = entry;
+    if (taskAnchor?.test(entry.subject)) {
+      if (taskEntry === null) taskEntry = entry;
+      for (const [, number] of entry.subject.matchAll(taskNumber)) taskNumbers.add(number);
+    }
+  }
+  const found = phaseEntry ?? taskEntry;
+  if (!found) return null;
+  return {
+    kind: phaseEntry ? "phase" : "task",
+    subject: found.subject,
+    original: found.original,
+    taskNumbers,
+  };
 }
 const already = shipped(planToken, phase);
-if (already) fail(`phase ${phase} already in git log: ${already}`);
+if (already)
+  fail(
+    already.kind === "phase"
+      ? `phase ${phase} already in git log: ${already.original}`
+      : // A phase with landed tasks is not dispatchable as a fresh phase.
+        `phase ${phase} partly in git log: ${already.original}`,
+  );
 ok(`phase ${phase} not in git log`);
 
 // 4. Every "Plan-MMM Phase K" named in the phase's precondition block is in
@@ -187,6 +221,14 @@ if (labelIndex !== -1) {
   if (collected !== "") preconditionText = collected;
 }
 for (const m of preconditionText.matchAll(/(Plan-\d{3})\s+Phase\s+(\d+[A-Za-z]?)/g)) {
-  if (!shipped(m[1], m[2])) fail(`precondition not met: ${m[1]} Phase ${m[2]} is not in git log`);
+  const evidence = shipped(m[1], m[2]);
+  if (!evidence) fail(`precondition not met: ${m[1]} Phase ${m[2]} is not in git log`);
+  // One task token is one task, not the phase; two distinct ones are a phase
+  // that shipped under task subjects.
+  if (evidence.kind === "task" && evidence.taskNumbers.size < 2)
+    fail(
+      `precondition not met: ${m[1]} Phase ${m[2]} has one task in git log, not the phase: ` +
+        evidence.original,
+    );
 }
 ok(`preconditions satisfied (${preconditionText.trim()})`);

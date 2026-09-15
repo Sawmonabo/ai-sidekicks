@@ -191,3 +191,36 @@ test("a retired old number matches nothing, before or after the renumbering", ()
   assert.equal(shipped.status, 1);
   assert.match(shipped.stderr, /phase 1 already in git log/);
 });
+
+test("a landed task refuses its own phase as partly in git log", () => {
+  const partly = preflight(
+    makeRepo({ shippedSubjects: ["feat(daemon): one task (Plan-003 T1.7)"] }),
+    ["docs/plans/003-queue.md", "1"],
+  );
+  assert.equal(partly.status, 1);
+  assert.match(
+    partly.stderr,
+    /phase 1 partly in git log: feat\(daemon\): one task \(Plan-003 T1\.7\)/,
+  );
+});
+
+test("one task number is not a shipped precondition; two are", () => {
+  const one = preflight(
+    makeRepo({
+      boldPreconditions: true,
+      shippedSubjects: ["feat(daemon): one task (Plan-003 T1.7)"],
+    }),
+    ["docs/plans/003-queue.md", "2"],
+  );
+  assert.equal(one.status, 1);
+  assert.match(one.stderr, /Plan-003 Phase 1 has one task in git log, not the phase/);
+
+  const two = preflight(
+    makeRepo({
+      boldPreconditions: true,
+      shippedSubjects: ["feat(daemon): two tasks (Plan-003 T1.7/T1.8)"],
+    }),
+    ["docs/plans/003-queue.md", "2"],
+  );
+  assert.equal(two.status, 0, two.stderr);
+});
