@@ -36,7 +36,7 @@ The following invariants are **load-bearing** and MUST be preserved across all P
 
 `definitionId` is daemon-minted, opaque to every caller, and stable for the life of the row including across a rename. No wire request, stored reference, or audit row keys a definition by `name`.
 
-**Grounds in.** `Spec-027 §Required Behavior` — the definition-registry identity rule.
+**Grounds in.** [Spec-027 §Required Behavior](../specs/027-sidekick-definitions-and-peer-invocation.md#required-behavior) — the definition-registry identity rule.
 
 **Why load-bearing.** `name` is the one field a user edits most and the one a peer-invocation target spells. If identity rode the name, a rename would silently repoint or orphan every stored reference, and two nodes' identically-named definitions would appear interchangeable. The opaque-immutable-id-plus-mutable-label split is the same shape `ProviderAccountId` already uses, so the two registries stay legible together.
 
@@ -46,7 +46,7 @@ The following invariants are **load-bearing** and MUST be preserved across all P
 
 Resolution copies the definition's values onto the agent record at attach time. No read path serving a running or attached agent's configuration consults `sidekick_definitions`, and no foreign key binds an agent to the definition it was resolved from.
 
-**Grounds in.** `Spec-027 §Required Behavior` — the attach-by-reference snapshot rule.
+**Grounds in.** [Spec-027 §Required Behavior](../specs/027-sidekick-definitions-and-peer-invocation.md#required-behavior) — the attach-by-reference snapshot rule.
 
 **Why load-bearing.** This is the plan's central authorization property, not a caching choice. A live reference would let an edit widen an already-attached sidekick's tool allowlist, execution posture, or paying account without that widening passing the attach-time Cedar check that admitted the agent. It also makes the registry safe to edit under load, because nothing serving a live run reads it.
 
@@ -56,7 +56,7 @@ Resolution copies the definition's values onto the agent record at attach time. 
 
 An unresolvable provider account, model, effort level, or tool allowlist refuses the attach, names what could not be resolved, and creates no agent row. The four inputs are exactly the four arms of the closed `sidekick.resolution_refused` `reason` discriminator, so every unresolvable input has a typed refusal and none falls through untyped. The resolver never falls back to a default account, a nearest-match model, a neighbouring effort level, or a silently narrowed — or unconstrained — tool set.
 
-**Grounds in.** `Spec-027 §Fallback Behavior`.
+**Grounds in.** [Spec-027 §Fallback Behavior](../specs/027-sidekick-definitions-and-peer-invocation.md#fallback-behavior).
 
 **Why load-bearing.** Every substitution this rule forbids is a silent change to who pays, which identity acts, or what the sidekick costs and does. A pinned account quietly becoming "whichever account is default now" is precisely the class of change an operator pinned it to prevent.
 
@@ -66,7 +66,7 @@ An unresolvable provider account, model, effort level, or tool allowlist refuses
 
 Absent, empty, and populated allowlists are stored and transported distinguishably, and the resolved allowlist is applied at spawn. A driver that cannot realize the allowlist refuses the attach rather than spawning unconstrained.
 
-**Grounds in.** `Spec-027 §Required Behavior` — the tool-allowlist state rule and the spawn-enforcement rule.
+**Grounds in.** [Spec-027 §Required Behavior](../specs/027-sidekick-definitions-and-peer-invocation.md#required-behavior) — the tool-allowlist state rule and the spawn-enforcement rule.
 
 **Why load-bearing.** Collapsing absent into empty strips a sidekick of every tool; collapsing empty into absent hands it all of them. Both are silent. Recording an allowlist without enforcing it is worse than storing none, because the registry then reports a restriction that does not hold — a false assurance an operator will rely on.
 
@@ -76,7 +76,7 @@ Absent, empty, and populated allowlists are stored and transported distinguishab
 
 Both tools are registered at spawn unconditionally, and every invocation is adjudicated against `Action::"sidekick::invoke"` with the session's projected enablement flag supplied as Cedar context. A call made while the session has not enabled peer invocation — including one arriving on a leg spawned while it was enabled — is answered `denied`.
 
-**Grounds in.** `Spec-027 §Required Behavior` — the registration and enablement rules.
+**Grounds in.** [Spec-027 §Required Behavior](../specs/027-sidekick-definitions-and-peer-invocation.md#required-behavior) — the registration and enablement rules.
 
 **Why load-bearing.** This is a correctness property, not a stylistic one. `callbackTools` rides only the session-creation and resume parameter shapes and there is no live-registry mutation seam, so a registry composed against enablement state is frozen at spawn: enabling mid-session would change nothing until the leg respawned, and — worse in the other direction — withdrawal would leave a live leg holding a capability the operator believes they revoked until its next spawn boundary. Per-call adjudication makes both directions immediate and needs no seam that does not exist. It also matches the landed `workflow_start` precedent, the corpus's only other concrete session callback tool.
 
@@ -86,7 +86,7 @@ Both tools are registered at spawn unconditionally, and every invocation is adju
 
 A peer invocation creates its child run through the ordinary orchestration admission pipeline. This plan adds no run kind, no link type, no scheduler rule, and no depth check of its own.
 
-**Grounds in.** `Spec-027 §Non-Goals`; `Spec-014 §Default Behavior` — the one-layer nesting rule that consequently applies without restatement.
+**Grounds in.** [Spec-027 §Non-Goals](../specs/027-sidekick-definitions-and-peer-invocation.md#non-goals); [Spec-014 §Default Behavior](../specs/014-multi-agent-channels-and-orchestration.md#default-behavior) — the one-layer nesting rule that consequently applies without restatement.
 
 **Why load-bearing.** The nesting limit, the active-child limit, the queue depth, and the budget ceiling are all enforced in one place today. A second depth check inside the peer-invocation handler would be a second source of truth that drifts from the first, and the drift would be discovered as runaway fan-out rather than as a test failure.
 
@@ -106,7 +106,7 @@ The definition store computes the full Unicode case fold of `name` and persists 
 
 The table holds the execution-posture mode literal only. No `credentialPolicyRef`, `writableRoots`, or network-access member is persisted in `sidekick_definitions`, and the full posture is composed at attach time against the session's live credential policy.
 
-**Grounds in.** `Spec-027 §Required Behavior` — the posture-mode rule.
+**Grounds in.** [Spec-027 §Required Behavior](../specs/027-sidekick-definitions-and-peer-invocation.md#required-behavior) — the posture-mode rule.
 
 **Why load-bearing.** A composed posture carries a content-addressed reference to a credential-policy artifact that is meaningful only against the session that composed it. Persisting one lets a definition pin a policy that has since been superseded, so re-attaching it would re-grant a trust decision the session had narrowed — and a stale ref can dangle outright.
 
@@ -116,7 +116,7 @@ The table holds the execution-posture mode literal only. No `credentialPolicyRef
 
 The daemon has no code path that relays, publishes, or transmits a definition row or any of its fields to the control plane or to a peer node.
 
-**Grounds in.** `Spec-027 §Non-Goals` — the node-local rule.
+**Grounds in.** [Spec-027 §Non-Goals](../specs/027-sidekick-definitions-and-peer-invocation.md#non-goals) — the node-local rule.
 
 **Why load-bearing.** `instructions` is operator-authored free text that routinely carries repository, workflow, and organizational detail. Definitions are configuration rather than session history, so they are outside the relay's end-to-end encryption story entirely; the correct guarantee is that they never enter it.
 
@@ -126,7 +126,7 @@ The daemon has no code path that relays, publishes, or transmits a definition ro
 
 The resolved allowlist filters the callback-tool registry contributed to that agent exactly as it filters provider-native tools. An agent attached from a definition whose allowlist is empty receives no peer-invocation tools; one naming an explicit set receives them only if that set names them.
 
-**Grounds in.** `Spec-027 §Required Behavior` — the allowlist-filters-the-registry rule; `Spec-027 §Required Behavior` — the spawn-enforcement rule of I-027-4, of which this is the callback-tool half.
+**Grounds in.** [Spec-027 §Required Behavior](../specs/027-sidekick-definitions-and-peer-invocation.md#required-behavior) — the allowlist-filters-the-registry rule; [Spec-027 §Required Behavior](../specs/027-sidekick-definitions-and-peer-invocation.md#required-behavior) — the spawn-enforcement rule of I-027-4, of which this is the callback-tool half.
 
 **Why load-bearing.** The daemon's curated tools are the easiest ones to forget when enforcing an allowlist, because they are contributed by the daemon rather than requested by the definition — and they are the most consequential to leak, since `ask_sidekick` and `delegate_to_sidekick` start runs. An allowlist that constrained provider-native tools while silently admitting the daemon's own would report a restriction that is not in force, which is the precise failure I-027-4 exists to forbid.
 
@@ -136,7 +136,7 @@ The resolved allowlist filters the callback-tool registry contributed to that ag
 
 Child-run creation stamps the effective principal of the turn that issued the invoking tool call onto the run link, daemon-resolved and never client-supplied; a creation that cannot resolve one refuses rather than creating an unattributed run. Every terminal state of that child settles the waiting `ask_sidekick` call.
 
-**Grounds in.** `Spec-027 §Required Behavior` — the invoking-principal rule and the ask-settlement rule.
+**Grounds in.** [Spec-027 §Required Behavior](../specs/027-sidekick-definitions-and-peer-invocation.md#required-behavior) — the invoking-principal rule and the ask-settlement rule.
 
 **Why load-bearing.** Two independent holes close here. A peer-invoked run has neither an intervention row nor a user who started it — the two arms `EffectivePrincipal` resolves through — so without a stamped value it has no principal at all, and chaining to the parent run cannot supply one because a run accumulates turns from several principals and recency is not a correct answer. Separately, `ask_sidekick` is the only tool in this plan that outlives its own child: admission succeeding does not guarantee an answer, so a child that fails, is cancelled, or completes silently would leave the asking model blocked on a call that never returns — the one outcome the callback-tool dispatch seam forbids.
 
@@ -146,7 +146,7 @@ Child-run creation stamps the effective principal of the turn that issued the in
 
 Each axis the daemon itself reads — posture mode, tool allowlist, instructions, and goal — is stored in a typed `agents` column, never inside the opaque `config` blob and never re-read from the definition it came from.
 
-**Grounds in.** `Spec-027 §Required Behavior` — the attach-time snapshot rule.
+**Grounds in.** [Spec-027 §Required Behavior](../specs/027-sidekick-definitions-and-peer-invocation.md#required-behavior) — the attach-time snapshot rule.
 
 **Why load-bearing.** I-027-2 promises the attached agent is a snapshot, and a snapshot that cannot be read back is not one. `config` is documented opaque to everything outside the driver, so an axis parked there is unreadable by the two paths that need it — registry composition and prompt construction. Without typed homes, deleting the definition and restarting the daemon would leave those paths with nowhere to read the promised configuration, and the only way to reconstruct it would be the deleted row. This is the same reason `provider_account_id` was carved out of `config` rather than folded into it.
 
@@ -170,7 +170,7 @@ Plan-027 authors the definition editor and the peer-invocation enablement contro
 
 ### CP-027-3 — Named Cedar actions registered in the Spec-010 enumeration
 
-Peer invocation and definition management are authorized as the named operation actions `Action::"sidekick::invoke"` and `Action::"sidekick::manage"`, registered by extending the named-operation-action enumeration in `Spec-010 §Implementation Notes` in place.
+Peer invocation and definition management are authorized as the named operation actions `Action::"sidekick::invoke"` and `Action::"sidekick::manage"`, registered by extending the named-operation-action enumeration in [Spec-010 §Implementation Notes](../specs/010-approvals-permissions-and-trust-boundaries.md#implementation-notes) in place.
 
 **Resolution.** Registered by the 2026-08-26 amendment swap that mints this plan, on the precedent set by the `workflow::cancel` / `workflow::resume` registration. [Plan-010](./010-approvals-permissions-and-trust-boundaries.md) carries no plan-side action enumeration, so no plan-side reciprocal exists and Plan-010's Status does not move — the same asymmetry that registration established.
 
@@ -196,7 +196,7 @@ Peer invocation and definition management are authorized as the named operation 
 
 `packages/runtime-daemon/src/provider/callback-tool-host.ts` is Plan-004-owned, and its documented contract routes **every** callback invocation through Plan-010's evaluation seam on `approval.requestCreate`-shaped inputs. Those inputs are keyed by `ApprovalCategory`. `sidekick::invoke` is a named operation action that deliberately adds no `ApprovalCategory` (D-027-4), so a peer-invocation call is **not expressible** in the input shape the host builds — the defect is not that the host would prompt, but that it cannot represent the call at all.
 
-**Resolution.** The host gains a named-action dispatch route: a callback tool declared as named-action-authorized is adjudicated by the handler's own Cedar check and its outcome answered directly, without an `approval.requestCreate`-shaped evaluation and without minting an approval row, still landing as an ordinary `tool_activity` row. Plan-004 owns that route; this plan owns the declaration marker its tools carry and the Cedar check in T4.3. Registered one-sided, on the CP-006-15 precedent that an obligation may ride the owning plan's surface without a reciprocal minted into it — Plan-004 may register its own reciprocal in a later swap without this obligation changing. **That registering swap also owes a quantifier narrowing on two sites, named here because otherwise it has no owner:** `Spec-004 §Scope` states that _every_ callback invocation flows through the daemon's approval pipeline, and `Plan-004` T3.15 leg 3 states that the host routes _every_ invocation through Plan-010's evaluation seam. Both universals are true today — no named-action route exists yet — and both narrow by one clause when the route lands. Deliberately not narrowed here: nothing in this plan ships until the box below is checked, so flipping Spec-004/Plan-004 for a contract neither doc yet implements would move two Statuses ahead of the change they describe.
+**Resolution.** The host gains a named-action dispatch route: a callback tool declared as named-action-authorized is adjudicated by the handler's own Cedar check and its outcome answered directly, without an `approval.requestCreate`-shaped evaluation and without minting an approval row, still landing as an ordinary `tool_activity` row. Plan-004 owns that route; this plan owns the declaration marker its tools carry and the Cedar check in T4.3. Registered one-sided, on the CP-006-15 precedent that an obligation may ride the owning plan's surface without a reciprocal minted into it — Plan-004 may register its own reciprocal in a later swap without this obligation changing. **That registering swap also owes a quantifier narrowing on two sites, named here because otherwise it has no owner:** [Spec-004 §Scope](../specs/004-provider-driver-contract-and-capabilities.md#scope) states that _every_ callback invocation flows through the daemon's approval pipeline, and `Plan-004` T3.15 leg 3 states that the host routes _every_ invocation through Plan-010's evaluation seam. Both universals are true today — no named-action route exists yet — and both narrow by one clause when the route lands. Deliberately not narrowed here: nothing in this plan ships until the box below is checked, so flipping Spec-004/Plan-004 for a contract neither doc yet implements would move two Statuses ahead of the change they describe.
 
 **Why surfaced here.** Without the route, an enabled session's peer tools reach a host that can neither authorize nor represent them, and the fail-closed backstop answers `denied` — the feature would ship inert while every doc claimed it worked.
 
@@ -224,7 +224,7 @@ Peer invocation and definition management are authorized as the named operation 
 - [ ] **Named-action callback dispatch route registered (CP-027-6)** — born unchecked 2026-08-26 at the round-2 review fold. Holds **T4.1 and T4.3 directly** and, transitively, the whole of Phase 5, which gates on `plan_phase 4 status: merged` and so cannot dispatch while two Phase-4 tasks are held. T1.x–T3.x and the remaining Phase-4 tasks (T4.2, T4.4) dispatch on tier order and their phase gates. Stated with the transitive set spelled out because a reader scheduling off a bare "only" would mis-plan the Phase-5 work. The Plan-004 callback-tool host builds `approval.requestCreate`-shaped evaluation inputs keyed by `ApprovalCategory`, and `sidekick::invoke` deliberately has none (D-027-4), so a peer-invocation call cannot be represented in that input shape — not a prompting nuisance but an unrepresentable call. Checked when Plan-004 registers the named-action route CP-027-6 describes, in its own swap. Deliberately a box rather than a machine-checkable `external_plan_phase_merged` gate: the blocker is a contract Plan-004 has not yet authored, not a phase awaiting merge.
 - [x] **Plan-readiness audit complete per [`docs/operations/plan-implementation-readiness-audit-runbook.md`](../operations/plan-implementation-readiness-audit-runbook.md)** — first-time targeted readiness audit taken 2026-08-26 riding the same diff that mints this plan, the in-swap shape the [Plan-026](./026-provider-accounts-and-credential-homes.md) mint established. The audit walked all four gates over the five phases and sixteen tasks authored here, the twelve invariants, and the eight cross-plan obligations. Quantifiers re-derived by counting at the round-2 review fold, which folded nine findings into this plan and its contracts: the task count is unmoved at sixteen because the client-SDK task moved phase (T5.3 → T2.4) rather than being added, while invariants moved eleven → twelve (I-027-12) and obligations five → eight (CP-027-6/7/8). It mints **one** born-unchecked box, below. Code dispatch rides tier order (Tier 5, ordered last within the tier behind Plans 010 / 014 / 026) and the per-phase gates below.
 
-<!-- Cite durable forms per AGENTS.md §Durable-Cite Rule: `path#exportedSymbol` for code,
+<!-- Cite durable forms per AGENTS.md §Docs: `path#exportedSymbol` for code,
      `Spec-NNN §Heading` for specs/plans/ADRs; raw :NNN only for frozen/archive content. -->
 
 ## Target Areas
@@ -516,19 +516,12 @@ preconditions:
 - **D-027-4 — Enablement is an event, not a remembered approval rule and not a table.** The remembered-grant route was specified first and is **unrepresentable**, not merely redundant: `remembered_approval_rules` closes its `category` column over the approval-pipeline categories and requires `created_from_request_id` to reference an `approval_resolutions` row, and a named-operation Cedar action traverses no approval pipeline and produces no resolution — so there is no legal row to write. A dedicated table was the next candidate and was rejected because this corpus projects no session-configuration table at all: the session goal, the closest analogue, lives in the event log and is rebuilt by replay (`session_goal_dispatch_intents` is a crash-consistency intent row, not the goal's home). The event is therefore the corpus's own answer for session-scoped mutable configuration, and it buys the audit trail for free — which matters here, because the thing being granted lets a running model start other runs.
 - **D-027-5 — The tools are registered unconditionally and adjudicated per call.** Grant-gated registration was specified first, on the reasoning that a tool a model can see is one it will plan around. It does not work: `callbackTools` rides only the session-creation and resume parameter shapes, and the corpus has no live-registry mutation seam, so a registry filtered by enablement is frozen at spawn. Enabling mid-session would then change nothing an operator could observe until the leg respawned, and withdrawal would leave a live leg holding a revoked capability until the same boundary. Per-call adjudication makes both directions take effect on the next call, needs no seam that does not exist, and matches `workflow_start` — the corpus's only other concrete session callback tool, which is likewise registered at spawn and Cedar-checked per invocation. The cost is the visible-but-refusable tool the original reasoning objected to, and it is the smaller cost.
 - **D-027-6 — The tool allowlist is three-state.** `NULL` means the driver's defaults and `'[]'` means no tools. Representing "no tools" as an absent value would make the most restrictive choice unexpressible, which is the wrong direction for a security control to be lossy in.
-- **D-027-7 — No depth rule is authored here.** `Spec-014 §Default Behavior`'s one-layer rule already refuses the grandchild a nested peer invocation would create, and `orchestration.depth_exceeded` already carries `maxDepth: 1`. A second check in the handler would be a second source of truth whose drift would surface as runaway fan-out rather than as a failing test.
+- **D-027-7 — No depth rule is authored here.** [Spec-014 §Default Behavior](../specs/014-multi-agent-channels-and-orchestration.md#default-behavior)'s one-layer rule already refuses the grandchild a nested peer invocation would create, and `orchestration.depth_exceeded` already carries `maxDepth: 1`. A second check in the handler would be a second source of truth whose drift would surface as runaway fan-out rather than as a failing test.
 - **D-027-8 — Five wire pairs, with `definitionList` returning full records.** A separate read verb would duplicate the list's projection and give two surfaces that can disagree about what a definition is. This follows the `providerAccount.list` shape, which returns full rows for the same reason.
 - **D-027-10 — The invoking principal is stamped on the run link, not derived later.** A peer-invoked child resolves no effective principal under either existing arm — no intervention row, no user who started it — and deriving one by chaining to the parent run is wrong rather than merely lossy, because a run accumulates turns from several principals and the newest is not necessarily the caller. The invoking turn's principal is already settled at the moment its tool call is dispatched, so stamping it there records a fact instead of reconstructing a guess, and a call that cannot resolve one refuses before admission rather than creating an unattributed run.
-- **D-027-9 — The CLI group word is `sidekick-definition`.** Two shorter alternatives were considered and rejected. Bare `definition` collides with `Spec-015`'s frozen **workflow definitions**, whose command group lives in this same `apps/cli/src/commands/` directory, so `definition-*.ts` beside `workflow-*.ts` would be ambiguous at exactly the point a reader needs disambiguation. Bare `sidekick` truncates a two-word resource to one word, which both stutters as `sidekicks sidekick list` and reads as a command over _running_ session agents rather than over the saved records this plan owns — a distinction `Spec-027 §Required Behavior` draws throughout, since a peer-invocation target may be either. The group word therefore names the resource in full, following the corpus's only other two-word CLI resource: [Plan-026](./026-provider-accounts-and-credential-homes.md)'s `sidekicks provider-account` group with its matching `provider-account-*.ts` files. The wire namespace stays `sidekick.*` because it also carries the peer-invocation enablement pair, which is not a definition operation; the CLI group is narrower than the namespace on purpose. The everyday form is `sk sidekick-definition list`.
+- **D-027-9 — The CLI group word is `sidekick-definition`.** Two shorter alternatives were considered and rejected. Bare `definition` collides with `Spec-015`'s frozen **workflow definitions**, whose command group lives in this same `apps/cli/src/commands/` directory, so `definition-*.ts` beside `workflow-*.ts` would be ambiguous at exactly the point a reader needs disambiguation. Bare `sidekick` truncates a two-word resource to one word, which both stutters as `sidekicks sidekick list` and reads as a command over _running_ session agents rather than over the saved records this plan owns — a distinction [Spec-027 §Required Behavior](../specs/027-sidekick-definitions-and-peer-invocation.md#required-behavior) draws throughout, since a peer-invocation target may be either. The group word therefore names the resource in full, following the corpus's only other two-word CLI resource: [Plan-026](./026-provider-accounts-and-credential-homes.md)'s `sidekicks provider-account` group with its matching `provider-account-*.ts` files. The wire namespace stays `sidekick.*` because it also carries the peer-invocation enablement pair, which is not a definition operation; the CLI group is narrower than the namespace on purpose. The everyday form is `sk sidekick-definition list`.
 
 ## Progress Log
-
-### Shipment Manifest
-
-```yaml
-manifest_schema_version: 1
-shipped: []
-```
 
 ### Notes
 

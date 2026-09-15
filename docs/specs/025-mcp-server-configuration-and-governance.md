@@ -70,7 +70,7 @@ This spec defines V1 feature #18 ([ADR-015 §Decision](../decisions/015-v1-featu
 - [x] All declared `Depends On` specs are at `approved` status — Spec-004, Spec-005, and Spec-010, the three this spec declares (Spec-005 restored 2026-07-22 by its named W3 follow-on re-promotion, PR #245; Spec-010 — the declared approval-categories + trust-boundaries dependency, also load-bearing for §Required Behavior's governance legs — was `review` from 2026-08-03 (cross-user run-control intervention amendment) and restored `approved` 2026-08-10 by its targeted readiness-audit delta (PR #317; cross-plan-dependencies)), so every declared spec resolves `approved`
 - [x] All declared `Depends On` ADRs are at `accepted` status
 - [x] Blocking open questions are resolved or explicitly deferred
-- [x] **Spec-status promotion gate cleared per [`docs/operations/plan-implementation-readiness-audit-runbook.md#spec-status-promotion-gate`](../operations/plan-implementation-readiness-audit-runbook.md#spec-status-promotion-gate)** (executed per criterion in the W3 promotion PR, 2026-07-22)
+- [x] **Spec-status promotion gate cleared per [`docs/operations/plan-implementation-readiness-audit-runbook.md`](../operations/plan-implementation-readiness-audit-runbook.md)** (executed per criterion in the W3 promotion PR, 2026-07-22)
 
 ## Required Behavior
 

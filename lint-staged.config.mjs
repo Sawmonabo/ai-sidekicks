@@ -1,43 +1,6 @@
-// lint-staged 16.4.x configuration per ADR-023 §Axis 2.
-// Function-form lets us run `tsc -b` once on the workspace
-// (file-level invocation defeats project-references incremental rechecking).
-// ESM file (`.mjs`) per lint-staged v16 auto-detection of "type": "module".
-
 /** @type {import("lint-staged").Configuration} */
 export default {
-  "*.{ts,tsx,mts,cts}": [
-    "eslint --fix --cache",
-    // `prettier --write` runs after `eslint --fix` because eslint autofix can
-    // emit code that diverges from prettier's canonical form; prettier last
-    // makes CI's `prettier --check` a redundancy gate rather than a discovery
-    // surface for TS format drift.
-    "prettier --write",
-    // Function form is REQUIRED here to suppress lint-staged's filename-append
-    // behavior (lint-staged appends matched files to string commands; that
-    // would invoke `tsc -b file1.ts file2.ts ...` and defeat project-references
-    // incremental rechecking — TS6310). Returning a bare string from the
-    // function tells lint-staged to invoke it verbatim, exactly once. Do not
-    // convert to a string command.
-    //
-    // Composite project-references require referenced projects to emit; `tsc -b`
-    // is the canonical typecheck primitive in that mode. Outputs land in
-    // `dist/` which is gitignored.
-    () => "tsc -b",
-  ],
-  // tools/docs-corpus sits OUTSIDE the root solution file's project-references
-  // graph, so the `tsc -b` above never typechecks it. Its typecheck is NOT a
-  // lint-staged key: this file's keys match staged files via
-  // `--diff-filter=ACMR`, so a deletion-only commit under the tree would
-  // fire nothing while leaving broken imports behind. The pre-commit leg is
-  // the `docs-corpus-typecheck` screen in lefthook.yml (index-materialized,
-  // deletion-aware); CI's docs-corpus `Typecheck hook implementations` step
-  // is the required backstop when hooks are skipped.
-  // Match the TS/TSX rule: eslint first, prettier last so CI's
-  // `prettier --check "**/*.{ts,tsx,js,mjs,cjs,...}"` (see package.json
-  // `format:check`) is a redundancy gate rather than a discovery surface
-  // for JS/MJS format drift. Without `prettier --write` here, edits to
-  // `.mjs` files (hooks, scripts) bypass local formatting and only
-  // surface as red CI on the prettier-check step.
+  "*.{ts,tsx,mts,cts}": ["eslint --fix --cache", "prettier --write"],
   "*.{js,mjs,cjs,jsx}": ["eslint --fix --cache", "prettier --write"],
   "*.{json,json5,md,yml,yaml,css,scss}": ["prettier --write"],
 };

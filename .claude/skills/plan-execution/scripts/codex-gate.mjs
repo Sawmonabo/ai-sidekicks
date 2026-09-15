@@ -117,11 +117,14 @@ function fail(message) {
 
 const positional = [];
 let repository = null;
+let advisory = false;
 for (let index = 2; index < process.argv.length; index += 1) {
   const argument = process.argv[index];
   if (argument === "--repo") {
     repository = process.argv[index + 1];
     index += 1;
+  } else if (argument === "--advisory") {
+    advisory = true;
   } else {
     positional.push(argument);
   }
@@ -129,7 +132,7 @@ for (let index = 2; index < process.argv.length; index += 1) {
 
 const pullRequestNumber = positional[0];
 if (!pullRequestNumber || !/^\d+$/.test(pullRequestNumber)) {
-  fail("usage: node codex-gate.mjs <pr-number> [--repo owner/name]");
+  fail("usage: node codex-gate.mjs <pr-number> [--repo owner/name] [--advisory]");
 }
 
 if (!repository) {
@@ -513,32 +516,36 @@ const {
   ackAgeUnknown,
   shaBoundAckOfHead,
   timestampOnlyAckUnvouchable,
-} = computeVerdict({
-  isDraft: pullRequest.isDraft,
-  isOpen,
-  headUnchanged,
-  pushAnchorKnown,
-  rateLimited,
-  reviewAcksHead,
-  reactionAcksHead,
-  commentAcksHead,
-  commentAcksHeadBySha,
-  commentAssertsClean,
-  commentReportsFindings,
-  staleRunLandedAfterPush,
-  observationBaselineKnown,
-  ackPredatesBaseline,
-  openThreadCount: unresolvedBotThreads.length,
-  latestReviewAgeMs,
-  latestReviewAgeUnknown,
-  latestCommentAckAgeMs,
-  latestCommentAckAgeUnknown,
-  threadWindowTruncated,
-  checkWindowTruncated,
-  ciStatus,
-  mergeStateStatus,
-  settleWindowMs: DEFAULT_SETTLE_WINDOW_MS,
-});
+} = computeVerdict(
+  {
+    isDraft: pullRequest.isDraft,
+    isOpen,
+    headUnchanged,
+    pushAnchorKnown,
+    rateLimited,
+    reviewAcksHead,
+    reactionAcksHead,
+    commentAcksHead,
+    commentAcksHeadBySha,
+    commentAssertsClean,
+    commentReportsFindings,
+    staleRunLandedAfterPush,
+    observationBaselineKnown,
+    ackPredatesBaseline,
+    openThreadCount: unresolvedBotThreads.length,
+    latestReviewAgeMs,
+    latestReviewAgeUnknown,
+    latestCommentAckAgeMs,
+    latestCommentAckAgeUnknown,
+    threadWindowTruncated,
+    checkWindowTruncated,
+    ciStatus,
+    ciMode,
+    mergeStateStatus,
+    settleWindowMs: DEFAULT_SETTLE_WINDOW_MS,
+  },
+  { advisory },
+);
 
 // ------------------------------------------------------------------- output
 
@@ -785,7 +792,7 @@ lines.push("");
 // merger does. Feed it to `gh pr merge --match-head-commit` so the merge refuses
 // a head that moved between this print and the call.
 lines.push(
-  `GATE verdict=${verdict} ack=${ackOfHead ? 1 : 0} unresolved=${unresolvedBotThreads.length} ci=${ciStatus} state=${pullRequest.state} merge_state=${mergeStateStatus} merge_ok=${mergeOk ? 1 : 0} head_sha=${headSha}`,
+  `GATE verdict=${verdict} ack=${ackOfHead ? 1 : 0} unresolved=${unresolvedBotThreads.length} ci=${ciStatus} state=${pullRequest.state} merge_state=${mergeStateStatus} merge_ok=${mergeOk ? 1 : 0} advisory=${advisory ? 1 : 0} head_sha=${headSha}`,
 );
 
 process.stdout.write(`${lines.join("\n")}\n`);

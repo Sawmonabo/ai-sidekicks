@@ -218,55 +218,13 @@ V1 ships 21 core features across CLI and Desktop GUI per [ADR-015: V1 Feature Sc
 
 ## Build Order
 
-Implementation follows the tiered dependency graph below. [Plan-001](docs/plans/001-session-core.md) Session Core is `completed`, [Plan-028](docs/plans/028-remote-control.md) Remote Control is `draft`, and every other plan is `approved`.
-
-```
-Tier 1  ► Plan-001  Session Core
-         Plan-022  Rust PTY Sidecar
-Tier 2  ► Plan-002  Runtime Node Attach
-Tier 3  ► Plan-004  Provider Driver Contract
-         Plan-005  Event Taxonomy and Audit Log
-         Plan-006  Local IPC and Daemon Control
-Tier 4  ► Plan-003  Queue, Steer, Pause, Resume
-         Plan-016  Identity and User State
-         Plan-020  Data Retention and GDPR
-Tier 5  ► Plan-007  Repo Attachment and Workspace Binding
-         Plan-008  Worktree Lifecycle
-         Plan-010  Approvals and Permissions
-         Plan-014  Multi-Agent Channels
-         Plan-019  Rate Limiting Policy
-         Plan-026  Provider Accounts and Credential Homes
-Tier 6  ► Plan-009  Git Flow, PR, Diff Attribution
-         Plan-012  Artifacts, Files, Attachments
-         Plan-013  Persistence, Recovery, Replay
-         Plan-025  MCP Server Configuration and Governance
-Tier 7  ► Plan-011  Live Timeline and Visibility
-         Plan-015  Workflow Authoring and Execution
-         Plan-017  Notifications and Attention
-         Plan-018  Observability and Failure Recovery
-         Plan-021  Desktop Shell and Renderer
-Tier 8  ► Plan-023  First-Run Three-Way-Choice Onboarding
-         Plan-027  Sidekick Definitions and Peer Invocation
-Tier 9  ► Plan-028  Remote Control
-Tier 10 ► Plan-024  Cross-Node Dispatch and Approval
-```
-
-A tier's prerequisites are every tier above it, and the sequence is dense — Tier N cannot start until Tier N-1 is committed. See [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md) for the forward phase DAG, which is where the phases still to ship and their real dependencies live.
+Phases still to build, and the order between them, live in [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). What has shipped is `git log --oneline --grep 'Plan-'`.
 
 ---
 
 ## Project Status
 
-**Phase:** code execution is under way. A plan's code dispatches on tier order and its own `§Preconditions`; the forward DAG of phases still to ship is [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). [Plan-022](docs/plans/022-rust-pty-sidecar.md) Phases 4-5 (CI cross-compile, signing, and the measurement substrate) are the one hard-blocked lane, waiting on hardware and certificate procurement.
-
-Current documentation corpus:
-
-- **28 V1 implementation plans** with step-by-step build instructions; [Plan-001](docs/plans/001-session-core.md) is `completed`, [Plan-028](docs/plans/028-remote-control.md) is `draft`, and the other 26 are `approved`
-- **29 specifications** covering every feature and cross-cutting concern; 27 are `approved` and [Spec-028](docs/specs/028-remote-control.md) / [Spec-029](docs/specs/029-ios-remote-client.md) are `draft`
-- **12 domain models** (run state machine, intervention model, user and device model, workflow model, etc.)
-- **15 architecture documents** (schemas, contracts, security, deployment, dependencies)
-- **12 operations runbooks** (CLI commands, SLOs, on-call routing, self-host secure defaults)
-- **28 accepted ADRs** recording key design decisions (ADR-013 reserved-skipped; no ADR is `proposed`)
+Code execution is under way. What is left to build, and the order between the pieces, is [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). [Plan-022](docs/plans/022-rust-pty-sidecar.md) Phases 4-5 wait on hardware and certificate procurement.
 
 ---
 
@@ -275,8 +233,8 @@ Current documentation corpus:
 | Area | Path | Description |
 | --- | --- | --- |
 | Vision | [`docs/vision.md`](docs/vision.md) | Product thesis and architectural position |
-| Specs | [`docs/specs/`](docs/specs/) | Feature specifications (the census above is the authoritative list) |
-| Plans | [`docs/plans/`](docs/plans/) | Implementation plans (the census above is the authoritative list) |
+| Specs | [`docs/specs/`](docs/specs/) | Feature specifications |
+| Plans | [`docs/plans/`](docs/plans/) | Implementation plans |
 | Architecture | [`docs/architecture/`](docs/architecture/) | Schemas, contracts, security, deployment |
 | Domain Models | [`docs/domain/`](docs/domain/) | State machines, glossary, entity models |
 | ADRs | [`docs/decisions/`](docs/decisions/) | Architectural decision records |

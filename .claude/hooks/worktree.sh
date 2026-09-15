@@ -14,7 +14,6 @@ cd "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
 
 payload=$(cat)
 
-# Keep IDENTICAL to the Python equivalent in command-guard.py.
 NAME_REGEX='^[a-zA-Z0-9_-]{1,64}$'
 
 die() {
@@ -93,12 +92,11 @@ cmd_remove() {
   if [[ $occupancy_status -ne 0 ]]; then
     die "could not verify occupancy of '$path' (exit $occupancy_status); refusing removal"
   fi
-  if [[ -n "$occupants" ]]; then
+  if [[ -n "$occupants" && "${WORKTREE_REMOVE_ALLOW_OCCUPIED:-0}" != "1" ]]; then
     die "refusing to remove occupied worktree '$path' — live occupants (pid/command/cwd):
 $occupants
-Exit the occupying session or kill the PIDs, then retry. (This harness-side
-path has no escape hatch; a Bash-side \`git worktree remove\` offers the
-WORKTREE_REMOVE_ALLOW_OCCUPIED=1 prefix.)"
+Exit the occupying session or kill the PIDs, then retry, or re-run with
+WORKTREE_REMOVE_ALLOW_OCCUPIED=1 to override."
   fi
 
   git worktree remove "$path" >&2 || die "git worktree remove '$path' failed"

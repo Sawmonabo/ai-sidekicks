@@ -1,49 +1,36 @@
-# Doc-corpus integrity CI gate. Pre-commit checks staged-impact-only; this
-# workflow runs the full sweep on every PR and develop/main push.
+# Doc-corpus integrity CI, two checks and one aggregator.
 #
-# Three jobs, two risk classes:
-#   1. lychee-inbound — file:// + anchor integrity (offline). PR-introduced
-#      regression risk we own. REQUIRED via docs-corpus-gate. Mirrors
-#      lefthook.yml's `docs-anchor-check` pre-commit hook for ADR-023
-#      §Axis 2 D-1 parity (pre-commit and CI verify the same invariant).
-#   2. custom-checks — path-ripple + manifest-presence + mermaid + cite-target
-#      + tooling tests.
-#      Same risk class as lychee-inbound — PR-introduced regression we own.
-#      REQUIRED via docs-corpus-gate.
-#   3. lychee-outbound — outbound HTTP probe (online). Third-party drift /
-#      link rot we don't own (Cloudflare WAF rejecting bot UAs, Jenkins infra
-#      502, GitHub-runner egress timeouts on slow remotes). ADVISORY — runs
-#      on every PR for visibility, but excluded from docs-corpus-gate so a
-#      flapping third party doesn't block merge on work unrelated to the
-#      failing URL. The split reflects the real error model: outbound
-#      failures mean a third-party server farted; inbound failures mean
-#      the PR introduced a broken anchor.
+#   1. lychee-inbound — file:// + anchor integrity, offline. The PR-introduced
+#      regression we own: a broken `[text](./file.md#anchor)` cite. Required via
+#      docs-corpus-gate, and path-filtered — a PR touching no markdown skips it.
+#   2. table-check — markdown table shape (every row carries the header's cell
+#      count). Dependency-free, so it needs no install.
+#   3. lychee-outbound — outbound HTTP probe, online. Third-party drift and link
+#      rot we do not own (WAFs rejecting bot user agents, remotes timing out).
+#      It runs on a weekly schedule, never on a PR, and files an issue when it
+#      finds rot. The split reflects the real error model: an outbound failure
+#      means a third-party server misbehaved; an inbound failure means the PR
+#      introduced a broken anchor.
 #
-# Branch protection on develop and main MUST require the `docs-corpus-gate`
-# job (only). Per ADR-023 §Axis 1, individual matrix legs are not stable
-# required-check targets — the aggregator pattern is. The gate name is
-# stable across the lychee-inbound/lychee-outbound split (its dependency
-# set changed; its identity didn't), so no branch-protection update is
-# needed when this change ships.
+# Branch protection on main requires the `docs-corpus-gate` job (only); develop
+# requires no check. Per ADR-023 §Axis 1, individual jobs are not stable
+# required-check targets — the aggregator pattern is. The gate treats a skipped
+# job as success, so a path filter never leaves it pending.
 #
-# Lychee install is duplicated across the inbound + outbound jobs (inline
-# curl + sha256 verify against the v0.24.2 musl-static asset). The
-# `LYCHEE_VERSION` constant in both jobs MUST stay in sync with the
-# `VERSION` constant in `tools/install-lychee.mjs` (the pre-commit local
-# installer) — three sites, one binary. Could be DRYed behind a
-# `.github/actions/install-lychee` composite action; deferred to keep
-# this PR scoped to the inbound/outbound split itself.
+# The lychee install is duplicated across the inbound + outbound jobs (inline
+# curl + sha256 verify against the v0.24.2 musl-static asset). Keep the two
+# `LYCHEE_VERSION` constants in sync — two sites, one binary.
 
 name: docs-corpus
 
 on:
   pull_request:
     branches: [develop, main]
-    # `edited` is load-bearing for the lane-boundary job: fixing a PR title
-    # must re-run the guard, and the default type set omits title edits.
-    types: [opened, edited, synchronize, reopened]
   push:
     branches: [develop, main]
+  schedule:
+    # Weekly outbound link-rot sweep. Nothing else in this workflow runs on it.
+    - cron: "0 6 * * 1"
 
 permissions:
   contents: read
@@ -53,20 +40,56 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Did this event touch anything the corpus checks read? A workflow-level
+  # `paths:` filter would suppress the check entirely, which a required check on
+  # `main` reads as permanently pending; a job-level `if:` reports `skipped`,
+  # which the aggregator accepts.
+  changes:
+    name: changed paths
+    # The weekly sweep runs only lychee-outbound, which reads nothing here.
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      # `|| 'true'` is the off-pull-request default: the filter step runs only
+      # where a base ref gives it a diff to classify, so a push does the full
+      # sweep.
+      docs: ${{ steps.filter.outputs.docs || 'true' }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
+        with:
+          filters: |
+            docs:
+              - '**/*.md'
+              - 'tools/docs-corpus/**'
+              - '.lychee.toml'
+              # A PR that changes only the lychee install or the check command
+              # must run them; the weekly schedule runs lychee-outbound alone,
+              # so nothing else would catch a broken inbound gate.
+              - '.github/workflows/docs-corpus.yml'
+
   lychee-inbound:
     name: lychee — inbound anchors (required)
+    needs: [changes]
+    # A push to `main` always sweeps, whatever the diff touched: it is the
+    # branch whose protection names this workflow's gate. On a pull request
+    # `github.ref` is the merge ref, so the filter alone decides there.
+    if: needs.changes.outputs.docs == 'true' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      # Inline install mirrors `tools/install-lychee.mjs` semantics: pin to
-      # v0.24.2, musl-static, SHA256-verified. `lycheeverse/lychee-action@v2`
-      # is broken for v0.24.x: its install script runs `tar -xvzf` without
-      # `--strip-components=1` and the binary lands at `lychee-<triple>/lychee`
-      # instead of the flat `lychee` it then tries to install.
-      # Keep `LYCHEE_VERSION` here in sync with the `VERSION` constant in
-      # `tools/install-lychee.mjs` AND with the lychee-outbound job below.
+      # Inline install, pinned to v0.24.2, musl-static, SHA256-verified.
+      # `lycheeverse/lychee-action@v2` is broken for v0.24.x: its install script
+      # runs `tar -xvzf` without `--strip-components=1` and the binary lands at
+      # `lychee-<triple>/lychee` instead of the flat `lychee` it then installs.
+      # Keep `LYCHEE_VERSION` here in sync with the lychee-outbound job below.
       - name: Install lychee v0.24.2
         run: |
           set -euo pipefail
@@ -87,50 +110,36 @@ jobs:
           echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
 
       - name: Run lychee (offline — inbound file refs + anchors)
-        # Mirrors `lefthook.yml`'s `docs-anchor-check` job: file:// resolution
-        # + anchor checks (`include_fragments = "full"` from `.lychee.toml`).
-        # ADR-023 §Axis 2 D-1 parity — pre-commit and CI verify the same
-        # inbound-integrity invariant against the same config. This is the
-        # PR-introduced regression we own: a broken `[text](./file.md#anchor)`
-        # cite from a code or doc edit fails here and blocks merge via the
-        # docs-corpus-gate aggregator.
+        # file:// resolution + anchor checks (`include_fragments = "full"`
+        # from `.lychee.toml`). This is the PR-introduced regression we own: a
+        # broken `[text](./file.md#anchor)` cite from a code or doc edit fails
+        # here. Pre-commit runs no link check — it is too slow to sit in front
+        # of every commit — so this is the only place the invariant is verified.
         run: |
           lychee --offline --no-progress --config .lychee.toml './**/*.md'
 
   lychee-outbound:
-    name: lychee — outbound HTTP (advisory)
+    name: lychee — outbound HTTP (weekly)
+    # Weekly only. It used to run on every PR as an advisory check, where its
+    # single product was a yellow annotation nobody was accountable for: a
+    # third-party 502 is not caused by the PR it appears on and cannot be fixed
+    # by its author. On a schedule the same finding becomes an issue with an
+    # owner and a log, and PR runs lose a whole-repo HTTP sweep.
+    if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
-    # ADVISORY job — `docs-corpus-gate` does NOT depend on this job's
-    # result, so a 502/403/timeout from a third party (Jenkins outage,
-    # Cloudflare WAF, slow remote) does NOT block PR merge. The job runs
-    # on every PR + develop/main push so reviewers see drift signal in
-    # the checks UI.
-    #
-    # The probe step ALWAYS exits 0; outbound failures surface as
-    # `::warning::` annotations (yellow icon in the GitHub Actions UI,
-    # not red) so the workflow status reflects the actual signal class:
-    # "advisory drift detected, not regression-blocking". Without the
-    # explicit exit-0 + warning, the job's red ❌ propagates to the
-    # workflow header even though the gate is green — which reads as
-    # "CI failed" to a casual reviewer and undermines the inbound /
-    # outbound semantic split. Drift findings live in the run log
-    # above the warning annotation; CI noise is the cost of that
-    # visibility, but the noise should be yellow (advisory), not red
-    # (failure).
-    #
-    # The split is a behavior change from the prior single-`lychee` job
-    # (which conflated inbound-integrity with outbound-drift in one
-    # required check). Rationale: ADR-023 §Axis 2 D-1 frames inbound
-    # integrity as the load-bearing invariant; outbound was bolted on
-    # for drift detection. Drift detectors warn; gates fail-closed —
-    # they want different SLAs.
+    permissions:
+      contents: read
+      # `gh issue create` below is the job's product.
+      issues: write
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      # Identical to lychee-inbound's install step — same binary, same
-      # SHA, same pinned VERSION constraint. See the workflow header
-      # comment for the three-site sync contract.
+      # Inline install, pinned to v0.24.2, musl-static, SHA256-verified.
+      # `lycheeverse/lychee-action@v2` is broken for v0.24.x: its install script
+      # runs `tar -xvzf` without `--strip-components=1` and the binary lands at
+      # `lychee-<triple>/lychee` instead of the flat `lychee` it then installs.
+      # Keep `LYCHEE_VERSION` here in sync with the lychee-inbound job above.
       - name: Install lychee v0.24.2
         run: |
           set -euo pipefail
@@ -150,258 +159,107 @@ jobs:
           chmod +x "${HOME}/.local/bin/lychee"
           echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
 
-      - name: Run lychee (online — outbound HTTP probes)
+      - name: Run lychee (online — outbound HTTP probes) and file an issue on rot
         # Whole-repo HTTP probing for outbound link rot. `--include-fragments=
         # none` disables anchor checking on HTTP-fetched pages (anchors on
         # JS-rendered third-party docs aren't in the static HTML lychee parses
         # — Node.js / NIST / Cloudflare / Docusaurus / Sphinx / Swagger UI all
-        # do this). Inbound `file.md#anchor` checks are still covered by the
-        # offline pass in the lychee-inbound job above. Accept-list for
-        # 200..=299 and 429 lives in `.lychee.toml`'s `accept = [...]` so
-        # the same policy applies whichever runner invokes lychee.
+        # do this). Inbound `file.md#anchor` checks are covered by the offline
+        # pass in `lychee-inbound`. The accept-list for 200..=299 and 429 lives
+        # in `.lychee.toml` so the same policy applies whichever runner invokes
+        # lychee.
         #
-        # Step-level retry absorbs transient GitHub-runner network flakes
-        # ("Connection failed" on healthy hosts that respond 200 from any
-        # other vantage). lychee's per-URL `max_retries` is already 2, but a
-        # whole-run flake (DNS hiccup, packet drop in the runner's egress
-        # path) retries every URL together. One additional outer attempt
-        # after a 15s pause is the empirical sweet spot — it catches the
-        # observed flakes (kubernetes.io, electron-vite.org, etcd.io) and
-        # still surfaces real link rot when both passes agree.
+        # The retry absorbs transient runner-network flakes ("Connection failed"
+        # on healthy hosts that answer 200 from any other vantage). lychee's
+        # per-URL `max_retries` is already 2, but a whole-run flake (DNS hiccup,
+        # a packet drop in the runner's egress path) retries every URL together.
+        # One outer attempt after a 15s pause catches the observed flakes and
+        # still surfaces real rot when both passes agree.
+        #
+        # The step exits 0 after filing the issue: the issue IS the signal, and
+        # a red weekly run that nobody owns is the noise this job was moved off
+        # pull requests to escape.
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           attempt() {
-            lychee --no-progress --config .lychee.toml --include-fragments=none './**/*.md'
+            lychee --no-progress --config .lychee.toml --include-fragments=none './**/*.md' \
+              2>&1 | tee -a "${RUNNER_TEMP}/lychee-outbound.log"
+            return "${PIPESTATUS[0]}"
           }
+          : > "${RUNNER_TEMP}/lychee-outbound.log"
           if attempt; then
+            echo "ok: no outbound link rot"
             exit 0
           fi
           echo "lychee online pass failed; retrying once after 15s to absorb runner-network flakes" >&2
           sleep 15
+          : > "${RUNNER_TEMP}/lychee-outbound.log"
           if attempt; then
+            echo "ok: no outbound link rot (second attempt)"
             exit 0
           fi
-          # Both attempts failed. Surface as a warning (yellow icon) rather
-          # than a step failure (red icon) — this is the advisory drift
-          # channel, not a regression gate. Drift findings live in the run
-          # log above the annotation; reviewers see yellow on the workflow
-          # header (advisory) instead of red (failure), preserving the
-          # inbound / outbound semantic split per the job-level header.
-          echo "::warning title=lychee outbound rot::Outbound HTTP probe found broken external links (advisory — not blocking merge). See run log above for the failing URLs."
-          exit 0
+          {
+            echo "The weekly outbound link sweep found broken external links."
+            echo
+            echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo
+            echo '```'
+            # Bounded so a wholesale outage cannot exceed the issue-body limit;
+            # the full log is in the run linked above.
+            tail -c 50000 "${RUNNER_TEMP}/lychee-outbound.log"
+            echo '```'
+          } > "${RUNNER_TEMP}/issue-body.md"
+          gh issue create \
+            --title "Outbound link rot: weekly lychee sweep $(date -u +%Y-%m-%d)" \
+            --body-file "${RUNNER_TEMP}/issue-body.md"
+          echo "::warning title=lychee outbound rot::Outbound HTTP probe found broken external links; an issue was filed."
 
-  custom-checks:
-    name: custom hooks — mermaid + cite + path-ripple + manifest + tests
+  table-check:
+    name: table shape (markdown)
+    # The weekly sweep runs lychee-outbound and nothing else.
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
-        with:
-          version: 10.33.2
-          run_install: false
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
+      - uses: actions/checkout@v5
+      # No pnpm at all: the checker is dependency-free by design, so this job
+      # needs a Node runtime and nothing else. `package-manager-cache: false` is
+      # load-bearing — setup-node v5 auto-enables pnpm caching from
+      # package.json's `packageManager` field, and its post-job cache save then
+      # fails the job over a pnpm store this job never creates.
+      - uses: actions/setup-node@v5
         with:
           node-version: "22.14"
-          cache: "pnpm"
-
-      # `ELECTRON_SKIP_BINARY_DOWNLOAD` because this job never launches Electron.
-      # `apps/desktop`'s `postinstall` materializes the binary (Electron 44
-      # publishes no install script of its own), and a full workspace install
-      # runs that script — so without this every install here would pull the
-      # 120-160 MB platform archive this job has no use for. `electron-vite build` needs only the package's
-      # `version` field, verified 2026-09-01 by building with `dist/` absent.
-      # 44.1.0's own `install.js` no longer honours this variable (41.6.1's did);
-      # `apps/desktop/scripts/materialize-electron.ts` is what honours it now.
-      - name: Install dependencies
-        env:
-          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
-        run: pnpm install --frozen-lockfile
-
-      - name: docs-corpus checks (full repo)
-        # Single runner composing path-canonical-ripple + plan-manifest-presence
-        # + mermaid-set-coherence + cite-target-existence + section-cite
-        # verification + the md volatile-cite deny + table-total-coherence +
-        # table-arity, over the `.md` governance corpus.
-        # path-canonical-ripple + plan-manifest-presence run unconditionally
-        # (each does its own whole-repo enumeration — path-ripple greps the
-        # registry `scope` globs; manifest-presence walks
-        # `git ls-files docs/plans/`).
-        #
-        # `--min-md` arms the runner's lane floor. The pipeline below ends in
-        # `|| true`, so a `git ls-files` that fails — or a `grep` whose pattern
-        # stops matching after an unrelated edit — yields an EMPTY array rather
-        # than a non-zero exit, and every check scoped to that lane is silently
-        # skipped while this required job exits 0.
-        #
-        # The floor sits at roughly HALF the live lane (~230 `.md` after the
-        # runner drops `docs/reference/`), because the two failure directions
-        # are handled by different mechanisms: the floor is the tripwire for a
-        # COLLAPSE (enumeration breaks, the lane goes to ~0), while a partial
-        # drop is caught by the `lane resolved` count the runner prints whenever
-        # the floor is armed. Buying collapse-detection cheaply matters more
-        # than a tight bound here — this is a required check, so a floor that
-        # false-trips blocks every PR. A breach means enumeration broke; repair
-        # it rather than lowering the floor.
-        run: |
-          mapfile -t md_files < <(git ls-files '*.md' | grep -v '^docs/archive/' || true)
-          node --experimental-strip-types tools/docs-corpus/bin/pre-commit-runner.ts \
-            --min-md=100 "${md_files[@]}"
-
-      - name: plan-cite Gate-4 survey (enforced)
-        # Corpus-wide Gate-4 cite screen over every survey unit — each walked plan
-        # phase, plus one whole-document unit for a plan carrying no `### Phase N`
-        # heading, which the phase-scoped screen used to skip entirely while still
-        # printing `cite anomalies: none`. The run prints a `coverage: N/M plan(s)
-        # cite-swept, K uncovered` line so a clean verdict is only readable as
-        # clean when the screen actually reached every plan. ARMED:
-        # `--survey --enforce-cites` folds citeAnomalies into the exit, so a new or
-        # edited plan carrying a malformed Gate-4 cite fails the gate. The one
-        # compact-inline legacy plan (Plan-021) is diverted via
-        # LEGACY_INLINE_CITE_EXEMPT in preflight.mjs — its debt prints as visible
-        # but non-blocking, and the stale-exemption ratchet fails the moment it is
-        # re-authored clean. See preflight-contract.md § Survey mode exit contract.
-        #
-        # DELIBERATELY STRICTER THAN DISPATCH: the survey folds every Gate-4
-        # finding into the exit, including the grammar kinds that dispatch
-        # preflight demotes to warnings for S/M phases (Size-Classed Ceremony).
-        # Merge time is where grammar debt is cheapest to fix and where letting
-        # it land would re-accumulate the corpus debt this gate exists to hold
-        # at zero; dispatch keeps its S/M demotions so execution is never
-        # blocked on a nit CI accepted before the policy landed. The posture is
-        # asymmetric by design: everything that lands is dispatchable, but a
-        # shape dispatch merely warns on does not land anew.
-        run: node .claude/skills/plan-execution/scripts/preflight.mjs --survey --enforce-cites
-
-      - name: Typecheck hook implementations
-        # tools/docs-corpus sits OUTSIDE the root solution file's project-
-        # references graph (tsconfig.json references packages/* + apps/desktop
-        # only), so lint-staged's `tsc -b` never reaches it — and vitest below
-        # TRANSFORMS TypeScript without checking it, so a type error in a path
-        # the tests do not execute lands green. Until this step, the tree's
-        # own tsconfig was documentation with no gate behind it (the
-        # documented-pin-not-enforced class). Fail-closed by construction:
-        # tsc exits non-zero on a missing or invalid project path, so the
-        # step cannot silently no-op if the tree moves. The
-        # `docs-corpus-typecheck` lefthook screen runs the same check at
-        # pre-commit against the materialized staged index (deletion-aware);
-        # this required step is the backstop when hooks are skipped.
-        run: pnpm exec tsc -p tools/docs-corpus
-
-      - name: Unit tests for hook implementations
-        run: pnpm exec vitest run --root tools/docs-corpus
-
-  lane-boundary:
-    name: lane boundary — plan-title token (required)
-    # Enforces the lane-1 title-token boundary from CONTRIBUTING.md §How Code
-    # Lands: a PR whose title cites `Plan-NNN` (case-insensitive) while its
-    # diff touches material paths (packages/ + apps/ + .github/ + deploy/ —
-    # manifest reconciliation's MATERIAL_PATH_PREFIXES) must DECLARE lane-1 shipment for that plan —
-    # a plan-scoped branch (<type>/plan-NNN-*, any CONTRIBUTING §Type-segment
-    # type) or a docs/plans/NNN-*.md edit in the same diff. The Shipment
-    # Manifest entry cannot be required in-PR (its sha: field is this PR's
-    # own squash SHA; Phase E lands it via the post-merge housekeeping PR).
-    # Otherwise the merged title pollutes the manifest-freshness gate's
-    # title-search recovery — the one remaining way to re-create shipment
-    # drift. Docs-only diffs pass (manifest reconciliation's own narrowing): docs PRs may
-    # legitimately name plans. Reverts get no exemption (manifest reconciliation has none: a
-    # merged material revert title carrying the token becomes an
-    # unmanifested shipment in the freshness population — drop the token or
-    # carry a plan-doc edit that actually touches manifest content), and the
-    # inverse mislabel fails too: a material diff on a plan-scoped branch
-    # whose title does not cite that same plan would be invisible to manifest reconciliation's
-    # title search.
-    #
-    # PR-metadata guard, so it runs only on pull_request events; on push the
-    # job is skipped and the aggregator accepts `skipped` for exactly this
-    # job (every commit on develop/main arrived through a PR that ran it).
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: "22.14"
-          # setup-node v5 auto-enables pnpm caching from package.json's
-          # packageManager field; this job never installs dependencies (the
-          # check is stdlib-only), so pnpm is absent and auto-cache would
-          # fail the step. Explicitly off.
           package-manager-cache: false
-
-      - name: Enforce lane-1 title-token boundary
-        # Title and branch pass through env — never inline-templated into
-        # the script body, since PR titles are attacker-controlled text.
-        # The changed-file list streams from the paginated files API so a
-        # large PR neither truncates the classification (anti-silent-
-        # truncation discipline) nor overflows argv.
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
-        run: |
-          set -euo pipefail
-          # One JSON object per line ({filename, patch}) so the checker can
-          # verify a revert's plan-doc edit actually touches Shipment
-          # Manifest content, not just the file. @json keeps this
-          # line-oriented, so the count check below still holds.
-          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
-            --paginate --jq '.[] | {filename: .filename, patch: (.patch // "")} | @json' \
-            > "${RUNNER_TEMP}/changed-files.txt"
-          # Fail closed on a capped listing: the files endpoint returns at
-          # most 3,000 entries even paginated, and a partial list could hide
-          # the material file that makes a plan-titled PR a violation. Every
-          # file, renamed or not, is one row and one changed_files count.
-          LISTED_COUNT="$(wc -l < "${RUNNER_TEMP}/changed-files.txt" | tr -d ' ')"
-          if [ "${LISTED_COUNT}" -ne "${PR_CHANGED_FILES}" ]; then
-            echo "::error title=lane-boundary halt::files API returned ${LISTED_COUNT} of ${PR_CHANGED_FILES} changed files (endpoint caps at 3,000) — cannot classify the diff; split the PR."
-            exit 1
-          fi
-          node --experimental-strip-types tools/docs-corpus/bin/lane-boundary-check.ts \
-            < "${RUNNER_TEMP}/changed-files.txt"
+      - run: git ls-files '*.md' ':!docs/archive/**' | xargs node tools/docs-corpus/table-arity.mjs
 
   docs-corpus-gate:
     name: docs-corpus-gate
     runs-on: ubuntu-latest
-    # Required-check aggregator. Depends ONLY on the load-bearing
-    # invariant jobs (lychee-inbound + custom-checks) — both verify
-    # PR-introduced regression risk we own. lychee-outbound is
-    # intentionally absent from `needs:` because its failures are
-    # third-party drift signal, not a PR-introduced regression. See
-    # the workflow header comment for the full advisory-vs-required
-    # rationale.
-    needs: [lychee-inbound, custom-checks, lane-boundary]
+    needs: [changes, lychee-inbound, table-check]
     if: always()
     steps:
       - name: Aggregate required-checks status
+        # One predicate for every job: `skipped` counts as success, so a
+        # path-filtered job that did not need to run cannot hold the gate
+        # pending. `cancelled` and `failure` are neither accepted result and
+        # still fail here.
+        #
+        # `changes` is checked too. A path filter that ERRORS skips every job
+        # that needs it, and a skip is indistinguishable from a filter miss — so
+        # without this line a broken filter would take `lychee-inbound` down
+        # with it and still leave the gate green. On the weekly schedule
+        # `changes` is legitimately skipped, which the helper accepts.
         run: |
           fail=0
-          if [[ "${{ needs.lychee-inbound.result }}" != "success" ]]; then
-            echo "docs-corpus-gate: required job 'lychee-inbound' did not succeed (result=${{ needs.lychee-inbound.result }})"
-            fail=1
-          fi
-          if [[ "${{ needs.custom-checks.result }}" != "success" ]]; then
-            echo "docs-corpus-gate: required job 'custom-checks' did not succeed (result=${{ needs.custom-checks.result }})"
-            fail=1
-          fi
-          # `skipped` is success-equivalent for lane-boundary ONLY: the job
-          # is if-gated to pull_request events, and push builds on develop/
-          # main re-verify commits that already passed the guard in their PR.
-          if [[ "${{ needs.lane-boundary.result }}" != "success" && "${{ needs.lane-boundary.result }}" != "skipped" ]]; then
-            echo "docs-corpus-gate: required job 'lane-boundary' did not succeed (result=${{ needs.lane-boundary.result }})"
-            fail=1
-          fi
-          if [[ $fail -ne 0 ]]; then
-            exit 1
-          fi
-          echo "docs-corpus-gate: all required jobs succeeded"
+          check() {
+            if [[ "$2" != "success" && "$2" != "skipped" ]]; then
+              echo "docs-corpus-gate: job '$1' did not succeed (result=$2)"
+              fail=1
+            fi
+          }
+          check changes "${{ needs.changes.result }}"
+          check lychee-inbound "${{ needs.lychee-inbound.result }}"
+          check table-check "${{ needs.table-check.result }}"
+          if [[ $fail -ne 0 ]]; then exit 1; fi
+          echo "docs-corpus-gate: all required jobs succeeded or were skipped by path filter"

@@ -4,38 +4,37 @@
 
 ## Purpose
 
-Catch implementation-readiness defects in `approved` plans **before** code execution begins. The four defect classes this audit hunts:
+Optional. Run this when you want a plan checked against its spec before building it. Nothing dispatches on its result.
+
+The four defect classes this audit hunts:
 
 1. **Phase-level dep-ordering gaps** — a Phase imports from a plan/Phase in a later tier than its own (the Plan-001 Phase 5 → Plan-006 substrate gap GitHub PR-#11 surfaced retroactively).
 2. **Tasks-block fabrication or omission** — `#### Tasks` blocks invented beyond what the spec/plan supports, or unstarted Phases lacking concrete step-by-step detail an implementer can execute.
 3. **Cross-plan obligation drift** — `CP-NNN-M` declared on one side but not surfaced on the other; the Plan-006 cyclic-dep defect class.
 4. **Substrate-vs-namespace conflation** — a plan claims to deliver a substrate another plan needs without the carve-out being declared in that plan's own phase table.
 
-The audit runs once per tier across the V1 build order (Tiers 1 → 8). After the initial sweep, the audit becomes self-perpetuating: future plans inherit the audit gate at template-copy time via `docs/plans/000-plan-template.md` Preconditions.
+The original sweep ran once per tier across the V1 build order (Tiers 1 → 8). What survives is the method, not a schedule.
 
 ## When To Invoke
 
-Invoke this runbook in any of the following situations:
+This runbook is worth running when:
 
-- **Before promoting a spec from `draft`/`review` → `approved`** (the spec-template Precondition gate per §Spec-Status Promotion Gate below). The promotion PR description must cite the spec's doc-first-before-coding attestation.
-- **Before promoting a plan from `review` → `approved`** (the plan-template Precondition gate). The promotion PR description must cite the audit's REVIEW.md. **For a post-adoption new plan, the same Precondition checkbox additionally gates `draft → review`:** the audit runs against the `draft` plan — targeted (the Plan-012-delta shape) when the plan joins a tier whose audit already closed — its pass ticks the checkbox, and the subsequent `review → approved` promotion cites the same audit's REVIEW.md (no second audit absent a scope change between the two promotions). First exercised by Plan-025 (campaign B18, 2026-07-22).
-- **Before any plan's first code-execution PR opens.** A plan whose `approved` state predates this runbook (e.g., Plans 001-027 at runbook adoption time) must clear the audit before its first code PR.
-- **When a plan gains a phase dependency affecting an already-`approved` plan.** Re-audit only the affected plan; do not re-walk the whole tier.
-- **When a downstream-plan dep trace surfaces a substrate gap in an upstream-tier plan** (the cross-tier amendment contingency). Surface in the current tier's REVIEW.md; do not auto-amend a previously-committed tier.
+- A plan is about to be built and you want it read against its spec first.
+- A plan gains a phase dependency affecting another plan. Re-audit only the affected plan; do not re-walk the whole tier.
+- A downstream-plan dep trace surfaces a substrate gap in an upstream plan (the cross-tier amendment contingency). Surface it in the current tier's REVIEW.md; do not auto-amend a previously-committed tier.
 
-Do NOT invoke for: cosmetic doc edits, ADR amendments that don't change plan-internal references, or backlog-item authoring.
+It is not worth running for cosmetic doc edits, ADR amendments that don't change plan-internal references, or backlog-item authoring.
 
 ## Preconditions
 
-- The plans in scope are all at `approved` status (unless this audit run is the gate for a `review → approved` promotion, or a new-plan `draft` audit per §When To Invoke).
-- The audit calibration band (B1–B6) was established against Opus 4.7 during the Tier 1 pilot. Audit, dep-trace, and recent-data research subagents run the session's frontier-tier model, inherited at dispatch per `AGENTS.md` §Model Policy. On a model-family change (e.g. Opus → Fable), record any calibration drift against B1–B6 in §Lessons Learned for that tier.
-- Each audited plan's own phase table and `### Shipment Manifest` are current.
+- The audit calibration band (B1–B6) was established against Opus 4.7 during the Tier 1 pilot. Audit, dep-trace, and recent-data research subagents run the session's frontier-tier model, inherited at dispatch. On a model-family change (e.g. Opus → Fable), record any calibration drift against B1–B6 in §Lessons Learned for that tier.
+- Each audited plan's own phase table is current; what has merged is `git log --oneline --grep 'Plan-'`.
 - Pre-audit naming sweep (`PR #N` → `Phase N`) has been committed; otherwise findings cite stale GitHub-auto-link-colliding shapes.
 - `.agents/tmp/research/plan-readiness-audit/` working directory exists and is gitignored (it is, via the project's root `.gitignore`).
 
 ## Audit Procedure
 
-The audit walks **Tiers 1 → 8 strictly sequentially**. Within a tier, plans are walked sequentially by the main agent; within a plan, Phases are audited in parallel by per-Phase subagents.
+The audit walked **Tiers 1 → 8 strictly sequentially**. Within a tier, plans were walked sequentially by the main agent; within a plan, Phases were audited in parallel by per-Phase subagents.
 
 ### Per-Tier Inner Loop
 
@@ -70,10 +69,10 @@ After all plans in Tier:
   10. advisor() sanity check on tier diff bundle.
 
   11. USER-REVIEW PAUSE: present REVIEW.md; user decides
-      approve/reject/escalate per plan. REVIEW.md MUST confirm each
-      Phase exercises the §Adversarial-Tampering Boundary threat classes
-      from `000-plan-template.md` §Test And Verification Plan; surface
-      gaps as findings (not amendments — subagent-fabrication risk).
+      approve/reject/escalate per plan. A review is stronger when it
+      checks that each Phase exercises the tampering-boundary threat
+      classes the plan names; surface gaps as findings (not amendments
+      — subagent-fabrication risk).
 
   12. SWAP: cp working copy → corpus location.
 
@@ -81,15 +80,14 @@ After all plans in Tier:
 
   14. Cleanup: rm -rf .agents/tmp/research/.../working/tier-K/.
 
-  15. Tier-(K+1) waits for tier-K commit on develop.
+  15. Tier-(K+1) waited for tier-K commit on develop.
 ```
 
 ### Concurrency
 
 - Plans within a tier: **sequential** (main agent context).
 - Phases within a plan: **parallel** (subagents are independent; disjoint output files).
-- Tiers: **strictly serialized** (Tier-K cannot start until Tier-(K-1) commits to `develop`).
-- Audit vs. code execution: **Tier 1 is the only blocker for Plan-001 Phase 5**. Once Tier 1 commits, Plan-001 Phase 5 can begin even though Tiers 2-8 are unfinished. The plan-template Precondition gates _each plan on its own tier's audit_ — so Plan-NNN at Tier-K can begin once Tier-K is committed, regardless of Tier-(K+1) status.
+- Tiers, during the original sweep: **serialized** — a tier's walk started after the previous tier's swap had committed to `develop`, so each tier read a settled corpus.
 
 ### Working-Copy + Swap Pattern
 
@@ -117,7 +115,7 @@ Audit edits never touch the corpus directly. The pattern:
 | New invariant promoted from narrative, new CP-NNN-M entry, new Phase added/renumbered, new Required ADR | Flip to `review` |
 | Behavior change in plan body | Flip to `review`; likely also requires spec amendment |
 
-**Default rule (when in doubt):** stay `approved` and surface the ambiguous case to user review in REVIEW.md as an explicit question. The flip-to-`review` path is reserved for amendments that meet the row criteria above; cosmetic, wording, or structural-clarification edits that do not introduce new contracts default to `approved`. This default biases against unnecessary status churn (which would ripple through downstream plan-template Preconditions and gate Plan-001 itself) while keeping the user as final arbiter on edge cases.
+**Default rule (when in doubt):** stay `approved` and surface the ambiguous case to user review in REVIEW.md as an explicit question. The flip-to-`review` path is reserved for amendments that meet the row criteria above; cosmetic, wording, or structural-clarification edits that do not introduce new contracts default to `approved`. This default biases against unnecessary status churn while keeping the user as final arbiter on edge cases.
 
 ### Cross-Tier Amendment Contingency
 
@@ -181,9 +179,9 @@ All seven gates pass → swap commits. Any fail → block, surface to user.
 | G2 | No critical findings unaddressed |
 | G3 | Per-plan diff line-count within reasonable bounds: amendments excluding `#### Tasks` blocks must be < 1.5× original plan length; `#### Tasks` blocks have a separate budget of < 50 step-entries per Phase |
 | G4 | No fabricated specs (every Tasks Step traces to a Spec-NNN AC or invariant) |
-| G5 | Task bodies are specification, never a shipment ledger. A PR reference (bare `PR #N` or qualified `Plan-NNN PR #N` — the bare pattern subsumes the qualified form) inside an audit-authored `#### Tasks` block is DENIED when it records shipment or dispatch state (what the Shipment Manifest, Progress Log, and dependency-map dispatch state own) or appears bare with no attributive function, and EXEMPT when its function is provenance attribution of a mechanism the task specifies — review-round findings in any spelling (`Codex PR #N round M`, `PR #N round M`, `PR #N Codex round M`, `PR #N review round M`), dated amendment or follow-up vehicles, design baselines, precondition discharge records, and dependency-rationale cross-references to shipment facts recorded canonically elsewhere. The exemption keys on the reference's semantic kind, never on one surface spelling (re-scoped 2026-08-01 from the original require-empty rule after the calibration census: 21 matching task lines / 48 references across Plans 003, 005, 007, 008 — every one adjudicated exempt provenance attribution, zero shipment-ledger records). Mechanics: for each tier plan run `awk '/^#### Tasks/{f=1;next} /^#{1,4} /{f=0} f' <plan>.md \| rg "PR #\d+"` as a surfacing screen and adjudicate every hit by kind — output is no longer required empty. Provenance surfaces (Progress Log, Shipment Manifest, Preconditions, Decision Log, dependency-map dispatch state) legitimately carry PR references and are exempt as before. `pr_preparations` table name preserved |
+| G5 | Task bodies are specification, never a shipment ledger. A PR reference (bare `PR #N` or qualified `Plan-NNN PR #N` — the bare pattern subsumes the qualified form) inside an audit-authored `#### Tasks` block is DENIED when it records shipment or dispatch state (what `git log`, the Progress Log, and the dependency map own) or appears bare with no attributive function, and EXEMPT when its function is provenance attribution of a mechanism the task specifies — review-round findings in any spelling (`Codex PR #N round M`, `PR #N round M`, `PR #N Codex round M`, `PR #N review round M`), dated amendment or follow-up vehicles, design baselines, precondition discharge records, and dependency-rationale cross-references to shipment facts recorded canonically elsewhere. The exemption keys on the reference's semantic kind, never on one surface spelling (re-scoped 2026-08-01 from the original require-empty rule after the calibration census: 21 matching task lines / 48 references across Plans 003, 005, 007, 008 — every one adjudicated exempt provenance attribution, zero shipment-ledger records). Mechanics: for each tier plan run `awk '/^#### Tasks/{f=1;next} /^#{1,4} /{f=0} f' <plan>.md \| rg "PR #\d+"` as a surfacing screen and adjudicate every hit by kind — output is no longer required empty. Provenance surfaces (Progress Log, Preconditions, Decision Log, dependency-map dispatch state) legitimately carry PR references and are exempt as before. `pr_preparations` table name preserved |
 | G6 | Tier-(K-1) commit on develop |
-| G7 | Table-total arithmetic clean: running the standalone table-total checker over the tier-changed governance docs (`node --experimental-strip-types tools/docs-corpus/bin/table-total-check.ts <docs>`) exits 0 — every `corpus:total-check`-marked breakdown table reconciles with its own column sum, in-table **Total** row, and declared prose totals (the lint at `tools/docs-corpus/lib/table-total-coherence.ts`). Use the table-total checker, **not** the full `pre-commit-runner.ts`: gates run on pre-swap working copies under `.agents/tmp/.../working/`, where the runner's `cite-target-existence` would resolve `../specs/...`-relative links from that base and mint false missing-target failures, and a gate named for arithmetic must not red-light on an unrelated cite / mermaid / manifest finding. The table-total check is within-document only, so it is correct on the working copies. This mechanizes only the within-document arithmetic slice; the cross-document agreement and prose-restatement reciprocity are judgment work recorded per §Cross-Document Design-Fact Reciprocity, not gated here. |
+| G7 | Table-total arithmetic clean: every breakdown table in the tier-changed governance docs reconciles with its own column sum, in-table **Total** row, and declared prose totals. Check it by reading; if a total column is dropped or goes stale, re-add the column by hand. This is within-document arithmetic only; cross-document agreement and prose-restatement reciprocity are judgment work recorded per §Cross-Document Design-Fact Reciprocity, not gated here. |
 
 ### Final Synthesis Verification (after Tier 8 ships)
 
@@ -205,36 +203,9 @@ All seven gates pass → swap commits. Any fail → block, surface to user.
 | Multiple tiers fail G3 | Methodology over-amending | Pause; revisit dimensions |
 | User rejects ≥3 tier swaps | User disagrees with methodology | Pause; reconcile |
 
-## Status Promotion Gate
-
-A plan cannot transition `review → approved` (or open its first code-execution PR if already-`approved` predating this runbook) without:
-
-1. Completing the audit at its tier's place in the build order.
-2. The plan's REVIEW.md showing `Decision Required` resolved (approve all, approve subset + escalations, or reject).
-3. The promotion-PR description citing the audit-completion date and the tier's git-tag (`plan-readiness-audit-tier-K-complete`).
-
-A plan attempting promotion without audit fails the plan-template Preconditions checklist. The audit-complete checkbox is added at template-copy time, so future plans inherit the gate without action.
-
-A new phase dependency affecting an already-`approved` plan triggers re-audit of the affected plan only (not the whole tier).
-
-## Spec-Status Promotion Gate
-
-A spec cannot transition `draft → review → approved` without:
-
-1. All declared `Depends On` specs and ADRs being at terminal status (`approved` for specs; `accepted` for ADRs). Forward-declared draft deps fail this gate.
-2. All blocking `## Open Questions` resolved or explicitly deferred (referencing a BL-NNN follow-up). Open questions that gate Required Behavior MUST be resolved, not deferred.
-3. **Doc-first-before-coding attestation.** No downstream plan PR has shipped code citing this spec's Required Behavior, Default Behavior, Fallback Behavior, or Acceptance Criteria rows while the spec was in `draft` or `review`. If a violation exists (the Spec-024 / Plan-006 PR #16 historical case), the promotion PR description MUST enumerate the violating PRs and attest that the spec body as promoted remains authoritative for the rows already shipped (a _post-hoc affirmation_, not a _retroactive approval_).
-4. The promotion-PR description citing this runbook §Spec-Status Promotion Gate by name.
-
-A spec attempting promotion without clearing these checks fails the spec-template Preconditions checklist. The Preconditions section is added at template-copy time, so future specs inherit the gate without action.
-
-This gate is **lighter-weight than the plan-readiness audit**: no `#### Tasks` block authoring, no per-Phase subagent dispatch, no REVIEW.md schema. The spec gate enforces only (a) dependency-graph closure (criterion 1), (b) open-question discipline (criterion 2), and (c) the doc-first invariant (criterion 3) — the structural properties that make the spec a stable contract for downstream plan-readiness audits to consume. Specs do not have phases, invariants-of-implementation, or cross-plan obligations of their own; the heavy machinery lives at the plan tier.
-
-A spec-body amendment after promotion (typo, citation, narrowing) does NOT re-trigger this gate. Amendments that change Required Behavior, Acceptance Criteria, or `Depends On` flip the spec back to `review` (mirrors the plan §Status Flip Rule) and re-trigger the gate at the next promotion attempt.
-
 ## Per-Phase Audit Semantics
 
-Audit-completeness applies at phase granularity for plans that ship across tiers via the substrate-vs-namespace decomposition pattern. Each phase that opts into the per-phase mechanism declares its status via the `audit_status` precondition entry (see [preflight-contract.md](../../.claude/skills/plan-execution/references/preflight-contract.md) Gate 5); phases without a declaration fall back to the plan-level `Plan-readiness audit complete` checkbox via Gate 2's legacy path. Two values are permitted:
+Audit-completeness applies at phase granularity for plans that ship across tiers via the substrate-vs-namespace decomposition pattern. Each phase that opts into the per-phase mechanism declares its status via the `audit_status` precondition entry; a phase without a declaration has not been audited. Two values are permitted:
 
 | `status` | YAML shape | Meaning |
 | --- | --- | --- |
@@ -249,19 +220,15 @@ A phase qualifies as `substrate_exempt` only if ALL THREE hold:
 2. **Namespaces have natural cohesion with their owning plans** ([Plan-006 §Execution Windows](../plans/006-local-ipc-and-daemon-control.md#execution-windows-v1-carve-out) criterion (b)). The carve-out doesn't fragment a well-scoped plan; it isolates a substrate from later-tier behavior.
 3. **The phase's Spec coverage declaration is explicitly empty.** Phase §Goal (or sibling block) MUST state "Phase N covers NO Spec-NNN AC at Tier N" (or canonical equivalent: "covers no Spec-NNN acceptance criteria", "substrate is pre-behavior plumbing"). The `#### Tasks` block MUST NOT cite Spec coverage in bracketed-list form (`Spec coverage: [Spec-NNN row M]`). **This criterion is grep-checkable.** A phase whose Tasks block carries bracketed `Spec coverage:` markers is by definition NOT pre-behavior plumbing. The criterion tests that machine-checkable marker form plus the declaration sentence — not a prose census of every AC contact: a substrate phase may legitimately ship enforcement or verification surfaces that brush acceptance criteria while remaining behaviorally pre-plumbing (clarified 2026-08-10 at the Tier-7 remainder audit, M-023-1 — see the Plan-021 example below).
 
-Criteria (1)+(2) are human-judged at audit time and load-bearing in the plan's own carve-out declaration; criterion (3) is mechanically verified by preflight at phase-dispatch time. If a future "substrate" phase claims any Spec AC, it does NOT qualify; the full audit applies regardless of how the plan describes the carve-out.
+Criteria (1)+(2) are human-judged at audit time and load-bearing in the plan's own carve-out declaration; criterion (3) is checked by reading the plan's own phase table. If a future "substrate" phase claims any Spec AC, it does NOT qualify; the full audit applies regardless of how the plan describes the carve-out.
 
 **Canonical example** (mechanically verified after the per-phase semantics ship):
 
-- **Plan-021 Tier 1 Partial Phase 1** declares the canonical-equivalent sentinel (its `Spec-021 AC coverage.` paragraph states the phase ships no Tier-7 behavior and "the substrate is pre-behavior plumbing") and its `#### Tasks` block cites no bracketed `Spec coverage:` marker → qualifies under criterion (3). The phase does ship three durable enforcement surfaces that partially close `Spec-021 §Acceptance Criteria` bullets — the exemption asserts behavioral emptiness, not zero verification. This example's pre-correction wording quoted a "covers no Spec-021 acceptance criteria" claim the phase's own shipped files contradicted; both the plan paragraph and this example were corrected at the Tier-7 remainder audit (M-023-1). Carve-out ref: `"Plan-021 Substrate-vs-Namespace Carve-Out"`.
+- **Plan-021 Tier 1 Partial Phase 1** declares the canonical-equivalent sentinel (its `Spec-021 AC coverage.` paragraph states the phase ships no Tier-7 behavior and "the substrate is pre-behavior plumbing") and its `#### Tasks` block cites no bracketed `Spec coverage:` marker → qualifies under criterion (3). The phase does ship three durable enforcement surfaces that partially close [Spec-021 §Acceptance Criteria](../specs/021-desktop-shell-and-renderer.md#acceptance-criteria) bullets — the exemption asserts behavioral emptiness, not zero verification. This example's pre-correction wording quoted a "covers no Spec-021 acceptance criteria" claim the phase's own shipped files contradicted; both the plan paragraph and this example were corrected at the Tier-7 remainder audit (M-023-1). Carve-out ref: `"Plan-021 Substrate-vs-Namespace Carve-Out"`.
 
 **Non-qualifying example:**
 
-- **Plan-006 partial Phases 1-3** cover Spec-024 rows 4+10 (Phase 1), `Spec-006 §Wire Format` (Phase 2), and CP-006-1 + `Spec-006 §Required Behavior` (Phase 3). They are split via the substrate-vs-namespace decomposition rule but ship behavior — they do NOT qualify under criterion (3). Plan-006 partials are a legacy coverage gap (shipped pre-audit-framework via PRs #16/#17/#19), retroactively audited via the follow-up [BL-113](../archive/backlog-archive.md#bl-113-plan-006-partial-phases-1-3-retroactive-tier-1-audit) (filed and resolved via PR #75) ahead of Plan-006 remainder Tier 3 execution; they are NOT precedent for `substrate_exempt`.
-
-### Status promotion under `substrate_exempt`
-
-A plan whose Tier 1 phase ships under `audit_status: substrate_exempt` does NOT receive a `[x]` on its plan-level audit checkbox. The checkbox flips to `[x]` only when the full plan-level audit completes at the plan's later-tier remainder (Plan-021 at Tier 7). Until then, the plan stays in `approved` status (no regression to `review`); only the audit checkbox remains `[ ]` with a footnote pointing to the deferred-audit work. **Plan-006 is not in this `substrate_exempt` set** — its Tier 1 partials shipped behavior, not a substrate exemption (see the non-qualifying example above), so it took the non-exempt path: a retroactive Tier-1 audit (BL-113 / PR #75) plus the Tier-3 remainder audit (PR #124). Its `approved → review → approved` cycle was a [§Status Flip Rule](#status-flip-rule) consequence of the Tier-3 design reopen, **not** the no-regression `substrate_exempt` promotion path described here.
+- **Plan-006 partial Phases 1-3** cover Spec-024 rows 4+10 (Phase 1), [Spec-006 §Wire Format](../specs/006-local-ipc-and-daemon-control.md#wire-format) (Phase 2), and CP-006-1 + [Spec-006 §Required Behavior](../specs/006-local-ipc-and-daemon-control.md#required-behavior) (Phase 3). They are split via the substrate-vs-namespace decomposition rule but ship behavior — they do NOT qualify under criterion (3). Plan-006 partials are a legacy coverage gap (shipped pre-audit-framework via PRs #16/#17/#19), retroactively audited via the follow-up [BL-113](../archive/backlog-archive.md#bl-113-plan-006-partial-phases-1-3-retroactive-tier-1-audit) (filed and resolved via PR #75) ahead of Plan-006 remainder Tier 3 execution; they are NOT precedent for `substrate_exempt`.
 
 ### Per-tier inner-loop addition
 
@@ -289,9 +256,9 @@ ROLE: You are a per-Phase completeness auditor for an AI Sidekicks V1
 implementation plan. You audit ONE Phase of ONE plan, in isolation, and
 produce a findings file.
 
-MODEL: You run as the session's frontier-tier model, inherited at dispatch
-per AGENTS.md §Model Policy. Refuse only if you identify as a small/fast-tier
-(Haiku- or Sonnet-class) model.
+MODEL: You run as the session's frontier-tier model, inherited at dispatch.
+Refuse only if you identify as a small/fast-tier (Haiku- or Sonnet-class)
+model.
 
 SCOPE: Plan-NNN, Phase N (single Phase only).
 
@@ -424,9 +391,9 @@ plan. You correct or backfill `**Spec coverage:**` and `**Verifies invariant:**`
 annotations on existing `#### Tasks` rows. You DO NOT author new Tasks; you
 DO NOT modify Files / Goal / Implementation Notes / Precondition prose.
 
-MODEL: You run as the session's frontier-tier model, inherited at dispatch
-per AGENTS.md §Model Policy. Refuse only if you identify as a small/fast-tier
-(Haiku- or Sonnet-class) model.
+MODEL: You run as the session's frontier-tier model, inherited at dispatch.
+Refuse only if you identify as a small/fast-tier (Haiku- or Sonnet-class)
+model.
 
 SCOPE: Plan-NNN, Tasks in scope (the orchestrator names specific Task IDs).
 
@@ -480,14 +447,10 @@ HARD RULE (anti-fabrication): If the spec doesn't contain a line anchor for
 the behavior, emit `(unchanged)` and surface a separate finding requesting
 spec amendment. NO FABRICATION.
 
-CROSS-REFERENCE TO VERIFIER: Your output is verified by preflight Gate 4
-(`extractCiteAnchors` + `verifyAnchorAgainstSpec` in
-`.claude/skills/plan-execution/scripts/preflight.mjs`; see
-`.claude/skills/plan-execution/references/preflight-contract.md`
-§Gate 4 — Cite Anchor Semantic Check). The `## Self-Verification` block is
-the authoring discipline; Gate 4 is the orchestrator-side enforcement. If
-Gate 4 fails on a cite you emitted, the orchestrator returns the failing
-cite + spec evidence to you for re-amendment.
+CROSS-REFERENCE TO VERIFIER: Every cite you emit is read back against the
+spec by whoever reviews your output. The `## Self-Verification` block is the
+authoring discipline. If a cite you emitted does not hold, the reviewer
+returns it with the spec evidence for re-amendment.
 `````
 
 ## Main-Agent Dep-Trace Dimensions
@@ -519,20 +482,7 @@ A **main-agent** check run once per tier at synthesis — **not** a per-Phase su
 2. **Verify every site agrees in the same tier swap.** A fact changed in one document with a sibling left stale is a `C-K-NN` cross-cutting finding (REVIEW.md §Cross-Cutting Findings This Tier), reconciled before the swap — never deferred to the review loop.
 3. **Re-compute every arithmetic total.** Treat each census / generated-union / registry count as a computed invariant: re-sum its source column and reconcile **every** document asserting that total — in-table **Total** row, prose summary line, and any sibling document's restatement — in one pass. Never assert a total you did not just compute.
 
-The within-document arithmetic slice of step 3 is mechanized by gate G7: mark a summable breakdown table with the `corpus:total-check` convention (documented in `tools/docs-corpus/lib/table-total-coherence.ts`) so the lint re-sums it on every commit. Place the marker **inline, trailing the table's total prose line** — not on its own line — so it adds no line (preserving inbound `:NNN` line-cites) and `prettier --check` leaves it untouched:
-
-```markdown
-Total enumerated event types: **130** <!-- corpus:total-check column="Count" prose-total="Total enumerated event types" -->
-
-| Category  | Count   | Types |
-| --------- | ------- | ----- |
-| ...       | ...     | ...   |
-| **Total** | **130** | ...   |
-```
-
-`prose-total` reconciles two phrasings: the colon form above (`<label>: N`, number after the label) and the prefix form `N-<label>` (number before the label, as Plan-005 restates it: `**156-event type registry across 20 categories**`). Declare one `prose-total` per restatement the table's total is also stated in.
-
-The cross-document agreement (step 2) and the prose-restatement reciprocity remain judgment work here — no regex catches a fact restated in different words across documents.
+The cross-document agreement (step 2) and the prose-restatement reciprocity are judgment work — no regex catches a fact restated in different words across documents.
 
 **Stop rule.** If a review-fix loop's findings-per-round stays flat across ≥3 rounds, the loop is patching symptoms of an un-swept fact class — stop and run this sweep forward over every changed fact before the next push, rather than fixing one named site at a time. (PR #152 ran the narrow per-finding loop 21 times without reading the flat curve.)
 
@@ -601,17 +551,17 @@ The Tier 1 audit pilot (PR #15) covered Plan-001 + Plan-022 only and excluded th
 
 ### Plan-006 partial is a coverage gap, not a substrate exemption (2026-05-17)
 
-Plan-006 partial Phases 1-3 (PRs #16/#17/#19) shipped without audit coverage AND without `substrate_exempt` declaration. They claim Spec AC coverage (Spec-024 rows 4+10, `Spec-006 §Wire Format`, CP-006-1 + `Spec-006 §Required Behavior`) — fail criterion (3) of the `substrate_exempt` predicate. They are a legacy coverage gap, not substrate exemption, and are NOT precedent for future `substrate_exempt` claims. **(Resolved 2026-05-29: the follow-up BL this entry called for was filed and closed as [BL-113](../archive/backlog-archive.md#bl-113-plan-006-partial-phases-1-3-retroactive-tier-1-audit) via PR #75 — the retroactive Tier-1 audit, completed before Plan-006 remainder Tier 3 execution — and the Tier-3 remainder was then audited under PR #124, promoting Plan-006 `review → approved`.)**
+Plan-006 partial Phases 1-3 (PRs #16/#17/#19) shipped without audit coverage AND without `substrate_exempt` declaration. They claim Spec AC coverage (Spec-024 rows 4+10, [Spec-006 §Wire Format](../specs/006-local-ipc-and-daemon-control.md#wire-format), CP-006-1 + [Spec-006 §Required Behavior](../specs/006-local-ipc-and-daemon-control.md#required-behavior)) — fail criterion (3) of the `substrate_exempt` predicate. They are a legacy coverage gap, not substrate exemption, and are NOT precedent for future `substrate_exempt` claims. **(Resolved 2026-05-29: the follow-up BL this entry called for was filed and closed as [BL-113](../archive/backlog-archive.md#bl-113-plan-006-partial-phases-1-3-retroactive-tier-1-audit) via PR #75 — the retroactive Tier-1 audit, completed before Plan-006 remainder Tier 3 execution — and the Tier-3 remainder was then audited under PR #124, promoting Plan-006 `review → approved`.)**
 
 ### Tier 5 (Plans 007/008/010/014/019) — five-plan bundle calibration (2026-06-12)
 
-(PR #152) audited five plans in one PR — the widest bundle yet. **Calibration band actuals** (per §Calibration Bands B1–B6 definitions above): **B1 — Critical findings per Phase**: 4.25 avg / 13 max (85 criticals across 20 Phases; max = Plan-014 Phase 2) — above the 0–2 avg / 0–4 max targets, the same stub-backfill cluster shape this runbook records for every pre-audit `approved` plan (format-era findings on pre-Tasks-convention plans, not behavior inventions). **B2 — Total findings per plan**: 52–76 raw, all five at-or-over the 5–50 ceiling — acceptable-with-rationale (five pre-audit-format `approved` plans each surfaced a full backlog of authoring-format gaps in one pass; 333 findings total). **B3 — Tasks-authored vs. blocking-finding ratio**: 122 Tasks / 85 criticals ≈ 1.4:1 — under the 2:1 target, depressed by the same cluster. **B4 — User-review walltime per plan**: ≈1 min (single AskUserQuestion ratification at the Stage-4 pause) — well under the 30 min – 2 hours target. **B5 — advisor signal-to-noise**: `advisor` unavailable in the executing session's toolset — substituted an adversarial-review subagent over the tier diff bundle, recorded per the model-substitution note in §Preconditions. **B6 — Status flip rate**: 0/5 (all five plans stay `approved`; G3 — Required-ADR presence — fired on 4/5 ADR-gaining plans and was overridden ×4 by user ratification at the pause). Cross-cutting recommendations: **C-6-07 (G3 recurrence)** — third consecutive cycle (Tier 4, Tier 5) where pre-Tasks-era stubs mechanically fail G3 on required-section backfill; recommend a G3 baseline-multiplier carve-out (or absolute-floor alternative) for plans whose baseline predates the audit-format convention. **C-6-08 (preflight checkbox phrasing)** — three walks wrote the audit checkbox in a non-preflight-matching phrase and one omitted it; all four would have hard-blocked `/plan-execution` Phase 0; the checkbox string is a mechanical contract (`preflight.mjs` Gate 2), not prose — normalize to the regex form at synthesis. Mechanical lessons: (1) prettier respects `.gitignore`, so `--check` over `.agents/tmp/` working copies is vacuous — run it over explicit corpus paths; (2) GFM table cells need `\|` escapes for in-cell pipes (the D-014-11 row); (3) sequential walks amending a shared spec invalidate earlier walks' line cites in non-Gate-4 surfaces (decision blocks, CP-/I- items, §6 rows) — the swap cite-sweep must cover bundle-internal cites, not just out-of-bundle citers.
+(PR #152) audited five plans in one PR — the widest bundle yet. **Calibration band actuals** (per §Calibration Bands B1–B6 definitions above): **B1 — Critical findings per Phase**: 4.25 avg / 13 max (85 criticals across 20 Phases; max = Plan-014 Phase 2) — above the 0–2 avg / 0–4 max targets, the same stub-backfill cluster shape this runbook records for every pre-audit `approved` plan (format-era findings on pre-Tasks-convention plans, not behavior inventions). **B2 — Total findings per plan**: 52–76 raw, all five at-or-over the 5–50 ceiling — acceptable-with-rationale (five pre-audit-format `approved` plans each surfaced a full backlog of authoring-format gaps in one pass; 333 findings total). **B3 — Tasks-authored vs. blocking-finding ratio**: 122 Tasks / 85 criticals ≈ 1.4:1 — under the 2:1 target, depressed by the same cluster. **B4 — User-review walltime per plan**: ≈1 min (single AskUserQuestion ratification at the Stage-4 pause) — well under the 30 min – 2 hours target. **B5 — advisor signal-to-noise**: `advisor` unavailable in the executing session's toolset — substituted an adversarial-review subagent over the tier diff bundle, recorded per the model-substitution note in §Preconditions. **B6 — Status flip rate**: 0/5 (all five plans stay `approved`; G3 — Required-ADR presence — fired on 4/5 ADR-gaining plans and was overridden ×4 by user ratification at the pause). Cross-cutting recommendations: **C-6-07 (G3 recurrence)** — third consecutive cycle (Tier 4, Tier 5) where pre-Tasks-era stubs mechanically fail G3 on required-section backfill; recommend a G3 baseline-multiplier carve-out (or absolute-floor alternative) for plans whose baseline predates the audit-format convention. **C-6-08 (audit checkbox phrasing)** — three walks wrote the audit checkbox in a divergent phrase and one omitted it; normalize the wording at synthesis so the box stays findable. Mechanical lessons: (1) prettier respects `.gitignore`, so `--check` over `.agents/tmp/` working copies is vacuous — run it over explicit corpus paths; (2) GFM table cells need `\|` escapes for in-cell pipes (the D-014-11 row); (3) sequential walks amending a shared spec invalidate earlier walks' line cites in non-Gate-4 surfaces (decision blocks, CP-/I- items, §6 rows) — the swap cite-sweep must cover bundle-internal cites, not just out-of-bundle citers.
 
 ### Cite-form taxonomy and hook-gate coverage (2026-06-12)
 
 The Tier-5 swap surfaced four distinct cite forms, each with a different validation owner: path-attached `basename.md:NNN[-MMM]` / `basename.md line[s] NNN` (docs-corpus cite-target-existence, docs→docs only); bare continuations `, :NNN` adjacent to a path cite (no hook; sweep-only); prefix-form `Spec-NNN:LLL` in code comments (label-cite gate, code→docs only); link-then-colon `](path.md):NNN` (cite-target-existence). A sweep regex built for one form silently misses the others — the first Tier-5 commit attempt failed on 9 label-cite + 3 cite-target-existence violations from the two unswept forms. Second lesson: byte-identity content-preservation proofs pass vacuously on blank lines (blank==blank), so a mechanical shift of an already-broken cite preserves brokenness undetected — convergence scanning must assert target-line non-blankness, which surfaced 23 pre-existing-broken anchors re-anchored by content. Lefthook prints hook failures above its summary block; a `tail`-truncated read of commit output mistakes failure for success. Round-8 surfaced a FIFTH cite form none of the prior sweeps covered: label-space-line (`Spec-NNN line N`) plus bare `line N` comma-continuations that bind to the most recent Spec/Plan/ADR label — a round-5 one-line spec insert left 69 stale instances in plan-019 alone, undetected for three rounds; sweeps need a label-stateful pass, and bare `line N` tokens adjacent to a path cite must bind to the path, not the label. Round-10 surfaced the code-tree enforcement asymmetry: the full-repo CI label-cite check validates `packages/**`/`apps/**` governance cites for target-line non-emptiness, but lefthook pre-commit scopes to STAGED files — so an in-PR line shift that moves an inbound code-cite's target onto a blank line passes every local gate and fails only in CI (`runtime-node.test.ts:725` citing `error-contracts.md:343` — already semantically stale at develop, where the file was too short for `:343` to exist). Sweep rule: when a doc shifts lines, re-anchor inbound CODE cites in-PR alongside doc cites, even when the cite was already stale at develop (CI enforcement overrides the era-disposition split; the semantic fix rides the mechanical one). Codex review cadence on the swap PR: 21 rounds, 85 threads — 84 adjudicated REAL and fixed in-PR, 1 refuted with scripted re-derivation (the spec-005 census arithmetic; refutations get the same reply-before-resolve treatment, with full receipts in the reply). Large-diff sampling means each round reads new regions — plan on N rounds, not one; re-trigger with an `@codex review` PR comment if the on-push trigger goes silent ~15-20 min; a clean final verdict arrives as a 👀→👍 reaction swap with NO review object, so gate on the reaction actor + zero new threads, never on a review-object ack alone; `gh run rerun <id> --failed` clears the recurring Electron-smoke flake on docs-only diffs. <!-- cite-shape-example -->
 
-2026-07 update: the code→docs prefix-form population this entry describes was converted to gate-verified `§Heading` anchors and new raw forms are denied (see AGENTS.md §Durable-Cite Rule); the code-cite sweep rule above is historical.
+2026-07 update: the code→docs prefix-form population this entry describes was converted to gate-verified `§Heading` anchors and new raw forms were denied under the citation rule in force then; the code-cite sweep rule above is historical.
 
 ### Tier 6 (Plans 009/012/013) — backfill-dominant audit, long-convergence contract lessons (2026-06-19)
 
@@ -619,7 +569,7 @@ The Tier-5 swap surfaced four distinct cite forms, each with a different validat
 
 ### Tier 7 (Plans 011/015/017/018/021-remainder) — five-plan bundle with a first-time promotion (2026-08-10)
 
-(PR #318) audited the five-plan Tier-7 bundle: the Plan-011 + Spec-011 restore (`review → approved`, discharging the campaign-B9 CP-003-13 consumer flip after adjudicating the `supersededTurns(runId)` provider shape contract-complete), Plan-015's first-time `review → approved` promotion with full structural backfill (§Invariants and §Cross-Plan Obligations authored from zero) plus the visual-builder amendment landing ADR-026 `proposed` for lead ratification, Plan-017 (the notification-queue Reading-A adjudication — dedicated Postgres table, census 23 → 24 — with the D-017-2 aggregate-carrier rule), Plan-018 (structural backfill plus the Spec-024 row-9a/9b reconciliation), and the Plan-021 Tier-7 remainder (flip-and-restore in one swap). Per-plan finding ledgers live where each audit recorded them — the plan's §Preconditions Gate-2 row and its dated §Notes entry — not here; this entry carries only the cross-cutting lessons, each hit empirically during the tier's execution. **(1) Gate-7 Status cells must stay bare** — `preflight.mjs` parses only the exact template shape ``| **Status** | `approved` |``, so a restoration-annotated cell reads as "status unreadable" and leaves every phase non-dispatchable; the narrative belongs in §Preconditions (the Plan-008 shape). Hit three times the same day: the Plan-010 delta shipped annotated cells and needed a follow-up commit, and two of this tier's appliers re-shipped the shape on Plan-021 and Spec-015 — both flattened at integration with the narrative moved beside the audit row. **(2) Audit-report §-anchors are claims, not facts** — three phantom headings were proposed across the bundle (an attention-model heading and a bare interfaces heading against Spec-017, and a behavior-table heading against Spec-024 — none existing in its target file; each caught against the file's real heading list at integration, and this entry names them in prose because the literal anchor form would itself be a live label-cite violation); every §-anchor an audit report proposes must be byte-compared against the target's real headings before it is written, since each is a Gate-4 hard error downstream. **(3)** the preflight-contract doc's `AC-X` meta-notation read as a hyphenated literal and cost a Gate-4 halt (`AC-1` vs the parser's `^AC(\d+)`); the contract doc now shows the hyphenless `ACX` form. **(4) `precondition_box_checked` prefix resolution keeps the closing bold marker on a bold-labeled box** — the resolver strips only leading asterisks, so the captured prefix ends with the label's closing double-asterisk pair; an entry keyed on such a box must quote that trailing pair verbatim, and reformatting the bold label silently breaks every entry keyed on it (exact shapes in `.claude/skills/plan-execution/references/preflight-contract.md`). **(5)** prettier corrupts a bold span that wraps a code-quoted glob ending in a double-asterisk — the spaces adjacent to the code span are eaten on rewrite — so keep double-asterisk-terminated globs out of bold spans; this entry's own first draft tripped the corruption twice while describing it with the literal sequences and was reworded to prose.
+(PR #318) audited the five-plan Tier-7 bundle: the Plan-011 + Spec-011 restore (`review → approved`, discharging the campaign-B9 CP-003-13 consumer flip after adjudicating the `supersededTurns(runId)` provider shape contract-complete), Plan-015's first-time `review → approved` promotion with full structural backfill (§Invariants and §Cross-Plan Obligations authored from zero) plus the visual-builder amendment landing ADR-026 `proposed` for lead ratification, Plan-017 (the notification-queue Reading-A adjudication — dedicated Postgres table, census 23 → 24 — with the D-017-2 aggregate-carrier rule), Plan-018 (structural backfill plus the Spec-024 row-9a/9b reconciliation), and the Plan-021 Tier-7 remainder (flip-and-restore in one swap). Per-plan finding ledgers live where each audit recorded them — the plan's §Preconditions Gate-2 row and its dated §Notes entry — not here; this entry carries only the cross-cutting lessons, each hit empirically during the tier's execution. **(1) Gate-7 Status cells must stay bare** — `preflight.mjs` parses only the exact template shape ``| **Status** | `approved` |``, so a restoration-annotated cell reads as "status unreadable" and leaves every phase non-dispatchable; the narrative belongs in §Preconditions (the Plan-008 shape). Hit three times the same day: the Plan-010 delta shipped annotated cells and needed a follow-up commit, and two of this tier's appliers re-shipped the shape on Plan-021 and Spec-015 — both flattened at integration with the narrative moved beside the audit row. **(2) Audit-report §-anchors are claims, not facts** — three phantom headings were proposed across the bundle (an attention-model heading and a bare interfaces heading against Spec-017, and a behavior-table heading against Spec-024 — none existing in its target file; each caught against the file's real heading list at integration, and this entry names them in prose because the literal anchor form would itself be a live label-cite violation); every §-anchor an audit report proposes must be byte-compared against the target's real headings before it is written, since each is a Gate-4 hard error downstream. **(3)** the preflight-contract doc's `AC-X` meta-notation read as a hyphenated literal and cost a Gate-4 halt (`AC-1` vs the parser's `^AC(\d+)`); the contract doc now shows the hyphenless `ACX` form. **(4) `precondition_box_checked` prefix resolution keeps the closing bold marker on a bold-labeled box** — the resolver strips only leading asterisks, so the captured prefix ends with the label's closing double-asterisk pair; an entry keyed on such a box must quote that trailing pair verbatim, and reformatting the bold label silently breaks every entry keyed on it (the exact shapes were pinned in the then-live checker contract). **(5)** prettier corrupts a bold span that wraps a code-quoted glob ending in a double-asterisk — the spaces adjacent to the code span are eaten on rewrite — so keep double-asterisk-terminated globs out of bold spans; this entry's own first draft tripped the corruption twice while describing it with the literal sequences and was reworded to prose.
 
 ### Tier 8 (Plans 023/024) — terminal-tier audit, chain closure (2026-08-12)
 
@@ -628,7 +578,7 @@ The Tier-5 swap surfaced four distinct cite forms, each with a different validat
 ## Related Architecture / Specs / Plans
 
 - `docs/architecture/cross-plan-dependencies.md` — the forward phase DAG and its dispatch groups. The dep-trace dimensions (D1-D8) are anchored to this doc and to each plan's own phase table.
-- [`docs/plans/000-plan-template.md`](../plans/000-plan-template.md) — Preconditions section carries the audit gate; new plans inherit it at template-copy time.
+- [`docs/plans/000-plan-template.md`](../plans/000-plan-template.md) — the skeleton a new plan starts from: a goal, non-goals, target areas, and one section per phase carrying a one-sentence `Precondition:` and a one-sentence `Done when:`.
 - [`docs/decisions/023-v1-ci-cd-and-release-automation.md`](../decisions/023-v1-ci-cd-and-release-automation.md) — defines the GitFlow-lite branch model the audit's per-tier commits follow.
 - [`AGENTS.md`](../../AGENTS.md) — owns the parallel-subagent dispatch convention, the transient research-artifact pattern under `.agents/tmp/research/<topic>/`, and the surface-forward-then-delete rule this runbook is itself an instance of.
 - [`CONTRIBUTING.md`](../../CONTRIBUTING.md) — branch naming, commit message format, and squash-merge workflow used for per-tier swap commits.

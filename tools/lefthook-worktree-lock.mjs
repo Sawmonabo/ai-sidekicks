@@ -25,7 +25,7 @@
 // `!opts.NoStageFixed && config.HookUsesStagedFiles(hook.Name)`, and
 // `HookUsesStagedFiles` returns `hook == "pre-commit"`). It is not gated by any
 // job's `stage_fixed:`, and lefthook v2.1.6 exposes no configuration key that
-// turns it off or moves it per worktree — see `CONTRIBUTING.md` §Pre-Commit Hooks.
+// turns it off or moves it per worktree — see `CONTRIBUTING.md` §Hooks.
 //
 // Interleaving two runs therefore either applies one worktree's hunks into the
 // other's tree or deletes them outright, while both commits report success.

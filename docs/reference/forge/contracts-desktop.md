@@ -1,6 +1,6 @@
 # Forge Contracts, Desktop Shell, and Infrastructure Exploration
 
-**Source:** `/home/sabossedgh/dev/external/forge/` -- exhaustive source-code read of `packages/contracts/src/`, `packages/shared/src/`, `apps/desktop/src/`, and root configuration.
+**Source:** `external/forge/` -- exhaustive source-code read of `packages/contracts/src/`, `packages/shared/src/`, `apps/desktop/src/`, and root configuration.
 
 ---
 

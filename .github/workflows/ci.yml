@@ -8,9 +8,15 @@
 # only where required. Event-split concurrency: PR runs cancel-in-progress, integration
 # branch (develop, main) runs do not.
 #
-# Branch protection on develop and main MUST require the `ci-gate` job (only). Matrix
-# leg names embed strategy values and are not stable required-check targets per
+# Branch protection on main requires the `ci-gate` job (only); develop requires no
+# check, so a PR into it is never blocked by this workflow. Matrix leg names embed
+# strategy values and are not stable required-check targets per
 # https://github.com/orgs/community/discussions/26822.
+#
+# Most jobs are path-filtered by the `changes` job below and report `skipped` when
+# their paths are untouched. `ci-gate` treats `skipped` as success, so a filtered-out
+# job never blocks; the nightly schedule runs everything unfiltered so red that a
+# filter let through is found within a day.
 #
 # `--no-verify` bypass closure (ADR-023 §Axis 2 D-1): explicit `eslint .` and
 # `prettier --check .` over the entire repo. Earlier iterations used
@@ -24,6 +30,13 @@ on:
     branches: [develop, main]
   push:
     branches: [develop, main]
+  schedule:
+    # Nightly full run over `develop`; catches red that the path filters let
+    # through. A scheduled run is dispatched against the DEFAULT branch, which
+    # is `main`, so every checkout below pins `ref` to `SWEEP_REF` — without
+    # that the nightly would re-test the branch that is already protected and
+    # never revisit the integration tree it exists to sweep.
+    - cron: "17 3 * * *"
 
 permissions:
   contents: read
@@ -33,10 +46,64 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
+  # Empty on every event but `schedule`, where an empty `ref` would give
+  # checkout the default branch; actions/checkout reads an empty value as
+  # "use the event's own ref".
+  SWEEP_REF: ${{ github.event_name == 'schedule' && 'refs/heads/develop' || '' }}
   TURBO_TELEMETRY_DISABLED: 1
   DO_NOT_TRACK: 1
 
 jobs:
+  # Which parts of the tree this event touched. Every conditional job below reads
+  # these outputs; nothing uses a workflow-level `paths:` filter, because a workflow
+  # that never triggers never reports its check at all, which a required check on
+  # `main` reads as permanently pending rather than as skipped.
+  changes:
+    name: changed paths
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      # `|| 'true'` is the off-pull-request default. The filter step below runs only
+      # on `pull_request`, where the base ref gives a diff to classify; a push or a
+      # scheduled run has no such base, so every filter reports changed and the run
+      # is unfiltered. That is the safe direction: an integration-branch or nightly
+      # run does the full sweep.
+      desktop: ${{ steps.filter.outputs.desktop || 'true' }}
+      deps: ${{ steps.filter.outputs.deps || 'true' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SWEEP_REF }}
+      # SHA-pinned like every other third-party action in this file (see
+      # `rharkor/caching-for-turbo` below); Renovate's pinGitHubActionDigests
+      # preset keeps it current.
+      - id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
+        with:
+          filters: |
+            # Each filter names the workflow itself and the root task config
+            # its jobs read: a PR that changes only the matrix, a tier's turbo
+            # task, or the workspace build policy must run the job it changed,
+            # or a runtime error in that edit merges unexercised and surfaces
+            # on the next unrelated run.
+            desktop:
+              - 'apps/desktop/**'
+              - 'packages/**'
+              - 'pnpm-lock.yaml'
+              - 'turbo.json'
+              - '.github/workflows/ci.yml'
+            deps:
+              - 'pnpm-lock.yaml'
+              - '**/package.json'
+              - '.npmrc'
+              # `allowBuilds` for `better-sqlite3` lives here, and denying its
+              # implicit build is what the native-prebuild matrix asserts.
+              - 'pnpm-workspace.yaml'
+              - '.github/workflows/ci.yml'
+
   # Tier-1 (Node 22.14 — daemon + Electron renderer + shared packages per ADR-022
   # §Decision row 8). Runs the full repo-wide lint + format check + build +
   # typecheck + lint + test against the daemon-tier Node version.
@@ -75,6 +142,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SWEEP_REF }}
 
       - name: Setup pnpm
         # SHA-pinned per ADR-023 §Axis 4 supply-chain hygiene; Renovate's
@@ -389,126 +458,15 @@ jobs:
       - name: Lint per-package (Node 22 tier — excluding control-plane)
         run: pnpm turbo run lint --filter='!@ai-sidekicks/control-plane' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
-      # Split into a parallel step and a serial one, because turbo's default
-      # concurrency (10) otherwise runs `@ai-sidekicks/desktop#test:smoke`
-      # alongside `runtime-daemon#test` (a ~40 s suite), `client-sdk#test` and
-      # the desktop renderer suite on one 4-vCPU runner — and that project is
-      # the only one that spawns a full Electron/Chromium tree and asserts a
-      # wall-clock boot deadline against it.
-      #
-      # This is the second half of one fix. The first half was intra-project:
-      # the `main` vitest project globs two Electron-spawning files and ran them
-      # concurrently (see `apps/desktop/vitest.config.ts`). Serialising those
-      # made the gate pass, but three consecutive green runs of the fixed tree
-      # still measured the same boot at 4129 / 6732 / 13008 ms — a 3.2x spread
-      # on identical code, with the slowest sample inside 13% of its ceiling.
-      # That residual is this concurrency, one level up, and it is what the two
-      # steps below remove.
-      #
-      # The desktop step below enumerates the package's tiers one Turbo task
-      # group at a time rather than running the package's own `test`, because
-      # that is what makes the serialisation real. The two negative filters here
-      # are both applied as exclusions rather than OR'd into a selection.
-      #
-      # The enumeration is deliberate and it has a known cost: a vitest project
-      # added to `apps/desktop/vitest.config.ts` is NOT picked up here by
-      # construction. `main-unit` landed that way and for one push ran in
-      # `pnpm test` and in no required check, so every `src/main/**` and
-      # `build/**` unit — protocol containment, navigation policy, window
-      # hardening, startup ordering, load recovery — was unguarded on merge.
-      # `apps/desktop/AGENTS.md` §Config single-sourcing is where that cost is
-      # now paid: a new Vitest project lands with all five of its wirings or
-      # none, and a project wired into neither this step nor the package's
-      # aggregate `test` script is a review rejection. A new project joins the
-      # enumeration below in the PR that introduces it.
+      # The desktop package is excluded here and runs in the `desktop` matrix job
+      # below, one tier per runner. Turbo's default concurrency (10) would
+      # otherwise schedule `@ai-sidekicks/desktop#test:smoke` — the only project
+      # that spawns a full Electron/Chromium tree and asserts a wall-clock boot
+      # deadline against it — alongside `runtime-daemon#test`, `client-sdk#test`
+      # and the desktop renderer suite on one 4-vCPU runner. Both negative
+      # filters are applied as exclusions rather than OR'd into a selection.
       - name: Test (Node 22 tier — excluding control-plane and desktop)
         run: pnpm turbo run test --filter='!@ai-sidekicks/control-plane' --filter='!@ai-sidekicks/desktop' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
-
-      # The browser-mode console tiers drive a real Chromium through Vitest
-      # browser mode, and `pnpm install` downloads no browser. Both of the tiers
-      # this job runs need it.
-      #
-      # `--with-deps` rather than a bare install: Playwright's own chromium build
-      # is not Electron's, and the supported way to satisfy its shared-library
-      # set on Ubuntu is the flag, which apt-installs exactly what the pinned
-      # revision names. Skipping it would trade a documented apt round trip for a
-      # loader error that surfaces as a red required check with no obvious cause.
-      - name: Install the Chromium build the console browser-mode tiers drive
-        run: pnpm --filter @ai-sidekicks/desktop exec playwright install --with-deps chromium
-
-      # The desktop package, alone on the runner, in the order the three build
-      # flavours allow. This mirrors `apps/desktop/package.json`'s aggregate
-      # `test` script group for group, and `apps/desktop/AGENTS.md` §Config
-      # single-sourcing is what keeps the two from drifting apart.
-      #
-      # The ORDER is load-bearing rather than stylistic. `build`, `build:smoke`,
-      # and `build:fixtures` all write `apps/desktop/out/**` and differ in the
-      # `define` that decides what the console talks to, so a tier must run
-      # against the flavour its own Turbo edge produced and before the next
-      # flavour overwrites it. Groups, in order:
-      #
-      #   1. Source-only tiers — `renderer` (happy-dom), `main-unit` (node, a
-      #      stubbed `electron`, one `node`-only spawn), and the console `unit`
-      #      and `assets` tiers. All parallel-safe, none starts a Chromium tree,
-      #      none builds.
-      #   2. The two browser-mode tiers, `--concurrency=1` so two headless
-      #      Chromium instances never share the runner. Neither builds.
-      #   3. The bundle tier, on the RELEASE build this job already made and
-      #      grepped above — it measures `out/renderer` against `budgets.json`
-      #      and asserts what a release bundle does not contain, so it must run
-      #      before any other flavour is written.
-      #   4. The Electron smoke project, `--concurrency=1` so not even its own
-      #      `build:smoke` dependency overlaps it.
-      #   5. The two Electron console tiers, on the FIXTURE build, one invocation
-      #      so `build:fixtures` runs once and `--concurrency=1` so only one
-      #      Electron process is alive at a time. Both drive a real window
-      #      through Playwright's `_electron` against the `$DISPLAY` the Xvfb
-      #      step above exported and the SUID sandbox helper it configured.
-      #
-      # Nothing else is scheduled against any of them.
-      - name: Test (desktop — source tiers, browser mode, then each build flavour serially)
-        run: |
-          set -euo pipefail
-          cache_flag='${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}'
-          pnpm turbo run test:renderer test:main-unit test:console-unit test:console-assets --filter=@ai-sidekicks/desktop ${cache_flag}
-          pnpm turbo run test:console-browser test:console-accessibility --filter=@ai-sidekicks/desktop --concurrency=1 ${cache_flag}
-          pnpm turbo run test:console-bundle --filter=@ai-sidekicks/desktop --concurrency=1 ${cache_flag}
-          pnpm turbo run test:smoke --filter=@ai-sidekicks/desktop --concurrency=1 ${cache_flag}
-          pnpm turbo run test:console-e2e test:console-endurance --filter=@ai-sidekicks/desktop --concurrency=1 ${cache_flag}
-
-      # The bench tier, in its own step and deliberately not in the aggregate `test`
-      # script's groups above.
-      #
-      # It is here because a benchmark nothing runs is a benchmark that rots: each arm
-      # drives a shipped console module — the store's own partition merge, the
-      # markdown segmenter — and one refactored out from under them would be a red
-      # only when someone thought to run this by hand. What it asserts
-      # is a RATIO with a wide margin — partitioning against a flat map, incremental
-      # block layout against a full re-parse — never an absolute millisecond count, so
-      # a slow or noisy runner does not fail it; only the structural claim going away
-      # does. That is what makes it gateable at all.
-      #
-      # `CONSOLE_BENCH_LEDGER_PATH` is why it is not in the aggregate script: each run
-      # appends its absolutes to `test/console/bench/ledger.json`, a curated record a
-      # person reads, and neither CI nor a developer's `pnpm test` should rewrite one
-      # as a side effect. The runner's own numbers go to the runner's temp directory
-      # and are read from this step's log.
-      - name: Test (desktop — benchmark tier, ratio floors only)
-        env:
-          CONSOLE_BENCH_LEDGER_PATH: ${{ runner.temp }}/console-bench-ledger.json
-        run: pnpm turbo run test:console-bench --filter=@ai-sidekicks/desktop ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
-
-      # The desktop structure gates (Plan-021 Phase 1C): `knip` for dead code, then
-      # `dependency-cruiser` for the import DAG. Both are scoped to `apps/desktop` — a desktop
-      # PR never sweeps the daemon or the control plane — and both fail this job, which
-      # `ci-gate` already depends on, so neither needs a new required check.
-      #
-      # Two tasks with `--continue` rather than one fused task: `knip` answers "does an entry
-      # point reach this?" and `dependency-cruiser` answers "is this import allowed to exist?",
-      # neither claim subsumes the other, and a sequential aggregate would hide the second
-      # leg's findings behind the first leg's exit code.
-      - name: Structure gates (apps/desktop — dead code + layering)
-        run: pnpm turbo run structure:dead-code structure:layering --filter=@ai-sidekicks/desktop --continue ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       # Public-surface validation for the workspace libraries. Two complementary
       # linters run against the *packed* tarball (not the source tree), so they
@@ -558,17 +516,15 @@ jobs:
           fi
           echo "ok: all Node 22 tier packages pass publint --strict + attw"
 
-      # Plan-execution skill tests (Layer 1 fixture-driven + Layer 2 unit). Closes the gap
-      # noted in spec §10.4(a) — pre-housekeeper, the .claude/skills/plan-execution/scripts/
-      # tests had no CI run. Uses --experimental-strip-types per ADR-022 + repo precedent
-      # (tools/docs-corpus/bin/pre-commit-runner.ts ships with the same flag).
+      # The plan-execution skill's own tests. `--experimental-strip-types` because
+      # the fixtures they drive are TypeScript.
       #
       # Routed through tools/run-node-tests.mjs rather than `node --test` directly: a glob
       # that matches nothing makes `node --test` exit 0 having run no tests, and this job is
       # a `ci-gate` dependency — so a directory rename would turn a REQUIRED check green
       # while executing nothing. The wrapper refuses to spawn on a zero-match and enforces
-      # a floor. --min-files is set below the current 13 so ordinary consolidation does not
-      # trip it while a collapse to one file still does.
+      # a floor. --min-files sits at the current file count, so a collapse to one file
+      # trips it and a deliberate consolidation lowers the floor in the same commit.
       #
       # The pattern stays in glob form, now resolved by the wrapper rather than by Node:
       # on Node 22.12 — this repo's floor when the behavior was measured, since moved to
@@ -578,13 +534,15 @@ jobs:
       # dir holding a non-test file alike. That form is loud, not silent; the silent shapes
       # the wrapper exists to catch are the zero-match glob and the dropped missing path.
       - name: Run plan-execution skill tests (Layer 1 + Layer 2)
-        run: node tools/run-node-tests.mjs --min-files=10 --experimental-strip-types '.claude/skills/plan-execution/scripts/__tests__/**/*.test.mjs'
+        run: node tools/run-node-tests.mjs --min-files=3 --experimental-strip-types '.claude/skills/plan-execution/scripts/__tests__/**/*.test.mjs'
 
       # Hook guard tests (command-guard.py + worktree.sh, driven as
       # subprocesses from node:test — no Python test framework per ADR-023).
-      # This leg exercises the Linux /proc occupancy path; the darwin/lsof
-      # path — the platform of the 2026-07-07 occupied-worktree incident —
-      # runs in the dedicated `hook-tests-macos` job below.
+      # This leg exercises the Linux /proc occupancy path only. The darwin/lsof
+      # path — the platform of the 2026-07-07 occupied-worktree incident — had a
+      # dedicated macOS job; it cost a full extra runner per PR for one test file
+      # and is gone. The fork is covered by running the guard locally on macOS,
+      # which is where this repo is developed.
       #
       # Same fail-closed wrapper as the step above. No --min-files here: this tree
       # holds a single test file, so a floor of 1 would be exactly the wrapper's
@@ -592,12 +550,274 @@ jobs:
       - name: Run hook guard tests
         run: node tools/run-node-tests.mjs '.claude/hooks/__tests__/**/*.test.mjs'
 
-      # The fail-closed test runner's own suite, run THROUGH the runner. Without
+      # Every test under `tools/`, run THROUGH the fail-closed runner. Without
       # this the tool that guards every other test invocation would itself have no
       # CI coverage — the exact gap it exists to close. Its tests spawn the runner
       # as a subprocess, so this step also exercises the nested-invocation path.
+      #
+      # The glob is `tools/**` rather than `tools/__tests__/**`: a checker that
+      # keeps its test beside itself (`tools/docs-corpus/table-arity.test.mjs`)
+      # would otherwise be run by nothing. The runner skips `node_modules`.
       - name: Run test-runner tool tests
-        run: node tools/run-node-tests.mjs 'tools/__tests__/**/*.test.mjs'
+        run: node tools/run-node-tests.mjs 'tools/**/*.test.mjs'
+
+  # The desktop tiers, one per runner. They were a single serial step inside
+  # `test-node22`: the three build flavours (`build`, `build:smoke`,
+  # `build:fixtures`) all write `apps/desktop/out/**`, so a tier had to run
+  # against the flavour its own Turbo edge produced and before the next flavour
+  # overwrote it — which forced every tier onto one runner in one order. A
+  # matrix leg gets its own checkout and its own `out/**`, so the flavours no
+  # longer collide and the tiers run in parallel instead of in sequence.
+  #
+  # `--concurrency=1` stays inside each leg: a leg naming two tasks must still
+  # not put two Chromium or two Electron processes on one 4-vCPU runner.
+  #
+  # The enumeration is deliberate and it has a known cost: a Vitest project
+  # added to `apps/desktop/vitest.config.ts` is NOT picked up here by
+  # construction. `main-unit` landed that way and for one push ran in
+  # `pnpm test` and in no required check. `apps/desktop/AGENTS.md` is where that
+  # cost is paid: a project wired into neither this matrix nor the package's
+  # aggregate `test` script is a review rejection.
+  desktop:
+    name: desktop (${{ matrix.tier }})
+    needs: [changes]
+    if: needs.changes.outputs.desktop == 'true' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # `serial: true` marks a leg whose tasks drive a real browser or
+        # Electron window: only one such process may be alive at a time, and
+        # a build dependency must not overlap the tier it builds for. The
+        # unmarked legs are plain Node test projects and a static analysis
+        # pair, which run at the default concurrency.
+        include:
+          - tier: "test:renderer test:main-unit test:console-unit test:console-assets"
+          - tier: "test:console-browser test:console-accessibility"
+            serial: true
+          - tier: "test:console-bundle"
+            serial: true
+          - tier: "test:smoke"
+            serial: true
+          - tier: "test:console-e2e test:console-endurance"
+            serial: true
+          - tier: "test:console-bench"
+          - tier: "structure:dead-code structure:layering"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SWEEP_REF }}
+
+      - name: Setup pnpm
+        # SHA-pinned per ADR-023 §Axis 4 supply-chain hygiene; Renovate's
+        # helpers:pinGitHubActionDigests preset (renovate.json5) keeps this current.
+        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
+        with:
+          version: 10.33.2
+          run_install: false
+
+      - name: Setup Node.js 22.14
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22.14"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Backs Turborepo's remote cache with the GitHub Actions cache (no
+      # third-party service, no spend). SHA-pinned per ADR-023 §Axis 4.
+      #
+      # Threat model, stated honestly: the controls that keep a fork PR from
+      # poisoning this cache are GitHub withholding secrets from fork-originated
+      # workflows, the read-only `GITHUB_TOKEN` on `pull_request`, and the
+      # `--cache=local:rw,remote:r` switch appended to every turbo invocation
+      # below on PR events. `remoteCache.signature` is NOT one of them —
+      # Turborepo documents it as artifact-integrity verification and states it
+      # "is not a security feature". ADR-023 §Axis 1's "HMAC >=32 bytes"
+      # requirement is still met; only the rationale is corrected.
+      - name: Turborepo remote cache (GitHub Actions cache backend)
+        uses: rharkor/caching-for-turbo@2238fae6eb9a9936f92356f54cb3660200d105e7 # v2.5.1
+
+      # Electron 44 ships NO install script, so `pnpm install` alone leaves no
+      # `dist/` — see `apps/desktop/scripts/materialize-electron.ts` for the
+      # measurement and the reasoning. `apps/desktop`'s `postinstall` runs that
+      # script, so by this point the binary is normally already present and
+      # this step is a fast verification plus the path extraction the SUID step
+      # below needs.
+      #
+      # It runs the SAME script rather than a second acquisition path: if the
+      # postinstall was skipped (or a later step deleted `dist/`), this repairs
+      # it, and a download failure is still its own red step rather than a test
+      # timeout. `node -p` runs afterwards against a populated `dist/`, so it
+      # prints only the path — the script's own progress output goes to the log
+      # rather than into the captured value.
+      - name: Materialize the Electron binary
+        id: electron
+        working-directory: apps/desktop
+        run: |
+          node --experimental-strip-types scripts/materialize-electron.ts
+          executable=$(node -p "require('electron')")
+          [ -x "$executable" ] || { echo "::error::electron did not resolve to an executable: '$executable'"; exit 1; }
+          echo "executable=$executable" >> "$GITHUB_OUTPUT"
+          ls -l "$executable"
+
+      # Electron 44.x on Ubuntu 24.04 GitHub Actions runners requires the
+      # SUID sandbox helper (`chrome-sandbox`) to be owned by root and have
+      # mode 4755 for the renderer's Linux namespace sandbox to initialize.
+      # pnpm install cannot run the Electron post-install step under root,
+      # so we chown/chmod the binary here. This preserves `webPreferences.sandbox: true`
+      # (`Spec-021 §Security Hardening Baseline` — the mandatory webPreferences
+      # block: contextIsolation, sandbox and webSecurity true, nodeIntegration
+      # false) — running Electron with `--no-sandbox` would defeat the very
+      # invariant apps/desktop/test/launch.smoke.test.ts asserts (the
+      # three-globals set, per `Spec-021 §Acceptance Criteria`: "Renderer
+      # attempts to access `require`, `process`, or `global` return
+      # `undefined`").
+      #
+      # The helper is taken from beside the executable the step above
+      # resolved, not searched for under `.pnpm`: a tree that holds two
+      # Electron versions (a stale one and the pinned one) has two
+      # `chrome-sandbox` files, and `find -print -quit` would return whichever
+      # it walked into first. The guard fails fast if it is absent, which
+      # would mean the `dist/` layout changed.
+      - name: Configure Electron SUID sandbox helper (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sandbox="$(dirname "${{ steps.electron.outputs.executable }}")/chrome-sandbox"
+          [ -f "$sandbox" ] || { echo "::error::chrome-sandbox not beside the resolved Electron executable — dist layout drift?"; exit 1; }
+          sudo chown root:root "$sandbox"
+          sudo chmod 4755 "$sandbox"
+          ls -l "$sandbox"
+
+      # One X server for the whole job, gated on ACTUALLY ANSWERING before any
+      # test runs, with `$DISPLAY` exported for every later step.
+      #
+      # Replaces a per-spawn `xvfb-run -a` inside the Electron test harnesses
+      # (apps/desktop/test/launch.smoke.test.ts, lifecycle.gc.test.ts), which
+      # was unsound in three ways on a hosted runner:
+      #
+      #   1. `xvfb-run -a` picks its display number with `find_free_servernum()`
+      #      — a plain `while [ -f /tmp/.X$i-lock ]` scan. That is a documented
+      #      TOCTOU (Debian #521075 / Launchpad #348052): two concurrent
+      #      invocations can select the same number. The script's retry loop
+      #      recovers, so this was not the root cause of the boot flake, but it
+      #      is real and it is free to remove.
+      #   2. Each spawn stood up its OWN Xvfb plus a wrapper shell, so the two
+      #      Electron test files put two X servers and two extra shells on a
+      #      4-vCPU box for no benefit.
+      #   3. `xvfb-run` runs the command as `... "$@" 2>&1` — it MERGES the
+      #      child's stderr into stdout. That silently disabled every
+      #      stderr-keyed diagnosis branch in the smoke harness on exactly the
+      #      platform CI runs (observed in run 33571210321: the electron shim's
+      #      `console.error` notice arrived in the harness's stdout capture
+      #      while `--- stderr ---` was empty).
+      #
+      # `-nolisten tcp` keeps the server on its unix socket only.
+      #
+      # Readiness uses Xvfb's OWN `-displayfd` signal rather than an external
+      # client probe. The server picks a free display itself and writes the
+      # number to that descriptor only after it is listening, so reading the
+      # number IS the readiness proof — and because the SERVER allocates it, the
+      # display-number race is gone by construction rather than by retry.
+      #
+      # This deliberately does not use `xdpyinfo`: the ubuntu-24.04 image ships
+      # `xvfb` but NOT `x11-utils`, so `xdpyinfo` is absent and a probe built on
+      # it can never succeed. Measured, not assumed — the first revision of this
+      # step did exactly that and failed with "Xvfb did not answer on :99 within
+      # 15s" while the Xvfb process was alive the whole time (run 33573354839).
+      # Installing `x11-utils` would fix the probe but adds an apt round trip to
+      # every run for a signal the server already gives us for free.
+      #
+      # NOTE: nothing here passes `--no-sandbox`. That switch would disable the
+      # renderer's Linux namespace sandbox and thereby defeat the very invariant
+      # apps/desktop/test/launch.smoke.test.ts asserts (`require` / `process` /
+      # `global` all `undefined`, which follow from `webPreferences.sandbox:
+      # true`). The SUID helper configured in the step above is what makes that
+      # sandbox work, and it stays.
+      - name: Start Xvfb and wait for the display to answer (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          display_file="${RUNNER_TEMP}/xvfb-display"
+          xvfb_log="${RUNNER_TEMP}/xvfb.log"
+          : > "$display_file"
+          # No `:N` argument: with `-displayfd` the server allocates a free
+          # display itself and reports it on fd 3, which we point at a file.
+          Xvfb -displayfd 3 -screen 0 1280x1024x24 -nolisten tcp \
+            3>"$display_file" >"$xvfb_log" 2>&1 &
+          xvfb_pid=$!
+          # Deliberately no teardown step: the display is meant to outlive every
+          # test in the job, and the runner reclaims the VM afterwards. This is
+          # also what removes the per-spawn teardown race the old `xvfb-run`
+          # posture had, where each spawn tore its own X server down.
+          for attempt in $(seq 1 60); do
+            display_number=$(tr -d '[:space:]' < "$display_file")
+            if [ -n "$display_number" ]; then
+              echo "Xvfb serving :${display_number} after ${attempt} attempt(s)"
+              echo "DISPLAY=:${display_number}" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            # Checked AFTER the read, not before: a server that came up and
+            # wrote its number is a success even if this loop notices the pid
+            # later, and checking first would race the write.
+            if ! kill -0 "$xvfb_pid" 2>/dev/null; then
+              echo "::error::Xvfb exited before reporting a display number"
+              cat "$xvfb_log" || true
+              exit 1
+            fi
+            sleep 0.25
+          done
+          echo "::error::Xvfb reported no display number within 15s"
+          cat "$xvfb_log" || true
+          exit 1
+
+      # Chromium probes the session bus for portals and the secret service on
+      # boot. There is no session bus on a hosted runner, and with
+      # `DBUS_SESSION_BUS_ADDRESS` unset libdbus falls back to an autolaunch
+      # attempt — a boot-path round trip that can only cost time here.
+      # `disabled:` is unparseable as a bus address, so the lookup fails
+      # immediately instead. `NO_AT_BRIDGE=1` suppresses the accessibility
+      # bridge's own bus connection. Neither changes any sandbox or
+      # `webPreferences` setting; both only remove a probe that cannot succeed.
+      - name: Harden D-Bus / portal environment for Electron (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          echo "DBUS_SESSION_BUS_ADDRESS=disabled:" >> "$GITHUB_ENV"
+          echo "NO_AT_BRIDGE=1" >> "$GITHUB_ENV"
+
+      - name: Build (Node 22 tier — excluding control-plane)
+        run: pnpm turbo run build --filter='!@ai-sidekicks/control-plane' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
+
+      # The browser-mode console tiers drive a real Chromium through Vitest
+      # browser mode, and `pnpm install` downloads no browser. `--with-deps`
+      # rather than a bare install: Playwright's own chromium build is not
+      # Electron's, and the supported way to satisfy its shared-library set on
+      # Ubuntu is the flag, which apt-installs exactly what the pinned revision
+      # names. The legs that never start a Chromium tree skip the apt round trip.
+      - name: Install Chromium for the browser tiers
+        if: contains(matrix.tier, 'browser') || contains(matrix.tier, 'smoke') || contains(matrix.tier, 'e2e')
+        run: pnpm --filter @ai-sidekicks/desktop exec playwright install --with-deps chromium
+
+      # `--continue` so a leg naming two tasks reports both results: neither
+      # `knip` and `dependency-cruiser` nor any other pair here subsumes the
+      # other, and without it the first failure hides the second's finding.
+      # `--concurrency=1` only on the legs the matrix marks `serial`.
+      #
+      # `CONSOLE_BENCH_LEDGER_PATH` redirects the bench tier's absolutes to the
+      # runner's temp directory. `test/console/bench/ledger.json` is a curated
+      # record a person reads; no CI run should rewrite one as a side effect.
+      # The runner's own numbers are read from this step's log. It is harmless
+      # on every other leg, which never reads the variable.
+      - name: Run tier
+        env:
+          CONSOLE_BENCH_LEDGER_PATH: ${{ runner.temp }}/console-bench-ledger.json
+        run: pnpm turbo run ${{ matrix.tier }} --filter=@ai-sidekicks/desktop --continue ${{ matrix.serial && '--concurrency=1' || '' }} ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
   # Tier-2 (Node 24 — control-plane + CLI per ADR-022 §Decision row 8). The
   # control-plane package declares `engines.node: ">=24.0.0"`, so its build /
@@ -635,6 +855,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SWEEP_REF }}
 
       - name: Setup pnpm
         # SHA-pinned per ADR-023 §Axis 4 supply-chain hygiene; Renovate's
@@ -718,31 +940,6 @@ jobs:
           fi
           echo "ok: all Node 24 tier packages pass publint --strict + attw"
 
-  # Minimal darwin leg for the hook guard tests only: the occupancy engine
-  # has a platform fork (lsof on darwin, /proc on linux) and the incident it
-  # guards against happened on macOS — an ubuntu-only matrix would ship the
-  # lsof invocation, its -F parser wiring, and the exit-1 convention with
-  # zero CI coverage. Deliberately skips pnpm install: the hook tests need
-  # only node + git + python3 + jq (all on the macos-latest image).
-  hook-tests-macos:
-    name: hook tests (macos-latest)
-    runs-on: macos-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: "22.14"
-          # This job never installs dependencies; without this, setup-node@v5
-          # sees `packageManager: pnpm` in package.json and fails looking for
-          # a pnpm binary that is deliberately absent here.
-          package-manager-cache: false
-
-      - name: Run hook guard tests
-        run: node tools/run-node-tests.mjs '.claude/hooks/__tests__/**/*.test.mjs'
-
   # ADVISORY job — deliberately absent from `ci-gate`'s `needs` list below, so a
   # coverage regression never blocks a merge. BL-123 Stage 1 is measurement
   # substrate only: exit criteria (b)-(d) require the per-package floors to be
@@ -758,17 +955,20 @@ jobs:
   # `@ai-sidekicks/control-plane` runs on the second runtime and it is
   # WASM-backed (PGlite), so no native binding is asked to cross an ABI.
   #
-  # `tools/docs-corpus` has no package.json and is not a workspace member, so
-  # turbo cannot fan out to it; it is invoked directly, in the same shape
-  # .github/workflows/docs-corpus.yml already uses to run those tests.
   coverage:
     name: coverage (informational)
+    # Informational measurement, so it runs where the measurement is read — the
+    # integration branch — rather than on every pull request, where it is a full
+    # second install and test sweep nothing gates on.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SWEEP_REF }}
 
       - name: Setup pnpm
         # SHA-pinned per ADR-023 §Axis 4 supply-chain hygiene; Renovate's
@@ -799,13 +999,6 @@ jobs:
 
       - name: Coverage (Node 22 tier — excluding control-plane)
         run: pnpm turbo run test:coverage --filter='!@ai-sidekicks/control-plane'
-
-      - name: Coverage (doc-corpus tooling)
-        # `!cancelled()` (not the default success condition) so a red suite in an
-        # earlier tier still yields this tier's report. vitest is configured with
-        # `reportOnFailure: true`, which only pays off if the step actually runs.
-        if: ${{ !cancelled() }}
-        run: pnpm exec vitest run --root tools/docs-corpus --coverage
 
       - name: Setup Node.js 24 (control-plane tier)
         # Must carry the same condition as the tier it sets up: if this were
@@ -846,7 +1039,6 @@ jobs:
           path: |
             packages/*/coverage/
             apps/*/coverage/
-            tools/docs-corpus/coverage/
           # 90, not the 30-day default: BL-123 exit (b) calls these artifacts the
           # durable pointer for a >=5-PR sampling window, and that window can
           # outlive 30 days. 90 is the ceiling for a private repo's default plan.
@@ -858,8 +1050,8 @@ jobs:
   # The daemon's `better-sqlite3` 13.0.3 must load the tarball's bundled Node-API
   # prebuild on EVERY platform V1 ships to, not just the one the tier-1 matrix
   # happens to run. Before this job the provenance assertion covered linux-x64
-  # alone: `test-node22` is `ubuntu-latest`, `hook-tests-macos` installs nothing,
-  # and there is no Windows job at all. A missing or unloadable prebuild on the
+  # alone: `test-node22` is `ubuntu-latest` and there is no other Windows or
+  # macOS job at all. A missing or unloadable prebuild on the
   # other four targets would have surfaced first on a developer's machine or in
   # a release build, as a silent source compile or a crash at first open.
   #
@@ -883,6 +1075,13 @@ jobs:
   # here exactly as it does everywhere else.
   native-prebuilds:
     name: native prebuild (${{ matrix.prebuild }})
+    # Five runners across three operating systems, and the only input that can
+    # change the answer is the dependency graph: the lockfile, a package.json,
+    # or the npm client config. A pull request that touches none of them cannot
+    # move which binding resolves, so this job is skipped and `ci-gate` reads
+    # that skip as success. The nightly schedule runs it unconditionally.
+    needs: [changes]
+    if: needs.changes.outputs.deps == 'true' || github.event_name == 'schedule'
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -903,6 +1102,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SWEEP_REF }}
 
       - name: Setup pnpm
         # SHA-pinned per ADR-023 §Axis 4; Renovate's helpers:pinGitHubActionDigests
@@ -1065,32 +1266,44 @@ jobs:
   ci-gate:
     name: ci-gate
     runs-on: ubuntu-latest
-    needs: [test-node22, test-node24, hook-tests-macos, native-prebuilds]
+    needs: [changes, test-node22, test-node24, desktop, native-prebuilds]
     if: always()
     steps:
       - name: Aggregate required-checks status
         # Aggregator-job pattern per ADR-023 §Axis 1 (and the canonical GitHub
-        # Community Discussion #26822 recipe). Branch protection requires this
-        # single job; renaming or adding matrix legs cannot silently bypass.
+        # Community Discussion #26822 recipe). Branch protection on `main`
+        # requires this single job; renaming or adding matrix legs cannot
+        # silently bypass.
+        #
+        # One predicate for every job: `skipped` counts as success. A
+        # path-filtered job that did not need to run must not hold the gate
+        # pending forever, and a job GitHub skipped because its filter said the
+        # relevant tree was untouched carries exactly as much signal as a green
+        # one. `test-node22` and `test-node24` are unconditional and are never
+        # skipped, so the shared predicate is a no-op for them.
+        #
+        # A CANCELLED or FAILED dependency still fails here, which is the case
+        # this must not lose: `cancelled` and `failure` are neither of the two
+        # accepted results.
+        #
+        # `changes` is checked too, and that is load-bearing rather than tidy. A
+        # path filter that ERRORS — a transient files-API failure, a bad filter
+        # expression — skips every job that needs it, and a skip is the same
+        # result a filter miss produces. Without this line the gate would read
+        # those skips as success and go green having run nothing. `changes` is
+        # unconditional in this workflow, so it is never legitimately skipped.
         run: |
           fail=0
-          if [[ "${{ needs.test-node22.result }}" != "success" ]]; then
-            echo "ci-gate: required job 'test-node22' did not succeed (result=${{ needs.test-node22.result }})"
-            fail=1
-          fi
-          if [[ "${{ needs.test-node24.result }}" != "success" ]]; then
-            echo "ci-gate: required job 'test-node24' did not succeed (result=${{ needs.test-node24.result }})"
-            fail=1
-          fi
-          if [[ "${{ needs.hook-tests-macos.result }}" != "success" ]]; then
-            echo "ci-gate: required job 'hook-tests-macos' did not succeed (result=${{ needs.hook-tests-macos.result }})"
-            fail=1
-          fi
-          if [[ "${{ needs.native-prebuilds.result }}" != "success" ]]; then
-            echo "ci-gate: required job 'native-prebuilds' did not succeed (result=${{ needs.native-prebuilds.result }})"
-            fail=1
-          fi
-          if [[ $fail -ne 0 ]]; then
-            exit 1
-          fi
-          echo "ci-gate: all required jobs succeeded"
+          check() {
+            if [[ "$2" != "success" && "$2" != "skipped" ]]; then
+              echo "ci-gate: job '$1' did not succeed (result=$2)"
+              fail=1
+            fi
+          }
+          check changes "${{ needs.changes.result }}"
+          check test-node22 "${{ needs.test-node22.result }}"
+          check test-node24 "${{ needs.test-node24.result }}"
+          check desktop "${{ needs.desktop.result }}"
+          check native-prebuilds "${{ needs.native-prebuilds.result }}"
+          if [[ $fail -ne 0 ]]; then exit 1; fi
+          echo "ci-gate: all required jobs succeeded or were skipped by path filter"

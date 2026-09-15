@@ -14,15 +14,15 @@
   - Use examples to clarify behavior, not to weaken requirements
 -->
 
-| Field                   | Value                                          |
-| ----------------------- | ---------------------------------------------- |
-| **Status**              | `draft` · `review` · `approved` · `superseded` |
-| **NNN**                 | `{NNN}`                                        |
-| **Slug**                | `{kebab-case-slug}`                            |
-| **Date**                | `YYYY-MM-DD`                                   |
-| **Author(s)**           | `{name(s)}`                                    |
-| **Depends On**          | `{domain docs, architecture docs, ADRs}`       |
-| **Implementation Plan** | `{link to plans/NNN-... once created}`         |
+| Field                   | Value                                    |
+| ----------------------- | ---------------------------------------- |
+| **Status**              | `draft` · `ready`                        |
+| **NNN**                 | `{NNN}`                                  |
+| **Slug**                | `{kebab-case-slug}`                      |
+| **Date**                | `YYYY-MM-DD`                             |
+| **Author(s)**           | `{name(s)}`                              |
+| **Depends On**          | `{domain docs, architecture docs, ADRs}` |
+| **Implementation Plan** | `{link to plans/NNN-... once created}`   |
 
 ## Purpose
 
@@ -46,10 +46,10 @@
 
 ## Preconditions
 
-- [ ] All declared `Depends On` specs are at `approved` status
-- [ ] All declared `Depends On` ADRs are at `accepted` status
-- [ ] Blocking open questions are resolved or explicitly deferred
-- [ ] **Spec-status promotion gate cleared per [`docs/operations/plan-implementation-readiness-audit-runbook.md#spec-status-promotion-gate`](../operations/plan-implementation-readiness-audit-runbook.md#spec-status-promotion-gate)**
+- The specs and ADRs under `Depends On` say what this one assumes.
+- Blocking open questions are resolved or explicitly deferred.
+
+For external technical facts (wire formats, vendor limits, protocol numbers) link the source.
 
 ## Required Behavior
 

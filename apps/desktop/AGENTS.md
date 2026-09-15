@@ -4,7 +4,7 @@ Binding for every change under `apps/desktop/`, in any tool. Repo-wide conventio
 
 ## No governance references in code
 
-Product code under `packages/` and `apps/` carries no governance identifiers and no section cites: no `Spec-NNN`, `Plan-NNN`, `ADR-NNN`, or `BL-NNN` token, no invariant, obligation, decision, acceptance-criterion, or task id, and no section citation into a design document — not in comments, not in strings, not in test titles, not in fields. Comments say what the code does, and why it is shaped the way it is, in plain words; a test title says what the test asserts. Where a rule came from a design document, state the rule itself rather than pointing at the document. Product code also carries no pull-request numbers, no review-round or merge-history narrative, and no plan-tier vocabulary; a comment states the engineering reason and never its provenance. Words that never appear in code, comments, copy, or test titles: reference-app branding, `Take Control`, `work band`, `design mode`, `mascot`, `front burner`, `back burner`, `discussion mode`, `local-first`, `one timeline`, `unified timeline`, `shared timeline`.
+The rule on governance identifiers is AGENTS.md rule 3; it applies to every file in this package.
 
 ## Mechanical gates
 
@@ -134,13 +134,13 @@ Neither rule below has a mechanical gate: one reads colour values out of stylesh
 - A capture is WRITTEN through `test/console/screenshot/settled-capture.ts` and no other way. `captureSettled` refuses a tree still carrying the pending marker; a mount never waits for a deferred body itself, and a per-spec wait is rejected.
 - Every test that launches Electron goes through `test/console/electron-harness.ts` (Playwright tiers), `test/helpers/electron-probe.ts` (smoke), or `test/helpers/gc-probe.ts` (GC), which set `SIDEKICKS_UNOBTRUSIVE_WINDOWS=1` so a test build never reveals a window, takes focus, or switches Spaces. A `show()` / `showInactive()` / `focus()` call outside `src/main/window-reveal.ts` is rejected.
 - A spawned child's lifetime belongs to the test, never to a timer: `test/helpers/electron-child.ts` registers the kill on `onTestFinished`, and a spawner's own deadline fires before its enclosing per-test budget.
-- Lanes verify with `pnpm --filter @ai-sidekicks/desktop run test:changed <base-ref>` plus the files they authored, and `structure`; the aggregate `test` script and the Electron tiers are CI's. That base ref is the first argument of `scripts/test-changed.ts`; no ref, or a file no project claims, exits `2`.
+- Before pushing, run `pnpm --filter @ai-sidekicks/desktop run test:changed <base-ref>` plus the files you authored, and `structure`; the aggregate `test` script and the Electron tiers are CI's. That base ref is the first argument of `scripts/test-changed.ts`; no ref, or a file no project claims, exits `2`.
 
 ## Config single-sourcing
 
 - One value, one home: budgets and their unit factors in `test/console/budget/budgets.json`, caps in `console/core/constants/`. A threshold restated in a test that also lives in a JSON file is rejected.
-- A new Vitest project lands with all five of `vitest.config.ts`, a `test:<project>` script, a Turbo task carrying `inputs`, a line in the aggregate `test` script, and a line in `.github/workflows/ci.yml`'s desktop step — all five or none, a deliberate omission recording its reason beside the registration. `exclude` replaces Vitest's default rather than extending it; spread the default in.
-- The aggregate `test` script and the CI desktop step run the tiers in the same order, which is load-bearing: `build`, `build:smoke`, and `build:fixtures` all write `out/**`.
+- A new Vitest project lands with all five of `vitest.config.ts`, a `test:<project>` script, a Turbo task carrying `inputs`, a line in the aggregate `test` script, and a matrix entry in the `desktop` job of `.github/workflows/ci.yml` — all five or none, a deliberate omission recording its reason beside the registration. `exclude` replaces Vitest's default rather than extending it; spread the default in.
+- Each matrix leg of the `desktop` job runs one build flavour, so the tiers that share `out/**` (`build`, `build:smoke`, `build:fixtures`) sit in separate legs; keep them separate when adding a tier.
 - A new `tsconfig*.json` reaches `typecheck` in the same commit, and no two configs write to one `outDir`. A `tsconfig` no script and no `references` entry reaches is deleted.
 - The growth slate lives in `console/bridge/growth-port/growth-slate.ts`. A PR that adds, removes, or re-statuses a row edits it there and nowhere else.
 
@@ -150,7 +150,7 @@ Neither rule below has a mechanical gate: one reads colour values out of stylesh
 - Every console PR runs every tier whose subject is in-tree; an absent subject is reported `n/a`, never skipped silently.
 - Every bounded wait inside a launching tier's body draws on that tier's body allowance through `boundedMs`, so the first wait that cannot fit fails with its own sentence rather than under Vitest's clock. A wait carrying its own literal is rejected.
 
-## Pre-PR self-audit
+## Before opening a PR
 
 1. `pnpm --filter @ai-sidekicks/desktop lint typecheck test structure` clean; `pnpm -w exec eslint .` clean.
 2. Every new helper name grepped for a prior implementation — hoist instead of writing the second one.
