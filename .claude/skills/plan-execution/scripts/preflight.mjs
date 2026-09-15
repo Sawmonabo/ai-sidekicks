@@ -7,11 +7,12 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
 
-// A phase label is a number, optionally with a letter: several plans split a
-// phase into `3A` / `3B` supplements and dispatch them under that label, so
-// coercing the argument to a number would make those phases undispatchable.
+// A phase label is a number, optionally with a letter, optionally `R`-prefixed:
+// plans split a phase into `3A` / `3B` supplements and carry a Tier-3 remainder
+// as `R1` / `R2` / `R3`, and both are dispatched under that label, so coercing
+// the argument to a number would make those phases undispatchable.
 const [planArg, phaseArg] = process.argv.slice(2);
-if (!planArg || !/^\d+[A-Za-z]?$/.test(phaseArg ?? "")) {
+if (!planArg || !/^R?\d+[A-Za-z]?$/.test(phaseArg ?? "")) {
   process.stderr.write("usage: preflight.mjs <docs/plans/NNN-*.md> <phase-label>\n");
   process.exit(2);
 }
@@ -154,16 +155,17 @@ const NON_SHIPPING_TYPE = /^(?:docs|chore)(?:\([^)]*\))?!?:/i;
 // `"phase"` or `"task"`, with every distinct task number it saw — so a caller
 // can tell a finished phase from a partly-landed one. Each form guards its
 // tail, so `Phase 3` does not match `Phase 3B`, `P1` does not match `P12`, and
-// `T3.` does not match `T31.5`; a lettered phase (`3B`) is a split of its
-// parent that only the long form spells, so it matches `Phase 3B` alone.
+// `T3.` does not match `T31.5`. Only a plain number has the `PN` and `TN.k`
+// shorthands: a supplement (`3B`) and a remainder phase (`R2`) are spelled in
+// full wherever history names them, and `PR2` would read as a pull request.
 function shipped(plan, phaseLabel) {
   const label = String(phaseLabel);
-  const lettered = /[A-Za-z]$/.test(label);
+  const plainNumber = /^\d+$/.test(label);
   const phaseForms = [`Phase\\s+${label}(?![0-9A-Za-z])`];
-  if (!lettered) phaseForms.push(`P${label}(?![0-9A-Za-z])`);
+  if (plainNumber) phaseForms.push(`P${label}(?![0-9A-Za-z])`);
   const phaseToken = new RegExp(`${plan}\\s+(?:${phaseForms.join("|")})`, "i");
-  const taskAnchor = lettered ? null : new RegExp(`${plan}\\s+T${label}\\.[0-9]`, "i");
-  const taskNumber = lettered ? null : new RegExp(`T${label}\\.([0-9]+)`, "gi");
+  const taskAnchor = plainNumber ? new RegExp(`${plan}\\s+T${label}\\.[0-9]`, "i") : null;
+  const taskNumber = plainNumber ? new RegExp(`T${label}\\.([0-9]+)`, "gi") : null;
 
   const taskNumbers = new Set();
   let phaseEntry = null;
@@ -231,7 +233,7 @@ if (labelIndex !== -1) {
 // qualified singular let every other shape pass unchecked, which is the one
 // failure direction this check exists to prevent: a false red costs a re-read,
 // a false green dispatches work whose prerequisite has not shipped.
-const LABEL = "[0-9]+[A-Za-z]?";
+const LABEL = "R?[0-9]+[A-Za-z]?";
 const SEPARATOR = "\\s*(?:,|and|&|\\+|-|–|—|to)\\s*";
 const PHASE_REFERENCE = new RegExp(
   `(?:(Plan-\\d{3})\\s+)?Phases?\\s+(${LABEL}(?:${SEPARATOR}${LABEL})*)`,
