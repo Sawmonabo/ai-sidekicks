@@ -4,7 +4,7 @@ Binding for every change under `apps/desktop/`, in any tool. Repo-wide conventio
 
 ## No governance references in code
 
-The rule on governance identifiers is CLAUDE.md rule 3; it applies to every file in this package.
+The rule on governance identifiers is AGENTS.md rule 3; it applies to every file in this package.
 
 ## Mechanical gates
 

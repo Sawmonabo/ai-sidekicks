@@ -8,4 +8,4 @@ Read this once before landing a change that renames, moves, or deletes something
 4. **A table with a total row?** Re-add the column from its source rows at edit time; never carry a total forward.
 5. **A checker or formatter said "clean"?** That proves only what it scans. Prettier rewrites malformed tables and italics into different malformed text and stays green; read the rendered diff.
 
-Related: `CLAUDE.md` §Docs, `docs/operations/repo-and-worktree-recovery.md`.
+Related: `AGENTS.md` §Docs, `docs/operations/repo-and-worktree-recovery.md`.
