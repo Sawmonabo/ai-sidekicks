@@ -28,7 +28,7 @@ It is not worth running for cosmetic doc edits, ADR amendments that don't change
 ## Preconditions
 
 - The audit calibration band (B1–B6) was established against Opus 4.7 during the Tier 1 pilot. Audit, dep-trace, and recent-data research subagents run the session's frontier-tier model, inherited at dispatch. On a model-family change (e.g. Opus → Fable), record any calibration drift against B1–B6 in §Lessons Learned for that tier.
-- Each audited plan's own phase table is current; what has merged is `git log --oneline --grep 'Plan-NNN'`.
+- Each audited plan's own phase table is current; what has merged is `git log --oneline --grep 'Plan-'`.
 - Pre-audit naming sweep (`PR #N` → `Phase N`) has been committed; otherwise findings cite stale GitHub-auto-link-colliding shapes.
 - `.agents/tmp/research/plan-readiness-audit/` working directory exists and is gitignored (it is, via the project's root `.gitignore`).
 
@@ -482,20 +482,7 @@ A **main-agent** check run once per tier at synthesis — **not** a per-Phase su
 2. **Verify every site agrees in the same tier swap.** A fact changed in one document with a sibling left stale is a `C-K-NN` cross-cutting finding (REVIEW.md §Cross-Cutting Findings This Tier), reconciled before the swap — never deferred to the review loop.
 3. **Re-compute every arithmetic total.** Treat each census / generated-union / registry count as a computed invariant: re-sum its source column and reconcile **every** document asserting that total — in-table **Total** row, prose summary line, and any sibling document's restatement — in one pass. Never assert a total you did not just compute.
 
-The within-document arithmetic slice of step 3 is mechanized by gate G7: mark a summable breakdown table with the `corpus:total-check` convention (documented in `tools/docs-corpus/lib/table-total-coherence.ts`) so the lint re-sums it on every commit. Place the marker **inline, trailing the table's total prose line** — not on its own line — so it adds no line (preserving inbound `:NNN` line-cites) and `prettier --check` leaves it untouched:
-
-```markdown
-Total enumerated event types: **130** <!-- corpus:total-check column="Count" prose-total="Total enumerated event types" -->
-
-| Category  | Count   | Types |
-| --------- | ------- | ----- |
-| ...       | ...     | ...   |
-| **Total** | **130** | ...   |
-```
-
-`prose-total` reconciles two phrasings: the colon form above (`<label>: N`, number after the label) and the prefix form `N-<label>` (number before the label, as Plan-005 restates it: `**156-event type registry across 20 categories**`). Declare one `prose-total` per restatement the table's total is also stated in.
-
-The cross-document agreement (step 2) and the prose-restatement reciprocity remain judgment work here — no regex catches a fact restated in different words across documents.
+The cross-document agreement (step 2) and the prose-restatement reciprocity are judgment work — no regex catches a fact restated in different words across documents.
 
 **Stop rule.** If a review-fix loop's findings-per-round stays flat across ≥3 rounds, the loop is patching symptoms of an un-swept fact class — stop and run this sweep forward over every changed fact before the next push, rather than fixing one named site at a time. (PR #152 ran the narrow per-finding loop 21 times without reading the flat curve.)
 

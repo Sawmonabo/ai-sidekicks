@@ -62,7 +62,7 @@ Rules 2, 4, 9, and 12 are answered by static analysis, not by reading: symbol re
 ## Docs
 
 - `docs/specs/` what a feature is · `docs/plans/` how it gets built · `docs/decisions/` ADRs (Type 1 reversible, Type 2 one-way) · `docs/domain/`, `docs/architecture/`, `docs/operations/` reference.
-- Skeletons in each folder's `000-*-template.md`, for when you want one. A new spec or plan starts `draft` and becomes `ready`; existing documents keep the status they carry. A document records what was intended when it was written. Changing code later does not reopen it, does not change its status, and needs no audit; edit a document only when you want it to say something different.
+- Skeletons in each folder's template file, for when you want one. A new spec or plan starts `draft` and becomes `ready`; existing documents keep the status they carry. A document records what was intended when it was written. Changing code later does not reopen it, does not change its status, and needs no audit; edit a document only when you want it to say something different.
 - Link to a heading as an ordinary markdown link (`[Spec-005 §Heading](../specs/005-x.md#heading)`); `lychee` checks links in CI. No line-number citations. When you rename or move a heading, fix every link to it in the same commit. `docs/operations/failure-mode-catalog.md` is the five-item checklist for edits that rename or move things.
-- `docs/superpowers/` and `docs/archive/` are frozen.
+- `docs/superpowers/` and `docs/archive/` are frozen, except to repair a link to something that moved.
 - `docs/backlog.md` lists only work blocked on the outside world.

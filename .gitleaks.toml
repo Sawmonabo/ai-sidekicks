@@ -3,6 +3,11 @@ title = "ai-sidekicks gitleaks config"
 [extend]
 useDefault = true
 
+# Every regex below is anchored `^...$` and `regexTarget` is `secret`, so an
+# entry waives exactly the one literal it names. An unanchored entry waives
+# every secret that merely contains the token — a real 64-hex key extracted as
+# `Ed25519PrivateKeyf3a91c7d...` would be passed through — and a match- or
+# line-scoped target waives surrounding text nobody argued is safe.
 [allowlist]
 description = "AWS KMS Ed25519 keyspec enum constant + crypto-algorithm prose tokens + Ed25519PrivateKey type name + PASETO v4 RFC test vectors"
 condition = "OR"

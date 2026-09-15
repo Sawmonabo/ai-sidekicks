@@ -1,6 +1,6 @@
 ---
 name: plan-execution
-description: Build one phase of a docs/plans/NNN plan as one PR — analyst, implementer, one reviewer, Codex check.
+description: Build one phase of a docs/plans/NNN plan as one PR — analyst, implementer, one reviewer, Codex check; naming a plan is not a trigger.
 ---
 
 # plan-execution

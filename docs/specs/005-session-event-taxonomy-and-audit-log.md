@@ -601,7 +601,7 @@ Reserved, no types registered (B1): realtime/voice channel events are gated behi
 
 ### Event Type Summary
 
-Total enumerated event types: **150** <!-- corpus:total-check column="Count" prose-total="Total enumerated event types" -->
+Total enumerated event types: **150**
 
 | Category | Count | Types |
 | --- | --- | --- |

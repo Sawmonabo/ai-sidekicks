@@ -111,7 +111,7 @@ The bullets above name the file each service lives in. This subsection names who
 
 ## Event Taxonomy Coverage
 
-Plan-005 owns the **150-event type registry across 20 categories** per [Spec-005 §Event Type Summary](../specs/005-session-event-taxonomy-and-audit-log.md#event-type-summary), the canonical count; contracts registration lands through T1.10, Plan-014 T1.13, and Plan-027 T4.2 (the last through the union-registration seam, per Plan-027 CP-027-5). The 20 categories: <!-- corpus:total-check column="Count" prose-total="event type registry" prose-total="event taxonomy registry" -->
+Plan-005 owns the **150-event type registry across 20 categories** per [Spec-005 §Event Type Summary](../specs/005-session-event-taxonomy-and-audit-log.md#event-type-summary), the canonical count; contracts registration lands through T1.10, Plan-014 T1.13, and Plan-027 T4.2 (the last through the union-registration seam, per Plan-027 CP-027-5). The 20 categories:
 
 | Category | Count | Emitter Plan |
 | --- | --- | --- |

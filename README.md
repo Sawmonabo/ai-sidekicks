@@ -218,7 +218,7 @@ V1 ships 21 core features across CLI and Desktop GUI per [ADR-015: V1 Feature Sc
 
 ## Build Order
 
-Phases still to build, and the order between them, live in [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). What has shipped is `git log --oneline --grep 'Plan-NNN'`.
+Phases still to build, and the order between them, live in [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). What has shipped is `git log --oneline --grep 'Plan-'`.
 
 ---
 
