@@ -27,7 +27,7 @@ It is not worth running for cosmetic doc edits, ADR amendments that don't change
 
 ## Preconditions
 
-- The audit calibration band (B1–B6) was established against Opus 4.7 during the Tier 1 pilot. Audit, dep-trace, and recent-data research subagents run the session's frontier-tier model, inherited at dispatch per `AGENTS.md` §Model Policy. On a model-family change (e.g. Opus → Fable), record any calibration drift against B1–B6 in §Lessons Learned for that tier.
+- The audit calibration band (B1–B6) was established against Opus 4.7 during the Tier 1 pilot. Audit, dep-trace, and recent-data research subagents run the session's frontier-tier model, inherited at dispatch. On a model-family change (e.g. Opus → Fable), record any calibration drift against B1–B6 in §Lessons Learned for that tier.
 - Each audited plan's own phase table is current; what has merged is `git log --oneline --grep 'Plan-NNN'`.
 - Pre-audit naming sweep (`PR #N` → `Phase N`) has been committed; otherwise findings cite stale GitHub-auto-link-colliding shapes.
 - `.agents/tmp/research/plan-readiness-audit/` working directory exists and is gitignored (it is, via the project's root `.gitignore`).
@@ -256,9 +256,9 @@ ROLE: You are a per-Phase completeness auditor for an AI Sidekicks V1
 implementation plan. You audit ONE Phase of ONE plan, in isolation, and
 produce a findings file.
 
-MODEL: You run as the session's frontier-tier model, inherited at dispatch
-per AGENTS.md §Model Policy. Refuse only if you identify as a small/fast-tier
-(Haiku- or Sonnet-class) model.
+MODEL: You run as the session's frontier-tier model, inherited at dispatch.
+Refuse only if you identify as a small/fast-tier (Haiku- or Sonnet-class)
+model.
 
 SCOPE: Plan-NNN, Phase N (single Phase only).
 
@@ -391,9 +391,9 @@ plan. You correct or backfill `**Spec coverage:**` and `**Verifies invariant:**`
 annotations on existing `#### Tasks` rows. You DO NOT author new Tasks; you
 DO NOT modify Files / Goal / Implementation Notes / Precondition prose.
 
-MODEL: You run as the session's frontier-tier model, inherited at dispatch
-per AGENTS.md §Model Policy. Refuse only if you identify as a small/fast-tier
-(Haiku- or Sonnet-class) model.
+MODEL: You run as the session's frontier-tier model, inherited at dispatch.
+Refuse only if you identify as a small/fast-tier (Haiku- or Sonnet-class)
+model.
 
 SCOPE: Plan-NNN, Tasks in scope (the orchestrator names specific Task IDs).
 
@@ -574,7 +574,7 @@ Plan-006 partial Phases 1-3 (PRs #16/#17/#19) shipped without audit coverage AND
 
 The Tier-5 swap surfaced four distinct cite forms, each with a different validation owner: path-attached `basename.md:NNN[-MMM]` / `basename.md line[s] NNN` (docs-corpus cite-target-existence, docs→docs only); bare continuations `, :NNN` adjacent to a path cite (no hook; sweep-only); prefix-form `Spec-NNN:LLL` in code comments (label-cite gate, code→docs only); link-then-colon `](path.md):NNN` (cite-target-existence). A sweep regex built for one form silently misses the others — the first Tier-5 commit attempt failed on 9 label-cite + 3 cite-target-existence violations from the two unswept forms. Second lesson: byte-identity content-preservation proofs pass vacuously on blank lines (blank==blank), so a mechanical shift of an already-broken cite preserves brokenness undetected — convergence scanning must assert target-line non-blankness, which surfaced 23 pre-existing-broken anchors re-anchored by content. Lefthook prints hook failures above its summary block; a `tail`-truncated read of commit output mistakes failure for success. Round-8 surfaced a FIFTH cite form none of the prior sweeps covered: label-space-line (`Spec-NNN line N`) plus bare `line N` comma-continuations that bind to the most recent Spec/Plan/ADR label — a round-5 one-line spec insert left 69 stale instances in plan-019 alone, undetected for three rounds; sweeps need a label-stateful pass, and bare `line N` tokens adjacent to a path cite must bind to the path, not the label. Round-10 surfaced the code-tree enforcement asymmetry: the full-repo CI label-cite check validates `packages/**`/`apps/**` governance cites for target-line non-emptiness, but lefthook pre-commit scopes to STAGED files — so an in-PR line shift that moves an inbound code-cite's target onto a blank line passes every local gate and fails only in CI (`runtime-node.test.ts:725` citing `error-contracts.md:343` — already semantically stale at develop, where the file was too short for `:343` to exist). Sweep rule: when a doc shifts lines, re-anchor inbound CODE cites in-PR alongside doc cites, even when the cite was already stale at develop (CI enforcement overrides the era-disposition split; the semantic fix rides the mechanical one). Codex review cadence on the swap PR: 21 rounds, 85 threads — 84 adjudicated REAL and fixed in-PR, 1 refuted with scripted re-derivation (the spec-005 census arithmetic; refutations get the same reply-before-resolve treatment, with full receipts in the reply). Large-diff sampling means each round reads new regions — plan on N rounds, not one; re-trigger with an `@codex review` PR comment if the on-push trigger goes silent ~15-20 min; a clean final verdict arrives as a 👀→👍 reaction swap with NO review object, so gate on the reaction actor + zero new threads, never on a review-object ack alone; `gh run rerun <id> --failed` clears the recurring Electron-smoke flake on docs-only diffs. <!-- cite-shape-example -->
 
-2026-07 update: the code→docs prefix-form population this entry describes was converted to gate-verified `§Heading` anchors and new raw forms are denied (see AGENTS.md §Durable-Cite Rule); the code-cite sweep rule above is historical.
+2026-07 update: the code→docs prefix-form population this entry describes was converted to gate-verified `§Heading` anchors and new raw forms were denied under the citation rule in force then; the code-cite sweep rule above is historical.
 
 ### Tier 6 (Plans 009/012/013) — backfill-dominant audit, long-convergence contract lessons (2026-06-19)
 
