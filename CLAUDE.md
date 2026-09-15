@@ -2,5 +2,5 @@
 
 ## Claude Code
 
-- The `WorktreeCreate` and `WorktreeRemove` hooks in `.claude/settings.json` run `.claude/hooks/worktree.sh`: new worktrees land under `.worktrees/<name>/`, and a removal refuses while another session is working there (rule 4).
-- `.claude/rules/` holds rules loaded into every session; `coding-standards.md` is the naming rule of rule 11.
+- `.claude/settings.json` wires the `WorktreeCreate` and `WorktreeRemove` hooks to `.claude/hooks/worktree.sh`, which creates worktrees under `.worktrees/` and refuses to remove an occupied one unless `WORKTREE_REMOVE_ALLOW_OCCUPIED=1` is set.
+- `.claude/rules/coding-standards.md` loads when you open code under `packages/`, `apps/`, `tools/`, or `.claude/hooks/`. `.claude/skills/` holds skills you invoke by name.

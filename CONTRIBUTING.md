@@ -1,6 +1,6 @@
 # Contributing
 
-Mechanics only. What the project is, how work lands, and the rules are in [`AGENTS.md`](AGENTS.md).
+How work lands (branches, squash-merge, what CI and review mean on `develop`, the rules): [AGENTS.md](AGENTS.md). This file holds the mechanics.
 
 ## Commits
 
@@ -8,7 +8,7 @@ Conventional Commits: `type(scope): subject`. Types: `feat fix build chore ci do
 
 ## Branch names
 
-`<type>/<topic>` in kebab-case, where `type` is one of `feat`, `fix`, `refactor`, `chore`, `docs`, `test`, `ci`.
+Cut every branch from `develop` as `<type>/<topic>` in kebab-case, where `type` is one of `feat`, `fix`, `refactor`, `chore`, `docs`, `test`, `ci`.
 
 ## Hooks
 
@@ -16,7 +16,7 @@ Conventional Commits: `type(scope): subject`. Types: `feat fix build chore ci do
 
 ## Pull requests
 
-Open the PR with the whole description in the first `gh pr create` call. CI runs (`ci-gate`, `docs-corpus-gate`) and the Codex bot reviews. Squash-merge when you decide; the squash subject becomes permanent history, so keep it commitlint-valid including the ` (#NNN)` suffix. Delete the branch afterwards.
+Open the PR with the whole description in the first `gh pr create` call. The summary checks are `ci-gate` and `docs-corpus-gate`. The squash subject becomes permanent history, so keep it commitlint-valid including the ` (#NNN)` suffix. Delete the branch afterwards.
 
 ## Two kinds of work
 

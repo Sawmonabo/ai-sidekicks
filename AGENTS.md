@@ -1,6 +1,6 @@
 # AGENTS.md
 
-The instruction file for every tool working in this repo. `CLAUDE.md` imports it; Codex, Cursor and Aider read it directly.
+Instructions for every AI coding tool working in this repo (Claude Code, Codex, Cursor, Copilot, Aider). Claude Code reads it through `CLAUDE.md`, which imports this file and adds only what is specific to Claude Code.
 
 ## What this is
 
@@ -18,7 +18,7 @@ pnpm 10.33.2, Node ≥ 22.14. Never `npm` (the engines field rejects it).
 
 ## How work lands
 
-Branch off `develop` as `<type>/<topic>`, open a PR, squash-merge. CI and Codex review run on every PR and report; on `develop` they inform, they never block. `main` is the release branch and the only protected one. Commit messages: `type(scope): subject`, lowercase, header ≤ 72 characters; the hook checks the format and warns on an unknown scope.
+Branch off `develop` as `<type>/<topic>`, open a PR, squash-merge. CI and Codex review run on every PR and report; on `develop` they inform, they never block. `main` is the release branch and the only protected one. Commit format, types, and scopes: [CONTRIBUTING.md §Commits](CONTRIBUTING.md#commits).
 
 ## Rules with a reason
 
@@ -50,15 +50,19 @@ Rules 2, 4, 9, and 12 are answered by static analysis, not by reading: symbol re
 
 ## Working style
 
+- A user instruction outranks this file; this file outranks any skill or plugin text. When two instructions conflict, take the reversible reading and say so.
 - Do the task that was asked; report anything else you found as a follow-up with a reason, not as extra changes.
-- Before reporting progress, audit each claim against a tool result from this session. Report only work you can point to evidence for; if something is not yet verified, say so.
-- Ask before a hard-to-reverse action (force-push, deleting a branch someone else may hold, a settings change on GitHub). Do not ask before reversible work.
+- Before reporting, audit each claim against a tool result from this session; report only work you can point to evidence for. A failing test or check is yours to investigate and resolve before you report.
+- Proceed without asking for normal development and git work. Ask only before an action that could damage the machine or the environment outside this repo.
 - Run the package's tests for what you changed; run `pnpm typecheck && pnpm lint` before opening a PR. Rerun a test only when a new failure justifies it.
+- A subagent brief names the goal, the files and symbols that already exist, what not to touch, and what done looks like. Split parallel work by non-overlapping file sets; parallel reading is safe, parallel writing conflicts.
+- Research scratch goes under `.agents/tmp/<topic>/` (gitignored). A committed document never links there; if a finding matters, write it into the document that needs it, with its source.
+- When reviewing, report every finding with a severity; do not pre-filter.
 
 ## Docs
 
 - `docs/specs/` what a feature is · `docs/plans/` how it gets built · `docs/decisions/` ADRs (Type 1 reversible, Type 2 one-way) · `docs/domain/`, `docs/architecture/`, `docs/operations/` reference.
-- Skeletons in each folder's `000-*-template.md`, for when you want one. A new spec or plan starts `draft` and becomes `ready`; existing documents keep the status they carry. A document records what was intended when it was written. Changing code later does not reopen it.
+- Skeletons in each folder's `000-*-template.md`, for when you want one. A new spec or plan starts `draft` and becomes `ready`; existing documents keep the status they carry. A document records what was intended when it was written. Changing code later does not reopen it, does not change its status, and needs no audit; edit a document only when you want it to say something different.
 - Link to a heading as an ordinary markdown link (`[Spec-005 §Heading](../specs/005-x.md#heading)`); `lychee` checks links in CI. No line-number citations. When you rename or move a heading, fix every link to it in the same commit. `docs/operations/failure-mode-catalog.md` is the five-item checklist for edits that rename or move things.
-- Research scratch lives in `.agents/tmp/` (gitignored); committed docs never link there. `docs/superpowers/` and `docs/archive/` are frozen.
+- `docs/superpowers/` and `docs/archive/` are frozen.
 - `docs/backlog.md` lists only work blocked on the outside world.

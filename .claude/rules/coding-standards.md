@@ -1,3 +1,11 @@
+---
+paths:
+  - "packages/**"
+  - "apps/**"
+  - "tools/**"
+  - ".claude/hooks/**"
+---
+
 # Coding Standards
 
 Rules below apply to all code you write, in every language and project. Keep this file to genuinely universal standards — anything language-, paradigm-, or repo-specific belongs in that project's instructions, not here.
