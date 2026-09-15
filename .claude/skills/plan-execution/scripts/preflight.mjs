@@ -234,7 +234,7 @@ if (labelIndex !== -1) {
 // failure direction this check exists to prevent: a false red costs a re-read,
 // a false green dispatches work whose prerequisite has not shipped.
 const LABEL = "R?[0-9]+[A-Za-z]?";
-const SEPARATOR = "\\s*(?:,|and|&|\\+|-|–|—|to)\\s*";
+const SEPARATOR = "\\s*(?:,|and|&|\\+|/|-|–|—|to)\\s*";
 const PHASE_REFERENCE = new RegExp(
   `(?:(Plan-\\d{3})\\s+)?Phases?\\s+(${LABEL}(?:${SEPARATOR}${LABEL})*)`,
   "g",
