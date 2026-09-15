@@ -233,8 +233,8 @@ Code execution is under way. What is left to build, and the order between the pi
 | Area | Path | Description |
 | --- | --- | --- |
 | Vision | [`docs/vision.md`](docs/vision.md) | Product thesis and architectural position |
-| Specs | [`docs/specs/`](docs/specs/) | Feature specifications (the census above is the authoritative list) |
-| Plans | [`docs/plans/`](docs/plans/) | Implementation plans (the census above is the authoritative list) |
+| Specs | [`docs/specs/`](docs/specs/) | Feature specifications |
+| Plans | [`docs/plans/`](docs/plans/) | Implementation plans |
 | Architecture | [`docs/architecture/`](docs/architecture/) | Schemas, contracts, security, deployment |
 | Domain Models | [`docs/domain/`](docs/domain/) | State machines, glossary, entity models |
 | ADRs | [`docs/decisions/`](docs/decisions/) | Architectural decision records |

@@ -7,14 +7,17 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
 
+// A phase label is a number, optionally with a letter: several plans split a
+// phase into `3A` / `3B` supplements and dispatch them under that label, so
+// coercing the argument to a number would make those phases undispatchable.
 const [planArg, phaseArg] = process.argv.slice(2);
-if (!planArg || !/^\d+$/.test(phaseArg ?? "")) {
-  process.stderr.write("usage: preflight.mjs <docs/plans/NNN-*.md> <phase-number>\n");
+if (!planArg || !/^\d+[A-Za-z]?$/.test(phaseArg ?? "")) {
+  process.stderr.write("usage: preflight.mjs <docs/plans/NNN-*.md> <phase-label>\n");
   process.exit(2);
 }
 
 const planFile = path.resolve(planArg);
-const phase = Number(phaseArg);
+const phase = phaseArg;
 const fail = (message) => {
   process.stderr.write(`preflight: ${message}\n`);
   process.exit(1);
@@ -35,7 +38,8 @@ if (!["ready", "approved", "completed"].includes(status))
 ok("plan is ready");
 
 // 2. The phase section exists.
-const phaseHeading = new RegExp(`^###\\s+Phase\\s+${phase}\\b.*$`, "m");
+// The tail guard keeps `Phase 3` off `### Phase 3B`: a split is its own phase.
+const phaseHeading = new RegExp(`^###\\s+Phase\\s+${phase}(?![0-9A-Za-z]).*$`, "m");
 const headingMatch = source.match(phaseHeading);
 if (!headingMatch) fail(`no "### Phase ${phase}" section in ${planArg}`);
 const sectionStart = headingMatch.index + headingMatch[0].length;
@@ -220,15 +224,21 @@ if (labelIndex !== -1) {
   const collected = [inline, ...block].join(" ").replace(/\s+/g, " ").trim();
   if (collected !== "") preconditionText = collected;
 }
-for (const m of preconditionText.matchAll(/(Plan-\d{3})\s+Phase\s+(\d+[A-Za-z]?)/g)) {
-  const evidence = shipped(m[1], m[2]);
-  if (!evidence) fail(`precondition not met: ${m[1]} Phase ${m[2]} is not in git log`);
+// A precondition names a phase either in full (`Plan-005 Phase 1 merged`) or
+// bare (`Phase 1 merged`), and the bare form is the common one because most
+// preconditions point at this plan's own earlier phase. Reading only the
+// qualified form let every bare reference pass unchecked, which is the one
+// failure direction this check exists to prevent.
+for (const m of preconditionText.matchAll(/(?:(Plan-\d{3})\s+)?Phase\s+(\d+[A-Za-z]?)/g)) {
+  const referencedPlan = m[1] ?? planToken;
+  const evidence = shipped(referencedPlan, m[2]);
+  if (!evidence) fail(`precondition not met: ${referencedPlan} Phase ${m[2]} is not in git log`);
   // One task token is one task, not the phase; two distinct ones are a phase
   // that shipped under task subjects.
   if (evidence.kind === "task" && evidence.taskNumbers.size < 2)
     fail(
-      `precondition not met: ${m[1]} Phase ${m[2]} has one task in git log, not the phase: ` +
-        evidence.original,
+      `precondition not met: ${referencedPlan} Phase ${m[2]} has one task in git log, ` +
+        `not the phase: ${evidence.original}`,
     );
 }
 ok(`preconditions satisfied (${preconditionText.trim()})`);

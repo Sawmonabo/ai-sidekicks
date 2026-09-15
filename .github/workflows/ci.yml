@@ -73,14 +73,25 @@ jobs:
         uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
         with:
           filters: |
+            # Each filter names the workflow itself and the root task config
+            # its jobs read: a PR that changes only the matrix, a tier's turbo
+            # task, or the workspace build policy must run the job it changed,
+            # or a runtime error in that edit merges unexercised and surfaces
+            # on the next unrelated run.
             desktop:
               - 'apps/desktop/**'
               - 'packages/**'
               - 'pnpm-lock.yaml'
+              - 'turbo.json'
+              - '.github/workflows/ci.yml'
             deps:
               - 'pnpm-lock.yaml'
               - '**/package.json'
               - '.npmrc'
+              # `allowBuilds` for `better-sqlite3` lives here, and denying its
+              # implicit build is what the native-prebuild matrix asserts.
+              - 'pnpm-workspace.yaml'
+              - '.github/workflows/ci.yml'
 
   # Tier-1 (Node 22.14 — daemon + Electron renderer + shared packages per ADR-022
   # §Decision row 8). Runs the full repo-wide lint + format check + build +

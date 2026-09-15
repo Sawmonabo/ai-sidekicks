@@ -68,6 +68,10 @@ jobs:
               - '**/*.md'
               - 'tools/docs-corpus/**'
               - '.lychee.toml'
+              # A PR that changes only the lychee install or the check command
+              # must run them; the weekly schedule runs lychee-outbound alone,
+              # so nothing else would catch a broken inbound gate.
+              - '.github/workflows/docs-corpus.yml'
 
   lychee-inbound:
     name: lychee — inbound anchors (required)

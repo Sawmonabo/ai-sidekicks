@@ -22,16 +22,38 @@ function checkFile(file) {
   }
   const lines = source.split("\n");
   const problems = [];
-  let inFence = false;
+  // The marker character and length of the fence currently open, or null.
+  // Toggling a single boolean on any fence line closes a `~~~` block at the
+  // first ``` inside it, which then reads that block's example tables as live
+  // markdown. A closing fence is the same character, at least as long as the
+  // opener, and carries nothing after it.
+  let openFence = null;
   let headerCells = null;
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
-    if (/^\s*(```|~~~)/.test(line)) {
-      inFence = !inFence;
-      headerCells = null;
-      continue;
+    const fence = line.match(/^\s*(`{3,}|~{3,})(.*)$/);
+    if (fence) {
+      const marker = fence[1][0];
+      const length = fence[1].length;
+      const rest = fence[2];
+      if (openFence === null) {
+        // An opening backtick fence's info string may not itself contain a
+        // backtick, so `` ```a`b `` is a paragraph, not a fence.
+        if (!(marker === "`" && rest.includes("`"))) {
+          openFence = { marker, length };
+          headerCells = null;
+          continue;
+        }
+      } else if (marker === openFence.marker && length >= openFence.length && rest.trim() === "") {
+        openFence = null;
+        headerCells = null;
+        continue;
+      } else {
+        // A fence line that does not close the open block is its content.
+        continue;
+      }
     }
-    if (inFence) continue;
+    if (openFence !== null) continue;
     const isRow = /^\s*\|.*\|\s*$/.test(line);
     if (!isRow) {
       headerCells = null;

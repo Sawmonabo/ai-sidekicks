@@ -33,6 +33,20 @@ test("an escaped pipe is one cell and a fenced table is ignored", () => {
   assert.equal(r.status, 0, r.stderr);
 });
 
+test("an inner fence of the other marker does not end the block", () => {
+  // A `~~~markdown` block whose example contains a ``` fence: a checker that
+  // toggles one boolean leaves the block at the inner fence and reads the
+  // example table as live markdown.
+  const r = runOn("~~~markdown\n```\n| a | b |\n| --- | --- |\n| 1 | 2 | 3 |\n```\n~~~\n");
+  assert.equal(r.status, 0, r.stderr);
+});
+
+test("a table after a closed fence is still checked", () => {
+  const r = runOn("```\n| x |\n```\n\n| a | b |\n| --- | --- |\n| 1 | 2 | 3 |\n");
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /t\.md:7: expected 2 cells, found 3/);
+});
+
 test("no arguments prints usage and exits 2", () => {
   const r = spawnSync(process.execPath, [SCRIPT], { encoding: "utf8" });
   assert.equal(r.status, 2);
