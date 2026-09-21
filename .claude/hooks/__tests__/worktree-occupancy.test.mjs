@@ -1,7 +1,7 @@
-// node:test suite for the command-guard.py --occupancy CLI and for
+// node:test suite for the worktree-occupancy.py --occupancy CLI and for
 // worktree.sh cmd_remove. Both are driven as subprocesses — the repo has no
 // Python test framework, so the hooks are pinned from Node.
-// Run via: node --test .claude/hooks/__tests__/command-guard.test.mjs
+// Run via: node --test .claude/hooks/__tests__/worktree-occupancy.test.mjs
 
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
@@ -14,7 +14,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import process from "node:process";
 
 const hooksDir = join(dirname(fileURLToPath(import.meta.url)), "..");
-const guardPath = join(hooksDir, "command-guard.py");
+const guardPath = join(hooksDir, "worktree-occupancy.py");
 const worktreeShPath = join(hooksDir, "worktree.sh");
 
 // ---------- fixture: throwaway git repo with real worktrees ----------
@@ -161,12 +161,12 @@ test("--occupancy exits 2 on a path that is not an existing directory", () => {
   assert.equal(result.stdout, "");
 });
 
-test("command-guard: any other invocation prints usage and exits 2", () => {
+test("worktree-occupancy: any other invocation prints usage and exits 2", () => {
   const result = spawnSync("python3", [guardPath, "--deny", "git worktree add /tmp/x"], {
     encoding: "utf8",
   });
   assert.equal(result.status, 2);
-  assert.match(result.stderr, /usage: command-guard\.py --occupancy/);
+  assert.match(result.stderr, /usage: worktree-occupancy\.py --occupancy/);
 });
 
 // ---------- worktree.sh cmd_remove ----------

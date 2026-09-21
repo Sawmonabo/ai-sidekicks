@@ -12,7 +12,7 @@
 
 ### 1.1 Purpose
 
-This document defines the design contract for the `@ai-sidekicks/crypto-paseto` workspace package: its public interfaces, cryptographic invariants, threat model, and the seams it preserves for downstream consumers ([Plan-016](../../plans/016-identity-and-user-state.md) Tier 4 refresh-token persistence; the retired self-hostable-node-relay plan Tier 6 relay-server token verification).
+This document defines the design contract for the `@ai-sidekicks/crypto-paseto` workspace package: its public interfaces, cryptographic invariants, threat model, and the seams it preserves for downstream consumers ([Plan-016](../../../plans/016-identity-and-user-state.md) Tier 4 refresh-token persistence; the retired self-hostable-node-relay plan Tier 6 relay-server token verification).
 
 The package ships PASETO v4.public and v4.local primitives plus a PAE helper and an in-memory KeyRing — together they form the cryptographic substrate that V1 authentication tracks depend on.
 
@@ -21,20 +21,20 @@ The package ships PASETO v4.public and v4.local primitives plus a PAE helper and
 This design spec deliberately does **not** cover:
 
 - **Relay-server wire protocol** — owned by the retired control-plane-relay-and-session-join spec (v2 wire protocol) + the retired self-hostable-node-relay spec (Node.js deployment), implemented in the retired self-hostable-node-relay plan Tier 6.
-- **Persistence backend for KeyRing** — owned by [Plan-016](../../plans/016-identity-and-user-state.md) Tier 4. The constructor seam (§8) is the integration surface; substance lives downstream.
+- **Persistence backend for KeyRing** — owned by [Plan-016](../../../plans/016-identity-and-user-state.md) Tier 4. The constructor seam (§8) is the integration surface; substance lives downstream.
 - **Operator-facing config and deployment posture** — owned by the retired self-hostable-node-relay spec (Docker / Caddy / reverse-proxy topology).
-- **End-user-facing token issuance flows** — owned by the retired invite-membership-and-presence plan (invite tokens) and [Plan-016](../../plans/016-identity-and-user-state.md) (refresh tokens).
+- **End-user-facing token issuance flows** — owned by the retired invite-membership-and-presence plan (invite tokens) and [Plan-016](../../../plans/016-identity-and-user-state.md) (refresh tokens).
 
 ### 1.3 Why `substrate_exempt`
 
-The retired self-hostable-node-relay plan Tier 1 Partial Phase 1 (the implementation phase this design governs) is admitted under the readiness-audit runbook's [§Per-Phase Audit Semantics](../../operations/plan-implementation-readiness-audit-runbook.md) `substrate_exempt` predicate: `spec_coverage: []` because the retired self-hostable-node-relay spec governs network behavior (the relay surface) — not package-level primitives. The plan-readiness audit gates G1–G7 do not apply to the implementation PR; [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md) acceptance criteria apply at code-review time.
+The retired self-hostable-node-relay plan Tier 1 Partial Phase 1 (the implementation phase this design governs) is admitted under the readiness-audit runbook's [§Per-Phase Audit Semantics](../../../operations/plan-implementation-readiness-audit-runbook.md) `substrate_exempt` predicate: `spec_coverage: []` because the retired self-hostable-node-relay spec governs network behavior (the relay surface) — not package-level primitives. The plan-readiness audit gates G1–G7 do not apply to the implementation PR; [ADR-010](../../../decisions/010-paseto-webauthn-mls-auth.md) acceptance criteria apply at code-review time.
 
 ## 2. Governing contracts
 
 | Source | Role |
 | --- | --- |
-| [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md):129–136 | Authoritative contract: in-house lib mandate + v4.public + v4.local dual coverage + audited deps (`@noble/curves`, `@noble/ciphers`, `@noble/hashes`) |
-| [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md):29 | Plan-016 v4.local dependency declared |
+| [ADR-010](../../../decisions/010-paseto-webauthn-mls-auth.md):129–136 | Authoritative contract: in-house lib mandate + v4.public + v4.local dual coverage + audited deps (`@noble/curves`, `@noble/ciphers`, `@noble/hashes`) |
+| [ADR-010](../../../decisions/010-paseto-webauthn-mls-auth.md):29 | Plan-016 v4.local dependency declared |
 | PASETO Spec — Version 4 | Primary source for both primitives — https://github.com/paseto-standard/paseto-spec/blob/master/docs/01-Protocol-Versions/Version4.md |
 | PASETO Spec — Common (PAE) | Primary source for Pre-Authentication Encoding — https://github.com/paseto-standard/paseto-spec/blob/master/docs/01-Protocol-Versions/Common.md |
 | PASETO Test Vectors v4 | Release-gate vector source — https://github.com/paseto-standard/test-vectors/blob/master/v4.json |
@@ -319,7 +319,7 @@ The Phase 1 KeyRing is **in-memory only**. No file I/O, no database access, no o
 
 ### 8.1 Why in-memory only
 
-Cross-plan dependencies §5 names [Plan-016](../../plans/016-identity-and-user-state.md) Tier 4 as the owner of identity-state persistence (the table that stores `KeyRingEntry` rows). The substrate must not pre-empt that storage decision — different deployment targets (SQLite for self-host, Postgres for hosted) need different schemas, and Plan-016 is the canonical place to make that call.
+Cross-plan dependencies §5 names [Plan-016](../../../plans/016-identity-and-user-state.md) Tier 4 as the owner of identity-state persistence (the table that stores `KeyRingEntry` rows). The substrate must not pre-empt that storage decision — different deployment targets (SQLite for self-host, Postgres for hosted) need different schemas, and Plan-016 is the canonical place to make that call.
 
 ### 8.2 The persistence seam
 
@@ -395,7 +395,7 @@ These apply repo-wide and cover `@noble/*` automatically.
 
 ## 10. Release gate: RFC vector conformance
 
-[ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md):129–136 includes the acceptance criterion **"RFC conformance gating release"**. This package satisfies that criterion mechanically through two test suites that exercise the upstream PASETO v4 vector set.
+[ADR-010](../../../decisions/010-paseto-webauthn-mls-auth.md):129–136 includes the acceptance criterion **"RFC conformance gating release"**. This package satisfies that criterion mechanically through two test suites that exercise the upstream PASETO v4 vector set.
 
 ### 10.1 Vendored fixture
 
@@ -466,11 +466,11 @@ The following six decisions were settled during planning and are recorded here f
 
 ### Governing repo docs
 
-- [ADR-010: PASETO + WebAuthn + MLS Auth](../../decisions/010-paseto-webauthn-mls-auth.md) — lines 29, 129–136
+- [ADR-010: PASETO + WebAuthn + MLS Auth](../../../decisions/010-paseto-webauthn-mls-auth.md) — lines 29, 129–136
 - the retired self-hostable-node-relay plan: Self-Hostable Node Relay — §Scope, §Target Areas, §Tier 1 Partial PR Sequence
 - the retired self-hostable-node-relay spec: Self-Hostable Node Relay — context only (no Phase 1 ACs; `spec_coverage: []`)
 - Cross-plan dependencies — §5 Tier 1 row + the retired self-hostable-node-relay plan Substrate-vs-Namespace Carve-Out
-- [Plan-implementation readiness-audit runbook](../../operations/plan-implementation-readiness-audit-runbook.md) — §Per-Phase Audit Semantics
-- [CONTRIBUTING.md](../../../CONTRIBUTING.md) — GitFlow-lite, Conventional Branch, Conventional Commits
-- [AGENTS.md](../../../AGENTS.md) — primary-source citation discipline
+- [Plan-implementation readiness-audit runbook](../../../operations/plan-implementation-readiness-audit-runbook.md) — §Per-Phase Audit Semantics
+- [CONTRIBUTING.md](../../../../CONTRIBUTING.md) — GitFlow-lite, Conventional Branch, Conventional Commits
+- [AGENTS.md](../../../../AGENTS.md) — primary-source citation discipline
 - `packages/contracts/` (PR #8) — precedent workspace-package shape

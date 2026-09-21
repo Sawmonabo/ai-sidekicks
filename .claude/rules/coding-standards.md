@@ -8,7 +8,7 @@ paths:
 
 # Coding Standards
 
-Rules below apply to all code you write, in every language and project. Keep this file to genuinely universal standards — anything language-, paradigm-, or repo-specific belongs in that project's instructions, not here.
+Rules below apply to all code in this repo, in every language.
 
 ## Identifiers
 

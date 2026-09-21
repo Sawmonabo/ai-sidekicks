@@ -22,7 +22,7 @@ Three subagent contracts. Each is dispatched by the orchestrator, does one job, 
 
 **Input:** the diff of one task, and the task it was meant to satisfy.
 
-**Output:** every finding with a severity — `high`, `medium`, `low` — and the file and line it is about. No verdict tag, no pass/fail: the orchestrator decides what to fix.
+**Output:** every finding with a severity — `high`, `medium`, `low` — and the file and line it is about. No verdict tag, no pass/fail: the orchestrator fixes every finding.
 
 **Scope:** correctness first, then the things the tests cannot see — a case the diff does not handle, a guard that is looser than it reads, a name that means the wrong thing. Skip review entirely for a trivial or docs-only task; a review that reports nothing on a one-line change is a dispatch spent for no information.
 

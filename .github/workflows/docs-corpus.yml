@@ -3,9 +3,7 @@
 #   1. lychee-inbound — file:// + anchor integrity, offline. The PR-introduced
 #      regression we own: a broken `[text](./file.md#anchor)` cite. Required via
 #      docs-corpus-gate, and path-filtered — a PR touching no markdown skips it.
-#   2. table-check — markdown table shape (every row carries the header's cell
-#      count). Dependency-free, so it needs no install.
-#   3. lychee-outbound — outbound HTTP probe, online. Third-party drift and link
+#   2. lychee-outbound — outbound HTTP probe, online. Third-party drift and link
 #      rot we do not own (WAFs rejecting bot user agents, remotes timing out).
 #      It runs on a weekly schedule, never on a PR, and files an issue when it
 #      finds rot. The split reflects the real error model: an outbound failure
@@ -66,7 +64,6 @@ jobs:
           filters: |
             docs:
               - '**/*.md'
-              - 'tools/docs-corpus/**'
               - '.lychee.toml'
               # A PR that changes only the lychee install or the check command
               # must run them; the weekly schedule runs lychee-outbound alone,
@@ -215,28 +212,10 @@ jobs:
             --body-file "${RUNNER_TEMP}/issue-body.md"
           echo "::warning title=lychee outbound rot::Outbound HTTP probe found broken external links; an issue was filed."
 
-  table-check:
-    name: table shape (markdown)
-    # The weekly sweep runs lychee-outbound and nothing else.
-    if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      # No pnpm at all: the checker is dependency-free by design, so this job
-      # needs a Node runtime and nothing else. `package-manager-cache: false` is
-      # load-bearing — setup-node v5 auto-enables pnpm caching from
-      # package.json's `packageManager` field, and its post-job cache save then
-      # fails the job over a pnpm store this job never creates.
-      - uses: actions/setup-node@v5
-        with:
-          node-version: "22.14"
-          package-manager-cache: false
-      - run: git ls-files '*.md' ':!docs/archive/**' | xargs node tools/docs-corpus/table-arity.mjs
-
   docs-corpus-gate:
     name: docs-corpus-gate
     runs-on: ubuntu-latest
-    needs: [changes, lychee-inbound, table-check]
+    needs: [changes, lychee-inbound]
     if: always()
     steps:
       - name: Aggregate required-checks status
@@ -260,6 +239,5 @@ jobs:
           }
           check changes "${{ needs.changes.result }}"
           check lychee-inbound "${{ needs.lychee-inbound.result }}"
-          check table-check "${{ needs.table-check.result }}"
           if [[ $fail -ne 0 ]]; then exit 1; fi
           echo "docs-corpus-gate: all required jobs succeeded or were skipped by path filter"

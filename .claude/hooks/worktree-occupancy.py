@@ -189,7 +189,7 @@ def _run_occupancy_cli(argv):
         return 2
     if not target:
         print(
-            "usage: command-guard.py --occupancy <path> "
+            "usage: worktree-occupancy.py --occupancy <path> "
             "[--lsof-output-file <file>]",
             file=sys.stderr,
         )
@@ -212,7 +212,7 @@ def _run_occupancy_cli(argv):
 def main(argv):
     if argv and argv[0] == "--occupancy":
         return _run_occupancy_cli(argv[1:])
-    sys.stderr.write("usage: command-guard.py --occupancy <path>\n")
+    sys.stderr.write("usage: worktree-occupancy.py --occupancy <path>\n")
     return 2
 
 

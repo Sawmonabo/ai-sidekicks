@@ -536,7 +536,7 @@ jobs:
       - name: Run plan-execution skill tests (Layer 1 + Layer 2)
         run: node tools/run-node-tests.mjs --min-files=3 --experimental-strip-types '.claude/skills/plan-execution/scripts/__tests__/**/*.test.mjs'
 
-      # Hook guard tests (command-guard.py + worktree.sh, driven as
+      # Hook guard tests (worktree-occupancy.py + worktree.sh, driven as
       # subprocesses from node:test — no Python test framework per ADR-023).
       # This leg exercises the Linux /proc occupancy path only. The darwin/lsof
       # path — the platform of the 2026-07-07 occupied-worktree incident — had a
@@ -555,9 +555,8 @@ jobs:
       # CI coverage — the exact gap it exists to close. Its tests spawn the runner
       # as a subprocess, so this step also exercises the nested-invocation path.
       #
-      # The glob is `tools/**` rather than `tools/__tests__/**`: a checker that
-      # keeps its test beside itself (`tools/docs-corpus/table-arity.test.mjs`)
-      # would otherwise be run by nothing. The runner skips `node_modules`.
+      # The glob is `tools/**` rather than `tools/__tests__/**`, so a tool that
+      # keeps its test beside itself is still run. The runner skips `node_modules`.
       - name: Run test-runner tool tests
         run: node tools/run-node-tests.mjs 'tools/**/*.test.mjs'
 

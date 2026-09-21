@@ -90,10 +90,10 @@ No console directory holds more than 42 modules a reader has to hold at once —
 
 ## Module shape
 
-- A file holds one concept and reads top to bottom in fixed sections: (1) the header comment, (2) imports, (3) the exported types and interfaces that are this module's contract, (4) module-level constants and `as const` value sets, (5) the exported component, class, or function the file is named for, (6) private helpers, caller above callee. A private type or constant that exactly one helper uses may sit directly above that helper; everything exported sits in its section. No `enum`, no `types.ts`, no folder named for a kind of thing. Inside a class: fields, constructor, public methods, private methods. Split a file on the seam between two concepts, never on a line count; a file past 900 lines is a review prompt, not a defect. Data tables, family doors, and test suites are never split for size. Sections (3), (5), (6) and the class order are rules 10 and 11 below; section (4) is convention, because the rule that carries the rest cannot position a constant.
+- A file holds one concept and reads top to bottom in fixed sections: (1) the header comment, (2) imports, (3) the exported types and interfaces that are this module's contract, (4) module-level constants and `as const` value sets, (5) the exported component, class, or function the file is named for, (6) private helpers, caller above callee. A private type or constant that exactly one helper uses may sit directly above that helper; everything exported sits in its section. No `enum`, no `types.ts`, no folder named for a kind of thing. Inside a class: fields, constructor, public methods, private methods. Split a file on the seam between two concepts, never on a line count; a file past 900 lines is a review prompt, not a defect. Data tables, family doors, and test suites are never split for size. Sections (3), (5), (6) and the class order are rules 10 and 11 above; section (4) is convention, because the rule that carries the rest cannot position a constant.
 - Named exports only; the package-root tool configs are the sole `export default`, because their tools load one.
 - Every console family carries exactly one `index.ts`, its family door. Cross-family imports go through it, intra-family imports are deep, and a door reaching another family's door fails `structure:layering`.
-  - A door line exists for a production reader: tag it with the task that will import it, or delete it and let its tests read the declaring module.
+  - A door line exists for a production reader: tag it with the surface that will import it, in plain words, or delete it and let its tests read the declaring module.
   - A sub-module directory may carry its own `index.ts`, publishing to its own family only; the family door re-exports from the module that DECLARES a symbol, never through an inner barrel. A sub-module no sibling takes from carries no door at all.
   - A door is an edge to every module it re-exports from, so a name inside a tightly coupled family is held off its own door and its one reader takes it by its own specifier. That deep edge is the remedy, never a shim or a wider door; no view family reads `frame/index.ts` without closing a cycle through `families.ts`.
 - A stylesheet enters through the barrel of the directory that OWNS it, and through no component: reaching into a directory that carries a door of its own puts that surface's rules on the initial document for every session that never opens it.
@@ -103,7 +103,7 @@ No console directory holds more than 42 modules a reader has to hold at once —
   - Inside a family, a modifier lives in the sheet of the thing it modifies; the other sheets compose it.
 - Every stylesheet reads only custom properties the console itself defines: a `var(--…)` naming a token no sheet declares resolves to nothing and the declaration is dropped, which renders as a missing colour rather than as an error. The one exception is a DOOR — a property a primitive reads with an explicit fallback, `var(--meridian-figure-wire-color, inherit)`, which is undefined by design until a composing sheet sets it and never resolves to nothing. A door carries a fallback or it is a bug. Review rule — no tool in this package lints CSS (`stylelint` is the standard-tool home for it and is not adopted).
 - `.tsx` files are PascalCase, one component each; `.ts` modules are kebab-case, named for the noun they own (`-store`, `-registry`, `-adapter`).
-- Full descriptive identifiers; single- and few-letter names only for loop indices, `catch` bindings, and coordinates.
+- Identifiers follow `.claude/rules/coding-standards.md`.
 
 ## State and views
 
@@ -152,7 +152,7 @@ Neither rule below has a mechanical gate: one reads colour values out of stylesh
 
 ## Before opening a PR
 
-1. `pnpm --filter @ai-sidekicks/desktop lint typecheck test structure` clean; `pnpm -w exec eslint .` clean.
+1. `lint`, `typecheck` and `structure` clean and `test:changed <base-ref>` green, each under `pnpm --filter @ai-sidekicks/desktop run`; `pnpm -w exec eslint .` clean.
 2. Every new helper name grepped for a prior implementation — hoist instead of writing the second one.
 3. Every file past 900 lines carries a review note saying why it is one concept — the length is a prompt to look for a seam, not a defect to fix by splitting (see Module shape), and a data table, a family door, and a test suite are never split for size.
 4. Every new family: one `index.ts`, cross-family imports through doors, no edge against the DAG; every new constant in `console/core/constants/` with its rationale.

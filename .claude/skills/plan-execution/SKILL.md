@@ -27,13 +27,13 @@ It checks four things (see [`references/preflight.md`](references/preflight.md))
 
 - **plan-analyst** turns the phase section into a task list: task, files, done-when. No YAML, no ids.
 - **implementer** builds one task, runs that package's tests, proposes a commit message. Subagents do not run git; the orchestrator commits.
-- **code-reviewer** reviews the diff of one task and reports every finding with a severity. The orchestrator decides what to fix. Trivial or docs-only tasks skip review.
+- **code-reviewer** reviews the diff of one task and reports every finding with a severity. The orchestrator fixes every finding, nitpicks included. Trivial or docs-only tasks skip review.
 
 Dispatch one implementer per task. Tasks that touch disjoint files can run in parallel; tasks that share a file run in order.
 
 ## Loop
 
-For each task: implement → tests green → review → fix what matters → commit.
+For each task: implement → tests green → review → fix every finding → commit.
 
 After the last task:
 
@@ -51,7 +51,7 @@ Commit messages follow the repo convention: `type(scope): subject`, one commit p
 node .claude/skills/plan-execution/scripts/codex-gate.mjs <pr> --advisory
 ```
 
-On a `develop` PR this reports the Codex verdict and open threads. Read them; fix what matters; two rounds, then decide. On a `main` PR run it without `--advisory` and merge only on `merge_ok=1`.
+On a `develop` PR this reports the Codex verdict and open threads. Read them; fix every finding; two rounds, then decide. On a `main` PR run it without `--advisory` and merge only on `merge_ok=1`.
 
 ## Done when
 
