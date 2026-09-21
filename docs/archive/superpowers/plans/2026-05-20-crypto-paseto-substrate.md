@@ -15,15 +15,15 @@
 | Source | Role |
 | --- | --- |
 | [Design spec](../specs/2026-05-20-crypto-paseto-substrate-design.md) | Public surface contract; threat model; invariants I1–I6 |
-| [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md):129–136 | In-house lib mandate; dual-primitive coverage; audited deps; RFC conformance release gate |
-| [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md):29 | Plan-016 v4.local dependency declared |
+| [ADR-010](../../../decisions/010-paseto-webauthn-mls-auth.md):129–136 | In-house lib mandate; dual-primitive coverage; audited deps; RFC conformance release gate |
+| [ADR-010](../../../decisions/010-paseto-webauthn-mls-auth.md):29 | Plan-016 v4.local dependency declared |
 | the retired self-hostable-node-relay plan §Tier 1 Partial PR Sequence (lines 256–297) | Owning plan; carves Phase 1 substrate out from Tier 6 relay implementation |
 | the retired self-hostable-node-relay spec | Context only; `spec_coverage: []` (the retired self-hostable-node-relay spec governs the relay surface, not package primitives) |
 | Cross-plan dependencies §5 + the retired self-hostable-node-relay plan Substrate-vs-Namespace Carve-Out | Names Plan-016 Tier 4 as the persistence owner for KeyRing |
-| [Plan-implementation readiness-audit runbook](../../operations/plan-implementation-readiness-audit-runbook.md) §Per-Phase Audit Semantics | Admits `substrate_exempt` for this phase |
+| [Plan-implementation readiness-audit runbook](../../../operations/plan-implementation-readiness-audit-runbook.md) §Per-Phase Audit Semantics | Admits `substrate_exempt` for this phase |
 | the retired invite-membership-and-presence plan Phase 2 precondition | Downstream consumer (cross-plan row 4 of the retired invite-membership-and-presence plan) — invite-token minting |
-| [CONTRIBUTING.md](../../../CONTRIBUTING.md) | GitFlow-lite; Conventional Branch; Conventional Commits |
-| [AGENTS.md](../../../AGENTS.md) | Primary-source citation discipline |
+| [CONTRIBUTING.md](../../../../CONTRIBUTING.md) | GitFlow-lite; Conventional Branch; Conventional Commits |
+| [AGENTS.md](../../../../AGENTS.md) | Primary-source citation discipline |
 
 ### Primary cryptographic sources
 
