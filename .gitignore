@@ -113,5 +113,8 @@ tmp/
 # Local git worktrees (per-session isolated workspaces; never shared via origin)
 .worktrees/
 
+# Superpowers plugin scratch (brainstorm mockups, per-plan review workspaces)
+.superpowers/
+
 # Rust build artifacts — Plan-022 sidecar crate (per cargo workspace at repo root)
 target/
