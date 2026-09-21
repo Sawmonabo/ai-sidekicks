@@ -53,7 +53,7 @@ Read the diff with these questions, in priority order:
 
 ## Severity
 
-Every finding carries one severity, and the orchestrator decides what to fix:
+Every finding carries one severity, and the orchestrator fixes every one:
 
 - **high** — a bug, regression, race condition, security boundary violation, resource leak, or type confusion that escapes the type system.
 - **medium** — a real improvement that does not break correctness: a guard that is looser than it reads, a missing assertion on an edge case the code's domain implies, a shape that will mislead the next reader.
@@ -85,6 +85,6 @@ Then the findings. For each:
 - Failure scenario (concrete inputs that demonstrate the issue, where applicable)
 - Suggested fix (one sentence)
 
-Report every finding with a severity (`high`, `medium`, `low`); the orchestrator decides what to fix.
+Report every finding with a severity (`high`, `medium`, `low`); the orchestrator fixes every finding.
 
 Group findings highest severity first. If the diff is ambiguous enough that you cannot tell whether it is correct, say so plainly at the top instead of guessing.

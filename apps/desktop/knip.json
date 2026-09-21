@@ -19,7 +19,7 @@
   // The per-symbol dead-code lever, and the only one this package uses. knip reads
   // JSDoc/TSDoc tags off an export and `-consumedBy` excludes every export carrying
   // `@consumedBy` from the report — the documented `tags` option, which is what
-  // `apps/desktop/AGENTS.md` binds to a task id. It is per SYMBOL, unlike `ignore`
+  // `apps/desktop/AGENTS.md` binds to a plain-word reason. It is per SYMBOL, unlike `ignore`
   // (file globs) and `ignoreIssues` (issue types per file pattern), neither of which
   // is used here: exempting a file would exempt every export it ever grows.
   //
