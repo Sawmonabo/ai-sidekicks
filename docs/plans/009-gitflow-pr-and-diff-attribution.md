@@ -54,6 +54,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 ## API And Transport Changes
 
 - Add branch-context read, diff artifact read, and PR prepare APIs to the client SDK.
+- Emit one settlement event, `git.settled`, for each act that sends a session's work off this machine's working folder: a commit, a push, or an opened pull request. Its cause set is closed at three — `committed`, `pushed`, `pull_request_opened` — and each cause carries exactly the reference the session's flow row names: the commit's identifier, the branch, or the request's number with its address on the hosting service ([Spec-009 §Interfaces And Contracts](../specs/009-gitflow-pr-and-diff-attribution.md#interfaces-and-contracts)). The type and its payload are registered in the session event taxonomy ([Spec-005 §Event Type Enumeration](../specs/005-session-event-taxonomy-and-audit-log.md#event-type-enumeration)).
 
 ## Invariants
 
@@ -131,7 +132,7 @@ preconditions:
 
 #### Tasks
 
-- **T11.3** — Build reviewable PR preparation records and remote mutation handoff. Implement the `GitHostingAdapter` interface with `gh` CLI as the V1 backend; use normalized `createChangeRequest` terminology and auto-detect provider from the git remote URL.
+- **T11.3** — Build reviewable PR preparation records and remote mutation handoff. Implement the `GitHostingAdapter` interface with `gh` CLI as the V1 backend; use normalized `createChangeRequest` terminology and auto-detect provider from the git remote URL. Each act that reaches the remote or the local history appends one `git.settled` event as it settles — cause `committed`, `pushed` or `pull_request_opened`, carrying that cause's own reference (the commit's identifier, the branch, or the request's number and its address on the service) and, where a sidekick performed the act as an ordinary tool call, the run that did it; a person pressing the control leaves that member absent.
   - **Spec coverage:** Spec-009 line 46 (PR prep uses recorded base/head, not client tab), line 47 (commit/push/PR reviewable before execution), line 51 (default PR target = recorded base), line 66 (`PRPrepare` reviewable proposal before remote mutation), line 67 (`GitActionExecute` preserves causation), line 68 + §Git Hosting Adapter lines 118-152 (GitHostingAdapter / gh / createChangeRequest / auto-detect), AC line 175.
   - **Verifies invariant:** I-009-2 + I-009-3 — base/head from recorded context, durable reviewable record before remote mutation.
   - **Consumes:**

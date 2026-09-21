@@ -44,7 +44,8 @@ This spec covers local persistence, shared coordination persistence, recovery ru
 - Each runtime node must persist canonical local execution state in a durable local store.
 - The default local execution store must be SQLite with WAL and foreign keys enabled.
 - The default shared control-plane store must be Postgres or an equivalent relational store.
-- Canonical local execution data must include session events, queue state, approvals, runtime bindings, and command receipts.
+- Canonical local execution data must include session events, queue state, approvals, runtime bindings, command receipts, and the file checkpoints a restore reads from.
+- **The daemon keeps a file checkpoint store per session.** Before the sidekick or one of its child runs edits a file, and at every prompt boundary, the daemon copies that file aside through the same tool hook it already registers in order to hold a run. The copies are held with the session **outside the checkout**, the last hundred checkpoints of a session are kept, and they survive a resume and a restart. They are the only thing a file restore reads from, on every provider, and what a shell command wrote is outside them. The copies are part of the session's own data: they are deleted whole when the session is purged and retained when it is archived, as a chat's managed workspace is ([Spec-001 §Required Behavior](./001-session-core.md#required-behavior)), and provable destruction of their contents is never claimed.
 - Restart recovery must attempt:
   1. projection rebuild from canonical events
   2. restoration of runtime bindings
@@ -62,6 +63,7 @@ This spec covers local persistence, shared coordination persistence, recovery ru
 
 - If a persisted driver handle cannot be resumed, the affected run must transition to `failed` with visible recovery failure detail rather than silently disappearing or restarting as a new run.
 - On a resume that succeeds (`DriverResumeResult.status: 'resumed'` — a resume that fails follows the preceding bullet), the driver-reported normalized `sessionPosition` ([Spec-004 §Fallback Behavior](004-provider-driver-contract-and-capabilities.md#fallback-behavior), campaign B3) is compared against the daemon's recorded position; on divergence the local log is authoritative ([ADR-017 Decision Log, 2026-07-02](../decisions/017-shared-event-sourcing-scope.md#decision-log)) and the run halts for human action (campaign B5): it enters `waiting_for_input` carrying a `recovery-needed` `RecoveryCondition` payload together with a `RecoverySpanClassification` of what the diverged span contains (`read_only | idempotent_write | irreversible | unclassifiable` — `unclassifiable` handled exactly as `irreversible`, the fail-closed default; V1 consumes the field as audit metadata only, every divergence halts, and recording it makes tiered auto-resolution a future policy flip gated on the Plan-013 CI divergence-injection tests with a firing negative control, campaign B14), the halt surfaces on the existing owner-visible channels — the [Spec-011](011-live-timeline-visibility-and-reasoning-surfaces.md) `run.blocked` status row (the run enters `waiting_for_input`) and `RecoveryStatusRead`'s `blocked` state (§Interfaces And Contracts) — never a new notification surface, and the daemon never silently re-emits locally recorded events into the provider session and never silently discards provider-side events.
+- If a restore has to skip a file, the dry run names the count before the restore runs and says which file and why — a linked file, a folder that moved, something that is not a file — and the rest are still put back. A skip is never silent and never cancels the restore, and what a shell command wrote is reported as outside the checkpoint store rather than reported as restored.
 - If projection rebuild fails, the daemon may enter degraded read-only mode while exposing repair signals.
 - If shared control-plane storage is unavailable, local execution may continue for already attached local sessions, but operations that write shared control-plane state must fail explicitly.
 
@@ -71,6 +73,8 @@ This spec covers local persistence, shared coordination persistence, recovery ru
 - `ReplayReadAfterCursor` must read authoritative events after a known cursor.
 - `ProjectionRebuild` must be idempotent.
 - `RuntimeBindingRead` must expose the data needed to attempt session adoption or resume.
+- **A file-restore dry run must answer before any restore happens**, naming the files a restore would put back, their line counts, and what it would skip. No restore runs without one.
+- **A restore must take one of three named shapes, or a named snapshot**: the conversation and the files together, the conversation alone, or the files alone. The conversation cut is the bound provider's own rewind verb — neither of which touches a file ([Spec-003 §Driver-Level Rollback Mechanics](./003-queue-steer-pause-resume.md#driver-level-rollback-mechanics)) — and the files are always the file checkpoint store of §Required Behavior — a different thing from this spec's write-ahead-log checkpointing, which is about the local store's own durability — on both providers, so the two halves are never confused for one another; a restore aimed at a named snapshot of the session reads from this same store, the snapshot naming the point to return to ([Spec-008 §Turn-Boundary Snapshots](./008-worktree-lifecycle-and-execution-modes.md#turn-boundary-snapshots)). A restore that would stop child runs started after its target asks first, on the terms [Spec-003 §Required Behavior](./003-queue-steer-pause-resume.md#required-behavior) sets out, which owns that confirmation for every restore and for the pencil's resend alike. Every restore appends one row to the session's timeline saying what was restored, and the turns after the restored point stay in the timeline marked superseded rather than disappearing ([Spec-011 §Required Behavior](./011-live-timeline-visibility-and-reasoning-surfaces.md#required-behavior)).
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 - See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 
@@ -325,6 +329,7 @@ Data staleness on restore is bounded at **≤ 24 hours** (worst case = crash 23h
 - Local canonical event data and command receipts are the basis for replay and idempotency.
 - Shared control-plane data remains separate from local execution truth.
 - Recovery outcomes must be surfaced into canonical event history and operational telemetry.
+- A session's file checkpoint copies live with that session outside any checkout, grow no table, and are deleted with the session when it is purged.
 
 ## Example Flows
 
@@ -348,6 +353,7 @@ Data staleness on restore is bounded at **≤ 24 hours** (worst case = crash 23h
 - [ ] Local node restart can rebuild session projections and restore pending queue or approval state.
 - [ ] Local mutable work is blocked when canonical local persistence is unavailable.
 - [ ] Recovery failure is visible and auditable rather than silent.
+- [ ] A file restore puts back every file its dry run named, names every file it skipped with the reason, and still finds its checkpoints after a daemon restart.
 - [ ] A resume-divergence halt records the span's `RecoverySpanClassification`, and `unclassifiable` handling is identical to `irreversible` (fail-closed).
 
 ## ADR Triggers

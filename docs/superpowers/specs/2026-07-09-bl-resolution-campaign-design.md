@@ -5,7 +5,7 @@
 | Status | approved (2026-07-10 — owner directed landing after the multi-round hardening review; recorded in PR-0's body) |
 | Drafted | 2026-07-09 |
 | Plan | [2026-07-09-bl-resolution-campaign.md](../plans/2026-07-09-bl-resolution-campaign.md) |
-| Owner | user (a.sawmon@gmail.com) |
+| Owner | user |
 | Investigation basis | 2026-07-09 nine-agent deep investigation (5 read-only code auditors + 4 date-anchored web researchers), coordinator-adjudicated; all load-bearing findings surfaced forward into this document per AGENTS.md surface-forward-then-delete |
 
 ## 1. Purpose & non-goals

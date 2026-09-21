@@ -223,7 +223,7 @@ CREATE TABLE interventions (
   -- Plan-003 EXTEND of its own SHIPPED CREATE (additive nullable, landing by its own next-ordinal
   -- migration -- the statement above shipped as
   -- packages/runtime-daemon/src/migrations/0015-queue-and-interventions.ts (PR #402, 2026-09-01)
-  -- and is never edited): which of the atomic edit-and-resend composite's four
+  -- and is never edited): which of the atomic edit-and-resend composite's three
   -- structural refusal guards refused, as the closed literal the wire's rejectionGuard carries
   -- (Spec-003 §Required Behavior; api-payload-contracts.md §Plan-003 — Queue Steer Pause Resume;
   -- the shipped mirror is
@@ -235,14 +235,13 @@ CREATE TABLE interventions (
   -- OPEN vocabulary that no contract enumerates (error-contracts.md §Intervention registers no
   -- code for an intervention outcome), so recovering the literal from it would be exactly the
   -- match against an unpublished value set the typed member exists to abolish. Written by
-  -- Plan-003 T3.17 in the SAME write that settles state = 'rejected' (the four guards are
+  -- Plan-003 T3.17 in the SAME write that settles state = 'rejected' (the three guards are
   -- pre-dispatch admission refusals, so the settlement is one write); read back by T3.12's replay
-  -- reconstruction. NULL on every other refusal family -- the EIGHT the transition table admits
+  -- reconstruction. NULL on every other refusal family -- the SIX the transition table admits
   -- for a rollback: the capability gate, the authorization refusal, the target-position domain
-  -- check, the compaction-boundary classification, an incompatible target run state, the Spec-008
-  -- restore precondition, the uncompacted-rewind-span intersection, and execution-root busy -- and
-  -- on every non-rejected row, so presence reads as "a composite guard refused" and never as "some
-  -- rollback refused".
+  -- check, the compaction-boundary classification, an incompatible target run state, and the
+  -- uncompacted-rewind-span intersection -- and on every non-rejected row, so presence reads as
+  -- "a composite guard refused" and never as "some rollback refused".
   --
   -- The CHECK is attached to the COLUMN rather than stated as a table constraint, deliberately.
   -- SQLite's ALTER TABLE ... ADD COLUMN accepts a column-attached CHECK whose expression
@@ -258,14 +257,14 @@ CREATE TABLE interventions (
   -- ADD COLUMN appends, so the physical ordinal is after created_at rather than here; column order
   -- is not part of the contract (the 0017-command-receipt-mcp-task-handle.ts convention).
   --
-  -- No Spec-020 reciprocal is owed: the value is a daemon-minted member of a closed four-literal
+  -- No Spec-020 reciprocal is owed: the value is a daemon-minted member of a closed three-literal
   -- vocabulary, carries no user content, and identifies no user, so it takes no PII
   -- data-map row, no export disposition, and no erasure selector -- unlike the pii_payload /
   -- pii_user_id pair above.
   rejection_guard        TEXT                        -- NULL default; which composite guard refused
                          CHECK(rejection_guard IS NULL
                                OR (type = 'rollback' AND state = 'rejected'
-                                   AND rejection_guard IN ('no-active-turn', 'no-pending-send',
+                                   AND rejection_guard IN ('no-pending-send',
                                                            'user-authored-target',
                                                            'resumable-target'))),
   created_at             TEXT NOT NULL,
@@ -836,25 +835,20 @@ CREATE TABLE approval_requests (
   scope                 TEXT NOT NULL,        -- requested scope descriptor
   resource_descriptor   TEXT NOT NULL DEFAULT '{}', -- target resource details (JSON; Spec-010 line 96 'must include')
   ask_id                TEXT,                 -- originating driver_ask askId, set iff the request was minted by the
-                                              -- CP-010-6 driver-ask normalizer (Spec-010 §Resolved Questions, Part-B
-                                              -- fail-closed follow-up 2026-07-17); rebuilt from approval.requested.askId
-                                              -- at replay (D-010-6/D-010-7) so outcome/expiry routing to the native
-                                              -- ask survives restart with multiple in-flight asks on one run
-  expiry_at             TEXT,                 -- ISO 8601, nullable for no-expiry (equals the ask's expiresAt when
-                                              -- ask_id is set — the Spec-010 one-shared-deadline rule)
+                                              -- CP-010-6 driver-ask normalizer; rebuilt from approval.requested.askId
+                                              -- at replay (D-010-6/D-010-7) so outcome routing to the native
+                                              -- ask survives restart with several in-flight asks on one run
   state                 TEXT NOT NULL DEFAULT 'pending'
-                        CHECK(state IN ('pending', 'approved', 'rejected', 'expired', 'canceled')),
+                        CHECK(state IN ('pending', 'approved', 'rejected', 'canceled')),
+                                              -- No 'expired' state and no deadline column: a request waits until it is
+                                              -- answered. Moving the session's permission level to one that never asks
+                                              -- answers an open request -- the blocked call runs -- so it lands
+                                              -- 'approved'; only an interrupt or any other end of its run and the
+                                              -- provider process ending land 'canceled'. Nothing on this table is left
+                                              -- for a sweep to settle and silence is never read as either a grant or a
+                                              -- denial (Spec-010 §Required Behavior)
   created_at            TEXT NOT NULL,
-  updated_at            TEXT NOT NULL,        -- last state-transition instant (expiry/cancel carry no resolution row)
-  CHECK (ask_id IS NULL OR expiry_at IS NOT NULL)
-                                              -- an ask-associated (normalizer-minted) row always carries the shared
-                                              -- deadline: ask_id without expiry_at could never re-arm the durable
-                                              -- timeout after restart, re-creating an unbounded pending ask
-                                              -- (Spec-010 Part-B fail-closed follow-up 2026-07-17; replay-side
-                                              -- backstop — the approval-flow emission refinement enforces the same
-                                              -- askId ⇒ expiryAt pairing origin-blind at parse, so an invalid mint
-                                              -- refuses before it is durable; the T1.3 migration copies this CHECK
-                                              -- verbatim and pins it in its tests)
+  updated_at            TEXT NOT NULL         -- last state-transition instant (a cancel carries no resolution row)
 );
 
 CREATE INDEX idx_approval_requests_run ON approval_requests(run_id);
@@ -862,7 +856,7 @@ CREATE INDEX idx_approval_requests_session ON approval_requests(session_id);
 CREATE INDEX idx_approval_requests_state ON approval_requests(state) WHERE state = 'pending';
 CREATE UNIQUE INDEX idx_approval_requests_ask ON approval_requests(run_id, ask_id) WHERE ask_id IS NOT NULL;
 -- UNIQUE (run_id, ask_id): exactly one approval row per native ask — a normalizer retry or replay
--- re-mint collides here instead of persisting a duplicate pending row whose outcome/expiry routing
+-- re-mint collides here instead of persisting a duplicate pending row whose outcome routing
 -- would then fan out or pick arbitrarily (Spec-010 one ask↔one approval; duplicate-normalization test
 -- rides the T1.3 migration suite)
 
@@ -880,8 +874,8 @@ CREATE TABLE approval_resolutions (
                            CHECK(decision IN ('approved', 'rejected')),
   effective_scope          TEXT NOT NULL,     -- granted scope; = request scope unless approver narrowed it (Spec-010 line 59);
                                               -- never broader than requested (domain invariant; Phase-2 enforced)
-  remembered_scope_kind    TEXT               -- 'run' | 'session' when remembering was requested; NULL otherwise (Spec-010 line 118)
-                           CHECK(remembered_scope_kind IS NULL OR remembered_scope_kind IN ('run', 'session')),
+  remembered_scope_kind    TEXT               -- 'run' | 'session' | 'project' when remembering was requested; NULL otherwise (Spec-010 line 118)
+                           CHECK(remembered_scope_kind IS NULL OR remembered_scope_kind IN ('run', 'session', 'project')),
   remembered_scope_pattern TEXT,              -- resource-matching pattern for the remembered rule, nullable
   resolved_at              TEXT NOT NULL,
   audit_metadata           TEXT NOT NULL DEFAULT '{}' -- JSON: audit trail
@@ -905,9 +899,27 @@ CREATE TABLE remembered_approval_rules (
                                'human_phase_contribution'                              -- SA-12 addition; mirrors Spec-010 canonical enum
                              )),
   scope_kind                 TEXT NOT NULL
-                             CHECK(scope_kind IN ('run', 'session')),  -- explicit enum, not free-form (Spec-010 line 118)
+                             CHECK(scope_kind IN ('run', 'session', 'project')),  -- explicit enum, not free-form (Spec-010 line 118).
+                                              -- 'project' is every session on that project, which the card's own arm makes
   scope_pattern              TEXT,            -- resource-matching pattern within the kind boundary; NULL = category-wide within
                                               -- (session, node, user, kind); semantics are category-derived (D-010-10)
+  sense                      TEXT NOT NULL    -- allow or block: the remembered set is two-sided, because a decline on a network
+                             CHECK(sense IN ('allow', 'block')),
+                                              -- ask has a subject worth remembering too, and the host is then refused with no
+                                              -- card raised until the rule is replaced. NOT NULL rather than defaulted: a
+                                              -- missing sense would have to read as 'allow', and a silently-widened block is
+                                              -- the one reading a permission rule must never take. It agrees with the
+                                              -- originating decision by construction -- an approval mints an allow, a decline
+                                              -- a block -- which is what the emission refinement on approval.remembered pins
+  made_at_level              TEXT NOT NULL    -- the permission level the session stood at when the rule was made. A rule
+                             CHECK(made_at_level IN ('readonly', 'ask', 'reviewed')),
+                                              -- never answers BELOW it: at a more careful level the card asks again with the
+                                              -- same words and the press re-scopes the rule to that level, and at that level
+                                              -- or any looser one the daemon answers the ask itself. The comparand is the
+                                              -- five-level vocabulary, but only the three careful levels can MAKE a rule --
+                                              -- the other two raise no card -- so a row carrying 'sandboxed' or 'yolo' would
+                                              -- name a rule nothing could have made, and the CHECK leaves it unrepresentable
+                                              -- rather than trusting the writer. The matcher's comparand, not a display field
   granted_at                 TEXT NOT NULL,
   revoked_at                 TEXT,            -- nullable; set when rule is invalidated
   invalidation_trigger       TEXT
@@ -1037,11 +1049,11 @@ Retention: a closed row is pruned once `expires_at` has elapsed — a concrete c
 
 ## Workflow Tables (Plan-015)
 
-Full workflow-engine V1 schema. Nine tables implement the 10-state phase machine, append-only hash-chained gate history (C-13/I7), parallel-join bookkeeping, and OWN-only channel linkage. `session_events` remains canonical truth; tables 3/4/7/8/9 are rebuildable projections, and 1/2/5/6 are immutable truth (6 additionally carries a per-run BLAKE3 chain anchored to [Spec-005 § Integrity Protocol](../../specs/005-session-event-taxonomy-and-audit-log.md#integrity-protocol)).
+Full workflow-engine V1 schema. Thirteen tables hold the surface: nine implement the 10-state phase machine, append-only hash-chained gate history (C-13/I7), parallel-join bookkeeping, and OWN-only channel linkage, and four more hold the per-step record, the armed triggers, the webhook tokens and the per-node key-value store ([Spec-015 §Interfaces And Contracts](../../specs/015-workflow-authoring-and-execution.md#interfaces-and-contracts)). `session_events` remains canonical truth; tables 3/4/7/8/9 and 10 are rebuildable projections, 1/2/5/6 are immutable truth (6 additionally carries a per-run BLAKE3 chain anchored to [Spec-005 § Integrity Protocol](../../specs/005-session-event-taxonomy-and-audit-log.md#integrity-protocol)), and 11/12/13 are MUTABLE truth: what this machine is armed to do next is a fact no event history can reconstruct, so the durable row is the truth and the in-process timer is only a cache over it, re-armed from the row after a restart ([Spec-015 §Truth vs projection vs ephemeral (SA-25)](../../specs/015-workflow-authoring-and-execution.md#truth-vs-projection-vs-ephemeral-sa-25)).
 
 The normalized-table-over-blob shape, the per-run hash-chained gate-resolution audit trail, and the rebuildable-projection split align with industry persistence precedents: durable-execution engines persist normalized state per run rather than monolithic blobs ([Restate — What is Durable Execution](https://restate.dev/what-is-durable-execution), fetched 2026-04-26); large-engine persistence tiers separate hot live state from cold archive ([Argo Workflows — Workflow Archive](https://argo-workflows.readthedocs.io/en/latest/workflow-archive/), fetched 2026-04-25); and append-only hash-chained audit trails are the canonical academic precedent for tamper-evident logging (_"a tamper-evident log... uses a hash chain to detect tampering with high probability"_ — [Crosby & Wallach, Efficient Data Structures for Tamper-Evident Logging, USENIX Security 2009](https://static.usenix.org/event/sec09/tech/full_papers/crosby.pdf), fetched 2026-04-25). [Spec-015 §References](../../specs/015-workflow-authoring-and-execution.md#references) > Persistence + hash-chain enumerates the full primary-source corpus.
 
-`workflow_definitions` stores no canvas geometry, at this table or any other. Canvas layout is client-local per [Spec-015 §Canvas layout is not definition bytes (SA-35)](../../specs/015-workflow-authoring-and-execution.md#canvas-layout-is-not-definition-bytes-sa-35) — the same tier as `human_phase_form_state` drafts — because a mutable per-author geometry is neither immutable truth nor a projection rebuildable from `session_events`, and the SA-25 hierarchy defines no third durable tier. Layout travels between machines only inside the definition file form, outside the hashed body. **The nine-table census is unchanged by every amendment since — the visual-builder amendment and the 2026-08-16 workflow-hardening amendment both add columns to tables that already exist: no table is added or removed.** The hardening amendment's growth is four park-and-resume projection columns across tables 3 and 4 plus two partial indexes; its always-on engine event record lands on the Plan-018-owned bounded-retention diagnostic tier ([Spec-015 §Engine event record (SA-43)](../../specs/015-workflow-authoring-and-execution.md#engine-event-record-sa-43)), whose bucket registration — including the fifth bucket's storage shape and any table-census move it implies, the existing four buckets being SQLite tables of this schema — is Plan-018's to record at its registration amendment (Plan-015 CP-015-9); no bucket for it exists in this schema today and the hardening amendment adds none.
+**Canvas geometry is stored, and it is not definition bytes.** A document's own `layout` section — a position per node, an optional viewport and the sticky notes — sits **outside** the hashed body and outside the BLAKE3 preimage, and is persisted in a `layout_json` column beside the body on `workflow_definitions` and on `workflow_versions` ([Spec-015 §Canvas layout is not definition bytes (SA-35)](../../specs/015-workflow-authoring-and-execution.md#canvas-layout-is-not-definition-bytes-sa-35)). It is part of the document rather than a client's private note, so it travels with the document — the file form carries it as an optional section, and a document that arrives with none is laid out deterministically, left to right, by the same layout library in the daemon and in the renderer, so a definition is never unopenable and opens the same way twice. Because no byte the engine reads changes with it, a drag mints no version and enters no rebuild; it is not a fourth storage tier. The hardening amendment's own growth is four park-and-resume projection columns across tables 3 and 4 plus two partial indexes; its always-on engine event record lands on the Plan-018-owned bounded-retention diagnostic tier ([Spec-015 §Engine event record (SA-43)](../../specs/015-workflow-authoring-and-execution.md#engine-event-record-sa-43)), whose bucket registration — including the fifth bucket's storage shape and any table-census move it implies, the existing four buckets being SQLite tables of this schema — is Plan-018's to record at its registration amendment (Plan-015 CP-015-9); no bucket for it exists in this schema today and the hardening amendment adds none.
 
 ```sql
 -- ========================================================================
@@ -1087,6 +1099,7 @@ CREATE TABLE workflow_definitions (
   schema_version       TEXT NOT NULL                   -- `ai-sidekicks-schema: 1.0` per C-8
                        CHECK(schema_version GLOB '[0-9]*.[0-9]*'),
   definition_body      TEXT NOT NULL,                  -- JSON (canonicalized per RFC 8785); full author-supplied definition
+  layout_json          TEXT,                           -- JSON: the document's own layout section — a position per node, an optional viewport, the sticky notes. OUTSIDE the content_hash preimage, so editing it mints no version; NULL = written with no layout, which opens laid out deterministically left to right
   created_at           TEXT NOT NULL,
   created_by           TEXT,                           -- user_id
   -- Only 'shared' is daemon-wide and therefore ref-free; 'session' and 'project'
@@ -1119,6 +1132,7 @@ CREATE TABLE workflow_versions (
   parent_content_hash  TEXT,                           -- BLAKE3 of parent definition body; NULL at version 1
   content_hash         TEXT NOT NULL,                  -- BLAKE3 of THIS version's body
   definition_body      TEXT NOT NULL,                  -- JSON (canonicalized per RFC 8785); THIS version's full definition body — name, entry record, and the phase-definitions array (each phase entry carrying the per-phase dependsOn list and join-phase parallelJoinPolicy when the definition declares explicit topology, Spec-015 §Graph model — nodes, ports, and edges (SA-32)) — the BLAKE3 preimage of content_hash, so a version read serves name/entry/phaseDefinitions parsed from this body and read -> export reproduces the canonical bytes verbatim (PR #318 review round: was phase_definitions, which stored the array alone and left later versions' name/entry unreconstructable against content_hash; not a duplicate of workflow_definitions.definition_body above — that row carries the definition's current author-supplied body, each version row snapshots its own immutable bytes)
+  layout_json          TEXT,                           -- JSON: this version's layout section, snapshotted beside its immutable body and outside content_hash's preimage, so an export of any version reproduces the file form it was written as
   author_note          TEXT,                           -- opt-in changelog message
   created_at           TEXT NOT NULL,
   created_by           TEXT,                           -- user_id
@@ -1450,14 +1464,12 @@ CREATE TABLE workflow_channels (
 CREATE INDEX idx_workflow_channels_channel ON workflow_channels(channel_id);
 
 -- ========================================================================
--- 9. human_phase_form_state — draft autosave (daemon-side fallback for V1.x)
+-- 9. human_phase_form_state — daemon-held draft of a human form
 -- ========================================================================
 -- Owner: Plan-015
--- Wave-1 status per Spec-015 §Ship-empty tables (SA-28) — V1 clients use
--- localStorage/IndexedDB; this table ships empty in V1 so the V1.x daemon-side draft
--- persistence has no migration cost. Its wire companion `workflow.humanFormDraftSave`
--- is declared in api-payload-contracts.md §Plan-015 with no V1 handler: table and
--- operation light up together in V1.x.
+-- Carries the human form kind's drafts from V1 (Spec-015 §Human form drafts (SA-28)).
+-- Written through `workflow.humanFormDraftSave`; each autosave bumps the row's own
+-- draft version. A client never keeps a form draft in window storage.
 CREATE TABLE human_phase_form_state (
   id                      TEXT PRIMARY KEY,           -- ULID
   phase_run_id            TEXT NOT NULL REFERENCES workflow_phase_states(id),
@@ -1473,6 +1485,101 @@ CREATE TABLE human_phase_form_state (
 
 CREATE INDEX idx_human_phase_form_state_phase ON human_phase_form_state(phase_run_id)
   WHERE submitted = 0;
+
+-- ========================================================================
+-- 10. workflow_steps — one row per step attempt (projection over the events
+--     the run, approval and form pipelines already emit)
+-- ========================================================================
+-- Owner: Plan-015
+-- A projection, not a second account of the run: every field below is derivable from the log, which
+-- is what keeps one step's history a function of the events rather than a parallel record.
+CREATE TABLE workflow_steps (
+  workflow_run_id   TEXT NOT NULL REFERENCES workflow_runs(id),
+  node_id           TEXT NOT NULL,                 -- the node in the pinned definition this attempt ran
+  attempt           INTEGER NOT NULL,              -- 1-based; a retry of the same node at the same point
+  execution_index   INTEGER NOT NULL,              -- per-run monotonic: the faithful what-happened-when order for a branching run, independent of graph shape
+  source_json       TEXT NOT NULL DEFAULT '[]'     -- JSON array, one entry per input slot: the edge that ACTUALLY fed it and which run of the source produced it (null for a slot nothing fed), so a run page can say this merge consumed the third run of a loop
+                    CHECK(json_valid(source_json) AND json_type(source_json) = 'array'),
+  status            TEXT NOT NULL
+                    CHECK(status IN ('pending', 'running', 'succeeded', 'failed', 'skipped')),
+  started_at        TEXT NOT NULL,
+  finished_at       TEXT,                          -- NULL while the step is pending or running
+  -- The three payload refs a step panel reads, each stored as the JSON WorkflowPayloadRef shape so a
+  -- run read stays bounded whatever the step produced: under the 64 KiB inline bound the payload is
+  -- items on this row, above it an artifact through the ordinary ingest pipeline and this row keeps the
+  -- reference, and past the retention bound the ref reads `expired` — a third arm, not an error, so a
+  -- run past that bound still lists with its status, timings and summary.
+  input_ref         TEXT NOT NULL
+                    CHECK(json_valid(input_ref)),
+  output_ref        TEXT NOT NULL
+                    CHECK(json_valid(output_ref)),
+  log_ref           TEXT NOT NULL
+                    CHECK(json_valid(log_ref)),
+  cost_cents        INTEGER,                       -- NULL = never billed, which is a different fact from a cost of zero and renders as no figure at all
+  cost_account_id   TEXT,                          -- the provider account that paid; deliberately no foreign key, for the reason sidekick_definitions states
+  error_json        TEXT                           -- JSON: the typed step error (message plus the node it belongs to); NULL on every non-failed status
+                    CHECK(error_json IS NULL OR json_valid(error_json)),
+  advisories_json   TEXT                           -- JSON array of non-fatal hints — an unwired branch that dropped items, a deprecated param, a truncated output. Never errors, and NULL where the step attached none
+                    CHECK(advisories_json IS NULL OR (json_valid(advisories_json) AND json_type(advisories_json) = 'array')),
+  PRIMARY KEY (workflow_run_id, execution_index),  -- the execution index is what identifies an attempt within its run; (node_id, attempt) can repeat across branches of one run
+  CHECK((cost_cents IS NULL) = (cost_account_id IS NULL))  -- a figure always names the account that paid it
+);
+
+CREATE INDEX idx_workflow_steps_node ON workflow_steps(workflow_run_id, node_id, attempt);
+
+-- ========================================================================
+-- 11. workflow_triggers — one row per armed trigger (MUTABLE TRUTH)
+-- ========================================================================
+-- Owner: Plan-015
+-- Arming is durable and the in-process timer is only a cache over these rows: on daemon start, after
+-- the projection rebuild, every enabled workflow re-arms from them. No event history can reconstruct
+-- what this machine is armed to do next, which is why the row is the truth.
+CREATE TABLE workflow_triggers (
+  definition_id     TEXT NOT NULL REFERENCES workflow_definitions(id),
+  node_id           TEXT NOT NULL,                 -- the trigger node in the definition
+  kind              TEXT NOT NULL,                 -- the trigger node kind, in the node catalog's own vocabulary; no CHECK list, because the catalog owns it and a copy here would go stale behind it
+  config_hash       TEXT NOT NULL,                 -- over the trigger's own params: a re-arm compares it, so an unchanged trigger is not disarmed and re-armed for a save that did not touch it
+  next_fire_at      TEXT,                          -- NULL where the kind has no schedule (a webhook, a chat start) or while disarmed
+  last_fire_at      TEXT,                          -- NULL until it has fired once
+  enabled           INTEGER NOT NULL DEFAULT 0
+                    CHECK(enabled IN (0, 1)),      -- a workflow is enabled or not as a whole: enabling arms every trigger it declares, disabling disarms all of them
+  PRIMARY KEY (definition_id, node_id)
+);
+
+CREATE INDEX idx_workflow_triggers_due ON workflow_triggers(next_fire_at)
+  WHERE enabled = 1 AND next_fire_at IS NOT NULL;  -- the arming sweep's only scan
+
+-- ========================================================================
+-- 12. workflow_webhook_tokens — one row per workflow with a webhook trigger
+--     (MUTABLE TRUTH)
+-- ========================================================================
+-- Owner: Plan-015
+-- The bearer token the loopback listener checks. Only its hash is stored: a stolen database must not
+-- yield a working token, and the listener compares a hash to a hash.
+CREATE TABLE workflow_webhook_tokens (
+  definition_id     TEXT PRIMARY KEY REFERENCES workflow_definitions(id),
+  token_hash        TEXT NOT NULL,
+  created_at        TEXT NOT NULL,
+  last_used_at      TEXT                           -- NULL until the address is first called
+);
+
+-- ========================================================================
+-- 13. workflow_node_state — the per-(workflow, node) key-value store
+--     (MUTABLE TRUTH)
+-- ========================================================================
+-- Owner: Plan-015
+-- Trigger cursor state — the last session event read, the last file-watch stamp — lives here and NEVER
+-- on the document, so the document stays hashable and safe to edit: a cursor written into the body
+-- would change the content hash on every fire and mint a version for nothing.
+CREATE TABLE workflow_node_state (
+  definition_id     TEXT NOT NULL REFERENCES workflow_definitions(id),
+  node_id           TEXT NOT NULL,
+  key               TEXT NOT NULL,
+  value_json        TEXT NOT NULL
+                    CHECK(json_valid(value_json)),
+  updated_at        TEXT NOT NULL,
+  PRIMARY KEY (definition_id, node_id, key)
+);
 ```
 
 **Index rationale + write-amplification estimate:** Per-index query justifications above are sized against SQLite's standard query-planner cost model — partial indexes with `WHERE` clauses are evaluated only over the matching subset, yielding the smallest workable index for the live-set queries ([SQLite — Partial Indexes](https://www.sqlite.org/partialindex.html), fetched 2026-04-25). The ~42 KB / 110-write projection for a 10-phase workflow assumes Spec-013's 50-event batch flushed under one `db.transaction(fn)` call — `better-sqlite3` commits each batch atomically and rolls back on throw (_"Calling [.transaction()] returns a new function that, when called, runs the given function inside an SQLite transaction"_ — [better-sqlite3 API docs](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/api.md), fetched 2026-04-25). Two to three batch flushes therefore absorb the full workflow lifecycle without triggering write-amplification regressions under `synchronous = FULL` WAL ([SQLite — Write-Ahead Logging](https://www.sqlite.org/wal.html), fetched 2026-04-25).
@@ -1518,7 +1625,7 @@ CREATE TABLE run_links (
                                                         -- accumulates turns from several principals and recency is not a correct answer.
                                                         -- Daemon-resolved, never client-supplied (the durable-recording discipline).
   created_at        TEXT NOT NULL,
-  PRIMARY KEY (child_run_id),                       -- single-parent: a child run links to exactly one parent (one-shot run.queued linkage D-014-3; depth-1 model)
+  PRIMARY KEY (child_run_id),                       -- single-parent: a child run links to exactly one parent (one-shot run.queued linkage D-014-3)
   CHECK (parent_run_id <> child_run_id)             -- a run never parents itself
 );
 
@@ -1527,10 +1634,10 @@ CREATE INDEX idx_run_links_session ON run_links(session_id);
 
 -- Owner: Plan-014 (events-canonical projection of agent.* events — A-014-2; state enum is the
 -- canonical 4-state agent lifecycle from domain/agent-channel-and-run-model.md §Lifecycle.
--- V1 wire mapping: agent.attach -> 'ready' (or 'configured' when the named default node is not
--- currently attached), agent.detach -> 'disabled', re-attach -> 'ready'; 'archived' is registered
--- but no V1 wire mutation reaches it. The resulting state is carried ON the agent.* event payloads
--- so the projection is deterministic from the log alone.)
+-- No wire verb brings a sidekick into a session or takes one out: a row appears where a sidekick
+-- takes part -- the session's own lead, a delegation from it, or a sidekick the person named in the
+-- composer -- and 'archived' is registered but no V1 wire mutation reaches it. The resulting state is
+-- carried ON the agent.* event payloads so the projection is deterministic from the log alone.)
 CREATE TABLE agents (
   id              TEXT PRIMARY KEY,
   session_id      TEXT NOT NULL,
@@ -1551,7 +1658,7 @@ CREATE TABLE agents (
                                                         -- go stale against the provider rather than protect anything
   output_speed    TEXT,                                 -- 2026-08-29 (D-014-26, the output-speed axis): the EFFECTIVE speed mode this
                                                         -- agent spawns under. NULL = never set, so the provider's own default stands --
-                                                        -- an agent is not born with a speed mode and no attach surface carries one.
+                                                        -- an agent is not born with a speed mode and no surface sets one at birth.
                                                         -- Uncheckable here for the same reason as `effort`: the valid set is the
                                                         -- driver-published `outputSpeedLevels`, so a CHECK would go stale behind a vendor.
                                                         -- A column rather than a `config` key because the applying coordinator commits
@@ -1561,9 +1668,9 @@ CREATE TABLE agents (
                                                         -- restart, and `config` is opaque to the spawn path that has to read it
   execution_posture_mode TEXT
                   CHECK(execution_posture_mode IS NULL OR execution_posture_mode IN
-                        ('trusted','workspace-sandboxed','readonly-sandboxed')),
-                                                        -- 2026-08-26 (CP-027-7): the resolved posture MODE snapshotted at attach.
-                                                        -- NULL = the session default. A mode only, never a composed
+                        ('readonly','ask','reviewed','sandboxed','yolo')),
+                                                        -- 2026-08-26 (CP-027-7): the permission level resolved when the run started,
+                                                        -- one of the five. NULL = the session default. A level only, never a composed
                                                         -- ExecutionPosture: writableRoots and credentialPolicyRef belong to a live
                                                         -- run's workspace and would freeze a path set that outlives it. CHECKable
                                                         -- here, unlike `effort` above, because this vocabulary is corpus-owned
@@ -1572,7 +1679,7 @@ CREATE TABLE agents (
                                                         -- SQL NULL = driver defaults, '[]' = no tools, populated = exactly these.
                                                         -- Outside `config` because the daemon composes the callback registry from
                                                         -- it (I-027-10), and `config` is opaque to everything outside the driver
-  instructions    TEXT,                                 -- 2026-08-26 (CP-027-7): the system-prompt content AS APPLIED at attach
+  instructions    TEXT,                                 -- 2026-08-26 (CP-027-7): the system-prompt content AS APPLIED when the run started
   goal            TEXT,                                 -- 2026-08-26 (CP-027-7): the agent goal as applied; NULL = none
                                                         -- Both are read by prompt construction, which is why they are typed
                                                         -- columns rather than `config` keys: after the source definition is
@@ -1897,7 +2004,6 @@ CREATE TABLE provider_accounts (
   account_id            TEXT NOT NULL PRIMARY KEY,  -- daemon-minted opaque immutable identity; never derived from credential material (Spec-026 §Account identity and credential generation). `NOT NULL` is declared explicitly because a `TEXT PRIMARY KEY` on a rowid table admits NULL, which is a documented SQLite compatibility quirk rather than a design choice: a PRIMARY KEY there is usually just a UNIQUE constraint, an historical oversight lets its column values be NULL, and the vendor's own stated workaround is a NOT NULL constraint on each PRIMARY KEY column — https://www.sqlite.org/quirks.html#primary_keys_can_sometimes_contain_nulls (§5, accessed 2026-08-31). NULLs compare distinct in that unique index, so two identity-less rows would both commit. A NULL identity keys nothing: `(account_id, credential_generation)` becomes unmatchable, the child table's `ON DELETE CASCADE` never fires for it, and the credential home derived from it cannot be attributed back. Neither documented exception applies here: this is not an `INTEGER PRIMARY KEY` rowid alias, and the table is not `WITHOUT ROWID`.
   provider              TEXT NOT NULL
                         CHECK(provider IN ('claude', 'codex')),  -- the same closed driver-id union the MCP governance tables use
-  display_label         TEXT NOT NULL,  -- operator-chosen label for disambiguation in the UI; free text, treated as user-adjacent PII (Spec-020 §PII Data Map)
   credential_home_path  TEXT NOT NULL,  -- absolute path to this account's isolated credential home; the daemon constructs the spawn environment from it and never inherits ambient provider credentials (I-026-4)
   credential_generation INTEGER NOT NULL DEFAULT 1
                         CHECK(typeof(credential_generation) = 'integer' AND credential_generation >= 1),  -- monotonic, starts at 1; bumped at every credential-home lifecycle transition (I-026-2). The CHECK makes the floor enforced rather than asserted: a zero or negative generation sorts BEFORE a freshly registered account, so a reading stamped with one would read as newer than the account it describes and invert the staleness comparison the stamp exists for. The `typeof` conjunct is not redundant with the `INTEGER` declaration and is the second half of the same guarantee: a SQLite column type is an AFFINITY, and INTEGER affinity converts a bound REAL only where the conversion is lossless, so `1.5` is stored as REAL `1.5`, satisfies `>= 1`, and makes a monotonic counter divisible — two bumps could then land on `1.5` and `1.75` and order by fraction rather than by generation. Lossless bindings are untouched: `2.0` and `'3'` both convert to integer and remain admitted, so the conjunct refuses exactly the values that were never generations.
@@ -1912,15 +2018,16 @@ CREATE TABLE provider_accounts (
                         CHECK(observed_auth_mode IS NULL OR observed_auth_mode IN ('oauth_subscription', 'oauth_token', 'api_key', 'external', 'none', 'unknown')),  -- the authentication mode the provider's OWN status surface reports for this home, OBSERVED and never assumed (Spec-026 §Non-interactive token registration). NULL until observed; `unknown` is the distinct arm for "observed, but the provider named a mode this daemon does not recognize" — a tolerant arm so a vendor adding a mode does not fail an observation closed. `oauth_token` is the ADR-028 D2 class and is what admits a token-mode account; the token VALUE is not here and is in no column of any table (Spec-026 §State And Data Implications).
   last_refresh_observed_at TEXT,  -- RFC 3339 UTC of the most recent credential refresh the daemon has OBSERVED to have completed for this home, read from the provider's own durable marker where it publishes one. NULL = not observed, never "fine". Drives the freshness reading; the daemon never CAUSES a refresh to produce it (Spec-026 §Credential-home health observation).
   logged_in_at          TEXT,  -- RFC 3339 UTC of the moment this home's credential was ISSUED. On a brokered sign-in that is the observed completion, which the daemon witnessed. On a token-mode registration it is the token's ISSUANCE time — read from the provider's own status surface where it publishes one, else supplied explicitly by the operator — and is NOT the registration time: a token is minted out of band and may be registered months later, so anchoring here to registration would shift the horizon forward by the token's pre-registration age and could report a credential as good after it had expired. Where no issuance anchor exists the column stays NULL and the estimate renders as unknown; it is never defaulted to `created_at`. NULL also for a home imported by a registration that neither signed in nor supplied a token. The re-login horizon derived from it is MODE-DISPATCHED and is an ESTIMATE, never a fact: the interval belongs to the provider's issuance policy, which the daemon does not control and cannot verify.
-  -- Provider-REPORTED account identity, surfaced by a health observation and stored so the
-  -- management page can tell two accounts of the same provider apart by something truer than the
-  -- operator's own label. Nullable and independently so: a provider may report any subset, and an
-  -- absent value stays absent rather than defaulting. A later observation REPLACES these values
-  -- (Spec-020 §PII Data Map, `provider_accounts` row); they are never logged, never evented, and
-  -- never carried on an error. Carriers for the render Spec-021 requires and the retention rule
-  -- Spec-020 already governs — added 2026-08-26 at the Codex round, which found the rule and the
-  -- render both citing a column that did not exist.
+  -- Provider-REPORTED account identity, surfaced by a health observation. This IS an account's
+  -- identity on every surface that names one — the address, the plan as the provider itself names it,
+  -- and the organisation where the plan has one — and there is no operator-typed label beside it: one
+  -- address can hold two accounts on different plans, so the plan and the organisation are part of
+  -- telling them apart rather than decoration around an invented name. Nullable and independently so:
+  -- a provider may report any subset, and an absent value stays absent rather than defaulting. A later
+  -- observation REPLACES these values (Spec-020 §PII Data Map, `provider_accounts` row); they are
+  -- never logged, never evented, and never carried on an error.
   observed_account_email     TEXT,
+  observed_account_plan      TEXT,  -- the provider's own word for the plan, verbatim; distinct from billing_mode, which says how the account is paid for rather than which plan it is on
   observed_account_org_id    TEXT,
   observed_account_org_name  TEXT,
   removal_intent        INTEGER NOT NULL DEFAULT 0
@@ -1986,18 +2093,20 @@ Spend is joined to an account without duplicating account identity onto every us
 
 Node-local registry of saved sidekick configurations, for [Spec-027](../../specs/027-sidekick-definitions-and-peer-invocation.md). One row per definition. This is **configuration, not session state**: it is not events-canonical, is never replayed, is never rebuilt from the event log, and never leaves the node (I-027-9).
 
-`id` is daemon-minted, opaque, and immutable, and is stable across a rename — `name` is a mutable human label and is never an identity key (I-027-1). An agent attached from a definition holds a **snapshot** of it: no foreign key binds an agent to this table, and no read path serving a running agent consults it, so editing or deleting a definition can never widen an already-attached sidekick's authority (I-027-2).
+`id` is daemon-minted, opaque, and immutable, and is stable across a rename — `name` is a mutable human label and is never an identity key (I-027-1). A run started under a definition holds a **snapshot** of it: no foreign key binds a running sidekick to this table, and no read path serving one consults it, so editing or deleting a definition can never widen the authority of a sidekick already running (I-027-2).
 
-`provider_account_id` deliberately carries **no foreign key** to `provider_accounts` (D-027-1). `ON DELETE CASCADE` would discard operator-authored configuration when an account is removed; `ON DELETE SET NULL` would silently convert a pinned account into "the provider's default account", which is exactly the substitution the fail-closed resolution rule forbids; `ON DELETE RESTRICT` would make account removal fail because an unrelated definition names it. The reference is therefore unenforced at the schema layer and checked at attach time, which is the only point at which the answer matters.
+`bindings` is the definition's provider axes, and it is one JSON column rather than four loose ones. It holds a default binding and any number of overrides — `{ "default": { driverName, modelId, providerAccountId, effort }, "overrides": [ … ] }` — because one saved sidekick runs on either provider without being copied into a second definition, and four loose columns could hold only one provider's setup. The default is one of the bindings rather than a fallback beside them, and an override is a whole binding in its own right: an override's driver is unique within the definition and never repeats the default's, so which binding answers for a driver is never ambiguous. JSON rather than a child table because the list is bounded, always read with its row, and never queried across definitions — the same convention `tool_allowlist` on this table already follows.
+
+A `providerAccountId` inside a binding deliberately carries **no foreign key** to `provider_accounts` (D-027-1), which a JSON column could not express anyway and which the corpus would refuse if it could. `ON DELETE CASCADE` would discard operator-authored configuration when an account is removed; `ON DELETE SET NULL` would silently convert a pinned account into "the provider's default account", which is exactly the substitution the fail-closed resolution rule forbids; `ON DELETE RESTRICT` would make account removal fail because an unrelated definition names it. The reference is therefore unenforced at the schema layer and checked when a run resolves the binding, which is the only point at which the answer matters.
 
 `tool_allowlist` is three-state and the three states are **not** interchangeable (I-027-4): `NULL` means the driver's default tool set, the JSON array `'[]'` means no tools at all, and a populated array means exactly those tools. Representing "no tools" as an absent value would make the most restrictive choice unexpressible.
 
-`execution_posture_mode` stores the posture **mode literal only** (I-027-8). A composed `ExecutionPosture` carries a content-addressed `credentialPolicyRef` meaningful only against the session that composed it, so persisting one would let a stale definition re-grant a superseded trust decision, or dangle outright; the session composes the full posture at attach time from this mode.
+`execution_posture_mode` stores **one of the five permission levels, and nothing composed** (I-027-8): `readonly`, `ask`, `reviewed`, `sandboxed`, `yolo`, or NULL for the posture of whatever session or run the sidekick is used in. A composed `ExecutionPosture` carries a content-addressed `credentialPolicyRef` meaningful only against the session that composed it, so persisting one would let a stale definition re-grant a superseded trust decision, or dangle outright; the daemon composes the full posture from this level when the run starts. Planning is not a level and is not storable here — it is a session's own mode.
 
 ```sql
 -- Owner: Plan-027
 CREATE TABLE sidekick_definitions (
-  id                     TEXT NOT NULL PRIMARY KEY,  -- daemon-minted opaque immutable definitionId; stable across a rename (I-027-1). `NOT NULL` declared explicitly: a TEXT PRIMARY KEY on a rowid table admits NULL (the documented SQLite quirk armored the same way on provider_accounts.account_id above — https://www.sqlite.org/quirks.html#primary_keys_can_sometimes_contain_nulls), and a NULL definitionId keys nothing: attach-by-reference could never resolve it and NULLs compare distinct, so two identity-less rows would both commit.
+  id                     TEXT NOT NULL PRIMARY KEY,  -- daemon-minted opaque immutable definitionId; stable across a rename (I-027-1). `NOT NULL` declared explicitly: a TEXT PRIMARY KEY on a rowid table admits NULL (the documented SQLite quirk armored the same way on provider_accounts.account_id above — https://www.sqlite.org/quirks.html#primary_keys_can_sometimes_contain_nulls), and a NULL definitionId keys nothing: no run could resolve it and NULLs compare distinct, so two identity-less rows would both commit.
   name                   TEXT NOT NULL  -- mutable human label; NEVER an identity key on any wire request, stored reference, or audit row
                          CHECK(length(name) > 0 AND length(name) <= 128 AND instr(name, char(0)) = 0),
   name_folded            TEXT NOT NULL,  -- full-Unicode case fold of `name`, computed by the store on every write (I-027-7).
@@ -2006,13 +2115,18 @@ CREATE TABLE sidekick_definitions (
                                          -- uniqueness and no concurrent pair of non-ASCII case variants can both commit.
   description            TEXT NOT NULL DEFAULT ''
                          CHECK(length(description) <= 1024 AND instr(description, char(0)) = 0),
-  driver_name            TEXT NOT NULL,  -- provider driver key (Plan-004 capability surface), matching agents.driver_name
-  model_id               TEXT NOT NULL,
-  provider_account_id    TEXT,  -- NULL = the provider's default account resolved at attach time. Deliberately NO foreign key (D-027-1) — the row must outlive its account so resolution can refuse legibly instead of substituting
-  effort                 TEXT,  -- NULL = the driver's default. Validated at resolution against the target model's driver-reported effortLevels, NOT against a corpus-wide enum, so no CHECK list appears here
-  execution_posture_mode TEXT  -- NULL = the session default posture. Mode literal ONLY — no credentialPolicyRef, writableRoots, or network member is ever persisted here (I-027-8)
+  icon                   TEXT,  -- NULL = the generic sidekick glyph. A glyph key from the console's own icon set; icon and accent are two fields, not one theme, so either changes without the other
+  accent_hue             TEXT,  -- NULL = no chosen hue, and the card draws the generic mark's own. One step of the console's twelve-step hue wheel
+  bindings               TEXT NOT NULL  -- the provider axes as one JSON object: a default binding plus its overrides, each binding naming a driver, a model, an optional provider account and an optional effort. Replaces the four loose provider columns, because a definition reaches both providers
+                         CHECK(json_valid(bindings)
+                               AND json_type(bindings) = 'object'
+                               AND json_type(bindings, '$.default') = 'object'
+                               AND json_type(bindings, '$.overrides') = 'array'),
+  turn_cap               INTEGER  -- NULL = no cap, and the daemon adds none of its own. The number of turns this sidekick may take before it is stopped; not a budget
+                         CHECK(turn_cap IS NULL OR turn_cap > 0),
+  execution_posture_mode TEXT  -- NULL = the posture of the session or run the sidekick is used in. One of the five permission levels and nothing composed — no credentialPolicyRef, writableRoots, or network member is ever persisted here (I-027-8)
                          CHECK(execution_posture_mode IS NULL OR execution_posture_mode IN (
-                           'trusted', 'workspace-sandboxed', 'readonly-sandboxed'
+                           'readonly', 'ask', 'reviewed', 'sandboxed', 'yolo'
                          )),
   instructions           TEXT NOT NULL DEFAULT ''  -- the system-prompt text the sidekick runs under; operator-authored node-local configuration, never emitted into an event payload
                          CHECK(length(instructions) <= 32768 AND instr(instructions, char(0)) = 0),

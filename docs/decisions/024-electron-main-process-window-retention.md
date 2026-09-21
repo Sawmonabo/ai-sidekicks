@@ -1,4 +1,4 @@
-# ADR-024: Electron Main-Process BrowserWindow Retention
+# ADR-024: Electron Main-Process Window Retention
 
 | Field         | Value                                           |
 | ------------- | ----------------------------------------------- |
@@ -36,6 +36,8 @@ Codex's PR #72 VERIFICATION observation: a non-smoke regression test for the "re
 ## Decision
 
 We keep the module-scope `let mainWindow: BrowserWindow | null = null;` declaration in `apps/desktop/src/main/index.ts`, with the `closed`-handler nulling its reference back, **as defensive consistency with the canonical Electron community pattern**. The reachability invariant the AC asserts (window stays live across the `.then(...)` unwind; `window-all-closed` does not fire spuriously) is in fact anchored by Electron's native-side `BaseWindow::self_ref_` — not by the user-side reference.
+
+**The rule is the base class's, and so holds for the window the console actually creates.** The anchor measured here is `BaseWindow::self_ref_`, and Electron's own API makes `BrowserWindow` a subclass of `BaseWindow` — its type definitions at the pinned Electron declare `class BrowserWindow extends BaseWindow` — so a reading taken on a `BrowserWindow` is a reading of the base class's mechanism. The console's window is a `BaseWindow` hosting the renderer and each page as a `WebContentsView` under [ADR-036](036-embedded-browser-for-preview.md), and both halves of this decision reach it unchanged: the module-scope reference stays, for the same defensive reason, and the native anchor is the one this investigation identified. Nothing is re-measured for the base class here; the measurements below stand as what they were, taken on a `BrowserWindow` at the Electron they name.
 
 ### Thesis — Why This Option
 
@@ -330,3 +332,4 @@ Every Electron and V8 line number above is tag-exact as of 2026-09-02: the Elect
 | 2026-05-18 | Proposed | Empirical investigation of Electron 41.6.1 + V8 14.6.202.34-electron.0 surfaced `BaseWindow::self_ref_` as the load-bearing anchor; Codex's PR #70 P1 mechanism claim falsified. |
 | 2026-05-18 | Accepted | Spec-021 AC amended (commit 76714fa); regression test + probe enhancement shipped (commit 4ddab2a); user-side `let mainWindow` retained as defensive consistency against asymmetric risk of future Electron drift. |
 | 2026-09-02 | Amended (§Antithesis evidence, §References) | Probe re-measured after event dispatch unwinds, with a plain-object negative control and the script inlined, the lifecycle guard tightened to a stable count plus a per-window close delta (the fixed non-instance match is unidentifiable from counts alone), and the loop-frame control inlined: the retained-while-open reading stands (the load-bearing claim); the 2026-05-18 `countAfterClose: 2` reading is withdrawn as a pre-destruction measurement — `OnWindowClosed` emits `closed` before the destroy task it posts runs the destructor's `self_ref_.Reset()`, so the wrapper was still rooted by `self_ref_` when it was sampled, and a closed window's wrapper is released once that task runs. Electron cites re-derived at the exact `v41.6.1` tag and the `gc()` mode semantics at V8 tag `14.6.202.34`; gitignored provenance paths retired. Status unchanged. |
+| 2026-09-21 | Revisited | The console's window is a `BaseWindow` under [ADR-036](036-embedded-browser-for-preview.md). The retention reference and the `BaseWindow::self_ref_` anchor it rests on are unchanged. |

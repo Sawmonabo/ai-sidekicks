@@ -385,11 +385,11 @@ Plan-002 implementation lands as a sequence of small PRs at Tier 2. Phases 1–4
 
 ```yaml
 preconditions:
-  - { type: plan_phase, plan: 3, phase: 2, status: merged }
+  - { type: plan_phase, plan: 002, phase: 2, status: merged }
   - { type: bl_closed, ref: 140 }
 ```
 
-**Task-set supplement (2026-08-12, BL-141 / [ADR-025](../decisions/025-runtime-node-control-plane-caller-authorization.md)).** T3.10–T3.12 join this phase's task set after T3.0–T3.9 shipped (PR #145). This is deliberately a Phase-3 supplement rather than a new phase: no external precondition reads `plan: 3, phase: 3` — the only `plan_phase` leg naming this plan is its own Phase-2 gate above — so nothing depends on Phase 3 classifying `fully_shipped`, and the supplement is the mechanism that makes the new tasks dispatchable (the shipment classifier reports `partially_shipped` with the three new ids as `missing`, which is a handled diagnostic state, not a regression). The shipped manifest entry for PR #145 is **not** rewritten; the code PR appends a second `phase: 3` entry listing the new ids, and the classifier unions every entry sharing a phase key, so the phase returns to `fully_shipped` on that merge. (Contrast [Plan-008](./008-worktree-lifecycle-and-execution-modes.md) §Phase 6, which minted a discrete phase precisely because an external `plan_phase` leg depended on Phase 5 staying `fully_shipped` — that condition is absent here.)
+**Task-set supplement (2026-08-12, BL-141 / [ADR-025](../decisions/025-runtime-node-control-plane-caller-authorization.md)).** T3.10–T3.12 join this phase's task set after T3.0–T3.9 shipped (PR #145). This is deliberately a Phase-3 supplement rather than a new phase: no external precondition reads `plan: 002, phase: 3` — the only `plan_phase` leg naming this plan is its own Phase-2 gate above — so nothing depends on Phase 3 classifying `fully_shipped`, and the supplement is the mechanism that makes the new tasks dispatchable (the shipment classifier reports `partially_shipped` with the three new ids as `missing`, which is a handled diagnostic state, not a regression). The shipped manifest entry for PR #145 is **not** rewritten; the code PR appends a second `phase: 3` entry listing the new ids, and the classifier unions every entry sharing a phase key, so the phase returns to `fully_shipped` on that merge. (Contrast [Plan-008](./008-worktree-lifecycle-and-execution-modes.md) §Phase 6, which minted a discrete phase precisely because an external `plan_phase` leg depended on Phase 5 staying `fully_shipped` — that condition is absent here.)
 
 **Goal:** Tests P1–P10 go green; cross-version-compatibility surface works end-to-end.
 

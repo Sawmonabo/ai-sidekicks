@@ -36,6 +36,7 @@ This spec covers session identity, default session structure, session creation, 
 - [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md)
 - [ADR-001: Session Is The Primary Domain Object](../decisions/001-session-is-the-primary-domain-object.md)
 - [ADR-002: Local Execution Shared Control Plane](../decisions/002-local-execution-shared-control-plane.md)
+- [ADR-032: Two Session Shapes](../decisions/032-two-session-shapes.md)
 
 ## Required Behavior
 
@@ -46,6 +47,10 @@ This spec covers session identity, default session structure, session creation, 
 - A session must support concurrent devices, channels, and runs.
 - Session identity must remain stable across reconnect, client restart, and transport changes.
 - The Local Runtime Daemon must own execution state while the Control Plane owns shared coordination state.
+- **Two session shapes, and no third.** A session is either a chat or a project ([ADR-032: Two Session Shapes](../decisions/032-two-session-shapes.md)). The shape is decided by what the session is bound to, never by a mode flag, and it is a durable column on the session record rather than something inferred from a path prefix. A chat session is bound to a daemon-owned, git-initialized managed workspace, one per session, kept under the daemon's own state directory at `<home>/.ai-sidekicks/workspaces/<session-id>` and registered as a mount whose origin is marked managed. A project session is bound to a repository the user attached, and a project is defined against that mount's origin rather than against a folder existing on disk: attaching a folder that is already a project opens the project it already is, and the daemon refuses to mint a second project record for the same origin, so no path through the product can create a duplicate.
+- **A chat becomes a project in place.** Converting a chat to a project copies the managed workspace's files into the attached repository, and from then on the session is a project session: the same session id, the same timeline, the same history. Nothing beyond that copy is migrated and nothing is auto-merged, and the managed workspace and its own history are kept rather than deleted. The conversion changes the session's binding; it never mints a second session. **It never overwrites a file the repository already has:** such a file is not copied, it stays in the kept managed workspace, and the one act row the conversion appends to the session's timeline names what was not copied, so nothing is quietly replaced and nothing is quietly lost.
+- **A managed workspace at end of life.** A chat's managed workspace is deleted whole when its session is purged, retained when the session is archived, and excluded from the archive sweep. Provable destruction of its contents is never claimed.
+- **Forking a session.** A fork mints a new session of the same shape from a message anchor in the parent. The new session carries the transcript prefix up to and including that message, with live timers settled and streams stopped in the copy, and the parent is recorded on the new session's own creation record rather than as a second record beside it. A chat fork stays a chat and binds a managed workspace of its own; a project fork lands on a new worktree taken off the parent's current worktree at its current commit. The session's posture — its permission level, its model and its effort — and its tool configuration carry over. The parent is untouched: a fork never changes the parent's session id, its timeline or its runs.
 
 ## Default Behavior
 
@@ -80,6 +85,13 @@ This spec covers session identity, default session structure, session creation, 
 - `SessionRead` must return the authoritative session snapshot plus timeline cursors.
 - `SessionJoin` must verify that the caller owns the session and return the same session id plus the latest shared metadata.
 - `SessionSubscribe` must stream canonical session events and support replay from a known cursor.
+- The session surface on the wire is `session.create`, `session.read`, `session.subscribe` (replay from a known cursor, then tail), `session.goalUpdate` and `session.goalClear` (the standing sentence every sidekick in the session is given, and its removal), `session.setWorkingFolder`, `session.fork`, `session.rename`, `session.draftUpdate`, `session.attachmentAdd` and `session.attachmentRemove`, and two search reads: one across the user's sessions over session titles and message text, answering with hits grouped by session and each hit's own message anchor, and the same search scoped to a single session, which counts every hit and loads the stretch of history a hit sits in only when the reader steps to it. No client walks history it does not already hold.
+- `session.create` names the session's one main agent — a saved sidekick definition, or the axes spelled out — and its reply echoes the binding the daemon resolved for it: the driver, the model, the effort, and the provider account ([Spec-027 §Resolution when a run starts](./027-sidekick-definitions-and-peer-invocation.md#resolution-when-a-run-starts)). Those same resolved values ride the session's own creation record, because no verb attaches an agent to a session and that record is where the agent's row in the session's `agents` projection is born ([Spec-014 §Interfaces And Contracts](./014-multi-agent-channels-and-orchestration.md#interfaces-and-contracts)).
+- `session.setWorkingFolder` is one call requesting the move. Re-targeting it at the session's current directory is how a pending request is cancelled, the pending intent lives on the session row rather than in a queue, and the move is applied when the session's active run reaches a boundary.
+- `session.rename` writes a name field on the session record; a session with no name is shown by its first message instead, and nothing renames a session on the user's behalf.
+- `session.fork` carries the message anchor, returns the new session's id, and records the parent on that new session's creation record.
+- The composer draft, its staged files and the review notes left on a file's lines are one daemon-held, session-scoped store: `session.draftUpdate` saves the draft, `session.attachmentAdd` and `session.attachmentRemove` stage and unstage one file, a staged file is copied to the daemon when it is staged and held with the session outside the checkout, and a note left on a line is held the same way, scoped to the same session. Because the daemon holds all three, a half-written message, its files and an unsent review reach the user's other devices and sending needs no upload step; the draft is cleared when the message is sent. Typed unsent text is never written to window storage.
+- The canonical stream carries `session.goal_updated`, `session.goal_cleared`, `session.renamed`, `session.archived`, `session.purged` and `session.notice`.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 - See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 
@@ -88,6 +100,7 @@ This spec covers session identity, default session structure, session creation, 
 - Session records must be durable before active run state is admitted.
 - The system must maintain a canonical session event stream and session snapshot projection.
 - Clients may cache presentation state, but cache must not be authoritative for session or run truth.
+- The session record carries the shape discriminator and, for a chat, the managed-workspace mount the session is bound to. The daemon-held draft, its staged attachments and the session's review notes are durable session-scoped state, never client state.
 - Session records may carry an optional minimum client-version floor (`min_client_version`) per [ADR-018: Cross-Version Compatibility](../decisions/018-cross-version-compatibility.md). A NULL floor means no minimum is enforced. Attach-time enforcement is performed at the [Runtime Node Attach](./002-runtime-node-attach.md) boundary.
 
 ## Example Flows
@@ -117,6 +130,9 @@ This spec covers session identity, default session structure, session creation, 
 - [ ] AC6 — Reconnecting clients restore session state from the authoritative snapshot plus replay data, never from client cache.
 - [ ] AC7 — Concurrent channels and runs up to the [Resource Limits](#resource-limits) defaults are supported without timeline corruption.
 - [ ] AC8 — Each Resource Limits enforcement returns the standard `{code: "resource.limit_exceeded", ...}` error shape and does not terminate existing resources.
+- [ ] AC9 — A session's shape is read from its binding and its durable discriminator; attaching a folder that is already a project opens that project and mints no second project record for the same origin.
+- [ ] AC10 — A chat converted to a project keeps its session id and its full timeline, its managed workspace and history are kept, and a file the repository already has is left untouched, stays in the managed workspace, and is named on the conversion's own timeline row.
+- [ ] AC11 — A fork yields a new session id of the same shape carrying the transcript prefix through the anchor message, records the parent on its own creation record, and leaves the parent session's id, timeline and runs unchanged.
 
 ## ADR Triggers
 

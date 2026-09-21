@@ -574,7 +574,7 @@ preconditions:
 ```yaml
 preconditions:
   - { type: audit_status, status: complete, evidence_pr: 331, baseline_tag: "plan-readiness-audit-tier-9-complete" }
-  - { type: plan_phase, plan: 26, phase: 1, status: merged }
+  - { type: plan_phase, plan: 023, phase: 1, status: merged }
 ```
 
 #### Tasks
@@ -623,7 +623,7 @@ preconditions:
 ```yaml
 preconditions:
   - { type: audit_status, status: complete, evidence_pr: 331, baseline_tag: "plan-readiness-audit-tier-9-complete" }
-  - { type: plan_phase, plan: 26, phase: 2, status: merged }
+  - { type: plan_phase, plan: 023, phase: 2, status: merged }
 ```
 
 #### Tasks
@@ -681,7 +681,7 @@ preconditions:
 ```yaml
 preconditions:
   - { type: audit_status, status: complete, evidence_pr: 331, baseline_tag: "plan-readiness-audit-tier-9-complete" }
-  - { type: plan_phase, plan: 26, phase: 3, status: merged }
+  - { type: plan_phase, plan: 023, phase: 3, status: merged }
 ```
 
 #### Tasks
@@ -721,7 +721,7 @@ preconditions:
 ```yaml
 preconditions:
   - { type: audit_status, status: complete, evidence_pr: 331, baseline_tag: "plan-readiness-audit-tier-9-complete" }
-  - { type: plan_phase, plan: 26, phase: 3, status: merged }
+  - { type: plan_phase, plan: 023, phase: 3, status: merged }
 ```
 
 #### Tasks
@@ -761,8 +761,8 @@ preconditions:
 ```yaml
 preconditions:
   - { type: audit_status, status: complete, evidence_pr: 331, baseline_tag: "plan-readiness-audit-tier-9-complete" }
-  - { type: plan_phase, plan: 26, phase: 4, status: merged }
-  - { type: plan_phase, plan: 26, phase: 5, status: merged }
+  - { type: plan_phase, plan: 023, phase: 4, status: merged }
+  - { type: plan_phase, plan: 023, phase: 5, status: merged }
 ```
 
 #### Tasks
@@ -815,9 +815,9 @@ Homed as one terminal supplement phase rather than threaded through Phases 3-6, 
 ```yaml
 preconditions:
   - { type: audit_status, status: complete, evidence_pr: 331, baseline_tag: "plan-readiness-audit-tier-9-complete" }
-  - { type: plan_phase, plan: 26, phase: 4, status: merged }
-  - { type: plan_phase, plan: 26, phase: 5, status: merged }
-  - { type: external_plan_phase_merged, plan: 29, phase: 3 }
+  - { type: plan_phase, plan: 023, phase: 4, status: merged }
+  - { type: plan_phase, plan: 023, phase: 5, status: merged }
+  - { type: external_plan_phase_merged, plan: 026, phase: 3 }
 ```
 
 #### Tasks

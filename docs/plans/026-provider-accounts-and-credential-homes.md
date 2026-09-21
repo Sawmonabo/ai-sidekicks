@@ -16,7 +16,7 @@
 
 ## Goal
 
-Deliver the node-local provider-account plane: a registry of provider accounts, per-account isolated credential homes wired into the existing constructed-environment discipline, per-run account selection with fail-closed validation at spawn, the account identity and credential generation that three other specs consume by name, and the per-account cost attribution the session cost receipt and the global cost page read.
+Deliver the node-local provider-account plane: a registry of provider accounts, per-account isolated credential homes wired into the existing constructed-environment discipline, per-run account selection with fail-closed validation at spawn, the account identity and credential generation that three other specs consume by name, and the per-account cost attribution the session cost receipt and the Providers page's spend lines read.
 
 ## Scope
 
@@ -26,7 +26,7 @@ Deliver the node-local provider-account plane: a registry of provider accounts, 
 - Per-account credential homes: construction, the reserved run-provisioned variables, spawn-time validation, and the fail-closed refusals.
 - The named capability probe that decides whether concurrent cross-account execution is available at the pinned binaries, plus the per-provider-account serialization floor that holds until it does.
 - Brokering the provider-initiated credential-refresh server request per account.
-- The `providerAccount` wire namespace, the Cedar action family for per-run selection, the CLI surface, and the global cost page read.
+- The `providerAccount` wire namespace, the Cedar action family for per-run selection, the CLI surface, and the per-account spend read the Providers page draws.
 
 ## Non-Goals
 
@@ -48,7 +48,7 @@ An account's `accountId` is daemon-minted at registration, opaque to callers, im
 
 **Why load-bearing.** Every consumer of the account axis keys on this value: the attention-key fold at Plan-015, the quota display at Plan-011, the cost receipt at Plan-014, and this plan's own registry. An identity derived from credential material would fragment an account's history at every token refresh — the same account would appear as several — and would place account material on every payload carrying it, breaching the inherited no-token-custody posture.
 
-**Verification.** Registry unit tests assert identity stability across a simulated re-authentication, a relabel, and a default change; a rejection row asserts that a caller-supplied `accountId` at registration is refused.
+**Verification.** Registry unit tests assert identity stability across a simulated re-authentication, a billing-mode correction, and a default change; a rejection row asserts that a caller-supplied `accountId` at registration is refused.
 
 ### I-026-2 — Credential generation is monotonic per account and never resets
 
@@ -106,7 +106,7 @@ The daemon enables concurrent execution across two accounts of one provider only
 
 **Grounds in.** [Spec-026 §Concurrency Posture](../specs/026-provider-accounts-and-credential-homes.md#concurrency-posture).
 
-**Why load-bearing.** The design's mechanism (one process per run, isolated homes) makes concurrency plausible, and plausible is exactly the state in which teams ship it. The failure it risks is credential corruption on the operator's real paid account, which is unrecoverable without a browser re-login. The probe converts a hope into a capability the daemon can read.
+**Why load-bearing.** The design's mechanism (one long-lived process per session, each bound to one account, isolated homes) makes concurrency plausible, and plausible is exactly the state in which teams ship it. The failure it risks is credential corruption on the operator's real paid account, which is unrecoverable without a browser re-login. The probe converts a hope into a capability the daemon can read.
 
 **Verification.** The probe task is its own verification; the serialization floor is asserted by a scheduler test that admits two runs on two accounts of one provider with the probe unresolved and observes serial execution, and by a negative control with the probe positive observing concurrency.
 
@@ -194,9 +194,9 @@ Plan-014 owns the committed-spend fold and the session cost receipt. This plan p
 
 ### CP-026-4 — Plan-026 joins the CP-014-16 committed-spend-fold consumer set
 
-[Plan-014 §Cross-Plan Obligations](./014-multi-agent-channels-and-orchestration.md#cross-plan-obligations) CP-014-16 obliges any plan that grows a cost-displaying surface to source every figure from the accountant's committed-spend accessor and to return-cite the obligation at its own audit. This plan's global cost page is such a surface.
+[Plan-014 §Cross-Plan Obligations](./014-multi-agent-channels-and-orchestration.md#cross-plan-obligations) CP-014-16 obliges any plan that grows a cost-displaying surface to source every figure from the accountant's committed-spend accessor and to return-cite the obligation at its own audit. The per-account spend and the across-accounts total this plan draws on the Providers page are such a surface.
 
-**Resolution.** Discharged at this plan's authoring audit: the global cost page read (T4.2) is a projection over the accountant's accessor with no independent fold, and the [Spec-014 §Cost Figure Display Consistency](../specs/014-multi-agent-channels-and-orchestration.md#cost-figure-display-consistency) clause (b) declaration is carried per figure.
+**Resolution.** Discharged at this plan's authoring audit: the per-account spend read (T4.2) is a projection over the accountant's accessor with no independent fold, and the [Spec-014 §Cost Figure Display Consistency](../specs/014-multi-agent-channels-and-orchestration.md#cost-figure-display-consistency) clause (b) declaration is carried per figure.
 
 ### CP-026-5 — Plan-011 renders the account-scoped provider quota
 
@@ -236,9 +236,15 @@ Plan-025 observes provider configuration files inside a provider home and derive
 
 ### CP-026-11 — Plan-006 registers the run-start account-override option on the CLI
 
-**Obligation.** The per-run account override is reachable from the desktop selector (T4.4) and from the wire (T3.1), but the CLI's run-start surface must carry it too or the CLI cannot spend from a non-default account. The option belongs on the command that starts a run — Plan-006's remainder owns the CLI command surface, and **no run-start command file is named anywhere in the corpus today**, so this plan cannot file the option without inventing a committed path.
+**Obligation.** The per-run account override is reachable from the wire (T3.1), and on the desktop a session moves to another saved account of its provider from the session inspector's account fact, applied at the run boundary; but the CLI's run-start surface must carry the override too or the CLI cannot spend from a non-default account. The option belongs on the command that starts a run — Plan-006's remainder owns the CLI command surface, and **no run-start command file is named anywhere in the corpus today**, so this plan cannot file the option without inventing a committed path.
 
 **Resolution.** Registered 2026-08-26, replacing an unfiled line in T4.3's `Provides`. The resolver side is already shipped on this side (T3.1 resolves an override to exactly one account and stamps the result server-side), so Plan-006's leg is the option's registration and its pass-through to the existing wire member — no resolution logic, no second registry read, and no client-side default. Plan-026 authors nothing under Plan-006's command tree for this leg. Until it lands, the CLI's run-start path uses the provider default, which is the correct and safe behavior rather than a broken one — so this obligation gates a capability, not a correctness property, and holds no Plan-026 task.
+
+### CP-026-12 — Plan-010 supplies the standing-rule wire the providers page draws
+
+**Obligation.** The standing rules a provider holds on this machine are shown and revoked in the provider's own half of the providers page: one row per rule reading what it allows or refuses, a revoke beside it that confirms in place, and a provider holding none saying so rather than drawing an empty list ([Spec-021 §Provider Accounts And Cost View (→ Plan-026 Provider Accounts And Credential Homes)](../specs/021-desktop-shell-and-renderer.md#provider-accounts-and-cost-view--plan-026-provider-accounts-and-credential-homes)). [Plan-010](./010-approvals-permissions-and-trust-boundaries.md) owns the rules themselves and the wire those rows read and press — `approval.ruleList` and `approval.ruleRevoke` — and renders nothing for them: its T4.2 is an obligation record naming this plan as the page's owner, and its own only rendered surface is the approval card in the composer.
+
+**Resolution.** Reciprocal, consumer on this side. The rows sit in the provider's half T4.4 authors, as a thin projection over the two Plan-010 legs like every other figure on the page: this plan derives no rule, reads no provider file itself, and computes nothing about what a rule allows — it renders what the read returns and sends one revoke per explicit press. Plan-010 keeps the evaluation, the persistence and the audit record of a revoked rule; no rule store and no second read path is minted here. **Direction:** consume from Plan-010.
 
 ## Preconditions
 
@@ -259,7 +265,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/runtime-daemon/src/policy/` (EXTEND — the additive `providerAccount` Cedar action-family policy module, the Plan-025 `mcp` action-family precedent)
 - `packages/client-sdk/src/providerAccountClient.ts` (NEW)
 - `apps/cli/src/commands/` (CREATE — Plan-026-authored content inside Plan-006's `apps/cli` scaffold) + `apps/cli/src/main.ts` (EXTEND — registration calls)
-- `apps/desktop/src/renderer/src/provider-accounts/` (NEW renderer subtree — the settings registry, the run-start selector, and the global cost page)
+- `apps/desktop/src/renderer/src/provider-accounts/` (NEW renderer subtree — the Providers page: one section per provider, each provider's own settings above its account rows)
 
 ## Data And Storage Changes
 
@@ -268,11 +274,11 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - **Row-canonical daemon configuration, not evented** — the `session_budgets` posture. The registry is node-local operator configuration mutated by wire method; it is not a session fact, carries no session scope, and takes no part in session replay. This is why it needs no event type and appears in no session timeline.
 - **No control-plane table.** The Postgres census is unchanged at 26. The shared schema's permitted row classes do not admit provider-account rows, and this plan does not widen that enumeration.
 - **No spend table.** Cost accounting stays the in-memory, replay-rebuilt fold at Plan-014 (D-014-5); the account axis rides the existing `run.queued` admission stamp and this registry, so no parallel ledger exists to drift.
-- The operator label is potentially personal data and is mapped at [Spec-020 §PII Data Map](../specs/020-data-retention-and-gdpr.md#pii-data-map). The credential-home path is a filesystem location; no credential material is stored in this table.
+- The provider-reported identity fields are personal data and are mapped at [Spec-020 §PII Data Map](../specs/020-data-retention-and-gdpr.md#pii-data-map); the registry holds no operator-typed label of any kind. The credential-home path is a filesystem location; no credential material is stored in this table.
 
 ## API And Transport Changes
 
-- A node-local `providerAccount.*` JSON-RPC namespace of **ten** verbs (seven at this plan's authoring; the 2026-08-26 amendment adds three, moving the count-claim census seven → ten and its mutating half six → eight): registry list and read, register, correct (the operator-authored display label and billing mode, the only two mutable descriptive fields), remove, set-default, credential-home reset, per-account authentication probe, **brokered sign-in start, brokered sign-in cancel, and the read-shaped registry subscription**. The subscription carries a wire-only notification and never an `EventEnvelope`, so the registry stays un-evented and no Spec-005 event type is minted — the taxonomy census does not move. Registered under Plan-006's namespace registry at this plan's tier, the `driver.*` / `mcp.*` precedent. Shapes in [API Payload Contracts](../architecture/contracts/api-payload-contracts.md).
+- A node-local `providerAccount.*` JSON-RPC namespace of **ten** verbs (seven at this plan's authoring; the 2026-08-26 amendment adds three, moving the count-claim census seven → ten and its mutating half six → eight): registry list and read, register, correct (billing mode, the row's one operator-authored field), remove, set-default, credential-home reset, per-account authentication probe, **brokered sign-in start, brokered sign-in cancel, and the read-shaped registry subscription**. The subscription carries a wire-only notification and never an `EventEnvelope`, so the registry stays un-evented and no Spec-005 event type is minted — the taxonomy census does not move. Registered under Plan-006's namespace registry at this plan's tier, the `driver.*` / `mcp.*` precedent. Shapes in [API Payload Contracts](../architecture/contracts/api-payload-contracts.md).
 - Run creation gains an optional account-override input; run admission stamps the resolved account on the `run.queued` payload as a path-independent server stamp (`admittedProviderAccountId`, never client-suppliable — the `admittedModelFamily` precedent).
 - The account-scoped quota event gains account identity and credential generation ([Spec-005 §Usage Telemetry](../specs/005-session-event-taxonomy-and-audit-log.md#usage-telemetry-usage_telemetry)). Both payload growths are additive-optional under ADR-018.
 - The registry list reply gains a per-provider **readiness projection** — exactly one entry per provider the request selects, carrying the derived state, the timestamp of the stored observation it was derived from, and the per-arm remedy. It is **required, not additive-optional**: ADR-018's additive-optional rule binds shapes that have already shipped, and `ProviderAccountListResponse` is registered by this same plan and has not, so the growth is pre-shipment and the member is required exactly as the contract registers it. A reply permitted to omit readiness would push every client back into deriving it locally, which is what I-026-9 exists to forbid. **Readiness itself moves the namespace count by zero verbs** — the total is the ten above, moved by the 2026-08-26 sign-in growth and not by readiness — and readiness mints no refusal code because every arm mirrors a refusal already registered.
@@ -285,7 +291,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 1. Contracts, migration, the contract-to-DDL conformance suite, and the sign-in, token, and quota-window contracts.
 2. The registry service, the credential-home service, the Cedar action family, the wire namespace, the brokered sign-in service, and bounded token custody.
 3. Credential homes at spawn: reserved variables, fail-closed validation, refresh brokering, the capability probe, the serialization floor, the credential-home health observer, and the per-limit quota-window store.
-4. Cost attribution and the operator-facing surfaces: the account axis for the receipt, the global cost page, the CLI, and the renderer.
+4. Cost attribution and the operator-facing surfaces: the account axis for the receipt, the per-account spend read, the CLI, and the Providers page.
 
 ## Parallelization Notes
 
@@ -314,7 +320,7 @@ Plan-026 implementation lands as a sequence of small PRs. Each PR exercises one 
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: external_plan_phase_merged, plan: 5, phase: 2 }
+  - { type: external_plan_phase_merged, plan: 004, phase: 2 }
 ```
 
 **Goal:** the registry's contract surface and durable table exist, with a mechanical conformance suite pinning them to one another.
@@ -357,8 +363,8 @@ preconditions:
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: plan_phase, plan: 29, phase: 1, status: merged }
-  - { type: external_plan_phase_merged, plan: 12, phase: 2 }
+  - { type: plan_phase, plan: 026, phase: 1, status: merged }
+  - { type: external_plan_phase_merged, plan: 010, phase: 2 }
 ```
 
 **Goal:** accounts can be registered, listed, defaulted, and removed through an authorized wire surface, with identity and generation behaving as specified.
@@ -372,7 +378,7 @@ preconditions:
   - **Also provides (added at the 2026-08-26 Codex round):** the registry service is the **sole** write path for the health pair, and it takes the writer's class as an explicit argument rather than inferring it. Four writers reach it — the deliberate probe verb, fail-closed spawn validation, the registration-time status invocation, and the background health observer — and only the first two apply the authenticated-boundary bump. A background observation crossing that boundary writes the reading and does **not** bump, so the observer neither violates I-026-12 nor needs a second write path that bypasses this service. The registration-time invocation writes the account's first reading with no bump of its own.
   - **Spec coverage:** Spec-026 §The account registry; Spec-026 §Account identity and credential generation.
   - **Verifies invariant:** I-026-1, I-026-2, I-026-5, I-026-8.
-  - **Tests:** identity stable across re-authentication, relabel, and default change; generation strictly increasing per transition class and never reset by a home reset; **the authenticated-boundary rule in both directions, its negative control, and its writer-class control** — a probe or spawn observation crossing into `authenticated` bumps, one crossing out bumps, one that re-observes the same authenticated-ness does not, and a **background** observation crossing the boundary in either direction writes the reading while leaving the generation untouched — with the bump and the health write proven to land in one transaction (a failed write leaves neither applied); default handover atomic under concurrent callers; removal refused with a live bound run; removal leaves the home directory present; home-path rejection rows (relative, empty, inside a worktree, duplicate).
+  - **Tests:** identity stable across re-authentication, a billing-mode correction, and default change; generation strictly increasing per transition class and never reset by a home reset; **the authenticated-boundary rule in both directions, its negative control, and its writer-class control** — a probe or spawn observation crossing into `authenticated` bumps, one crossing out bumps, one that re-observes the same authenticated-ness does not, and a **background** observation crossing the boundary in either direction writes the reading while leaving the generation untouched — with the bump and the health write proven to land in one transaction (a failed write leaves neither applied); default handover atomic under concurrent callers; removal refused with a live bound run; removal leaves the home directory present; home-path rejection rows (relative, empty, inside a worktree, duplicate).
 - **T2.2 — Credential-home service.**
   - **Files:** `packages/runtime-daemon/src/accounts/provider-credential-home-service.ts` (NEW).
   - **Provides:** home creation with restrictive permissions, existence and health checks distinguishing _absent_ from _present-but-husked_, the home-reset operation, and the per-provider reserved-variable set as a **named closed set** resolved from the pinned provider reference at build time rather than hard-coded in prose. Emits an absolute path or omits the variable; never an empty string. **Also provides the provider version floor as a reusable precondition** (added 2026-08-26 at the Codex round-2 fold): a single guard, established once per binary and cached, that refuses `provideraccount.provider_version_below_floor` below the release honouring the reserved variables. It lives here rather than in T3.2 because the floor protects the reserved-variable pin this task owns, and because **every account-pinned invocation must clear it, not only run spawns** — T2.6's brokered login and T2.7's registration-time observation both spawn against a pinned home in Phase 2, and an older binary would ignore the pin and write the operator's shared home before any Phase-3 check ran.
@@ -428,8 +434,8 @@ preconditions:
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: plan_phase, plan: 29, phase: 2, status: merged }
-  - { type: external_plan_phase_merged, plan: 5, phase: 3B }
+  - { type: plan_phase, plan: 026, phase: 2, status: merged }
+  - { type: external_plan_phase_merged, plan: 004, phase: 3B }
 ```
 
 **Goal:** a run binds an account, validates it fail-closed, spawns into the account's isolated home, and either runs concurrently with another account's run or serializes — on the strength of a probe, not an assumption.
@@ -487,38 +493,39 @@ preconditions:
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: plan_phase, plan: 29, phase: 3, status: merged }
+  - { type: plan_phase, plan: 026, phase: 3, status: merged }
 ```
 
-**Goal:** the operator can see which account paid for what, labeled by billing mode, across one session and across all of them.
+**Goal:** the operator can see which account paid for what, labeled by billing mode — on one session's own receipt, and per account on the Providers page with the total across accounts.
 
 #### Tasks
 
-- **T4.2 — Global cost page read.**
+- **T4.2 — Per-account spend read.**
   - **Files:** `packages/runtime-daemon/src/accounts/provider-account-registry.ts` (EXTEND), `packages/client-sdk/src/providerAccountClient.ts` (EXTEND).
-  - **Provides:** the per-user, all-sessions cost read broken down per account, each figure **supplied by** the Plan-014 committed-spend accessor rather than recomputed here (CP-026-4), each carrying its account's billing mode, and each declaring its aggregation scope per [Spec-014 §Cost Figure Display Consistency](../specs/014-multi-agent-channels-and-orchestration.md#cost-figure-display-consistency) clause (b). A total spanning both billing modes states that it does.
+  - **Provides:** the per-account spend read across all of this operator's sessions — each registered account's lifetime figure, and the total across accounts — each figure **supplied by** the Plan-014 committed-spend accessor rather than recomputed here (CP-026-4), each carrying its account's billing mode, and each declaring its aggregation scope per [Spec-014 §Cost Figure Display Consistency](../specs/014-multi-agent-channels-and-orchestration.md#cost-figure-display-consistency) clause (b). A total spanning both billing modes states that it does. There is no spend-by-period and no spend-by-model read, because no durable spend table backs either.
   - **Consumes:** T2.1; the Plan-014 committed-spend accessor.
   - **Spec coverage:** Spec-026 §Billing mode; Spec-014 §Cost Figure Display Consistency.
   - **Verifies invariant:** none — the single-fold rule is Plan-014's I-014-24, return-cited here per CP-026-4 rather than restated as a Plan-026 invariant.
-  - **Tests:** figures equal the accountant's accessor value at the same fold state (no independent derivation); billing mode present on every account-attributable figure; a mixed-mode total carries the mixed-mode statement; a subscription-only view never presents an unlabeled dollar total.
+  - **Tests:** figures equal the accountant's accessor value at the same fold state (no independent derivation); billing mode present on every account-attributable figure; a mixed-mode total carries the mixed-mode statement; a provider whose accounts are all subscription-mode never presents an unlabeled dollar total.
 - **T4.3 — CLI surface.**
   - **Files:** `apps/cli/src/commands/provider-account-*.ts` (CREATE), `apps/cli/src/main.ts` (EXTEND — registration calls).
-  - **Provides:** CLI parity with the wire namespace — list, register (including the write-only token supply), correct, remove, set-default, probe, sign-in start and cancel, the per-account observer opt-out toggle, per-limit quota rendering, and the global cost view. Sign-in **degrades honestly headless**: where the provider publishes a device-code arm the command prints the verification URL and user code and waits on the subscription; where it does not, it prints the URL for the operator to open elsewhere; where neither exists it says so and names the token path rather than hanging.
+  - **Provides:** CLI parity with the wire namespace — list, register (including the write-only token supply), correct, remove, set-default, probe, sign-in start and cancel, the per-account observer opt-out toggle, per-limit quota rendering, and the per-account spend with its across-accounts total. Sign-in **degrades honestly headless**: where the provider publishes a device-code arm the command prints the verification URL and user code and waits on the subscription; where it does not, it prints the URL for the operator to open elsewhere; where neither exists it says so and names the token path rather than hanging.
   - **The token supply is read from a non-echoing stream, never from an argument.** An argument vector is readable by any process running as the same user, and a shell history file outlives the terminal — so the value arrives on standard input or an interactive no-echo prompt, and a flag that accepted it inline would be a disclosure channel the wire's write-only rule does not cover.
   - **The run-start account override is deliberately NOT filed here** (settled 2026-08-26; this task's `Provides` previously named it with no file to put it in). The option belongs on the command that starts a run, that command is Plan-006's remainder to author, and no such file is named anywhere in the corpus — so filing it against a name that does not exist would invent a committed path. It is re-homed as **CP-026-11**, an obligation on Plan-006 with the resolver leg (T3.1) already shipped on this side, so the option has a named owner instead of an unowned line in a `Provides` list.
   - **Consumes:** T1.4, T2.4, T2.6, T2.7, T3.6, T4.2.
   - **Spec coverage:** Spec-026 §Interfaces And Contracts; Spec-026 §Brokered interactive sign-in; Spec-026 §Non-interactive token registration; Spec-026 §Fallback Behavior.
   - **Verifies invariant:** I-026-11 (the CLI half of the no-echo rule).
   - **Tests:** command parsing and error surfacing per verb; the token value is read from stdin or a no-echo prompt and appears in **no** argument vector, no shell-history-eligible string, no log line, and no error output — asserted by spawning the real binary rather than by importing its option parser, since an in-process test bypasses the argv path entirely; billing mode rendered on cost output; quota rendered per limit identifier rather than per window length; a device-code sign-in prints both the URL and the code and terminates on the completion notification.
-- **T4.4 — Renderer surfaces.**
+- **T4.4 — The Providers page.**
   - **Files:** `apps/desktop/src/renderer/src/provider-accounts/` (NEW subtree).
-  - **Provides:** the **provider-management page** ([Spec-021 §Provider Accounts And Cost View (→ Plan-026 Provider Accounts And Credential Homes)](../specs/021-desktop-shell-and-renderer.md#provider-accounts-and-cost-view--plan-026-provider-accounts-and-credential-homes)), the run-start account selector, and the global cost page — each a thin projection over the preload bridge with no client-side derivation, rendering wire values verbatim. The management page is one page in two panes: the account list on the left, and the selected account's detail on the right. Each list row carries its label, provider, billing-mode chip, health chip, the provider-reported email and organization where observed, and the freshness line. The detail pane carries the per-limit quota windows, the re-login-horizon **estimate** rendered as an approximation and never as a deadline, and the controls: sign in, cancel an in-flight sign-in, supply a token, make default, correct label and billing mode, silence or resume the background observer, probe now, reset the credential home, and remove.
+  - **Provides:** the **Providers page** ([Spec-021 §Provider Accounts And Cost View (→ Plan-026 Provider Accounts And Credential Homes)](../specs/021-desktop-shell-and-renderer.md#provider-accounts-and-cost-view--plan-026-provider-accounts-and-credential-homes)) — one section per provider, each section in two halves, that provider's own settings above the accounts registered against it, every figure a thin projection over the preload bridge with no client-side derivation, rendering wire values verbatim. **The accounts half** opens with one line saying that new sessions run on the account marked default and that a sidekick or a workflow step can be set to a specific account instead, then draws one row per account. A row names its account only by the identity that provider reports — the email address, then the plan in the provider's own word, then the organisation where the plan carries one — and carries its billing-mode chip; the default mark on the one account per provider that holds it; its state in words with when it was last checked; the one remedy that applies to that state and no other; the ages the background observation writes, last checked, last refreshed and the re-login horizon as an **approximation** and never as a deadline, a value the daemon does not know reading as not known rather than as though the account were fine; the switch that keeps that account checked, on by default and switched off for that account alone; that account's quota windows, one row per limit rather than one per account; that account's lifetime spend carried with its billing mode; and, under the rows, the total across accounts, which states when it spans more than one mode. The controls sit on the row itself: sign in, cancel an in-flight sign-in, supply a token, set as default, correct the billing mode — the one field on a row that is edited in place, there being no operator-typed label anywhere on this page — silence or resume the background observation, check this account now, sign out — the credential-home reset behind the page's own word, which ends that account's login and leaves the row where it is with its identity, its spend and its history — and remove, which forgets the row, leaves the credential folder on the machine untouched, confirms first, and is refused in place while a run bound to that account is live. The row's one-time copy of the operator's own ambient provider memory store into that account's home is drawn there too, and its method is owed rather than registered ([Spec-026 §State And Data Implications](../specs/026-provider-accounts-and-credential-homes.md#state-and-data-implications)), so it lands with that method. **The provider's half** sits above the rows and carries that provider's own settings: the line reading whether that provider's command is installed and signed in and at which version, or that it is not installed on this machine, or that the check could not settle, and never a guess; the path to that command in one field with the re-check a change runs; the switch that makes the provider available for new sessions, which the last one still on keeps live while saying on itself why it cannot go off; the bound on how many helper processes that provider may run at one time; the standing rules it holds on this machine, one row each with a revoke that confirms in place and a provider holding none saying so; the provider-level automatic-compaction bound, drawn in both providers' sections; Claude Code's output style, read from the installed build and applying to sessions started later, with no such row under Codex; and the action that imports that provider's own existing conversations, reporting into one progress row on the page. The rules read and revoke on Plan-010's two rule verbs (CP-026-12); every other leg on this half is owed rather than registered on this namespace ([Spec-026 §State And Data Implications](../specs/026-provider-accounts-and-credential-homes.md#state-and-data-implications)) and lands with the method that registers it.
+  - **The list's own states are part of the page**: ghost rows in the shape of the real rows while the accounts are being read, a provider with no accounts saying so and naming the way to get one, a read that failed saying so with try-again as one faint word, a warning the daemon reports about one provider drawn as its own strip in that provider's section, an account whose usage cannot be read drawing one quiet line in place of its meters, and a provider with accounts but none marked default saying that new work on it will not start and asking for a mark — electing none.
   - **The page is a fail-closed projection, never a second source of eligibility truth** — the `I-003-24` edit-affordance discipline applied here. It computes no readiness, no health, no expiry, and no eligibility of its own; it renders what the daemon reports and disables what the daemon has not reported as available. A page that recomputed any of these would be the surface nothing enforces.
   - **The token field is write-only in the renderer too**: masked on entry, never read back from the daemon, never placed in renderer state that a devtools inspection or a crash report would capture, and cleared on submit. The wire's write-only rule protects the transport; this protects the screen.
-  - **Consumes:** T1.4, T2.4, T2.6, T2.7, T3.6, T4.2; the Spec-021 preload bridge (CP-026-10).
+  - **Consumes:** T1.4, T2.4, T2.6, T2.7, T3.6, T4.2; the Spec-021 preload bridge (CP-026-10); `approval.ruleList` + `approval.ruleRevoke` ← [Plan-010](./010-approvals-permissions-and-trust-boundaries.md) Phase 3 (CP-026-12).
   - **Spec coverage:** Spec-026 §Interfaces And Contracts; Spec-026 §Brokered interactive sign-in; Spec-026 §Non-interactive token registration; Spec-026 §Credential-home health observation; Spec-026 §Per-limit provider quota; Spec-021 §Provider Accounts And Cost View (→ Plan-026 Provider Accounts And Credential Homes).
   - **Verifies invariant:** I-026-10 (the render-what-was-observed half), I-026-11 (the renderer half of the write-only rule).
-  - **Tests:** mock-bridge render rows; badge text equals wire value with no local derivation; billing-mode label present on every cost figure; the selector defaults to the provider default and sends an override only when the operator changes it; an account with three quota windows sharing one window length renders three rows; the horizon renders as an approximation and is **absent** rather than fabricated wherever its wire value is null; the token input is masked, absent from serialized renderer state, and cleared after submit; the sign-in control surfaces the verification URL and user code and offers cancel while an attempt is in flight; a silenced observer renders as silenced rather than as an absence of data.
+  - **Tests:** every rendered word equals the wire value with no local derivation, account state and remedy included; billing-mode label present on every cost figure and on the across-accounts total where it spans two modes; an account with three quota windows sharing one window length renders three rows; the horizon renders as an approximation and reads as not known, rather than as fabricated or as absent, wherever its wire value is null; the token input is masked, absent from serialized renderer state, and cleared after submit; the sign-in control surfaces the verification URL and user code and offers cancel while an attempt is in flight; a silenced observation renders as silenced rather than as an absence of data.
 
 ### Phase 4B — Per-user billing attribution
 
@@ -527,7 +534,7 @@ preconditions:
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: plan_phase, plan: 29, phase: 3, status: merged }
+  - { type: plan_phase, plan: 026, phase: 3, status: merged }
   - { type: precondition_box_checked, box: "Turn-scoped effective principal carrier registered" }
 ```
 
@@ -550,7 +557,7 @@ A supplement phase rather than a task inside Phase 4, because its gate is a **wh
 1. Phase 1 — contracts, migration, conformance.
 2. Phase 2 — registry, credential-home service, Cedar family, wire namespace.
 3. Phase 3 — spawn binding, brokering, the capability probe, and the serialization floor. **The probe result gates whether concurrency is enabled at all**; shipping Phase 3 with the probe unrun means shipping the serialization floor, which is a correct and complete state.
-4. Phase 4 — operator surfaces: the global cost page, CLI, and renderer.
+4. Phase 4 — operator surfaces: the per-account spend read, the CLI, and the Providers page.
 5. Phase 4B — per-user billing attribution, once its carrier lands. Dispatchable independently of Phase 4; both gate only on Phase 3.
 
 ## Rollback Or Fallback

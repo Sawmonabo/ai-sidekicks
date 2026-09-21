@@ -200,8 +200,8 @@ Plan-025 implementation lands as five PRs (one per phase). Each PR carries a `**
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: plan_phase, plan: 6, phase: 1, status: merged }
-  - { type: plan_phase, plan: 7, phase: 2, status: merged }
+  - { type: plan_phase, plan: 005, phase: 1, status: merged }
+  - { type: plan_phase, plan: 006, phase: 2, status: merged }
 ```
 
 **Goal:** contracts + migration + registered-but-gated namespace compile, migrate, and round-trip; schema tests green. Satisfies the storage halves of I-025-1/I-025-2; stages CP-025-1/CP-025-4.
@@ -264,8 +264,8 @@ preconditions:
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: plan_phase, plan: 28, phase: 1, status: merged }
-  - { type: plan_phase, plan: 5, phase: 3, status: merged }
+  - { type: plan_phase, plan: 025, phase: 1, status: merged }
+  - { type: plan_phase, plan: 004, phase: 3, status: merged }
 ```
 
 **Goal:** `mcp.list` / `mcp.get` serve the merged read model from both providers; status events flow with correct binding; first-observation trust rows appear untrusted. Satisfies CP-025-2(a) and the observation half of I-025-2.
@@ -305,7 +305,7 @@ preconditions:
   - Consume `McpServerStatusUpdate` values from the daemon-injected `onMcpServerStatus` producer and the Codex `mcpServerStatus/list` + `mcpServer/startupStatus/updated` wire; map Claude `pending` → `starting` and Claude `disabled` → `enabled: false` with last-observed status; absence of any source → `unknown`. Attribute each observation to the effective binding (session cwd for Codex, composed set for Claude). `serverName` stays `wireFreeFormString`-bounded — untrusted provider output.
   - **Spec coverage:** Spec-025 §Unified Inventory, Spec-025 §Status Observation and Events
   - **Verifies invariant:** none (normalization mapping; the spoof-bound assertion rides T28.5.8)
-  - **Consumes:** `onMcpServerStatus` / `McpServerStatusUpdate` ← Plan-004 Phase 3 (§Precondition, `{plan: 5, phase: 3, status: merged}`; reciprocal at Plan-004's seam bullet naming Plan-025 CP-025-2).
+  - **Consumes:** `onMcpServerStatus` / `McpServerStatusUpdate` ← Plan-004 Phase 3 (§Precondition, `{plan: 004, phase: 3, status: merged}`; reciprocal at Plan-004's seam bullet naming Plan-025 CP-025-2).
 
 - **T28.2.6 — Node-scope status probe (the `node_probe` origin producer).**
   - Files: `packages/runtime-daemon/src/mcp/node-status-probe.ts` (CREATE)
@@ -349,7 +349,7 @@ preconditions:
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: plan_phase, plan: 28, phase: 1, status: merged }
+  - { type: plan_phase, plan: 025, phase: 1, status: merged }
 ```
 
 **Goal:** both mutation engines pass the fixture matrix with honest application grades; conflict and scope refusals surface the right codes; config events emit exactly once. Satisfies I-025-3 and the mutation half of I-025-4 (behind the Phase 4 authorization gate).
@@ -419,10 +419,10 @@ preconditions:
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: plan_phase, plan: 28, phase: 2, status: merged }
-  - { type: plan_phase, plan: 28, phase: 3, status: merged }
-  - { type: plan_phase, plan: 12, phase: 2, status: merged }
-  - { type: plan_phase, plan: 4, phase: 3, status: merged }
+  - { type: plan_phase, plan: 025, phase: 2, status: merged }
+  - { type: plan_phase, plan: 025, phase: 3, status: merged }
+  - { type: plan_phase, plan: 010, phase: 2, status: merged }
+  - { type: plan_phase, plan: 003, phase: 3, status: merged }
 ```
 
 **Goal:** every mutating operation is deny-before-effect; trust lifecycle incl. drift revocation is live; the resolver overlay moves the floor only under trust + authorization, and a revocation neutralizes the durable receipt surface as well as the live one. Satisfies I-025-4, I-025-5, I-025-6, CP-025-2(b), CP-025-3, CP-025-7.
@@ -448,7 +448,7 @@ preconditions:
   - Register the `mcp` action family additively through Plan-010's policy-module surface — no Plan-010-owned file is modified (CP-025-3, the CP-010-4 consumer pattern). Every one of the eight non-read operations evaluates `PermissionCheckService` **before any provider call or store write**; authorization is evaluated **before existence checks** so a deny is stable and leaks no inventory contents. A deny returns `mcp.governance_denied`; a caller who does not own this node returns `mcp.operator_scope_required` before any store or provider mutation, and the ownership predicate reads the authenticated caller and the node's ownership record only — never the transport the call arrived on, so an owner driving the node from a linked device is admitted exactly as one at the machine is ([Spec-028 §Parity by construction](../specs/028-remote-control.md#parity-by-construction)). Retrofit the Phase 2–3 handlers off the `not_implemented` feature gate to full authorization in this task.
   - **Spec coverage:** Spec-025 §Authorization
   - **Verifies invariant:** I-025-4
-  - **Consumes:** `PermissionCheckService.check()` ← Plan-010 Phase 2 (§Precondition, `{plan: 12, phase: 2, status: merged}`; reciprocal return-cite added to Plan-010 CP-010-4 by this audit — see F-025-03).
+  - **Consumes:** `PermissionCheckService.check()` ← Plan-010 Phase 2 (§Precondition, `{plan: 010, phase: 2, status: merged}`; reciprocal return-cite added to Plan-010 CP-010-4 by this audit — see F-025-03).
 
 - **T28.4.4 — Trust service: grant, revoke, and the native-field baseline lifecycle.**
   - Files: `packages/runtime-daemon/src/mcp/trust-store.ts` (EXTEND)
@@ -469,7 +469,7 @@ preconditions:
   - One admission service — fresh provider-config read, keyed hash recompute, projection reconciliation, full drift processing — exposed as a `RunSetupGate` (`{ assertRunReady, onRunTerminal? }`) and **registered** into the ordered gate array. A registration call, never an edit to `run-engine.ts` (the CP-008-9 precedent; `run-engine.ts` is Plan-003-owned and Plan-025 is a registrant on it, not an extender). `assertRunReady` completes drift processing before the run leaves `starting`, and the Claude composed snapshot is built **from** the post-drift read.
   - **Spec coverage:** Spec-025 §Trust Governance
   - **Verifies invariant:** I-025-2
-  - **Consumes:** the `RunSetupGate` registration seam ← Plan-003 Phase 3, CP-003-8 (§Precondition, `{plan: 4, phase: 3, status: merged}`; reciprocal extender enumeration added to Plan-003 CP-003-8 by this audit — see F-025-03).
+  - **Consumes:** the `RunSetupGate` registration seam ← Plan-003 Phase 3, CP-003-8 (§Precondition, `{plan: 003, phase: 3, status: merged}`; reciprocal extender enumeration added to Plan-003 CP-003-8 by this audit — see F-025-03).
 
 - **T28.4.7 — Recovery-attach composition-root wiring and the non-vacuous production assertion.**
   - Files: `packages/runtime-daemon/src/bootstrap/index.ts` (EXTEND — Plan-006-owned; the sanctioned wiring-call edit)
@@ -521,7 +521,7 @@ preconditions:
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: plan_phase, plan: 28, phase: 4, status: merged }
+  - { type: plan_phase, plan: 025, phase: 4, status: merged }
 ```
 
 **Goal:** OAuth flows complete (or degrade honestly) on both providers; CLI + desktop surfaces ship; the Spec-025 §Acceptance Criteria sweep is green end to end. Satisfies I-025-1's flow-level verification.

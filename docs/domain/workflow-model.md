@@ -10,8 +10,8 @@ This document covers `WorkflowDefinition`, `WorkflowVersion`, and `WorkflowRun`,
 
 ## Definitions
 
-- `WorkflowDefinition`: a named, durable definition record that describes a reusable sequence of phases. Scoped to one of the three `WorkflowScope` tiers below.
-- `WorkflowVersion`: an immutable snapshot of a workflow definition's phase structure at a point in time. Editing a definition creates a new version rather than mutating an existing one.
+- `WorkflowDefinition`: a named, durable definition record that holds the node-graph document an author wrote. Scoped to one of the three `WorkflowScope` tiers below.
+- `WorkflowVersion`: an immutable snapshot of a workflow definition's document body at a point in time. Editing a definition creates a new version rather than mutating an existing one.
 - `WorkflowRun`: a single execution instance of a specific workflow version within a session. Each run tracks phase-level execution state independently.
 - `WorkflowScope`: the boundary within which a workflow definition is visible and executable — `session` (the authoring session), `project` (the sessions of one project), or `shared` (the daemon's cross-project tier). Scope identity is carried by a companion `scope_ref` value — the authoring session id at `session`, the canonical repository root at `project`, the empty string at `shared` — and definitions dedupe on `(scope, scope_ref, contentHash)`. Amended 2026-08-10 by the Tier-7 plan-readiness audit per [Spec-015 §Resolved Questions and V1 Scope Decisions](../specs/015-workflow-authoring-and-execution.md#resolved-questions-and-v1-scope-decisions); the pre-amendment `channel` value is struck — it was never specified by Spec-015 and had no defined visibility semantics.
 
@@ -21,7 +21,7 @@ The workflow model is the source of truth for how reusable, multi-phase executio
 
 ## What This Is Not
 
-- A workflow is not a free-form conversation or ad-hoc sequence of runs. It is an authored definition with explicit phase structure.
+- A workflow is not a free-form conversation or ad-hoc sequence of runs. It is an authored document with an explicit node graph.
 - A workflow definition is not an artifact. Definitions are first-class persisted records. Artifact publication may represent derivative exports or summaries but must not be the canonical source of workflow definition truth.
 - A workflow run is not a single run in the run-state-machine sense. A workflow run orchestrates multiple phase executions, each of which may create runs through `OrchestrationRunCreate`.
 - A workflow is not an external workflow engine (Temporal, Restate). Execution uses the existing daemon-local persistence and run primitives per ADR-002.
