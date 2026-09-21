@@ -49,7 +49,7 @@ A managed git workspace per chat is real disk and real process cost for conversa
 
 ### Synthesis — Why It Still Holds [T2]
 
-An empty git-initialized folder costs a few kilobytes and no process. Creating it lazily buys that back at the price of a session whose working directory changes identity on its first write, which is exactly the class of surprise the binding rule removes. The two shapes do not double the screen: a control that needs a repository is absent on a chat, with the pane chips the one exception, greyed with their reason; the composer placeholder and the strip that reads the session's workspace beside `Attach a repo` are the only other differences. Promotion is one transition whose only data movement is a file copy into the repository's working tree, which is why it is cheap to test.
+An empty git-initialized folder costs a few kilobytes and no process. Creating it lazily buys that back at the price of a session whose working directory changes identity on its first write, which is exactly the class of surprise the binding rule removes. The two shapes do not double the screen: a control that needs a repository is absent on a chat, with the pane chips the one exception, greyed with their reason; the composer placeholder and the strip that reads `Session workspace` beside `Attach a repo` are the only other differences. Promotion is one transition whose only data movement is a file copy into the repository's working tree, which is why it is cheap to test.
 
 ---
 

@@ -91,7 +91,7 @@ A rail of five icons costs five small squares of a fixed-width column and no tra
 
 ## Reversibility Assessment
 
-- **Reversal cost:** Days. Routing, deep links, chords and notification targets all name the destinations.
+- **Reversal cost:** Days of work, but only before the point of no return below; after it, a redirect has to be kept for every address already shared. Routing, deep links, chords and notification targets all name the destinations.
 - **Blast radius:** The renderer's routing, the four screen families, the session address form and the keyboard map.
 - **Migration path:** Move a screen family under another destination and redirect its address.
 - **Point of no return:** Once session addresses that name a destination are shared outside the app.

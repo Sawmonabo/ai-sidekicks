@@ -182,7 +182,7 @@ The two hosts share every layer above the endpoint, so the second host adds test
 ### Related ADRs
 
 - [ADR-016: Electron Desktop Shell](016-electron-desktop-shell.md) — the shell that hosts the view.
-- [ADR-024: Electron Main-Process BrowserWindow Retention](024-electron-main-process-window-retention.md) — the main-process retention reference and the `BaseWindow::self_ref_` anchor it rests on; the window type it names becomes `BaseWindow` under this record.
+- [ADR-024: Electron Main-Process Window Retention](024-electron-main-process-window-retention.md) — the main-process retention reference and the `BaseWindow::self_ref_` anchor it rests on; the window type it names becomes `BaseWindow` under this record.
 
 ## Decision Log
 

@@ -3,7 +3,7 @@
 | Field         | Value                            |
 | ------------- | -------------------------------- |
 | **Status**    | `accepted`                       |
-| **Type**      | `Type 2 (one-way door)`          |
+| **Type**      | `Type 1 (two-way door)`          |
 | **Domain**    | Desktop Console, Design Language |
 | **Date**      | 2026-09-21                       |
 | **Author(s)** | Claude (AI-assisted)             |

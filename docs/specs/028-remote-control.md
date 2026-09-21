@@ -87,7 +87,7 @@ Described here, not schematized; the shapes belong to Plan-028.
 - **A device registry.** One durable row per linked device: its id, its name, its kind, when it was linked, when it was last seen, its public identity key, and whether it has been revoked. The registry is the single answer to "which devices can act as me".
 - **`device.*` methods.** `device.list`, `device.link`, `device.rename`, `device.revoke`. Reachable from any non-revoked device, and from the CLI.
 - **An in-session connected-devices banner.** A small in-session surface naming the devices currently connected to this session, so it is never a surprise that a second screen is watching or driving.
-- **The Settings → Linked Devices screen.** The registry rendered: list, rename, revoke, and link a new device.
+- **The Linked Devices screen.** The registry rendered: list, rename, revoke, and link a new device. It is Remote Control's own screen, not a Settings page.
 
 ## Fallback Behavior
 

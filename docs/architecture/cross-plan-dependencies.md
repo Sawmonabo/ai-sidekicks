@@ -141,7 +141,7 @@ flowchart TD
  n030_2["Plan-027 Phase 2 — definition registry, CLI, SDK"]
  n030_3["Plan-027 Phase 3 — resolution when a run starts"]
  n030_4["Plan-027 Phase 4 — peer invocation"]
- n030_5["Plan-027 Phase 5 — desktop editor and enablement control"]
+ n030_5["Plan-027 Phase 5 — desktop library and editor"]
  %% Plan-028
  n031_1["Plan-028 Phase 1 — the daemon as a running process"]
  n031_2["Plan-028 Phase 2 — device identity keys"]
@@ -273,7 +273,7 @@ flowchart TD
  n030_2 --> n030_3
  n030_3 --> n016_3B
  n030_3 --> n030_4
- n030_4 --> n030_5
+ n030_3 --> n030_5
  n031_1 --> n031_2
  n031_2 --> n031_3
  n031_2 --> n031_5
@@ -416,7 +416,7 @@ Every phase in a group can be built in parallel; a group opens once the phases i
 |  | [Plan-024 Phase 5](../plans/024-cross-node-dispatch-and-approval.md) | caller-side result observation. | Plan-024 Phase 3, Plan-024 Phase 4 |
 | 9 | [Plan-012 Phase 7](../plans/012-artifacts-files-and-attachments.md) | erasure fan-out and degraded status. | Plan-012 Phase 6 |
 |  | [Plan-021 Phase 7](../plans/021-desktop-shell-and-renderer.md) | build pipeline and release signing. | Plan-021 Phase 6 |
-|  | [Plan-027 Phase 5](../plans/027-agent-definitions-and-peer-invocation.md) | desktop editor and enablement control. | Plan-021 Phase 6, Plan-027 Phase 4 |
+|  | [Plan-027 Phase 5](../plans/027-agent-definitions-and-peer-invocation.md) | desktop library and editor. | Plan-021 Phase 6, Plan-027 Phase 3 |
 |  | [Plan-030 Phase 4](../plans/030-skills.md) | Skills destination: rail, addresses, list. | Plan-021 Phase 6, Plan-030 Phase 3 |
 | 10 | [Plan-021 Phase 8](../plans/021-desktop-shell-and-renderer.md) | E2E suite, harness, CI gate. | Plan-021 Phase 7 |
 |  | [Plan-030 Phase 5](../plans/030-skills.md) | folder editor. | Plan-030 Phase 4 |
@@ -436,7 +436,7 @@ The console has five rail destinations, in a fixed order ([ADR-031](../decisions
 |  | [Plan-011 Phase 4](../plans/011-live-timeline-visibility-and-reasoning-surfaces.md) (the transcript's rows) | 6 |
 |  | [Plan-017 Phase 3](../plans/017-notifications-and-attention-model.md) (the bell and notification delivery) | 7 |
 |  | The Preview pane, under [Plan-021 §What Preview must build](../plans/021-desktop-shell-and-renderer.md#what-preview-must-build), once the `browser.*` namespace is registered ([ADR-036](../decisions/036-embedded-browser-for-preview.md)). It belongs to no numbered phase, so it has no node in the graph. | — |
-| Sidekicks | [Plan-027 Phase 5](../plans/027-agent-definitions-and-peer-invocation.md) (the editor and the enablement control) | 9 |
+| Sidekicks | [Plan-027 Phase 5](../plans/027-agent-definitions-and-peer-invocation.md) (the library and the editor) | 9 |
 | Skills | [Plan-030 Phase 4](../plans/030-skills.md) (rail, addresses, list), then Phase 5 (the folder editor), then Phase 6 (availability and the composer's Skills group) | 9, 10, 11 |
 | Workflows | [Plan-015 Phase 5](../plans/015-workflow-authoring-and-execution.md) (the builder, run detail, human forms and chat start), then Phase 5B (the operator recovery surface) | 5, 6 |
 | Settings | [Plan-025 Phase 5](../plans/025-mcp-server-configuration-and-governance.md) (the MCP servers page) | 4 |

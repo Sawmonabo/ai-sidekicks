@@ -95,7 +95,7 @@ Nothing in the console is a code editor: every surface that draws code draws tex
 
 ## Reversibility Assessment
 
-- **Reversal cost:** Days to move the colourer back; the token-kind mapping would stay.
+- **Reversal cost:** Days to move the colourer back, and only while every client still has a colourer of its own; the token-kind mapping would stay.
 - **Blast radius:** The transcript, Review, the file view, the daemon's file reads and the Remote Control clients.
 - **Migration path:** Re-add the renderer dependency and colour locally from the same class vocabulary.
 - **Point of no return:** When a Remote Control client ships that has no colourer of its own.

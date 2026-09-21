@@ -72,7 +72,7 @@ The consequence this spec is built on: **a skill authored once can be made avail
 - The icon rail draws five destinations in one order — Sessions, Sidekicks, Skills, Workflows, Settings — and on this screen Skills is the current destination, marked current to assistive technology as well as drawn.
 - The Skills rail item draws an **open book**: a stroked outline at the same weight as every other rail glyph, in the same glyph box, which stands as drawn at every text size because a glyph is a drawing rather than a measure of content. It is not the robot. The robot is the only generic agent mark anywhere in the console, and it does not stand for a skill.
 - The destination has **no view switch and no tabs**, anywhere on the screen.
-- Four addresses, and no more: the list, the new-skill form, a folder (opened at its entry file), and that folder with one other file open. The entry file has **no address of its own** — the folder's address means the folder opened at its entry file — so there is exactly one address per thing on screen.
+- Four addresses, and no more: `#/skills` (the list), `#/skills/new` (the new-skill form), `#/skills/<name>` (a folder, opened at its entry file) and `#/skills/<name>/<file path>` (that folder with one other file open). The entry file has **no address of its own** — the folder's address means the folder opened at its entry file — so there is exactly one address per thing on screen.
 - `new` is the one folder name the destination reserves. A new skill whose typed name would produce the folder name `new` is written to `new-2` instead, so the form's address and a folder's address can never collide.
 
 ### The shell
@@ -117,7 +117,7 @@ The open folder holds, in reading order:
 
 ### Files inside the folder
 
-- The Files list holds the entry file **first** and every other file after it, ordered by whole path under `Intl.Collator`, so files under `agents/`, `references/` and `scripts/` group themselves.
+- The Files list holds the entry file — `SKILL.md` — **first** and every other file after it, ordered by whole path under `Intl.Collator`, so files under `agents/`, `references/` and `scripts/` group themselves.
 - The entry file carries **no rename control and no delete control**. A path typed as `SKILL.md` in `Add file` or in a rename is refused in place with the reason.
 - `Add file`, a rename and a delete each ask **inside the Files panel**, using the same in-place question pattern the rest of the console uses: no dialogs and no scrims, and the rest of the folder stays where it was. `Add file` opens one row holding a path field, an `Add file` control and a `Cancel`; a rename replaces the file's own row with a path field and `Rename` / `Cancel`; a delete replaces it with a sentence naming the file and `Delete` / `Keep it`.
 - `Add file` takes a name with an **optional folder prefix**, so `references/style.md` and `scripts/check.sh` each make their folder. The file is added empty and opened. A folder carries subfolders at any depth: any prefix is taken, the list orders by the whole path, and nothing caps the depth.

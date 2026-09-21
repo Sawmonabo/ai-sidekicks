@@ -61,7 +61,7 @@ This glossary is not a substitute for the detailed domain docs. Each term is def
 - `RuntimeNode`, `Channel`, `Agent`, `Run`, `QueueItem`, `RepoMount`, `Artifact`, and `Approval` are all session-scoped concepts. `User`, `Device`, and `Presence` are account-scoped and appear inside a session by reference.
 - `Worktree` is a specialized repository execution surface inside a `Workspace`; it is not a synonym for `Workspace`.
 - `ExecutionMode` determines how a `Run` uses a repo-bound `Workspace`.
-- `Run` is an execution episode, while `Agent` is the reusable configured actor that performs runs.
+- `Run` is an execution episode and `Agent` is the live actor inside a session that performs it; `AgentDefinition` is the saved, reusable configuration an `Agent` is resolved from.
 - `RuntimeBinding` ties a `Run` to a specific provider driver instance and carries the recovery handles needed for persistence and replay.
 - `Workflow` is a reusable execution template. `WorkflowDefinition` records the template; `WorkflowVersion` is an immutable snapshot; `WorkflowRun` is an execution instance inside a `Session`.
 - `WorkflowDocument` is the body a `WorkflowVersion` snapshots, and each of its nodes is one step a run executes; a `WorkflowStep` records one attempt of one node; a `Gate` is the checkpoint between phases that must resolve before the next phase can start.
