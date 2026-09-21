@@ -2,10 +2,6 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "allow": [
-      "Bash(uv run pytest:*)",
-      "Bash(uv run python:*)",
-      "Bash(uv run:*)",
-      "Bash(python:*)",
       "Bash(tree:*)",
       "Bash(find:*)",
       "Bash(wc:*)",
@@ -65,33 +61,5 @@
     "typescript-lsp@claude-plugins-official": true,
     "rust-analyzer-lsp@claude-plugins-official": true,
     "deep-research@sidekick-skills": true
-  },
-  "spinnerVerbs": {
-    "mode": "replace",
-    "verbs": [
-      "Pulling My Hair Out",
-      "Hallucinating responsibly",
-      "Consulting my training data",
-      "Pretending to understand",
-      "Guessing confidently",
-      "Making things up",
-      "Procrastinating productively",
-      "Overthinking",
-      "Caffeinating",
-      "Touching grass mentally",
-      "Fucking around",
-      "Using Dark Magic",
-      "Using the Force"
-    ]
-  },
-  "alwaysThinkingEnabled": true,
-  "companyAnnouncements": [
-    "Hey Sawbo, I can't fix bugs you haven't written yet. Get coding!",
-    "Sawbo, today's mass hallucination brought to you by stochastic parrots everywhere.",
-    "Sawbo, if it works on the first try, you probably forgot to save the file.",
-    "Sawbo, I've read your codebase. I have mass opinions. I'm keeping them to myself... for now.",
-    "What's up Sawbo? Ready to mass ship some mass code?"
-  ],
-  "plansDirectory": "./.claude/tmp/plans",
-  "skipDangerousModePermissionPrompt": true
+  }
 }

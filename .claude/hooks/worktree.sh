@@ -87,7 +87,7 @@ cmd_remove() {
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
   abs_path="$(cd "$path" && pwd -P)" || die "cannot resolve '$path'"
   occupancy_status=0
-  occupants="$("$python_bin" "$script_dir/command-guard.py" --occupancy "$abs_path")" \
+  occupants="$("$python_bin" "$script_dir/worktree-occupancy.py" --occupancy "$abs_path")" \
     || occupancy_status=$?
   if [[ $occupancy_status -ne 0 ]]; then
     die "could not verify occupancy of '$path' (exit $occupancy_status); refusing removal"
