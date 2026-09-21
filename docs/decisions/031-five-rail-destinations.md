@@ -13,9 +13,9 @@
 
 ## Context
 
-The desktop console has an icon rail down its left edge. Each rail item swaps the one screen region beside it for a whole screen. Before this decision the rail had three destinations: sessions, workflows and settings. Saved sidekick definitions were listed on a Settings page that could delete one and hand it to a session, with no editor at all, and skills had no screen of their own and no owning specification.
+The desktop console has an icon rail down its left edge. Each rail item swaps the one screen region beside it for a whole screen. Before this decision the rail had three destinations: sessions, workflows and settings. Saved agent definitions were listed on a Settings page that could delete one and hand it to a session, with no editor at all, and skills had no screen of their own and no owning specification.
 
-Two kinds of thing were competing for Settings. One is operator configuration: the app's own version and updates, provider accounts, tool servers, projects, the browser's saved site data, keyboard chords, appearance, notifications and the background service. The other is authored content with a lifecycle and more than one consumer: a sidekick definition is written, edited, versioned and then read by both the session composer and a workflow step; a skill is a folder of files a provider loads.
+Two kinds of thing were competing for Settings. One is operator configuration: the app's own version and updates, provider accounts, tool servers, projects, the browser's saved site data, keyboard chords, appearance, notifications and the background service. The other is authored content with a lifecycle and more than one consumer: an agent definition is written, edited, versioned and then read by both the session composer and a workflow step; a skill is a folder of files a provider loads.
 
 ## Problem Statement
 
@@ -33,11 +33,11 @@ The rail has exactly five destinations, in this order: **Sessions, Sidekicks, Sk
 
 ### Thesis — Why This Option
 
-- **One rule sorts every case.** A sidekick definition and a skill are things a person makes and then uses from other screens, so each is a destination. Tool servers configure what the machine exposes, so they stay in Settings. A future surface is sorted by the same sentence, without a new debate.
+- **One rule sorts every case.** An agent definition and a skill are things a person makes and then uses from other screens, so each is a destination. Tool servers configure what the machine exposes, so they stay in Settings. A future surface is sorted by the same sentence, without a new debate.
 - **Each destination has one owner.** Sessions is owned by [Spec-021](../specs/021-desktop-shell-and-renderer.md), Sidekicks by [Spec-027](../specs/027-agent-definitions-and-peer-invocation.md), Skills by [Spec-030](../specs/030-skills.md), Workflows by [Spec-015](../specs/015-workflow-authoring-and-execution.md), and Settings by Spec-021 with each page's behaviour in the specification that owns its data.
-- **The order follows use.** Sessions is where work happens and comes first. Sidekicks and Skills are the two libraries a session draws on and sit together. Workflows composes sidekicks into runs and follows them. Settings is visited least and sits last.
+- **The order follows use.** Sessions is where work happens and comes first. Sidekicks and Skills are the two libraries a session draws on and sit together. Workflows composes agents into runs and follows them. Settings is visited least and sits last.
 - **Skills is its own screen, with no view switch and no tabs.** A skill list under a Sidekicks tab would hide one of the two libraries behind the other and would make a skill's address depend on a view state.
-- **One set of rows serves two consumers.** The composer's command list and a workflow step's sidekick chooser read the same definitions, which is only coherent when the definitions have one home that is not a settings page.
+- **One set of rows serves two consumers.** The composer's command list and a workflow step's agent chooser read the same definitions, which is only coherent when the definitions have one home that is not a settings page.
 
 ### Antithesis — The Strongest Case Against [T2]
 
@@ -66,7 +66,7 @@ A rail of five icons costs five small squares of a fixed-width column and no tra
 ### Option C: One Library destination with Sidekicks and Skills tabs (Rejected)
 
 - **What:** Four rail items; the second holds both libraries behind a view switch.
-- **Steel man:** Shorter rail, one place for "things my sidekicks can use", room for more tabs.
+- **Steel man:** Shorter rail, one place for "things my agents can use", room for more tabs.
 - **Why rejected:** The view switch makes the screen's address depend on a tab state, doubles the routing, and hides one library whenever the other is open.
 
 ---
@@ -75,8 +75,8 @@ A rail of five icons costs five small squares of a fixed-width column and no tra
 
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
-| 1 | A sidekick definition has at least two consumers | Spec-027 resolves a definition when a sidekick is attached; Spec-015's sidekick step runs on the same definitions | With one consumer the definition could live beside it, and the destination would be overhead |
-| 2 | Skills differ enough from sidekicks to need their own screen | A skill is a folder of files loaded by a provider's own path; a definition is a record bound to a provider and a model | If the two converge, one destination is removed by a later record |
+| 1 | An agent definition has at least two consumers | Spec-027 resolves a definition when an agent is attached; Spec-015's agent step runs on the same definitions | With one consumer the definition could live beside it, and the destination would be overhead |
+| 2 | Skills differ enough from agents to need their own screen | A skill is a folder of files loaded by a provider's own path; a definition is a record bound to a provider and a model | If the two converge, one destination is removed by a later record |
 | 3 | No sixth top-level screen is needed at V1 | Every console surface in Spec-021 §The surface set, Spec-027, Spec-030 and Spec-015 routes to one of the five | A sixth is added by a new record under the same rule |
 
 ---

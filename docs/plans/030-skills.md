@@ -21,12 +21,12 @@ When this plan is done, Skills is a working rail destination. One list shows eve
 - **No Commands view and no second registry.** The session composer's `/` and `$` list reads the registry this plan builds; it does not get a copy of it.
 - **No writing into a provider's own tree.** A new folder lands under the console's own tree only; a provider's folder is edited where it is, and no field of the console's is written into a file a provider owns.
 - **No tool-server work.** Tool servers are machine configuration and belong to their Settings page.
-- **No sidekick-definition work.** The definition record, its editor and the attach seam are [Plan-027](./027-agent-definitions-and-peer-invocation.md)'s. This plan publishes a skill reference for a definition to name and authors no Plan-027 file.
+- **No agent-definition work.** The definition record, its editor and the attach seam are [Plan-027](./027-agent-definitions-and-peer-invocation.md)'s. This plan publishes a skill reference for a definition to name and authors no Plan-027 file.
 - **No rail or routing ownership.** The icon rail and the routing module are Plan-021's files; this plan adds one destination arm to each and authors nothing else there.
 
 ## Target Areas
 
-- `apps/desktop/src/renderer/src/console/skills/` (NEW) — the destination owns the list, the folder editor, the Files panel, the availability control with its scan line, and the reader the session composer mounts for its Skills group. Nothing about skills lives in the sidekick family's subtree; that family keeps the library, the definition editor and its picker.
+- `apps/desktop/src/renderer/src/console/skills/` (NEW) — the destination owns the list, the folder editor, the Files panel, the availability control with its scan line, and the reader the session composer mounts for its Skills group. Nothing about skills lives in the agent family's subtree; that family keeps the library, the definition editor and its picker.
 - `apps/desktop/src/renderer/src/console/routing/routes.ts` (EXTEND, Plan-021-owned) — the `skills` destination arm and its four addresses, added beside the existing `sessions` / `workflows` / `settings` arms.
 - `apps/desktop/src/renderer/src/console/frame/composition/IconRail.tsx` and `rail-navigation.ts` (EXTEND, Plan-021-owned) — the third rail item and its place in the keyboard order.
 - `packages/runtime-daemon/src/skills/` (NEW) — the watch over the three origins at both scopes, the front-matter read, the whole-folder write, the scan the widening control renders, the console's own per-folder record, and the per-provider session pack. The console never writes a folder and never computes a pack.

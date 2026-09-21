@@ -11,7 +11,7 @@
 
 ## Context
 
-AI Sidekicks is an agentic coding runtime for one user and their sidekicks. Per [ADR-015](./015-v1-feature-scope-definition.md), V1 ships 21 features across two deployment options (OSS self-host plus hosted SaaS) on a single codebase. Session activity is modeled as events for replay, auditability, and determinism; [vision.md §5. Session Engine](../vision.md) names the product an "event-sourced engine where everything important is an event."
+AI Sidekicks is an agentic coding runtime for one user and their agents. Per [ADR-015](./015-v1-feature-scope-definition.md), V1 ships 21 features across two deployment options (OSS self-host plus hosted SaaS) on a single codebase. Session activity is modeled as events for replay, auditability, and determinism; [vision.md §5. Session Engine](../vision.md) names the product an "event-sourced engine where everything important is an event."
 
 The system already has a two-store split per [ADR-004: SQLite Local State and Postgres Control Plane](./004-sqlite-local-state-and-postgres-control-plane.md):
 

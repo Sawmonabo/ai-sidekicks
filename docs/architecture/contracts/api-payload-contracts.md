@@ -217,16 +217,16 @@ An index, not a second contract: each region of the session screen, what it need
 | Region | What it needs | What answers it |
 | --- | --- | --- |
 | Session | Its id, name, shape, state and goal; its project, worktree and base; the pending worktree move; its elapsed time and its ahead count; the unsent draft and the staged files; the spend rows by account | `session.read` for the session's own facts and its shape; `session.setWorkingFolder`'s response for the pending move; `repo.mountRead` and `repo.worktreeStatusRead` for the project, the worktree, the base and the ahead count; the daemon-held composer store for the draft and the staged files; `orchestration.costReceiptRead`'s per-account axis for the spend rows. The snapshot count is the file checkpoint store's, whose read is owed |
-| Turns | The person's turns, the sidekick's prose, its reasoning, and the state-changing rows the console itself appends | `timeline.read` and `timeline.subscribe` |
+| Turns | The person's turns, the agent's prose, its reasoning, and the state-changing rows the console itself appends | `timeline.read` and `timeline.subscribe` |
 | Tool runs | The verb, its target, its duration or live elapsed, a result summary, diff hunks, a failure mark, a held mark | The same timeline rows; `command.list` for the ones still running |
-| Child sidekicks | Each child's id and parent, its model and the sidekick it came from, its state, activity, tools, tokens, spend and timer, its own rows and its stream | `orchestration.childRunLinkRead` and `agent.list` for the tree and its facts; `timeline.childRunExpand` for a child's rows; `run.subscribeState` for state |
+| Child agents | Each child's id and parent, its model and the agent it came from, its state, activity, tools, tokens, spend and timer, its own rows and its stream | `orchestration.childRunLinkRead` and `agent.list` for the tree and its facts; `timeline.childRunExpand` for a child's rows; `run.subscribeState` for state |
 | Approvals | One pending request with its title, its summary, the child that raised it, and the three answers | `approval.projectionRead`, answered by `approval.resolve` |
 | Worktrees | The per-project list with ahead, behind, dirtiness and occupancy; the root branch; the progress of the setup steps | `repo.worktreeStatusRead`, whose worktree rows carry the candidate facts. The setup progress is owed with the setup steps |
 | Review | The scope tabs, the base list, the files with their hunks, the commits, the pull-request state, its checks and threads, the held notes, and staleness | `gitflow.branchContextRead` for the branch, the base list and the commits; `gitflow.diffArtifactCreate` for the diff; the hosting adapter's read operations for the request, its checks and its threads; the session-scoped note store for the held notes; the daemon's tree-staleness signal for the reload |
 | Terminal | Per-shell output, and each shell's control lease | The PTY byte stream, and `session.takeControl` / `session.releaseControl` with the `pty.control_changed` broadcast, all keyed per shell |
 | Commands | The running commands — the command text, its folder, when it started, and the tool row each belongs to; its output as it prints; its ending with a result and a duration | `command.list`, with the `command.output` and `command.ended` records |
 | Preview | The open page's address, title and whether its history has somewhere to go; the discovered dev servers; the machine the page runs on; the staged marks | `preview.pageList` and `preview.devServerList`; the staged marks live in the composer store until `preview.marksSend` sends them |
-| The working line | What the sidekick is doing, the elapsed clock, the tokens received this turn, the turn's state word, its task list, and the connection state | `run.subscribeState` for the state and the activity; `turn.usage` for the tokens; `turn.tasks` for the list. The connection state is the client's own view of its transport and is read from no verb |
+| The working line | What the agent is doing, the elapsed clock, the tokens received this turn, the turn's state word, its task list, and the connection state | `run.subscribeState` for the state and the activity; `turn.usage` for the tokens; `turn.tasks` for the list. The connection state is the client's own view of its transport and is read from no verb |
 | The bell and the notifications list | The count of what is waiting, one line per moment, and the moment a banner speaks for | `attention.projectionRead` |
 
 ---
@@ -271,10 +271,10 @@ interface SessionReadRequest {
 }
 interface SessionReadResponse {
   session: SessionSnapshot;
-  // 2026-08-26 (CP-027-8), additive-optional: the projected sidekick peer-invocation opt-in. A
+  // 2026-08-26 (CP-027-8), additive-optional: the projected agent peer-invocation opt-in. A
   // DERIVATION of the `session.peer_invocation_set` fold, never a second source of truth and never a
-  // stored column — the event log stays the durable home. Present as a read path because the
-  // `sidekick.*` surface exposes only the mutating verb, and without it a reopening renderer could
+  // stored column — the event log stays the durable home. Present as a read path because the opt-in
+  // has only a mutating verb, `agent.peerInvocationSet`, and without it a reopening renderer could
   // learn the current value only by replaying and folding raw events client-side. Absent ⇒ the
   // responder predates this member, which a client renders as unknown rather than as disabled:
   // defaulting an unknown capability grant to "off" would misreport an enabled session as safe.
@@ -509,7 +509,7 @@ Closes the BL-102 sub-item "JSON-RPC method-name canonical-format registry (`ses
 /^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/
 ```
 
-Every dot-delimited segment starts with a lowercase letter and may contain camelCase (`[a-z][a-zA-Z0-9]*`) — the first segment (the namespace root) included. This adopts the dotted-camelCase _segment_ style of the LSP precedent ([Language Server Protocol §General Messages](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/) — e.g. `workspace.executeCommand`) and the MCP precedent ([Model Context Protocol §Protocol Messages](https://modelcontextprotocol.io/specification/2025-06-18/server/tools) — `tools.list`, `tools.call`), and applies that style **uniformly to every segment, the root included**. It did not always: the leading segment was once tightened to lowercase-only, which rejected LSP's own camelCase-rooted names such as `textDocument.didOpen` while citing LSP — whose roots are camelCase — as the precedent for the style, and which, once the ten-verb `providerAccount.*` namespace was ratified ([Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) / [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) / [ADR-028](../../decisions/028-provider-credential-custody-posture.md)) and registered in §Plan-026 — Provider Accounts And Credential Homes below, rejected a namespace root **this document itself registers** — so the `register()`-time guard below would have thrown on all ten verbs at daemon boot. The widening resolves the contradiction by moving the first segment to the class the later segments already admit, which is the class the cited precedent uses; renaming ten ratified verbs across every spec, plan, ADR, architecture contract, and runbook that carries them, to satisfy a regex whose own stated precedent contradicts it, was the wrong direction. Nothing else moves: segment-internal rules are unchanged, the two-segment minimum is unchanged, and an uppercase-**starting** segment is still rejected in any position (`Session.create` fails, as it always did). `providerAccount` is the only registered method root carrying an uppercase letter; every other registered root is a lowercase identifier. Registered or shipped, by the plan that owns each: `session`, `daemon`, `run`, `repo`, `approval`, `user`, `gdpr`, `runtimenode`, `channel`, `orchestration` and `agent` (Plan-014), `gitflow` (Plan-009), `mcp` (Plan-025), `timeline` (Plan-011), `attention` (Plan-017), `health` (Plan-018), `workflow` (Plan-015), `sidekick` (Plan-027), `shell` (Plan-021, the one shell-hosted root), and the console's own `plan` (the plan verdict, Plan-010), `turn` and `question` (Plan-011), `command` (the running-command surface, Plan-004), and `preview` and `browser` (the page hosts, Plan-021). Still planned: `driver`, `settings`, `event`, `artifact`. The V1 Tier 1 surface (`session.create`, `session.read`, `session.subscribe`) uses all-lowercase segments; nested-namespace operations like `settings.effectiveRead` and `driver.listCapabilities` (lowercase root + camelCase tail) are permitted under this regex, as is a camelCase root such as `providerAccount.list`.
+Every dot-delimited segment starts with a lowercase letter and may contain camelCase (`[a-z][a-zA-Z0-9]*`) — the first segment (the namespace root) included. This adopts the dotted-camelCase _segment_ style of the LSP precedent ([Language Server Protocol §General Messages](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/) — e.g. `workspace.executeCommand`) and the MCP precedent ([Model Context Protocol §Protocol Messages](https://modelcontextprotocol.io/specification/2025-06-18/server/tools) — `tools.list`, `tools.call`), and applies that style **uniformly to every segment, the root included**. It did not always: the leading segment was once tightened to lowercase-only, which rejected LSP's own camelCase-rooted names such as `textDocument.didOpen` while citing LSP — whose roots are camelCase — as the precedent for the style, and which, once the ten-verb `providerAccount.*` namespace was ratified ([Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) / [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) / [ADR-028](../../decisions/028-provider-credential-custody-posture.md)) and registered in §Plan-026 — Provider Accounts And Credential Homes below, rejected a namespace root **this document itself registers** — so the `register()`-time guard below would have thrown on all ten verbs at daemon boot. The widening resolves the contradiction by moving the first segment to the class the later segments already admit, which is the class the cited precedent uses; renaming ten ratified verbs across every spec, plan, ADR, architecture contract, and runbook that carries them, to satisfy a regex whose own stated precedent contradicts it, was the wrong direction. Nothing else moves: segment-internal rules are unchanged, the two-segment minimum is unchanged, and an uppercase-**starting** segment is still rejected in any position (`Session.create` fails, as it always did). `providerAccount` is the only registered method root carrying an uppercase letter; every other registered root is a lowercase identifier. Registered or shipped, by the plan that owns each: `session`, `daemon`, `run`, `repo`, `approval`, `user`, `gdpr`, `runtimenode`, `channel`, `orchestration` and `agent` (Plan-014, whose `agent` root also carries Plan-027's definition-plane operations), `gitflow` (Plan-009), `mcp` (Plan-025), `timeline` (Plan-011), `attention` (Plan-017), `health` (Plan-018), `workflow` (Plan-015), `shell` (Plan-021, the one shell-hosted root), and the console's own `plan` (the plan verdict, Plan-010), `turn` and `question` (Plan-011), `command` (the running-command surface, Plan-004), and `preview` and `browser` (the page hosts, Plan-021). Still planned: `driver`, `settings`, `event`, `artifact`. The V1 Tier 1 surface (`session.create`, `session.read`, `session.subscribe`) uses all-lowercase segments; nested-namespace operations like `settings.effectiveRead` and `driver.listCapabilities` (lowercase root + camelCase tail) are permitted under this regex, as is a camelCase root such as `providerAccount.list`.
 
 The regex accepts the Tier 1 surface and rejects:
 
@@ -682,7 +682,7 @@ The shared-terminal write lease ([Spec-002 §Required Behavior](../../specs/002-
 | `session.releaseControl` | `mutation` | `SessionReleaseControlRequest` | `SessionReleaseControlResponse` — daemon JSON-RPC ONLY in V1 (no control-plane tRPC registration; [Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior) transport posture) |
 | `runtimenode.leaseupdate` | `mutation` | `RuntimeNodeLeaseUpdateRequest` | `null` — HTTP 200 `{ result: { data: null } }`; `RuntimeNodeLeaseUpdateResponseSchema` (`z.null()`) — control-plane tRPC ONLY, **daemon-called** (single producer: the terminal-owning daemon, producer-bound + monotonic per the contract paragraph above; no daemon JSON-RPC registration — clients never invoke the projection sync; Plan-022 Phase 3B / campaign B16) |
 
-**One lease per shell.** A session opens as many shells as the machine can hold, each its own tab, and the write lease is keyed per shell rather than per session: `terminalId` is a required member of both requests, and the roster projection names the holder PER SHELL, so one device can hold one shell while another of the account's devices — or a sidekick's running command — holds another. Without the key a take on one tab would silently move every other tab's lease, and the lease line under the tab strip could not speak for the active tab alone. The identifier is the daemon's own handle for that shell; no client mints one. The projection-sync mutation below carries it for the same reason, and the lease row's identity is `(session_id, terminal_id)` rather than `session_id` alone — the monotonic `transitionSeq` and the producer-binding conditions in the upsert contract below are per shell with it, so two shells' transitions never serialize against each other.
+**One lease per shell.** A session opens as many shells as the machine can hold, each its own tab, and the write lease is keyed per shell rather than per session: `terminalId` is a required member of both requests, and the roster projection names the holder PER SHELL, so one device can hold one shell while another of the account's devices — or an agent's running command — holds another. Without the key a take on one tab would silently move every other tab's lease, and the lease line under the tab strip could not speak for the active tab alone. The identifier is the daemon's own handle for that shell; no client mints one. The projection-sync mutation below carries it for the same reason, and the lease row's identity is `(session_id, terminal_id)` rather than `session_id` alone — the monotonic `transitionSeq` and the producer-binding conditions in the upsert contract below are per shell with it, so two shells' transitions never serialize against each other.
 
 **The forced take.** `session.takeControl` carries a `force` member rather than a second method, because the act is the same act under a stronger precondition. A forced take moves the shell's lease off ANOTHER OF THE ACCOUNT'S DEVICES, broadcasts `pty.control_changed` with a reason naming the force, and never touches the foreground process — the handoff lands between write frames, so a running program is untouched and the displaced device loses only a half-typed line. It is **refused while the hold belongs to an agent run that is writing**, and that refusal is normative rather than a courtesy: the person stops or pauses the run instead, and the run-lifecycle release frees that shell. The refusal is what makes the agent-path hold different from the device-path hold, so an agent-held shell is NOT the idempotent self-retake case even though both holds resolve to the same node-owner `UserId` — the acquiring run id is daemon-local lease-record bookkeeping, which is exactly what the precondition reads.
 
@@ -1822,7 +1822,7 @@ type CapabilityDetectionSource = "static" | "probed";
 
 ### Running-Command Method Registry (Plan-004)
 
-The console's window onto the shell commands a sidekick started. The provider decides how a command runs and the console never forces it — it sets no time limit of its own, never chooses foreground or background for a command, and never reports a command's processor or memory use. What the console adds is one live view with three acts, on a new `command` root riding the **daemon JSON-RPC transport only**: the running set is the daemon's own, folded from one provider's whole-set change notification (which a repeated handshake also returns after a reconnect) and the other's background-terminal listing, so a reconnect converges without a client reconciling two readings.
+The console's window onto the shell commands an agent started. The provider decides how a command runs and the console never forces it — it sets no time limit of its own, never chooses foreground or background for a command, and never reports a command's processor or memory use. What the console adds is one live view with three acts, on a new `command` root riding the **daemon JSON-RPC transport only**: the running set is the daemon's own, folded from one provider's whole-set change notification (which a repeated handshake also returns after a reconnect) and the other's background-terminal listing, so a reconnect converges without a client reconciling two readings.
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
@@ -1833,10 +1833,10 @@ The console's window onto the shell commands a sidekick started. The provider de
 `command.list` is a subscription and not a read, because the set changes without anyone asking and a command can outlive the turn that started it. `command.background` is capability-gated: exactly one pinned provider can move a waited-on command to the background, and on the other the control does not exist — absent rather than disabled — so the verb is never dispatched there and a word typed for it is answered by the console with one row rather than a refused call.
 
 ```ts
-// One running command, in the order the commands started. `name` is the command as the sidekick ran it,
+// One running command, in the order the commands started. `name` is the command as the agent ran it,
 // which is also what the transcript row shows; `startedAt` is what the live timer counts from, so the
 // timer is a rendering of one fact rather than a second clock. `waitingInForeground` is true only where
-// the provider is holding the sidekick's turn on this command, which is the one state the background act
+// the provider is holding the agent's turn on this command, which is the one state the background act
 // applies to.
 interface RunningCommand {
   commandId: string;
@@ -1856,10 +1856,10 @@ interface CommandListUpdate {
   commands: RunningCommand[];
 }
 
-// Ending a command is never a bare failure to the sidekick: the row records that the person ended it, and
-// the sidekick receives one short message naming the stopped command, so its next step reads an
+// Ending a command is never a bare failure to the agent: the row records that the person ended it, and
+// the agent receives one short message naming the stopped command, so its next step reads an
 // instruction rather than an unexplained error. Stopping every command in a session is this same verb once
-// per running command — there is no sweep verb, and nothing here touches a sidekick.
+// per running command — there is no sweep verb, and nothing here touches an agent.
 interface CommandStopRequest {
   sessionId: SessionId;
   commandId: string;
@@ -1869,7 +1869,7 @@ interface CommandStopResponse {
   stopped: true;
 }
 
-// Moving a waited-on command to the background continues the sidekick's turn and starts the output
+// Moving a waited-on command to the background continues the agent's turn and starts the output
 // streaming into the command's own row. Refused where the bound provider has no such mechanism, and where
 // no command is waiting in the foreground.
 interface CommandBackgroundRequest {
@@ -3640,7 +3640,7 @@ interface RememberedRuleRevokeResponse {
 type PlanId = string & { readonly __brand: "PlanId" };
 
 // plan.proposed — the record the screen renders. `title` is the plan's first heading and `text` its
-// Markdown as the sidekick wrote it; the two counts are the daemon's own read of the plan, the
+// Markdown as the agent wrote it; the two counts are the daemon's own read of the plan, the
 // top-level steps and the files the plan names, and they are what the card's summary line states.
 // `planFilePath` is present only where the provider wrote the plan as a file, which is one provider
 // and not the other — its absence means the plan is an item of the thread and there is no file, never
@@ -3935,7 +3935,7 @@ interface CommentResult {
 // a session's work off this machine's working folder, so those act rows survive a reload. `cause` is closed
 // at three and takes no fourth member, and each cause carries exactly the reference its row names: the
 // commit's identifier for `committed`, the branch for `pushed`, and the request's number plus its address
-// on the hosting service for `pull_request_opened`. `runId` is present where a sidekick performed the act
+// on the hosting service for `pull_request_opened`. `runId` is present where an agent performed the act
 // as an ordinary tool call and absent where the person pressed the control.
 interface GitSettledPayload {
   sessionId: SessionId;
@@ -4216,7 +4216,7 @@ interface ArtifactKeyAttestationPayload {
 
 > **Tier-6 audit — ratified design (Plan-012 → `approved`).** The ArtifactPublish/ArtifactRead pair now composes a single named `ArtifactManifest` envelope ([Spec-012 §Interfaces And Contracts](../../specs/012-artifacts-files-and-attachments.md#interfaces-and-contracts)) instead of inlining and duplicating the fields — this is the `ArtifactManifest` shape Plan-012 Task 1 mints, and the envelope Plan-009's `DiffArtifact` (`artifactType: "diff"`) rides per CP-012-1 / CP-009-2 (Plan-009 consumes the envelope **concept**, unchanged, not a flat field layout). `ArtifactPublishResponse` embeds `manifest: ArtifactManifest` per [Spec-012 §Interfaces And Contracts](../../specs/012-artifacts-files-and-attachments.md#interfaces-and-contracts) ("must return artifact id **and manifest metadata**") — this **replaces the prior `manifestUrl` pointer**, which was drift from that "must" clause: the `ArtifactRead` clause grants handle/inline latitude to the **payload** on _Read_ only, never to the manifest, so both responses return the manifest metadata inline (D-012-3 — resolved by aligning the wire to the spec, not an owner decision). `ArtifactReadResponse` is `manifest` + `payloadHandle?`/`payload?` ([Spec-012 §Interfaces And Contracts](../../specs/012-artifacts-files-and-attachments.md#interfaces-and-contracts)). The wire envelope mirrors the `artifact_manifests` row in [Local SQLite Schema](../schemas/local-sqlite-schema.md) 1:1: `digest`/`size` are **required** on the wire because a content-addressed manifest always carries both (I-012-1), and the at-rest `content_hash`/`size_bytes` columns are correspondingly **`NOT NULL`** — each producer (AttachmentIngest, ArtifactPublish) computes the SHA-256 + byte length from its own payload and inserts its manifest with both columns set in the same transaction as the payload-ref, and AttachmentIngest and ArtifactPublish are independent producers (the `artifactId` `AttachmentIngestResponse` returns resolves from the ingest-written manifest, not a later publish), so there is no payload-less manifest to reconcile (D-012-1). _(2026-08-17: `AttachmentIngest` is now carried as the `AttachmentIngestInit`/`AttachmentIngestChunk`/`AttachmentIngestComplete` trio — the resolving response in this dated record is today's `AttachmentIngestCompleteResponse`; the producer-independence design is unchanged.)_ `annotations` is a dedicated OCI string→string column (D-012-2; at-rest `NOT NULL DEFAULT '{}'`), required on the wire, never folded into freeform `metadata`. The at-rest `replication_status` column (nullable) surfaces as the optional `replicationStatus?` wire field (A-012-3 — V1 writes `pending_replication` while a shared artifact awaits deferred payload transfer; open set, no closed union, mirroring the at-rest no-CHECK stance). _(2026-07-08: the deferred refinement arrived — the [Spec-012 §Cross-Node Artifact Relay (V1)](../../specs/012-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) amendment spec-names `pending_replication | pinned | over_cap | quota_exceeded | expired`, the at-rest column now carries the matching CHECK, and the wire field is the closed union above — the open-set stance in this dated record is superseded; the field stays optional.)_ Producer inputs are closed too (D-012-3): `ArtifactPublishRequest` accepts `subject?` (so a Task-4 I-012-2 derivative names its source at publish) and `annotations?`, while `size`/`digest` stay server-derived from `payload` — otherwise the `annotations` column and derivative `subject` would be write-dead. This wire edit + the `local-sqlite-schema.md` artifact edit + Plan-012 CP-012-1 / Task 3 form one whole-or-not bundle.
 
-**Plan artifacts and a chat's files.** Two console surfaces are projections of this manifest space and add no store of their own. **A finished plan** is written by the daemon as an artifact of its session in the existing summary family the moment the plan turn ends, keyed by its own stable id and carrying the plan's text as the sidekick wrote it; its state moves in place as the plan is answered, so the inspector's artifact list reads the plan's word — waiting, accepted, handed on — and the plan reader renders the STORED text and never the provider's own plan file. The artifact survives a restart and is listed on the person's other devices, which is the whole reason the plan is an artifact rather than a rendering of a held request. **A chat session's files** are artifacts too: every file and folder a chat writes into its managed workspace is one, and each write to the same path is a NEW VERSION of that artifact kept with the time it was written — a later write never replaces an earlier one, which is what lets the file pane step through versions and compare one against the one before it. That comparison is the only diff a chat draws and it is never against a repository, so no branch, commit, base or staging concept reaches it.
+**Plan artifacts and a chat's files.** Two console surfaces are projections of this manifest space and add no store of their own. **A finished plan** is written by the daemon as an artifact of its session in the existing summary family the moment the plan turn ends, keyed by its own stable id and carrying the plan's text as the agent wrote it; its state moves in place as the plan is answered, so the inspector's artifact list reads the plan's word — waiting, accepted, handed on — and the plan reader renders the STORED text and never the provider's own plan file. The artifact survives a restart and is listed on the person's other devices, which is the whole reason the plan is an artifact rather than a rendering of a held request. **A chat session's files** are artifacts too: every file and folder a chat writes into its managed workspace is one, and each write to the same path is a NEW VERSION of that artifact kept with the time it was written — a later write never replaces an earlier one, which is what lets the file pane step through versions and compare one against the one before it. That comparison is the only diff a chat draws and it is never against a repository, so no branch, commit, base or staging concept reaches it.
 
 ### Plan-013 — Persistence Recovery And Replay
 
@@ -4288,7 +4288,7 @@ interface RuntimeBindingReadResponse {
 }
 
 // ---- The file checkpoint store, and what restoring reads and writes ----
-// The daemon copies aside every file the sidekick or one of its children is about to edit, at every
+// The daemon copies aside every file the agent or one of its children is about to edit, at every
 // prompt boundary, from the same tool hook it already registers to hold a run — one mechanism, not a
 // second interception path. The copies are held WITH THE SESSION and OUTSIDE THE CHECKOUT, so they never
 // appear in a diff and survive a working-folder move; the last hundred checkpoints are kept, and they
@@ -4581,7 +4581,7 @@ interface TurnUsageUpdate {
   tokensReceived: number;
 }
 
-// turn.tasks — the sidekick's own task list for this turn, in the sidekick's own order. The driver folds
+// turn.tasks — the agent's own task list for this turn, in the agent's own order. The driver folds
 // Claude Code's task-list tool calls and Codex's plan-updated notification into one list; the daemon
 // turns Codex's plan updates on per session, because the provider leaves them off by default. The list
 // is the turn's: it goes when the turn is interrupted and returns with the next turn's list.
@@ -4592,12 +4592,12 @@ interface TurnTasksSubscribeRequest {
 interface TurnTasksUpdate {
   runId: RunId;
   turnId: string;
-  // The WHOLE list per emission, in the sidekick's order, because a provider replaces its list rather
+  // The WHOLE list per emission, in the agent's order, because a provider replaces its list rather
   // than patching it and a subscriber must never compose two halves into an order neither sent.
   tasks: Array<{ text: string; state: "not_started" | "in_progress" | "done" }>;
 }
 
-// ---- A sidekick's question ----
+// ---- An agent's question ----
 // Both providers can stop a turn to ask, with different mechanisms and one record: the daemon turns a
 // held Claude Code question request or a Codex user-input request into ONE question record the screen
 // renders and ONE call answers. It holds either request open with NO timer, rebuilds the card on a
@@ -4616,9 +4616,9 @@ interface QuestionAskedPayload {
   // them all, so paging needs no further read and typed text survives paging both ways.
   pageCount: number;
   questions: Array<{
-    // The sidekick's own short header for the ask, shown as a chip; absent where it sent none.
+    // The agent's own short header for the ask, shown as a chip; absent where it sent none.
     header?: string;
-    // The question itself, and the sidekick's own heading shown as the summary line only where it sent
+    // The question itself, and the agent's own heading shown as the summary line only where it sent
     // one.
     text: string;
     heading?: string;
@@ -4712,7 +4712,7 @@ interface AttentionItem {
   momentId: string;
   sessionId: SessionId;
   runId?: RunId;
-  trigger: "pending_approval" | "pending_input" | "run_completed" | "run_failed" | "mention"; // "mention" is a sidekick naming the user in a channel — an agent-authored trigger, never another person
+  trigger: "pending_approval" | "pending_input" | "run_completed" | "run_failed" | "mention"; // "mention" is an agent naming the user in a channel — an agent-authored trigger, never another person
   severity: "actionable" | "informational";
   summary: string;
   sourceEventId: string; // canonical event that triggered this
@@ -4878,7 +4878,7 @@ The namespace root is `shell` rather than `shellKey` or `daemonKey`. That choice
 
 The Preview pane and the machine-wide Browser page are served by two new daemon JSON-RPC roots, `preview` and `browser`. Every verb below is new: the daemon has no page-host surface today, `packages/contracts/src` registers neither root, and the renderer's page-host operations answer with a typed refusal and are marked as not on the wire. Both roots register against the Plan-006 `MethodRegistry` at that plan's Tier 3, which owns them along with the daemon-side pieces they answer from ([Plan-006 CP-006-18](../../plans/006-local-ipc-and-daemon-control.md#cp-006-18--the-daemons-page-host-namespaces-preview-and-browser-owed-to-plan-021-cp-021-11)).
 
-**Why the daemon and not the shell.** There are TWO page hosts and ONE endpoint: the desktop's own native page view, and — where no desktop runs — the daemon's headless browser. Both expose a Chrome-debug endpoint, one resolver in the daemon returns the active one, and nothing above it branches, so a sidekick never knows which host it is talking to. Putting the verbs on the daemon is what makes that true; putting them on the shell would give the no-desktop case no surface at all. The renderer owns no page: it publishes the rectangle a page is positioned to and renders the outcomes, through the preload bridge's own page-host namespace — a **bridge namespace canonical in `packages/contracts/src/desktop-bridge.ts`** per the §Source-of-Truth Policy, which shares the word `browser` with the root below and is a different surface: the bridge positions and captures a page, the root below manages pages, site data and the node-wide switches. The bridge's `daemon`, `native` and `window` namespaces are canonical in that same file and are not mirrored here; what the design fixes about them is one rule each — every address the console hands outward goes through the bridge's external-open except a loopback address printed in a reply, a tool row or a shell, which opens in the Preview pane instead; the composer's attach picker takes files only and several at a time, never a folder; and pane detachment is the renderer-initiated move of one pane into its own window.
+**Why the daemon and not the shell.** There are TWO page hosts and ONE endpoint: the desktop's own native page view, and — where no desktop runs — the daemon's headless browser. Both expose a Chrome-debug endpoint, one resolver in the daemon returns the active one, and nothing above it branches, so an agent never knows which host it is talking to. Putting the verbs on the daemon is what makes that true; putting them on the shell would give the no-desktop case no surface at all. The renderer owns no page: it publishes the rectangle a page is positioned to and renders the outcomes, through the preload bridge's own page-host namespace — a **bridge namespace canonical in `packages/contracts/src/desktop-bridge.ts`** per the §Source-of-Truth Policy, which shares the word `browser` with the root below and is a different surface: the bridge positions and captures a page, the root below manages pages, site data and the node-wide switches. The bridge's `daemon`, `native` and `window` namespaces are canonical in that same file and are not mirrored here; what the design fixes about them is one rule each — every address the console hands outward goes through the bridge's external-open except a loopback address printed in a reply, a tool row or a shell, which opens in the Preview pane instead; the composer's attach picker takes files only and several at a time, never a folder; and pane detachment is the renderer-initiated move of one pane into its own window.
 
 | Method | Procedure type | Request → Response | What it carries |
 | --- | --- | --- | --- |
@@ -4893,9 +4893,9 @@ The Preview pane and the machine-wide Browser page are served by two new daemon 
 | `browser.siteDataList` | `query` | `BrowserSiteDataListRequest` → `BrowserSiteDataListResponse` | The sites with saved data |
 | `browser.siteDataForget` | `mutation` | `BrowserSiteDataForgetRequest` → `BrowserSiteDataForgetResponse` | Clears one site's stored data, addressed by origin |
 | `browser.siteDataClear` | `mutation` | `BrowserSiteDataClearRequest` → `BrowserSiteDataClearResponse` | Clears every site's stored data |
-| `browser.settingsUpdate` | `mutation` | `BrowserSettingsUpdateRequest` → `BrowserSettingsUpdateResponse` | The two node-wide switches: whether site data is remembered, and whether the sidekick's browser tools are registered at all |
+| `browser.settingsUpdate` | `mutation` | `BrowserSettingsUpdateRequest` → `BrowserSettingsUpdateResponse` | The two node-wide switches: whether site data is remembered, and whether the agent's browser tools are registered at all |
 
-**The sidekick's browser tools are not session verbs.** They are one tool-server connection per session, hosted inside the daemon and attached to that session's debug endpoint, reached by the provider over HTTP. The renderer learns about them the way it learns about any tool call — as rows in the transcript — so no verb above dispatches one, and the `browser.settingsUpdate` switch decides whether any of them is registered.
+**The agent's browser tools are not session verbs.** They are one tool-server connection per session, hosted inside the daemon and attached to that session's debug endpoint, reached by the provider over HTTP. The renderer learns about them the way it learns about any tool call — as rows in the transcript — so no verb above dispatches one, and the `browser.settingsUpdate` switch decides whether any of them is registered.
 
 ```ts
 // One open page in a session's Preview pane. The id is the daemon's; no client mints one.
@@ -4986,7 +4986,7 @@ interface PreviewDevServer {
 // A mark drawn on the frozen picture. Three kinds: a numbered comment, a numbered box, and a pen stroke,
 // which is never numbered — which is why removing a comment renumbers the comments and boxes and leaves
 // strokes alone. Every mark carries the element reference and bounding box taken from the page snapshot
-// AT MARK-COMMIT TIME, so a mark drawn on another device's live picture reaches the sidekick as the same
+// AT MARK-COMMIT TIME, so a mark drawn on another device's live picture reaches the agent as the same
 // attachment as one drawn on the machine that runs the session. A reference is valid ONLY for the
 // snapshot generation that minted it, which is why the generation rides with it and is never assumed to
 // survive the next snapshot.
@@ -5338,9 +5338,9 @@ type SessionGoalClearResponse = { sessionId: SessionId };
 // (a future workflow/V1.1 surface). The daemon resolves the resulting state at emission time and
 // carries it on the agent.* event payloads so the agents projection is deterministic from the log
 // alone.
-// NO WIRE VERB BRINGS A SIDEKICK INTO A SESSION OR TAKES ONE OUT. A session has one main sidekick,
-// and another sidekick takes part only where the main one delegates to it or where the person names
-// it in the composer, so there is no step that binds a saved sidekick to a running session and none to
+// NO WIRE VERB BRINGS AN AGENT INTO A SESSION OR TAKES ONE OUT. A session has one main agent,
+// and another agent takes part only where the main one delegates to it or where the person names
+// it in the composer, so there is no step that binds a saved agent to a running session and none to
 // undo. The two verbs here mutate and read what the session already holds.
 // wire: agent.configUpdate / agent.list
 type AgentState = "configured" | "ready" | "disabled" | "archived";
@@ -5708,7 +5708,7 @@ interface OrchestrationRunLinkCarrier {
 | `agent.configUpdate` | RPC | `AgentConfigUpdateRequest` → `AgentConfigUpdateResponse` | Emits `agent.config_updated`; the provider, model, effort, account and speed axes all ride it |
 | `agent.list` | RPC | `AgentListRequest` → `AgentListResponse` | agents-table projection |
 
-**The daemon's own sidekick tree, and why no verb reads it directly.** The daemon builds a parent-to-child index per session FROM THE PROVIDER STREAM — the task-started frame and its parent call id on one provider, the child's turn-started frame on the other — and persists it, because neither provider lists its children back on a resume. That index is the single source of every fan-out count the screen shows and of every stop that reaches more than one child: a subtree stop is one stop per id walked from the index at every depth, never a relay through the lead, because neither provider's lead can stop a subtree — one provider's own stop tool refuses a grandchild as another sidekick's, and the other has no stop-all verb at all. The durable handle for a child is the run plus the provider plus the child together, never a bare child id, which is what lets a restart re-attach every child by id. Four further things the index holds are daemon-interior and reach no wire: the per-child hold key that routes a pause to the right leg, the background request issued before a lead interrupt on one provider so a foreground child is not swept with it, the per-child stop behind the two sweeping controls, and the provider's own terminal verbs that end a command an interrupt left running. `orchestration.childRunLinkRead` above is the projection a client reads; it is a read OF the index, and no second verb exposes the index itself. The two child records the screen folds are `subagent.started` and `subagent.completed`, whose taxonomy is [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md)'s.
+**The daemon's own agent tree, and why no verb reads it directly.** The daemon builds a parent-to-child index per session FROM THE PROVIDER STREAM — the task-started frame and its parent call id on one provider, the child's turn-started frame on the other — and persists it, because neither provider lists its children back on a resume. That index is the single source of every fan-out count the screen shows and of every stop that reaches more than one child: a subtree stop is one stop per id walked from the index at every depth, never a relay through the lead, because neither provider's lead can stop a subtree — one provider's own stop tool refuses a grandchild as another agent's, and the other has no stop-all verb at all. The durable handle for a child is the run plus the provider plus the child together, never a bare child id, which is what lets a restart re-attach every child by id. Four further things the index holds are daemon-interior and reach no wire: the per-child hold key that routes a pause to the right leg, the background request issued before a lead interrupt on one provider so a foreground child is not swept with it, the per-child stop behind the two sweeping controls, and the provider's own terminal verbs that end a command an interrupt left running. `orchestration.childRunLinkRead` above is the projection a client reads; it is a read OF the index, and no second verb exposes the index itself. The two child records the screen folds are `subagent.started` and `subagent.completed`, whose taxonomy is [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md)'s.
 
 **Control-plane procedure registry — Plan-014.** One tRPC mutation on the shipped control-plane session router, distinct from the daemon namespace above because the directory store lives in Postgres:
 
@@ -5794,7 +5794,7 @@ No new event type, no new error code, and no new table: the receipt is a decompo
 
 ### Plan-015 — Workflow Authoring And Execution
 
-A definition has ONE form on the wire and in the store: the node-graph document below. An author writes nodes and edges; the engine runs them, its four sidekick and human node kinds delegating at run time to the run-admission, orchestration, approval and form paths the daemon already has, so nothing here is phase-shaped and no second definition form exists to keep in step with it ([Spec-015 §Core SDK and persistence contracts](../../specs/015-workflow-authoring-and-execution.md#core-sdk-and-persistence-contracts)). `WorkflowGateResolveResponse` carries both halves of the SA-26 dual anchor. Field additions to already-published shapes are additive-**optional** per [ADR-018](../../decisions/018-cross-version-compatibility.md), marked as such inline, and become required at the next MAJOR.
+A definition has ONE form on the wire and in the store: the node-graph document below. An author writes nodes and edges; the engine runs them, its four agent and human node kinds delegating at run time to the run-admission, orchestration, approval and form paths the daemon already has, so nothing here is phase-shaped and no second definition form exists to keep in step with it ([Spec-015 §Core SDK and persistence contracts](../../specs/015-workflow-authoring-and-execution.md#core-sdk-and-persistence-contracts)). `WorkflowGateResolveResponse` carries both halves of the SA-26 dual anchor. Field additions to already-published shapes are additive-**optional** per [ADR-018](../../decisions/018-cross-version-compatibility.md), marked as such inline, and become required at the next MAJOR.
 
 The visual builder ([Spec-015 §Visual Workflow Builder](../../specs/015-workflow-authoring-and-execution.md#visual-workflow-builder), ADR-026) is why the definition-create request carries the entry record and the copy-on-write parent pointer, and why `WorkflowToolBinding` exists. Neither promotion to `shared` scope nor the submit half of a file import mints an operation of its own: both ride `workflow.definitionCreate`.
 
@@ -5850,7 +5850,7 @@ interface WorkflowDefinitionCreateRequest {
   // Spec-015 §Definition scope in the builder (SA-36)
   parentContentHash?: string;
   // The authored body is the NODE-GRAPH DOCUMENT below: exactly one trigger node, the other
-  // nodes, and the edges between them. There is no second, compiled form: the sidekick and
+  // nodes, and the edges between them. There is no second, compiled form: the agent and
   // human kinds are node kinds like any other, and their executors call the existing
   // run-admission, orchestration, approval and form paths at run time.
   document: WorkflowDocument;
@@ -6005,7 +6005,7 @@ type WorkflowStartedBy =
   | { kind: "user"; userId: UserId }
   | { kind: "schedule" }
   | { kind: "chat"; sessionId: SessionId; messageAnchorCursor?: EventCursor }
-  | { kind: "sidekick"; agentId: AgentId }
+  | { kind: "agent"; agentId: AgentId }
   | { kind: "webhook" }
   | { kind: "fileEvent" }
   | { kind: "parentWorkflow"; parentWorkflowRunId: WorkflowRunId };
@@ -6741,7 +6741,7 @@ type WorkflowSubscribeNotification =
   | { kind: "runsPause"; paused: boolean; waitingStartCount: number };
 
 // WorkflowKindList — workflow.kindList. The node catalog with its param specs, so the palette, the
-// inspector and a sidekick all read ONE list. One declarative description drives the parameter form, the
+// inspector and an agent all read ONE list. One declarative description drives the parameter form, the
 // canvas ports, the palette entry and the validation; everything that renders a node is a generic renderer
 // over it.
 interface WorkflowKindListRequest {}
@@ -6773,7 +6773,7 @@ type WorkflowParamSpec =
         | "glob"
         | "cron"
         | "secret"
-        | "sidekick"
+        | "agent"
         | "mcp-tool"
         | "session"
         | "channel";
@@ -6794,7 +6794,7 @@ type WorkflowParamSpec =
 // output set derives from its params, and a kind's one-line summary of a configured node, are both
 // functions of the params, and a function cannot be sent. `outputsDeriveFromParams` states that the set is
 // computed so a reader knows the declared list is the base case rather than the whole truth, and the
-// summary is composed by the surface that holds the catalog's own code. A sidekick authoring a document
+// summary is composed by the surface that holds the catalog's own code. An agent authoring a document
 // reads everything below and needs neither.
 interface WorkflowNodeKindSpec {
   kind: WorkflowNodeKindId;
@@ -6827,7 +6827,7 @@ interface WorkflowKindListResponse {
 // WorkflowRunsPauseSet — workflow.runsPauseSet. The scheduler-wide hold on STARTING new runs. It takes no
 // run id, because it is neither of the two per-run operations: one state per daemon over its whole
 // scheduler. With the hold on, a run already going finishes and every new start waits — a schedule fire, a
-// webhook, a file event, a chat verb, a sidekick's tool and a manual start alike — and turning it off
+// webhook, a file event, a chat verb, an agent's tool and a manual start alike — and turning it off
 // starts what waited. The count is what the control reads.
 interface WorkflowRunsPauseSetRequest {
   paused: boolean;
@@ -6988,7 +6988,7 @@ interface WorkflowGateResolvedPayload extends WorkflowPhaseEventPayload {
 | `workflow.nodeExecute` | RPC | `WorkflowNodeExecuteRequest` → `WorkflowNodeExecuteResponse` | Executes one node, or it and its ancestors, against pinned or prior input; the daemon computes the filtered run |
 | `workflow.resultsPost` | RPC | `WorkflowResultsPostRequest` → `WorkflowResultsPostResponse` | Posts a run's results into the invoking session; the session comes from the call's own context, never a parameter |
 | `workflow.subscribe` | `subscription` | `WorkflowSubscribeRequest` → `WorkflowSubscribeNotification` (stream) | Run, step and schedule notifications for the runs table and the canvas overlay, plus the scheduler hold and its count |
-| `workflow.kindList` | RPC | `WorkflowKindListRequest` → `WorkflowKindListResponse` | The node catalog with its param specs, so the palette, the inspector and a sidekick read one list |
+| `workflow.kindList` | RPC | `WorkflowKindListRequest` → `WorkflowKindListResponse` | The node catalog with its param specs, so the palette, the inspector and an agent read one list |
 | `workflow.runsPauseSet` | RPC | `WorkflowRunsPauseSetRequest` → `WorkflowRunsPauseSetResponse` | The scheduler-wide hold on starting new runs; takes no run id and answers with how many starts are waiting |
 
 The canonical file form of a definition ([Spec-015 §Definition file form — export and import (C-17)](../../specs/015-workflow-authoring-and-execution.md#definition-file-form--export-and-import-c-17)) is a serialization of these same shapes — the YAML the authoring commitment names, carrying the schema-version marker, whose canonical bytes are the JCS-canonicalized JSON of the parsed document. It is not a second dialect and has no contract types of its own. `layout` is an optional top-level section of that document, outside the hashed body, and it is persisted in a column beside the definition body and carried by the file, so moving a node mints no version ([Spec-015 §Canvas layout is not definition bytes (SA-35)](../../specs/015-workflow-authoring-and-execution.md#canvas-layout-is-not-definition-bytes-sa-35)). Export and import are the two operations above rather than client-side work over the create and version reads: the canonical bytes and their content hash belong to the store, a round trip in either direction must reproduce them exactly, and an import must run the create path's whole validation so it can carry no governance state. `workflow.definitionImport` submits through `workflow.definitionCreate`'s own path for that reason and adds no second parse.
@@ -7932,7 +7932,7 @@ interface ProviderAccountUsageWindow {
 
 ## Plan-027 — Agent Definitions And Peer Invocation
 
-Registered 2026-08-26 ([Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md)). The five `sidekick.*` operations register against the Plan-006 `MethodRegistry` at Plan-027's tier — the CP-006-3 late-namespace pattern. Authorization is the two named Cedar operation actions of [Spec-010 §Implementation Notes](../../specs/010-approvals-permissions-and-trust-boundaries.md#implementation-notes): `Action::"agent::manage"` for every definition mutation and for turning peer invocation on, `Action::"agent::invoke"` for each peer-invocation call. **Each action names its own resource descriptor**, because the two planes are scoped differently: definition mutation is node-global — the four CRUD operations carry no `sessionId`, and none is invented for authorization — so `agent::manage` evaluates against a **node-scoped** descriptor naming this runtime node, while that same action on `agent.peerInvocationSet` evaluates against the **session** the request names. Two descriptors under one action rather than two actions, so Spec-010's enumeration stays at exactly the two registered here. No `ApprovalCategory` value is added — these are named-operation authorizations that do not traverse the approval pipeline — and none of them mints a `remembered_approval_rules` row: that table closes `category` over the approval-pipeline categories and requires `created_from_request_id` to reference an `approval_resolutions` row, neither of which a named-operation action produces, so a grant row here is not merely unnecessary but unrepresentable. Refusals: [error-contracts.md §Sidekick Definitions](./error-contracts.md#sidekick-definitions). **Exactly one event type is minted, and not on the definition plane**: definition mutation is node-local configuration rather than session history, and every session-visible consequence of a peer invocation is already carried by the existing tool-activity and run-lifecycle events. The mint is `session.peer_invocation_set` (taxonomy census 158 → 159), which carries the per-session opt-in because that is session state, not node configuration. Definitions never leave the node — no relay, control-plane, or export surface carries one.
+Registered 2026-08-26 ([Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md)). The five definition-plane `agent.*` operations register against the Plan-006 `MethodRegistry` at Plan-027's tier, inside the `agent` root Plan-014 registers — the CP-006-3 late-registration pattern, with no new root. Authorization is the two named Cedar operation actions of [Spec-010 §Implementation Notes](../../specs/010-approvals-permissions-and-trust-boundaries.md#implementation-notes): `Action::"agent::manage"` for every definition mutation and for turning peer invocation on, `Action::"agent::invoke"` for each peer-invocation call. **Each action names its own resource descriptor**, because the two planes are scoped differently: definition mutation is node-global — the four CRUD operations carry no `sessionId`, and none is invented for authorization — so `agent::manage` evaluates against a **node-scoped** descriptor naming this runtime node, while that same action on `agent.peerInvocationSet` evaluates against the **session** the request names. Two descriptors under one action rather than two actions, so Spec-010's enumeration stays at exactly the two registered here. No `ApprovalCategory` value is added — these are named-operation authorizations that do not traverse the approval pipeline — and none of them mints a `remembered_approval_rules` row: that table closes `category` over the approval-pipeline categories and requires `created_from_request_id` to reference an `approval_resolutions` row, neither of which a named-operation action produces, so a grant row here is not merely unnecessary but unrepresentable. Refusals: [error-contracts.md §Agent Definitions](./error-contracts.md#agent-definitions). **Exactly one event type is minted, and not on the definition plane**: definition mutation is node-local configuration rather than session history, and every session-visible consequence of a peer invocation is already carried by the existing tool-activity and run-lifecycle events. The mint is `session.peer_invocation_set` (taxonomy census 158 → 159), which carries the per-session opt-in because that is session state, not node configuration. Definitions never leave the node — no relay, control-plane, or export surface carries one.
 
 ```ts
 // A daemon-minted opaque immutable identifier. NEVER the definition's name: the name is a mutable
@@ -7940,12 +7940,12 @@ Registered 2026-08-26 ([Spec-027](../../specs/027-agent-definitions-and-peer-inv
 // ProviderAccountId (Plan-026) — the identity and the words a person reads are separate axes on purpose.
 type AgentDefinitionId = string & { readonly __brand: "AgentDefinitionId" };
 
-// A saved, node-local sidekick configuration. Configuration, not session state: not events-canonical,
+// A saved, node-local agent configuration. Configuration, not session state: not events-canonical,
 // not replayed, not rebuilt from the event log. Every axis below is one a run already carries, so this
 // shape composes existing axes into a reusable named bundle and mints no new configuration dimension.
-// One provider binding: which provider runs the sidekick, on which model, paying from which account, at
+// One provider binding: which provider runs the agent, on which model, paying from which account, at
 // which reasoning effort. A definition carries a DEFAULT binding and any number of overrides, so one
-// saved sidekick runs on either provider without a second definition — the cross-provider bridge the
+// saved agent runs on either provider without a second definition — the cross-provider bridge the
 // library is for. The default is one of the bindings rather than a fallback beside them: there is no
 // unbound state to resolve from.
 interface AgentProviderBinding {
@@ -7961,7 +7961,7 @@ interface AgentDefinition {
   // index over the stored `name_folded` key (I-027-7); the service pre-check is a legibility affordance
   description: string; // may be empty; operator-authored
   // A glyph key from the console's own icon set. Icon and colour are two fields rather than one theme,
-  // so a person can change either without the other. null = the generic sidekick mark.
+  // so a person can change either without the other. null = the generic agent mark.
   icon: string | null;
   // One step of the console's hue wheel. null = no chosen hue, and the card draws the generic mark's own.
   accentHue: string | null;
@@ -7971,13 +7971,13 @@ interface AgentDefinition {
     default: AgentProviderBinding;
     overrides: AgentProviderBinding[];
   };
-  executionPostureMode: ExecutionPostureMode | null; // one of the five permission levels (§Shared Enums), or null = the posture of the session or run this sidekick is used in. A LEVEL only, never a composed ExecutionPosture: writableRoots and credentialPolicyRef are properties of a live run's workspace, so storing them here would freeze a path set that outlives the workspace it described, and a stored credentialPolicyRef could re-grant a trust decision the session has since narrowed. The daemon composes the full posture from this level when the run starts
+  executionPostureMode: ExecutionPostureMode | null; // one of the five permission levels (§Shared Enums), or null = the posture of the session or run this agent is used in. A LEVEL only, never a composed ExecutionPosture: writableRoots and credentialPolicyRef are properties of a live run's workspace, so storing them here would freeze a path set that outlives the workspace it described, and a stored credentialPolicyRef could re-grant a trust decision the session has since narrowed. The daemon composes the full posture from this level when the run starts
   instructions: string; // may be empty; operator-authored system-prompt content
   goal: string | null;
   toolAllowlist: string[] | null; // THREE-state and deliberately not two: null = the driver's defaults, [] = no tools at all, populated = exactly these. Collapsing null and [] would make "I did not choose" indistinguishable from "I chose nothing"
-  // The number of turns this sidekick may take before it is stopped; null = no cap, and the daemon adds
+  // The number of turns this agent may take before it is stopped; null = no cap, and the daemon adds
   // none of its own. One number on both providers although only one enforces it natively: on the leg
-  // that publishes no limit the daemon counts the sidekick's rounds on the wire, interrupts at the cap,
+  // that publishes no limit the daemon counts the agent's rounds on the wire, interrupts at the cap,
   // and lets exactly one wrap-up turn run. It is not a budget — budgets and their ceilings are
   // [Spec-014 §Budget Policies](../../specs/014-multi-agent-channels-and-orchestration.md#budget-policies)'s.
   turnCap: number | null;
@@ -8061,7 +8061,7 @@ interface AgentDefinitionUpdateResponse {
 }
 
 // agent.definitionDelete — never refused and never cascading. A session already running this
-// sidekick keeps the configuration it was given, and a workflow node that references it refuses at its
+// agent keeps the configuration it was given, and a workflow node that references it refuses at its
 // next run; the caller's own confirmation is where that consequence is named, so the wire carries no
 // force flag and no dependency list (Spec-027 §State And Data Implications).
 interface AgentDefinitionDeleteRequest {
@@ -8238,8 +8238,8 @@ interface RunLinkInvokingPrincipal {
 }
 ```
 
-**Why no receipt growth.** A peer-invoked child's spend lands on the **child's own** `SessionCostReceiptRunRow` under the target sidekick's paying account — an ordinary value of the per-paying-account axis the session cost receipt already has. Causation rides the existing `run_links` edge (`parentRunId` + `linkType`), not a receipt roll-up — and the per-caused-by attribution reads `invoking_principal_id` on that same edge, which is why the principal is stamped at creation rather than derived at report time: the receipt is a projection of a recorded fact, not a reconstruction. Growing the receipt to carry a caused-by roll-up would have weakened `aggregationScope`, which is REQUIRED and closed at the single literal `"run-only"` and verified positively by every row, so both receipt partition identities keep summing to the session total unchanged.
+**Why no receipt growth.** A peer-invoked child's spend lands on the **child's own** `SessionCostReceiptRunRow` under the target agent's paying account — an ordinary value of the per-paying-account axis the session cost receipt already has. Causation rides the existing `run_links` edge (`parentRunId` + `linkType`), not a receipt roll-up — and the per-caused-by attribution reads `invoking_principal_id` on that same edge, which is why the principal is stamped at creation rather than derived at report time: the receipt is a projection of a recorded fact, not a reconstruction. Growing the receipt to carry a caused-by roll-up would have weakened `aggregationScope`, which is REQUIRED and closed at the single literal `"run-only"` and verified positively by every row, so both receipt partition identities keep summing to the session total unchanged.
 
 **The namespace stays at five, and the storage folds under it.** The library and the editor mint no verb: the definition list's reply shape changes with the binding fold above, create gains the bindings, the icon and the hue, update replaces the bindings whole, delete is untouched, and the peer-invocation set is untouched. The four provider columns fold into ONE bindings column on the definition table, beside nullable columns for the icon and the hue — a stored JSON value rather than a child table, because the corpus's convention carries a bounded list that is always read with its row inline, which the tool allowlist on that same table already does, and a binding is never queried across definitions.
 
-**Two library readings are new wire and deliberately unspecified.** A card's usage count and the last time a sidekick ran are the two facts the library would show that nothing on this surface can answer, and neither is minted here: a usage count is a fold over run history rather than a definition field, and specifying it before the fold exists would fix a shape the fold has to satisfy. They stay unspecified, and the library reads them as absent until they land.
+**Two library readings are new wire and deliberately unspecified.** A card's usage count and the last time an agent ran are the two facts the library would show that nothing on this surface can answer, and neither is minted here: a usage count is a fold over run history rather than a definition field, and specifying it before the fold exists would fix a shape the fold has to satisfy. They stay unspecified, and the library reads them as absent until they land.

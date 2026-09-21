@@ -10,7 +10,7 @@ This document defines the greenfield system at the highest level: clients, local
 
 ## Context
 
-The product is an agentic coding runtime for one user and their sidekicks. **Remote control is first-class**: one user, many linked devices, one machine executing. Any linked device does everything the desktop can — read the timeline, send, steer, stop, approve, drive sidekicks, view the diff, use the terminal — while code execution stays on the user-controlled runtime node that holds the repo.
+The product is an agentic coding runtime for one user and their agents. **Remote control is first-class**: one user, many linked devices, one machine executing. Any linked device does everything the desktop can — read the timeline, send, steer, stop, approve, drive agents, view the diff, use the terminal — while code execution stays on the user-controlled runtime node that holds the repo.
 
 Primary actors:
 

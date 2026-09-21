@@ -23,7 +23,7 @@ One user, many devices, one executing machine per session.
 
 A **user** is the identity everything else hangs off. There is one, and every device and every runtime node in the picture belongs to that one account.
 
-A **device** is a client. It reads the timeline, sends, steers, stops, approves, drives sidekicks, views the diff, and uses the terminal — and it does none of that itself. It asks the runtime node to. A device has its own identity key, minted on the device and kept there, which is what lets the log record not just that the account acted but which device acted.
+A **device** is a client. It reads the timeline, sends, steers, stops, approves, drives agents, views the diff, and uses the terminal — and it does none of that itself. It asks the runtime node to. A device has its own identity key, minted on the device and kept there, which is what lets the log record not just that the account acted but which device acted.
 
 A **runtime node** is the machine where the work happens: provider processes, the working tree, the shell. A session is bound to exactly one at a time. The desktop app running on that same hardware is still a device; the hardware is still the runtime node. They are two nouns that happen to share a box.
 

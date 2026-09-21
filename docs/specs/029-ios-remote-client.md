@@ -27,7 +27,7 @@ From the phone, the user can:
 - steer a run in flight
 - stop a run
 - answer an approval
-- attach, configure, and drive sidekicks
+- attach, configure, and drive agents
 - view the diff
 - open and use the terminal
 

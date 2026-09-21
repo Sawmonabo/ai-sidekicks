@@ -13,7 +13,7 @@
 
 ## Context
 
-A session's lead sidekick is a provider's command-line program, Claude Code or Codex, run by the daemon as a child process. A provider account is a credential home on disk ([Spec-026](../specs/026-provider-accounts-and-credential-homes.md)); a process reads its credentials from the home it was started in. A person can save several accounts for one provider. A session's spend is shown per account, the provider keeps its own session file under the home the process was started in, and the transcript is rebuilt from the session's event log ([ADR-029](029-canonical-transcript-is-authoritative.md)).
+A session's lead agent is a provider's command-line program, Claude Code or Codex, run by the daemon as a child process. A provider account is a credential home on disk ([Spec-026](../specs/026-provider-accounts-and-credential-homes.md)); a process reads its credentials from the home it was started in. A person can save several accounts for one provider. A session's spend is shown per account, the provider keeps its own session file under the home the process was started in, and the transcript is rebuilt from the session's event log ([ADR-029](029-canonical-transcript-is-authoritative.md)).
 
 ## Problem Statement
 
@@ -31,7 +31,7 @@ A session has **one long-lived provider process, on one account**.
 
 - A session starts on the account marked as its provider's default at the moment the session is created.
 - It can move to another saved account of the same provider, and **only at the run boundary**. The pick is recorded as one durable pending switch, a later pick replaces it, and when the current run ends the daemon starts a new process in the new account's credential home with the canonical transcript replayed ([Spec-014 §Same-Agent Provider Switch](../specs/014-multi-agent-channels-and-orchestration.md#same-agent-provider-switch)).
-- A switch never applies mid-run at the sidekick's next tool call.
+- A switch never applies mid-run at the agent's next tool call.
 - A run is a turn on the session's one process, and the account is fixed for that run's lifetime, which is the property [Spec-026 §Concurrency Posture](../specs/026-provider-accounts-and-credential-homes.md#concurrency-posture) rests on.
 - The side question (the console's `/btw` word) is answered by a **second, short-lived, read-only process** that is not a second lead: on Claude Code a process started on a fork of the session in plan permission mode, on Codex an ephemeral thread fork. It takes one turn, keeps nothing, and its cost lands on the session's own account.
 
@@ -62,7 +62,7 @@ A run that has hit a quota wall has already ended or will end on the provider's 
 
 ### Option B: Switch accounts mid-run (Rejected)
 
-- **What:** Apply the switch at the sidekick's next tool call.
+- **What:** Apply the switch at the agent's next tool call.
 - **Steel man:** The fastest escape from a quota wall.
 - **Why rejected:** One turn would span two accounts in the transcript, the cost rows and two provider session files, and a process cannot change credential home without restarting, so the turn would be torn anyway.
 

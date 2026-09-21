@@ -127,7 +127,7 @@ preconditions:
 - **Files:** `packages/contracts/src/attention/attention.ts` (new), `packages/contracts/src/attention/__tests__/attention.test.ts` (new), `packages/contracts/src/index.ts` (add re-export).
 - **Step:** Author `AttentionTriggerSchema` as a `z.enum` over the five trigger values and `AttentionSeveritySchema` as a `z.enum` over `actionable` / `informational`, both transcribed from the `AttentionItem` union in [api-payload-contracts.md](../architecture/contracts/api-payload-contracts.md) rather than re-derived. Author `AttentionItemSchema` (`.strict()`) with `id`, `sessionId`, optional `runId`, `trigger`, `severity`, `summary`, `sourceEventId` (required — never optional), `createdAt`, optional `resolvedAt`. `runId` presence is the scope discriminator per D-017-2; do not add an aggregate-only field.
 - **Test:** assert the exported trigger set equals the five-value set exactly (neither superset nor subset), re-derived from the contract doc rather than transcribed from a plan gloss; assert `.strict()` rejects unknown keys; assert an item parses with `runId` absent and with it present; assert a payload omitting `sourceEventId` is rejected.
-- **Spec coverage:** Spec-017 §Required Behavior (the minimum trigger set — pending approval or input, run completion, run failure, sidekick mention); Spec-017 §Default Behavior (the actionable-versus-informational split)
+- **Spec coverage:** Spec-017 §Required Behavior (the minimum trigger set — pending approval or input, run completion, run failure, agent mention); Spec-017 §Default Behavior (the actionable-versus-informational split)
 - **Verifies invariant:** none (contract-schema definition; the derivation behavior is verified in Phase 2)
 
 ##### T1.2 — `attention/projection.ts`: `AttentionProjectionRead` run-scope and session-scope shapes
@@ -189,7 +189,7 @@ preconditions:
 ##### T2.3 — `attention-projector.ts`: run-scoped projection from canonical events
 
 - **Files:** `packages/runtime-daemon/src/attention/attention-projector.ts` (new) plus co-located tests.
-- **Step:** Derive run-scoped `AttentionItem` values by replaying canonical session and run events — approvals, required input, run completion, run failure, and a sidekick naming the user in a channel — mapping each to its trigger and default severity. The projector reads canonical state only; it accepts no client-supplied attention input, so there is no code path by which a client heuristic can mint an item.
+- **Step:** Derive run-scoped `AttentionItem` values by replaying canonical session and run events — approvals, required input, run completion, run failure, and an agent naming the user in a channel — mapping each to its trigger and default severity. The projector reads canonical state only; it accepts no client-supplied attention input, so there is no code path by which a client heuristic can mint an item.
 - **Test:** one case per trigger asserting the derived item's trigger, severity, and `sourceEventId`; a replay-equivalence case asserting that projecting the same event log twice, and projecting it from cold, yield identical items; a case asserting an item resolves only when the underlying state resolves.
 - **Spec coverage:** Spec-017 §State And Data Implications (attention state is a derived projection from canonical events); Spec-017 §Required Behavior (emission derived from canonical session or run state, not client heuristics alone)
 - **Verifies invariant:** I-017-1

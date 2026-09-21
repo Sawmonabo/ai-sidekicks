@@ -38,7 +38,7 @@ A session has one of two shapes, **chat** or **project**, and the shape is decid
 
 ### Thesis — Why This Option
 
-- **Every session has a real folder.** A provider process always has a working directory, a sidekick in a chat can still write a file, and the file is in a git repository from its first byte, so undo and checkpoints work the same way in both shapes.
+- **Every session has a real folder.** A provider process always has a working directory, an agent in a chat can still write a file, and the file is in a git repository from its first byte, so undo and checkpoints work the same way in both shapes.
 - **The binding cannot lie.** A mode flag can disagree with what the session is actually bound to. A shape read from the binding cannot.
 - **Defining "project" by origin stops every chat becoming a project.** If a project were "a session with a folder", every chat would silently be one, because every chat has a managed workspace.
 - **Promotion in place keeps the conversation.** A person who realises mid-conversation that they need their repository does not start again.

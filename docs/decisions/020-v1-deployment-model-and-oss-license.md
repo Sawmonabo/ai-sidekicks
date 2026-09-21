@@ -11,7 +11,7 @@
 
 ## Context
 
-The product ships an agentic coding runtime for one user and their sidekicks. Execution is always local (per ADR-002 `local-execution-shared-control-plane`); what varies by deployment is where the coordination control plane and relay run. `docs/architecture/deployment-topology.md` names four supported topologies: `Single-Device Local`, `Hosted Control Plane`, `Self-Hosted Control Plane`, and `Relay-Assisted Remote Access`. The V1 scope decision (ADR-015) is about which features ship; this ADR is about how those features reach users.
+The product ships an agentic coding runtime for one user and their agents. Execution is always local (per ADR-002 `local-execution-shared-control-plane`); what varies by deployment is where the coordination control plane and relay run. `docs/architecture/deployment-topology.md` names four supported topologies: `Single-Device Local`, `Hosted Control Plane`, `Self-Hosted Control Plane`, and `Relay-Assisted Remote Access`. The V1 scope decision (ADR-015) is about which features ship; this ADR is about how those features reach users.
 
 Two product postures have been considered during V1 planning:
 

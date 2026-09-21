@@ -59,7 +59,7 @@ flowchart TD
  n016_1["Plan-014 Phase 1 — orchestration contracts and persistence"]
  n016_2["Plan-014 Phase 2 — daemon orchestration services"]
  n016_3["Plan-014 Phase 3 — orchestration wire namespace and SDK"]
- n016_3B["Plan-014 Phase 3B — sidekick definition reference"]
+ n016_3B["Plan-014 Phase 3B — agent definition reference"]
  n016_4["Plan-014 Phase 4 — desktop channel and child-run surfaces"]
  n016_4B["Plan-014 Phase 4B — session cost receipt"]
  %% Plan-015
@@ -137,7 +137,7 @@ flowchart TD
  n029_4["Plan-026 Phase 4 — cost attribution and operator surfaces"]
  n029_4B["Plan-026 Phase 4B — per-user billing attribution"]
  %% Plan-027
- n030_1["Plan-027 Phase 1 — sidekick definition contracts and migration"]
+ n030_1["Plan-027 Phase 1 — agent definition contracts and migration"]
  n030_2["Plan-027 Phase 2 — definition registry, CLI, SDK"]
  n030_3["Plan-027 Phase 3 — resolution when a run starts"]
  n030_4["Plan-027 Phase 4 — peer invocation"]
@@ -338,7 +338,7 @@ Every phase in a group can be built in parallel; a group opens once the phases i
 |  | [Plan-023 Phase 2](../plans/023-first-run-onboarding.md) | trust and credential primitives. | Plan-023 Phase 1 |
 |  | [Plan-025 Phase 2](../plans/025-mcp-server-configuration-and-governance.md) | MCP inventory and status observation. | Plan-025 Phase 1 |
 |  | [Plan-025 Phase 3](../plans/025-mcp-server-configuration-and-governance.md) | MCP configuration mutation engines. | Plan-025 Phase 1 |
-|  | [Plan-027 Phase 1](../plans/027-agent-definitions-and-peer-invocation.md) | sidekick definition contracts and migration. | Plan-014 Phase 1 |
+|  | [Plan-027 Phase 1](../plans/027-agent-definitions-and-peer-invocation.md) | agent definition contracts and migration. | Plan-014 Phase 1 |
 |  | [Plan-028 Phase 2](../plans/028-remote-control.md) | device identity keys. | Plan-028 Phase 1 |
 |  | [Plan-030 Phase 1](../plans/030-skills.md) | skill contracts and the read over three origins. | Plan-006 Phase R1 |
 | 3 | [Plan-003 Phase 4](../plans/003-queue-steer-pause-resume.md) | desktop run controls. | Plan-003 Phase 3 |
@@ -398,7 +398,7 @@ Every phase in a group can be built in parallel; a group opens once the phases i
 |  | [Plan-028 Phase 7](../plans/028-remote-control.md) | Remote Control frontend. | Plan-028 Phase 4, Plan-028 Phase 6 |
 | 6 | [Plan-011 Phase 4](../plans/011-live-timeline-visibility-and-reasoning-surfaces.md) | desktop timeline rendering. | Plan-011 Phase 2, Plan-011 Phase 3 |
 |  | [Plan-012 Phase 4](../plans/012-artifacts-files-and-attachments.md) | relay eager-pin upload. | Plan-012 Phase 3, Plan-016 Phase 5, Plan-028 Phase 3 |
-|  | [Plan-014 Phase 3B](../plans/014-multi-agent-channels-and-orchestration.md) | sidekick definition reference. | Plan-027 Phase 3 |
+|  | [Plan-014 Phase 3B](../plans/014-multi-agent-channels-and-orchestration.md) | agent definition reference. | Plan-027 Phase 3 |
 |  | [Plan-015 Phase 5B](../plans/015-workflow-authoring-and-execution.md) | park cancellability and operator recovery. | Plan-015 Phase 2B, Plan-015 Phase 5 |
 |  | [Plan-017 Phase 2](../plans/017-notifications-and-attention-model.md) | preference storage and projections. | Plan-011 Phase 2, Plan-017 Phase 1 |
 |  | [Plan-020 Phase 4](../plans/020-data-retention-and-gdpr.md) | GDPR stub surface. | Plan-020 Phase 3 |

@@ -1590,7 +1590,7 @@ CREATE TABLE workflow_node_state (
 
 ## Channel and Orchestration Tables (Plan-014)
 
-DDL hardened during the Tier-5 plan-readiness audit (D-014-15, A-014-5, A-014-2, D-014-5). Posture per table: `channels`, `run_links`, and `agents` are events-canonical projections ([ADR-017](../../decisions/017-shared-event-sourcing-scope.md) Option B — rebuilt from `session_events` on replay; never written except by the projector); `session_budgets` is row-canonical daemon configuration (the `queue_items` posture — mutated by wire method, not evented). `channels` holds **user-created channels only**: the bootstrap main channel is projected (`deriveMainChannelId(sessionId)`, `packages/contracts/src/channel-id.ts`) and never has a row or a `channel.created` event — so it carries no `ChannelConfig`. Channels carry agents, not people: a channel restricts which sidekicks take turns in it, never who may read it.
+DDL hardened during the Tier-5 plan-readiness audit (D-014-15, A-014-5, A-014-2, D-014-5). Posture per table: `channels`, `run_links`, and `agents` are events-canonical projections ([ADR-017](../../decisions/017-shared-event-sourcing-scope.md) Option B — rebuilt from `session_events` on replay; never written except by the projector); `session_budgets` is row-canonical daemon configuration (the `queue_items` posture — mutated by wire method, not evented). `channels` holds **user-created channels only**: the bootstrap main channel is projected (`deriveMainChannelId(sessionId)`, `packages/contracts/src/channel-id.ts`) and never has a row or a `channel.created` event — so it carries no `ChannelConfig`. Channels carry agents, not people: a channel restricts which agents take turns in it, never who may read it.
 
 ```sql
 -- Owner: Plan-014 (events-canonical projection of channel.* events; user channels only — main is synthesized)
@@ -1634,8 +1634,8 @@ CREATE INDEX idx_run_links_session ON run_links(session_id);
 
 -- Owner: Plan-014 (events-canonical projection of agent.* events — A-014-2; state enum is the
 -- canonical 4-state agent lifecycle from domain/agent-channel-and-run-model.md §Lifecycle.
--- No wire verb brings a sidekick into a session or takes one out: a row appears where a sidekick
--- takes part -- the session's own lead, a delegation from it, or a sidekick the person named in the
+-- No wire verb brings an agent into a session or takes one out: a row appears where an agent
+-- takes part -- the session's own lead, a delegation from it, or an agent the person named in the
 -- composer -- and 'archived' is registered but no V1 wire mutation reaches it. The resulting state is
 -- carried ON the agent.* event payloads so the projection is deterministic from the log alone.)
 CREATE TABLE agents (
@@ -2089,19 +2089,19 @@ Spend is joined to an account without duplicating account identity onto every us
 
 ---
 
-## Sidekick Definition Tables (Plan-027)
+## Agent Definition Tables (Plan-027)
 
-Node-local registry of saved sidekick configurations, for [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md). One row per definition. This is **configuration, not session state**: it is not events-canonical, is never replayed, is never rebuilt from the event log, and never leaves the node (I-027-9).
+Node-local registry of saved agent configurations, for [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md). One row per definition. This is **configuration, not session state**: it is not events-canonical, is never replayed, is never rebuilt from the event log, and never leaves the node (I-027-9).
 
-`id` is daemon-minted, opaque, and immutable, and is stable across a rename — `name` is a mutable human label and is never an identity key (I-027-1). A run started under a definition holds a **snapshot** of it: no foreign key binds a running sidekick to this table, and no read path serving one consults it, so editing or deleting a definition can never widen the authority of a sidekick already running (I-027-2).
+`id` is daemon-minted, opaque, and immutable, and is stable across a rename — `name` is a mutable human label and is never an identity key (I-027-1). A run started under a definition holds a **snapshot** of it: no foreign key binds a running agent to this table, and no read path serving one consults it, so editing or deleting a definition can never widen the authority of an agent already running (I-027-2).
 
-`bindings` is the definition's provider axes, and it is one JSON column rather than four loose ones. It holds a default binding and any number of overrides — `{ "default": { driverName, modelId, providerAccountId, effort }, "overrides": [ … ] }` — because one saved sidekick runs on either provider without being copied into a second definition, and four loose columns could hold only one provider's setup. The default is one of the bindings rather than a fallback beside them, and an override is a whole binding in its own right: an override's driver is unique within the definition and never repeats the default's, so which binding answers for a driver is never ambiguous. JSON rather than a child table because the list is bounded, always read with its row, and never queried across definitions — the same convention `tool_allowlist` on this table already follows.
+`bindings` is the definition's provider axes, and it is one JSON column rather than four loose ones. It holds a default binding and any number of overrides — `{ "default": { driverName, modelId, providerAccountId, effort }, "overrides": [ … ] }` — because one saved agent runs on either provider without being copied into a second definition, and four loose columns could hold only one provider's setup. The default is one of the bindings rather than a fallback beside them, and an override is a whole binding in its own right: an override's driver is unique within the definition and never repeats the default's, so which binding answers for a driver is never ambiguous. JSON rather than a child table because the list is bounded, always read with its row, and never queried across definitions — the same convention `tool_allowlist` on this table already follows.
 
 A `providerAccountId` inside a binding deliberately carries **no foreign key** to `provider_accounts` (D-027-1), which a JSON column could not express anyway and which the corpus would refuse if it could. `ON DELETE CASCADE` would discard operator-authored configuration when an account is removed; `ON DELETE SET NULL` would silently convert a pinned account into "the provider's default account", which is exactly the substitution the fail-closed resolution rule forbids; `ON DELETE RESTRICT` would make account removal fail because an unrelated definition names it. The reference is therefore unenforced at the schema layer and checked when a run resolves the binding, which is the only point at which the answer matters.
 
 `tool_allowlist` is three-state and the three states are **not** interchangeable (I-027-4): `NULL` means the driver's default tool set, the JSON array `'[]'` means no tools at all, and a populated array means exactly those tools. Representing "no tools" as an absent value would make the most restrictive choice unexpressible.
 
-`execution_posture_mode` stores **one of the five permission levels, and nothing composed** (I-027-8): `readonly`, `ask`, `reviewed`, `sandboxed`, `yolo`, or NULL for the posture of whatever session or run the sidekick is used in. A composed `ExecutionPosture` carries a content-addressed `credentialPolicyRef` meaningful only against the session that composed it, so persisting one would let a stale definition re-grant a superseded trust decision, or dangle outright; the daemon composes the full posture from this level when the run starts. Planning is not a level and is not storable here — it is a session's own mode.
+`execution_posture_mode` stores **one of the five permission levels, and nothing composed** (I-027-8): `readonly`, `ask`, `reviewed`, `sandboxed`, `yolo`, or NULL for the posture of whatever session or run the agent is used in. A composed `ExecutionPosture` carries a content-addressed `credentialPolicyRef` meaningful only against the session that composed it, so persisting one would let a stale definition re-grant a superseded trust decision, or dangle outright; the daemon composes the full posture from this level when the run starts. Planning is not a level and is not storable here — it is a session's own mode.
 
 ```sql
 -- Owner: Plan-027
@@ -2115,20 +2115,20 @@ CREATE TABLE agent_definitions (
                                          -- uniqueness and no concurrent pair of non-ASCII case variants can both commit.
   description            TEXT NOT NULL DEFAULT ''
                          CHECK(length(description) <= 1024 AND instr(description, char(0)) = 0),
-  icon                   TEXT,  -- NULL = the generic sidekick glyph. A glyph key from the console's own icon set; icon and accent are two fields, not one theme, so either changes without the other
+  icon                   TEXT,  -- NULL = the generic agent glyph. A glyph key from the console's own icon set; icon and accent are two fields, not one theme, so either changes without the other
   accent_hue             TEXT,  -- NULL = no chosen hue, and the card draws the generic mark's own. One step of the console's twelve-step hue wheel
   bindings               TEXT NOT NULL  -- the provider axes as one JSON object: a default binding plus its overrides, each binding naming a driver, a model, an optional provider account and an optional effort. Replaces the four loose provider columns, because a definition reaches both providers
                          CHECK(json_valid(bindings)
                                AND json_type(bindings) = 'object'
                                AND json_type(bindings, '$.default') = 'object'
                                AND json_type(bindings, '$.overrides') = 'array'),
-  turn_cap               INTEGER  -- NULL = no cap, and the daemon adds none of its own. The number of turns this sidekick may take before it is stopped; not a budget
+  turn_cap               INTEGER  -- NULL = no cap, and the daemon adds none of its own. The number of turns this agent may take before it is stopped; not a budget
                          CHECK(turn_cap IS NULL OR turn_cap > 0),
-  execution_posture_mode TEXT  -- NULL = the posture of the session or run the sidekick is used in. One of the five permission levels and nothing composed — no credentialPolicyRef, writableRoots, or network member is ever persisted here (I-027-8)
+  execution_posture_mode TEXT  -- NULL = the posture of the session or run the agent is used in. One of the five permission levels and nothing composed — no credentialPolicyRef, writableRoots, or network member is ever persisted here (I-027-8)
                          CHECK(execution_posture_mode IS NULL OR execution_posture_mode IN (
                            'readonly', 'ask', 'reviewed', 'sandboxed', 'yolo'
                          )),
-  instructions           TEXT NOT NULL DEFAULT ''  -- the system-prompt text the sidekick runs under; operator-authored node-local configuration, never emitted into an event payload
+  instructions           TEXT NOT NULL DEFAULT ''  -- the system-prompt text the agent runs under; operator-authored node-local configuration, never emitted into an event payload
                          CHECK(length(instructions) <= 32768 AND instr(instructions, char(0)) = 0),
   goal                   TEXT
                          CHECK(goal IS NULL OR (length(goal) > 0 AND length(goal) <= 4096 AND instr(goal, char(0)) = 0)),

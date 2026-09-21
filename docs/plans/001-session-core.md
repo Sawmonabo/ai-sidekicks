@@ -136,7 +136,7 @@ Plan-001 emits the DDL above at tier entry (first migration). The downstream pla
 ## API And Transport Changes
 
 - Add `SessionCreate`, `SessionRead`, and `SessionSubscribe` to the shared client SDK and daemon/control-plane contracts.
-- `session.create` carries the session's one main agent — a saved sidekick definition named, or the axes spelled out — and its reply echoes the binding the daemon resolved for it: the driver, the model, the effort and the provider account ([Spec-001 §Interfaces And Contracts](../specs/001-session-core.md#interfaces-and-contracts)). The same resolved values ride `session.created`, which is where that agent's row in the session's `agents` projection is born, because no verb attaches an agent to a session ([Spec-005 §Event Type Enumeration](../specs/005-session-event-taxonomy-and-audit-log.md#event-type-enumeration)).
+- `session.create` carries the session's one main agent — a saved agent definition named, or the axes spelled out — and its reply echoes the binding the daemon resolved for it: the driver, the model, the effort and the provider account ([Spec-001 §Interfaces And Contracts](../specs/001-session-core.md#interfaces-and-contracts)). The same resolved values ride `session.created`, which is where that agent's row in the session's `agents` projection is born, because no verb attaches an agent to a session ([Spec-005 §Event Type Enumeration](../specs/005-session-event-taxonomy-and-audit-log.md#event-type-enumeration)).
 
 ## Implementation Steps
 

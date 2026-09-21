@@ -123,7 +123,7 @@ Every client with a hardware back gesture obeys the dismiss-only rule the spec s
 - The banner shows connected devices and updates as they connect and drop.
 - The Linked Devices screen lists, renames, and revokes, and walks a new device through linking.
 - The CLI has list, link, rename, and revoke.
-- The phone client and the web client each read the timeline, send, steer, stop, answer an approval, drive sidekicks, view the diff, and use the terminal, over the relay.
+- The phone client and the web client each read the timeline, send, steer, stop, answer an approval, drive agents, view the diff, and use the terminal, over the relay.
 - The shared-ports list adds a port before anything is listening on it, stops sharing one, and gives an address that opens from another device.
 - A back gesture dismisses the topmost surface and never interrupts a running turn.
 - Each surface is exercised against a device driving a session over the relay, not a fixture.

@@ -13,15 +13,15 @@
 
 ## Context
 
-The session screen has a Preview pane: a browser beside the conversation, showing the page a sidekick is building. Three parties use that page. The person looks at it and marks it. The sidekick drives it through browser tools. A workflow's browser steps and the daemon's own reads use it too. The console also runs where no desktop window is open, and from other devices through Remote Control.
+The session screen has a Preview pane: a browser beside the conversation, showing the page an agent is building. Three parties use that page. The person looks at it and marks it. The agent drives it through browser tools. A workflow's browser steps and the daemon's own reads use it too. The console also runs where no desktop window is open, and from other devices through Remote Control.
 
-[Spec-021 §ADR Triggers](../specs/021-desktop-shell-and-renderer.md#adr-triggers) requires this record before the `browser` pane kind is wired live, because a native browser view hosted beside the renderer and answering a sidekick's tool calls is a one-way architectural door. Spec-021 §Console Libraries had chosen to build the browser tools by hand on Electron's in-process debugger and to avoid the published browser-automation tool servers, for three reasons: they pin alpha builds, they expose the whole application's debug surface, and they do not support Electron.
+[Spec-021 §ADR Triggers](../specs/021-desktop-shell-and-renderer.md#adr-triggers) requires this record before the `browser` pane kind is wired live, because a native browser view hosted beside the renderer and answering an agent's tool calls is a one-way architectural door. Spec-021 §Console Libraries had chosen to build the browser tools by hand on Electron's in-process debugger and to avoid the published browser-automation tool servers, for three reasons: they pin alpha builds, they expose the whole application's debug surface, and they do not support Electron.
 
 The versions this record was checked against: `electron` 44.1.0, `playwright-core` 1.62.1, `@playwright/mcp` 0.0.80, `@modelcontextprotocol/sdk` 1.30.0.
 
 ## Problem Statement
 
-What hosts the Preview page, what do a sidekick's browser tools attach to, and who may reach the debug endpoint that makes both possible?
+What hosts the Preview page, what do an agent's browser tools attach to, and who may reach the debug endpoint that makes both possible?
 
 ### Trigger
 
@@ -36,8 +36,8 @@ The console design was locked on 2026-09-21 with Preview in it, and the pane can
 1. **On the machine that runs the session, the page is a real page.** It is a native `WebContentsView` in its own persistent partition (`persist:preview`), hosted by a `BaseWindow`. The console's window is a `BaseWindow` that hosts the renderer and every page as `WebContentsView`s. It is never a `BrowserWindow`.
 2. **Where no desktop is open, the daemon's headless Chromium stands in.** Playwright starts one persistent browser context, on an installed Chrome or Edge when one is present and otherwise on Playwright's own Chromium, fetched once on first need. It is one browser with a context per session, closed after ten idle minutes. Its profile folder is always the application's own, never the person's own browser profile. A branded launch that an enterprise policy blocks falls through to Playwright's Chromium.
 3. **Another device gets a live picture only.** The desktop's in-process debugger streams a screencast of the page, wheel and keys are forwarded, every frame is acknowledged, and the pane names the machine the page runs on. It streams only while that device has the pane open. It is never presented as a local page.
-4. **Both hosts expose one Chrome-debug endpoint, and everything attaches to it.** One resolver in the daemon returns the active endpoint for a session, and nothing downstream knows which host is live. The sidekick's tools, a workflow's browser steps and the daemon's own reads all go through one Playwright-over-debug-protocol path.
-5. **The sidekick's browser tools are Playwright's tool server, hosted inside the daemon.** The daemon calls `@playwright/mcp`'s `createConnection` once per session, hands that connection its own session's debug endpoint, and serves it on its own loopback HTTP route. The server is never a child process on standard input and output, and it never owns or launches a browser. It is registered with Claude Code and with Codex when the session starts, under the session's permission level like every other tool.
+4. **Both hosts expose one Chrome-debug endpoint, and everything attaches to it.** One resolver in the daemon returns the active endpoint for a session, and nothing downstream knows which host is live. The agent's tools, a workflow's browser steps and the daemon's own reads all go through one Playwright-over-debug-protocol path.
+5. **The agent's browser tools are Playwright's tool server, hosted inside the daemon.** The daemon calls `@playwright/mcp`'s `createConnection` once per session, hands that connection its own session's debug endpoint, and serves it on its own loopback HTTP route. The server is never a child process on standard input and output, and it never owns or launches a browser. It is registered with Claude Code and with Codex when the session starts, under the session's permission level like every other tool.
 6. **The tool route admits only the provider process the daemon started for that session.** The route's path carries a random secret minted per session and handed only to that provider in its own configuration; a request must come from loopback; a request carrying an `Origin` header is refused; and the body must declare JSON. The checks run before any method is dispatched.
 7. **One saved site-data set per machine** is shared by the pane, the tools and workflow steps. Electron's persistent partition owns it. A login crosses between the two hosts as cookies, on hand-over, never continuously.
 8. **The caps.** One browser per machine, one tool server per daemon, one renderer process per open page, and nothing else per session. Pages are bounded by the machine's memory, the oldest idle page is released first with its address kept, and a page unseen for ten minutes is released and reloads on demand.
@@ -47,8 +47,8 @@ The console design was locked on 2026-09-21 with Preview in it, and the pane can
 - **A real page, because a picture of one is not a browser.** Input, focus, accessibility, selection, scrolling and media all behave as the platform's browser does only when the page is a native view taking real operating-system input.
 - **`BaseWindow`, because `BrowserWindow` breaks the attach.** A `BrowserWindow` owns a web contents of its own that never navigates. It appears in the debug target list as a silent page, Playwright attaches to it automatically and then waits forever: measured on Electron 44.1.0, `connectOverCDP` against a `BrowserWindow` timed out at 30 seconds, and against a `BaseWindow` completed in 36 to 37 milliseconds with one fewer process.
 - **Two clients can drive one page.** Measured on the same build: the in-process debugger and an external Playwright client attach at once, in either order, without error; click counts are exact with none lost or doubled; each sees the other's changes; and the in-process debugger emits no detach event. So the screencast and the tools share a page without either reserving it. What is shared is renderer-wide emulation: a connected Playwright client pins the colour scheme, reduced motion and forced colours for as long as it is attached, so emulation state, device metrics and network interception are state the daemon owns, each with one owner.
-- **A maintained tool server, because a home-made one must be maintained forever.** Playwright's server brings two dozen tools, an accessibility snapshot with element references, and one element-reference vocabulary shared by the marks layer, the sidekick's own snapshot and a workflow's browser steps. The element reference it gives the sidekick is the same reference a person's mark carries, so "this button" is exact in both directions.
-- **One endpoint keeps the sidekick ignorant of the host.** The desktop, the headless fallback and the workflow runner differ only in which endpoint the resolver returns.
+- **A maintained tool server, because a home-made one must be maintained forever.** Playwright's server brings two dozen tools, an accessibility snapshot with element references, and one element-reference vocabulary shared by the marks layer, the agent's own snapshot and a workflow's browser steps. The element reference it gives the agent is the same reference a person's mark carries, so "this button" is exact in both directions.
+- **One endpoint keeps the agent ignorant of the host.** The desktop, the headless fallback and the workflow runner differ only in which endpoint the resolver returns.
 
 ### Antithesis — The Strongest Case Against [T2]
 
@@ -75,7 +75,7 @@ The two hosts share every layer above the endpoint, so the second host adds test
 ### Option A: Native view, one debug endpoint, Playwright's tool server in the daemon (Chosen)
 
 - **What:** As decided above.
-- **Steel man:** A real page for the person, a maintained and familiar tool set for the sidekick, and one path for every consumer on every host.
+- **Steel man:** A real page for the person, a maintained and familiar tool set for the agent, and one path for every consumer on every host.
 - **Weaknesses:** An unauthenticated loopback debug port while the desktop is open, and an alpha dependency pair to watch.
 
 ### Option B: Tool handlers built by hand on Electron's in-process debugger (Rejected)
@@ -88,7 +88,7 @@ The two hosts share every layer above the endpoint, so the second host adds test
 
 - **What:** Run the server the way its documentation shows: a child on standard input and output that launches a browser.
 - **Steel man:** Exactly the supported configuration.
-- **Why rejected:** The sidekick would drive a different browser from the one the person is looking at, with different cookies, which defeats the pane. It adds a process and a Chromium per session.
+- **Why rejected:** The agent would drive a different browser from the one the person is looking at, with different cookies, which defeats the pane. It adds a process and a Chromium per session.
 
 ### Option D: A streamed picture of a headless page on every machine (Rejected)
 
@@ -131,8 +131,8 @@ The two hosts share every layer above the endpoint, so the second host adds test
 
 ### Positive
 
-- The person, the sidekick and a nightly workflow use one page and one login.
-- The sidekick's element references and a person's marks are one vocabulary.
+- The person, the agent and a nightly workflow use one page and one login.
+- The agent's element references and a person's marks are one vocabulary.
 - No browser-tool code to maintain beyond hosting and admission.
 
 ### Negative (accepted trade-offs)
@@ -163,7 +163,7 @@ The two hosts share every layer above the endpoint, so the second host adds test
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
 | Processes per open page beyond the page's own renderer | Zero | The application's process metrics under the Preview workload | When Preview is wired live |
-| Tool calls that reach a browser other than the one in the pane | Zero | A test that marks a page and has the sidekick act on the mark's reference | When the tool route lands |
+| Tool calls that reach a browser other than the one in the pane | Zero | A test that marks a page and has the agent act on the mark's reference | When the tool route lands |
 | Requests admitted to the tool route without the session secret, from a non-loopback peer, or with an `Origin` header | Zero | Route admission tests | When the tool route lands |
 
 ---

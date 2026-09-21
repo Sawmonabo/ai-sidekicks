@@ -12,7 +12,7 @@
 
 ## Purpose
 
-A **skill** is a folder of text a sidekick reads: instructions plus whatever the instructions need — a reference table, a script, a template. Both pinned providers load skills as folders and neither loads a lone file. The folder is named for the skill, a file called `SKILL.md` at its top carries the front matter and the instructions, and every other file beside it travels with the skill and is reachable from the instructions by relative path.
+A **skill** is a folder of text an agent reads: instructions plus whatever the instructions need — a reference table, a script, a template. Both pinned providers load skills as folders and neither loads a lone file. The folder is named for the skill, a file called `SKILL.md` at its top carries the front matter and the instructions, and every other file beside it travels with the skill and is reachable from the instructions by relative path.
 
 Skills are written, edited and used, so they are a place a person goes rather than a setting on a machine: the console's icon rail carries Skills as its third destination, between Sidekicks and Workflows ([ADR-031](../decisions/031-five-rail-destinations.md)). This spec defines that destination — the one list of every skill on the machine whatever tree it lives in, the folder editor that authors the whole folder rather than one file, and the rules by which one skill reaches both providers.
 
@@ -43,11 +43,11 @@ The consequence this spec is built on: **a skill authored once can be made avail
 - **No tool-server configuration.** A tool server is machine configuration and is managed on its Settings page, not here.
 - **No second registry.** The session composer's `/` and `$` list and this screen read the same skills; one is not a copy of the other.
 - **Nothing about driving a session from a linked device.** This is a console surface over a registry the daemon watches on the machine the skills live on.
-- **A sidekick definition does not become a folder.** A definition stays one file ([Spec-027 §The definition registry](027-agent-definitions-and-peer-invocation.md#the-definition-registry)); a sidekick that needs reference material attaches a skill, and the skill carries the folder.
+- **An agent definition does not become a folder.** A definition stays one file ([Spec-027 §The definition registry](027-agent-definitions-and-peer-invocation.md#the-definition-registry)); an agent that needs reference material attaches a skill, and the skill carries the folder.
 
 ## Domain Dependencies
 
-- [Glossary](../domain/glossary.md) — _sidekick_, _session_, _provider_.
+- [Glossary](../domain/glossary.md) — _agent_, _session_.
 - [Session Model](../domain/session-model.md) — the session a skill is packed into at launch and becomes live inside mid-run.
 
 ## Architectural Dependencies
@@ -56,7 +56,7 @@ The consequence this spec is built on: **a skill authored once can be made avail
 - [ADR-035](../decisions/035-one-syntax-colourer-in-the-daemon.md) — code is coloured once in the daemon and every surface paints the spans it is handed, which is how a script file's body is drawn in this editor.
 - [Spec-021](021-desktop-shell-and-renderer.md) — the console shell this destination mounts inside: the icon rail and the surface set, the console's library set, and the test tiers a console change is proven by.
 - [Spec-004 §The provider command and skill surface](004-provider-driver-contract-and-capabilities.md#the-provider-command-and-skill-surface) — the driver's live read of a provider's own enumeration of commands and skills, per binding. That read is the provider's answer about what it has loaded; this spec's list is the registry on disk that the daemon watches and packs. The two are different questions and neither is derived from the other.
-- [Spec-027](027-agent-definitions-and-peer-invocation.md) — the sidekick library beside this destination, and the one-file definition a skill is attached to rather than folded into.
+- [Spec-027](027-agent-definitions-and-peer-invocation.md) — the agent library beside this destination, and the one-file definition a skill is attached to rather than folded into.
 - [Claude wire reference §`system/init` command and skill enumeration](../reference/provider-wire/claude.md#systeminit-command-and-skill-enumeration--a-live-read-never-a-stored-registry) and [Codex wire reference §`skills/*`](../reference/provider-wire/codex.md#skills--the-skill-surface) — the two providers' skill surfaces as measured, including the scope and enabled axes Codex declares and Claude Code does not.
 
 ## Preconditions
@@ -70,7 +70,7 @@ The consequence this spec is built on: **a skill authored once can be made avail
 ### The destination, the rail and the addresses
 
 - The icon rail draws five destinations in one order — Sessions, Sidekicks, Skills, Workflows, Settings — and on this screen Skills is the current destination, marked current to assistive technology as well as drawn.
-- The Skills rail item draws an **open book**: a stroked outline at the same weight as every other rail glyph, in the same glyph box, which stands as drawn at every text size because a glyph is a drawing rather than a measure of content. It is not the robot. The robot is the only generic sidekick mark anywhere in the console, and it does not stand for a skill.
+- The Skills rail item draws an **open book**: a stroked outline at the same weight as every other rail glyph, in the same glyph box, which stands as drawn at every text size because a glyph is a drawing rather than a measure of content. It is not the robot. The robot is the only generic agent mark anywhere in the console, and it does not stand for a skill.
 - The destination has **no view switch and no tabs**, anywhere on the screen.
 - Four addresses, and no more: the list, the new-skill form, a folder (opened at its entry file), and that folder with one other file open. The entry file has **no address of its own** — the folder's address means the folder opened at its entry file — so there is exactly one address per thing on screen.
 - `new` is the one folder name the destination reserves. A new skill whose typed name would produce the folder name `new` is written to `new-2` instead, so the form's address and a folder's address can never collide.
@@ -87,7 +87,7 @@ The consequence this spec is built on: **a skill authored once can be made avail
 - The list opens with a caption — the count, and one line naming the three places a folder lives — then a note saying why availability is a setting rather than a guess, and that the folder is the unit.
 - Below that, one row per skill folder. Each row carries:
   - **a glyph tile** — the skill's icon on a plain tile, that skill's own picture;
-  - **the name and the summary** — the folder name in the mono face, and the line a sidekick reads when it is deciding whether to use the skill;
+  - **the name and the summary** — the folder name in the mono face, and the line an agent reads when it is deciding whether to use the skill;
   - **the origin mark** — `sidekicks · global`, `claude code · project`, `codex · global` and so on: the origin word with the scope beside it, the same origin words the session composer's skills list uses;
   - **the folder and its size** — the folder path, and how many files the folder holds;
   - **the availability line** — `Available on: Claude Code · Codex`, each provider a control that reads as pressed or not pressed, to assistive technology as well as to the eye, and where held reads as unavailable and carries its reason;
@@ -96,8 +96,8 @@ The consequence this spec is built on: **a skill authored once can be made avail
 - Rows order by folder name under `Intl.Collator`.
 - Search matches the folder name, the summary line, the origin words and every file path inside the folder, case-folded substring, never fuzzy. A search matching nothing says so in place of the rows and lists none.
 - Opening a row opens that folder at its entry file.
-- **The list has three read arms besides its populated one**, drawn the way the sidekick library draws them: an empty registry shows one sentence and a `New skill` control, never a spinner and never a list; a refused read renders the refusal with `Try again` as one faint clickable word at the right end of its line — no box and no icon — and no rows; and a read in flight is a third state, distinct from empty and from refused.
-- **No row carries a "last used" line.** A skill is read into every session pack it is available to and a sidekick may follow it without ever calling it by name, so any figure would understate real use.
+- **The list has three read arms besides its populated one**, drawn the way the agent library draws them: an empty registry shows one sentence and a `New skill` control, never a spinner and never a list; a refused read renders the refusal with `Try again` as one faint clickable word at the right end of its line — no box and no icon — and no rows; and a read in flight is a third state, distinct from empty and from refused.
+- **No row carries a "last used" line.** A skill is read into every session pack it is available to and an agent may follow it without ever calling it by name, so any figure would understate real use.
 
 ### The folder, open
 
@@ -300,7 +300,7 @@ None.
 - [Spec-004 §The provider command and skill surface](004-provider-driver-contract-and-capabilities.md#the-provider-command-and-skill-surface) — the driver's live per-binding read of a provider's own command-and-skill enumeration, which is the provider's answer about what it loaded, beside this spec's registry of what is on disk.
 - [Spec-021 §The surface set](021-desktop-shell-and-renderer.md#the-surface-set) — the icon rail and the console's surfaces this destination joins.
 - [Spec-021 §Console Test Tiers](021-desktop-shell-and-renderer.md#console-test-tiers) — the tiers a console change is proven by.
-- [Spec-027](027-agent-definitions-and-peer-invocation.md) — the sidekick library beside this destination; a definition stays one file and attaches a skill rather than carrying a folder.
+- [Spec-027](027-agent-definitions-and-peer-invocation.md) — the agent library beside this destination; a definition stays one file and attaches a skill rather than carrying a folder.
 - [ADR-031](../decisions/031-five-rail-destinations.md) — the five rail destinations, their order, and the rule that sorts a future surface into a destination or a Settings page.
 - [ADR-035](../decisions/035-one-syntax-colourer-in-the-daemon.md) — one colourer in the daemon; the folder editor paints the spans it is handed.
 - [Claude wire reference §`system/init` command and skill enumeration](../reference/provider-wire/claude.md#systeminit-command-and-skill-enumeration--a-live-read-never-a-stored-registry) — Claude Code's own skill enumeration, names only, with no scope and no enabled axis.

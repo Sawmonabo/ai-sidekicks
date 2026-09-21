@@ -12,11 +12,11 @@
 
 ## Context
 
-The product vision (`docs/vision.md`) positions this system as an agentic coding runtime for one user and their sidekicks, with multi-agent sessions, sidekick-to-sidekick chat, a desktop-plus-CLI client story, and control of a running session from any linked device as the defining claims.
+The product vision (`docs/vision.md`) positions this system as an agentic coding runtime for one user and their agents, with multi-agent sessions, agent-to-agent chat, a desktop-plus-CLI client story, and control of a running session from any linked device as the defining claims.
 
 The pre-implementation architecture audit run on 2026-04-16 (session `2026-04-16-arch-audit-163537`) reviewed all 20 implementation plans, 22 specs, and an earlier draft triage in `docs/architecture/v1-feature-scope.md`. The audit identified two scope inconsistencies with vision signaling that the draft triage did not reflect:
 
-1. **Multi-Agent Channels (Spec-014)** — the vision calls out sidekick-to-sidekick chat as a signature feature and positions the product against commodity single-agent CLI runners on exactly this axis; V1 must include it or the category-positioning claim does not match what ships.
+1. **Multi-Agent Channels (Spec-014)** — the vision calls out agent-to-agent chat as a signature feature and positions the product against commodity single-agent CLI runners on exactly this axis; V1 must include it or the category-positioning claim does not match what ships.
 2. **Desktop GUI** — the vision build order lists desktop as step 6 of V1 delivery, and the product differentiates against CLI-only offerings (Claude Code, Codex CLI, Aider) in part through a richer desktop surface; V1 must include it for the same reason.
 
 Twenty implementation plans and five cross-cutting specs need one authoritative V1 scope source before propagation edits (`docs/architecture/cross-plan-dependencies.md`, per-plan `V1 / V1.1` labels) can proceed. This ADR is that source.

@@ -11,7 +11,7 @@
 
 ## Context
 
-One user drives a session from any of their linked devices, and the work executes on a runtime node that user owns. That creates a security challenge no single flat check answers: which device may act as the user, which machine may execute for the user, and what a sidekick may do once a run is under way are related but not identical. A flat trust model would either let anything holding the account credential execute anywhere, or turn every sidekick action into a prompt.
+One user drives a session from any of their linked devices, and the work executes on a runtime node that user owns. That creates a security challenge no single flat check answers: which device may act as the user, which machine may execute for the user, and what an agent may do once a run is under way are related but not identical. A flat trust model would either let anything holding the account credential execute anywhere, or turn every agent action into a prompt.
 
 ## Problem Statement
 
@@ -19,7 +19,7 @@ How should the system separate device trust, runtime-node trust, and approval sc
 
 ### Trigger
 
-The security architecture and approvals spec need a durable model for trust and permission decisions across the user's devices, the user's machines, and the sidekicks running on them.
+The security architecture and approvals spec need a durable model for trust and permission decisions across the user's devices, the user's machines, and the agents running on them.
 
 ## Decision
 
@@ -27,7 +27,7 @@ We will use a layered trust model that separates device trust (which device, act
 
 ### Thesis — Why This Option
 
-Layering matches the real boundary structure of the system. A device can be linked to the account and drive a session without being trusted to execute anything — it executes nothing at all. A runtime node can be trusted to execute for its owner without thereby bypassing action-level approvals. Holding the account credential lets the user manage their own devices without that being a standing grant over every tool a sidekick might reach for. This model is strict enough to preserve local-machine trust and flexible enough to drive a session from a phone.
+Layering matches the real boundary structure of the system. A device can be linked to the account and drive a session without being trusted to execute anything — it executes nothing at all. A runtime node can be trusted to execute for its owner without thereby bypassing action-level approvals. Holding the account credential lets the user manage their own devices without that being a standing grant over every tool an agent might reach for. This model is strict enough to preserve local-machine trust and flexible enough to drive a session from a phone.
 
 ### Antithesis — The Strongest Case Against
 
