@@ -555,9 +555,8 @@ jobs:
       # CI coverage — the exact gap it exists to close. Its tests spawn the runner
       # as a subprocess, so this step also exercises the nested-invocation path.
       #
-      # The glob is `tools/**` rather than `tools/__tests__/**`: a checker that
-      # keeps its test beside itself (`tools/docs-corpus/table-arity.test.mjs`)
-      # would otherwise be run by nothing. The runner skips `node_modules`.
+      # The glob is `tools/**` rather than `tools/__tests__/**`, so a tool that
+      # keeps its test beside itself is still run. The runner skips `node_modules`.
       - name: Run test-runner tool tests
         run: node tools/run-node-tests.mjs 'tools/**/*.test.mjs'
 

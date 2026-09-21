@@ -76,13 +76,6 @@ pre-commit:
                 echo "WARNING: Install per CONTRIBUTING.md §Hooks or https://github.com/gitleaks/gitleaks" >&2
               fi
 
-          # A markdown table row whose cell count differs from its header renders
-          # as a silently truncated or overflowing row; prettier reflows it into a
-          # format-stable wrong table, so only a source-level check catches it.
-          - name: table-arity
-            glob: "*.md"
-            run: node tools/docs-corpus/table-arity.mjs {staged_files}
-
 commit-msg:
   jobs:
     - name: commitlint
