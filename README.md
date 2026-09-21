@@ -9,7 +9,7 @@
   '--___--'
 ```
 
-AI Sidekicks is an agentic coding desktop runtime: you and your AI sidekicks (Claude Code, Codex) build software in live sessions — steerable agents, sidekick-to-sidekick channels, approval-gated dispatch, git-worktree flow, and Remote Control from any of your linked devices. Every agent runs on your machine, on your own provider subscription.
+AI Sidekicks is an agentic coding desktop runtime: you and your AI sidekicks (Claude Code, Codex) build software in live sessions — steerable agents, sidekick-to-sidekick channels, approval-gated dispatch, git-worktree flow, and Remote Control from any of your linked devices. Every agent runs on your machine, on your own provider subscription. A sidekick is what the app calls an agent on screen; the code and the docs say agent.
 
 <p align="center">
   <img src="assets/hero/desktop-app-hero.png" alt="AI Sidekicks Desktop App" width="100%" />

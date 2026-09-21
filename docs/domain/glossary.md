@@ -18,7 +18,8 @@ This glossary covers the primary domain terms from `vision.md` and the canonical
 | `Presence` | The ephemeral liveness of one of the user's own devices or runtime nodes — which of them are currently reachable. It is never a roster of other people. |
 | `RuntimeNode` | The machine that executes a session's work, owned by the user. |
 | `Channel` | A communication surface inside a session where the user and agents, or agents and other agents, exchange messages or coordination events. |
-| `Agent` | A configured execution persona bound to a runtime node and used to perform runs. |
+| `Agent` | A configured execution persona bound to a runtime node and used to perform runs. Code and docs say agent for the concept; "sidekick" is the brand and the word a person reads on screen. |
+| `AgentDefinition` | A saved, reusable agent configuration the Sidekicks destination lists; a run started under one keeps the configuration it was resolved for. |
 | `Run` | A single execution episode performed by one agent inside one session. |
 | `RuntimeBinding` | An association between a `Run` and a specific provider driver instance. Fields: `driver_name`, `contract_version`, `resume_handle`, `runtime_metadata`. Persists recovery handles so a run can be resumed after interruption. Created by Plan-004 (provider driver contract), extended by Plan-013 for recovery. Stored in the `runtime_bindings` SQLite table. See [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md) and [Spec-013](../specs/013-persistence-recovery-and-replay.md). |
 | `QueueItem` | A persisted unit of deferred work awaiting admission into the run engine. |
