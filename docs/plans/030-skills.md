@@ -21,7 +21,7 @@ When this plan is done, Skills is a working rail destination. One list shows eve
 - **No Commands view and no second registry.** The session composer's `/` and `$` list reads the registry this plan builds; it does not get a copy of it.
 - **No writing into a provider's own tree.** A new folder lands under the console's own tree only; a provider's folder is edited where it is, and no field of the console's is written into a file a provider owns.
 - **No tool-server work.** Tool servers are machine configuration and belong to their Settings page.
-- **No sidekick-definition work.** The definition record, its editor and the attach seam are [Plan-027](./027-sidekick-definitions-and-peer-invocation.md)'s. This plan publishes a skill reference for a definition to name and authors no Plan-027 file.
+- **No sidekick-definition work.** The definition record, its editor and the attach seam are [Plan-027](./027-agent-definitions-and-peer-invocation.md)'s. This plan publishes a skill reference for a definition to name and authors no Plan-027 file.
 - **No rail or routing ownership.** The icon rail and the routing module are Plan-021's files; this plan adds one destination arm to each and authors nothing else there.
 
 ## Target Areas

@@ -7,7 +7,7 @@
 | **Slug** | `skills` |
 | **Date** | `2026-09-21` |
 | **Author(s)** | `Sawmon Abo` |
-| **Depends On** | [Spec-004](004-provider-driver-contract-and-capabilities.md), [Spec-021](021-desktop-shell-and-renderer.md), [Spec-027](027-sidekick-definitions-and-peer-invocation.md); [ADR-031](../decisions/031-five-rail-destinations.md), [ADR-035](../decisions/035-one-syntax-colourer-in-the-daemon.md) |
+| **Depends On** | [Spec-004](004-provider-driver-contract-and-capabilities.md), [Spec-021](021-desktop-shell-and-renderer.md), [Spec-027](027-agent-definitions-and-peer-invocation.md); [ADR-031](../decisions/031-five-rail-destinations.md), [ADR-035](../decisions/035-one-syntax-colourer-in-the-daemon.md) |
 | **Implementation Plan** | [Plan-030](../plans/030-skills.md) |
 
 ## Purpose
@@ -43,7 +43,7 @@ The consequence this spec is built on: **a skill authored once can be made avail
 - **No tool-server configuration.** A tool server is machine configuration and is managed on its Settings page, not here.
 - **No second registry.** The session composer's `/` and `$` list and this screen read the same skills; one is not a copy of the other.
 - **Nothing about driving a session from a linked device.** This is a console surface over a registry the daemon watches on the machine the skills live on.
-- **A sidekick definition does not become a folder.** A definition stays one file ([Spec-027 §The definition registry](027-sidekick-definitions-and-peer-invocation.md#the-definition-registry)); a sidekick that needs reference material attaches a skill, and the skill carries the folder.
+- **A sidekick definition does not become a folder.** A definition stays one file ([Spec-027 §The definition registry](027-agent-definitions-and-peer-invocation.md#the-definition-registry)); a sidekick that needs reference material attaches a skill, and the skill carries the folder.
 
 ## Domain Dependencies
 
@@ -56,7 +56,7 @@ The consequence this spec is built on: **a skill authored once can be made avail
 - [ADR-035](../decisions/035-one-syntax-colourer-in-the-daemon.md) — code is coloured once in the daemon and every surface paints the spans it is handed, which is how a script file's body is drawn in this editor.
 - [Spec-021](021-desktop-shell-and-renderer.md) — the console shell this destination mounts inside: the icon rail and the surface set, the console's library set, and the test tiers a console change is proven by.
 - [Spec-004 §The provider command and skill surface](004-provider-driver-contract-and-capabilities.md#the-provider-command-and-skill-surface) — the driver's live read of a provider's own enumeration of commands and skills, per binding. That read is the provider's answer about what it has loaded; this spec's list is the registry on disk that the daemon watches and packs. The two are different questions and neither is derived from the other.
-- [Spec-027](027-sidekick-definitions-and-peer-invocation.md) — the sidekick library beside this destination, and the one-file definition a skill is attached to rather than folded into.
+- [Spec-027](027-agent-definitions-and-peer-invocation.md) — the sidekick library beside this destination, and the one-file definition a skill is attached to rather than folded into.
 - [Claude wire reference §`system/init` command and skill enumeration](../reference/provider-wire/claude.md#systeminit-command-and-skill-enumeration--a-live-read-never-a-stored-registry) and [Codex wire reference §`skills/*`](../reference/provider-wire/codex.md#skills--the-skill-surface) — the two providers' skill surfaces as measured, including the scope and enabled axes Codex declares and Claude Code does not.
 
 ## Preconditions
@@ -300,7 +300,7 @@ None.
 - [Spec-004 §The provider command and skill surface](004-provider-driver-contract-and-capabilities.md#the-provider-command-and-skill-surface) — the driver's live per-binding read of a provider's own command-and-skill enumeration, which is the provider's answer about what it loaded, beside this spec's registry of what is on disk.
 - [Spec-021 §The surface set](021-desktop-shell-and-renderer.md#the-surface-set) — the icon rail and the console's surfaces this destination joins.
 - [Spec-021 §Console Test Tiers](021-desktop-shell-and-renderer.md#console-test-tiers) — the tiers a console change is proven by.
-- [Spec-027](027-sidekick-definitions-and-peer-invocation.md) — the sidekick library beside this destination; a definition stays one file and attaches a skill rather than carrying a folder.
+- [Spec-027](027-agent-definitions-and-peer-invocation.md) — the sidekick library beside this destination; a definition stays one file and attaches a skill rather than carrying a folder.
 - [ADR-031](../decisions/031-five-rail-destinations.md) — the five rail destinations, their order, and the rule that sorts a future surface into a destination or a Settings page.
 - [ADR-035](../decisions/035-one-syntax-colourer-in-the-daemon.md) — one colourer in the daemon; the folder editor paints the spans it is handed.
 - [Claude wire reference §`system/init` command and skill enumeration](../reference/provider-wire/claude.md#systeminit-command-and-skill-enumeration--a-live-read-never-a-stored-registry) — Claude Code's own skill enumeration, names only, with no scope and no enabled axis.

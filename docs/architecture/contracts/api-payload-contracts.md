@@ -243,8 +243,8 @@ interface SessionCreateRequest {
   // supplies. It is how a try-it starts a scratch session led by the definition under test, and it is the
   // same daemon path a workflow node and the cross-provider bridge already need — not a choose-your-lead
   // surface. Explicitly present members override the definition's corresponding field, per field
-  // (`SidekickResolvedConfiguration`, §Plan-027).
-  leadDefinitionId?: SidekickDefinitionId;
+  // (`AgentResolvedConfiguration`, §Plan-027).
+  leadDefinitionId?: AgentDefinitionId;
 }
 interface SessionCreateResponse {
   sessionId: SessionId;
@@ -253,7 +253,7 @@ interface SessionCreateResponse {
   channels: ChannelSummary[];
   // Present iff the request carried `leadDefinitionId`: the echo lets a caller render what it actually
   // got instead of re-reading the registry and assuming it has not moved (§Plan-027).
-  resolvedConfiguration?: SidekickResolvedConfiguration;
+  resolvedConfiguration?: AgentResolvedConfiguration;
 }
 
 // session.created payload (Spec-005 §Session Lifecycle). A session has exactly one main agent and that
@@ -5624,7 +5624,7 @@ interface AgentListResponse {
     // produces. Every field as actually applied, with the resolved binding in place of the folded axes
     // (§Plan-027). It is a record of what the run started under, never a live view of the definition: the
     // definition may have moved since, and the agent keeps what it was given.
-    resolvedConfiguration?: SidekickResolvedConfiguration;
+    resolvedConfiguration?: AgentResolvedConfiguration;
     createdAt: string;
   }>;
 }
@@ -5639,13 +5639,13 @@ interface AgentListResponse {
 // echoes, so the wire and the durable record serialize identically.
 interface ResolvedAgentRecord {
   agentId: AgentId;
-  definitionId?: SidekickDefinitionId;
+  definitionId?: AgentDefinitionId;
   name: string;
   driverName: string;
   modelId: string;
   providerAccountId: ProviderAccountId;
   effort?: string;
-  executionPostureMode?: SidekickDefinition["executionPostureMode"];
+  executionPostureMode?: AgentDefinition["executionPostureMode"];
   toolAllowlist?: string[] | null;
   instructions?: string;
   goal?: string | null;
@@ -5658,7 +5658,7 @@ interface ResolvedAgentRecord {
 // on the record itself. Path-independent, like the admission stamps below: the daemon mints the agent's id
 // at the queue insert exactly as it mints the run id, whichever creation path admitted the run.
 interface RunQueuedAgentResolution {
-  resolvedAgent?: ResolvedAgentRecord & { definitionId: SidekickDefinitionId };
+  resolvedAgent?: ResolvedAgentRecord & { definitionId: AgentDefinitionId };
 }
 
 // Orchestration queue-admission carrier (D-014-13) — IN-PROCESS seam type, not a wire shape:
@@ -6039,7 +6039,7 @@ interface WorkflowStep {
   // applied, including the binding the daemon resolved for it (§Plan-027). It rides the step's own record
   // rather than the run read, because the node's axes are changeable for that one use and the record is
   // what a step panel reads to say what actually ran.
-  resolvedConfiguration?: SidekickResolvedConfiguration;
+  resolvedConfiguration?: AgentResolvedConfiguration;
 }
 
 // The three-value parallel-join policy of Spec-015 §Execution semantics (SA-4), in
@@ -7930,15 +7930,15 @@ interface ProviderAccountUsageWindow {
 
 ---
 
-## Plan-027 — Sidekick Definitions And Peer Invocation
+## Plan-027 — Agent Definitions And Peer Invocation
 
-Registered 2026-08-26 ([Spec-027](../../specs/027-sidekick-definitions-and-peer-invocation.md)). The five `sidekick.*` operations register against the Plan-006 `MethodRegistry` at Plan-027's tier — the CP-006-3 late-namespace pattern. Authorization is the two named Cedar operation actions of [Spec-010 §Implementation Notes](../../specs/010-approvals-permissions-and-trust-boundaries.md#implementation-notes): `Action::"sidekick::manage"` for every definition mutation and for turning peer invocation on, `Action::"sidekick::invoke"` for each peer-invocation call. **Each action names its own resource descriptor**, because the two planes are scoped differently: definition mutation is node-global — the four CRUD operations carry no `sessionId`, and none is invented for authorization — so `sidekick::manage` evaluates against a **node-scoped** descriptor naming this runtime node, while that same action on `sidekick.peerInvocationSet` evaluates against the **session** the request names. Two descriptors under one action rather than two actions, so Spec-010's enumeration stays at exactly the two registered here. No `ApprovalCategory` value is added — these are named-operation authorizations that do not traverse the approval pipeline — and none of them mints a `remembered_approval_rules` row: that table closes `category` over the approval-pipeline categories and requires `created_from_request_id` to reference an `approval_resolutions` row, neither of which a named-operation action produces, so a grant row here is not merely unnecessary but unrepresentable. Refusals: [error-contracts.md §Sidekick Definitions](./error-contracts.md#sidekick-definitions). **Exactly one event type is minted, and not on the definition plane**: definition mutation is node-local configuration rather than session history, and every session-visible consequence of a peer invocation is already carried by the existing tool-activity and run-lifecycle events. The mint is `session.peer_invocation_set` (taxonomy census 158 → 159), which carries the per-session opt-in because that is session state, not node configuration. Definitions never leave the node — no relay, control-plane, or export surface carries one.
+Registered 2026-08-26 ([Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md)). The five `sidekick.*` operations register against the Plan-006 `MethodRegistry` at Plan-027's tier — the CP-006-3 late-namespace pattern. Authorization is the two named Cedar operation actions of [Spec-010 §Implementation Notes](../../specs/010-approvals-permissions-and-trust-boundaries.md#implementation-notes): `Action::"agent::manage"` for every definition mutation and for turning peer invocation on, `Action::"agent::invoke"` for each peer-invocation call. **Each action names its own resource descriptor**, because the two planes are scoped differently: definition mutation is node-global — the four CRUD operations carry no `sessionId`, and none is invented for authorization — so `agent::manage` evaluates against a **node-scoped** descriptor naming this runtime node, while that same action on `agent.peerInvocationSet` evaluates against the **session** the request names. Two descriptors under one action rather than two actions, so Spec-010's enumeration stays at exactly the two registered here. No `ApprovalCategory` value is added — these are named-operation authorizations that do not traverse the approval pipeline — and none of them mints a `remembered_approval_rules` row: that table closes `category` over the approval-pipeline categories and requires `created_from_request_id` to reference an `approval_resolutions` row, neither of which a named-operation action produces, so a grant row here is not merely unnecessary but unrepresentable. Refusals: [error-contracts.md §Sidekick Definitions](./error-contracts.md#sidekick-definitions). **Exactly one event type is minted, and not on the definition plane**: definition mutation is node-local configuration rather than session history, and every session-visible consequence of a peer invocation is already carried by the existing tool-activity and run-lifecycle events. The mint is `session.peer_invocation_set` (taxonomy census 158 → 159), which carries the per-session opt-in because that is session state, not node configuration. Definitions never leave the node — no relay, control-plane, or export surface carries one.
 
 ```ts
 // A daemon-minted opaque immutable identifier. NEVER the definition's name: the name is a mutable
 // human label, and a rename must not orphan an audit row or a stored reference. Same discipline as
 // ProviderAccountId (Plan-026) — the identity and the words a person reads are separate axes on purpose.
-type SidekickDefinitionId = string & { readonly __brand: "SidekickDefinitionId" };
+type AgentDefinitionId = string & { readonly __brand: "AgentDefinitionId" };
 
 // A saved, node-local sidekick configuration. Configuration, not session state: not events-canonical,
 // not replayed, not rebuilt from the event log. Every axis below is one a run already carries, so this
@@ -7948,15 +7948,15 @@ type SidekickDefinitionId = string & { readonly __brand: "SidekickDefinitionId" 
 // saved sidekick runs on either provider without a second definition — the cross-provider bridge the
 // library is for. The default is one of the bindings rather than a fallback beside them: there is no
 // unbound state to resolve from.
-interface SidekickProviderBinding {
+interface AgentProviderBinding {
   driverName: string; // provider driver key, matching the agent surface's driver axis
   modelId: string;
   providerAccountId: ProviderAccountId | null; // null = resolve whichever account is the provider's default AT THE MOMENT THE RUN STARTS. Deliberately not a foreign key: a definition may name an account that is later removed, and that must surface as a typed resolution refusal the operator can act on, not as a delete-time cascade that silently rewrites the definition
   effort: string | null; // null = the driver's default. Validated at RESOLUTION against the target model's driver-reported `effortLevels` — never against a hardcoded list, and never at save, because the vocabulary belongs to the model a run actually binds
 }
 
-interface SidekickDefinition {
-  definitionId: SidekickDefinitionId;
+interface AgentDefinition {
+  definitionId: AgentDefinitionId;
   name: string; // mutable label; unique per node under full Unicode case folding, arbitrated by the unique
   // index over the stored `name_folded` key (I-027-7); the service pre-check is a legibility affordance
   description: string; // may be empty; operator-authored
@@ -7968,8 +7968,8 @@ interface SidekickDefinition {
   // The provider bindings. `overrides` is present on a stored row and may be empty, so a reader never has
   // to distinguish "no overrides" from "this row predates overrides".
   bindings: {
-    default: SidekickProviderBinding;
-    overrides: SidekickProviderBinding[];
+    default: AgentProviderBinding;
+    overrides: AgentProviderBinding[];
   };
   executionPostureMode: ExecutionPostureMode | null; // one of the five permission levels (§Shared Enums), or null = the posture of the session or run this sidekick is used in. A LEVEL only, never a composed ExecutionPosture: writableRoots and credentialPolicyRef are properties of a live run's workspace, so storing them here would freeze a path set that outlives the workspace it described, and a stored credentialPolicyRef could re-grant a trust decision the session has since narrowed. The daemon composes the full posture from this level when the run starts
   instructions: string; // may be empty; operator-authored system-prompt content
@@ -7994,24 +7994,24 @@ interface SidekickDefinition {
 // received except by re-reading the registry, which is the live-view read I-027-2 forbids. Where the
 // definition is bound plural the echo carries the RESOLVED BINDING in place of the four folded axes, so a
 // reader is told which side of the per-field merge won rather than which axes existed to merge.
-type SidekickResolvedConfiguration = {
-  resolvedFromDefinitionId: SidekickDefinitionId;
-  resolvedBinding: SidekickProviderBinding;
-} & Pick<SidekickDefinition, "executionPostureMode" | "toolAllowlist" | "instructions" | "goal">;
+type AgentResolvedConfiguration = {
+  resolvedFromDefinitionId: AgentDefinitionId;
+  resolvedBinding: AgentProviderBinding;
+} & Pick<AgentDefinition, "executionPostureMode" | "toolAllowlist" | "instructions" | "goal">;
 
-// sidekick.definitionList — node-local and unfiltered. The request carries no members, declared as an
+// agent.definitionList — node-local and unfiltered. The request carries no members, declared as an
 // explicit empty interface rather than omitted, so every operation in this namespace has both halves of
 // its pair and no handler signature special-cases a missing request type (the
 // DiagnosticRedactionPolicyReadRequest / ProviderAccountSubscribeRequest precedent).
-interface SidekickDefinitionListRequest {}
-interface SidekickDefinitionListResponse {
-  definitions: SidekickDefinition[];
+interface AgentDefinitionListRequest {}
+interface AgentDefinitionListResponse {
+  definitions: AgentDefinition[];
 }
 
-// sidekick.definitionCreate — every axis except name is optional; omitted axes store as the null
+// agent.definitionCreate — every axis except name is optional; omitted axes store as the null
 // ("inherit / default") state rather than a materialized value, so a definition never silently
 // pins today's default forever.
-interface SidekickDefinitionCreateRequest {
+interface AgentDefinitionCreateRequest {
   name: string;
   description?: string;
   icon?: string | null;
@@ -8020,25 +8020,25 @@ interface SidekickDefinitionCreateRequest {
   // stored-versus-draft grammar the rest of this surface uses: an author who has not added one submits
   // nothing, and the daemon stores an empty list rather than leaving the member absent.
   bindings: {
-    default: SidekickProviderBinding;
-    overrides?: SidekickProviderBinding[];
+    default: AgentProviderBinding;
+    overrides?: AgentProviderBinding[];
   };
-  executionPostureMode?: SidekickDefinition["executionPostureMode"];
+  executionPostureMode?: AgentDefinition["executionPostureMode"];
   instructions?: string;
   goal?: string | null;
   toolAllowlist?: string[] | null;
   turnCap?: number | null;
 }
-interface SidekickDefinitionCreateResponse {
-  definition: SidekickDefinition;
+interface AgentDefinitionCreateResponse {
+  definition: AgentDefinition;
 }
 
-// sidekick.definitionUpdate — a partial patch. An ABSENT key leaves the stored value alone; an
+// agent.definitionUpdate — a partial patch. An ABSENT key leaves the stored value alone; an
 // explicit null CLEARS it back to the inherit state. That distinction is why the nullable axes are
 // `field?: T | null` rather than `field?: T`: without it there is no wire way to say "stop pinning
 // this", and an operator could set an account or an effort but never unset one.
-interface SidekickDefinitionUpdateRequest {
-  definitionId: SidekickDefinitionId;
+interface AgentDefinitionUpdateRequest {
+  definitionId: AgentDefinitionId;
   name?: string;
   description?: string;
   icon?: string | null;
@@ -8047,31 +8047,31 @@ interface SidekickDefinitionUpdateRequest {
   // need stable override identities and a three-way merge, which is more wire than the editor's own
   // save-the-whole-set gesture needs. Absent still leaves the stored bindings alone.
   bindings?: {
-    default: SidekickProviderBinding;
-    overrides?: SidekickProviderBinding[];
+    default: AgentProviderBinding;
+    overrides?: AgentProviderBinding[];
   };
-  executionPostureMode?: SidekickDefinition["executionPostureMode"];
+  executionPostureMode?: AgentDefinition["executionPostureMode"];
   instructions?: string;
   goal?: string | null;
   toolAllowlist?: string[] | null;
   turnCap?: number | null;
 }
-interface SidekickDefinitionUpdateResponse {
-  definition: SidekickDefinition; // the full post-update row, so a client never reconstructs it by merging its own patch
+interface AgentDefinitionUpdateResponse {
+  definition: AgentDefinition; // the full post-update row, so a client never reconstructs it by merging its own patch
 }
 
-// sidekick.definitionDelete — never refused and never cascading. A session already running this
+// agent.definitionDelete — never refused and never cascading. A session already running this
 // sidekick keeps the configuration it was given, and a workflow node that references it refuses at its
 // next run; the caller's own confirmation is where that consequence is named, so the wire carries no
 // force flag and no dependency list (Spec-027 §State And Data Implications).
-interface SidekickDefinitionDeleteRequest {
-  definitionId: SidekickDefinitionId;
+interface AgentDefinitionDeleteRequest {
+  definitionId: AgentDefinitionId;
 }
-interface SidekickDefinitionDeleteResponse {
+interface AgentDefinitionDeleteResponse {
   deleted: true;
 }
 
-// sidekick.peerInvocationSet — the per-session opt-in. It is SESSION STATE, not a remembered approval
+// agent.peerInvocationSet — the per-session opt-in. It is SESSION STATE, not a remembered approval
 // rule: `remembered_approval_rules` closes `category` over the approval-pipeline categories and requires
 // `created_from_request_id` to reference an approval resolution, and a named-operation action produces
 // neither — so a grant row for this is unrepresentable, not merely redundant. Enablement is recorded as
@@ -8079,14 +8079,14 @@ interface SidekickDefinitionDeleteResponse {
 // uses: session-scoped mutable configuration whose durable home is the event log, replayed rather than
 // projected into a local table (the corpus has no session-config projection — session_goal_dispatch_intents
 // is a crash-consistency intent row, not the goal's home). The projected flag is a Cedar CONTEXT input on
-// every Action::"sidekick::invoke" evaluation, which is exactly the context = session state mapping of
+// every Action::"agent::invoke" evaluation, which is exactly the context = session state mapping of
 // [Spec-010 §Implementation Notes](../../specs/010-approvals-permissions-and-trust-boundaries.md#implementation-notes). That is why a withdrawal takes effect on the NEXT INVOCATION with no
 // registry rebuild: the tools stay registered and adjudication is per call.
-interface SidekickPeerInvocationSetRequest {
+interface AgentPeerInvocationSetRequest {
   sessionId: SessionId;
   enabled: boolean;
 }
-interface SidekickPeerInvocationSetResponse {
+interface AgentPeerInvocationSetResponse {
   enabled: boolean; // the post-set state, read back from the PROJECTED flag rather than echoed from the
   // request, so the reply reflects what the appended event actually produced
 }
@@ -8133,7 +8133,7 @@ interface SidekickPeerInvocationSetResponse {
 // address the other four verbs take. Opaque and session-scoped, and deliberately NOT a RunId, an
 // AgentId, or any provider-side thread or process id: a caller that could name a provider object could
 // reach past the daemon that owns it.
-type SidekickBridgeHandle = string & { readonly __brand: "SidekickBridgeHandle" };
+type AgentBridgeHandle = string & { readonly __brand: "AgentBridgeHandle" };
 
 // run — start a saved agent and ANSWER AT ONCE with its handle, never blocking until the work is done.
 // The daemon resolves the definition, starts that provider's own unit of work under it — a thread on the
@@ -8147,19 +8147,19 @@ type SidekickBridgeHandle = string & { readonly __brand: "SidekickBridgeHandle" 
 // admission checks, and it refuses only past a depth limit the session has configured — with none
 // configured, an agent reached through the bridge may reach another to any depth. Because the daemon owns the started process it reads that agent's output word
 // by word in both directions, unlike a provider's own in-session helper seen through its lead.
-interface SidekickRunArguments {
-  definitionId: SidekickDefinitionId; // the saved definition — never a name, never a provider axis
+interface AgentBridgeRunArguments {
+  definitionId: AgentDefinitionId; // the saved definition — never a name, never a provider axis
   task: string;
 }
-interface SidekickRunResult {
-  handle: SidekickBridgeHandle;
+interface AgentBridgeRunResult {
+  handle: AgentBridgeHandle;
 }
 
 // message — send a running agent more words. A message to one that has ALREADY FINISHED continues the
 // same conversation with its memory intact rather than opening a second one, so a follow-up costs one
 // more turn rather than a whole repeat; the conversation stays open until `close` ends it.
-interface SidekickMessageArguments {
-  handle: SidekickBridgeHandle;
+interface AgentBridgeMessageArguments {
+  handle: AgentBridgeHandle;
   text: string;
 }
 
@@ -8174,16 +8174,16 @@ interface SidekickMessageArguments {
 // `(runId, runVersion)`. Subscribing merely before the verb returns is insufficient and MUST NOT be
 // relied on — a live subscription opened after admission never replays the terminal that landed in
 // between, which is the one window this ordering closes.
-interface SidekickWaitArguments {
-  handle: SidekickBridgeHandle;
+interface AgentBridgeWaitArguments {
+  handle: AgentBridgeHandle;
   // A REQUEST, not a grant: the daemon caps it against its own ceiling and waits the capped figure,
   // never the caller's. The cap is what makes the close sweep below able to see an abandoned run at all
   // — measured, a caller-chosen thirty-second wait hid the abandonment for its whole duration and the
   // sweep never fired.
   timeoutSeconds?: number;
 }
-interface SidekickWaitResult {
-  handle: SidekickBridgeHandle;
+interface AgentBridgeWaitResult {
+  handle: AgentBridgeHandle;
   // Six arms and no seventh. `running` carries what the agent has produced so far; the five terminals
   // carry the output it produced. `finished_with_nothing` is the honest arm for an agent that reached
   // the end having produced nothing: reporting it as `finished` with empty output would present a
@@ -8195,8 +8195,8 @@ interface SidekickWaitResult {
 // stop — interrupt what the agent is doing now. The daemon reaches the provider running it directly (an
 // interrupt on its Codex thread, an interrupt on its Claude Code process); the handle stays addressable,
 // so whoever reached the agent learns the outcome on its next wait.
-interface SidekickStopArguments {
-  handle: SidekickBridgeHandle;
+interface AgentBridgeStopArguments {
+  handle: AgentBridgeHandle;
 }
 
 // close — end the bridge's hold on the agent: its conversation ends and the handle stops resolving, so a
@@ -8206,21 +8206,21 @@ interface SidekickStopArguments {
 // arrived for within one poll interval and interrupts what it was doing. The clock is the gap between
 // one wait RETURNING and the next ARRIVING, never the age of the last wait: one long wait would
 // otherwise keep the clock fresh for its whole duration and mask an abandoned run completely.
-interface SidekickCloseArguments {
-  handle: SidekickBridgeHandle;
+interface AgentBridgeCloseArguments {
+  handle: AgentBridgeHandle;
 }
 
 // list — what is running in this session, and the one verb that names no target. Each row carries the
 // handle, the definition the agent was run under, the provider running it, and its state, which is what
 // the session's own tree draws its mark of which provider is running an agent from. The verb spellings
 // are plumbing and never reach a screen: a row says what the agent is doing, not which verb carried it.
-interface SidekickListArguments {}
-interface SidekickListResult {
+interface AgentBridgeListArguments {}
+interface AgentBridgeListResult {
   running: Array<{
-    handle: SidekickBridgeHandle;
-    definitionId: SidekickDefinitionId;
+    handle: AgentBridgeHandle;
+    definitionId: AgentDefinitionId;
     driverName: string; // the provider actually running this agent, which need not be the lead's
-    state: SidekickWaitResult["state"];
+    state: AgentBridgeWaitResult["state"];
   }>;
 }
 

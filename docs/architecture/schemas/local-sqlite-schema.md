@@ -1516,7 +1516,7 @@ CREATE TABLE workflow_steps (
   log_ref           TEXT NOT NULL
                     CHECK(json_valid(log_ref)),
   cost_cents        INTEGER,                       -- NULL = never billed, which is a different fact from a cost of zero and renders as no figure at all
-  cost_account_id   TEXT,                          -- the provider account that paid; deliberately no foreign key, for the reason sidekick_definitions states
+  cost_account_id   TEXT,                          -- the provider account that paid; deliberately no foreign key, for the reason agent_definitions states
   error_json        TEXT                           -- JSON: the typed step error (message plus the node it belongs to); NULL on every non-failed status
                     CHECK(error_json IS NULL OR json_valid(error_json)),
   advisories_json   TEXT                           -- JSON array of non-fatal hints — an unwired branch that dropped items, a deprecated param, a truncated output. Never errors, and NULL where the step attached none
@@ -2091,7 +2091,7 @@ Spend is joined to an account without duplicating account identity onto every us
 
 ## Sidekick Definition Tables (Plan-027)
 
-Node-local registry of saved sidekick configurations, for [Spec-027](../../specs/027-sidekick-definitions-and-peer-invocation.md). One row per definition. This is **configuration, not session state**: it is not events-canonical, is never replayed, is never rebuilt from the event log, and never leaves the node (I-027-9).
+Node-local registry of saved sidekick configurations, for [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md). One row per definition. This is **configuration, not session state**: it is not events-canonical, is never replayed, is never rebuilt from the event log, and never leaves the node (I-027-9).
 
 `id` is daemon-minted, opaque, and immutable, and is stable across a rename — `name` is a mutable human label and is never an identity key (I-027-1). A run started under a definition holds a **snapshot** of it: no foreign key binds a running sidekick to this table, and no read path serving one consults it, so editing or deleting a definition can never widen the authority of a sidekick already running (I-027-2).
 
@@ -2105,7 +2105,7 @@ A `providerAccountId` inside a binding deliberately carries **no foreign key** t
 
 ```sql
 -- Owner: Plan-027
-CREATE TABLE sidekick_definitions (
+CREATE TABLE agent_definitions (
   id                     TEXT NOT NULL PRIMARY KEY,  -- daemon-minted opaque immutable definitionId; stable across a rename (I-027-1). `NOT NULL` declared explicitly: a TEXT PRIMARY KEY on a rowid table admits NULL (the documented SQLite quirk armored the same way on provider_accounts.account_id above — https://www.sqlite.org/quirks.html#primary_keys_can_sometimes_contain_nulls), and a NULL definitionId keys nothing: no run could resolve it and NULLs compare distinct, so two identity-less rows would both commit.
   name                   TEXT NOT NULL  -- mutable human label; NEVER an identity key on any wire request, stored reference, or audit row
                          CHECK(length(name) > 0 AND length(name) <= 128 AND instr(name, char(0)) = 0),
@@ -2142,8 +2142,8 @@ CREATE TABLE sidekick_definitions (
 -- one handle to a human reading a picker, and a service-layer-only check races under concurrent
 -- creates from the desktop and CLI clients at once. The index arbitrates the STORED FOLD KEY, so the
 -- guarantee is the full-Unicode one and not an ASCII subset of it.
-CREATE UNIQUE INDEX idx_sidekick_definitions_name_folded
-  ON sidekick_definitions(name_folded);
+CREATE UNIQUE INDEX idx_agent_definitions_name_folded
+  ON agent_definitions(name_folded);
 ```
 
 **Why a stored fold key rather than `COLLATE NOCASE`.** SQLite's built-in `NOCASE` collation folds only the 26 ASCII letters — [SQLite datatype documentation](https://sqlite.org/datatype3.html#collating_sequences), accessed 2026-08-26 — so an index built on it collides `Reviewer` with `reviewer` but admits a pair differing only in a non-ASCII case mapping. An earlier revision paired that ASCII index with a full-Unicode check in the definition store and called the index a concurrency backstop; that arrangement does not hold, because the layer performing the real fold is the layer that cannot be atomic. Two concurrent creates of `Ärger` and `ärger` each pass the service precheck, and the ASCII index then accepts both — the exact race the backstop was there to close. Persisting the fold (`name_folded`, written by the store on every insert and update) moves the full-Unicode comparison into the unique index itself, so uniqueness is decided once, by the database, under the same folding the service uses. The store still performs the fold — it owns the Unicode algorithm — but it is no longer the correctness boundary, only the producer of the key. `name` continues to hold the operator's original casing for display.
