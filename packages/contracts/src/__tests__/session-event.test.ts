@@ -2795,9 +2795,9 @@ describe("standalone runtime_node.* event schemas agree with the union arms", ()
 //     suite never touches.
 //   • Against `src/*.ts` under `node --experimental-strip-types` — Node's type
 //     stripping does not remap a `./foo.js` specifier onto `foo.ts`; it wants
-//     the real `.ts` extension (which is why the repo's one strip-types tree
-//     turns `allowImportingTsExtensions` ON and imports `"../foo.ts"` — see
-//     tools/docs-corpus/tsconfig.json). This package emits `dist/`, so its
+//     the real `.ts` extension (which is why a strip-types tree turns
+//     `allowImportingTsExtensions` ON and imports `"../foo.ts"` — see
+//     apps/desktop/tsconfig.scripts.json). This package emits `dist/`, so its
 //     source is written in `.js` specifiers, and a spawned import of
 //     `src/event.ts` dies on the first `./session.js` with ERR_MODULE_NOT_FOUND
 //     BEFORE any module-scope initializer runs — no cycle is exercised either
