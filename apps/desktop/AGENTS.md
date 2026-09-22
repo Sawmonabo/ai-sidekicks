@@ -68,7 +68,7 @@ No console directory holds more than 42 modules a reader has to hold at once —
   - A VIEW family is any console directory that is neither a layer family above nor a composition site (`COMPOSITION_ROOT_FILES` in `.dependency-cruiser.families.mjs`, plus the files directly under `panes/`).
   - View families are SIBLINGS: one never imports another, and `panes/` is flat — a pane body lives in `<family>/pane/`. Hoist a shared contract into `seats/`, or into the lowest layer family that needs it.
 - The console reaches `src/shared/` through the layer family that owns the concern, `core/` today, and never from a view family.
-- The console imports no plan-owned renderer subtree whose owner mounts into it (`timeline/`, `usage-meters/`, `run-controls/`, `provider-accounts/`, `agent-definitions/`, `mcp-governance/`); those reach the frame by calling `registerConsoleSurface`, which is the one mount door — a second door for the same surface is rejected. A later mounted page joins the list in `.dependency-cruiser.mjs`.
+- Every page lives inside `console/`; there is no sibling renderer subtree for a page to import from. A surface reaches the frame by calling `registerConsoleSurface`, which is the one mount door — a second door for the same surface is rejected.
 - The console never re-authors or moves a body another plan owns.
 
 ## Shared code
