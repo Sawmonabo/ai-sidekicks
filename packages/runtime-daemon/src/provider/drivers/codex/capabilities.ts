@@ -82,7 +82,7 @@
 // declaration, and the contract-version move below is what makes a node holding that
 // row re-read rather than serve it.
 //
-// Invariants `docs/reference/provider-wire/codex.md` (wire surface at the
+// Invariants from the pinned Codex wire census (wire surface at the
 // pinned `codex-cli` build; regenerate-don't-transcribe).
 
 import type {
@@ -489,7 +489,7 @@ const CODEX_BASE_EFFORT_LEVELS: readonly string[] = Object.freeze([
 /**
  * GOLDEN VECTOR — the Codex model catalog this driver declares.
  *
- *   Source doc      : `docs/reference/provider-wire/codex.md`
+ *   Source doc      : the pinned Codex wire census
  *   Section         : `model/list` — the model catalog and the per-model
  *                     effort vocabulary (the default, non-experimental
  *                     generation)

@@ -11,7 +11,7 @@
 // model attribution, and no token accounting. The user's words never
 // reach the model while every layer above reads a completed turn. Verified
 // first-party against the pinned Claude build; see
-// `docs/reference/provider-wire/claude.md`.
+// the pinned Claude Code wire census.
 //
 // ---------------------------------------------------------------------------
 // Why the neutralization lives HERE and nowhere upstream

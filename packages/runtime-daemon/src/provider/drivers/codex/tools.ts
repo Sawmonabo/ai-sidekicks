@@ -10,7 +10,7 @@
 //
 // The `codex app-server` protocol at the pinned build publishes NO census of
 // the model-facing built-in tool names: regenerating the JSON Schema per
-// `docs/reference/provider-wire/codex.md ` yields a `Tool` definition whose
+// the pinned Codex wire census yields a `Tool` definition whose
 // `name` is an open `string` (the MCP-style descriptor), a `ToolsV2` config
 // object carrying a single `web_search` toggle, and a
 // `GuardianCommandSource` enum — none of which enumerates the tools an agent
@@ -75,7 +75,7 @@
 //
 // SCOPE BOUNDARY: this task declares the census only.
 //
-// Invariant `docs/reference/provider-wire/codex.md` (wire surface at
+// Invariant from the pinned Codex wire census (wire surface at
 // the pinned `codex-cli` build; regenerate-don't-transcribe).
 
 import { McpServerStatusEmissionSchema } from "@ai-sidekicks/contracts";
@@ -249,7 +249,7 @@ export function getCodexToolMetadata(): NormalizedProviderToolMetadata[] {
 //      is the `McpStatusNormalizer`.
 //
 // Wire grounding (first-party, generated JSON Schema at the pinned codex-cli
-// `0.150.1` — regenerate per `docs/reference/provider-wire/codex.md `):
+// `0.150.1` — regenerate per the pinned Codex wire census):
 //   * `McpServerStatus` list row: required `name` + `authStatus`
 //     (`unknown | unsupported | notLoggedIn | bearerToken | oAuth`), optional
 //     `runtimeStatus` (`McpServerConnectionStatus`: `notStarted | starting |

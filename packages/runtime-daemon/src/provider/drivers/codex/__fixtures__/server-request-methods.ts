@@ -1,6 +1,6 @@
 // GOLDEN VECTOR — Codex `ServerRequest` method census.
 //
-//   Source doc: docs/reference/provider-wire/codex.md Section: — the callback
+//   Source: the pinned Codex wire census, section: — the callback
 //   / interactive / approval
 //                     surface (Codex -> daemon)
 //   Pin             : codex-cli 0.150.1 (the `latest` dist-tag of

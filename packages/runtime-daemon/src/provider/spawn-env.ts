@@ -101,7 +101,7 @@ export const PROVIDER_AUTO_UPDATE_OPT_OUT_ENV: Readonly<
   Record<FlooredDriverName, Readonly<Record<string, string>>>
 > = Object.freeze({
   // Presence-style gates on the pinned build
-  // (`docs/reference/provider-wire/claude.md`).
+  // (the pinned Claude Code wire census).
   claude: Object.freeze({ DISABLE_AUTOUPDATER: "1", DISABLE_UPDATES: "1" }),
   codex: Object.freeze({}),
 });

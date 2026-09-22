@@ -120,7 +120,7 @@
 // transport errors is the leg, and minting a code here would add an unregistered row to that
 // census.
 //
-// Invariant `docs/reference/provider-wire/codex.md` (pinned `codex-cli
+// Invariant from the pinned Codex wire census (pinned `codex-cli
 // 0.150.1`).
 
 import {
@@ -591,7 +591,7 @@ const CODEX_ROUTED_ASK_TURN_ID_MAX_LEN = 256;
 /**
  * The ten server-initiated REQUEST methods of the pinned protocol, read from the
  * generated `ServerRequest` union at `codex-cli 0.150.1` (regenerate, never
- * transcribe — `docs/reference/provider-wire/codex.md`; re-verified against the
+ * transcribe — the pinned Codex wire census; re-verified against the
  * pinned binary's own generation on 2026-08-28, where `ServerRequest.json` came
  * back byte-identical to the `0.149.1` generation — this root did not move).
  *
@@ -1359,7 +1359,7 @@ const JSON_RPC_METHOD_NOT_FOUND = -32601;
 
 /**
  * The `thread/realtime/*` server notifications suppressed for this connection
- * (leg 7, `docs/reference/provider-wire/codex.md`).
+ * (leg 7, the pinned Codex wire census).
  *
  * Read from the generated `ServerNotification` union at the pin: `codex-cli
  * 0.150.1` publishes exactly these eleven `thread/realtime/*` names. V1 ships no
@@ -2063,7 +2063,7 @@ const CODEX_REWIND_BOUNDARY_FIELD = "lastTurnId";
 /**
  * The refusal spellings that INDICT A NAMED FIELD, as opposed to a method.
  *
- * `docs/reference/provider-wire/codex.md` at the `0.150.1` pin and verbatim from
+ * the pinned Codex wire census at the `0.150.1` pin and verbatim from
  * a binary probe, that an accepted method sent without its required parameter
  * answers ``Invalid request: missing field `threadId` `` — and records that this
  * was measured on `thread/fork` ITSELF, not inferred from a sibling method. The
@@ -2716,7 +2716,7 @@ export interface CodexRunConfig {
 // `.config`, `TurnStartParams.sandboxPolicy`, `SandboxMode`, `SandboxPolicy`,
 // `AskForApproval`) and the config-table keys from the binary's own serde field
 // names (`agents.max_concurrent_threads_per_session`, `agents.max_depth`).
-// See `docs/reference/provider-wire/codex.md` for the pin this reference tracks.
+// See the pinned Codex wire census for the pin this reference tracks.
 
 /**
  * The approval supervision every non-`trusted` posture runs under.
@@ -5040,7 +5040,7 @@ type CodexSessionTransitionKind = Exclude<CodexSessionSlotState, "live">;
  * `contextWindowExceeded`, `usageLimitExceeded`, `badRequest`,
  * `threadRollbackFailed`, and the rest. Where the pin publishes that vocabulary
  * is on the `TurnError` a failed turn carries, and the reference records it
- * there (`docs/reference/provider-wire/codex.md`, the `turn/start` section's
+ * there (the pinned Codex wire census, the `turn/start` section's
  * turn-evidence discriminants). That carrier is a NOTIFICATION rather than a
  * request rejection, and the reference pins no shape at all for the JSON-RPC
  * `error.data` member this function reads — so the vocabulary is cited for what
@@ -5231,7 +5231,7 @@ export interface CodexLifecycleOptions extends CodexConnectionOptions {
    *
    * Worth stating plainly, because the measurement invites the opposite
    * conclusion: this transport was probed at the pin and performs NO
-   * client-side command parsing (`docs/reference/provider-wire/codex.md`). The
+   * client-side command parsing (the pinned Codex wire census). The
    * default is still `emulated`, because the spec's cell governs the code and
    * an amendment governs the cell — not a driver that re-grades itself against
    * a probe.
@@ -5778,7 +5778,7 @@ export class CodexLifecycleManager {
         // an auto-review path that bypasses the daemon's approval pipeline.
         // `ThreadStartParams` carries this field (verified against the pinned
         // binary's own generated schema at `codex-cli 0.150.1`, regenerated
-        // 2026-08-28 — `docs/reference/provider-wire/codex.md`), so the pin is
+        // 2026-08-28 — the pinned Codex wire census), so the pin is
         // accepted rather than an unknown-field risk. It is NOT sufficient on its
         // own: see the per-turn pin in `startRun`.
         approvalsReviewer: "user",
@@ -6551,7 +6551,7 @@ export class CodexLifecycleManager {
       // idempotent rather than redundant, and `turn/steer` needs no pin because
       // it requires an already-active turn and creates none. Field verified
       // present on `TurnStartParams` at `codex-cli 0.150.1` (regenerated
-      // 2026-08-28 — `docs/reference/provider-wire/codex.md`), on a params
+      // 2026-08-28 — the pinned Codex wire census), on a params
       // type byte-identical back to the `0.141.0` floor.
       approvalsReviewer: "user",
       // Leg 5's per-turn half. The RUN's posture wins where it declares one,
@@ -8421,7 +8421,7 @@ export class CodexLifecycleManager {
       // caller-supplied message id, the same member `turn/start` above already
       // carries. Field verified present on `TurnSteerParams` in the default
       // generation of the pinned `codex-cli 0.150.1` (regenerated 2026-08-28);
-      // `docs/reference/provider-wire/codex.md` does not print that params type,
+      // the pinned Codex wire census does not print that params type,
       // but records the member on the sibling `TurnStartParams` as byte-identical
       // back to the `0.141.0` floor, and directs consumers to re-verify
       // load-bearing shapes against the then-installed binary.

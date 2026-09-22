@@ -24,7 +24,7 @@
 //
 // Two corpus sources, and no third:
 //
-//   (1) `docs/reference/provider-wire/codex.md` — the version-pinned Codex
+//   (1) the pinned Codex wire census — the version-pinned Codex
 //       wire reference (pin `codex-cli 0.150.1`, regenerated 2026-08-28 from
 //       the binary's own generated schema). It records the ten `ServerRequest`
 //       methods in full, the legacy bare-camelCase notifications, the nineteen
@@ -39,7 +39,7 @@
 //       family the corpus has already settled.
 //
 // Nothing in this table is transcribed from provider prose docs or invented. The
-// `regenerate, don't transcribe` rule (`docs/reference/provider-wire/README.md`)
+// `regenerate, don't transcribe` rule (the wire-census rules)
 // applies to the wire shapes; this file maps method NAMES, each of which is
 // recorded verbatim in one of the two sources above, and the `__fixtures__/` census
 // vectors carry the codex.md-recorded subset so a re-pin diff shows up as a failing
@@ -165,7 +165,7 @@
 //     compile error here. Type-only: the pinned wire literals stay literals,
 //     and nothing composes a method string at runtime.
 //
-// `docs/reference/provider-wire/codex.md` (pin `codex-cli 0.150.1`).
+// the pinned Codex wire census (pin `codex-cli 0.150.1`).
 
 import {
   EVENT_DISPOSITION_BY_KIND,
@@ -199,7 +199,7 @@ import type { CodexToolName } from "./tools.js";
 
 /**
  * Which generated protocol root a Codex inbound frame belongs to, per
- * `docs/reference/provider-wire/codex.md`.
+ * the pinned Codex wire census.
  *
  * Carried as OUTPUT rather than demanded as input: the caller has a method
  * string off the wire and needs to learn whether the frame must be answered
@@ -252,7 +252,7 @@ export type CodexInboundFrameMethod =
   // `experimentalApi: false` connection rather than being dormant like the
   // gated block below. Deliberately carries no `__fixtures__/` row: that
   // golden vector transcribes only the subset
-  // `docs/reference/provider-wire/codex.md` names BY HAND, and it names this
+  // the pinned Codex wire census names BY HAND, and it names this
   // one nowhere — inventing a fixture row to match a schema arm is exactly the
   // hand-transcription that file's header forbids.
   | "skills/changed"
@@ -384,7 +384,7 @@ type CodexToolApprovalMethod<TToolName extends CodexToolName> = `item/${TToolNam
  *
  * Why the literals stay spelled out here rather than being template-expanded
  * into the union above: these are version-pinned wire strings, and
- * `docs/reference/provider-wire/codex.md` records them verbatim under the
+ * the pinned Codex wire census records them verbatim under the
  * regenerate-don't-transcribe rule. A reviewer diffing this census against the
  * reference must be able to grep `item/commandExecution/requestApproval` and
  * find it. Writing the union as `CodexToolApprovalMethod<"commandExecution">`
@@ -1217,7 +1217,7 @@ export const CODEX_THREAD_TOKEN_USAGE_METHOD = "thread/tokenUsage/updated" as co
  * likewise router-band rather than mapping-table input.
  *
  * There is no `thread/status/changed` or `thread/ended` anywhere in the pinned
- * generated root or in `docs/reference/provider-wire/codex.md`, which is why
+ * generated root or in the pinned Codex wire census, which is why
  * the child terminal is read off this method rather than off a thread-lifecycle
  * one.
  */
@@ -1454,7 +1454,7 @@ function readCodexRecord(value: unknown): Record<string, unknown> | null {
  *
  * WHY THIS EXISTS AT ALL, rather than reading the terminal frame alone: at the
  * pin `turn/completed` can carry `itemsView: "notLoaded"` beside an EMPTY
- * `items` array — measured, not supposed (`docs/reference/provider-wire/codex.md`).
+ * `items` array — measured, not supposed (the pinned Codex wire census).
  * An empty list under that view is an absence of loading, not an absence of
  * output, so a classifier that read only the terminal would call a real turn
  * evidence-free and trip on it. Evidence therefore accrues as the turn runs.

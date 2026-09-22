@@ -15,7 +15,7 @@
 //
 // At the measured pin `claude --version` names the LAUNCHER's current build,
 // which is measurably not the build a path-addressed spawn runs
-// (`docs/reference/provider-wire/claude.md`). Resolution therefore dereferences
+// (the pinned Claude Code wire census). Resolution therefore dereferences
 // the launcher to an exact build path, and the version comes from the process
 // started at THAT path — so a drifted launcher changes neither the reading nor
 // the recorded row.
