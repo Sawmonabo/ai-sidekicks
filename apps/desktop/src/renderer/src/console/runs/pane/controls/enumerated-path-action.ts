@@ -65,7 +65,7 @@ export function useEnumeratedPathAction(bridge: ConsoleBridge): EnumeratedPathAc
   const copyPath = useCallback(
     (sourceId: string, path: string) => {
       setRefusal(undefined);
-      bridge.sidekicks.native.copyToClipboard(path).catch((rejection: unknown) => {
+      bridge.desktopBridge.native.copyToClipboard(path).catch((rejection: unknown) => {
         // WHAT THE HOST SAID, NEVER THE CONSOLE'S PARAPHRASE OF IT. The `catch` used
         // to take no parameter and answer with prose of its own, which discarded the
         // one machine-readable thing the refusal carried. The other side's code and

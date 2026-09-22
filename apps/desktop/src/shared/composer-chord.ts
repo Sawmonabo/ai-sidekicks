@@ -60,7 +60,7 @@ export const COMPOSER_FOCUS_CHORD = "$mod+KeyL";
  * could branch on, and nothing crosses the context bridge that would have to be
  * cloneable.
  */
-export const COMPOSER_FOCUS_REQUEST_CHANNEL = "sidekicks:composer-focus-request";
+export const COMPOSER_FOCUS_REQUEST_CHANNEL = "desktop:composer-focus-request";
 
 /**
  * Which physical modifier `$mod` names on a host.

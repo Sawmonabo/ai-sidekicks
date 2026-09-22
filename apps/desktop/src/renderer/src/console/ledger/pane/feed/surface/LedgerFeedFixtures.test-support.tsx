@@ -19,7 +19,7 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { vi } from "vitest";
 
 import { LEDGER_WINDOW_ROW_CAP } from "../../../../core/index.js";
-import { SidekicksBridgeProvider, createFixtureBridge } from "../../../../bridge/index.js";
+import { DesktopBridgeProvider, createFixtureBridge } from "../../../../bridge/index.js";
 import { useLedgerRowLease } from "../../../frame/index.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../../bridge/scenario/ledger/ledger-quiet.js";
 import { consoleCommandSurface, consoleCommands } from "../../../../palette/index.js";
@@ -68,7 +68,7 @@ export function renderFeed(
   renderRowBody?: (mount: TimelineRowSlotProps) => React.JSX.Element,
 ): HTMLElement {
   const { container } = render(
-    <SidekicksBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
+    <DesktopBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
       <LedgerFeed
         sessionStore={sessionStore}
         paneId={LEDGER_FIXTURE_PANE_ID}
@@ -78,7 +78,7 @@ export function renderFeed(
         }}
         feedLabel="Session timeline"
       />
-    </SidekicksBridgeProvider>,
+    </DesktopBridgeProvider>,
   );
   const feed = container.querySelector(".meridian-ledger");
   if (!(feed instanceof HTMLElement)) {

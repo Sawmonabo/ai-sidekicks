@@ -61,10 +61,10 @@ function instrumentedBridge(trace: SurfaceTrace, failure: HostFailure): ConsoleB
   };
   return {
     ...bridge,
-    sidekicks: {
-      ...bridge.sidekicks,
+    desktopBridge: {
+      ...bridge.desktopBridge,
       native: {
-        ...bridge.sidekicks.native,
+        ...bridge.desktopBridge.native,
         copyToClipboard: (text: string) => {
           trace.push(`copyToClipboard:${text}`);
           return fail("copyToClipboard");

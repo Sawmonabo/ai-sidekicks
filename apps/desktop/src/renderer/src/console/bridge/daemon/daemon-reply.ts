@@ -246,7 +246,7 @@ export async function callDaemon<MethodName extends ConsoleDaemonMethod>(
     // brand `DaemonMethod` stands in for the daemon's method union and resolves to
     // `never`-shaped `string`, so every caller has to widen it once; widened here,
     // it is widened once for the console rather than once per surface.
-    const call = bridge.sidekicks.daemon.call as (
+    const call = bridge.desktopBridge.daemon.call as (
       methodName: string,
       params: unknown,
     ) => Promise<unknown>;

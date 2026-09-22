@@ -5,7 +5,7 @@
 // is this scenario's own decision, because nothing above states it: the product
 // demonstrates itself before it asks for
 // anything. First launch opens into a live session already in flight — several
-// sidekicks and several people working, parallel streams revealing, an approval
+// agents and several people working, parallel streams revealing, an approval
 // arriving, a receipt landing past tense — and the empty state IS the demo. So this
 // scenario is not a tour and not a checklist: it is one
 // ordinary session, scripted over sixty seconds of scenario time, that a person can
@@ -22,7 +22,7 @@
 //
 // The composition it reaches, and the order it reaches it in:
 //
-//   0–8s    the room fills — two people, three sidekicks
+//   0–8s    the room fills — two people, three agents
 //   8–24s   two lanes stream at once, in two hues
 //   24–34s  a child thread opens under one of them and settles
 //   34–46s  a run blocks waiting on an approval and is let through

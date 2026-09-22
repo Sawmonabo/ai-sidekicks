@@ -13,7 +13,7 @@
 
 import { type ReactNode } from "react";
 
-import { SidekicksBridgeProvider } from "../../bridge/index.js";
+import { DesktopBridgeProvider } from "../../bridge/index.js";
 import {
   ForwardingConsoleClock,
   RealClock,
@@ -94,7 +94,7 @@ import { ConsoleFrameHost } from "./ConsoleFrameHost.js";
  * the scenario's — the exact disagreement the route's clock parameter exists to
  * prevent. `ForwardingConsoleClock` is the seam for precisely this: the identity is
  * fixed at arming and the reading is whatever the window's clock is when a record is
- * made, so `SidekicksBridgeProvider` hands it the resolved bridge's clock below.
+ * made, so `DesktopBridgeProvider` hands it the resolved bridge's clock below.
  *
  * NOTHING RESTORES WALL TIME WHEN A WINDOW UNMOUNTS, deliberately. A breach reported
  * while a window is tearing down belongs to that window's timeline, and a clock
@@ -135,13 +135,13 @@ export interface ConsoleRootProps {
 /** The console's mount point. `App.tsx` renders exactly this. */
 export function ConsoleRoot(props: ConsoleRootProps): React.JSX.Element {
   return (
-    <SidekicksBridgeProvider
+    <DesktopBridgeProvider
       {...(props.scenarioId === undefined ? {} : { scenarioId: props.scenarioId })}
       clockToRebind={consoleTripwireRouteClock}
     >
       <ConsoleFrameHost
         {...(props.renderOverlays === undefined ? {} : { renderOverlays: props.renderOverlays })}
       />
-    </SidekicksBridgeProvider>
+    </DesktopBridgeProvider>
   );
 }

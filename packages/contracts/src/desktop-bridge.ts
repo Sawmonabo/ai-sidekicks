@@ -1,7 +1,7 @@
-// Preload bridge contract — the typed `window.sidekicks` surface.
+// Preload bridge contract — the typed `window.desktopBridge` surface.
 //
 // This module ships:
-//   • `SidekicksBridge` — the bridge shape plus `readonly` hardening on every
+//   • `DesktopBridge` — the bridge shape plus `readonly` hardening on every
 //     capability group and `app` sub-property, so a compromised renderer
 //     cannot reassign `bridge.daemon = …`.
 //   • Stub type declarations for the daemon, control-plane, Electron dialog,
@@ -244,7 +244,7 @@ export interface ShellSignals {
 // ---------------------------------------------------------------------------
 
 /**
- * Thrown when renderer code calls a `SidekicksBridge` method that is not yet
+ * Thrown when renderer code calls a `DesktopBridge` method that is not yet
  * implemented. Every stub method throws this; wiring a namespace swaps the
  * stub for a real IPC dispatch. The `name` field is stable so callers can
  * `if (err.name === "NotImplementedError")` without importing the
@@ -252,7 +252,7 @@ export interface ShellSignals {
  */
 export class NotImplementedError extends Error {
   public constructor(method: string) {
-    super(`SidekicksBridge.${method} is not implemented (stub).`);
+    super(`DesktopBridge.${method} is not implemented (stub).`);
     this.name = "NotImplementedError";
   }
 }
@@ -271,8 +271,8 @@ export class NotImplementedError extends Error {
 // ---------------------------------------------------------------------------
 
 /**
- * The single typed object exposed on `window.sidekicks` via
- * `contextBridge.exposeInMainWorld('sidekicks', bridge)`.
+ * The single typed object exposed on `window.desktopBridge` via
+ * `contextBridge.exposeInMainWorld('desktopBridge', bridge)`.
  *
  * Seven capability surfaces:
  *   • `daemon` — JSON-RPC over IPC to the local daemon
@@ -289,7 +289,7 @@ export class NotImplementedError extends Error {
  *     STRUCTURALLY by the negative type-test (`desktop-bridge.test-d.ts`)
  *   • raw file path strings — paths are opaque `FilePathRef` tokens
  */
-export interface SidekicksBridge {
+export interface DesktopBridge {
   // daemon RPC — request/response over JSON-RPC contract
   readonly daemon: {
     call<M extends DaemonMethod>(method: M, params: DaemonParams<M>): Promise<DaemonResult<M>>;
@@ -394,9 +394,9 @@ const SHELL_WITHOUT_A_HOST: ShellSignals = {
 };
 
 /**
- * Factory returning a `SidekicksBridge` whose every round-trip method throws
+ * Factory returning a `DesktopBridge` whose every round-trip method throws
  * `NotImplementedError`. Called once by the preload script
- * (`apps/desktop/src/preload/index.ts`) to populate `window.sidekicks`.
+ * (`apps/desktop/src/preload/index.ts`) to populate `window.desktopBridge`.
  *
  * Wiring a namespace replaces its methods with real implementations bound to
  * the corresponding IPC channel on the main-process side.
@@ -413,7 +413,7 @@ const SHELL_WITHOUT_A_HOST: ShellSignals = {
  * binds the signal raises `NotImplementedError` at its first subscription
  * instead of running for a session and losing every ask.
  */
-export function createStubBridge(shell: ShellSignals = SHELL_WITHOUT_A_HOST): SidekicksBridge {
+export function createStubBridge(shell: ShellSignals = SHELL_WITHOUT_A_HOST): DesktopBridge {
   return {
     daemon: {
       call: () => stubThrow("daemon.call"),
@@ -444,7 +444,7 @@ export function createStubBridge(shell: ShellSignals = SHELL_WITHOUT_A_HOST): Si
     // main-process handlers already ship, so
     // `apps/desktop/src/preload/index.ts` spreads a real `ipcRenderer`
     // implementation over this block. The throwing stub stays because the
-    // factory's contract is a TOTAL `SidekicksBridge` — every reader that builds
+    // factory's contract is a TOTAL `DesktopBridge` — every reader that builds
     // one from here (the shape probe, the live-bridge suites) needs the member
     // present, and a member present-and-throwing is what a window whose preload
     // did not finish installing actually has.

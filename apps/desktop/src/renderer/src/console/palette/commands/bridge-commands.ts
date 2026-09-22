@@ -64,9 +64,9 @@ export function buildBridgeCommands(
         // Read from the bridge rather than from `navigator`: `app` meta is what the
         // MAIN process reports, and under the fixture it is pinned, so a screenshot
         // of this command's result does not move with the developer's machine.
-        const { version, platform, arch, locale } = bridge.sidekicks.app;
+        const { version, platform, arch, locale } = bridge.desktopBridge.app;
         await settle(onRefusal, "clipboard-unavailable", CLIPBOARD_REFUSAL_DETAIL, () =>
-          bridge.sidekicks.native.copyToClipboard(
+          bridge.desktopBridge.native.copyToClipboard(
             `AI Sidekicks ${version} — ${platform}/${arch} — ${locale}`,
           ),
         );
@@ -83,7 +83,7 @@ export function buildBridgeCommands(
         // command that awaited an outcome here would be a second reader of a state
         // machine the shell already observes.
         await settle(onRefusal, "update-check-unavailable", UPDATE_REFUSAL_DETAIL, () =>
-          bridge.sidekicks.update.requestCheck(),
+          bridge.desktopBridge.update.requestCheck(),
         );
       },
     },

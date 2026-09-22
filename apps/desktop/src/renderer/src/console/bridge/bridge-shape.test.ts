@@ -1,13 +1,13 @@
 // The fixture-bridge shape claim, as a test.
 //
 // The claim: the fixture bridge is typed from the same `packages/contracts`
-// desktop-bridge types as the live bridge, is shape-identical to `SidekicksBridge`
+// desktop-bridge types as the live bridge, is shape-identical to `DesktopBridge`
 // namespace for namespace, and the scenario manifest's live-status field is checked
 // against the growth slate.
 //
 // WHY A RUNTIME TEST FOR SOMETHING THE TYPES ALREADY SAY. Both bridges are declared
-// `SidekicksBridge`, so a namespace added to the contract breaks the fixture at
-// compile time. What the compiler cannot see is the LIVE side: `window.sidekicks`
+// `DesktopBridge`, so a namespace added to the contract breaks the fixture at
+// compile time. What the compiler cannot see is the LIVE side: `window.desktopBridge`
 // is installed by a preload across `contextBridge`, which structurally clones the
 // object graph, and the renderer's belief that it satisfies the interface is a
 // declaration about a value the renderer never checked. So the shapes are read from
@@ -19,7 +19,7 @@
 // remembered, and would go on passing over a fixture that dropped a method the
 // hand-list also forgot. The comparison enumerates both objects at runtime, and the
 // only listing anywhere is `bridge-shape.ts`'s namespace table, which is keyed by
-// `keyof SidekicksBridge` and therefore cannot go stale.
+// `keyof DesktopBridge` and therefore cannot go stale.
 //
 // WHAT THIS FILE DOES NOT COVER. `failure-modes.test.ts` next door already drives the growth
 // ledger's internal coherence — every slate row covered, no orphaned row id, every
@@ -30,11 +30,11 @@
 // reachable on the port BOTH bridges expose, and that every row a ledger entry
 // names resolves to a row object rather than throwing.
 
-import { createStubBridge, type SidekicksBridge } from "@ai-sidekicks/contracts";
+import { createStubBridge, type DesktopBridge } from "@ai-sidekicks/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  SIDEKICKS_BRIDGE_NAMESPACES,
+  DESKTOP_BRIDGE_NAMESPACES,
   describeBridgeShape,
   diffBridgeShapes,
   type BridgeShape,
@@ -58,7 +58,7 @@ import { FIRST_RUN_SCENARIO_ID } from "./scenario/first-run.js";
  * would have refused.
  */
 function resolveLiveBridgeFrom(installed: unknown): ConsoleBridge | undefined {
-  (globalThis as { sidekicks?: unknown }).sidekicks = installed;
+  (globalThis as { desktopBridge?: unknown }).desktopBridge = installed;
   const read = readInstalledBridge();
   return read === undefined ? undefined : createLiveBridge(read);
 }
@@ -69,13 +69,13 @@ function fixtureBridge(): ConsoleBridge {
 
 function shapesOf(left: ConsoleBridge, right: ConsoleBridge): readonly string[] {
   return diffBridgeShapes(
-    { label: "the live bridge", shape: describeBridgeShape(left.sidekicks) },
-    { label: "the fixture bridge", shape: describeBridgeShape(right.sidekicks) },
+    { label: "the live bridge", shape: describeBridgeShape(left.desktopBridge) },
+    { label: "the fixture bridge", shape: describeBridgeShape(right.desktopBridge) },
   );
 }
 
 afterEach(() => {
-  Reflect.deleteProperty(globalThis, "sidekicks");
+  Reflect.deleteProperty(globalThis, "desktopBridge");
 });
 
 describe("the fixture bridge is shape-identical to the live bridge", () => {
@@ -92,16 +92,16 @@ describe("the fixture bridge is shape-identical to the live bridge", () => {
   it("covers every namespace the contract declares, so the comparison is not vacuous", () => {
     // Without this, two bridges that had both lost the same namespace — or an
     // enumeration that read nothing at all — would compare equal and pass. The
-    // namespace table is keyed by `keyof SidekicksBridge`, so this is the point
+    // namespace table is keyed by `keyof DesktopBridge`, so this is the point
     // where the runtime reading is tied back to the contract.
     const live = resolveLiveBridgeFrom(createStubBridge());
     const fixture = fixtureBridge();
-    const expected = [...SIDEKICKS_BRIDGE_NAMESPACES].sort();
+    const expected = [...DESKTOP_BRIDGE_NAMESPACES].sort();
 
     expect(live).toBeDefined();
-    expect([...describeBridgeShape(fixture.sidekicks).keys()].sort()).toStrictEqual(expected);
+    expect([...describeBridgeShape(fixture.desktopBridge).keys()].sort()).toStrictEqual(expected);
     if (live !== undefined) {
-      expect([...describeBridgeShape(live.sidekicks).keys()].sort()).toStrictEqual(expected);
+      expect([...describeBridgeShape(live.desktopBridge).keys()].sort()).toStrictEqual(expected);
     }
   });
 
@@ -109,8 +109,8 @@ describe("the fixture bridge is shape-identical to the live bridge", () => {
     // The other vacuity arm: a describer that returned an empty member list for
     // every namespace would satisfy both tests above. Every namespace the contract
     // declares carries at least one member, so an empty one is a reading failure.
-    const shape: BridgeShape = describeBridgeShape(fixtureBridge().sidekicks);
-    for (const namespace of SIDEKICKS_BRIDGE_NAMESPACES) {
+    const shape: BridgeShape = describeBridgeShape(fixtureBridge().desktopBridge);
+    for (const namespace of DESKTOP_BRIDGE_NAMESPACES) {
       expect(shape.get(namespace)?.length ?? 0).toBeGreaterThan(0);
     }
   });
@@ -134,7 +134,7 @@ describe("the fixture bridge is shape-identical to the live bridge", () => {
   });
 
   it("negative control: rejects a bridge carrying an extra namespace", () => {
-    const perturbed: SidekicksBridge & { readonly telemetry?: unknown } = {
+    const perturbed: DesktopBridge & { readonly telemetry?: unknown } = {
       ...createStubBridge(),
       telemetry: { report: () => undefined },
     };
@@ -183,7 +183,7 @@ describe("the fixture bridge is shape-identical to the live bridge", () => {
     // console went on to call methods on it. The reading is `core/isWireRecord` now,
     // which rejects an array, and this is what fails if that is written by hand again.
     const installed = createStubBridge();
-    const [firstNamespace] = SIDEKICKS_BRIDGE_NAMESPACES;
+    const [firstNamespace] = DESKTOP_BRIDGE_NAMESPACES;
     expect(firstNamespace).toBeDefined();
     const arrayValued = { ...installed, [firstNamespace ?? "daemon"]: [] };
 

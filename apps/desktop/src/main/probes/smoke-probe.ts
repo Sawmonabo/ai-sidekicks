@@ -121,7 +121,7 @@ export async function runSmokeProbe(browserWindow: BrowserWindow, windowMs: numb
     (() => {
       const readLocalStorage = () => {
         try {
-          const probeKey = "__sidekicks_smoke_probe__";
+          const probeKey = "__console_smoke_probe__";
           window.localStorage.setItem(probeKey, "ok");
           const readBack = window.localStorage.getItem(probeKey);
           window.localStorage.removeItem(probeKey);
@@ -146,7 +146,7 @@ export async function runSmokeProbe(browserWindow: BrowserWindow, windowMs: numb
         });
       return rootChildren().then((childCount) =>
         JSON.stringify({
-          sidekicks: typeof window.sidekicks,
+          desktopBridge: typeof window.desktopBridge,
           require: typeof window.require,
           process: typeof window.process,
           global: typeof window.global,

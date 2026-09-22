@@ -1,6 +1,6 @@
 // The scaffolding all three `AgentBindingColumn` suites are driven with.
 //
-// The column has three subjects — attaching a sidekick, moving a live agent's
+// The column has three subjects — attaching an agent, moving a live agent's
 // binding, and detaching one — and one 677-line file held all three, which is two
 // jobs too many by this package's own rule. Splitting it left the daemon scripts, the
 // bridge, the roster fixtures, and the DOM queries needed by more than one of the
@@ -83,7 +83,7 @@ export class HeldAttachDaemon {
   readonly #heldReplies: ((reading: unknown) => void)[] = [];
 
   public readonly answer = async (method: string, params?: unknown): Promise<unknown> => {
-    if (method === "sidekick.definitionList") {
+    if (method === "agent.definitionList") {
       return [DEFINITION];
     }
     // The attach form's account axis is a registry axis, so opening the dialog opens
@@ -161,8 +161,8 @@ export function bridgeCalling(scriptedDaemon: ScriptedDaemon): ConsoleBridge {
     agentDetach: growthAnswering(
       async (request) => await scriptedDaemon.answer("agent.detach", request),
     ),
-    sidekickDefinitionList: growthAnswering(
-      async (request) => await scriptedDaemon.answer("sidekick.definitionList", request),
+    agentDefinitionList: growthAnswering(
+      async (request) => await scriptedDaemon.answer("agent.definitionList", request),
     ),
     orchestrationChildRunLinkRead: growthAnswering(
       async (request) => await scriptedDaemon.answer("orchestration.childRunLinkRead", request),
@@ -202,7 +202,7 @@ export class HeldBindingMoveDaemon {
     if (method === "driver.listCapabilities") {
       return DRIVER_CATALOG_FIXTURE.capabilities;
     }
-    if (method === "sidekick.definitionList") {
+    if (method === "agent.definitionList") {
       return [DEFINITION];
     }
     if (method === "agent.configUpdate") {

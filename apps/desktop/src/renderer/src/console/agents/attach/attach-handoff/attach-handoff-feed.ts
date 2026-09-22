@@ -18,8 +18,8 @@ import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
 import type { PushDrivenReadState } from "../../../seats/index.js";
-import type { SidekickDefinitionListReading } from "../../agent-wire.js";
-import type { AttachSidekickForm } from "../attach-model.js";
+import type { AgentDefinitionListReading } from "../../agent-wire.js";
+import type { AttachAgentForm } from "../attach-model.js";
 import { attachHandoffFor, type AttachHandoffOffer } from "./attach-handoff.js";
 
 /** What an offering surface holds: the standing offer, and the two acts on it. */
@@ -86,8 +86,8 @@ export function useAttachHandoff(bridge: ConsoleBridge): AttachHandoffControl {
 export function useAttachHandoffClaim(claim: {
   readonly bridge: ConsoleBridge | undefined;
   readonly sessionId: string | undefined;
-  readonly definitions: PushDrivenReadState<SidekickDefinitionListReading>;
-  readonly form: AttachSidekickForm;
+  readonly definitions: PushDrivenReadState<AgentDefinitionListReading>;
+  readonly form: AttachAgentForm;
   readonly onOpen: () => void;
 }): void {
   const { bridge, sessionId, definitions, form, onOpen } = claim;

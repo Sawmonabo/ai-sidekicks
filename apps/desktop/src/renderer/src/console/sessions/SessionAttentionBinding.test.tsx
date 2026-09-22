@@ -24,7 +24,7 @@ import { act, render } from "@testing-library/react";
 import { useMemo } from "react";
 import { describe, expect, it } from "vitest";
 
-import { SidekicksBridgeProvider } from "../bridge/index.js";
+import { DesktopBridgeProvider } from "../bridge/index.js";
 import { NO_TRANSPORT_RECONNECT } from "../core/index.js";
 // This family's own settle, rather than `core/`'s: the attention read goes through
 // the console's one refresh scheduler, so its first read lands a debounce interval
@@ -138,7 +138,7 @@ function harness(
     // Recorded rather than asserted on the shell: the claim is that a call LEFT this
     // window, and `showNotification` returns `void` on the real bridge too, so the
     // count of calls is the whole observable.
-    sidekicks: {
+    desktopBridge: {
       native: {
         showNotification: (notificationOptions: unknown) => {
           raisedNotifications.push(notificationOptions);
@@ -173,11 +173,11 @@ describe("the window's attention binding — the count outlives a destination", 
     const { bridge, context, frameStore } = harness();
 
     render(
-      <SidekicksBridgeProvider bridge={bridge as never}>
+      <DesktopBridgeProvider bridge={bridge as never}>
         <SessionAttentionBinding context={context}>
           <div>the sessions destination</div>
         </SessionAttentionBinding>
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
     await settle();
 
@@ -191,21 +191,21 @@ describe("the window's attention binding — the count outlives a destination", 
     const { bridge, context, frameStore } = harness();
 
     const mounted = render(
-      <SidekicksBridgeProvider bridge={bridge as never}>
+      <DesktopBridgeProvider bridge={bridge as never}>
         <SessionAttentionBinding context={context}>
           <div>the sessions destination</div>
         </SessionAttentionBinding>
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
     await settle();
     const beforeNavigation = railCount(frameStore);
 
     mounted.rerender(
-      <SidekicksBridgeProvider bridge={bridge as never}>
+      <DesktopBridgeProvider bridge={bridge as never}>
         <SessionAttentionBinding context={context}>
           <div>the workspace</div>
         </SessionAttentionBinding>
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
     await settle();
 
@@ -222,11 +222,11 @@ describe("the window's attention binding — the count outlives a destination", 
     const { bridge, context, frameStore } = harness();
 
     const mounted = render(
-      <SidekicksBridgeProvider bridge={bridge as never}>
+      <DesktopBridgeProvider bridge={bridge as never}>
         <SessionAttentionBinding context={context}>
           <div>the sessions destination</div>
         </SessionAttentionBinding>
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
     await settle();
     const whileHeld = railCount(frameStore);
@@ -246,11 +246,11 @@ describe("the window's attention binding — the count outlives a destination", 
     const { bridge, context, frameStore } = harness({ waitingSessionIds: [] });
 
     render(
-      <SidekicksBridgeProvider bridge={bridge as never}>
+      <DesktopBridgeProvider bridge={bridge as never}>
         <SessionAttentionBinding context={context}>
           <div>the sessions destination</div>
         </SessionAttentionBinding>
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
     await settle();
 
@@ -275,11 +275,11 @@ describe("the window's attention binding — the count outlives a destination", 
     frameStore.navigate({ kind: "settings", page: undefined });
 
     render(
-      <SidekicksBridgeProvider bridge={bridge as never}>
+      <DesktopBridgeProvider bridge={bridge as never}>
         <SessionAttentionBinding context={context}>
           <RetryOnDemand />
         </SessionAttentionBinding>
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
     await settle();
     // The baseline: the first settled read is the state of the world as this window
@@ -317,17 +317,17 @@ describe("the window's attention binding — the count outlives a destination", 
     }
 
     const mounted = render(
-      <SidekicksBridgeProvider bridge={bridge as never}>
+      <DesktopBridgeProvider bridge={bridge as never}>
         <DestinationHoldingTheRead />
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
     await settle();
     const whileMounted = railCount(frameStore);
 
     mounted.rerender(
-      <SidekicksBridgeProvider bridge={bridge as never}>
+      <DesktopBridgeProvider bridge={bridge as never}>
         <div>the workspace</div>
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
     await settle();
 

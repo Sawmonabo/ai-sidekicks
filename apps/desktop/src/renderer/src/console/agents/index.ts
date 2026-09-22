@@ -46,7 +46,7 @@
 // owners, which is the single fan-in `test/console/architecture/stylesheet-edges.test.ts`
 // admits.
 //
-// THE EIGHTH AT `definitions/sidekick-definitions-page-body.ts`, which is a root of its own
+// THE EIGHTH AT `definitions/agent-definitions-page-body.ts`, which is a root of its own
 // because the page it dresses is a SETTINGS section rather than a mount of this family's.
 // It sat here, imported beside a re-export of the page, while the settings registration
 // could take only a component — and the two together put a page nobody had opened, and the
@@ -79,8 +79,8 @@
 // measurement above: a door another family imports eagerly may not statically reach a
 // body that only a settings section mounts, or the boundary that defers it is one the
 // bundler resolves into the entry chunk. The page leaves as a CHUNK ROOT instead —
-// `definitions/sidekick-definitions-page-body.ts`, named by the loader in
-// `console/sidekicks-settings-page.ts` — which is a specifier and not a door line.
+// `definitions/agent-definitions-page-body.ts`, named by the loader in
+// `console/agents-settings-page.ts` — which is a specifier and not a door line.
 
 // TYPE-ONLY, BOTH OF THEM, which is what keeps the loader below a boundary rather than
 // a specifier the bundler resolves into the entry chunk: a type edge is erased before

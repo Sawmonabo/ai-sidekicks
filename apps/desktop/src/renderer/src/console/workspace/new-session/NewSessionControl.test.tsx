@@ -8,7 +8,7 @@
 // The send case is the load-bearing one. Exactly one of the three calls the draft's
 // coalesced send names is registered, so a real send lands `session.create` and then
 // says what it could not do. A control that reported that as a plain success would
-// be describing a session with no sidekicks and no first turn as a finished one.
+// be describing a session with no agents and no first turn as a finished one.
 //
 // And because that partial leaves the draft on screen with Send still pressable,
 // the last case here is the affordance half of the double-press guard: Send is

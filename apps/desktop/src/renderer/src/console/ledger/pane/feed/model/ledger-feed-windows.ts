@@ -105,7 +105,7 @@ export interface LedgerFeedWindowsInputs {
  */
 export interface LedgerFeedWindows {
   /**
-   * Whether this session's sidekicks may reach each other. Subscribed, not latched.
+   * Whether this session's agents may reach each other. Subscribed, not latched.
    *
    * `undefined` where nothing has been projected yet, which is a third state and not
    * a false: the empty window says something different about a session whose grant is
@@ -149,7 +149,7 @@ export interface LedgerFeedWindows {
 }
 
 export function useLedgerFeedWindows(inputs: LedgerFeedWindowsInputs): LedgerFeedWindows {
-  // WHY THE GRANT IS READ HERE. A session whose sidekicks may not reach each other
+  // WHY THE GRANT IS READ HERE. A session whose agents may not reach each other
   // produces no handoff row at all — every peer invocation is adjudicated per call
   // against this projected member and answers denied — so an empty log in such a
   // session is not the absence of activity it reads as. The empty window says so,

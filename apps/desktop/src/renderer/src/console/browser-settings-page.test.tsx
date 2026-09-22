@@ -41,7 +41,7 @@ import {
 } from "./settings/settings-page-mount.test-support.js";
 import { SettingsPageRegistry } from "./settings/settings-page-registry.js";
 import { ConsoleSurfaceRegistry, type ConsoleSurfaceContext } from "./seats/index.js";
-// The pending marker's reader by its own leaf specifier, on `sidekicks-settings-page`'s
+// The pending marker's reader by its own leaf specifier, on `agents-settings-page`'s
 // reason: the seats door publishes the ATTRIBUTE, which a producer needs, and not this
 // reader, whose consumers outside that directory are tests.
 import { pendingPaneBodiesIn } from "./seats/pane/pending-pane-body.js";
@@ -140,7 +140,7 @@ describe("the browser settings section", () => {
     //
     // SYNCHRONOUS, AND THAT IS THE CASE ITSELF — the reservation is the render that
     // happens before the import resolves, which is why the shared mount has a second,
-    // un-awaited half rather than an option on its first. `sidekicks-settings-page.test.tsx`
+    // un-awaited half rather than an option on its first. `agents-settings-page.test.tsx`
     // makes the same claim through the same door for the same reason.
     const container = mountReservedSettingsPage(
       "browser",

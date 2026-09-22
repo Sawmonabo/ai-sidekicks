@@ -107,7 +107,7 @@ const SESSION_METHOD_READ = "session.read";
 const SESSION_METHOD_SUBSCRIBE = "session.subscribe";
 
 /**
- * The sidekick-channel listing read. Daemon-only: the control-plane router
+ * The agent-channel listing read. Daemon-only: the control-plane router
  * mounts no procedure for it, so this name is never appended to a tRPC URL.
  */
 const CHANNEL_METHOD_LIST = "channel.list";

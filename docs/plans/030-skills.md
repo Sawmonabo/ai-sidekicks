@@ -21,8 +21,18 @@ When this plan is done, Skills is a working rail destination. One list shows eve
 - **No Commands view and no second registry.** The session composer's `/` and `$` list reads the registry this plan builds; it does not get a copy of it.
 - **No writing into a provider's own tree.** A new folder lands under the console's own tree only; a provider's folder is edited where it is, and no field of the console's is written into a file a provider owns.
 - **No tool-server work.** Tool servers are machine configuration and belong to their Settings page.
-- **No agent-definition work.** The definition record, its editor and the attach seam are [Plan-027](./027-agent-definitions-and-peer-invocation.md)'s. This plan publishes a skill reference for a definition to name and authors no Plan-027 file.
+- **No agent-definition work.** The definition record and its editor are [Plan-027](./027-agent-definitions-and-peer-invocation.md)'s. This plan publishes a skill reference for a definition to name and authors no Plan-027 file.
 - **No rail or routing ownership.** The icon rail and the routing module are Plan-021's files; this plan adds one destination arm to each and authors nothing else there.
+
+## Cross-Plan Obligations
+
+### CP-030-1 — Rail arm and routing arm in [Plan-021](./021-desktop-shell-and-renderer.md)-owned files
+
+The icon rail, `rail-navigation.ts` and the routing module are Plan-021's files. This destination needs one rail item, its place in the keyboard order, and one routing arm carrying its four addresses in them; nothing else about skills belongs there.
+
+**Resolution.** Plan-021 registers the reciprocal and admits this plan's one arm per file, the same way it admits every other plan-owned destination behind its shell. Plan-030 Phase 4 adds exactly those arms and edits nothing else in the three files, and gates on Plan-021 Phase 6 merged so the rail and the router exist before the arms land.
+
+**Why surfaced here.** The obligation originates entirely in this plan's destination, while the write lands in files one other plan owns — the case the corpus registers rather than leaves to a file comment.
 
 ## Target Areas
 

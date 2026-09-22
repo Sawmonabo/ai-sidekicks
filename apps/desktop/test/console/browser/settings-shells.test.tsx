@@ -29,7 +29,7 @@ import { pressKeys } from "../console-harness.js";
 import { crossMacrotaskBoundary } from "../../../src/renderer/src/console/core/macrotask-boundary.test-support.js";
 
 import {
-  SidekicksBridgeProvider,
+  DesktopBridgeProvider,
   createFixtureBridge,
 } from "../../../src/renderer/src/console/bridge/index.js";
 import { SETTINGS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenario/settings/settings.js";
@@ -156,11 +156,11 @@ describe("browser — the provider-account token field is write-only in the engi
   function renderRegistrationForm(): HTMLElement {
     const bridge = createFixtureBridge({ scenario: SETTINGS_SCENARIO });
     const { container } = render(
-      <SidekicksBridgeProvider bridge={bridge}>
+      <DesktopBridgeProvider bridge={bridge}>
         <LiveAnnouncerProvider>
           <TokenRegistrationForm bridge={bridge} />
         </LiveAnnouncerProvider>
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
     document.body.append(container);
     return container;

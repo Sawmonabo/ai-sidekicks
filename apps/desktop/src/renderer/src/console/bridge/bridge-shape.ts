@@ -1,8 +1,8 @@
 // The bridge's shape, read at runtime.
 //
-// The fixture bridge has to be shape-identical to `SidekicksBridge` namespace for
+// The fixture bridge has to be shape-identical to `DesktopBridge` namespace for
 // namespace. The type system carries most of that
-// claim already — both bridges ARE `SidekicksBridge`, so a namespace added to the
+// claim already — both bridges ARE `DesktopBridge`, so a namespace added to the
 // contract breaks the fixture at compile time — but not all of it. The live bridge
 // is an object graph handed across `contextBridge` by a preload this program does
 // not compile with, so on THAT side the interface is a claim about a value nobody
@@ -16,23 +16,23 @@
 // member is there and is a string where a function belongs", which is the shape a
 // half-installed preload actually arrives in.
 
-import type { SidekicksBridge } from "@ai-sidekicks/contracts";
+import type { DesktopBridge } from "@ai-sidekicks/contracts";
 
 /** One namespace name. The contract's own `keyof` — never a second spelling. */
-export type SidekicksBridgeNamespace = keyof SidekicksBridge;
+export type DesktopBridgeNamespace = keyof DesktopBridge;
 
 /**
  * Every namespace the contract declares, as a table rather than an array.
  *
  * The annotation is what makes this exhaustive in BOTH directions on a fresh object
- * literal: a namespace added to `SidekicksBridge` is a missing-property error here
+ * literal: a namespace added to `DesktopBridge` is a missing-property error here
  * until it is listed, and a name that is not on the contract is an excess-property
- * error. The array this replaced was a plain `readonly (keyof SidekicksBridge)[]`,
+ * error. The array this replaced was a plain `readonly (keyof DesktopBridge)[]`,
  * which type-checks each entry and counts none — so it would have gone on probing
  * the namespaces it was written against however many the contract grew, and the probe would have kept
  * answering yes to a bridge missing the seventh.
  */
-const BRIDGE_NAMESPACE_PRESENCE: Readonly<Record<SidekicksBridgeNamespace, true>> = {
+const BRIDGE_NAMESPACE_PRESENCE: Readonly<Record<DesktopBridgeNamespace, true>> = {
   daemon: true,
   controlPlane: true,
   native: true,
@@ -51,9 +51,9 @@ const BRIDGE_NAMESPACE_PRESENCE: Readonly<Record<SidekicksBridgeNamespace, true>
  * spelling the namespace names a second time, and a second spelling is the thing the
  * presence table above exists to prevent.
  */
-export const SIDEKICKS_BRIDGE_NAMESPACES: readonly SidekicksBridgeNamespace[] = Object.keys(
+export const DESKTOP_BRIDGE_NAMESPACES: readonly DesktopBridgeNamespace[] = Object.keys(
   BRIDGE_NAMESPACE_PRESENCE,
-) as SidekicksBridgeNamespace[];
+) as DesktopBridgeNamespace[];
 
 /** One bridge's runtime surface: namespace to `member: typeof` entries, sorted. */
 export type BridgeShape = ReadonlyMap<string, readonly string[]>;
@@ -72,11 +72,11 @@ export interface LabelledBridgeShape {
  * own keys are the whole surface, while walking the prototype chain would pick up
  * `Object`'s members and make every namespace look alike.
  *
- * Takes `SidekicksBridge` and not `unknown`: the callers hold typed bridges, and a
+ * Takes `DesktopBridge` and not `unknown`: the callers hold typed bridges, and a
  * parameter that accepted anything would invite this to become a validator. It
  * describes; deciding whether a description is acceptable belongs to the caller.
  */
-export function describeBridgeShape(bridge: SidekicksBridge): BridgeShape {
+export function describeBridgeShape(bridge: DesktopBridge): BridgeShape {
   const shape = new Map<string, readonly string[]>();
   for (const [namespace, namespaceValue] of Object.entries(bridge)) {
     shape.set(namespace, describeMembers(namespaceValue));

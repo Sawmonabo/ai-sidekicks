@@ -1,4 +1,4 @@
-// The carrier behind the sidekicks page, driven without a DOM.
+// The carrier behind the agent definitions page, driven without a DOM.
 //
 // The page's own file asserts what a person sees; this one asserts the state machine
 // underneath, because the property that matters here is about two calls in flight and
@@ -9,33 +9,25 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  SIDEKICK_REGISTRY_REFUSAL_ORIGIN,
-  SidekickRegistryView,
-} from "./definition-registry-view.js";
-import {
-  RegistryStub,
-  definition,
-  served,
-  settle,
-} from "./sidekick-definitions-page.test-support.js";
+import { AGENT_REGISTRY_REFUSAL_ORIGIN, AgentRegistryView } from "./definition-registry-view.js";
+import { RegistryStub, definition, served, settle } from "./agent-definitions-page.test-support.js";
 
 const REVIEWER = definition();
 const AUDITOR = definition({ definitionId: "definition-2", name: "Auditor" });
 
 /** A view over a registry holding both records, with every delete held open. */
 function viewOverHeldDeletes(): {
-  readonly view: SidekickRegistryView;
+  readonly view: AgentRegistryView;
   readonly stub: RegistryStub;
 } {
   const stub = new RegistryStub({
     lists: [served([REVIEWER, AUDITOR]), served([AUDITOR])],
     holdsDeletes: true,
   });
-  return { view: new SidekickRegistryView(stub.bridge()), stub };
+  return { view: new AgentRegistryView(stub.bridge()), stub };
 }
 
-describe("the sidekick registry view — one delete at a time", () => {
+describe("the agent registry view — one delete at a time", () => {
   it("asks the registry once, and tells the second row what is in the way", async () => {
     const { view, stub } = viewOverHeldDeletes();
     view.start();
@@ -48,7 +40,7 @@ describe("the sidekick registry view — one delete at a time", () => {
     expect(stub.deletedIds).toStrictEqual([REVIEWER.definitionId]);
     const refusal = view.snapshot().refusalByDefinitionId.get(AUDITOR.definitionId);
     expect(refusal?.code).toBe("delete-already-running");
-    expect(refusal?.origin).toBe(SIDEKICK_REGISTRY_REFUSAL_ORIGIN);
+    expect(refusal?.origin).toBe(AGENT_REGISTRY_REFUSAL_ORIGIN);
     expect(refusal?.detail).toContain("Another sidekick is being deleted");
     // The running delete is untouched: it still owns the lock and its row still
     // renders as the one going.
@@ -102,7 +94,7 @@ describe("the sidekick registry view — one delete at a time", () => {
     const stub = new RegistryStub({
       lists: [served([REVIEWER, AUDITOR]), served([AUDITOR]), served([])],
     });
-    const view = new SidekickRegistryView(stub.bridge());
+    const view = new AgentRegistryView(stub.bridge());
     view.start();
     await settle();
 

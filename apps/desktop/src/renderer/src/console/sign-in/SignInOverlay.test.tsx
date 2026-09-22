@@ -148,10 +148,10 @@ describe("the browser hand-off", () => {
     const base = createFixtureBridge({ scenario: ONBOARDING_SCENARIO });
     const watched: ConsoleBridge = {
       ...base,
-      sidekicks: {
-        ...base.sidekicks,
+      desktopBridge: {
+        ...base.desktopBridge,
         native: {
-          ...base.sidekicks.native,
+          ...base.desktopBridge.native,
           openExternal: async (url: string) => {
             opened.push(url);
           },

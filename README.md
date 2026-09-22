@@ -170,7 +170,7 @@ A short alias `sk` installs alongside it; if an unrelated `sk` is already on you
 | Language | TypeScript (daemon, CLI, desktop, contracts) |
 | Desktop Shell | Electron |
 | Desktop UI | React + Vite |
-| Local Database | SQLite (WAL mode, 59 tables) |
+| Local Database | SQLite (WAL mode, 67 tables) |
 | Shared Database | Postgres (26 tables) |
 | Auth | PASETO v4 (access + refresh), WebAuthn, DPoP |
 | Relay Encryption | X25519 + XChaCha20-Poly1305 (V1), MLS RFC 9420 (V2) |

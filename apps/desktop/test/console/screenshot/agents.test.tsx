@@ -54,7 +54,7 @@ import {
   mountAttachDialogOnDefinitionArm,
   mountProviderSwitchPendingSupersession,
   mountProviderSwitchSettlement,
-  mountSidekickDefinitionsPage,
+  mountAgentDefinitionsPage,
 } from "../surfaces/agents.js";
 import { captureSettled } from "./settled-capture.js";
 
@@ -89,9 +89,9 @@ const PINNED_SURFACES: readonly {
     mount: mountAgentConsolePane,
   },
   {
-    captureName: "agents-sidekick-definitions",
+    captureName: "agents-agent-definitions",
     schemes: CONSOLE_SCHEMES,
-    mount: mountSidekickDefinitionsPage,
+    mount: mountAgentDefinitionsPage,
   },
   {
     captureName: "agents-attach-dialog",

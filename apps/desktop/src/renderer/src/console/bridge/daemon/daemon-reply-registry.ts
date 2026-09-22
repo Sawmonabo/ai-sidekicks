@@ -1,7 +1,7 @@
 // Which daemon methods the console calls, and the registered shapes each one
 // carries in both directions.
 //
-// WHY A REGISTRY AND NOT A PARSE AT EACH CALL SITE. `SidekicksBridge.daemon.call`
+// WHY A REGISTRY AND NOT A PARSE AT EACH CALL SITE. `DesktopBridge.daemon.call`
 // is one generic door: a branded method name in, `unknown` out, until the daemon
 // lands its own method-to-result mapping. Every caller therefore has to widen the
 // signature and then narrow the reply, and a caller that widens and forgets to

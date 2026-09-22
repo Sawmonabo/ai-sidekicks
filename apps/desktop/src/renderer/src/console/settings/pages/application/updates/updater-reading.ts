@@ -32,7 +32,7 @@
 // a surface it has no business reaching — and would make its own test build a bridge
 // to exercise a race that has nothing to do with one.
 
-import type { SidekicksBridge, UpdateState } from "@ai-sidekicks/contracts";
+import type { DesktopBridge, UpdateState } from "@ai-sidekicks/contracts";
 
 import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../../../../core/index.js";
 import { consoleRefusalFrom } from "../../../../seats/index.js";
@@ -105,7 +105,7 @@ const OPENING_KEY = "open";
  * answer installs. The React binding lives in `UpdatesBlock.tsx` and holds nothing.
  */
 export class UpdaterReadingHolder {
-  readonly #updater: SidekicksBridge["update"];
+  readonly #updater: DesktopBridge["update"];
   readonly #changes = new Emitter<void>("updater reading change");
   #snapshot: UpdaterReadingSnapshot = NOTHING_READ;
   #release: (() => void) | undefined = undefined;
@@ -114,7 +114,7 @@ export class UpdaterReadingHolder {
   /** Reset per opening, because each opening subscribes afresh. */
   #hasObservedPush = false;
 
-  public constructor(updater: SidekicksBridge["update"]) {
+  public constructor(updater: DesktopBridge["update"]) {
     this.#updater = updater;
   }
 

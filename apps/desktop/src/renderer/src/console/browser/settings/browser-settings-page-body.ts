@@ -4,10 +4,10 @@
 // control's arming rounds are not on the initial import graph. The page is a SETTINGS
 // section: a person navigates to settings and then chooses a section, which is two acts
 // after the first paint — the registration question the package's import boundaries
-// ask, answered the way the sidekicks page beside it answers it.
+// ask, answered the way the agent definitions page beside it answers it.
 //
 // WHY THIS ROOT EXISTS AT ALL, RATHER THAN THE SETTINGS REGISTRATION NAMING THE FAMILY
-// DOOR. `agents/definitions/sidekick-definitions-page-body.ts` states the mechanism and
+// DOOR. `agents/definitions/agent-definitions-page-body.ts` states the mechanism and
 // this family is the second instance of it: `browser/index.ts` is imported EAGERLY by
 // `console/panes/index.ts`, which calls `registerBrowserPanes` to claim the deck's
 // `browser` kind — so the door is in the entry chunk by construction, and every symbol

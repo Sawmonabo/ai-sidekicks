@@ -7,7 +7,7 @@
 //   • main suite: existing `test/launch.smoke.test.ts` spawns a real Electron
 //     binary from a Node context — DOM/window globals would be wrong shape.
 //   • renderer suite: new `src/renderer/**/__tests__/**` exercises React
-//     components against `window.sidekicks` — needs a DOM environment.
+//     components against `window.desktopBridge` — needs a DOM environment.
 //
 // Vitest's `projects` API (stable in Vitest 3+, present in 4.1.5) lets us
 // declare both inside a single config so `pnpm test` runs them in one
@@ -17,7 +17,7 @@
 // Renderer-untrusted boundary note: happy-dom is a
 // pure-JS DOM shim with no Node-IPC capabilities; it does NOT punch a hole
 // in the renderer's process isolation at test time. The bridge surface
-// (`window.sidekicks`) is mocked per test (see SessionBootstrap.test.tsx)
+// (`window.desktopBridge`) is mocked per test (see SessionBootstrap.test.tsx)
 // rather than dispatched to the real preload — there is no `electron`
 // runtime in this test surface.
 //

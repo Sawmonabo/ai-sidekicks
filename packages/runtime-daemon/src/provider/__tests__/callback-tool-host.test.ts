@@ -802,13 +802,13 @@ describe("composeCallbackToolContentItems — the silent-loss guard", () => {
 describe("resolveRegisteredCallbackToolName — the provider-facing name map", () => {
   it("translates a mangled provider-facing name back to the registry name", () => {
     const registryNamesByProviderName = new Map([
-      ["mcp__sidekicks__search_workspace", SEARCH_TOOL.name],
+      ["mcp__sessions__search_workspace", SEARCH_TOOL.name],
     ]);
 
     expect(
       resolveRegisteredCallbackToolName(
         registryNamesByProviderName,
-        "mcp__sidekicks__search_workspace",
+        "mcp__sessions__search_workspace",
       ),
     ).toBe(SEARCH_TOOL.name);
   });

@@ -1,11 +1,11 @@
-// The live bridge: the ONLY module in the console that reads `window.sidekicks`.
+// The live bridge: the ONLY module in the console that reads `window.desktopBridge`.
 //
 // Everything above this file takes a `ConsoleBridge` from React context, which is
-// what makes the fixture substitutable at all. A single stray `window.sidekicks` in
+// what makes the fixture substitutable at all. A single stray `window.desktopBridge` in
 // a component would quietly make that component unrenderable under the fixture, and
 // nobody would notice until a screenshot run failed for an unrelated reason — so
 // the single-reader rule is a lint rule — `no-restricted-syntax` in
-// `apps/desktop/eslint.config.mjs` bans `window.sidekicks`, `globalThis.sidekicks`, and
+// `apps/desktop/eslint.config.mjs` bans `window.desktopBridge`, `globalThis.desktopBridge`, and
 // the cast form this file uses everywhere but here — while the claim that the two bridges
 // are the same SHAPE is a runtime one and is checked by `bridge-shape.test.ts` beside
 // this file.
@@ -16,10 +16,10 @@
 // the caller renders the "error" kind of nothing — a stated failure with a next
 // step — instead of a blank window.
 
-import type { SidekicksBridge } from "@ai-sidekicks/contracts";
+import type { DesktopBridge } from "@ai-sidekicks/contracts";
 import { isWireRecord } from "../core/index.js";
 import { createShellAuxiliaryWindowPort } from "./auxiliary-window-port.js";
-import { SIDEKICKS_BRIDGE_NAMESPACES } from "./bridge-shape.js";
+import { DESKTOP_BRIDGE_NAMESPACES } from "./bridge-shape.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 import { ShellConditionGate } from "./daemon/shell-condition-gate.js";
 import { createRefusingGrowthPort } from "./growth-port/index.js";
@@ -30,11 +30,11 @@ import {
 import { TransportReconnectSignal } from "./transport/transport-reconnect.js";
 
 /** The installed preload bridge, or `undefined` when the preload did not run. */
-export function readInstalledBridge(): SidekicksBridge | undefined {
+export function readInstalledBridge(): DesktopBridge | undefined {
   if (typeof window === "undefined") {
     return undefined;
   }
-  const candidate = (window as { sidekicks?: SidekicksBridge }).sidekicks;
+  const candidate = (window as { desktopBridge?: DesktopBridge }).desktopBridge;
   return isBridgeShaped(candidate) ? candidate : undefined;
 }
 
@@ -45,9 +45,9 @@ export function readInstalledBridge(): SidekicksBridge | undefined {
  * unregistered by definition, so each call resolves to a typed refusal the surface
  * renders as "not checked".
  */
-export function createLiveBridge(sidekicks: SidekicksBridge): ConsoleBridge {
+export function createLiveBridge(desktopBridge: DesktopBridge): ConsoleBridge {
   return {
-    sidekicks,
+    desktopBridge,
     growth: createRefusingGrowthPort(),
     // Empty, and built fresh rather than shared: a frozen module-level set would
     // be a singleton the console's own rules reject, and the allocation is one
@@ -59,14 +59,14 @@ export function createLiveBridge(sidekicks: SidekicksBridge): ConsoleBridge {
     // daemon is what authors the `runtime_node.*` lifecycle events. Neither is
     // refused here the way a growth operation is — both are on the wire.
     runtimeNodeRosterRead: async (request) =>
-      readRuntimeNodeRosterOverControlPlane(sidekicks, request),
+      readRuntimeNodeRosterOverControlPlane(desktopBridge, request),
     runtimeNodePresenceSubscribe: (sessionId, onPresenceChange) =>
-      subscribeRuntimeNodePresence(sidekicks, sessionId, onPresenceChange),
+      subscribeRuntimeNodePresence(desktopBridge, sessionId, onPresenceChange),
     // The auxiliary-window plane, over the preload namespace the shell serves. Not
     // refused the way a growth operation is, for the roster read's reason: this one
     // is on the wire, and a console that refused it would be declining to use a
     // handler its own main process has registered.
-    auxiliaryWindows: createShellAuxiliaryWindowPort(sidekicks),
+    auxiliaryWindows: createShellAuxiliaryWindowPort(desktopBridge),
     // No attention signal, and that is this bridge's honest answer rather than a
     // stub. The attention projection is a growth-slate wire, so the refusing port
     // above declines the read outright here — a signal that woke that read would be
@@ -101,7 +101,7 @@ export function createLiveBridge(sidekicks: SidekicksBridge): ConsoleBridge {
  * bridge missing entirely is a runtime state this function exists to name.
  *
  * The namespace list is `bridge-shape.ts`'s, not a second copy — that module holds
- * it as a table keyed by `keyof SidekicksBridge`, so a namespace added to the
+ * it as a table keyed by `keyof DesktopBridge`, so a namespace added to the
  * contract cannot slip past this probe unlisted.
  *
  * The record reading is `core/isWireRecord`, not a hand-written `typeof … === "object"`
@@ -110,9 +110,9 @@ export function createLiveBridge(sidekicks: SidekicksBridge): ConsoleBridge {
  * probe and the console went on to call methods on it. The shared predicate rejects one,
  * and it also narrows, so the cast the inner line carried is gone with it.
  */
-function isBridgeShaped(candidate: unknown): candidate is SidekicksBridge {
+function isBridgeShaped(candidate: unknown): candidate is DesktopBridge {
   if (!isWireRecord(candidate)) {
     return false;
   }
-  return SIDEKICKS_BRIDGE_NAMESPACES.every((namespace) => isWireRecord(candidate[namespace]));
+  return DESKTOP_BRIDGE_NAMESPACES.every((namespace) => isWireRecord(candidate[namespace]));
 }

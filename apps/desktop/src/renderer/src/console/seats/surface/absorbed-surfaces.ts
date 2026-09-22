@@ -30,7 +30,7 @@
 // than authored by any family in it.
 //
 // WHY ONE OF THE FIVE MOUNTS IS GUARDED ON THE BRIDGE SOURCE. The probe reads
-// `window.sidekicks` directly rather than taking a bridge from context, so the
+// `window.desktopBridge` directly rather than taking a bridge from context, so the
 // console's fixture cannot stand in for the preload the way it does for every
 // console-authored surface. Under the fixture it would reach past it: in a window
 // with no preload at all it throws into the surface boundary and reads as a crash,
@@ -224,7 +224,7 @@ export function renderAbsorbedAttachFlow(
  * One node's declared capability set, as the shipped view renders it.
  *
  * NO BRIDGE GUARD, AND THAT IS NOT AN EXEMPTION — the guard the probe mount above
- * carries exists because that component reads `window.sidekicks` itself, so the
+ * carries exists because that component reads `window.desktopBridge` itself, so the
  * console's fixture cannot stand in for a preload it never asks it for. This one reads
  * nothing: it takes the map as a prop and formats it. There is no window in which it
  * could reach past the console's bridge, because it reaches for no bridge at all.

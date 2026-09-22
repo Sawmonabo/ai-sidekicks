@@ -10,7 +10,7 @@
 // nothing outside it drives these hooks. It dies with the shell, exactly as the two
 // modules it serves do.
 
-import { SidekicksBridgeProvider } from "../../../bridge/index.js";
+import { DesktopBridgeProvider } from "../../../bridge/index.js";
 import {
   bridgeAnswering,
   type BridgeUnderTest,
@@ -60,6 +60,6 @@ export function callsTo(held: BridgeUnderTest, method: string): number {
 /** A wrapper mounting a hook under one bridge, which is what both hooks resolve. */
 export function inBridge(held: BridgeUnderTest) {
   return function BridgeWrapper(props: { readonly children: React.ReactNode }): React.JSX.Element {
-    return <SidekicksBridgeProvider bridge={held.bridge}>{props.children}</SidekicksBridgeProvider>;
+    return <DesktopBridgeProvider bridge={held.bridge}>{props.children}</DesktopBridgeProvider>;
   };
 }

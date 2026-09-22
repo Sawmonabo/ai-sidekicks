@@ -11,7 +11,7 @@
 import type { RepoMountReadResponse } from "@ai-sidekicks/contracts";
 import { act, render } from "@testing-library/react";
 
-import { SidekicksBridgeProvider, createFixtureBridge } from "../../../bridge/index.js";
+import { DesktopBridgeProvider, createFixtureBridge } from "../../../bridge/index.js";
 import {
   unscriptedScenario,
   withDaemonCall,
@@ -133,11 +133,11 @@ export async function renderSettledPage(reading: {
   // surface renders inside. The supplied bridge is the context's, so nothing about
   // what this case answers moves.
   const { container } = render(
-    <SidekicksBridgeProvider bridge={context.bridge}>
+    <DesktopBridgeProvider bridge={context.bridge}>
       <LiveAnnouncerProvider announcer={announcer}>
         <WorkspaceMountsPage context={context} />
       </LiveAnnouncerProvider>
-    </SidekicksBridgeProvider>,
+    </DesktopBridgeProvider>,
   );
   const settle = async (): Promise<void> => {
     await act(async () => {

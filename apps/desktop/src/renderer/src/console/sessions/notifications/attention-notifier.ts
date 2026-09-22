@@ -304,7 +304,7 @@ export function useAttentionNotifications(options: {
     // per item on the wire the blueprint names — so the day the options shape lands,
     // each of these calls is already the one that carries its own item's words.
     arrivals.forEach(() => {
-      bridge.sidekicks.native.showNotification({});
+      bridge.desktopBridge.native.showNotification({});
     });
   }, [bridge, frameStore, isWithheld, notifier, reading]);
 }

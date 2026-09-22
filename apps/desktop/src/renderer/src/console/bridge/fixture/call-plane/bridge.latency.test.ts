@@ -1,6 +1,6 @@
 // A scripted latency is spent on the fixture clock, and by nobody else.
 //
-// The second of the three places a fixture that matched `SidekicksBridge`'s SHAPE
+// The second of the three places a fixture that matched `DesktopBridge`'s SHAPE
 // still answered something the live bridge never would: a reply carrying `afterMs`
 // advanced the clock itself and resolved immediately, so the loading state it
 // exists to make reachable was never reachable, and merely issuing a request

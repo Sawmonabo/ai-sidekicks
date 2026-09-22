@@ -13,12 +13,12 @@ import { describe, expect, it } from "vitest";
 import type { OwnerSlotProps } from "../../seats/index.js";
 import {
   SIDEKICK_DEFINITION_RECORD_EDITOR_SLOT,
-  SidekickDefinitionRecordEditorMount,
-  type SidekickDefinitionRecordEditorBody,
-} from "./SidekickDefinitionRecordEditorMount.js";
+  AgentDefinitionRecordEditorMount,
+  type AgentDefinitionRecordEditorBody,
+} from "./AgentDefinitionRecordEditorMount.js";
 
 /** A seat whose body has arrived. Renders what it was handed, and nothing else. */
-const FILLED_SLOT: OwnerSlotProps<SidekickDefinitionRecordEditorBody> = {
+const FILLED_SLOT: OwnerSlotProps<AgentDefinitionRecordEditorBody> = {
   contract: SIDEKICK_DEFINITION_RECORD_EDITOR_SLOT.contract,
   body: (props) =>
     props.subject.kind === "stored" ? (
@@ -28,10 +28,10 @@ const FILLED_SLOT: OwnerSlotProps<SidekickDefinitionRecordEditorBody> = {
     ),
 };
 
-describe("the sidekick editor's seat — while no body has arrived", () => {
+describe("the agent-definition editor's seat — while no body has arrived", () => {
   it("states the absence rather than drawing a disabled form", () => {
     const { container } = render(
-      <SidekickDefinitionRecordEditorMount
+      <AgentDefinitionRecordEditorMount
         slot={SIDEKICK_DEFINITION_RECORD_EDITOR_SLOT}
         subject={{ kind: "stored", definitionId: "definition-7" }}
       />,
@@ -44,7 +44,7 @@ describe("the sidekick editor's seat — while no body has arrived", () => {
 
   it("says the same thing when nothing is selected at all", () => {
     const { container } = render(
-      <SidekickDefinitionRecordEditorMount
+      <AgentDefinitionRecordEditorMount
         slot={SIDEKICK_DEFINITION_RECORD_EDITOR_SLOT}
         subject={undefined}
       />,
@@ -57,7 +57,7 @@ describe("the sidekick editor's seat — while no body has arrived", () => {
     // and rendered the reservation unconditionally — which is exactly the mount
     // that will silently swallow the body on the day it lands.
     const { container } = render(
-      <SidekickDefinitionRecordEditorMount
+      <AgentDefinitionRecordEditorMount
         slot={FILLED_SLOT}
         subject={{ kind: "stored", definitionId: "definition-7" }}
       />,
@@ -66,10 +66,10 @@ describe("the sidekick editor's seat — while no body has arrived", () => {
   });
 });
 
-describe("the sidekick editor's seat — once a body has arrived", () => {
+describe("the agent-definition editor's seat — once a body has arrived", () => {
   it("hands the stored subject through untouched", () => {
     const { container } = render(
-      <SidekickDefinitionRecordEditorMount
+      <AgentDefinitionRecordEditorMount
         slot={FILLED_SLOT}
         subject={{ kind: "stored", definitionId: "definition-42" }}
       />,
@@ -81,7 +81,7 @@ describe("the sidekick editor's seat — once a body has arrived", () => {
     // The two arms are different acts behind different verbs; a mount that
     // collapsed them would hand the body an absence to infer from.
     const { container } = render(
-      <SidekickDefinitionRecordEditorMount slot={FILLED_SLOT} subject={{ kind: "new" }} />,
+      <AgentDefinitionRecordEditorMount slot={FILLED_SLOT} subject={{ kind: "new" }} />,
     );
     expect(container.textContent ?? "").toBe("composing a new one");
   });
@@ -90,19 +90,19 @@ describe("the sidekick editor's seat — once a body has arrived", () => {
     // Without this, the two cases above would pass over a mount that rendered the
     // body regardless — which would call it with a subject it does not have.
     const { container } = render(
-      <SidekickDefinitionRecordEditorMount slot={FILLED_SLOT} subject={undefined} />,
+      <AgentDefinitionRecordEditorMount slot={FILLED_SLOT} subject={undefined} />,
     );
     expect(container.textContent ?? "").toContain("has not been built here yet");
   });
 });
 
-describe("the sidekick editor's seat — what its contract may not do", () => {
+describe("the agent-definition editor's seat — what its contract may not do", () => {
   it("reaches no screen", () => {
     // The contract is developer-facing in terms (`seats/slots/owner-slot.ts`),
     // and every member of it names governance work, which a user never reads.
     const { contract } = SIDEKICK_DEFINITION_RECORD_EDITOR_SLOT;
     const { container } = render(
-      <SidekickDefinitionRecordEditorMount
+      <AgentDefinitionRecordEditorMount
         slot={SIDEKICK_DEFINITION_RECORD_EDITOR_SLOT}
         subject={undefined}
       />,
@@ -119,7 +119,7 @@ describe("the sidekick editor's seat — what its contract may not do", () => {
     // all — which is the failure it is meant to exclude, since an empty region and
     // a region that names no governance work are indistinguishable to `toContain`.
     const { container } = render(
-      <SidekickDefinitionRecordEditorMount
+      <AgentDefinitionRecordEditorMount
         slot={SIDEKICK_DEFINITION_RECORD_EDITOR_SLOT}
         subject={undefined}
       />,
@@ -136,7 +136,7 @@ describe("the sidekick editor's seat — what its contract may not do", () => {
     // strings carry no identifier is a tree-wide claim held in review, and is not
     // restated.
     const { contract } = SIDEKICK_DEFINITION_RECORD_EDITOR_SLOT;
-    expect(contract.owningTask).toContain("sidekick-definitions and peer-invocation plan");
+    expect(contract.owningTask).toContain("agent-definitions and peer-invocation plan");
     expect(contract.mountObligation.length).toBeGreaterThan(0);
     expect(contract.deleteShellIn.length).toBeGreaterThan(0);
   });

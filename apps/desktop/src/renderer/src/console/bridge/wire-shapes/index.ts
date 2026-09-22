@@ -1,7 +1,7 @@
 // The wire shapes the console declares for itself, because no code package carries
 // them.
 //
-// WHAT PUTS A MODULE HERE. The attention, sidekick-definition, and workflow planes
+// WHAT PUTS A MODULE HERE. The attention, agent-definition, and workflow planes
 // each register a namespace, and the payload contracts fix the
 // spellings; `packages/contracts` and the client SDK carry none of them. A surface
 // built against one of those wires would otherwise invent its shape inside a view
@@ -37,7 +37,7 @@ export type {
   PeerInvocationSetRequest,
 } from "./agent-plane.js";
 
-export type { SidekickDefinition, SidekickDefinitionDraft } from "./sidekick-definition.js";
+export type { AgentDefinition, AgentDefinitionDraft } from "./agent-definition.js";
 
 // The definition BODY shapes, published to this family and no further. What a sibling
 // takes is exactly this: the fixture's body table composes both read replies, and the

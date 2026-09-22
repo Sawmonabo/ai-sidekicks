@@ -17,7 +17,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import type { ProviderAccount } from "@ai-sidekicks/contracts";
 
 import {
-  SidekicksBridgeProvider,
+  DesktopBridgeProvider,
   createFixtureBridge,
   type ConsoleBridge,
 } from "../../../../bridge/index.js";
@@ -42,11 +42,11 @@ export function fixtureBridge(): ConsoleBridge {
 /** Mount the shell under the two providers every console surface renders inside. */
 export function renderShell(bridge: ConsoleBridge): HTMLElement {
   const { container } = render(
-    <SidekicksBridgeProvider bridge={bridge}>
+    <DesktopBridgeProvider bridge={bridge}>
       <LiveAnnouncerProvider>
         <AccountsShell bridge={bridge} />
       </LiveAnnouncerProvider>
-    </SidekicksBridgeProvider>,
+    </DesktopBridgeProvider>,
   );
   return container;
 }

@@ -50,6 +50,7 @@ This spec covers in-app attention state, desktop notifications, cross-device not
 - There is one count, not several. The figure the in-app bell carries and the figure on the application icon are the same read of the same projection, so the two can never disagree, and the bell is the only badge the console draws on screen.
 - Every attention moment carries an identity of its own, so a later state for the same subject replaces what was already posted for it instead of standing a second notice beside it.
 - Losing the connection to the local daemon is not attention. It raises no entry, no count, and no notification, because nothing is waiting on a person to decide; it is a health reading instead ([Spec-018 §Required Behavior](018-observability-and-failure-recovery.md#required-behavior)).
+- A session in an exchange with another session is not waiting on the person either. The exchange line its row carries while the two are trading messages is never an attention entry, never reaches the count, and never reaches the bell: two sessions working on each other's behalf is work going on, not a decision anyone is being asked for ([Spec-014 §Sessions Talking To Each Other](014-multi-agent-channels-and-orchestration.md#sessions-talking-to-each-other)).
 
 ## Default Behavior
 

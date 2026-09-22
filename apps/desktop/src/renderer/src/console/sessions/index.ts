@@ -52,7 +52,7 @@ export function registerSessionsSurface(
       createElement(SessionsSurface, {
         context,
         // NOT behind the absorbed mount's bridge-source guard, and that is the
-        // difference between the two controls: the probe reaches `window.sidekicks`
+        // difference between the two controls: the probe reaches `window.desktopBridge`
         // directly, so the fixture cannot stand in for it, while the composed draft is
         // console-authored and takes the bridge it is handed. It runs on the fixture
         // exactly as it runs on the live preload.

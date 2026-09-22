@@ -31,7 +31,7 @@ import { type PaneKind } from "../../seats/index.js";
  * act: a renderer with no Electron main process underneath — browser-mode vitest, a
  * window whose preload never ran — has nothing that can open a window, and no retry
  * changes that. It is deliberately not folded into `wire-unregistered`, which now
- * says something false: `SidekicksBridge.window` IS registered and the shell serves
+ * says something false: `DesktopBridge.window` IS registered and the shell serves
  * it, so a person told the wire is missing would go looking for a wire that is there.
  *
  * Two members are not an act being refused: nothing was asked for and nothing was

@@ -2139,9 +2139,9 @@ describe("composeClaudeCallbackMcpServer", () => {
     ]);
 
     expect(composeClaudeProviderToolName(descriptor.serverName, "search_workspace")).toBe(
-      "mcp__sidekicks__search_workspace",
+      "mcp__sessions__search_workspace",
     );
-    expect(descriptor.registryNamesByProviderName.get("mcp__sidekicks__search_workspace")).toBe(
+    expect(descriptor.registryNamesByProviderName.get("mcp__sessions__search_workspace")).toBe(
       "search_workspace",
     );
   });

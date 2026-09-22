@@ -1,4 +1,4 @@
-// The fixture bridge: a real `SidekicksBridge` backed by a scripted scenario.
+// The fixture bridge: a real `DesktopBridge` backed by a scripted scenario.
 //
 // Every method here is the fixture's answer to a method the preload contract
 // declares. Nothing is stubbed away — a method the scenario scripts no reply for
@@ -32,7 +32,7 @@ import type {
   DaemonMethod,
   DaemonParams,
   DaemonResult,
-  SidekicksBridge,
+  DesktopBridge,
   Unsubscribe,
   UpdateState,
 } from "@ai-sidekicks/contracts";
@@ -60,7 +60,7 @@ import { ScenarioEngine } from "../../scenario/runtime/index.js";
 import type { ConsoleScenario } from "../../scenario/runtime/index.js";
 
 /** Fixed `app` meta, so a baseline screenshot does not move with the machine. */
-export const FIXTURE_APP_META: SidekicksBridge["app"] = {
+export const FIXTURE_APP_META: DesktopBridge["app"] = {
   version: "0.0.0-fixture",
   platform: "darwin",
   arch: "arm64",
@@ -91,7 +91,7 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
   // Read ONCE and handed to both the namespace and the port below, so a fixture
   // window cannot be on the shell arm for one and the no-shell arm for the other.
   const shell = readFixtureShell();
-  const sidekicks: SidekicksBridge = {
+  const desktopBridge: DesktopBridge = {
     daemon: {
       // `DaemonResult<M>` is a stub that resolves to `unknown`, so the assertion
       // narrows nothing today; it is here so that when the daemon lands the real
@@ -194,7 +194,7 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
   };
 
   return {
-    sidekicks,
+    desktopBridge,
     // The port and the set that says what it serves are built together, from one
     // declaration, so a bridge cannot publish a served set its port does not
     // honour. An injectable port used to sit here and nothing ever passed one;
@@ -212,7 +212,7 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
     runtimeNodeRosterRead: async (request) =>
       readRuntimeNodeRosterFromScenario(scenarioEngine, request),
     runtimeNodePresenceSubscribe: (sessionId, onPresenceChange) =>
-      subscribeRuntimeNodePresence(sidekicks, sessionId, onPresenceChange),
+      subscribeRuntimeNodePresence(desktopBridge, sessionId, onPresenceChange),
     // The plane, on whichever arm this build is: the installed shell's own handler
     // where an Electron main process is underneath, and the typed `shell-absent`
     // refusal where none is. `../shell/auxiliary-windows.ts` states both.
@@ -248,7 +248,7 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
 /**
  * The `window` namespace a fixture with no shell underneath carries.
  *
- * Present because the fixture is shape-identical to `SidekicksBridge` namespace for
+ * Present because the fixture is shape-identical to `DesktopBridge` namespace for
  * namespace, and refusing because there is no process here that could
  * open a window. Nothing in the console calls it — every console reader goes through
  * `ConsoleBridge.auxiliaryWindows`, which answers the same absence as a typed

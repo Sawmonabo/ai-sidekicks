@@ -12,8 +12,8 @@
 // THE FAMILY'S SEVEN CONSOLE SHEETS ENTER HERE AND AT THE SURFACE ROOT BESIDE THIS ONE.
 // Either mount can be the first to render `AgentConsoleBody`, and neither may render it
 // undressed, so both roots name the sheets and the bundler emits one shared asset for
-// the pair. The eighth sheet — the sidekicks page's — enters at its own chunk root,
-// `definitions/sidekick-definitions-page-body.ts`, whose header states why. The move is
+// the pair. The eighth sheet — the agent definitions page's — enters at its own chunk root,
+// `definitions/agent-definitions-page-body.ts`, whose header states why. The move is
 // admitted by the module-shape collision rule in `apps/desktop/AGENTS.md`: no other
 // family declares a class any of these seven declares, so deferring them changes no
 // surface but this family's own.
@@ -37,7 +37,7 @@ import { createElement } from "react";
 import { AgentConsoleBody } from "./AgentConsoleBody.js";
 import { settingsRoute } from "../../routing/index.js";
 import { ConsolePaneChrome, paneBodyForKind, type ConsolePaneContext } from "../../seats/index.js";
-import { SIDEKICK_DEFINITIONS_SECTION } from "../sidekick-definitions-section.js";
+import { AGENT_DEFINITIONS_SECTION } from "../agent-definitions-section.js";
 
 /**
  * The agent console, wearing the console's chrome, at an address the deck resolved.
@@ -78,7 +78,7 @@ export const Body: (context: ConsolePaneContext) => React.ReactNode = paneBodyFo
         // read one string. The auxiliary window's root beside this one composes
         // none: it has no rail to reach.
         onOpenDefinitions: () => {
-          context.frameStore.navigate(settingsRoute(SIDEKICK_DEFINITIONS_SECTION, undefined));
+          context.frameStore.navigate(settingsRoute(AGENT_DEFINITIONS_SECTION, undefined));
         },
       }),
     }),

@@ -36,7 +36,7 @@
 //   • **The snapshot fold** → the subclass, over {@link ScheduledReading.publish}. The
 //     base holds the value and hands out a new identity; whether a transition is a
 //     whole replacement (`CallerUserRead`, `StoreStateRead`) or a revisioned
-//     partial (`CostReceiptRead`, `SidekickRegistryView`, `BrowserSettingsView`) is a
+//     partial (`CostReceiptRead`, `AgentRegistryView`, `BrowserSettingsView`) is a
 //     property of the SNAPSHOT TYPE, and a base that folded for both would have to
 //     require a `revision` member of readings that have none.
 //   • **The initial snapshot** → `initialSnapshot` on the options, constructor-supplied.
@@ -114,7 +114,7 @@ export interface ScheduledReadingOptions<TSnapshot> {
   readonly initialSnapshot: TSnapshot;
   /**
    * What is being emitted, for `Emitter`'s aggregate failure message — "cost receipt
-   * read change", "sidekick registry change". A message that names the stream is the
+   * read change", "agent registry change". A message that names the stream is the
    * difference between a debuggable failure and a stack trace in a `Set` loop.
    */
   readonly describeChange: string;

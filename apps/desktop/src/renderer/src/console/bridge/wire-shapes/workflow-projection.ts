@@ -8,7 +8,7 @@
 // spellings.
 //
 // WHY THE CONSOLE DECLARES IT AT ALL. None of it is registered in any code package:
-// there is no `workflow` root in the daemon method union, no `SidekicksBridge`
+// there is no `workflow` root in the daemon method union, no `DesktopBridge`
 // namespace naming one, and no phase or run type anywhere under `packages/`. A run
 // pane or a builder built against a shape that exists nowhere would have to invent
 // it inside a view family, which is what the growth slate exists to prevent — so the

@@ -25,38 +25,38 @@
 import { render, screen } from "@testing-library/react";
 
 import { NotImplementedError } from "@ai-sidekicks/contracts";
-import type { SidekicksBridge } from "@ai-sidekicks/contracts";
+import type { DesktopBridge } from "@ai-sidekicks/contracts";
 
 import { SessionBootstrap, type SessionBootstrapProps } from "../SessionBootstrap.js";
 
-// Type-augmentation echo: the renderer-wide `sidekicks-bridge.d.ts` declares
-// `window.sidekicks` in a `declare global` block. This test file is
+// Type-augmentation echo: the renderer-wide `desktop-bridge.d.ts` declares
+// `window.desktopBridge` in a `declare global` block. This test file is
 // typechecked by `src/renderer/tsconfig.test.json`, which pulls that ambient
 // `.d.ts` into its program via its `"src/**/*.d.ts"` glob — NOT via the
 // production `tsconfig.json`'s `include: ["**/*"]`, because TS `extends`
 // replaces (does not merge) `include`, so the test config does not inherit the
 // production include set. With the glob in place the test sees
-// `window.sidekicks` as `SidekicksBridge`-typed.
+// `window.desktopBridge` as `DesktopBridge`-typed.
 
 function installMockBridge(call: ReturnType<typeof vi.fn>): void {
   // Build the minimum bridge surface SessionBootstrap touches. The component
-  // only reads `window.sidekicks.daemon.call`; mocking the other five
+  // only reads `window.desktopBridge.daemon.call`; mocking the other five
   // capability groups is unnecessary scaffolding. We cast through `unknown`
   // because the partial shape isn't structurally assignable to the full
-  // `SidekicksBridge` (which requires `controlPlane`, `native`, `webAuthn`,
+  // `DesktopBridge` (which requires `controlPlane`, `native`, `webAuthn`,
   // `update`, `app`).
   const bridge: { daemon: { call: typeof call } } = { daemon: { call } };
-  (window as unknown as { sidekicks: SidekicksBridge }).sidekicks =
-    bridge as unknown as SidekicksBridge;
+  (window as unknown as { desktopBridge: DesktopBridge }).desktopBridge =
+    bridge as unknown as DesktopBridge;
 }
 
 describe("SessionBootstrap", () => {
   afterEach(() => {
     // RTL auto-cleanup runs because `vitest/globals: true` lets
     // `@testing-library/react@^16` register its `afterEach` hook. We still
-    // reset `window.sidekicks` manually so cross-test bridge state never
+    // reset `window.desktopBridge` manually so cross-test bridge state never
     // leaks into a sibling test's render tree.
-    delete (window as unknown as { sidekicks?: SidekicksBridge }).sidekicks;
+    delete (window as unknown as { desktopBridge?: DesktopBridge }).desktopBridge;
     vi.clearAllMocks();
   });
 
@@ -116,7 +116,7 @@ describe("SessionBootstrap", () => {
     // The component renders `<name>: <message>`. Both substrings must
     // appear in the rendered text.
     expect(errorBanner.textContent).toContain("NotImplementedError");
-    expect(errorBanner.textContent).toContain("SidekicksBridge.session.create is not implemented");
+    expect(errorBanner.textContent).toContain("DesktopBridge.session.create is not implemented");
   });
 
   it("renders the error envelope when the bridge throws synchronously", async () => {

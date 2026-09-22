@@ -285,7 +285,7 @@ describe("run linkage — refusals, the only record work asked for and denied ge
         parentRunId="run-1"
         state={loaded({
           links: [],
-          rejectedCreates: [{ reason: "sidekick.not_found", targetAgentId: "agent-ghost" }],
+          rejectedCreates: [{ reason: "agent.not_found", targetAgentId: "agent-ghost" }],
         })}
       />,
     );

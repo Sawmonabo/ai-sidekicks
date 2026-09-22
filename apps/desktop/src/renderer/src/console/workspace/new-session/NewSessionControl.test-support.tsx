@@ -110,7 +110,7 @@ export interface QueuedCreates {
  * is scripted only where a case needs a send to complete.
  *
  * The fixture bridge rather than a hand-written stub: the draft calls through
- * `bridge.sidekicks.daemon.call`, and a stub of that member would be a second
+ * `bridge.desktopBridge.daemon.call`, and a stub of that member would be a second
  * implementation of the one door this family's tests already have.
  */
 export function bridgeFor(options: {

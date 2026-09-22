@@ -1,10 +1,10 @@
-// The sidekick-definition editor's seat: chrome here, body elsewhere.
+// The agent-definition editor's seat: chrome here, body elsewhere.
 //
 // WHY THIS IS A MODULE AND NOT A DECLARATION IN THE FAMILY DOOR, which is where it
 // was. The one surface that mounts it — the agent console — is inside this family, so
 // a mount reaching the door for it would close a cycle the moment the door published
 // the console's own registrars: `index.ts` → `agent-console/agent-console-mounts.ts`
-// → `AgentConsoleBody.tsx` → `SidekickDefinitionEditorMount.tsx` → `index.ts`, which
+// → `AgentConsoleBody.tsx` → `AgentDefinitionEditorMount.tsx` → `index.ts`, which
 // `no-circular` fails. A door that DECLARES rather than re-exports is what makes an
 // intra-family consumer unable to reach the symbol deeply, so the declaration moved to
 // a module of its own — reached deeply from inside this family, and named on the door
@@ -19,32 +19,30 @@
 
 import type { OwnerSlotProps } from "../seats/index.js";
 
-/** What the sidekick-definition editor is handed when its body arrives. */
-export interface SidekickDefinitionEditorProps {
+/** What the agent-definition editor is handed when its body arrives. */
+export interface AgentDefinitionEditorProps {
   /** The agent whose definition is being edited, wire-verbatim. */
   readonly agentId: string;
 }
 
 /** The editor body, as a render function — the shape every seat in this tree uses. */
-export type SidekickDefinitionEditorBody = (
-  props: SidekickDefinitionEditorProps,
-) => React.ReactNode;
+export type AgentDefinitionEditorBody = (props: AgentDefinitionEditorProps) => React.ReactNode;
 
 /**
- * The sidekick-definition editor: chrome here, body elsewhere.
+ * The agent-definition editor: chrome here, body elsewhere.
  *
  * `body` is `undefined` and this console does not author one. The mounting surface
  * renders its own reserved-not-stubbed treatment; the contract's three members are
  * developer-facing and reach no screen.
  */
-export const SIDEKICK_DEFINITION_EDITOR_SLOT: OwnerSlotProps<SidekickDefinitionEditorBody> = {
+export const SIDEKICK_DEFINITION_EDITOR_SLOT: OwnerSlotProps<AgentDefinitionEditorBody> = {
   contract: {
     // The owning work is named by its SUBJECT, on the `workflows/owner-slots.ts`
     // precedent: every member here is a runtime string in a shipped module. The
-    // sidekick-definition registry and its editor body belong to the peer-invocation
+    // agent-definition registry and its editor body belong to the peer-invocation
     // work; this console only mounts the body.
     owningTask:
-      "the sidekick-definitions and peer-invocation plan's own editor body, mounted through this console's editor obligation",
+      "the agent-definitions and peer-invocation plan's own editor body, mounted through this console's editor obligation",
     mountObligation:
       "a bounded region inside the agent console, the agent id the pane is scoped to, and nothing else; the body owns the definition read, every field, and every refusal",
     deleteShellIn: "the editor task that fills this slot",

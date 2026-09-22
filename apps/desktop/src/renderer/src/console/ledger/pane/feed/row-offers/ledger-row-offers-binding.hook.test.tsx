@@ -13,7 +13,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { SidekicksBridgeProvider, createFixtureBridge } from "../../../../bridge/index.js";
+import { DesktopBridgeProvider, createFixtureBridge } from "../../../../bridge/index.js";
 import { FIRST_RUN_SCENARIO } from "../../../../bridge/scenario/first-run.js";
 import { sampleGeneralRow } from "../../../cards/row-samples.test-support.js";
 import {
@@ -65,14 +65,14 @@ describe("the hook that holds a window's row offers", () => {
 
     const bridge = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
     const { rerender } = render(
-      <SidekicksBridgeProvider bridge={bridge}>
+      <DesktopBridgeProvider bridge={bridge}>
         <BindingIdentityProbe generation={1} />
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
     rerender(
-      <SidekicksBridgeProvider bridge={bridge}>
+      <DesktopBridgeProvider bridge={bridge}>
         <BindingIdentityProbe generation={2} />
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
 
     expect(bindings.length).toBeGreaterThan(1);
@@ -99,15 +99,15 @@ describe("the hook that holds a window's row offers", () => {
 
     const bridge = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
     const { rerender } = render(
-      <SidekicksBridgeProvider bridge={bridge}>
+      <DesktopBridgeProvider bridge={bridge}>
         <CommittedSurfacesProbe generation={1} />
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
     act(() => {
       rerender(
-        <SidekicksBridgeProvider bridge={bridge}>
+        <DesktopBridgeProvider bridge={bridge}>
           <CommittedSurfacesProbe generation={2} />
-        </SidekicksBridgeProvider>,
+        </DesktopBridgeProvider>,
       );
     });
 
@@ -121,10 +121,10 @@ describe("the hook that holds a window's row offers", () => {
     const bridge = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
     const instrumented = {
       ...bridge,
-      sidekicks: {
-        ...bridge.sidekicks,
+      desktopBridge: {
+        ...bridge.desktopBridge,
         native: {
-          ...bridge.sidekicks.native,
+          ...bridge.desktopBridge.native,
           copyToClipboard: async (text: string) => {
             copied.push(text);
           },
@@ -142,9 +142,9 @@ describe("the hook that holds a window's row offers", () => {
     }
 
     render(
-      <SidekicksBridgeProvider bridge={instrumented}>
+      <DesktopBridgeProvider bridge={instrumented}>
         <ProviderBridgeProbe />
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
 
     press(binding, "copy-row-id");

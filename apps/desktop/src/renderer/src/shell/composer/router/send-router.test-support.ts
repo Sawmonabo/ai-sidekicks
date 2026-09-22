@@ -98,7 +98,7 @@ export type DaemonCallMock = Mock & ((method: string, params: unknown) => Promis
  *
  * A spread over the family's own fixture through `withDaemonCall`, rather than an
  * object cast to the bridge type. What is under test here is that the router reaches
- * the wire through `bridge.sidekicks.daemon.call` and nothing else — and a case
+ * the wire through `bridge.desktopBridge.daemon.call` and nothing else — and a case
  * passing against a hand-built literal would not have proved it reached a bridge at
  * all, only that it called the one member the literal happened to carry.
  *

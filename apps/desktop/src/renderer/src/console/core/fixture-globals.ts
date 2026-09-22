@@ -25,13 +25,13 @@
 // reachable from all four.
 
 /** The property a fixture build hangs the tripwire registry on. */
-export const TRIPWIRE_FIXTURE_GLOBAL = "__sidekicksConsoleTripwires__";
+export const TRIPWIRE_FIXTURE_GLOBAL = "__consoleTripwires__";
 
 /** The property a fixture build hangs the running scenario's control on. */
-export const SCENARIO_FIXTURE_GLOBAL = "__sidekicksConsoleScenario__";
+export const SCENARIO_FIXTURE_GLOBAL = "__consoleScenario__";
 
 /** The property a fixture build hangs the session-store diagnostics on. */
-export const SESSION_DIAGNOSTICS_FIXTURE_GLOBAL = "__sidekicksConsoleSessions__";
+export const SESSION_DIAGNOSTICS_FIXTURE_GLOBAL = "__consoleSessions__";
 
 /**
  * Every fixture global. Closed — adding one is a deliberate edit to this tuple.

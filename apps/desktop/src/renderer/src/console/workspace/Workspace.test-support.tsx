@@ -12,11 +12,7 @@ import { useContext } from "react";
 import { expect } from "vitest";
 
 import { DECK_RESTORED_PANE_CAP, MAXIMUM_LIVE_DRAFT_COUNT } from "../core/index.js";
-import {
-  SidekicksBridgeProvider,
-  createFixtureBridge,
-  type ConsoleBridge,
-} from "../bridge/index.js";
+import { DesktopBridgeProvider, createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
 import type { ConsoleScenario } from "../bridge/scenario/runtime/vocabulary.js";
 import type { StoredRecord } from "../persistence/adapter.js";
 import { DraftStore, UiStateStore } from "../persistence/index.js";
@@ -246,7 +242,7 @@ export function underWindowProviders(
   surface: React.JSX.Element,
 ): React.JSX.Element {
   return (
-    <SidekicksBridgeProvider bridge={bridge}>
+    <DesktopBridgeProvider bridge={bridge}>
       <LiveAnnouncerProvider>
         <DetachedPaneBinding
           context={{
@@ -262,7 +258,7 @@ export function underWindowProviders(
           {surface}
         </DetachedPaneBinding>
       </LiveAnnouncerProvider>
-    </SidekicksBridgeProvider>
+    </DesktopBridgeProvider>
   );
 }
 

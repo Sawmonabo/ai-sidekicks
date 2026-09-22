@@ -34,7 +34,7 @@ import { StrictMode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  SidekicksBridgeProvider,
+  DesktopBridgeProvider,
   consoleClockFor,
   createFixtureBridge,
   useConsoleBridge,
@@ -83,9 +83,9 @@ async function mountProbe(strict: boolean): Promise<{
   // the provider outside it the probe rendered twice and its effect ran once, and
   // the double mount this file exists to drive never happened.
   const tree = (
-    <SidekicksBridgeProvider bridge={createFixtureBridge({ scenario: FLAGSHIP_SCENARIO })}>
+    <DesktopBridgeProvider bridge={createFixtureBridge({ scenario: FLAGSHIP_SCENARIO })}>
       <StoreProbe onStore={record} />
-    </SidekicksBridgeProvider>
+    </DesktopBridgeProvider>
   );
   let mounted: ReturnType<typeof render> | undefined;
   await act(async () => {
@@ -207,9 +207,9 @@ function mountSwappable(bridge: ConsoleBridge): {
     observed.push(observation);
   };
   const hostFor = (against: ConsoleBridge): React.JSX.Element => (
-    <SidekicksBridgeProvider bridge={against}>
+    <DesktopBridgeProvider bridge={against}>
       <PairProbe onObserve={record} />
-    </SidekicksBridgeProvider>
+    </DesktopBridgeProvider>
   );
   const mounted = render(hostFor(bridge));
   return {

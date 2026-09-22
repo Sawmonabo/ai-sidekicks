@@ -2,7 +2,7 @@
 //
 // WHY THIS MODULE HOLDS NO BODY, AND WHY IT SITS AT THE CONSOLE ROOT
 //
-// `sidekicks-settings-page.ts` beside it carries the reasoning in full and this file
+// `agents-settings-page.ts` beside it carries the reasoning in full and this file
 // is the same shape: chapter 13.16 puts the browser's two node-wide switches and its
 // site-data table in SETTINGS, while the surface that renders them is the browser
 // family's — its subject is the browser, which is that family's vocabulary. Naming two
@@ -25,7 +25,7 @@
 // So the specifier below names a module the eager graph does not reach —
 // `./browser/settings/browser-settings-page-body.js`, the page's own chunk root, which
 // owns the sheet that dresses it. That it is a deep path is not this file bending the
-// door rule, for the reason `sidekicks-settings-page.ts` states: a chunk root is not a
+// door rule, for the reason `agents-settings-page.ts` states: a chunk root is not a
 // symbol a barrel can publish, and `console-cross-family-deep-import` is scoped to
 // importers inside a family directory — a composition site directly under `console/`,
 // which this file is, is not one of them.

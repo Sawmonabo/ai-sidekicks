@@ -177,11 +177,13 @@ export function SignInOverlay(props: SignInOverlayProps): React.JSX.Element {
             // Its rejection is deliberately not rendered separately: the wait
             // below settles into whatever the ceremony reports, and a person who
             // saw no browser open has the address and the code on screen already.
-            void bridge.sidekicks.native.openExternal(state.handoff.verificationUri).catch(() => {
-              // Swallowed on purpose, and only here: nothing about this window's
-              // state depends on whether the OS had a browser to hand, and the
-              // ceremony's own settlement is what the card renders next.
-            });
+            void bridge.desktopBridge.native
+              .openExternal(state.handoff.verificationUri)
+              .catch(() => {
+                // Swallowed on purpose, and only here: nothing about this window's
+                // state depends on whether the OS had a browser to hand, and the
+                // ceremony's own settlement is what the card renders next.
+              });
             void flow.awaitDeviceGrant();
           },
           onDismissRefusal: () => {

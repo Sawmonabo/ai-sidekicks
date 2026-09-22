@@ -74,7 +74,7 @@ export interface LedgerViewportProps {
    * The session's projected peer-invocation grant, where the read reported one.
    *
    * Read by the empty window and by nothing else here: a session that cannot let its
-   * sidekicks reach each other cannot hold a handoff row, and an empty log that does
+   * agents reach each other cannot hold a handoff row, and an empty log that does
    * not say so reads as an absence of activity. `undefined` is the reply not carrying
    * the member, which is not the same as off and renders the ordinary sentence.
    */

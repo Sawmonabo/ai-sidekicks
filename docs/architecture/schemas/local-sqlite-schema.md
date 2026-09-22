@@ -140,6 +140,28 @@ CREATE INDEX idx_session_snapshots_session ON session_snapshots(session_id, as_o
 
 ---
 
+## Session Console State (Plan-001)
+
+The daemon's own session-scoped store for what a session holds outside its event log. [Spec-001 §State And Data Implications](../../specs/001-session-core.md#state-and-data-implications) declares three things durable here — the composer draft, its staged attachments, and the review notes left on a file's lines — so that a half-written message, its files and an unsent review reach the person's other devices; their columns land with the verbs that write them (`session.draftUpdate`, `session.attachmentAdd` / `session.attachmentRemove`, and the note verbs whose names are still owed). One column exists now, the session's own step bound, because the spawn path reads it before any of the three is built.
+
+It is **configuration, not session history**: it is not events-canonical, is not replayed, and is not rebuilt from the event log. A session's step bound is a preference the person set, so a log that can rebuild what a turn did has nothing to say about it.
+
+```sql
+-- Owner: Plan-001
+CREATE TABLE session_console_state (
+  session_id          TEXT NOT NULL PRIMARY KEY,  -- one row per session, written on the first press that needs it. `NOT NULL` is declared explicitly for the reason `provider_accounts.account_id` states: a TEXT PRIMARY KEY on a rowid table admits NULL, and two identity-less rows would both commit
+  max_steps_per_turn  INTEGER
+                      CHECK (max_steps_per_turn IS NULL OR (typeof(max_steps_per_turn) = 'integer' AND max_steps_per_turn >= 1)),  -- this session's OWN bound on how many steps one turn may take. NULL = no session override, so the machine's own Runtime value applies, and where that is unset each provider does what it does on its own ([Spec-003 §The Step Bound On A Turn](../../specs/003-queue-steer-pause-resume.md#the-step-bound-on-a-turn)). The floor is 1 because a bound of zero would forbid the turn it bounds; the ceiling is the person's, since neither provider publishes one. The MACHINE-wide value is not here: it belongs to the Runtime settings page, so one number has one home on each side of the override
+  updated_at          TEXT NOT NULL
+);
+```
+
+The number is carried onto a spawn through `runtime_bindings.spawn_config` and realized by the driver, `--max-turns` on one leg and the daemon's own per-turn count on the other; a change reaches the session's next turn and never the turn in flight.
+
+Migration: an additive `0NNN-session-console-state.ts`, its ordinal the next free version per the migration runner's append order at PR-open time, and its paired guarded-block registration in the same commit — the shape every unshipped migration in this document takes. It is a plain table add with no backfill.
+
+---
+
 ## Queue and Intervention Tables (Plan-003)
 
 ```sql
@@ -377,7 +399,7 @@ CREATE TABLE runtime_bindings (
                       CHECK ((cli_version_semver IS NULL) = (cli_version_raw IS NULL) AND (cli_version_semver IS NULL OR (length(cli_version_semver) > 0 AND length(cli_version_semver) <= 64 AND instr(cli_version_semver, char(0)) = 0))),
   resume_handle       TEXT                      -- provider-owned opaque handle
                       CHECK (resume_handle IS NULL OR (length(resume_handle) > 0 AND length(resume_handle) <= 4096 AND instr(resume_handle, char(0)) = 0)),
-  spawn_config        TEXT NOT NULL DEFAULT '{}', -- JSON: daemon-owned record of the spawn-bound configuration realized at process spawn (executionPosture / callbackTools / subagentPolicy / outputSchema + the admitted cap, plus providerAccountId and resolvedExecutablePath — minted now, valued later by Plan-004 T3.17 / T3.23); written at every spawn — the durable source recovery re-reads to reconstruct ResumeSessionParams' data legs without the original client request (function legs re-injected fresh, never stored; campaign B10 T1.7 catch-up migration, Codex rounds 3–4). Daemon-constructed, so no provider-string CHECK — same trust class as runtime_metadata below
+  spawn_config        TEXT NOT NULL DEFAULT '{}', -- JSON: daemon-owned record of the spawn-bound configuration realized at process spawn (executionPosture / callbackTools / subagentPolicy / outputSchema + the admitted cap, plus providerAccountId, maxStepsPerTurn and resolvedExecutablePath — minted now, valued later by Plan-004 T3.17 / T3.23 / T3.29); written at every spawn — the durable source recovery re-reads to reconstruct ResumeSessionParams' data legs without the original client request (function legs re-injected fresh, never stored; campaign B10 T1.7 catch-up migration, Codex rounds 3–4). Daemon-constructed, so no provider-string CHECK — same trust class as runtime_metadata below
   runtime_metadata    TEXT NOT NULL DEFAULT '{}', -- JSON: provider-specific recovery data
   created_at          TEXT NOT NULL,
   updated_at          TEXT NOT NULL
@@ -394,18 +416,18 @@ CREATE TABLE driver_capabilities (
                       'tool_calls', 'reasoning_stream', 'model_mutation',
                       'structured_output', 'rollback', 'session_goals',
                       'callback_tools', 'subagents', 'cost_cap',
-                      'transcript_replay', 'context_compaction',
+                      'transcript_replay', 'limits_read', 'context_compaction',
                       'provider_commands', 'output_speed'
                     )),
   supported         INTEGER NOT NULL DEFAULT 0, -- boolean: 0 or 1
                     -- Campaign-B3/B6 widening note: the catch-up migration that widens the CHECK above MUST
                     -- widen the CHECK to every value the union declares at that moment, all at once — a CHECK is a whitelist, so admitting a value before any
                     -- row uses it costs nothing and spares a second migration — and MUST backfill supported=0 rows for every existing driver_name (undeclared =
-                    -- unsupported, I-004-2), since a cache whose row count differs from the union's breaks the hydrator's exact-cardinality guard before any refresh could heal it. The rows land in three waves
-                    -- matching the three union widenings: the thirteen campaign flags at Plan-004 T1.7, transcript_replay when T3.19 widens the union (2026-08-26), and
-                    -- context_compaction / provider_commands / output_speed when T3.26 widens it to seventeen (2026-08-29, the desktop-console parity amendment). That last
-                    -- widening rebuilds an ALREADY-SHIPPED CHECK (migration 0011 froze it at fourteen), so it consumes a next-ordinal table-rebuild migration in the documented
-                    -- lang_altertable shape rather than amending a CREATE — it adds no table and no column, and the local-SQLite table census does not move.
+                    -- unsupported, I-004-2), since a cache whose row count differs from the union's breaks the hydrator's exact-cardinality guard before any refresh could heal it. The rows land in four waves
+                    -- matching the four union widenings: the thirteen campaign flags at Plan-004 T1.7, transcript_replay when T3.19 widens the union (2026-08-26),
+                    -- context_compaction / provider_commands / output_speed when T3.26 widens it to seventeen (2026-08-29, the desktop-console parity amendment), and limits_read when T3.28 widens it to eighteen (2026-09-21, the account-limits read on a live process). Each of the last two
+                    -- widenings rebuilds an ALREADY-SHIPPED CHECK (migration 0011 froze it at fourteen and 0014 re-froze it at seventeen), so each consumes a next-ordinal table-rebuild migration in the documented
+                    -- lang_altertable shape rather than amending a CREATE — neither adds a table or a column, and the local-SQLite table census does not move for them.
   refreshed_at      TEXT NOT NULL,
   PRIMARY KEY (driver_name, capability_flag)
 );
@@ -1096,8 +1118,8 @@ CREATE TABLE workflow_definitions (
   -- and collide on the dedupe key below, which is the intended convergence.
   parent_content_hash  TEXT,
   content_hash         TEXT NOT NULL,                  -- BLAKE3 over JCS-canonicalized definition body
-  schema_version       TEXT NOT NULL                   -- `ai-sidekicks-schema: 1.0` per C-8
-                       CHECK(schema_version GLOB '[0-9]*.[0-9]*'),
+  schema_version       TEXT NOT NULL                   -- the document's own schemaVersion, verbatim; V1 value '2' (Spec-015 §Required Behavior). A string rather than a number so a later '2.1' round-trips
+                       CHECK(schema_version GLOB '[0-9]*'),
   definition_body      TEXT NOT NULL,                  -- JSON (canonicalized per RFC 8785); full author-supplied definition
   layout_json          TEXT,                           -- JSON: the document's own layout section — a position per node, an optional viewport, the sticky notes. OUTSIDE the content_hash preimage, so editing it mints no version; NULL = written with no layout, which opens laid out deterministically left to right
   created_at           TEXT NOT NULL,
@@ -1131,7 +1153,7 @@ CREATE TABLE workflow_versions (
   parent_version_id    TEXT REFERENCES workflow_versions(id), -- NULL at version_number=1
   parent_content_hash  TEXT,                           -- BLAKE3 of parent definition body; NULL at version 1
   content_hash         TEXT NOT NULL,                  -- BLAKE3 of THIS version's body
-  definition_body      TEXT NOT NULL,                  -- JSON (canonicalized per RFC 8785); THIS version's full definition body — name, entry record, and the phase-definitions array (each phase entry carrying the per-phase dependsOn list and join-phase parallelJoinPolicy when the definition declares explicit topology, Spec-015 §Graph model — nodes, ports, and edges (SA-32)) — the BLAKE3 preimage of content_hash, so a version read serves name/entry/phaseDefinitions parsed from this body and read -> export reproduces the canonical bytes verbatim (PR #318 review round: was phase_definitions, which stored the array alone and left later versions' name/entry unreconstructable against content_hash; not a duplicate of workflow_definitions.definition_body above — that row carries the definition's current author-supplied body, each version row snapshots its own immutable bytes)
+  definition_body      TEXT NOT NULL,                  -- JSON (canonicalized per RFC 8785); THIS version's full definition document — name, the trigger node, the nodes and the edges (Spec-015 §Graph model — nodes, ports, and edges (SA-32)) — the BLAKE3 preimage of content_hash, so a version read serves the whole document parsed from this body and read -> export reproduces the canonical bytes verbatim (storing the nodes alone would leave a later version's name and trigger unreconstructable against content_hash; not a duplicate of workflow_definitions.definition_body above — that row carries the definition's current author-supplied body, each version row snapshots its own immutable bytes)
   layout_json          TEXT,                           -- JSON: this version's layout section, snapshotted beside its immutable body and outside content_hash's preimage, so an export of any version reproduces the file form it was written as
   author_note          TEXT,                           -- opt-in changelog message
   created_at           TEXT NOT NULL,
@@ -1166,7 +1188,7 @@ CREATE TABLE workflow_runs (
   max_duration_ms           INTEGER NOT NULL DEFAULT 86400000, -- SA-2 default 24h
   completed_at              TEXT,
   -- SA-3 pool reservations (snapshot only; pool runtime state is ephemeral and NOT persisted)
-  pool_reservations_snapshot TEXT NOT NULL DEFAULT '{}', -- JSON: {pty_slots: n, agent_memory_mb: n}
+  pool_reservations_snapshot TEXT NOT NULL DEFAULT '{}', -- JSON: {memory_mb: n}; memory is the one pool a reservation is taken against
   -- Result
   failure_reason            TEXT,                       -- null unless status in ('failed','cancelled')
   failure_detail            TEXT,                       -- JSON; includes cancellation_reason per Spec-015 §Workflow Timeline Integration
@@ -1203,7 +1225,7 @@ CREATE TABLE workflow_phase_states (
   -- TEXT under every candidate rendering, so this DDL does not wait on that ruling.
   id                      TEXT PRIMARY KEY,
   workflow_run_id         TEXT NOT NULL REFERENCES workflow_runs(id),
-  phase_id                TEXT NOT NULL,               -- logical phase id from the phase-definitions array in workflow_versions.definition_body
+  phase_id                TEXT NOT NULL,               -- logical id of the phase's own node in workflow_versions.definition_body
   -- The four V1 phase types per Spec-015 §Phase-Type and Gate-Type Taxonomy. Gate
   -- types (`auto-continue`, `quality-checks`, `human-approval`, `done`) live on the
   -- gate column, never here. Corrected 2026-08-10 by the Tier-7 audit: the previous
@@ -1292,7 +1314,7 @@ CREATE TABLE workflow_phase_states (
   -- availability lock (Plan-015 I-015-23).
   park_attention_key      TEXT,
   -- Pool reservation (transient; for crash recovery decision)
-  pool_reservation        TEXT,                        -- JSON {pty_slots: n, agent_memory_mb: n}; NULL after release
+  pool_reservation        TEXT,                        -- JSON {memory_mb: n}; NULL after release and while waiting or parked
   -- Resume metadata
   resume_cursor           TEXT,                        -- opaque; for driver adapter; see Plan-013 recovery
   last_event_sequence     INTEGER,                     -- session_events.sequence projected from at rebuild
@@ -1617,19 +1639,12 @@ CREATE TABLE run_links (
   internal_helper   INTEGER NOT NULL DEFAULT 0
                     CHECK(internal_helper IN (0, 1)),   -- durable home of the internal-helper flag (I-014-10)
   producing_node_id TEXT NOT NULL,                      -- runtime node that admitted the child run (reachability projection input)
-  invoking_principal_id TEXT,                           -- 2026-08-26 (CP-027-4 ⇄ CP-014-19): the effective principal of the TURN that
-                                                        -- issued a peer-invocation tool call, stamped daemon-side at child-run creation.
-                                                        -- NULL for links created by any other path (a workflow-spawned child, a handoff).
-                                                        -- A peer-invoked child run has no intervention row and no user who "started"
-                                                        -- it, and chaining to the parent RUN cannot answer which turn called: a run
-                                                        -- accumulates turns from several principals and recency is not a correct answer.
-                                                        -- Daemon-resolved, never client-supplied (the durable-recording discipline).
   created_at        TEXT NOT NULL,
   PRIMARY KEY (child_run_id),                       -- single-parent: a child run links to exactly one parent (one-shot run.queued linkage D-014-3)
   CHECK (parent_run_id <> child_run_id)             -- a run never parents itself
 );
 
-CREATE INDEX idx_run_links_parent ON run_links(parent_run_id); -- parent → children scans (orchestration.childRunLinkRead; active-child accounting)
+CREATE INDEX idx_run_links_parent ON run_links(parent_run_id); -- parent → children scans (orchestration.childRunLinkRead; the session's agent tree)
 CREATE INDEX idx_run_links_session ON run_links(session_id);
 
 -- Owner: Plan-014 (events-canonical projection of agent.* events — A-014-2; state enum is the
@@ -1649,9 +1664,12 @@ CREATE TABLE agents (
                   CHECK(state IN ('configured', 'ready', 'disabled', 'archived')),
   config          TEXT NOT NULL DEFAULT '{}',           -- JSON: agent-scoped driver config (opaque to the schema)
   provider_account_id TEXT,                             -- 2026-08-26 (D-014-26): the Plan-026 `provider_accounts.account_id` this agent
-                                                        -- spawns under; NULL = the provider's registered default. Not inside
-                                                        -- `config` because the Spec-026 spawn gate reads it, and `config` is
-                                                        -- opaque to everything outside the driver
+                                                        -- spawns under; NULL = whichever account is the provider's current one when a
+                                                        -- run starts, which is also what makes this agent follow the mark when it moves.
+                                                        -- Written by the terminal that settles a provider switch rather than by the
+                                                        -- switch request, the account being no axis of that request: it is where the
+                                                        -- new run landed. Not inside `config` because the Spec-026 spawn gate reads it,
+                                                        -- and `config` is opaque to everything outside the driver
   effort          TEXT,                                 -- 2026-08-26 (D-014-26): reasoning effort, validated against the target
                                                         -- model's driver-reported `effortLevels` rather than a schema CHECK --
                                                         -- the valid set is per-model and provider-owned, so a CHECK here would
@@ -1689,8 +1707,8 @@ CREATE TABLE agents (
                                                         -- included so the stored blob is self-identifying rather than a wire artifact
                                                         -- reproduced in a column: a row read in isolation names what it is -- {status:
                                                         -- 'pending', switchId, appliesAt: 'turn_boundary'|'run_boundary',
-                                                        -- interruptRequested, pendingAxes: {driverName?, providerAccountId?, modelId?,
-                                                        -- effort?, outputSpeed? (2026-08-29)}, replacedSwitchId?} -- shared with the mutation reply and the
+                                                        -- interruptRequested, pendingAxes: {driverName?, modelId?, effort?,
+                                                        -- outputSpeed? (2026-08-29)}, replacedSwitchId?} -- shared with the mutation reply and the
                                                         -- agent.config_updated payload, so what a client was told, what the log records,
                                                         -- and what a restart re-arms from are the same record. What is stored here is a
                                                         -- SUPERSET of that shared shape: it additionally carries admittingPrincipalId
@@ -1728,24 +1746,16 @@ CREATE TABLE agents (
 
 CREATE INDEX idx_agents_session ON agents(session_id);
 
--- Owner: Plan-014 (row-canonical daemon configuration — queue_items posture, NOT evented; one row per session, created on first read/update with Spec-014 §Budget Policies / §Scheduler Limits defaults; mutated only via orchestration.budgetUpdate, session owner only — D-014-5)
+-- Owner: Plan-014 (row-canonical daemon configuration — queue_items posture, NOT evented; one row per session, created on first read/update with no limits set; mutated only via orchestration.budgetUpdate, session owner only — D-014-5)
 CREATE TABLE session_budgets (
   session_id                    TEXT PRIMARY KEY,
-  cost_limit_cents              INTEGER NOT NULL DEFAULT 1000,  -- Spec-014: $10 per session
-  turn_limit_per_agent          INTEGER NOT NULL DEFAULT 50,    -- Spec-014 §Budget Policies (turn-limit row): max consecutive turns per (channel, agent), reset on interleave (D-014-8) — not a per-session total; the session default a channel's ChannelConfig.turnsPerAgent overrides per channel (D-014-23, 2026-08-11)
-  max_executing_channels        INTEGER NOT NULL DEFAULT 5,     -- Spec-014 §Scheduler Limits
-  max_queue_depth_per_channel   INTEGER NOT NULL DEFAULT 25,
-  max_pending_orchestration_runs INTEGER NOT NULL DEFAULT 10,
-  active_child_limit            INTEGER NOT NULL DEFAULT 5,     -- Spec-014 §Scheduler Limits (active-children row): daemon default, configurable
+  cost_limit_cents              INTEGER,                        -- NULL = no session cost limit; one exists only where the person set it (Spec-014 §Budget Policies)
+  turn_limit_per_agent          INTEGER,                        -- NULL = no turn limit; Spec-014 §Budget Policies (turn-limit row): max consecutive turns per (channel, agent), reset on interleave (D-014-8) — not a per-session total; the session value a channel's ChannelConfig.turnsPerAgent overrides per channel (D-014-23, 2026-08-11)
   unpriced_family_caps          TEXT NOT NULL DEFAULT '[]',     -- JSON [{modelFamily, hardCapUsdCents}] — owner-supplied unpriced-family escapes, native-cap legs only (Spec-014 §Cost Derivation And Absent-Cost Semantics, campaign B6); wire mirror = OrchestrationBudgetUpdate.unpricedFamilyCaps
   updated_at                    TEXT NOT NULL,
-  -- Non-negative-integer floors on every limit; wire mirror = orchestration.budgetUpdate Zod .int().nonnegative() (D-014-5)
-  CHECK (typeof(cost_limit_cents) = 'integer' AND cost_limit_cents >= 0),
-  CHECK (typeof(turn_limit_per_agent) = 'integer' AND turn_limit_per_agent >= 0),
-  CHECK (typeof(max_executing_channels) = 'integer' AND max_executing_channels >= 0),
-  CHECK (typeof(max_queue_depth_per_channel) = 'integer' AND max_queue_depth_per_channel >= 0),
-  CHECK (typeof(max_pending_orchestration_runs) = 'integer' AND max_pending_orchestration_runs >= 0),
-  CHECK (typeof(active_child_limit) = 'integer' AND active_child_limit >= 0)
+  -- Each limit is NULL (no limit) or a non-negative integer; wire mirror = orchestration.budgetUpdate Zod .int().nonnegative().nullable() (D-014-5)
+  CHECK (cost_limit_cents IS NULL OR (typeof(cost_limit_cents) = 'integer' AND cost_limit_cents >= 0)),
+  CHECK (turn_limit_per_agent IS NULL OR (typeof(turn_limit_per_agent) = 'integer' AND turn_limit_per_agent >= 0))
 );
 
 -- Live-leg goal-delivery crash consistency (Spec-014 §Session Goals, campaign B6): the durable
@@ -1757,9 +1767,45 @@ CREATE TABLE session_goal_dispatch_intents (
   payload     TEXT NOT NULL,   -- JSON {op: 'set'|'clear', goal?: {text}, prior: {goal?}, actor: UserId, legs: {bindingId: 'pending'|'acked'|'failed'|'reverted'}} — everything the crash-recovered session.goal_* event and the revert path need (Spec-005 envelope attribution; last-write-wins revert)
   created_at  TEXT NOT NULL
 );
+
+-- Two sessions trading messages. [Spec-014 §State And Data Implications](../../specs/014-multi-agent-channels-and-orchestration.md#state-and-data-implications)
+-- declares both of the tables below durable, session-scoped daemon state, because a daemon restart
+-- mid-exchange must deliver what it was holding and must not forget which two sessions were talking.
+-- The session directory those two are read against is NOT a table: it is derived from the sessions the
+-- daemon hosts and rebuilt when it starts, and an address that moved with a restarted provider process
+-- is looked up again rather than remembered.
+--
+-- Neither table holds a message. The send and the arrival are the ordinary tool events of the two
+-- sessions' own logs ([Spec-014 §Sessions Talking To Each Other](../../specs/014-multi-agent-channels-and-orchestration.md#sessions-talking-to-each-other)),
+-- which is where the words live; a queue row names the send it is holding and nothing else.
+CREATE TABLE session_exchanges (
+  session_id        TEXT NOT NULL,   -- the pair, held as ONE row with the two ids in ascending order
+  peer_session_id   TEXT NOT NULL,   -- so the count below is one count for one exchange. Two rows for one pair would be two answers to "how many since the person last wrote", and each session's own row in the sessions list reads the peer it is not
+  messages_since_user_wrote INTEGER NOT NULL DEFAULT 0
+                    CHECK (typeof(messages_since_user_wrote) = 'integer' AND messages_since_user_wrote >= 0),  -- what the exchange line on each session's row states, `talking to builder · 14`. Reset to zero when the person writes in either session; it is a fact on the row and never a limit, nothing of this runtime bounding how many messages two sessions trade
+  started_at        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL,
+  PRIMARY KEY (session_id, peer_session_id),
+  CHECK (session_id < peer_session_id)  -- the canonical ordering that makes the pair one row. An interrupt taken on either session reads this row to reach the other, so the pair is what is stored and the direction of the last message is not
+);
+
+-- Every message addressed to a PAUSED session, in arrival order. The daemon holds them while the
+-- session is paused and delivers them one at a time in this order when it continues; a row is deleted
+-- when its message is delivered, so the table is empty whenever nothing is being held.
+CREATE TABLE session_paused_message_queue (
+  target_session_id  TEXT NOT NULL,   -- the paused session the message is addressed to
+  arrival_sequence   INTEGER NOT NULL,  -- arrival order at the daemon, per target session. Delivery follows it exactly: a queue that delivered out of order would rewrite the conversation the sending session believes it had
+  source_session_id  TEXT NOT NULL,   -- the sending session
+  source_event_id    TEXT NOT NULL,   -- the send's own tool event on the SENDING session's log, which is where the message text already lives (session_events.content_payload holds tool-call arguments). No foreign key, for the reason the event log's own session_id carries none, and no body column: a second copy of the words would be a second record of them and would sit outside the per-session sealing the log applies
+  arrived_at         TEXT NOT NULL,
+  PRIMARY KEY (target_session_id, arrival_sequence),
+  UNIQUE (target_session_id, source_event_id)  -- one hold per send, so a re-delivery attempt after a restart queues nothing twice
+);
 ```
 
-Per-run token (`tokenLimit`, default 100000) and idle-timeout (`idleTimeoutMs`, default 300000) budgets are per-run `OrchestrationRunConfig` values resolved at admission (request override else session default) and persisted durably as the `run.queued` payload's `effectiveRunConfig` (Plan-014 D-014-5; api-payload `RunStateChangeEvent`) — they have no session-level column, and budget/idle enforcement rebuilds from that event field on replay, never by re-merging session defaults that may have changed mid-run. Budget _accounting_ (tokens/cost consumed) has no table: the daemon's `BudgetAccountant` is an in-memory projection rebuilt on replay from `usage_telemetry` + `run.*` events (D-014-5).
+Both tables land in one additive `0NNN-session-exchanges.ts` with its paired guarded-block registration, the ordinal resolved as the next free version per the migration runner's append order at PR-open time. Two plain table adds, no backfill, and nothing to revert beyond whatever an exchange was holding.
+
+Per-run token (`tokenLimit`) and idle-timeout (`idleTimeoutMs`) limits exist only where the person sets one on the run; neither carries a default, so with none set nothing interrupts the run for tokens or for being quiet. Both are per-run `OrchestrationRunConfig` values resolved at admission and persisted durably as the `run.queued` payload's `effectiveRunConfig` (Plan-014 D-014-5; api-payload `RunStateChangeEvent`) — they have no session-level column, and budget/idle enforcement rebuilds from that event field on replay, never by re-merging session values that may have changed mid-run. Budget _accounting_ (tokens/cost consumed) has no **accumulator** table: the daemon's `BudgetAccountant` is an in-memory projection rebuilt on replay from `usage_telemetry` + `run.*` events (D-014-5). `provider_account_usage_turns` below is not a second accountant: it projects the same `usage_telemetry` events into one row per turn so the figures can be sliced by account, by day and by model, which a running total cannot be (Spec-026 §State And Data Implications).
 
 ---
 
@@ -2010,13 +2056,13 @@ CREATE TABLE provider_accounts (
   billing_mode          TEXT NOT NULL
                         CHECK(billing_mode IN ('subscription', 'metered', 'unknown')),  -- how this account is charged; `unknown` is the honest-absence arm, never a synonym for metered; drives cost labeling, never cost derivation (Spec-026 §Billing mode)
   is_default            INTEGER NOT NULL DEFAULT 0
-                        CHECK(is_default IN (0, 1)),  -- exactly one default per provider, enforced by the partial unique index below
+                        CHECK(is_default IN (0, 1)),  -- the provider's CURRENT account: the one a new run starts on, and the one a press on the Providers page moves, which carries every running session on that provider that is not pinned to an account with it (Spec-026 §Moving a session to another account). Exactly one per provider, enforced by the partial unique index below. The column keeps the `default` spelling the wire keeps in `isDefault` and in the `no_default` readiness arm, so the flag has one name across the schema and the payloads
   health_state          TEXT
                         CHECK(health_state IS NULL OR health_state IN ('authenticated', 'reauth_required', 'home_missing', 'indeterminate')),  -- the STORED outcome of the last validation of this account: the driver's authentication probe reading together with the credential-home observation taken at that same moment. NULL until a probe has ever been taken, which the wire renders as `indeterminate` — NOT as a failure and never as authenticated (I-026-9, I-026-10). This is the column the readiness projection reads; a registry read never re-derives it, so a read spawns no provider process and opens no credential file (Spec-026 §Node provider readiness and the sign-in handoff).
   health_observed_at    TEXT,  -- RFC 3339 UTC of the observation `health_state` records, written by the same act. NULL exactly when `health_state` is NULL, so the pair is set and cleared together; surfaced as `ProviderReadiness.observedAt` so a caller can apply its own age test. Deliberately NOT `updated_at`, which is NOT NULL and moves on any row mutation — a relabel would report an operator's display-label edit as a fresh authentication observation.
   observed_auth_mode    TEXT
                         CHECK(observed_auth_mode IS NULL OR observed_auth_mode IN ('oauth_subscription', 'oauth_token', 'api_key', 'external', 'none', 'unknown')),  -- the authentication mode the provider's OWN status surface reports for this home, OBSERVED and never assumed (Spec-026 §Non-interactive token registration). NULL until observed; `unknown` is the distinct arm for "observed, but the provider named a mode this daemon does not recognize" — a tolerant arm so a vendor adding a mode does not fail an observation closed. `oauth_token` is the ADR-028 D2 class and is what admits a token-mode account; the token VALUE is not here and is in no column of any table (Spec-026 §State And Data Implications).
-  last_refresh_observed_at TEXT,  -- RFC 3339 UTC of the most recent credential refresh the daemon has OBSERVED to have completed for this home, read from the provider's own durable marker where it publishes one. NULL = not observed, never "fine". Drives the freshness reading; the daemon never CAUSES a refresh to produce it (Spec-026 §Credential-home health observation).
+  last_refresh_observed_at TEXT,  -- RFC 3339 UTC of the most recent credential refresh the daemon has OBSERVED to have completed for this home, read from the provider's own durable marker where it publishes one. NULL = not observed, never "fine". Drives the freshness reading. The daemon never touches the credential itself: what renews a login is the provider's own code running inside its own home, which the limits read on one leg causes as that provider's own side effect, and a renewal there is no lifecycle transition — it moves this column and never `credential_generation` (Spec-026 §Credential-home health observation).
   logged_in_at          TEXT,  -- RFC 3339 UTC of the moment this home's credential was ISSUED. On a brokered sign-in that is the observed completion, which the daemon witnessed. On a token-mode registration it is the token's ISSUANCE time — read from the provider's own status surface where it publishes one, else supplied explicitly by the operator — and is NOT the registration time: a token is minted out of band and may be registered months later, so anchoring here to registration would shift the horizon forward by the token's pre-registration age and could report a credential as good after it had expired. Where no issuance anchor exists the column stays NULL and the estimate renders as unknown; it is never defaulted to `created_at`. NULL also for a home imported by a registration that neither signed in nor supplied a token. The re-login horizon derived from it is MODE-DISPATCHED and is an ESTIMATE, never a fact: the interval belongs to the provider's issuance policy, which the daemon does not control and cannot verify.
   -- Provider-REPORTED account identity, surfaced by a health observation. This IS an account's
   -- identity on every surface that names one — the address, the plan as the provider itself names it,
@@ -2043,11 +2089,13 @@ CREATE TABLE provider_accounts (
   CHECK ((health_state IS NULL) = (health_observed_at IS NULL))
 );
 
--- Exactly one default account per provider (I-026-5). A partial unique index rather than
--- application-level enforcement: two concurrent set-default calls racing on the same provider
--- would both read "no other default" and both write one, and the resulting ambiguity would be
--- resolved silently at the next spawn by whichever row sorted first — binding a run, and its
--- spend, to an account the operator did not choose. The database refuses the second writer instead.
+-- Exactly one current account per provider (I-026-5) — the flag this schema calls `is_default` and
+-- every surface calls the current account, one fact under two words. A partial unique index rather
+-- than application-level enforcement: two concurrent `providerAccount.setCurrent` calls racing on
+-- the same provider would both read "no other one" and both write one, and the resulting ambiguity
+-- would be resolved silently at the next spawn by whichever row sorted first — binding a run, and
+-- its spend, to an account the operator did not choose, and leaving a press that moves live sessions
+-- with two destinations. The database refuses the second writer instead.
 CREATE UNIQUE INDEX provider_accounts_one_default_per_provider
   ON provider_accounts(provider)
   WHERE is_default = 1;
@@ -2063,7 +2111,7 @@ CREATE UNIQUE INDEX provider_accounts_unique_credential_home
   ON provider_accounts(credential_home_path);
 ```
 
-The newest quota reading per account and limit. A provider's quota standing is **not one window**: the pinned Claude surface publishes five limit identifiers, **three of which share a 10080-minute window**, so a key of `(account, window length)` cannot hold them — two of the three would overwrite the third and the survivor would depend on arrival order. The limit identifier is therefore the key and the window length is an attribute of the reading, not part of its identity. Holding the newest reading durably is what lets a client that connects after a reading was taken render quota standing without waiting for the next one.
+The newest quota reading per account and limit. A provider's quota standing is **not one window**: one pinned provider publishes **several distinct limits at a time, more than one of them over the same window length**, so a key of `(account, window length)` cannot hold them — the ones sharing a length would overwrite each other and the survivor would depend on arrival order. The limit identifier is therefore the key and the window length is an attribute of the reading, not part of its identity. Holding the newest reading durably is what lets a client that connects after a reading was taken render quota standing without waiting for the next one.
 
 ```sql
 -- Owner: Plan-026
@@ -2080,12 +2128,54 @@ CREATE TABLE provider_account_usage_windows (
   observed_credential_generation INTEGER NOT NULL
                 CHECK(typeof(observed_credential_generation) = 'integer' AND observed_credential_generation >= 1),  -- the account's `credential_generation` when this reading was taken, mirroring the member the account-scoped quota event already carries. A credential-home rebuild does NOT delete these rows — a quota window describes the provider-side allowance, which keeps running while a home sits empty — so this stamp is what lets a consumer render a pre-rebuild reading as stale rather than as current (Spec-026 §Per-limit provider quota). Contrast the health pair on the parent row, which a generation bump invalidates outright, because that pair describes the home itself. The CHECK carries the same floor the parent row's `credential_generation` and the wire's `CredentialGenerationSchema` both enforce, so the stamp cannot be written outside the range of the values it claims to compare against: a stamp below 1 names a generation that never existed, matches no account state, and would render its reading permanently stale rather than legibly refusing at write time. It carries the parent's `typeof` conjunct for the same reason and with the same force: the staleness comparison is between this stamp and the parent's generation, so a fractional stamp admitted by INTEGER affinity would compare against a whole-numbered generation and place the reading between two of them.
   source        TEXT NOT NULL
-                CHECK(source IN ('probe', 'run')),  -- which sanctioned source produced the reading: the deliberate probe verb, or the account-scoped quota event emitted from real traffic. The background health observer is NOT a source and no third value exists, because reading quota on one pinned provider leg traverses a path documented to refresh proactively — which Spec-026 §Credential-home health observation forbids the observer to do.
+                CHECK(source IN ('probe', 'run')),  -- which sanctioned source produced the reading: a deliberate read of the provider's own limits surface, or the account-scoped quota event emitted from real traffic. The background health observation is not a third value because it is not a third provenance: it performs the same deliberate read on its cadence, as another caller of it, and its readings record as 'probe' (Spec-026 §Credential-home health observation). The two values differ in COMPLETENESS, which is what consumers key on: a 'probe' reading is a whole-account read and replaces that account's stored set, while a 'run' reading is sparse and merges into it, pruning nothing it does not name.
   PRIMARY KEY (account_id, limit_id)
 );
 ```
 
-Spend is joined to an account without duplicating account identity onto every usage row. A provider run carries the server-stamped `admittedProviderAccountId` on its `run.queued` admission record, so priced usage rows join to an account **through the run**. The one usage kind that carries account identity directly is `usage.rate_limit_update`, because provider quota is account-scoped and has no run to join through — the asymmetry is deliberate, and it also keeps user identity off every usage row.
+Spend joins to an account through the run wherever a run exists: a provider run carries the server-stamped `admittedProviderAccountId` on its `run.queued` admission record. **Two** usage kinds carry account identity directly, and both for the same reason — a figure that belongs to an account rather than to a run. `usage.rate_limit_update` does because provider quota is account-scoped and has no run to join through, and `usage.token_count` does because a turn can be spent on an account with no session at all (the window start, Spec-026 §Credential-home health observation) and because the per-turn projection below is keyed on the account rather than on the run. User identity stays off every usage row either way.
+
+One row per turn, so the figures an operator reads per account can be sliced by a day and by a model. It is a **projection** of the per-turn usage event ([Spec-005 §Usage Telemetry](../../specs/005-session-event-taxonomy-and-audit-log.md#usage-telemetry-usage_telemetry)) and not a second accountant: the same events feed it and feed the in-memory committed-spend fold, it is rebuilt on replay like every other projection, and every figure it answers is served through the one committed-spend accessor. What it adds over the fold is an **axis**, not a second arithmetic — a running total cannot be cut by a day or a model it never kept ([Spec-026 §State And Data Implications](../../specs/026-provider-accounts-and-credential-homes.md#state-and-data-implications)).
+
+```sql
+-- Owner: Plan-026
+CREATE TABLE provider_account_usage_turns (
+  source_event_id TEXT NOT NULL PRIMARY KEY,  -- the id of the `usage.token_count` event this row projects. It is the key because a turn IS that event: keying on it makes the projector idempotent, so a replay of the log writes each turn exactly once and a rebuild is byte-equal to the original. Deliberately NO foreign key to `session_events`: the retention pass prunes and compacts that log on its own schedule, and a cascade there would take an account's spend history with it — the figures outlive the rows they were derived from, and what a rebuild can no longer see it does not invent.
+  account_id      TEXT NOT NULL
+                  REFERENCES provider_accounts(account_id) ON DELETE CASCADE,  -- a turn's figures have no meaning without the account that paid for them; deregistering an account takes its usage rows with it, exactly as it takes its window readings
+  provider        TEXT NOT NULL
+                  CHECK(provider IN ('claude', 'codex')),  -- the same closed driver-id union the registry and the MCP governance tables use. Held on the row rather than joined from the account so a provider-wide slice reads one table, and it is the account's provider by construction
+  occurred_at     TEXT NOT NULL,  -- RFC 3339 UTC of the turn, carried from the source event's envelope. This is what the by-day slice groups on; the day boundary is the reader's, never baked in here
+  session_id      TEXT,  -- the session whose run spent this turn. NULL for a turn NO session owns -- the window-start turn Spec-026 spends on an account outside every session -- so the account's own totals include it and no session's receipt does. No foreign key, for the reason the event log's own `session_id` carries none
+  run_id          TEXT,  -- the run within that session. NULL exactly where `session_id` is NULL, and also where the provider attributed the turn no further than the session
+  model_id        TEXT,  -- the model the turn ran on, as the provider names it. This is what the by-model slice groups on; NULL where the provider attributed usage no further than the run, and a NULL groups as its own unattributed bucket rather than being folded into another model
+  input_tokens          INTEGER,
+  output_tokens         INTEGER,
+  cache_read_tokens     INTEGER,
+  cache_write_tokens    INTEGER,
+  reasoning_tokens      INTEGER,  -- the five counts, each NULL where the provider reported none. NULL is NOT zero: one provider reports all five per turn and the other reports what its per-model usage block carries, so coalescing an unreported count to zero would present a partial reading as a complete one. Taken from the carrier that is complete on each leg -- on the Claude leg the result frame's PER-MODEL block, never its top-level one, which counts the outer loop alone and undercounts as soon as helper conversations run.
+  cost_cents      INTEGER,  -- NULL = no cost figure for this turn, which is a different fact from a cost of zero and renders as no figure at all. One pinned provider reports no cost whatsoever, and the account surface draws tokens only for it rather than presenting a locally derived number as that provider's spend
+  cost_status     TEXT
+                  CHECK(cost_status IS NULL OR cost_status IN ('priced', 'unpriced')),
+  cost_source     TEXT
+                  CHECK(cost_source IS NULL OR cost_source IN ('provider_reported', 'derived_exact', 'derived_family_prefix', 'unpriced_native_cap')),  -- the provenance the three-tier derivation ladder assigned the figure, the same closed vocabulary the source event carries. Provenance is REUSED and not re-enumerated here: a second spelling of where a number came from is a second answer to one question
+  observed_credential_generation INTEGER NOT NULL
+                  CHECK(typeof(observed_credential_generation) = 'integer' AND observed_credential_generation >= 1),  -- the account's `credential_generation` when the turn was metered, mirroring the member the account-scoped quota event and the window readings both carry, and carrying the same floor and the same `typeof` conjunct for the same reasons: a stamp below 1 names a generation that never existed, and a fractional stamp admitted by INTEGER affinity would sort between two whole generations and make the comparison this stamp exists for meaningless.
+  CHECK ((cost_status IS NULL) = (cost_source IS NULL)),  -- a status with no provenance cannot say where its number came from, and a provenance with no status is a source for nothing. The pair is set and cleared together, as the registry's health pair is
+  CHECK (cost_cents IS NULL OR cost_status IS NOT NULL),  -- a figure always names how it was arrived at; an unlabelled number is the one thing this plane never draws as money
+  CHECK (run_id IS NULL OR session_id IS NOT NULL)  -- a run belongs to a session, so a row naming a run and no session describes a turn that cannot exist
+);
+
+-- The two slices the account surface draws, and nothing else reads this table by any other shape.
+CREATE INDEX idx_provider_account_usage_turns_account_day
+  ON provider_account_usage_turns(account_id, occurred_at);
+CREATE INDEX idx_provider_account_usage_turns_account_model
+  ON provider_account_usage_turns(account_id, model_id);
+```
+
+Rows are appended and never rewritten. A provider's own usage history, where it publishes one, is drawn **beside** this table with the vendor named and is never reconciled into it: two accountants counting the same tokens differently is what one source of truth exists to prevent.
+
+Migration: an additive `0NNN-provider-account-usage-turns.ts` with its paired guarded-block registration, the ordinal resolved as the next free version per the migration runner's append order at PR-open time. It is its own ordinal rather than a widening of the registry's, because `0016-provider-accounts.ts` — which creates `provider_accounts` and `provider_account_usage_windows` — is registered in the runner's chain and cannot be amended.
 
 ---
 

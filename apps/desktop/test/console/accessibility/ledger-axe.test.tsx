@@ -38,7 +38,7 @@ import { emulateSystemScheme, renderSettled } from "../console-harness.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
 
 import {
-  SidekicksBridgeProvider,
+  DesktopBridgeProvider,
   createFixtureBridge,
 } from "../../../src/renderer/src/console/bridge/index.js";
 import type { ConsoleScenario } from "../../../src/renderer/src/console/bridge/scenario/runtime/vocabulary.js";
@@ -121,11 +121,11 @@ function openStoreOnScenario(scenario: ConsoleScenario): SessionStore {
 async function mountLedger(scenario: ConsoleScenario): Promise<HTMLElement> {
   const sessionStore = openStoreOnScenario(scenario);
   const { container } = await renderSettled(
-    <SidekicksBridgeProvider bridge={createFixtureBridge({ scenario })}>
+    <DesktopBridgeProvider bridge={createFixtureBridge({ scenario })}>
       <div className="meridian-ledger-surface">
         <TimelinePane context={ledgerPaneContext(scenario.sessionId, sessionStore)} />
       </div>
-    </SidekicksBridgeProvider>,
+    </DesktopBridgeProvider>,
   );
   return container;
 }

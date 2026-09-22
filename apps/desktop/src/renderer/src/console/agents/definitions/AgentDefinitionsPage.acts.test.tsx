@@ -1,4 +1,4 @@
-// What a press on the sidekicks page does, and what it refuses to do on one press.
+// What a press on the agent definitions page does, and what it refuses to do on one press.
 //
 // The act worth the file is the delete: it is the only one here with no undo, so it
 // asks first, it sends the identifier rather than the label, and it RE-READS instead
@@ -9,7 +9,7 @@
 // The editor seat is here for the same reason: what a press opens, and on which
 // record, is an act and not a reading.
 //
-// What the page reads, shows, and announces is `SidekickDefinitionsPage.read.test.tsx`.
+// What the page reads, shows, and announces is `AgentDefinitionsPage.read.test.tsx`.
 //
 // The registry, the announcer and the presses live in the support module beside this
 // one; the bridge behind them is the shipped fixture bridge with the two operations
@@ -30,9 +30,9 @@ import {
   savedRegionOf,
   served,
   settle,
-} from "./sidekick-definitions-page.test-support.js";
+} from "./agent-definitions-page.test-support.js";
 
-describe("the sidekicks page — the editor's seat", () => {
+describe("the agent definitions page — the editor's seat", () => {
   it("opens the seat on the record whose edit was pressed", async () => {
     const { container } = renderPage(
       new RegistryStub({ lists: [served([definition()])] }).bridge(),
@@ -42,20 +42,20 @@ describe("the sidekicks page — the editor's seat", () => {
     expect(edit.getAttribute("aria-pressed")).toBe("false");
     await press(edit);
     expect(buttonNamed(container, "Edit Reviewer").getAttribute("aria-pressed")).toBe("true");
-    expect(container.querySelector(".meridian-sidekick-row--open")).not.toBeNull();
+    expect(container.querySelector(".meridian-saved-definition-row--open")).not.toBeNull();
   });
 
-  it("opens the same seat in its compose arm for a new sidekick", async () => {
+  it("opens the same seat in its compose arm for a new definition", async () => {
     const { container } = renderPage(
       new RegistryStub({ lists: [served([definition()])] }).bridge(),
     );
     await settle();
-    const create = container.querySelector<HTMLButtonElement>(".meridian-sidekicks__new");
+    const create = container.querySelector<HTMLButtonElement>(".meridian-agent-definitions__new");
     expect(create?.getAttribute("aria-pressed")).toBe("false");
     await press(create);
-    expect(container.querySelector(".meridian-sidekicks__new")?.getAttribute("aria-pressed")).toBe(
-      "true",
-    );
+    expect(
+      container.querySelector(".meridian-agent-definitions__new")?.getAttribute("aria-pressed"),
+    ).toBe("true");
   });
 
   it("negative control: opening one record's seat does not mark its neighbour's", async () => {
@@ -71,7 +71,7 @@ describe("the sidekicks page — the editor's seat", () => {
     await settle();
     await press(buttonNamed(container, "Edit Reviewer"));
     expect(buttonNamed(container, "Edit Auditor").getAttribute("aria-pressed")).toBe("false");
-    expect(container.querySelectorAll(".meridian-sidekick-row--open")).toHaveLength(1);
+    expect(container.querySelectorAll(".meridian-saved-definition-row--open")).toHaveLength(1);
   });
 
   it("says the editor has not been built rather than drawing a form", async () => {
@@ -86,7 +86,7 @@ describe("the sidekicks page — the editor's seat", () => {
   });
 });
 
-describe("the sidekicks page — deleting one", () => {
+describe("the agent definitions page — deleting one", () => {
   it("asks before it asks the daemon anything", async () => {
     const stub = new RegistryStub({ lists: [served([definition()])] });
     const { container } = renderPage(stub.bridge());
@@ -140,14 +140,14 @@ describe("the sidekicks page — deleting one", () => {
     await press(buttonNamed(container, "Delete Reviewer"));
     await pressWithoutSettling(confirmDeleteIn(container));
     expect(savedRegionOf(container).querySelector(".meridian-nothing--not-loaded")).toBeNull();
-    expect(container.querySelectorAll(".meridian-sidekick-row").length).toBeGreaterThan(0);
+    expect(container.querySelectorAll(".meridian-saved-definition-row").length).toBeGreaterThan(0);
     await settle();
   });
 
   it("renders the daemon's refusal on the row and keeps the record", async () => {
     const stub = new RegistryStub({
       lists: [served([definition()])],
-      deleteOutcome: growthUnavailable("sidekickDefinitionDelete"),
+      deleteOutcome: growthUnavailable("agentDefinitionDelete"),
     });
     const { container } = renderPage(stub.bridge());
     await settle();
@@ -157,7 +157,9 @@ describe("the sidekicks page — deleting one", () => {
     expect(saved.querySelector(".meridian-refusal--inline")?.textContent ?? "").toContain(
       "wire-unregistered",
     );
-    expect(saved.querySelector(".meridian-sidekick-row__name")?.textContent).toBe("Reviewer");
+    expect(saved.querySelector(".meridian-saved-definition-row__name")?.textContent).toBe(
+      "Reviewer",
+    );
     // Nothing was re-read, because nothing changed.
     expect(stub.listCallCount).toBe(1);
   });
@@ -167,18 +169,18 @@ describe("the sidekicks page — deleting one", () => {
     // then rendered the refusal beside an empty list.
     const stub = new RegistryStub({
       lists: [served([definition()])],
-      deleteOutcome: growthUnavailable("sidekickDefinitionDelete"),
+      deleteOutcome: growthUnavailable("agentDefinitionDelete"),
     });
     const { container } = renderPage(stub.bridge());
     await settle();
     await press(buttonNamed(container, "Delete Reviewer"));
     await press(confirmDeleteIn(container));
     expect(savedRegionOf(container).textContent ?? "").not.toContain("You have saved no sidekicks");
-    expect(container.querySelectorAll(".meridian-sidekick-row")).toHaveLength(1);
+    expect(container.querySelectorAll(".meridian-saved-definition-row")).toHaveLength(1);
   });
 });
 
-describe("the sidekicks page — while one delete is running", () => {
+describe("the agent definitions page — while one delete is running", () => {
   it("stops every row's delete taking presses, and keeps the pending row legible", async () => {
     // Delete is the one act on this page with no undo, and the carrier runs one at a
     // time. The page is where that shows: a control that still took presses would

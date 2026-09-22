@@ -9,7 +9,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { SidekicksBridgeProvider, createFixtureBridge } from "../../../bridge/index.js";
+import { DesktopBridgeProvider, createFixtureBridge } from "../../../bridge/index.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../bridge/scenario/ledger/ledger-quiet.js";
 import { SessionStoreRegistry, type SessionStore } from "../../../store/index.js";
 import { eventOfKind } from "../../../store/session-event.test-support.js";
@@ -67,9 +67,9 @@ function openHole(sessionStore: SessionStore): void {
 /** The surface, under a bridge whose growth port is the one a fixture window holds. */
 function renderFill(registry: SessionStoreRegistry, sessionStore: SessionStore): void {
   render(
-    <SidekicksBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
+    <DesktopBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
       <LedgerGapFill registry={registry} sessionStore={sessionStore} />
-    </SidekicksBridgeProvider>,
+    </DesktopBridgeProvider>,
   );
 }
 
@@ -79,9 +79,9 @@ describe("LedgerGapFill", () => {
     const sessionStore = await openAndRead(registry);
 
     const { container } = render(
-      <SidekicksBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
+      <DesktopBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
         <LedgerGapFill registry={registry} sessionStore={sessionStore} />
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
 
     // The negative control for both arms below: an ordinary window says nothing at all

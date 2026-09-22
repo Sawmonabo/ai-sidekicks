@@ -8,7 +8,7 @@
 //
 //   • **A shell is installed** — the Electron-hosted fixture build, which is what the
 //     screenshot and endurance launchers run and what a developer opens locally. The
-//     preload has run, so `window.sidekicks.window` is the real IPC namespace, and
+//     preload has run, so `window.desktopBridge.window` is the real IPC namespace, and
 //     this port DELEGATES to it: a detach here opens an actual `BrowserWindow`
 //     through `src/main/auxiliary-window-ipc.ts`, exactly as the live bridge's does.
 //     One code path, one main handler, and the deck's placeholder, focus control,
@@ -28,7 +28,7 @@
 // for the shell, because the shell is right here — so the honest fixture is the one
 // that uses it where it exists and refuses where it does not.
 
-import type { SidekicksBridge } from "@ai-sidekicks/contracts";
+import type { DesktopBridge } from "@ai-sidekicks/contracts";
 
 import {
   createShellAuxiliaryWindowPort,
@@ -46,7 +46,7 @@ import { readInstalledBridge } from "../../live-bridge.js";
  * {@link readFixtureShell} is the production reading.
  */
 export function createFixtureAuxiliaryWindowPort(
-  shell: SidekicksBridge | undefined,
+  shell: DesktopBridge | undefined,
 ): AuxiliaryWindowPort {
   return shell === undefined ? SHELL_ABSENT_PORT : createShellAuxiliaryWindowPort(shell);
 }
@@ -54,12 +54,12 @@ export function createFixtureAuxiliaryWindowPort(
 /**
  * The shell this fixture build is running inside, or `undefined` where there is none.
  *
- * `readInstalledBridge` rather than a `window.sidekicks` read of its own: that module
+ * `readInstalledBridge` rather than a `window.desktopBridge` read of its own: that module
  * is the console's single reader of the installed bridge, and its probe is what tells
  * a preload that ran from one that did not. A second reading here would be a second
  * answer to the same question, and the one that went stale would be this one.
  */
-export function readFixtureShell(): SidekicksBridge | undefined {
+export function readFixtureShell(): DesktopBridge | undefined {
   return readInstalledBridge();
 }
 

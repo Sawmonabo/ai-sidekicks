@@ -18,7 +18,7 @@
 // document URL — a value the window is BORN with, like its opening route — and is
 // read once at module evaluation rather than subscribed to. Nothing here switches
 // a bridge at runtime: a second scenario means a second window, which is also the
-// only shape that keeps `SidekicksBridgeProvider`'s single-resolution rule true.
+// only shape that keeps `DesktopBridgeProvider`'s single-resolution rule true.
 //
 // The main process only ever composes that query in a fixture build, so a release
 // document URL carries none of it and this module is unreachable from the release

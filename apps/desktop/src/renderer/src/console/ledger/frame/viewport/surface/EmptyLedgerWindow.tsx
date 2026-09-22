@@ -2,7 +2,7 @@
 //
 // Its own module for the one-component rule, and it earns one: the viewport beside it
 // arranges elements and deliberately decides nothing, while this answers a question
-// with two inputs — what the window is a log OF, and whether this session's sidekicks
+// with two inputs — what the window is a log OF, and whether this session's agents
 // may reach each other at all.
 
 import { Nothing } from "../../../../primitives/index.js";

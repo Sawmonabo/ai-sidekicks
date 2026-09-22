@@ -1,8 +1,8 @@
-// The sidekicks section: the rail entry, the search vocabulary, and the mount.
+// The agent definitions section: the rail entry, the search vocabulary, and the mount.
 //
 // WHY THIS MODULE HOLDS NO BODY
 //
-// The saved-sidekick page is the agents family's — its subject is an agent's
+// The saved-definition page is the agents family's — its subject is an agent's
 // definition, which is that family's vocabulary — and the design puts it in
 // SETTINGS, reachable from the in-session attach picker. Those two facts are not in
 // tension: the body lives where its vocabulary is and the rail entry lives where a
@@ -38,7 +38,7 @@
 // assigned to the static chunk is what a dynamic import of it resolves to.
 //
 // So the specifier below names a module the eager graph does not reach —
-// `./agents/definitions/sidekick-definitions-page-body.js`, the page's own chunk root,
+// `./agents/definitions/agent-definitions-page-body.js`, the page's own chunk root,
 // which owns its sheet. That it is a deep path is not this file bending the door rule: a
 // chunk root is not a symbol a barrel can publish, `agent-console-mounts.ts` names its two
 // roots the same way from inside its own family, and `console-cross-family-deep-import` is
@@ -53,17 +53,17 @@
 // `settings/index.js` because that door imports THIS file to compose the page, and a
 // type line back through it closes a module cycle `no-circular` fails on.
 
-import { SIDEKICK_DEFINITIONS_SECTION } from "./agents/sidekick-definitions-section.js";
+import { AGENT_DEFINITIONS_SECTION } from "./agents/agent-definitions-section.js";
 import type { SettingsPageRegistrar } from "./settings/settings-page-registry.js";
 
 /** The lane that owns this registration, so an unfilled section names someone. */
-const OWNER = "settings-sidekicks";
+const OWNER = "settings-agents";
 
 /**
- * Claim the sidekicks section.
+ * Claim the agent definitions section.
  *
  * The body takes the BRIDGE and the RETAINED SESSION and nothing else from the page
- * context. It reads the saved-sidekick registry on mount and deletes through the same
+ * context. It reads the saved-definition registry on mount and deletes through the same
  * port, and it offers a definition to whichever session this window is working in — an
  * act that is meaningless without one, which is why the id is threaded and why the page
  * renders no attach control at all where this window has opened no session. What stays
@@ -83,9 +83,9 @@ const OWNER = "settings-sidekicks";
  * search index ranks them before a person has opened any of them, so a page whose name
  * arrived with its chunk would be unfindable until it had already been found.
  */
-export function registerSidekicksPage(registry: SettingsPageRegistrar): void {
+export function registerAgentsPage(registry: SettingsPageRegistrar): void {
   registry.register({
-    section: SIDEKICK_DEFINITIONS_SECTION,
+    section: AGENT_DEFINITIONS_SECTION,
     owner: OWNER,
     label: "Sidekicks",
     keywords: [
@@ -98,6 +98,6 @@ export function registerSidekicksPage(registry: SettingsPageRegistrar): void {
       "tools",
       "attach",
     ],
-    body: () => import("./agents/definitions/sidekick-definitions-page-body.js"),
+    body: () => import("./agents/definitions/agent-definitions-page-body.js"),
   });
 }

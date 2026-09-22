@@ -1,10 +1,10 @@
-// The definition editor's seat on the sidekicks page: chrome here, body elsewhere.
+// The definition editor's seat on the agent definitions page: chrome here, body elsewhere.
 //
-// WHY THIS IS A SECOND SEAT AND NOT THE ONE IN `sidekick-definition-editor-slot.ts`
+// WHY THIS IS A SECOND SEAT AND NOT THE ONE IN `agent-definition-editor-slot.ts`
 //
-// This family already declares a seat called the sidekick-definition editor,
+// This family already declares a seat called the agent-definition editor,
 // and it is a different editor. That one is scoped to an ATTACHED AGENT: it shows
-// the configuration one running sidekick was attached under, which is a snapshot
+// the configuration one running agent was attached under, which is a snapshot
 // taken at attach time and never changes afterwards. This one is scoped to a STORED
 // DEFINITION — a record a person keeps between sessions, which they rename, retune,
 // and delete, and which reaches nothing already running when they do.
@@ -39,18 +39,18 @@ import type { OwnerSlotProps } from "../../seats/index.js";
  * at any time, and a seat keyed by it would hand the body a subject that stops
  * resolving the moment somebody renames the record it names.
  */
-export type SidekickDefinitionEditorSubject =
+export type AgentDefinitionEditorSubject =
   | { readonly kind: "stored"; readonly definitionId: string }
   | { readonly kind: "new" };
 
 /** What the stored-definition editor is handed when its body arrives. */
-export interface SidekickDefinitionRecordEditorProps {
-  readonly subject: SidekickDefinitionEditorSubject;
+export interface AgentDefinitionRecordEditorProps {
+  readonly subject: AgentDefinitionEditorSubject;
 }
 
 /** The editor body, as a render function — the shape every seat in this tree uses. */
-export type SidekickDefinitionRecordEditorBody = (
-  props: SidekickDefinitionRecordEditorProps,
+export type AgentDefinitionRecordEditorBody = (
+  props: AgentDefinitionRecordEditorProps,
 ) => React.ReactNode;
 
 /**
@@ -60,15 +60,15 @@ export type SidekickDefinitionRecordEditorBody = (
  * members are developer-facing and reach no screen — the mount below is what a
  * person sees, and it names the feature rather than the work that owes it.
  */
-export const SIDEKICK_DEFINITION_RECORD_EDITOR_SLOT: OwnerSlotProps<SidekickDefinitionRecordEditorBody> =
+export const SIDEKICK_DEFINITION_RECORD_EDITOR_SLOT: OwnerSlotProps<AgentDefinitionRecordEditorBody> =
   {
     contract: {
       // The owning work is named by its SUBJECT, on the `workflows/owner-slots.ts`
       // precedent: every member here is a runtime string in a shipped module. The
-      // sidekick-definition registry and its editor belong to the peer-invocation
+      // agent-definition registry and its editor belong to the peer-invocation
       // work; this console only mounts the body.
       owningTask:
-        "the sidekick-definitions and peer-invocation plan's own editor body, mounted through this console's editor obligation",
+        "the agent-definitions and peer-invocation plan's own editor body, mounted through this console's editor obligation",
       mountObligation:
         "a bounded region beside the stored list, the subject the page has selected, and nothing else; the body owns the record read, every axis and its three-way state, the null-versus-absent patch, the save and delete verbs, and every refusal",
       deleteShellIn: "the editor task that fills this slot",
@@ -76,7 +76,7 @@ export const SIDEKICK_DEFINITION_RECORD_EDITOR_SLOT: OwnerSlotProps<SidekickDefi
     body: undefined,
   };
 
-export interface SidekickDefinitionRecordEditorMountProps {
+export interface AgentDefinitionRecordEditorMountProps {
   /**
    * The seat being mounted, passed in rather than read from module scope.
    *
@@ -86,9 +86,9 @@ export interface SidekickDefinitionRecordEditorMountProps {
    * exercised in its empty arm, so the arm that matters on the day the body lands
    * would ship having never run.
    */
-  readonly slot: OwnerSlotProps<SidekickDefinitionRecordEditorBody>;
+  readonly slot: OwnerSlotProps<AgentDefinitionRecordEditorBody>;
   /** `undefined` while nothing is selected — no record open, and none being composed. */
-  readonly subject: SidekickDefinitionEditorSubject | undefined;
+  readonly subject: AgentDefinitionEditorSubject | undefined;
 }
 
 /**
@@ -100,8 +100,8 @@ export interface SidekickDefinitionRecordEditorMountProps {
  * mounted by the family that mounts it, in that family's own layout and with that
  * family's own absence treatment.
  */
-export function SidekickDefinitionRecordEditorMount(
-  props: SidekickDefinitionRecordEditorMountProps,
+export function AgentDefinitionRecordEditorMount(
+  props: AgentDefinitionRecordEditorMountProps,
 ): React.JSX.Element {
   const { body } = props.slot;
   if (body === undefined || props.subject === undefined) {

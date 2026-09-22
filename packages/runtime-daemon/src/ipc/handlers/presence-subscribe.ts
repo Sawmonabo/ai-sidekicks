@@ -69,7 +69,7 @@
 // `/^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/` accepts
 // `"presence.subscribe"`. The `subscribe` method string is derived from the
 // streaming-push mechanics plus the renderer's presence-consumption surface
-// over the generic `window.sidekicks` preload bridge, which maps 1:1 to the
+// over the generic `window.desktopBridge` preload bridge, which maps 1:1 to the
 // JSON-RPC method name per the `session.*` precedent.
 
 import type {

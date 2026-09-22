@@ -285,7 +285,7 @@ class NodeRosterSeam {
 /**
  * One seam per bridge, held for as long as that bridge is reachable.
  *
- * WHY THE IDENTITY IS THE POINT. `SidekicksBridgeProvider` replaces its resolution as
+ * WHY THE IDENTITY IS THE POINT. `DesktopBridgeProvider` replaces its resolution as
  * STATE without remounting anything below it — when the `bridge` prop or the scenario
  * changes, and again when its own engine has been disposed and a second mount must take
  * a fresh one. So "same session, different transport" is a state this console genuinely

@@ -79,7 +79,7 @@
 //     daemon answer, and returning it from a scenario that models no registry at all
 //     would put a true-looking value in front of a surface for a fact nobody checked.
 //
-//   • The sidekick definition registry. Definitions are node-local configuration and
+//   • The agent definition registry. Definitions are node-local configuration and
 //     no scenario carries a node, so the same argument holds with nothing to weigh
 //     against it — and unlike the branch-context read there is no absence to serve
 //     either, because a node with no definitions and a node nobody asked are answers
@@ -295,8 +295,8 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "agentConfigUpdate",
   "agentDetach",
   "orchestrationChildRunLinkRead",
-  "sidekickDefinitionList",
-  "sidekickPeerInvocationSet",
+  "agentDefinitionList",
+  "agentPeerInvocationSet",
   "browserProducedArtifacts",
   "terminalAcquireWriteLease",
   "terminalReleaseWriteLease",
@@ -363,9 +363,9 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "agentConfigUpdate",
   "agentDetach",
   "orchestrationChildRunLinkRead",
-  // sidekick — the definition picker's read, from the same script.
-  "sidekickDefinitionList",
-  "sidekickPeerInvocationSet",
+  // agent definition — the definition picker's read, from the same script.
+  "agentDefinitionList",
+  "agentPeerInvocationSet",
   // browser — the one read in that namespace a scenario can answer, and the shelf's
   // only source of provenance. See the browser section of the header.
   "browserProducedArtifacts",

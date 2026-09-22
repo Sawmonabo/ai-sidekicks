@@ -43,9 +43,9 @@ import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import { AgentCard, ToolGrantCeiling } from "../agent-card/index.js";
 import { AgentRosterEmpty } from "../AgentRosterEmpty.js";
 import { type ProviderAxis } from "../agent-wire.js";
-import { AttachSidekick } from "../attach/AttachSidekick.js";
+import { AttachAgent } from "../attach/AttachAgent.js";
 import { useAttachHandoffClaim } from "../attach/attach-handoff/index.js";
-import { AttachSidekickForm } from "../attach/attach-model.js";
+import { AttachAgentForm } from "../attach/attach-model.js";
 import { ProviderSwitch } from "../provider-switch/ProviderSwitch.js";
 import { AGENT_MUTATION_ORIGIN } from "../provider-switch/provider-switch-host.js";
 import { type AgentConsoleModels } from "../run-console/agent-console-model.js";
@@ -88,7 +88,7 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
   // in it would be lost. It notifies through its own emitter rather than React state,
   // so this render is re-run by a counter nothing reads — the value is not the point,
   // the notification is.
-  const [attachForm] = useState(() => new AttachSidekickForm());
+  const [attachForm] = useState(() => new AttachAgentForm());
   const [, noteFormEdited] = useReducer((edits: number) => edits + 1, 0);
   const [isAttachOpen, setAttachOpen] = useState(false);
   // STABLE, because the handoff claim's effect below names it: an inline arrow would
@@ -348,7 +348,7 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
         Attach a sidekick
       </button>
 
-      <AttachSidekick
+      <AttachAgent
         open={isAttachOpen}
         onOpenChange={setAttachOpen}
         form={attachForm}

@@ -1,10 +1,10 @@
-// The saved-sidekick registry, projected into what a page can render — and nothing
+// The saved-definition registry, projected into what a page can render — and nothing
 // else. No React, no bridge call, no state: a function from what the port answered
 // to what the rows say.
 //
 // WHY THE RECORD TYPE IS DERIVED AND NOT RESTATED
 //
-// `bridge/wire-shapes/sidekick-definition.ts` declares the stored row, and the bridge's door
+// `bridge/wire-shapes/agent-definition.ts` declares the stored row, and the bridge's door
 // publishes the bridge rather than the port's vocabulary. So the shape is taken off
 // the operation itself — the `SentInvites` precedent — and a hand-written copy of a
 // wire shape, which is what a view family would otherwise grow, is a second
@@ -35,7 +35,7 @@
 // The timestamps are carried VERBATIM rather than through `formatClockTime`, which
 // fixes to hours, minutes, and seconds because a ledger's day divider carries the
 // date. A saved record has no day divider and its two instants span whatever period
-// the person has been tuning sidekicks over, so the formatted reading would be
+// the person has been tuning agents over, so the formatted reading would be
 // wrong rather than merely terse — and a wire string rendered exactly as it arrived
 // is what rule 4 asks for anyway.
 
@@ -44,14 +44,14 @@ import type { ConsoleRefusal } from "../../core/index.js";
 import { formatCount } from "../../primitives/index.js";
 
 /** One saved definition, exactly as the registry serves it. */
-export type SidekickDefinitionRecord = Extract<
-  SidekickDefinitionListOutcome,
+export type AgentDefinitionRecord = Extract<
+  AgentDefinitionListOutcome,
   { readonly status: "served" }
 >["value"][number];
 
-/** What one `sidekickDefinitionList` call answers, derived off the port. */
-type SidekickDefinitionListOutcome = Awaited<
-  ReturnType<ConsoleBridge["growth"]["sidekickDefinitionList"]>
+/** What one `agentDefinitionList` call answers, derived off the port. */
+type AgentDefinitionListOutcome = Awaited<
+  ReturnType<ConsoleBridge["growth"]["agentDefinitionList"]>
 >;
 
 /**
@@ -63,27 +63,27 @@ type SidekickDefinitionListOutcome = Awaited<
 export const SIDEKICK_AXIS_SOURCES = ["wire", "console"] as const;
 
 /** One axis's provenance. Derived, so the vocabulary has one home. */
-export type SidekickAxisSource = (typeof SIDEKICK_AXIS_SOURCES)[number];
+export type AgentAxisSource = (typeof SIDEKICK_AXIS_SOURCES)[number];
 
 /** One line of a row: what is being named, what it says, and who said it. */
-export interface SidekickDefinitionAxis {
+export interface AgentDefinitionAxis {
   /** Stable across renders and independent of the label's wording. */
   readonly key: string;
   /** The console's word for the axis. Never a wire key. */
   readonly label: string;
   /** The text shown. Verbatim on the `wire` source; ours on `console`. */
   readonly reading: string;
-  readonly source: SidekickAxisSource;
+  readonly source: AgentAxisSource;
 }
 
-/** One saved sidekick, ready to render. */
-export interface SidekickDefinitionRow {
+/** One saved definition, ready to render. */
+export interface AgentDefinitionRow {
   readonly definitionId: string;
-  /** The mutable label. Nothing keys on it — see {@link SidekickDefinitionRow.definitionId}. */
+  /** The mutable label. Nothing keys on it — see {@link AgentDefinitionRow.definitionId}. */
   readonly name: string;
   /** May be empty: an operator who wrote nothing wrote nothing, and that is a value. */
   readonly description: string;
-  readonly axes: readonly SidekickDefinitionAxis[];
+  readonly axes: readonly AgentDefinitionAxis[];
 }
 
 /**
@@ -91,14 +91,14 @@ export interface SidekickDefinitionRow {
  *
  * Four arms, and the first three are rule 8's absences kept apart: a read in
  * flight, a read the port refused, and a read that came back with nothing in it.
- * Collapsing any two would let the page tell a person they have saved no sidekicks
+ * Collapsing any two would let the page tell a person they have saved no definitions
  * on the strength of a question that was never answered.
  */
-export type SidekickDefinitionReading =
+export type AgentDefinitionReading =
   | { readonly kind: "not-loaded" }
   | { readonly kind: "refused"; readonly refusal: ConsoleRefusal }
   | { readonly kind: "empty" }
-  | { readonly kind: "rows"; readonly rows: readonly SidekickDefinitionRow[] };
+  | { readonly kind: "rows"; readonly rows: readonly AgentDefinitionRow[] };
 
 /**
  * A reading that has settled.
@@ -107,13 +107,13 @@ export type SidekickDefinitionReading =
  * caller announcing before the read lands is then a compile error rather than a
  * sentence about a settlement that has not happened.
  */
-export type SettledSidekickDefinitionReading = Exclude<
-  SidekickDefinitionReading,
+export type SettledAgentDefinitionReading = Exclude<
+  AgentDefinitionReading,
   { readonly kind: "not-loaded" }
 >;
 
 /** The empty registry's own sentence, so the page and its announcement agree. */
-export const NO_SAVED_SIDEKICKS = "You have saved no sidekicks on this node";
+export const NO_SAVED_DEFINITIONS = "You have saved no sidekicks on this node";
 
 /**
  * Read one outcome into what the page renders.
@@ -123,8 +123,8 @@ export const NO_SAVED_SIDEKICKS = "You have saved no sidekicks on this node";
  * rewrites a code or a sentence the port composed.
  */
 export function readDefinitionOutcome(
-  outcome: SidekickDefinitionListOutcome,
-): SettledSidekickDefinitionReading {
+  outcome: AgentDefinitionListOutcome,
+): SettledAgentDefinitionReading {
   if (outcome.status === "unavailable") {
     return { kind: "refused", refusal: outcome };
   }
@@ -150,9 +150,9 @@ export function readDefinitionOutcome(
  * collating one would be treating an identifier as text in a language.
  */
 export function projectDefinitionRows(
-  definitions: readonly SidekickDefinitionRecord[],
+  definitions: readonly AgentDefinitionRecord[],
   locale?: string,
-): readonly SidekickDefinitionRow[] {
+): readonly AgentDefinitionRow[] {
   const collator = new Intl.Collator(locale);
   return [...definitions]
     .map((definition) => projectDefinitionRow(definition))
@@ -166,7 +166,7 @@ export function projectDefinitionRows(
 }
 
 /** What a settled read says out loud, once. */
-export function describeDefinitionSettlement(reading: SettledSidekickDefinitionReading): string {
+export function describeDefinitionSettlement(reading: SettledAgentDefinitionReading): string {
   if (reading.kind === "refused") {
     // The port's own sentence, verbatim. The console never paraphrases a refusal,
     // and the code stays out of the spoken form: read aloud it is a token nobody
@@ -174,7 +174,7 @@ export function describeDefinitionSettlement(reading: SettledSidekickDefinitionR
     return reading.refusal.detail;
   }
   if (reading.kind === "empty") {
-    return `${NO_SAVED_SIDEKICKS}.`;
+    return `${NO_SAVED_DEFINITIONS}.`;
   }
   const count = reading.rows.length;
   return `Read ${formatCount(count)} saved ${count === 1 ? "sidekick" : "sidekicks"}.`;
@@ -184,15 +184,15 @@ export function describeDefinitionSettlement(reading: SettledSidekickDefinitionR
  * The question the two-step delete asks before it asks the daemon anything.
  *
  * It names the record and states the one fact that makes the answer easy: deleting
- * a saved sidekick reaches nothing already running, because an attach COPIES the
+ * a saved definition reaches nothing already running, because an attach COPIES the
  * definition rather than referencing it. A confirmation that only asked "are you
  * sure" would leave a person weighing a consequence the registry does not have.
  */
-export function describeDeletionQuestion(row: SidekickDefinitionRow): string {
+export function describeDeletionQuestion(row: AgentDefinitionRow): string {
   return `Delete “${row.name}”? A sidekick already attached from it keeps the configuration it was given.`;
 }
 
-function projectDefinitionRow(definition: SidekickDefinitionRecord): SidekickDefinitionRow {
+function projectDefinitionRow(definition: AgentDefinitionRecord): AgentDefinitionRow {
   return {
     definitionId: definition.definitionId,
     name: definition.name,
@@ -217,11 +217,11 @@ function projectDefinitionRow(definition: SidekickDefinitionRecord): SidekickDef
   };
 }
 
-function wireAxis(key: string, label: string, reading: string): SidekickDefinitionAxis {
+function wireAxis(key: string, label: string, reading: string): AgentDefinitionAxis {
   return { key, label, reading, source: "wire" };
 }
 
-function consoleAxis(key: string, label: string, reading: string): SidekickDefinitionAxis {
+function consoleAxis(key: string, label: string, reading: string): AgentDefinitionAxis {
   return { key, label, reading, source: "console" };
 }
 
@@ -238,7 +238,7 @@ function pinnedAxis(
   label: string,
   pinned: string | null,
   inheritReading: string,
-): SidekickDefinitionAxis {
+): AgentDefinitionAxis {
   return pinned === null ? consoleAxis(key, label, inheritReading) : wireAxis(key, label, pinned);
 }
 

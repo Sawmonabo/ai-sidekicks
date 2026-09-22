@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import { DECK_RESTORED_PANE_CAP, ManualClock } from "../../core/index.js";
 import {
-  SidekicksBridgeProvider,
+  DesktopBridgeProvider,
   createFixtureBridge,
   type ConsoleBridge,
 } from "../../bridge/index.js";
@@ -79,9 +79,9 @@ function registryWith(
  */
 function DeckWindow(props: { readonly children: React.ReactNode }): React.JSX.Element {
   return (
-    <SidekicksBridgeProvider bridge={createFixtureBridge({ scenario: FIRST_RUN_SCENARIO })}>
+    <DesktopBridgeProvider bridge={createFixtureBridge({ scenario: FIRST_RUN_SCENARIO })}>
       <LiveAnnouncerProvider>{props.children}</LiveAnnouncerProvider>
-    </SidekicksBridgeProvider>
+    </DesktopBridgeProvider>
   );
 }
 
@@ -358,7 +358,7 @@ describe("Deck — the clock its rect flush runs on", () => {
     const layout = emptyLayout();
     layout.open({ kind: "timeline", entity: undefined });
     render(
-      <SidekicksBridgeProvider bridge={bridge}>
+      <DesktopBridgeProvider bridge={bridge}>
         <LiveAnnouncerProvider>
           <Deck
             layout={layout}
@@ -366,7 +366,7 @@ describe("Deck — the clock its rect flush runs on", () => {
             paneContextFor={paneContextFor}
           />
         </LiveAnnouncerProvider>
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
   }
 

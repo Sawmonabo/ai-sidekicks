@@ -33,7 +33,7 @@ import {
   type AgentRosterReading,
   type ChildRunLinkReading,
   type ConsoleBridge,
-  type SidekickDefinition,
+  type AgentDefinition,
 } from "../../bridge/index.js";
 import { PushDrivenRead, servedGrowthValueOrRaise, servedValueOrRaise } from "../../seats/index.js";
 import { subscribeToSessionEventKinds, type SessionStore } from "../../store/index.js";
@@ -42,7 +42,7 @@ import {
   CHILD_RUN_LINKAGE_EVENT_KINDS,
   DRIVER_LIST_CAPABILITIES_METHOD,
   DRIVER_LIST_MODELS_METHOD,
-  type SidekickDefinitionListReading,
+  type AgentDefinitionListReading,
 } from "../agent-wire.js";
 import type { DriverCatalogReading } from "../driver-catalog.js";
 
@@ -50,12 +50,12 @@ import type { DriverCatalogReading } from "../driver-catalog.js";
 export const AGENT_ROSTER_ORIGIN = "agent-roster";
 export const DRIVER_CATALOG_ORIGIN = "driver-catalog";
 export const CHILD_RUN_LINKAGE_ORIGIN = "child-run-linkage";
-export const SIDEKICK_DEFINITION_ORIGIN = "sidekick-definitions";
+export const AGENT_DEFINITION_ORIGIN = "agent-definitions";
 
 export type AgentRosterRead = PushDrivenRead<AgentRosterReading>;
 export type DriverCatalogRead = PushDrivenRead<DriverCatalogReading>;
 export type ChildRunLinkageRead = PushDrivenRead<ChildRunLinkReading>;
-export type SidekickDefinitionRead = PushDrivenRead<SidekickDefinitionListReading>;
+export type AgentDefinitionRead = PushDrivenRead<AgentDefinitionListReading>;
 
 /** The roster read, refreshed by the three registered lifecycle events. */
 export function createAgentRoster(
@@ -105,15 +105,15 @@ export function createDriverCatalog(bridge: ConsoleBridge, clock: ConsoleClock):
  * a definition that has left the registry refuses rather than resolving to something
  * else — so the console does not need a freshness policy of its own to be correct.
  */
-export function createSidekickDefinitions(
+export function createAgentDefinitions(
   bridge: ConsoleBridge,
   clock: ConsoleClock,
-): SidekickDefinitionRead {
-  return new PushDrivenRead<SidekickDefinitionListReading>({
+): AgentDefinitionRead {
+  return new PushDrivenRead<AgentDefinitionListReading>({
     clock,
-    origin: SIDEKICK_DEFINITION_ORIGIN,
+    origin: AGENT_DEFINITION_ORIGIN,
     read: async () =>
-      pickerReadingFor(servedGrowthValueOrRaise(await bridge.growth.sidekickDefinitionList({}))),
+      pickerReadingFor(servedGrowthValueOrRaise(await bridge.growth.agentDefinitionList({}))),
     subscribe: () => () => undefined,
   });
 }
@@ -147,16 +147,14 @@ export function createChildRunLinkage(
 /**
  * The picker's projection of the definition registry's own rows.
  *
- * The registry answers `SidekickDefinition`, whose nullable axes are `T | null`
+ * The registry answers `AgentDefinition`, whose nullable axes are `T | null`
  * because a stored row never omits one — `null` IS how it says "inherit". The picker
  * renders absence, which is `undefined`, so the two grammars meet here in one place
  * rather than at each field a row is read through. It is a PROJECTION and not a
  * second shape for the wire: nothing is dropped, nothing is defaulted, and a row that
  * pinned nothing arrives with nothing pinned.
  */
-function pickerReadingFor(
-  definitions: readonly SidekickDefinition[],
-): SidekickDefinitionListReading {
+function pickerReadingFor(definitions: readonly AgentDefinition[]): AgentDefinitionListReading {
   return {
     definitions: definitions.map((definition) => ({
       definitionId: definition.definitionId,

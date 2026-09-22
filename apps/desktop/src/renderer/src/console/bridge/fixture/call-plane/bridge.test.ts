@@ -1,6 +1,6 @@
 // A fixture subscription delivers only what the caller asked for.
 //
-// The fixture is shape-identical to `SidekicksBridge`, and `bridge-shape.test.ts`
+// The fixture is shape-identical to `DesktopBridge`, and `bridge-shape.test.ts`
 // turns that into a checked claim. Shape is the cheap half. This file is one of the
 // three places where a
 // fixture that matched the contract's SHAPE was still answering something the live

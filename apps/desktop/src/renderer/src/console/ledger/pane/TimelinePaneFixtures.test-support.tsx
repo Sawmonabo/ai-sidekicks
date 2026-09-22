@@ -12,7 +12,7 @@
 
 import { render } from "@testing-library/react";
 
-import { SidekicksBridgeProvider, createFixtureBridge } from "../../bridge/index.js";
+import { DesktopBridgeProvider, createFixtureBridge } from "../../bridge/index.js";
 import { LEDGER_QUIET_SCENARIO } from "../../bridge/scenario/ledger/ledger-quiet.js";
 import { FrameStore, SessionStore } from "../../store/index.js";
 import { TimelinePane, type TimelinePaneContext, type TimelinePaneProps } from "./TimelinePane.js";
@@ -64,9 +64,9 @@ export function paneContext(
  */
 export function renderTimelinePane(props: TimelinePaneProps): HTMLElement {
   const { container } = render(
-    <SidekicksBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
+    <DesktopBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
       <TimelinePane {...props} />
-    </SidekicksBridgeProvider>,
+    </DesktopBridgeProvider>,
   );
   const pane = container.querySelector(".meridian-pane");
   if (!(pane instanceof HTMLElement)) {

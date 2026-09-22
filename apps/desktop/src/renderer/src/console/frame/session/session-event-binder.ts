@@ -293,7 +293,7 @@ export class SessionEventBinder {
     if (this.#disposed || this.#unsubscribeBySessionId.has(sessionId)) {
       return;
     }
-    const subscribe = this.#bridge.sidekicks.daemon.subscribe as SessionStreamSubscribe;
+    const subscribe = this.#bridge.desktopBridge.daemon.subscribe as SessionStreamSubscribe;
     let release: Unsubscribe;
     try {
       release = openObservedSubscription(this.#bridge.transportReconnect, () =>

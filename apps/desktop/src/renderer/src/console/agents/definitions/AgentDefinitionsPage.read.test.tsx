@@ -1,4 +1,4 @@
-// What the sidekicks page reads, shows, and says out loud.
+// What the agent definitions page reads, shows, and says out loud.
 //
 // Three of the four ways this page could go wrong quietly are here. It could show an
 // empty list for a read that refused, which asserts a fact about a person's machine
@@ -8,7 +8,7 @@
 // can see the screen and total for everyone who cannot.
 //
 // The fourth — deleting on one press, the one act here with no undo — is
-// `SidekickDefinitionsPage.acts.test.tsx`, with the editor seat and the pending-delete state.
+// `AgentDefinitionsPage.acts.test.tsx`, with the editor seat and the pending-delete state.
 //
 // The registry, the announcer and the presses live in the support module beside this
 // one; the bridge behind them is the shipped fixture bridge with the two operations
@@ -30,9 +30,9 @@ import {
   savedRegionOf,
   served,
   settle,
-} from "./sidekick-definitions-page.test-support.js";
+} from "./agent-definitions-page.test-support.js";
 
-describe("the sidekicks page — the read", () => {
+describe("the agent definitions page — the read", () => {
   it("says a read is in flight before the registry answers", () => {
     // Asserted before `settle`, which is the only moment this arm exists.
     const { container } = renderPage(new RegistryStub({ lists: [served([])] }).bridge());
@@ -42,7 +42,7 @@ describe("the sidekicks page — the read", () => {
   });
 
   it("renders the port's refusal with its code rather than an empty registry", async () => {
-    const stub = new RegistryStub({ lists: [growthUnavailable("sidekickDefinitionList")] });
+    const stub = new RegistryStub({ lists: [growthUnavailable("agentDefinitionList")] });
     const { container } = renderPage(stub.bridge());
     await settle();
     const saved = savedRegionOf(container);
@@ -68,16 +68,18 @@ describe("the sidekicks page — the read", () => {
   });
 });
 
-describe("the sidekicks page — a row", () => {
+describe("the agent definitions page — a row", () => {
   it("shows the label, the identifier, and every axis the record carries", async () => {
     const { container } = renderPage(
       new RegistryStub({ lists: [served([definition()])] }).bridge(),
     );
     await settle();
     const saved = savedRegionOf(container);
-    expect(saved.querySelector(".meridian-sidekick-row__name")?.textContent).toBe("Reviewer");
+    expect(saved.querySelector(".meridian-saved-definition-row__name")?.textContent).toBe(
+      "Reviewer",
+    );
     expect(saved.textContent ?? "").toContain("definition-1");
-    expect(saved.querySelectorAll(".meridian-sidekick-row__axis")).toHaveLength(10);
+    expect(saved.querySelectorAll(".meridian-saved-definition-row__axis")).toHaveLength(10);
   });
 
   it("renders a wire value in mono and the console's own reading as derived", async () => {
@@ -120,14 +122,14 @@ describe("the sidekicks page — a row", () => {
       }).bridge(),
     );
     await settle();
-    const names = [...container.querySelectorAll(".meridian-sidekick-row__name")].map(
+    const names = [...container.querySelectorAll(".meridian-saved-definition-row__name")].map(
       (element) => element.textContent ?? "",
     );
     expect(names).toStrictEqual(["Auditor", "Writer"]);
   });
 });
 
-describe("the sidekicks page — the settlement it announces", () => {
+describe("the agent definitions page — the settlement it announces", () => {
   it("says what it read and how many, once, politely", async () => {
     const { container } = renderPage(
       new RegistryStub({
@@ -144,7 +146,7 @@ describe("the sidekicks page — the settlement it announces", () => {
 
   it("speaks a refusal's sentence when the read refused", async () => {
     const { container } = renderPage(
-      new RegistryStub({ lists: [growthUnavailable("sidekickDefinitionList")] }).bridge(),
+      new RegistryStub({ lists: [growthUnavailable("agentDefinitionList")] }).bridge(),
     );
     await settle();
     expect(politeText(container)).toContain("Not checked");
@@ -179,7 +181,7 @@ describe("the sidekicks page — the settlement it announces", () => {
     const stub = new RegistryStub({
       lists: [
         served([definition(), definition({ definitionId: "definition-2", name: "Auditor" })]),
-        growthUnavailable("sidekickDefinitionList"),
+        growthUnavailable("agentDefinitionList"),
       ],
     });
     const { container, clock } = renderPage(stub.bridge());
@@ -200,7 +202,7 @@ describe("the sidekicks page — the settlement it announces", () => {
       lists: [
         served([definition(), definition({ definitionId: "definition-2", name: "Auditor" })]),
       ],
-      deleteOutcome: growthUnavailable("sidekickDefinitionDelete"),
+      deleteOutcome: growthUnavailable("agentDefinitionDelete"),
     });
     const { container, clock } = renderPage(stub.bridge());
     await settle();
@@ -212,11 +214,11 @@ describe("the sidekicks page — the settlement it announces", () => {
   });
 });
 
-describe("the sidekicks page — the facts it teaches without asking anything", () => {
+describe("the agent definitions page — the facts it teaches without asking anything", () => {
   it("states exactly the three a person needs before tuning one", async () => {
     const { container } = renderPage(new RegistryStub({ lists: [served([])] }).bridge());
     await settle();
-    expect(container.querySelectorAll(".meridian-sidekicks__rule")).toHaveLength(3);
+    expect(container.querySelectorAll(".meridian-agent-definitions__rule")).toHaveLength(3);
   });
 
   it("says a rename reaches nothing running, and that editing is therefore safe", async () => {

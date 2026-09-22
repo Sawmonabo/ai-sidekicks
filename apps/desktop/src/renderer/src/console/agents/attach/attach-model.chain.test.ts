@@ -19,7 +19,7 @@ import {
   OVERLAPPING_DRIVER_CATALOG_FIXTURE,
 } from "../driver-catalog.test-support.js";
 import type { DriverCatalogReading } from "../driver-catalog.js";
-import { AttachSidekickForm } from "./attach-model.js";
+import { AttachAgentForm } from "./attach-model.js";
 import { ATTACH_FIELDS, type AttachField } from "./attach-readiness.js";
 import { DEFINITION, SESSION_ID, namedForm } from "./attach-model.test-support.js";
 
@@ -44,7 +44,7 @@ const OVERLAPPING_CATALOG: DriverCatalogReading = OVERLAPPING_DRIVER_CATALOG_FIX
 function inlineFormOver(
   catalog: DriverCatalogReading,
   entries: Partial<Record<AttachField, string>>,
-): AttachSidekickForm {
+): AttachAgentForm {
   const form = namedForm();
   for (const field of ATTACH_FIELDS) {
     const value = entries[field];

@@ -10,7 +10,7 @@
 // The bridge source is `live` in every case here, because the absorbed probe carries
 // the fixture guard and renders "the question was not put" on any other — so the
 // window this suite drives is the one where a start press reaches a wire, and
-// `window.sidekicks` is the surface it reaches it through.
+// `window.desktopBridge` is the surface it reaches it through.
 
 import { act, screen } from "@testing-library/react";
 import { describe, expect, it, vi, afterEach } from "vitest";
@@ -151,7 +151,7 @@ function controlSettlingWith(sessionId: string): NewSessionControlComponent {
 
 describe("a settled composed send — the destination's half of the same act", () => {
   // The probe is not installed for any case here: the composed draft is
-  // console-authored and never reaches `window.sidekicks`, so what is under test is
+  // console-authored and never reaches `window.desktopBridge`, so what is under test is
   // the WIRE — that the control this destination mounts is handed a settlement, and
   // that the settlement is the one the start act performs rather than a second
   // spelling of some of it.

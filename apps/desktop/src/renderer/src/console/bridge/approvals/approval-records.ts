@@ -1,7 +1,7 @@
 // What the two approval reads answer with, and the one place an `unknown` reply
 // becomes something this surface may render.
 //
-// `SidekicksBridge.daemon.call` answers `DaemonResult<M>`, which resolves to
+// `DesktopBridge.daemon.call` answers `DaemonResult<M>`, which resolves to
 // `unknown` until the daemon method union lands, and `packages/contracts` registers
 // no approval payload at all — so a surface that rendered whatever arrived would
 // render a row for a malformed emission as confidently as for a real one. Every

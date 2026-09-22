@@ -25,7 +25,7 @@ import { RuntimeNodeRosterResponseSchema } from "@ai-sidekicks/contracts";
 import type {
   RuntimeNodeRosterRequest,
   SessionId,
-  SidekicksBridge,
+  DesktopBridge,
   Unsubscribe,
 } from "@ai-sidekicks/contracts";
 
@@ -62,13 +62,13 @@ import {
  * disposition `callDaemon` takes at its own door.
  */
 export async function readRuntimeNodeRosterOverControlPlane(
-  sidekicks: SidekicksBridge,
+  desktopBridge: DesktopBridge,
   request: RuntimeNodeRosterRequest,
 ): Promise<RuntimeNodeRosterOutcome> {
   // The reply is `unknown` on the way in, deliberately: the brand cast narrows the
   // procedure NAME and the request, and claiming the response type here would be the
   // cast this parse exists to retire.
-  const callProcedure = sidekicks.controlPlane.call as unknown as (
+  const callProcedure = desktopBridge.controlPlane.call as unknown as (
     procedure: string,
     input: RuntimeNodeRosterRequest,
   ) => Promise<unknown>;
@@ -108,11 +108,11 @@ export async function readRuntimeNodeRosterOverControlPlane(
  * roster silently stale, which is the failure a live roster exists to prevent.
  */
 export function subscribeRuntimeNodePresence(
-  sidekicks: SidekicksBridge,
+  desktopBridge: DesktopBridge,
   sessionId: SessionId,
   onPresenceChange: () => void,
 ): RuntimeNodePresenceSubscription {
-  const subscribeToEvent = sidekicks.daemon.subscribe as unknown as (
+  const subscribeToEvent = desktopBridge.daemon.subscribe as unknown as (
     eventName: string,
     handler: (payload: unknown) => void,
   ) => Unsubscribe;

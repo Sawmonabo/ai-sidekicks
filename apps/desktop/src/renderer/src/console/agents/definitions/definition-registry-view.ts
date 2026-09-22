@@ -1,7 +1,7 @@
-// What the sidekicks page HOLDS: the registry read, the delete in flight, and which
+// What the agent definitions page HOLDS: the registry read, the delete in flight, and which
 // record the editor's seat is open on.
 //
-// It is a module of its own rather than a class at the top of `SidekickDefinitionsPage.tsx`
+// It is a module of its own rather than a class at the top of `AgentDefinitionsPage.tsx`
 // because the two are different jobs — one owns a state machine over the growth
 // port, the other renders whatever that machine settled on — which is the seam the
 // module-shape rule in `apps/desktop/AGENTS.md` splits on. The page imports the hook
@@ -38,24 +38,24 @@ import { useSettlementAnnouncement } from "../../primitives/index.js";
 import {
   describeDefinitionSettlement,
   readDefinitionOutcome,
-  type SidekickDefinitionReading,
+  type AgentDefinitionReading,
 } from "./definition-rows.js";
-import type { SidekickDefinitionEditorSubject } from "./SidekickDefinitionRecordEditorMount.js";
+import type { AgentDefinitionEditorSubject } from "./AgentDefinitionRecordEditorMount.js";
 
 /** Everything the page renders from, in one value. */
-export interface SidekickRegistrySnapshot {
-  readonly reading: SidekickDefinitionReading;
+export interface AgentRegistrySnapshot {
+  readonly reading: AgentDefinitionReading;
   /** The row whose delete has been asked but not confirmed. One at a time. */
   readonly armedDeletionId: string | undefined;
   readonly deletingId: string | undefined;
   /** The last refusal per row, dropped when that row is attempted again. */
   readonly refusalByDefinitionId: ReadonlyMap<string, ConsoleRefusal>;
-  readonly editorSubject: SidekickDefinitionEditorSubject | undefined;
+  readonly editorSubject: AgentDefinitionEditorSubject | undefined;
   /** Bumped on every transition, so `useSyncExternalStore` sees a new identity. */
   readonly revision: number;
 }
 
-const NOTHING_READ: SidekickRegistrySnapshot = {
+const NOTHING_READ: AgentRegistrySnapshot = {
   reading: { kind: "not-loaded" },
   armedDeletionId: undefined,
   deletingId: undefined,
@@ -65,7 +65,7 @@ const NOTHING_READ: SidekickRegistrySnapshot = {
 };
 
 /** The subsystem name the refusals this view raises on its own carry. */
-export const SIDEKICK_REGISTRY_REFUSAL_ORIGIN = "sidekick-registry-view";
+export const AGENT_REGISTRY_REFUSAL_ORIGIN = "agent-registry-view";
 
 /** The one key a registry read is taken under; a refresh supersedes whoever holds it. */
 const REGISTRY_READ_KEY = "registry-read";
@@ -87,20 +87,20 @@ const REGISTRY_READ_KEY = "registry-read";
  * therefore both the lock and the record of which delete is running — one field, so
  * the guard and the page's own disabled controls cannot disagree.
  */
-export class SidekickRegistryView implements ReadTriggerTarget {
+export class AgentRegistryView implements ReadTriggerTarget {
   /**
    * No terminal event refreshes this read, and the empty set states it.
    *
    * The definition registry is node-local and its verbs are growth operations: the
-   * corpus registers no `sidekick.*` event type, so there is no kind a store could
+   * corpus registers no `agent.*` event type, so there is no kind a store could
    * admit and none this view could listen for. The window triggers are therefore the
    * whole refresh story — which is why the read goes through a scheduler rather than
    * firing once from `start` and never again.
    */
   public readonly triggeringEventKinds: ReadonlySet<string> = NO_TRIGGERING_EVENT_KINDS;
   readonly #bridge: ConsoleBridge;
-  readonly #changes = new Emitter<SidekickRegistrySnapshot>("sidekick registry change");
-  #snapshot: SidekickRegistrySnapshot = NOTHING_READ;
+  readonly #changes = new Emitter<AgentRegistrySnapshot>("agent registry change");
+  #snapshot: AgentRegistrySnapshot = NOTHING_READ;
   #hasStarted = false;
   #isDisposed = false;
   /**
@@ -127,7 +127,7 @@ export class SidekickRegistryView implements ReadTriggerTarget {
     });
   }
 
-  public snapshot(): SidekickRegistrySnapshot {
+  public snapshot(): AgentRegistrySnapshot {
     return this.#snapshot;
   }
 
@@ -175,7 +175,7 @@ export class SidekickRegistryView implements ReadTriggerTarget {
     this.#publish({ armedDeletionId: undefined });
   }
 
-  public openEditor(subject: SidekickDefinitionEditorSubject): void {
+  public openEditor(subject: AgentDefinitionEditorSubject): void {
     this.#publish({ editorSubject: subject });
   }
 
@@ -218,7 +218,7 @@ export class SidekickRegistryView implements ReadTriggerTarget {
       // again does not read last time's reason beside this time's spinner.
       refusalByDefinitionId: this.#refusalsWithout(definitionId),
     });
-    const outcome = await this.#bridge.growth.sidekickDefinitionDelete({ definitionId });
+    const outcome = await this.#bridge.growth.agentDefinitionDelete({ definitionId });
     // The lock is still this record's, or this settlement is no longer the page's
     // to fold in — the same belt the disposal flag beside it is.
     if (this.#isDisposed || this.#snapshot.deletingId !== definitionId) {
@@ -250,7 +250,7 @@ export class SidekickRegistryView implements ReadTriggerTarget {
    */
   async #read(): Promise<void> {
     const read = this.#reads.supersedeAndClaim(this, REGISTRY_READ_KEY);
-    const outcome = await this.#bridge.growth.sidekickDefinitionList({});
+    const outcome = await this.#bridge.growth.agentDefinitionList({});
     if (this.#isDisposed) {
       return;
     }
@@ -280,7 +280,7 @@ export class SidekickRegistryView implements ReadTriggerTarget {
    * `useSyncExternalStore` compares identity: a getter returning a fresh object on
    * every call renders forever.
    */
-  #publish(changes: Partial<Omit<SidekickRegistrySnapshot, "revision">>): void {
+  #publish(changes: Partial<Omit<AgentRegistrySnapshot, "revision">>): void {
     this.#snapshot = { ...this.#snapshot, ...changes, revision: this.#snapshot.revision + 1 };
     this.#changes.emit(this.#snapshot);
   }
@@ -295,11 +295,11 @@ export class SidekickRegistryView implements ReadTriggerTarget {
  * must not happen during render, so a memo React discards costs a discarded object
  * and no request.
  */
-export function useSidekickRegistryView(bridge: ConsoleBridge): {
-  readonly view: SidekickRegistryView;
-  readonly snapshot: SidekickRegistrySnapshot;
+export function useAgentRegistryView(bridge: ConsoleBridge): {
+  readonly view: AgentRegistryView;
+  readonly snapshot: AgentRegistrySnapshot;
 } {
-  const view = useMemo(() => new SidekickRegistryView(bridge), [bridge]);
+  const view = useMemo(() => new AgentRegistryView(bridge), [bridge]);
   useEffect(() => {
     view.start();
     return () => {
@@ -332,7 +332,7 @@ export function useSidekickRegistryView(bridge: ConsoleBridge): {
  * arm; `describeDefinitionSettlement` is narrowed to a settled reading and is
  * reached only past that check.
  */
-export function useDefinitionSettlementAnnouncement(reading: SidekickDefinitionReading): void {
+export function useDefinitionSettlementAnnouncement(reading: AgentDefinitionReading): void {
   useSettlementAnnouncement(
     reading.kind === "not-loaded" ? undefined : describeDefinitionSettlement(reading),
   );
@@ -347,7 +347,7 @@ export function useDefinitionSettlementAnnouncement(reading: SidekickDefinitionR
  */
 function deleteAlreadyRunning(isTheSameRecord: boolean): ConsoleRefusal {
   return refuse(
-    SIDEKICK_REGISTRY_REFUSAL_ORIGIN,
+    AGENT_REGISTRY_REFUSAL_ORIGIN,
     "delete-already-running",
     isTheSameRecord
       ? "This sidekick is already being deleted. It is asked once, and the row changes when the registry answers."
@@ -357,9 +357,9 @@ function deleteAlreadyRunning(isTheSameRecord: boolean): ConsoleRefusal {
 
 /** Close a seat open on a record that has just been deleted; leave any other. */
 function subjectSurviving(
-  subject: SidekickDefinitionEditorSubject | undefined,
+  subject: AgentDefinitionEditorSubject | undefined,
   deletedDefinitionId: string,
-): SidekickDefinitionEditorSubject | undefined {
+): AgentDefinitionEditorSubject | undefined {
   if (subject?.kind === "stored" && subject.definitionId === deletedDefinitionId) {
     return undefined;
   }

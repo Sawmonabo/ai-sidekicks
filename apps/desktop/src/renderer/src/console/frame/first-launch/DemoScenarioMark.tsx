@@ -1,7 +1,7 @@
 // The one line that says these rows are a demonstration.
 //
 // WHAT IT IS FOR. The first-sixty-seconds surface opens an unnamed fixture window into
-// a scripted session already in flight — several sidekicks, several people, a handoff
+// a scripted session already in flight — several agents, several people, a handoff
 // drawing, an approval arriving. Its own governing Never bullet forbids presenting that
 // as live and requires the scenario to be labeled, and nothing anywhere in the console
 // did: before the demo became the default opening it was reachable only by typing a

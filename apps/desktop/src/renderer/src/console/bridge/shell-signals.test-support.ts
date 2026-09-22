@@ -1,6 +1,6 @@
 // A shell whose requests a case raises by hand, standing in for the main process.
 //
-// The `shell` namespace is the one on `SidekicksBridge` that runs main → renderer,
+// The `shell` namespace is the one on `DesktopBridge` that runs main → renderer,
 // so every suite that exercises it needs a process no renderer suite runs. This is
 // that stand-in, and it lives here rather than beside a caller because two families
 // reach for it — the seat that lands the request and the composer that answers it —
@@ -33,8 +33,8 @@ export function shellProbe(): ShellProbe {
   return {
     bridge: {
       ...fixture,
-      sidekicks: {
-        ...fixture.sidekicks,
+      desktopBridge: {
+        ...fixture.desktopBridge,
         shell: {
           subscribeToComposerFocusRequest: (handler: () => void) => {
             handlers.add(handler);

@@ -139,7 +139,7 @@ describe("ProviderCommandEnumeration — one reading, two readers", () => {
 
 describe("ProviderCommandEnumeration — the bridge is part of which binding this is", () => {
   it("re-reads when the bridge is replaced under the same session and agent", async () => {
-    // `SidekicksBridgeProvider` can swap its bridge while the composer stays addressed
+    // `DesktopBridgeProvider` can swap its bridge while the composer stays addressed
     // where it was. A key of session and agent alone reads that as "nothing moved" and
     // serves the previous wire's catalog, which is exactly the routing invariant the
     // enumeration exists to keep.

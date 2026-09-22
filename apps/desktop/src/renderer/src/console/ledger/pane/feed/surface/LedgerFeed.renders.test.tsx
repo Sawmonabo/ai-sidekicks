@@ -30,7 +30,7 @@
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { SidekicksBridgeProvider, createFixtureBridge } from "../../../../bridge/index.js";
+import { DesktopBridgeProvider, createFixtureBridge } from "../../../../bridge/index.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../../bridge/scenario/ledger/ledger-quiet.js";
 import { type TimelineRowSlotProps } from "../../../../seats/index.js";
 import { type SessionStore } from "../../../../store/index.js";
@@ -69,14 +69,14 @@ interface FeedParentProps {
 function FeedParent(props: FeedParentProps): React.JSX.Element {
   void props.renderNudge;
   return (
-    <SidekicksBridgeProvider bridge={FIXTURE_BRIDGE}>
+    <DesktopBridgeProvider bridge={FIXTURE_BRIDGE}>
       <LedgerFeed
         sessionStore={props.sessionStore}
         paneId={LEDGER_FIXTURE_PANE_ID}
         renderTimelineRow={props.renderTimelineRow}
         feedLabel="Session timeline"
       />
-    </SidekicksBridgeProvider>
+    </DesktopBridgeProvider>
   );
 }
 

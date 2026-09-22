@@ -9,7 +9,7 @@
 import { useRef, type ReactNode } from "react";
 
 import {
-  SidekicksBridgeProvider,
+  DesktopBridgeProvider,
   createFixtureBridge,
   type ConsoleBridge,
 } from "../../bridge/index.js";
@@ -72,7 +72,7 @@ export function fixtureBridgeHarness(): FixtureBridgeHarness {
     wrapper: function FixtureBridgeHost(props: {
       readonly children: ReactNode;
     }): React.JSX.Element {
-      return <SidekicksBridgeProvider bridge={bridge}>{props.children}</SidekicksBridgeProvider>;
+      return <DesktopBridgeProvider bridge={bridge}>{props.children}</DesktopBridgeProvider>;
     },
   };
 }

@@ -1,15 +1,15 @@
-// What the console holds instead of `window.sidekicks`.
+// What the console holds instead of `window.desktopBridge`.
 //
-// The fixture has to be shape-identical to `SidekicksBridge`. The cheapest way to
+// The fixture has to be shape-identical to `DesktopBridge`. The cheapest way to
 // keep a claim like
-// that true is to make it a type: both bridges below ARE `SidekicksBridge`, so a
+// that true is to make it a type: both bridges below ARE `DesktopBridge`, so a
 // namespace added to the contract breaks the fixture at compile time rather than at
 // review time.
 //
 // The growth port sits BESIDE the bridge rather than inside it, for the same
-// reason. Folding unregistered wires into `SidekicksBridge` would put methods on the
+// reason. Folding unregistered wires into `DesktopBridge` would put methods on the
 // preload contract that the preload does not expose — the fixture would then be
-// shape-identical to a lie. Beside it, the two surfaces stay honest: `sidekicks` is
+// shape-identical to a lie. Beside it, the two surfaces stay honest: `desktopBridge` is
 // exactly what the preload gives, `growth` is exactly what it does not.
 //
 // The subscribe seam's own vocabulary — which names are registered STREAMS, and
@@ -17,7 +17,7 @@
 // kind tables beside it rather than here: both sides of that seam read them, and
 // neither of them is this file.
 
-import type { SidekicksBridge, Unsubscribe } from "@ai-sidekicks/contracts";
+import type { DesktopBridge, Unsubscribe } from "@ai-sidekicks/contracts";
 import { RealClock, type ConsoleClock } from "../core/index.js";
 import type { AuxiliaryWindowPort } from "./auxiliary-window-port.js";
 import type { ScriptedPaneViewHost } from "./fixture/pane-view-host-script.js";
@@ -41,7 +41,7 @@ export type AttentionPlaneSubscribe = (onAttentionChange: () => void) => Unsubsc
 
 export interface ConsoleBridge {
   /** Exactly the preload contract. Shape-identical across both sources. */
-  readonly sidekicks: SidekicksBridge;
+  readonly desktopBridge: DesktopBridge;
   /** The single fixture-only seam for wires the corpus has not registered. */
   readonly growth: GrowthPort;
   /**
@@ -62,7 +62,7 @@ export interface ConsoleBridge {
   /**
    * The session's runtime-node roster, over the registered control-plane read.
    *
-   * On the bridge rather than behind the generic `sidekicks.controlPlane.call`
+   * On the bridge rather than behind the generic `desktopBridge.controlPlane.call`
    * because the fixture cannot answer this one the way it answers a scripted
    * reply — a roster MOVES, and the scenario carries it as frames on the frozen
    * clock. Beside the growth port rather than inside it because both this read and
@@ -75,11 +75,11 @@ export interface ConsoleBridge {
    * Moving a pane into a window of its own, and everything that follows from it.
    *
    * BESIDE THE GROWTH PORT ON THE ROSTER READ'S OWN RULE: the port refuses what the
-   * corpus has not registered, and `SidekicksBridge.window` IS registered — the
+   * corpus has not registered, and `DesktopBridge.window` IS registered — the
    * preload exposes it and `src/main/auxiliary-window-ipc.ts` serves it — so filing
    * it there would owe a slate row for a contract that already exists.
    *
-   * NOT REACHED AS `sidekicks.window` DIRECTLY, because the two bridges answer it
+   * NOT REACHED AS `desktopBridge.window` DIRECTLY, because the two bridges answer it
    * differently and neither answer may reject: every caller dispatches from an effect
    * or an event handler, where a rejection reaches nobody and leaves the deck holding
    * a placeholder for a window that was never opened. The port is where that settles.
@@ -122,7 +122,7 @@ export interface ConsoleBridge {
    * no view can exist in this window.
    *
    * Beside the growth port rather than inside it, and the reason is the same one
-   * that keeps the port beside `sidekicks`: this is not a wire. It is 12.11's
+   * that keeps the port beside `desktopBridge`: this is not a wire. It is 12.11's
    * wiring-table INPUT — the thing the resolver in `browser/geometry/view-host.ts` selects
    * on — and folding it into the port would put a fabricated operation name on a
    * seam whose whole point is that `browser.setRect` is unregistered.
@@ -136,7 +136,7 @@ export interface ConsoleBridge {
    * The window's one transport-reconnect signal.
    *
    * Beside the growth port for the port's own reason: it is not a wire. The preload
-   * contract exposes no connection state, so a `SidekicksBridge` member for one
+   * contract exposes no connection state, so a `DesktopBridge` member for one
    * would make the fixture shape-identical to something the preload does not have.
    *
    * BOTH HALVES, deliberately. The observers that report into it live above this

@@ -37,7 +37,7 @@ import type {
   RuntimeNodeAttachRequest,
   RuntimeNodeAttachResponse,
   SessionId,
-  SidekicksBridge,
+  DesktopBridge,
 } from "@ai-sidekicks/contracts";
 
 import type { RuntimeNodeAttachDraft, RuntimeNodeAttachReads } from "../attach-request.js";
@@ -45,20 +45,20 @@ import type { RuntimeNodeAttachDraft, RuntimeNodeAttachReads } from "../attach-r
 // Typed bridge arm — `Pick<...>` over the SHIPPED bridge interface rather than a
 // hand-written literal, so a renamed or deleted member makes the `Pick` constraint
 // itself fail (TS2344) at this line.
-type ControlPlaneCallArm = Pick<SidekicksBridge["controlPlane"], "call">;
+type ControlPlaneCallArm = Pick<DesktopBridge["controlPlane"], "call">;
 
 /** Install the one bridge arm this view reaches, and nothing else. */
 export function installMockBridge(controlPlaneCall: ControlPlaneCallArm["call"]): void {
   const bridge: { controlPlane: ControlPlaneCallArm } = {
     controlPlane: { call: controlPlaneCall },
   };
-  (window as unknown as { sidekicks: SidekicksBridge }).sidekicks =
-    bridge as unknown as SidekicksBridge;
+  (window as unknown as { desktopBridge: DesktopBridge }).desktopBridge =
+    bridge as unknown as DesktopBridge;
 }
 
 /** Take the bridge back off the window, so no case inherits another's stub. */
 export function removeMockBridge(): void {
-  delete (window as unknown as { sidekicks?: SidekicksBridge }).sidekicks;
+  delete (window as unknown as { desktopBridge?: DesktopBridge }).desktopBridge;
 }
 
 export const TARGET_SESSION_ID = "01970000-0000-7000-8000-0000000000a1" as SessionId;

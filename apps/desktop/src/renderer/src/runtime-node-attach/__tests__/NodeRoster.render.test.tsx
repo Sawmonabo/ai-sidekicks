@@ -32,7 +32,7 @@ import { NotImplementedError, VERSION_FLOOR_EXCEEDED_CODE } from "@ai-sidekicks/
 import type {
   RuntimeNodeRosterEntry,
   RuntimeNodeRosterResponse,
-  SidekicksBridge,
+  DesktopBridge,
   VersionFloorExceededError,
 } from "@ai-sidekicks/contracts";
 
@@ -68,7 +68,7 @@ const FLOOR_REFUSAL_ENVELOPE: VersionFloorExceededError = {
 
 describe("NodeRoster", () => {
   afterEach(() => {
-    delete (window as unknown as { sidekicks?: SidekicksBridge }).sidekicks;
+    delete (window as unknown as { desktopBridge?: DesktopBridge }).desktopBridge;
     vi.clearAllMocks();
   });
 
@@ -106,7 +106,7 @@ describe("NodeRoster", () => {
 
     it("reads through the supplied seam and touches no installed bridge", async () => {
       // The control that replaced the retired default arm. This view used to fall
-      // back to `window.sidekicks` and to a second copy of the two wire strings; a
+      // back to `window.desktopBridge` and to a second copy of the two wire strings; a
       // global whose every access throws proves the fallback is gone rather than
       // merely unused, and it fails on the old code at the first render.
       const forbiddenGlobal = new Proxy(
@@ -117,8 +117,8 @@ describe("NodeRoster", () => {
           },
         },
       );
-      (window as unknown as { sidekicks: SidekicksBridge }).sidekicks =
-        forbiddenGlobal as SidekicksBridge;
+      (window as unknown as { desktopBridge: DesktopBridge }).desktopBridge =
+        forbiddenGlobal as DesktopBridge;
       const seam = seamServing(FIRST_SNAPSHOT);
 
       render(<NodeRoster sessionId={FIRST_SESSION_ID} reads={seam.reads} />);

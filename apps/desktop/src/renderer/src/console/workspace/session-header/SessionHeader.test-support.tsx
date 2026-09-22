@@ -8,7 +8,7 @@
 
 import { render } from "@testing-library/react";
 
-import { SidekicksBridgeProvider, createFixtureBridge } from "../../bridge/index.js";
+import { DesktopBridgeProvider, createFixtureBridge } from "../../bridge/index.js";
 import { USER_YOU } from "../../bridge/scenario/flagship/flagship-cast.js";
 import { SessionStore, type ConsoleEntity } from "../../store/index.js";
 import type { ConsoleScenario } from "../../bridge/scenario/runtime/index.js";
@@ -97,9 +97,9 @@ export interface RenderBarOptions {
 export function renderBar(element: React.JSX.Element, options: RenderBarOptions = {}): HTMLElement {
   const scenario = options.scenario ?? CAST_BAR_SILENT_SCENARIO;
   const { container } = render(
-    <SidekicksBridgeProvider bridge={createFixtureBridge({ scenario })}>
+    <DesktopBridgeProvider bridge={createFixtureBridge({ scenario })}>
       {element}
-    </SidekicksBridgeProvider>,
+    </DesktopBridgeProvider>,
   );
   const bar = container.querySelector(".meridian-session-header");
   if (!(bar instanceof HTMLElement)) {

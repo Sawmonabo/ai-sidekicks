@@ -51,7 +51,7 @@ export class PeerInvocationDaemon {
   #callCount = 0;
 
   public readonly answer = async (method: string, params?: unknown): Promise<unknown> => {
-    if (method !== "sidekick.peerInvocationSet") {
+    if (method !== "agent.peerInvocationSet") {
       // Every other read this pane performs refuses, exactly as the shipped fixture
       // refuses a call its scenario scripts no reply for.
       throw new Error(`this daemon scripts no reply for ${method}`);
@@ -110,7 +110,7 @@ export class PeerInvocationDaemon {
 /**
  * The real fixture bridge, with the grant answered by this suite's scripted daemon.
  *
- * `sidekick.peerInvocationSet` has no registered request/response pair anywhere in
+ * `agent.peerInvocationSet` has no registered request/response pair anywhere in
  * the corpus, so it is a growth operation and the override is where a suite decides
  * its answer. Every OTHER read this pane performs is left refusing, exactly as the
  * shipped fixture refuses a call its scenario scripts no reply for — which is the
@@ -119,8 +119,8 @@ export class PeerInvocationDaemon {
 export function bridgeCalling(scriptedDaemon: PeerInvocationDaemon): ConsoleBridge {
   return fixtureBridgeWithGrowth(unscriptedScenario("agent-console-peers"), {
     sessionRead: growthRefusing("sessionRead"),
-    sidekickPeerInvocationSet: growthAnswering(
-      async (request) => await scriptedDaemon.answer("sidekick.peerInvocationSet", request),
+    agentPeerInvocationSet: growthAnswering(
+      async (request) => await scriptedDaemon.answer("agent.peerInvocationSet", request),
     ),
   });
 }

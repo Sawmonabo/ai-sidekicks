@@ -1,8 +1,8 @@
-/* Attaching a sidekick: the dialog, its two arms, the way out to the definitions page,
+/* Attaching an agent: the dialog, its two arms, the way out to the definitions page,
  * and the confirmation.
  *
  * Beside the components rather than inside `agents.css`, on the
- * `definitions/sidekick-definitions-page.css` precedent — one surface's rules in one
+ * `definitions/agent-definitions-page.css` precedent — one surface's rules in one
  * file. Split out of that sheet verbatim and in order; that was a MOVE and not a
  * restyle, and no pinned image may shift because of it. The definitions link's two
  * selectors below arrived afterwards with the control that draws them, and they are

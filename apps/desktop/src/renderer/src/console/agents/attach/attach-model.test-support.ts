@@ -9,8 +9,8 @@
 // composed against one session and asserted against another passes a shape check and
 // says nothing, and two files inventing their own ids is how that happens.
 
-import type { SidekickDefinitionSummary } from "../agent-wire.js";
-import { AttachSidekickForm } from "./attach-model.js";
+import type { AgentDefinitionSummary } from "../agent-wire.js";
+import { AttachAgentForm } from "./attach-model.js";
 
 /** The session every composed request is bound to. */
 export const SESSION_ID = "session-9";
@@ -33,15 +33,15 @@ export const DEFINITION = {
  * tell apart. Its own `definitionId`, so a case that swapped definitions is reading a
  * different row rather than the same one with a member added.
  */
-export const DEFINITION_PINNING_ACCOUNT: SidekickDefinitionSummary = {
+export const DEFINITION_PINNING_ACCOUNT: AgentDefinitionSummary = {
   ...DEFINITION,
   definitionId: "definition-pinned",
   providerAccountId: "acct-team",
 };
 
 /** A form that already carries the agent name both arms require. */
-export function namedForm(name = "Scout"): AttachSidekickForm {
-  const form = new AttachSidekickForm();
+export function namedForm(name = "Scout"): AttachAgentForm {
+  const form = new AttachAgentForm();
   form.setName(name);
   return form;
 }

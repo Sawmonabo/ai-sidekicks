@@ -14,13 +14,13 @@
 
 import { Nothing, RefusalCard } from "../../primitives/index.js";
 import type { PushDrivenReadState } from "../../seats/index.js";
-import { type AttachSidekickForm } from "./attach-model.js";
-import type { SidekickDefinitionListReading } from "../agent-wire.js";
+import { type AttachAgentForm } from "./attach-model.js";
+import type { AgentDefinitionListReading } from "../agent-wire.js";
 
 /** The definition arm's picker, with the whole definition folded into one line. */
 export function DefinitionPicker(props: {
-  readonly form: AttachSidekickForm;
-  readonly definitions: PushDrivenReadState<SidekickDefinitionListReading>;
+  readonly form: AttachAgentForm;
+  readonly definitions: PushDrivenReadState<AgentDefinitionListReading>;
   /** Re-open the definition read, from the surface that owns it. */
   readonly onReopen?: (() => void) | undefined;
   /**
@@ -57,8 +57,8 @@ export function DefinitionPicker(props: {
  * than four things with lives of their own.
  */
 function pickerBody(
-  definitions: PushDrivenReadState<SidekickDefinitionListReading>,
-  form: AttachSidekickForm,
+  definitions: PushDrivenReadState<AgentDefinitionListReading>,
+  form: AttachAgentForm,
   onReopen: (() => void) | undefined,
 ): React.JSX.Element {
   if (definitions.kind === "not-loaded") {

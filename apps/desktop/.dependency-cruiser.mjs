@@ -161,7 +161,7 @@ export default {
       to: {
         path:
           "^src/renderer/src/(timeline|usage-meters|run-controls|provider-accounts|" +
-          "sidekick-definitions|mcp-governance)/",
+          "agent-definitions|mcp-governance)/",
       },
     },
     {

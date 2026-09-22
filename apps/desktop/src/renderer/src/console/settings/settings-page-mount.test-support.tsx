@@ -18,7 +18,7 @@
 // through the board it is registered on has to preload the chunk, resolve the descriptor,
 // mount it inside the announcer, and settle the reads the body puts in flight. Two suites
 // had written that sequence themselves — `browser-settings-page.test.tsx` and
-// `sidekicks-settings-page.test.tsx` — which is the second use a shared helper is
+// `agents-settings-page.test.tsx` — which is the second use a shared helper is
 // hoisted on, and the drift that rule guards against is the one that matters here:
 // three
 // suites that await the loader and a fourth that settles generously look identical in a

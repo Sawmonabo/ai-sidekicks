@@ -73,7 +73,7 @@ export function authoringBridge(parts: BridgeParts = {}): ConsoleBridge {
   const copyToClipboard = parts.copyToClipboard ?? (async () => undefined);
   return {
     growth,
-    sidekicks: { native: { copyToClipboard } },
+    desktopBridge: { native: { copyToClipboard } },
   } as unknown as ConsoleBridge;
 }
 

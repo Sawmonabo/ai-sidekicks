@@ -178,7 +178,7 @@ export function BrowserPaneChrome(context: PaneContextOf<"browser">): React.JSX.
       return;
     }
     runAct(async () => {
-      await bridge.sidekicks.native.openExternal(url);
+      await bridge.desktopBridge.native.openExternal(url);
       return undefined;
     }, OPEN_EXTERNAL_FALLBACK);
   }, [bridge, refuseLocally, reportedUrl, runAct]);

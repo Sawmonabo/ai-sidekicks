@@ -207,7 +207,7 @@ Child runs are **independent intervention targets**: a parent state change never
 | `waiting_for_approval` | Child runs continue running. The parent blocking on approval does not block children. |
 | `waiting_for_input` | Child runs continue running. The parent blocking on input does not block children. |
 
-Run nesting has no depth limit unless one is configured ([Spec-014 §Default Behavior](../specs/014-multi-agent-channels-and-orchestration.md#default-behavior)): a child run may create children of its own, so a "subtree" is every run beneath the parent at any depth, and each row of the table above holds at every level.
+The runtime adds no depth limit of its own to run nesting — how deep agents may nest is the provider's own limit under the person's own provider settings, and a provider's refusal is shown in its own words ([Spec-014 §Default Behavior](../specs/014-multi-agent-channels-and-orchestration.md#default-behavior)): a child run may create children of its own, so a "subtree" is every run beneath the parent at any depth, and each row of the table above holds at every level.
 
 ## Edge Cases
 

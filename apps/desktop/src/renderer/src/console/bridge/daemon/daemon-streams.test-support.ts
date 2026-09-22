@@ -1,6 +1,6 @@
 // Standing in for one named subscription, and leaving every other one real.
 //
-// IN THE BRIDGE FAMILY BECAUSE TAKING `sidekicks.daemon` IS. The chokepoint gate
+// IN THE BRIDGE FAMILY BECAUSE TAKING `desktopBridge.daemon` IS. The chokepoint gate
 // admits exactly this family to the raw namespace — a test in any other family is
 // standing in for a surface, and a surface goes through the door — and every wrapper
 // here replaces the namespace's own `subscribe`.
@@ -181,18 +181,18 @@ export function withReplayedStream(
 type RawSubscribe = (name: string, sink: (payload: unknown) => void) => () => void;
 
 function rawSubscribeOf(bridge: ConsoleBridge): RawSubscribe {
-  return bridge.sidekicks.daemon.subscribe as RawSubscribe;
+  return bridge.desktopBridge.daemon.subscribe as RawSubscribe;
 }
 
 /** One bridge with its subscribe arm replaced, and nothing else touched. */
 function withSubscribeArm(bridge: ConsoleBridge, subscribe: RawSubscribe): ConsoleBridge {
   return {
     ...bridge,
-    sidekicks: {
-      ...bridge.sidekicks,
+    desktopBridge: {
+      ...bridge.desktopBridge,
       daemon: {
-        ...bridge.sidekicks.daemon,
-        subscribe: subscribe as ConsoleBridge["sidekicks"]["daemon"]["subscribe"],
+        ...bridge.desktopBridge.daemon,
+        subscribe: subscribe as ConsoleBridge["desktopBridge"]["daemon"]["subscribe"],
       },
     },
   } as ConsoleBridge;

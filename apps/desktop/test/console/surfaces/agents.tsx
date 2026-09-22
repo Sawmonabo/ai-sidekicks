@@ -58,10 +58,10 @@ import {
   definition,
   served,
   settle as settleRegistryRead,
-} from "../../../src/renderer/src/console/agents/definitions/sidekick-definitions-page.test-support.js";
+} from "../../../src/renderer/src/console/agents/definitions/agent-definitions-page.test-support.js";
 import { registerAgentConsolePane } from "../../../src/renderer/src/console/agents/index.js";
 import { SwitchSettlementLine } from "../../../src/renderer/src/console/agents/provider-switch/SwitchSettlementLine.js";
-import { SIDEKICK_DEFINITIONS_SECTION } from "../../../src/renderer/src/console/agents/sidekick-definitions-section.js";
+import { AGENT_DEFINITIONS_SECTION } from "../../../src/renderer/src/console/agents/agent-definitions-section.js";
 import {
   createFixtureBridge,
   type ConsoleBridge,
@@ -87,7 +87,7 @@ import {
   SettingsPageRegistry,
   type SettingsPageContext,
 } from "../../../src/renderer/src/console/settings/settings-page-registry.js";
-import { registerSidekicksPage } from "../../../src/renderer/src/console/sidekicks-settings-page.js";
+import { registerAgentsPage } from "../../../src/renderer/src/console/agents-settings-page.js";
 import {
   FrameStore,
   SessionStore,
@@ -321,7 +321,7 @@ export async function mountAttachDialogOnDefinitionArm(): Promise<HTMLElement> {
 }
 
 /**
- * The rows the sidekicks page is captured over.
+ * The rows the agent definitions page is captured over.
  *
  * TWO, AND THE SECOND INHERITS. A definition stores `null` where it means "inherit", and
  * the row renders an inherited axis differently from a pinned one — so a page captured
@@ -342,7 +342,7 @@ const SAVED_DEFINITIONS = [
   }),
 ];
 
-/** The settings context the sidekicks page is handed, with a session to attach into. */
+/** The settings context the agent definitions page is handed, with a session to attach into. */
 function settingsPageContext(bridge: ConsoleBridge): SettingsPageContext {
   return {
     bridge,
@@ -358,7 +358,7 @@ function settingsPageContext(bridge: ConsoleBridge): SettingsPageContext {
 }
 
 /**
- * The sidekicks settings page, as the settings board loads it, over a served registry.
+ * The agent definitions settings page, as the settings board loads it, over a served registry.
  *
  * THROUGH THE BOARD RATHER THAN AROUND IT. The page's stylesheet enters at its own chunk
  * root and the registration names that root through a loader, so resolving the section is
@@ -369,13 +369,13 @@ function settingsPageContext(bridge: ConsoleBridge): SettingsPageContext {
  * `useAnnounce` throws outside its provider. Its clock is frozen: a live one would let a
  * held announcement expire mid-capture, which is a pixel difference no scenario decides.
  */
-export async function mountSidekickDefinitionsPage(): Promise<HTMLElement> {
+export async function mountAgentDefinitionsPage(): Promise<HTMLElement> {
   const pages = new SettingsPageRegistry();
-  registerSidekicksPage(pages);
-  await pages.preload(SIDEKICK_DEFINITIONS_SECTION);
-  const descriptor = pages.descriptorFor(SIDEKICK_DEFINITIONS_SECTION);
+  registerAgentsPage(pages);
+  await pages.preload(AGENT_DEFINITIONS_SECTION);
+  const descriptor = pages.descriptorFor(AGENT_DEFINITIONS_SECTION);
   if (descriptor === undefined) {
-    throw new Error("no settings page is registered for the sidekick-definitions section");
+    throw new Error("no settings page is registered for the agent-definitions section");
   }
   const renderPage: (context: SettingsPageContext) => ReactNode = descriptor.render;
   const bridge = new RegistryStub({ lists: [served(SAVED_DEFINITIONS)] }).bridge();
@@ -386,9 +386,9 @@ export async function mountSidekickDefinitionsPage(): Promise<HTMLElement> {
   );
   await settleRegistryRead();
   await waitFor(() => {
-    if (container.querySelector(".meridian-sidekick-row") === null) {
+    if (container.querySelector(".meridian-saved-definition-row") === null) {
       throw new Error("the definition registry read has not landed yet");
     }
   });
-  return requireRendered(container, ".meridian-sidekicks");
+  return requireRendered(container, ".meridian-agent-definitions");
 }

@@ -41,10 +41,10 @@ describe("the adapter's answers", () => {
     const fixture = createFixtureBridge({ scenario: ONBOARDING_SCENARIO });
     const strange: ConsoleBridge = {
       ...fixture,
-      sidekicks: {
-        ...fixture.sidekicks,
+      desktopBridge: {
+        ...fixture.desktopBridge,
         webAuthn: {
-          ...fixture.sidekicks.webAuthn,
+          ...fixture.desktopBridge.webAuthn,
           getAssertion: async () => ({ signedIn: true }),
         },
       },
@@ -65,10 +65,10 @@ describe("the adapter's answers", () => {
     const fixture = createFixtureBridge({ scenario: ONBOARDING_SCENARIO });
     const throwing: ConsoleBridge = {
       ...fixture,
-      sidekicks: {
-        ...fixture.sidekicks,
+      desktopBridge: {
+        ...fixture.desktopBridge,
         webAuthn: {
-          ...fixture.sidekicks.webAuthn,
+          ...fixture.desktopBridge.webAuthn,
           getAssertion: () => Promise.reject(new Error("the platform binding did not load")),
         },
       },

@@ -230,7 +230,7 @@ export {
 } from "./os-notification-permission.js";
 
 export {
-  SidekicksBridgeProvider,
+  DesktopBridgeProvider,
   useBridgeResolution,
   useConsoleBridge,
   useConsoleClock,
@@ -401,7 +401,7 @@ export type { GrowthPresenceDetail } from "./growth-values/presence.js";
 // than in a view family — see `wire-shapes/agent-plane.ts`'s header — and it leaves
 // through the module that DECLARES it, never through `wire-shapes/index.js`, on the
 // `console-no-barrel-chain` rule the `GrowthSessionSummary` block above states.
-export type { SidekickDefinition } from "./wire-shapes/sidekick-definition.js";
+export type { AgentDefinition } from "./wire-shapes/agent-definition.js";
 
 // The agent plane's reply and request shapes. Published because the agent console
 // and the session header RENDER them: they are declared on the substrate rather than in a

@@ -283,24 +283,19 @@ export function createFixtureGrowthPort(
         // statement that nothing was refused, which is exactly what the panel draws.
         () => ({ status: "served", value: { links: [], rejectedCreates: [] } }),
       ),
-    sidekickDefinitionList: async (request) =>
+    agentDefinitionList: async (request) =>
       answerFromScriptedReply(
         engine,
-        "sidekick.definitionList",
-        "sidekickDefinitionList",
+        "agent.definitionList",
+        "agentDefinitionList",
         request,
         // A node with no saved definitions is an ordinary node — the attach form's
         // inline arm needs none — so the picker draws the empty registry rather than
         // a refusal.
         () => ({ status: "served", value: [] }),
       ),
-    sidekickPeerInvocationSet: async (request) =>
-      await answerScriptOnly(
-        engine,
-        "sidekick.peerInvocationSet",
-        "sidekickPeerInvocationSet",
-        request,
-      ),
+    agentPeerInvocationSet: async (request) =>
+      await answerScriptOnly(engine, "agent.peerInvocationSet", "agentPeerInvocationSet", request),
     // The provider-session import, both halves from the script. The opening call is a
     // WRITE — there is no "the import that began and produced nothing" — and the
     // subscription is addressed by the import that call minted, so neither has an

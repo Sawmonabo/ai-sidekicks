@@ -75,7 +75,7 @@ export interface DaemonStreamOpen {
  * and relaxing it to admit a request with no session would delete that guarantee for
  * the two `run.*` feeds in order to serve a stream that never had a session to name.
  * Two functions, one widening — `#openStream` is the only place either reaches
- * `bridge.sidekicks.daemon.subscribe`.
+ * `bridge.desktopBridge.daemon.subscribe`.
  */
 export function subscribeNodeDaemon(
   bridge: ConsoleBridge,
@@ -91,7 +91,7 @@ export function subscribeNodeDaemon(
  *
  * WHAT HAPPENS TO THE REQUEST TODAY, EXACTLY. It is VALIDATED and HELD, and it is
  * not yet forwarded, because there is nowhere to forward it to:
- * `SidekicksBridge.daemon.subscribe<E>(event, handler)` carries an event name and a
+ * `DesktopBridge.daemon.subscribe<E>(event, handler)` carries an event name and a
  * handler and NO request-parameter channel, and the preload bridge contract pins
  * that signature as an early placeholder whose shape — positional parameter, options
  * bag, or an event-to-params map — belongs to the daemon and transport work and is
@@ -140,7 +140,7 @@ function openStream(
   streamName: string,
   handler: (payload: unknown) => void,
 ): Unsubscribe {
-  const subscribe = bridge.sidekicks.daemon.subscribe as (
+  const subscribe = bridge.desktopBridge.daemon.subscribe as (
     event: string,
     handler: (payload: unknown) => void,
   ) => Unsubscribe;

@@ -76,10 +76,10 @@
     "src/renderer/src/console/console-env.d.ts",
     // The same, for the other ambient declaration that graph needs. The seat door
     // publishes the absorbed pre-console mounts, and those three components read
-    // `window.sidekicks` directly — so the moment a console constant this tier
+    // `window.desktopBridge` directly — so the moment a console constant this tier
     // names reaches `seats/index.ts`, the preload global's declaration is part of
     // this program's obligations too.
-    "src/renderer/src/sidekicks-bridge.d.ts"
+    "src/renderer/src/desktop-bridge.d.ts"
   ],
   "exclude": ["dist", "node_modules"]
 }

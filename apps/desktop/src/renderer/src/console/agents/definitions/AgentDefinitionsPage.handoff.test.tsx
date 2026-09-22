@@ -35,7 +35,7 @@ import {
   savedRegionOf,
   served,
   settle,
-} from "./sidekick-definitions-page.test-support.js";
+} from "./agent-definitions-page.test-support.js";
 
 /** The session a window that has one is working in. */
 const SESSION_ID = "session-9";
@@ -48,7 +48,7 @@ function registryBridge(): ConsoleBridge {
   return new RegistryStub({ lists: [served([definition()])] }).bridge();
 }
 
-describe("the sidekicks page — offering a definition to this window's session", () => {
+describe("the agent definitions page — offering a definition to this window's session", () => {
   it("offers the row's definition to the session, by its id and not its name", async () => {
     const bridge = registryBridge();
     const { container } = renderPage(bridge, SESSION_ID);
@@ -132,18 +132,18 @@ describe("the sidekicks page — offering a definition to this window's session"
     );
     await settle();
 
-    expect(container.querySelectorAll(".meridian-sidekicks__attach-note").length).toBe(1);
+    expect(container.querySelectorAll(".meridian-agent-definitions__attach-note").length).toBe(1);
   });
 
   it("negative control: a window that has a session is told nothing about not having one", async () => {
     const { container } = renderPage(registryBridge(), SESSION_ID);
     await settle();
 
-    expect(container.querySelector(".meridian-sidekicks__attach-note")).toBeNull();
+    expect(container.querySelector(".meridian-agent-definitions__attach-note")).toBeNull();
   });
 });
 
-describe("the sidekicks page — an offer standing for a session this window is not in", () => {
+describe("the agent definitions page — an offer standing for a session this window is not in", () => {
   /**
    * A window whose handoff already holds an offer for {@link OTHER_SESSION_ID}.
    *

@@ -55,7 +55,7 @@ const BODY: WorkflowVersionBody = {
 function authoringBridge(): ConsoleBridge {
   return {
     growth: createRefusingGrowthPort(),
-    sidekicks: { native: { copyToClipboard: async () => undefined } },
+    desktopBridge: { native: { copyToClipboard: async () => undefined } },
   } as unknown as ConsoleBridge;
 }
 

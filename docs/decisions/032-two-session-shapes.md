@@ -81,7 +81,7 @@ An empty git-initialized folder costs a few kilobytes and no process. Creating i
 | --- | --- | --- | --- |
 | 1 | Both providers run correctly in an empty git-initialized folder | **Unvalidated.** Proved by starting each provider in an empty git-initialized folder on the first build of the chat shape | A chat could not start; the workspace would need seeding |
 | 2 | A mount's origin can always tell a managed workspace from an attached repository | The mount's origin is marked managed when the daemon creates it ([Spec-001](../specs/001-session-core.md)); the mount itself is [Spec-007](../specs/007-repo-attachment-and-workspace-binding.md)'s | The shape could not be derived, and a flag would return |
-| 3 | Copying the chat's files into the repository as uncommitted changes is what a person expects | The copied files open in Review as new changes, so the person sees and decides on each one | A copy could land on a path the repository already uses (see Unknowns) |
+| 3 | Copying the chat's files into the repository as uncommitted changes is what a person expects | The copied files open in Review as new changes, so the person sees and decides on each one | A copy could land on a path the repository already uses; such a file is left uncopied, named on the conversion's own act row and named to the session's agent ([Spec-001](../specs/001-session-core.md)) |
 
 ---
 
@@ -114,7 +114,6 @@ An empty git-initialized folder costs a few kilobytes and no process. Creating i
 ### Unknowns
 
 - How large managed workspaces grow in practice. Read from the retention figures once the app is in daily use.
-- What the conversion does when a copied file's path already exists in the repository. The design fixes the copy and that it shows as new changes; it does not yet fix the collision case, which is settled before the conversion is built.
 
 ---
 

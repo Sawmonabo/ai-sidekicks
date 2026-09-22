@@ -1868,7 +1868,7 @@ export class ClaudeSubagentConcurrencyGate implements ClaudeSubagentAdmissionPor
  * server, so a second server would only add a second name to keep in sync while
  * the daemon's registry is already flat.
  */
-export const CLAUDE_CALLBACK_MCP_SERVER_NAME: string = "sidekicks";
+export const CLAUDE_CALLBACK_MCP_SERVER_NAME: string = "sessions";
 
 /**
  * Why a spawn served the provider no callback-tool registry even though the

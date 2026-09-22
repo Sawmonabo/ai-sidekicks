@@ -4,7 +4,7 @@ import { fireEvent, render } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { SidekicksBridgeProvider, createFixtureBridge } from "../../../bridge/index.js";
+import { DesktopBridgeProvider, createFixtureBridge } from "../../../bridge/index.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../bridge/scenario/ledger/ledger-quiet.js";
 import {
   LedgerRowLeaseProvider,
@@ -61,9 +61,9 @@ function slotProps(row: TimelineRowSlotProps["row"]): TimelineRowSlotProps {
  */
 function InBridge(props: { readonly children: React.ReactNode }): React.JSX.Element {
   return (
-    <SidekicksBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
+    <DesktopBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
       {props.children}
-    </SidekicksBridgeProvider>
+    </DesktopBridgeProvider>
   );
 }
 

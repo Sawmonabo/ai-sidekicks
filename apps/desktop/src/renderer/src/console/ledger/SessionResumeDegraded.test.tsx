@@ -17,7 +17,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { SidekicksBridgeProvider, createFixtureBridge } from "../bridge/index.js";
+import { DesktopBridgeProvider, createFixtureBridge } from "../bridge/index.js";
 import { LEDGER_QUIET_SCENARIO } from "../bridge/scenario/ledger/ledger-quiet.js";
 import { ManualClock } from "../core/index.js";
 import { settle as settleReactWork } from "../core/settle.test-support.js";
@@ -101,7 +101,7 @@ async function renderWorkspaceSurface(input: {
   // reads. The gap fill mounted beside the resume notice renders nothing for a window
   // that is missing nothing, which every case here is.
   render(
-    <SidekicksBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
+    <DesktopBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
       {descriptor.render({
         route: { kind: "workspace", sessionId: SESSION_ID },
         bridge: { source: "fixture" },
@@ -112,7 +112,7 @@ async function renderWorkspaceSurface(input: {
         draftStore: {},
         paneRegistry: new ConsolePaneRegistry(),
       } as unknown as ConsoleSurfaceContext)}
-    </SidekicksBridgeProvider>,
+    </DesktopBridgeProvider>,
   );
   await settleReactWork();
 }

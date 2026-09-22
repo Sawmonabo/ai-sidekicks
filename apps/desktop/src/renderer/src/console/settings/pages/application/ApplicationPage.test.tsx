@@ -35,8 +35,8 @@ function contextFor(): SettingsPageContext {
   return {
     bridge: {
       ...fixture,
-      sidekicks: {
-        ...fixture.sidekicks,
+      desktopBridge: {
+        ...fixture.desktopBridge,
         app: { version: "1.4.0", platform: "darwin", arch: "arm64", locale: "en-GB" },
         update: {
           getState: () => Promise.resolve({ status: "idle" as const }),

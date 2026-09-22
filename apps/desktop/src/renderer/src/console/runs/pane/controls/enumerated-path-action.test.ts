@@ -22,7 +22,7 @@ const A_SOURCE_ID = "run-1:rollback:1";
 /** A bridge whose only reachable member is the clipboard call this action makes. */
 function bridgeRejectingWith(rejection: unknown): ConsoleBridge {
   return {
-    sidekicks: { native: { copyToClipboard: vi.fn().mockRejectedValue(rejection) } },
+    desktopBridge: { native: { copyToClipboard: vi.fn().mockRejectedValue(rejection) } },
   } as unknown as ConsoleBridge;
 }
 

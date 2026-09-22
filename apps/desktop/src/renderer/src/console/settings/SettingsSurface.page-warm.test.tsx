@@ -51,12 +51,12 @@ function deferredPageProbe(frameStore: FrameStore): DeferredPageProbe {
   const pageSegmentsAtLoad: (string | undefined)[] = [];
   const pages = new SettingsPageRegistry();
   pages.register({
-    section: "sidekicks",
+    section: "agents",
     owner: "settings-surface-warm-test",
     label: "Sidekicks",
     keywords: [],
     body: () => {
-      loadedSections.push("sidekicks");
+      loadedSections.push("agents");
       const { route } = frameStore.getState();
       pageSegmentsAtLoad.push(route.kind === "settings" ? route.page : "elsewhere");
       return Promise.resolve<{ Body: (context: SettingsPageContext) => React.ReactNode }>({
@@ -98,14 +98,14 @@ describe("opening a section — the one callback both ways in reach it through",
     const { container } = await renderSurface(settingsWindow.context, probe.pages);
 
     expect(probe.loadedSections).toStrictEqual([]);
-    clickSectionLabelled(container, SETTINGS_SECTION_LABELS.sidekicks);
+    clickSectionLabelled(container, SETTINGS_SECTION_LABELS.agents);
 
-    expect(probe.loadedSections).toStrictEqual(["sidekicks"]);
+    expect(probe.loadedSections).toStrictEqual(["agents"]);
     // The order, read off the address the loader saw: still the one pressed FROM.
     expect(probe.pageSegmentsAtLoad).toStrictEqual([undefined]);
     expect(settingsWindow.frameStore.getState().route).toStrictEqual({
       kind: "settings",
-      page: "sidekicks",
+      page: "agents",
     });
   });
 
@@ -117,13 +117,13 @@ describe("opening a section — the one callback both ways in reach it through",
     const { container } = await renderSurface(settingsWindow.context, probe.pages);
 
     searchFor(container, "sidekick");
-    clickSectionLabelled(container, SETTINGS_SECTION_LABELS.sidekicks);
+    clickSectionLabelled(container, SETTINGS_SECTION_LABELS.agents);
 
-    expect(probe.loadedSections).toStrictEqual(["sidekicks"]);
+    expect(probe.loadedSections).toStrictEqual(["agents"]);
     expect(probe.pageSegmentsAtLoad).toStrictEqual([undefined]);
     expect(settingsWindow.frameStore.getState().route).toStrictEqual({
       kind: "settings",
-      page: "sidekicks",
+      page: "agents",
     });
   });
 
@@ -168,7 +168,7 @@ describe("the settings mount's idle walk", () => {
     expect(pinnedIdleHost.pendingCount).toBe(1);
     pinnedIdleHost.runToQuiescence();
 
-    expect(probe.loadedSections).toStrictEqual(["sidekicks"]);
+    expect(probe.loadedSections).toStrictEqual(["agents"]);
     expect(probe.pages.unloadedKeys()).toStrictEqual([]);
     // A warm is not an open: nothing navigated.
     expect(settingsWindow.frameStore.getState().route).toStrictEqual({
@@ -185,6 +185,6 @@ describe("the settings mount's idle walk", () => {
     pinnedIdleHost.runToQuiescence();
 
     expect(probe.loadedSections).toStrictEqual([]);
-    expect(probe.pages.unloadedKeys()).toStrictEqual(["sidekicks"]);
+    expect(probe.pages.unloadedKeys()).toStrictEqual(["agents"]);
   });
 });

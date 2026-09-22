@@ -258,17 +258,17 @@ export function createRefusingGrowthPort(): GrowthPort {
     // identity, and the callback-tool registry read
     callerUserRead: async () => growthUnavailable("callerUserRead"),
     callbackToolRegistryRead: async () => growthUnavailable("callbackToolRegistryRead"),
-    // sidekick
+    // agent definition
     agentList: async () => growthUnavailable("agentList"),
     agentAttach: async () => growthUnavailable("agentAttach"),
     agentConfigUpdate: async () => growthUnavailable("agentConfigUpdate"),
     agentDetach: async () => growthUnavailable("agentDetach"),
     orchestrationChildRunLinkRead: async () => growthUnavailable("orchestrationChildRunLinkRead"),
-    sidekickDefinitionList: async () => growthUnavailable("sidekickDefinitionList"),
-    sidekickDefinitionCreate: async () => growthUnavailable("sidekickDefinitionCreate"),
-    sidekickDefinitionUpdate: async () => growthUnavailable("sidekickDefinitionUpdate"),
-    sidekickDefinitionDelete: async () => growthUnavailable("sidekickDefinitionDelete"),
-    sidekickPeerInvocationSet: async () => growthUnavailable("sidekickPeerInvocationSet"),
+    agentDefinitionList: async () => growthUnavailable("agentDefinitionList"),
+    agentDefinitionCreate: async () => growthUnavailable("agentDefinitionCreate"),
+    agentDefinitionUpdate: async () => growthUnavailable("agentDefinitionUpdate"),
+    agentDefinitionDelete: async () => growthUnavailable("agentDefinitionDelete"),
+    agentPeerInvocationSet: async () => growthUnavailable("agentPeerInvocationSet"),
     // event content, and the session cost plane
     hydratedEventRead: async () => growthUnavailable("hydratedEventRead"),
     orchestrationCostReceiptRead: async () => growthUnavailable("orchestrationCostReceiptRead"),

@@ -15,7 +15,7 @@
 
 import { fireEvent, render } from "@testing-library/react";
 
-import { SidekicksBridgeProvider } from "../bridge/BridgeProvider.js";
+import { DesktopBridgeProvider } from "../bridge/BridgeProvider.js";
 import { createFixtureBridge } from "../bridge/index.js";
 import { WORKFLOWS_SCENARIO } from "../bridge/scenario/workflows/workflows.js";
 import { ManualClock } from "../core/index.js";
@@ -131,9 +131,9 @@ export function inWindowChrome(
   surface: React.ReactNode,
 ): React.JSX.Element {
   return (
-    <SidekicksBridgeProvider bridge={composed.context.bridge}>
+    <DesktopBridgeProvider bridge={composed.context.bridge}>
       <LiveAnnouncerProvider>{surface}</LiveAnnouncerProvider>
-    </SidekicksBridgeProvider>
+    </DesktopBridgeProvider>
   );
 }
 

@@ -30,7 +30,7 @@
  * since a sticky rail above a stacked pane would hold the narrowest screen's
  * scarcest resource — vertical room — for a list a person has finished with.
  *
- * 60rem is the point `agents/definitions/sidekick-definitions-page.css` already
+ * 60rem is the point `agents/definitions/agent-definitions-page.css` already
  * collapses at. This surface joins it rather than declaring a second one: the
  * console's breakpoint story is one floor and one collapse point, and a third
  * number here would make it neither.

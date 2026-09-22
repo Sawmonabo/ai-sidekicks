@@ -2,7 +2,7 @@
 //
 // A MODULE RATHER THAN A TABLE INSIDE THE VIEWPORT, because this stopped being a
 // lookup the moment a second input joined the scope: the session-scoped sentence
-// depends on whether the sidekicks in this session may reach each other, and a
+// depends on whether the agents in this session may reach each other, and a
 // rule with two inputs and three outcomes is a function with its own cases rather
 // than a record literal a component indexes.
 //

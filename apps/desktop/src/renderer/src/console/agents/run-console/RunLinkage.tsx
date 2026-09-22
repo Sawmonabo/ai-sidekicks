@@ -4,7 +4,7 @@
 // output returns to the parent's channel context; `delegate` is a bounded task
 // published to its own target channel; `handoff` is the parent transferring its
 // continuation to the child and completing. Peer-invoked children are ordinary
-// children — `ask_sidekick` produces a `spawn` link and `delegate_to_sidekick` a
+// children — `ask_agent` produces a `spawn` link and `delegate_to_agent` a
 // `delegate` one — and no run kind, link type, or scheduler rule is added for them.
 //
 // THE REFUSAL FOLD IS THE POINT. A refusal is zero-residue: no run, no queue entry,

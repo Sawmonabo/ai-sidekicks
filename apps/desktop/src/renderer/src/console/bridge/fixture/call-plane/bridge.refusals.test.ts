@@ -1,6 +1,6 @@
 // A scenario can script a call that REFUSES, and it refuses in the wire's shape.
 //
-// The third of the three places a fixture that matched `SidekicksBridge`'s SHAPE
+// The third of the three places a fixture that matched `DesktopBridge`'s SHAPE
 // still answered something the live bridge never would: `ScenarioReply` carried a
 // `result` and nothing else, so no scenario could script a call that refuses — and
 // every typed daemon refusal the console renders was unreachable through the

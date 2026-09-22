@@ -10,7 +10,7 @@ import { act, renderHook } from "@testing-library/react";
 import { createElement, useCallback, useState } from "react";
 import { describe, expect, it } from "vitest";
 
-import { SidekicksBridgeProvider, createFixtureBridge } from "../../../../bridge/index.js";
+import { DesktopBridgeProvider, createFixtureBridge } from "../../../../bridge/index.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../../bridge/scenario/ledger/ledger-quiet.js";
 import { CHAPTER_VISIBLE_ROW_CAP } from "../../../../core/index.js";
 import { ChapterCollapseState, type LedgerChapter } from "../../../structure/index.js";
@@ -226,7 +226,7 @@ describe("the chapter disclosure follows the session the pane is a log of", () =
     return renderHook((props: { readonly sessionId: string }) => useDisclosure(props.sessionId), {
       initialProps: { sessionId: SESSION_ID },
       wrapper: ({ children }: { readonly children?: React.ReactNode }) =>
-        createElement(SidekicksBridgeProvider, { bridge, children }),
+        createElement(DesktopBridgeProvider, { bridge, children }),
     });
   }
 

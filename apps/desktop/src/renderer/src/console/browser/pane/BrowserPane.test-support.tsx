@@ -61,12 +61,12 @@ export function fixtureBrowserBridge(): ConsoleBridge {
 /**
  * The bridge a live window hands this pane, over the same preload contract.
  *
- * The fixture's own `sidekicks` namespace IS that contract, so this is the real live
+ * The fixture's own `desktopBridge` namespace IS that contract, so this is the real live
  * wrapper answering for a window with no view host — 12.11's third arm, reached
  * through the wiring table rather than asserted about it.
  */
 export function liveBrowserBridge(): ConsoleBridge {
-  return createLiveBridge(fixtureBrowserBridge().sidekicks);
+  return createLiveBridge(fixtureBrowserBridge().desktopBridge);
 }
 
 /**

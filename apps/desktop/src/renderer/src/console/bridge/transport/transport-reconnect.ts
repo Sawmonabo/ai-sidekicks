@@ -38,7 +38,7 @@
 // and wrong about the transport, on that one path.
 //
 // THAT IS A MISSING SIGNAL AND NOT A MISSING OBSERVER, which is why nothing here
-// compensates for it. `SidekicksBridge.daemon.subscribe` is `(event, handler) =>
+// compensates for it. `DesktopBridge.daemon.subscribe` is `(event, handler) =>
 // Unsubscribe`: the handler is a payload sink with no error, end, or close arm, the
 // handle only cancels, and no member anywhere on that bridge — `daemon`,
 // `controlPlane`, `native`, `webAuthn`, `update`, `app` — reports connection state.
@@ -70,7 +70,7 @@
 // times for one transport; only a state CHANGE is a change, so the five redundant
 // reports cost nothing and no reading re-reads for them.
 //
-// WHY IT IS NOT ON `SidekicksBridge`
+// WHY IT IS NOT ON `DesktopBridge`
 //
 // The preload contract is what the preload actually exposes, and it exposes no
 // connection state. Putting one there would make the fixture shape-identical to a

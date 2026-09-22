@@ -1,4 +1,4 @@
-// The sidekicks registration: the rail reaches the agents family's page.
+// The agent definitions registration: the rail reaches the agents family's page.
 //
 // The claim under test is a SEAM, not a body — the page's own contents are asserted
 // beside the page, in the agents family. What can only be checked here is that the
@@ -21,7 +21,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { registerSidekicksPage } from "./sidekicks-settings-page.js";
+import { registerAgentsPage } from "./agents-settings-page.js";
 import {
   SettingsPageRegistry,
   matchSettingsEntries,
@@ -52,14 +52,14 @@ import { pendingPaneBodiesIn } from "./seats/pane/pending-pane-body.js";
  * store's health ledger counts for its own lifetime, so two cases sharing one context
  * would read each other's refusals.
  */
-function sidekicksPageContext(): SettingsPageContext {
+function agentsPageContext(): SettingsPageContext {
   return settingsPageContextWith(
     createFixtureBridge({
       scenario: {
-        id: "settings-sidekicks-test",
+        id: "settings-agents-test",
         label: "Sidekicks registration",
         purpose:
-          "Drives the sidekicks settings registration against a bridge that scripts nothing.",
+          "Drives the agent definitions settings registration against a bridge that scripts nothing.",
         sessionId: "session-settings",
         userIdsInJoinOrder: [],
         beats: [],
@@ -73,27 +73,29 @@ function sidekicksPageContext(): SettingsPageContext {
 
 function registeredRegistry(): SettingsPageRegistry {
   const registry = new SettingsPageRegistry();
-  registerSidekicksPage(registry);
+  registerAgentsPage(registry);
   return registry;
 }
 
-describe("the sidekicks settings page", () => {
+describe("the agent definitions settings page", () => {
   it("claims a section the rail actually renders", () => {
     // Both halves matter: a descriptor under an id outside the tuple would register
     // and never appear, and an id in the tuple with no descriptor is a blank pane.
-    expect(SETTINGS_SECTION_IDS).toContain("sidekicks");
-    expect(registeredRegistry().registeredSections()).toStrictEqual(["sidekicks"]);
+    expect(SETTINGS_SECTION_IDS).toContain("agents");
+    expect(registeredRegistry().registeredSections()).toStrictEqual(["agents"]);
   });
 
   it("renders the agents family's page and not a local stand-in", async () => {
     // The page's own heading and its first standing fact, which only the real body
     // carries. A shell drawn here would pass an "it rendered something" assertion.
     const container = await mountRegisteredSettingsPage(
-      "sidekicks",
-      registerSidekicksPage,
-      sidekicksPageContext(),
+      "agents",
+      registerAgentsPage,
+      agentsPageContext(),
     );
-    expect(container.querySelector(".meridian-sidekicks__title")?.textContent).toBe("Sidekicks");
+    expect(container.querySelector(".meridian-agent-definitions__title")?.textContent).toBe(
+      "Sidekicks",
+    );
     expect(container.textContent ?? "").toContain("Where they live");
   });
 
@@ -104,12 +106,8 @@ describe("the sidekicks settings page", () => {
     // person sees, and it must carry the pending marker — the screenshot tier refuses to
     // photograph a tree holding one, and a settings page mid-load is exactly what that
     // refusal exists for.
-    const container = mountReservedSettingsPage(
-      "sidekicks",
-      registerSidekicksPage,
-      sidekicksPageContext(),
-    );
-    expect(container.querySelector(".meridian-sidekicks__title")).toBeNull();
+    const container = mountReservedSettingsPage("agents", registerAgentsPage, agentsPageContext());
+    expect(container.querySelector(".meridian-agent-definitions__title")).toBeNull();
     expect(pendingPaneBodiesIn(container).length).toBe(1);
   });
 
@@ -124,9 +122,9 @@ describe("the sidekicks settings page", () => {
     // so a page that never asked and a page whose answer never arrived both stay in
     // `not-loaded` and fail here, where before only the first of them did.
     const container = await mountRegisteredSettingsPage(
-      "sidekicks",
-      registerSidekicksPage,
-      sidekicksPageContext(),
+      "agents",
+      registerAgentsPage,
+      agentsPageContext(),
     );
     expect(container.querySelector(".meridian-nothing--not-loaded")).toBeNull();
     expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
@@ -137,7 +135,7 @@ describe("the sidekicks settings page", () => {
     for (const query of ["sidekick", "definitions", "presets", "tools"]) {
       expect(
         matchSettingsEntries(entries, query).map((match) => match.descriptor.section),
-      ).toStrictEqual(["sidekicks"]);
+      ).toStrictEqual(["agents"]);
     }
   });
 
@@ -153,7 +151,7 @@ describe("the sidekicks settings page", () => {
     const registry = registeredRegistry();
     expect(() => {
       registry.register({
-        section: "sidekicks",
+        section: "agents",
         owner: "some-other-lane",
         label: "Sidekicks",
         keywords: [],

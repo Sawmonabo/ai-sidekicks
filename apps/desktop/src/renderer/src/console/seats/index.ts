@@ -509,7 +509,7 @@ export {
 } from "./identity/caller-user.js";
 
 // The console's single copy of the daemon-EVENT cast. The brand
-// `SidekicksBridge.daemon.subscribe` takes is `never`-shaped until the daemon method
+// `DesktopBridge.daemon.subscribe` takes is `never`-shaped until the daemon method
 // union narrows it, and every caller casts; one module casts, and the day it narrows one
 // file changes. Its call-side twin is gone — `bridge/daemon/daemon-reply.ts` names the
 // methods and parses both directions, so no seat casts a call any more.

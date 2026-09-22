@@ -1,4 +1,4 @@
-// The cast the agents scenario runs: two sidekicks, two drivers, two accounts.
+// The cast the agents scenario runs: two agents, two drivers, two accounts.
 //
 // Split out of `agents.ts` because a scenario and its cast are two subjects: that
 // module says what happens and in what order, and this says who it happens to. The
@@ -110,7 +110,7 @@ export const CODEX_FLAGS: readonly DriverCapabilityFlag[] = [
   "provider_commands",
 ];
 
-/** One attached sidekick, as both the event and the roster entry read it. */
+/** One attached agent, as both the event and the roster entry read it. */
 export interface AttachedAgent {
   readonly agentId: string;
   readonly eventId: string;

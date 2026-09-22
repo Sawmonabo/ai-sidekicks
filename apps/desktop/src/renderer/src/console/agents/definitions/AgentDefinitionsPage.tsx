@@ -1,9 +1,9 @@
-// The sidekicks page: the sidekicks a person has tuned, so a configuration
+// The agent definitions page: the agents a person has tuned, so a configuration
 // outlives the session it was typed into.
 //
 // WHAT IS ON THIS PAGE TODAY: THE REGISTRY, READ
 //
-// `sidekickDefinitionList` is registered on the growth port beside its create,
+// `agentDefinitionList` is registered on the growth port beside its create,
 // update, and delete verbs, so the page puts one read in flight on mount and
 // renders whichever of four answers comes back — a read still going, the port's own
 // refusal with its code, a served empty registry, or the rows. Those four stay
@@ -25,7 +25,7 @@
 // the row, where a person can still read what they are about to delete. The pending
 // state, the daemon's refusal, and the re-read on success all land there too.
 //
-// EDIT AND NEW OPEN THE SAME SEAT. `SidekickDefinitionRecordEditorMount.tsx` declares a subject
+// EDIT AND NEW OPEN THE SAME SEAT. `AgentDefinitionRecordEditorMount.tsx` declares a subject
 // with exactly two arms — a stored record, or one being composed — and this page
 // supplies whichever was asked for. The body filling the seat is another plan's and
 // has not arrived, so both controls reach the seat's reserved treatment, which says
@@ -59,15 +59,15 @@ import type { ConsoleBridge } from "../../bridge/index.js";
 import { useAttachHandoff } from "../attach/attach-handoff/index.js";
 import {
   useDefinitionSettlementAnnouncement,
-  useSidekickRegistryView,
+  useAgentRegistryView,
 } from "./definition-registry-view.js";
 import {
   SIDEKICK_DEFINITION_RECORD_EDITOR_SLOT,
-  SidekickDefinitionRecordEditorMount,
-} from "./SidekickDefinitionRecordEditorMount.js";
-import { SavedSidekicks } from "./SavedSidekicks.js";
+  AgentDefinitionRecordEditorMount,
+} from "./AgentDefinitionRecordEditorMount.js";
+import { SavedDefinitions } from "./SavedDefinitions.js";
 /** One standing fact about the registry, in the two halves a description list wants. */
-interface SidekickRegistryRule {
+interface AgentRegistryRule {
   readonly term: string;
   readonly statement: string;
 }
@@ -79,7 +79,7 @@ interface SidekickRegistryRule {
  * exactly three things to know before tuning one — is countable by a test rather
  * than asserted in a comment.
  */
-const SIDEKICK_REGISTRY_RULES: readonly SidekickRegistryRule[] = [
+const AGENT_REGISTRY_RULES: readonly AgentRegistryRule[] = [
   {
     term: "Where they live",
     statement:
@@ -97,7 +97,7 @@ const SIDEKICK_REGISTRY_RULES: readonly SidekickRegistryRule[] = [
   },
 ];
 
-export interface SidekickDefinitionsPageProps {
+export interface AgentDefinitionsPageProps {
   readonly bridge: ConsoleBridge;
   /**
    * The session this window is working in, which is the one a row can attach into.
@@ -109,24 +109,24 @@ export interface SidekickDefinitionsPageProps {
   readonly retainedSessionId: string | undefined;
 }
 
-export function SidekickDefinitionsPage(props: SidekickDefinitionsPageProps): React.JSX.Element {
-  const { view, snapshot } = useSidekickRegistryView(props.bridge);
+export function AgentDefinitionsPage(props: AgentDefinitionsPageProps): React.JSX.Element {
+  const { view, snapshot } = useAgentRegistryView(props.bridge);
   useDefinitionSettlementAnnouncement(snapshot.reading);
   // The window's one handoff, subscribed rather than read: an offer this page made
   // and the session's form then claimed has to stop reading as a standing promise.
   const handoff = useAttachHandoff(props.bridge);
 
   return (
-    <section className="meridian-sidekicks" aria-label="Sidekicks">
-      <header className="meridian-sidekicks__head">
-        <h2 className="meridian-sidekicks__title">Sidekicks</h2>
-        <p className="meridian-sidekicks__lede">
+    <section className="meridian-agent-definitions" aria-label="Sidekicks">
+      <header className="meridian-agent-definitions__head">
+        <h2 className="meridian-agent-definitions__title">Sidekicks</h2>
+        <p className="meridian-agent-definitions__lede">
           A sidekick you have tuned once — its provider, its instructions, its goal, the tools it
           may reach — kept so the next session starts from it instead of from nothing.
         </p>
         <button
           type="button"
-          className="meridian-sidekicks__new"
+          className="meridian-agent-definitions__new"
           // Pressed rather than merely styled: the detail column is a single seat,
           // so which subject it is holding is state a person has to be able to read
           // — and a control that opens a region without saying it is the one that
@@ -140,19 +140,19 @@ export function SidekickDefinitionsPage(props: SidekickDefinitionsPageProps): Re
         </button>
       </header>
 
-      <dl className="meridian-sidekicks__rules">
-        {SIDEKICK_REGISTRY_RULES.map((rule) => (
-          <div className="meridian-sidekicks__rule" key={rule.term}>
-            <dt className="meridian-sidekicks__rule-term">{rule.term}</dt>
-            <dd className="meridian-sidekicks__rule-statement">{rule.statement}</dd>
+      <dl className="meridian-agent-definitions__rules">
+        {AGENT_REGISTRY_RULES.map((rule) => (
+          <div className="meridian-agent-definitions__rule" key={rule.term}>
+            <dt className="meridian-agent-definitions__rule-term">{rule.term}</dt>
+            <dd className="meridian-agent-definitions__rule-statement">{rule.statement}</dd>
           </div>
         ))}
       </dl>
 
-      <div className="meridian-sidekicks__columns">
-        <section className="meridian-sidekicks__column" aria-label="Saved sidekicks">
-          <h3 className="meridian-sidekicks__column-title">Saved</h3>
-          <SavedSidekicks
+      <div className="meridian-agent-definitions__columns">
+        <section className="meridian-agent-definitions__column" aria-label="Saved sidekicks">
+          <h3 className="meridian-agent-definitions__column-title">Saved</h3>
+          <SavedDefinitions
             snapshot={snapshot}
             view={view}
             handoff={handoff}
@@ -160,9 +160,9 @@ export function SidekickDefinitionsPage(props: SidekickDefinitionsPageProps): Re
           />
         </section>
 
-        <section className="meridian-sidekicks__column" aria-label="Sidekick detail">
-          <h3 className="meridian-sidekicks__column-title">Detail</h3>
-          <SidekickDefinitionRecordEditorMount
+        <section className="meridian-agent-definitions__column" aria-label="Sidekick detail">
+          <h3 className="meridian-agent-definitions__column-title">Detail</h3>
+          <AgentDefinitionRecordEditorMount
             slot={SIDEKICK_DEFINITION_RECORD_EDITOR_SLOT}
             subject={snapshot.editorSubject}
           />

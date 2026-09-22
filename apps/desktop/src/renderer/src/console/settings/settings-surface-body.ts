@@ -54,7 +54,7 @@ import { registerNotificationsPage } from "./pages/notifications/NotificationsPa
 import { registerProviderAccountsPage } from "./pages/provider-accounts/ProviderAccountsPage.js";
 import { registerRuntimeNodesPage } from "./pages/runtime-nodes/RuntimeNodesPage.js";
 import { registerBrowserSettingsPage } from "../browser-settings-page.js";
-import { registerSidekicksPage } from "../sidekicks-settings-page.js";
+import { registerAgentsPage } from "../agents-settings-page.js";
 import { registerWorkspaceMountsPage } from "./pages/mounts/WorkspaceMountsPage.js";
 import { SettingsPageRegistry } from "./settings-page-registry.js";
 import { SettingsSurface } from "./SettingsSurface.js";
@@ -101,10 +101,10 @@ function registerSettingsPages(registry: SettingsPageRegistry): void {
   registerRuntimeNodesPage(registry);
   registerNotificationsPage(registry);
   registerApplicationPage(registry);
-  // The sidekicks page: the console root's one-line seam, the agents family's body.
+  // The agent definitions page: the console root's one-line seam, the agents family's body.
   // It is registered from here and composed there, because naming two view families
   // is a composition site's job and this family names only its own.
-  registerSidekicksPage(registry);
+  registerAgentsPage(registry);
   // Mounts, diagnostics, data, appearance, keyboard.
   registerWorkspaceMountsPage(registry);
   registerDiagnosticsPage(registry);

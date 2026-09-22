@@ -1,4 +1,4 @@
-import { SIDEKICK_DEFINITION_EDITOR_SLOT } from "../sidekick-definition-editor-slot.js";
+import { SIDEKICK_DEFINITION_EDITOR_SLOT } from "../agent-definition-editor-slot.js";
 import { Nothing } from "../../primitives/index.js";
 
 /**
@@ -9,7 +9,7 @@ import { Nothing } from "../../primitives/index.js";
  * treatment. This is that treatment for this pane: a stated absence naming the
  * feature, never the governance work that owes it.
  */
-export function SidekickDefinitionEditorMount(props: {
+export function AgentDefinitionEditorMount(props: {
   readonly agentId: string | undefined;
 }): React.JSX.Element {
   const { body } = SIDEKICK_DEFINITION_EDITOR_SLOT;

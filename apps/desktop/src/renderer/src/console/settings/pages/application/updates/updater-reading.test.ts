@@ -7,7 +7,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { SidekicksBridge, UpdateState, Unsubscribe } from "@ai-sidekicks/contracts";
+import type { DesktopBridge, UpdateState, Unsubscribe } from "@ai-sidekicks/contracts";
 
 import { UpdaterReadingHolder } from "./updater-reading.js";
 
@@ -15,11 +15,11 @@ import { UpdaterReadingHolder } from "./updater-reading.js";
  * An updater whose read is settled by hand and whose pushes are delivered by hand.
  *
  * The real updater namespace rather than a partial object: the holder takes exactly
- * `SidekicksBridge["update"]`, so an arm added upstream fails this file to compile
+ * `DesktopBridge["update"]`, so an arm added upstream fails this file to compile
  * instead of leaving a case driving a shape nobody serves.
  */
 function controllableUpdater(): {
-  readonly updater: SidekicksBridge["update"];
+  readonly updater: DesktopBridge["update"];
   readonly settleRead: (state: UpdateState) => void;
   readonly refuseRead: (rejection: unknown) => void;
   readonly push: (state: UpdateState) => void;

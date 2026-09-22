@@ -96,7 +96,7 @@ function mountNotifier(documentFocus: DocumentFocusReading): MountedNotifier {
   frameStore.navigate({ kind: "workspace", sessionId: ACTIVE_SESSION_ID });
   const raisedNotifications: unknown[] = [];
   const bridge = {
-    sidekicks: {
+    desktopBridge: {
       native: {
         showNotification: (notificationOptions: unknown) => {
           raisedNotifications.push(notificationOptions);

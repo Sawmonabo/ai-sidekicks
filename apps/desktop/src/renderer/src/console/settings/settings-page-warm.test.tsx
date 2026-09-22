@@ -22,12 +22,12 @@ import { useSettingsPageIdleWarm } from "./settings-page-warm.js";
 function composePages(loadedSections: string[]): SettingsPageRegistry {
   const pages = new SettingsPageRegistry();
   pages.register({
-    section: "sidekicks",
+    section: "agents",
     owner: "settings-warm-test",
     label: "Sidekicks",
     keywords: [],
     body: () => {
-      loadedSections.push("sidekicks");
+      loadedSections.push("agents");
       return Promise.resolve<{ Body: (context: SettingsPageContext) => React.ReactNode }>({
         Body: () => null,
       });
@@ -72,7 +72,7 @@ describe("the settings page board's idle warm", () => {
     scheduler.runToQuiescence();
 
     // A `render:` page has nothing to fetch, so the walk ends rather than re-arming on it.
-    expect(loadedSections).toStrictEqual(["sidekicks"]);
+    expect(loadedSections).toStrictEqual(["agents"]);
     expect(pages.unloadedKeys()).toStrictEqual([]);
   });
 
@@ -90,7 +90,7 @@ describe("the settings page board's idle warm", () => {
 
     expect(scheduler.pendingCount).toBe(1);
     scheduler.runToQuiescence();
-    expect(loadedSections).toStrictEqual(["sidekicks"]);
+    expect(loadedSections).toStrictEqual(["agents"]);
   });
 
   it("releases the walk when the surface goes away", () => {
@@ -133,7 +133,7 @@ describe("the settings page board's idle warm", () => {
 
     scheduler.runToQuiescence();
 
-    expect(loadedSections).toStrictEqual(["sidekicks"]);
+    expect(loadedSections).toStrictEqual(["agents"]);
     expect(pages.unloadedKeys()).toStrictEqual([]);
   });
 
@@ -147,6 +147,6 @@ describe("the settings page board's idle warm", () => {
     scheduler.runToQuiescence();
 
     expect(loadedSections).toStrictEqual([]);
-    expect(pages.unloadedKeys()).toStrictEqual(["sidekicks"]);
+    expect(pages.unloadedKeys()).toStrictEqual(["agents"]);
   });
 });

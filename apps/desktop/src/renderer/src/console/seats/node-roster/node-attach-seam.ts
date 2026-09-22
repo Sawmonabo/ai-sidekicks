@@ -55,7 +55,7 @@ export function nodeAttachReadsFor(bridge: ConsoleBridge): RuntimeNodeAttachRead
   // claim to make about the bridge it resolved. The input and result types it pins are
   // the shipped contract shapes, so the request the flow builds is checked and the
   // resolved value needs no second cast.
-  const controlPlaneAttachCall = bridge.sidekicks.controlPlane.call as ControlPlaneAttachCall;
+  const controlPlaneAttachCall = bridge.desktopBridge.controlPlane.call as ControlPlaneAttachCall;
   return attachReadsOverControlPlane(controlPlaneAttachCall);
 }
 

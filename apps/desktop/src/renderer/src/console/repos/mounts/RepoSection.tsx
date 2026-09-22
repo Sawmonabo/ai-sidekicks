@@ -25,7 +25,7 @@ export function RepoSection(props: RepoSectionProps): React.JSX.Element {
   const copyCanonicalRoot = useCallback(
     (canonicalRoot: string) => {
       setCopyRefusal(undefined);
-      bridge.sidekicks.native.copyToClipboard(canonicalRoot).catch((rejection: unknown) => {
+      bridge.desktopBridge.native.copyToClipboard(canonicalRoot).catch((rejection: unknown) => {
         // The host refused the clipboard. Rendered rather than swallowed: the root is
         // still on screen and still recoverable through the element's title, so the
         // person needs to know the copy did not happen, not be told it did.

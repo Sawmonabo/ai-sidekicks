@@ -1,4 +1,4 @@
-// Putting a configured sidekick into a session in one act.
+// Putting a configured agent into a session in one act.
 //
 // TWO ARMS OF ONE FORM, NOT A WIZARD. The definition arm needs only a definition;
 // the inline arm needs a driver and a model. The union refuses exactly one shape — a
@@ -33,7 +33,7 @@ import type { ConsoleRefusal } from "../../core/index.js";
 import { Nothing, OverlayDialogPopup, RefusalCard } from "../../primitives/index.js";
 import type { PushDrivenReadState } from "../../seats/index.js";
 import { AxisCombobox } from "../AxisCombobox.js";
-import { type AttachSidekickForm } from "./attach-model.js";
+import { type AttachAgentForm } from "./attach-model.js";
 import { ATTACH_ARMS, type AttachArm } from "./attach-readiness.js";
 import {
   driverNamesOf,
@@ -42,15 +42,15 @@ import {
   type DriverCatalogReading,
 } from "../driver-catalog.js";
 import type { AgentAttachReading, ConsoleBridge } from "../../bridge/index.js";
-import type { SidekickDefinitionListReading } from "../agent-wire.js";
+import type { AgentDefinitionListReading } from "../agent-wire.js";
 import { DefinitionPicker } from "./DefinitionPicker.js";
 import { AttachConfirmation } from "./AttachConfirmation.js";
 import { AccountAxisField } from "./account-axis/AccountAxisField.js";
 
-export interface AttachSidekickProps {
+export interface AttachAgentProps {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
-  readonly form: AttachSidekickForm;
+  readonly form: AttachAgentForm;
   /** The session the agent joins. Required by both arms of the registered request. */
   readonly sessionId: string;
   /**
@@ -65,7 +65,7 @@ export interface AttachSidekickProps {
    */
   readonly bridge: ConsoleBridge;
   readonly catalog: PushDrivenReadState<DriverCatalogReading>;
-  readonly definitions: PushDrivenReadState<SidekickDefinitionListReading>;
+  readonly definitions: PushDrivenReadState<AgentDefinitionListReading>;
   /**
    * Re-open each read, from the column that owns them.
    *
@@ -104,7 +104,7 @@ export interface AttachSidekickProps {
   readonly overlayContainer?: HTMLElement | null | undefined;
 }
 
-export function AttachSidekick(props: AttachSidekickProps): React.JSX.Element {
+export function AttachAgent(props: AttachAgentProps): React.JSX.Element {
   const { form, catalog, definitions } = props;
   const submittingReasonId = useId();
   const catalogValue = catalog.kind === "loaded" ? catalog.value : undefined;

@@ -18,7 +18,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { DECK_RESTORED_PANE_CAP } from "../../core/index.js";
-import { SidekicksBridgeProvider, createFixtureBridge } from "../../bridge/index.js";
+import { DesktopBridgeProvider, createFixtureBridge } from "../../bridge/index.js";
 import { FIRST_RUN_SCENARIO } from "../../bridge/scenario/first-run.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { ConsolePaneRegistry, type ConsolePaneContext } from "../../seats/index.js";
@@ -56,11 +56,11 @@ function registryWithTimeline(): ConsolePaneRegistry {
 /** The deck under the two providers the frame mounts above every surface. */
 function renderDeck(layout: DeckLayout): HTMLElement {
   const { container } = render(
-    <SidekicksBridgeProvider bridge={createFixtureBridge({ scenario: FIRST_RUN_SCENARIO })}>
+    <DesktopBridgeProvider bridge={createFixtureBridge({ scenario: FIRST_RUN_SCENARIO })}>
       <LiveAnnouncerProvider>
         <Deck layout={layout} registry={registryWithTimeline()} paneContextFor={paneContextFor} />
       </LiveAnnouncerProvider>
-    </SidekicksBridgeProvider>,
+    </DesktopBridgeProvider>,
   );
   const deck = container.querySelector(".meridian-deck");
   if (!(deck instanceof HTMLElement)) {

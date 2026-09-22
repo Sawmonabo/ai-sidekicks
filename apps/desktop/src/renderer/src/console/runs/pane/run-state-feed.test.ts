@@ -137,7 +137,7 @@ describe("a stream that cannot be opened is a refusal, not a crash", () => {
     // Without this the cases above would pass over a bridge that quietly answered
     // an unsubscribe, and would prove nothing about the guard.
     const bridge = unopenableBridge(TIER_ONE_STUB_REFUSAL);
-    const bypassed = bridge.sidekicks.daemon.subscribe as (event: string) => unknown;
+    const bypassed = bridge.desktopBridge.daemon.subscribe as (event: string) => unknown;
     expect(() => bypassed("run.subscribeState")).toThrow();
   });
 });

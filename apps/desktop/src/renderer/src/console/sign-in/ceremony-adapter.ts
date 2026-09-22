@@ -75,7 +75,7 @@ export class SignInCeremony {
    * `signIn()` replaces. The renderer passes no options.
    */
   public async signIn(): Promise<WebAuthnCeremonyOutcome> {
-    return this.#run(async () => this.#bridge.sidekicks.webAuthn.getAssertion({}));
+    return this.#run(async () => this.#bridge.desktopBridge.webAuthn.getAssertion({}));
   }
 
   /**
@@ -87,7 +87,7 @@ export class SignInCeremony {
    * signed-in state and never as a way in.
    */
   public async register(): Promise<WebAuthnCeremonyOutcome> {
-    return this.#run(async () => this.#bridge.sidekicks.webAuthn.createCredential({}));
+    return this.#run(async () => this.#bridge.desktopBridge.webAuthn.createCredential({}));
   }
 
   /**
@@ -100,7 +100,7 @@ export class SignInCeremony {
    * the wait a method of its own without moving anything but this body.
    */
   public async awaitDeviceGrant(): Promise<WebAuthnCeremonyOutcome> {
-    return this.#run(async () => this.#bridge.sidekicks.webAuthn.getAssertion({}));
+    return this.#run(async () => this.#bridge.desktopBridge.webAuthn.getAssertion({}));
   }
 
   /**

@@ -57,7 +57,7 @@ export type GrowthSlateRowId =
   | "workflow-run-enumeration"
   | "caller-user-identity"
   | "callback-tool-registry-read"
-  | "sidekick-definition-registry"
+  | "agent-definition-registry"
   | "hydrated-event-read"
   | "cost-receipt-read"
   | "workflow-version-chain"

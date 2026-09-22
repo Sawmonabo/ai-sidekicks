@@ -38,7 +38,7 @@ class RefusingRosterDaemon implements ScriptedDaemon {
       }
       return { agents: [] };
     }
-    if (method === "sidekick.definitionList") {
+    if (method === "agent.definitionList") {
       return { definitions: [] };
     }
     return { drivers: [] };

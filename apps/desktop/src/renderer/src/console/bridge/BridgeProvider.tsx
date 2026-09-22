@@ -9,7 +9,7 @@
 // bill them for the bytes on every budget run.
 //
 // The context holds a `ConsoleBridge` and nothing else. No component reads
-// `window.sidekicks`, and no component subscribes to a bridge event directly — the
+// `window.desktopBridge`, and no component subscribes to a bridge event directly — the
 // store's apply chokepoint is the only subscriber (`store/session/session-store.ts`), and
 // this provider is where the two are joined.
 //
@@ -65,7 +65,7 @@ export type BridgeResolution =
 
 const BridgeContext = createContext<BridgeResolution | undefined>(undefined);
 
-export interface SidekicksBridgeProviderProps {
+export interface DesktopBridgeProviderProps {
   readonly children: ReactNode;
   /**
    * Override the resolved bridge. Tests and stories pass a fixture directly; the
@@ -94,7 +94,7 @@ export interface SidekicksBridgeProviderProps {
  * from change or its own engine has been torn down — see the module header for why
  * neither a memo nor a plain re-creation is correct for a resource with a lifetime.
  */
-export function SidekicksBridgeProvider(props: SidekicksBridgeProviderProps): React.JSX.Element {
+export function DesktopBridgeProvider(props: DesktopBridgeProviderProps): React.JSX.Element {
   const { children, bridge, scenarioId, clockToRebind } = props;
   const [resolved, setResolved] = useState<ResolvedConsoleBridge>(
     () => new ResolvedConsoleBridge(bridge, scenarioId),
@@ -190,7 +190,7 @@ export function useBridgeResolution(): BridgeResolution {
   const resolution = useContext(BridgeContext);
   if (resolution === undefined) {
     throw new Error(
-      "useConsoleBridge was called outside <SidekicksBridgeProvider>. Every console surface renders inside the provider so the fixture is substitutable.",
+      "useConsoleBridge was called outside <DesktopBridgeProvider>. Every console surface renders inside the provider so the fixture is substitutable.",
     );
   }
   return resolution;

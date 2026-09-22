@@ -15,29 +15,29 @@ import { describe, expect, it, vi } from "vitest";
 
 import { refuse } from "../../core/index.js";
 import type { PushDrivenReadState } from "../../seats/index.js";
-import type { SidekickDefinitionListReading } from "../agent-wire.js";
-import { AttachSidekickForm } from "./attach-model.js";
+import type { AgentDefinitionListReading } from "../agent-wire.js";
+import { AttachAgentForm } from "./attach-model.js";
 import { DefinitionPicker } from "./DefinitionPicker.js";
 
 /** One served reading over the definitions a case cares about. */
 function served(
-  definitions: SidekickDefinitionListReading["definitions"],
-): PushDrivenReadState<SidekickDefinitionListReading> {
+  definitions: AgentDefinitionListReading["definitions"],
+): PushDrivenReadState<AgentDefinitionListReading> {
   return { kind: "loaded", value: { definitions } };
 }
 
-const IN_FLIGHT: PushDrivenReadState<SidekickDefinitionListReading> = { kind: "not-loaded" };
-const REFUSED: PushDrivenReadState<SidekickDefinitionListReading> = {
+const IN_FLIGHT: PushDrivenReadState<AgentDefinitionListReading> = { kind: "not-loaded" };
+const REFUSED: PushDrivenReadState<AgentDefinitionListReading> = {
   kind: "failed",
-  refusal: refuse("sidekick-registry", "sidekick.definition_unreadable", "no route"),
+  refusal: refuse("agent-registry", "agent.definition_unreadable", "no route"),
 };
-const NOTHING_SAVED: PushDrivenReadState<SidekickDefinitionListReading> = served([]);
-const WITH_ROWS: PushDrivenReadState<SidekickDefinitionListReading> = served([
+const NOTHING_SAVED: PushDrivenReadState<AgentDefinitionListReading> = served([]);
+const WITH_ROWS: PushDrivenReadState<AgentDefinitionListReading> = served([
   { definitionId: "definition-1", name: "Reviewer", driverName: "claude" },
 ]);
 
 /** The four readings the picker answers, named so a case reads as its own arm. */
-const ARMS: readonly (readonly [string, PushDrivenReadState<SidekickDefinitionListReading>])[] = [
+const ARMS: readonly (readonly [string, PushDrivenReadState<AgentDefinitionListReading>])[] = [
   ["a read still in flight", IN_FLIGHT],
   ["a read the port refused", REFUSED],
   ["a registry with nothing in it", NOTHING_SAVED],
@@ -54,7 +54,7 @@ describe("the attach picker — reaching the page where definitions are kept", (
     it(`offers the way there under ${arm}`, () => {
       const { container } = render(
         <DefinitionPicker
-          form={new AttachSidekickForm()}
+          form={new AttachAgentForm()}
           definitions={definitions}
           onOpenDefinitions={() => {}}
         />,
@@ -68,7 +68,7 @@ describe("the attach picker — reaching the page where definitions are kept", (
     const openDefinitions = vi.fn();
     const { container } = render(
       <DefinitionPicker
-        form={new AttachSidekickForm()}
+        form={new AttachAgentForm()}
         definitions={WITH_ROWS}
         onOpenDefinitions={openDefinitions}
       />,
@@ -83,7 +83,7 @@ describe("the attach picker — reaching the page where definitions are kept", (
     // Absent, never disabled. Without this the cases above would pass over a picker
     // that drew the link in the auxiliary window too, where it goes nowhere.
     const { container } = render(
-      <DefinitionPicker form={new AttachSidekickForm()} definitions={WITH_ROWS} />,
+      <DefinitionPicker form={new AttachAgentForm()} definitions={WITH_ROWS} />,
     );
 
     expect(definitionsLink(container)).toBeNull();
@@ -95,7 +95,7 @@ describe("the attach picker — reaching the page where definitions are kept", (
     // the empty arm's sentence would leave a person with a link and no explanation.
     const { container } = render(
       <DefinitionPicker
-        form={new AttachSidekickForm()}
+        form={new AttachAgentForm()}
         definitions={NOTHING_SAVED}
         onOpenDefinitions={() => {}}
       />,

@@ -187,14 +187,14 @@ export function buildLedgerRowOffersBinding(
         setDensity,
         copyRowId: (rowId) => {
           performHostCall(
-            () => readSurface().bridge.sidekicks.native.copyToClipboard(rowId),
+            () => readSurface().bridge.desktopBridge.native.copyToClipboard(rowId),
             LEDGER_ROW_ID_NOT_COPIED_REFUSAL,
           );
         },
         bodyText: request.bodyText,
         copyBody: (bodyText) => {
           performHostCall(
-            () => readSurface().bridge.sidekicks.native.copyToClipboard(bodyText),
+            () => readSurface().bridge.desktopBridge.native.copyToClipboard(bodyText),
             LEDGER_BODY_NOT_COPIED_REFUSAL,
           );
         },
@@ -205,7 +205,7 @@ export function buildLedgerRowOffersBinding(
         pathReference: request.pathReference,
         revealFileAtPath: (pathReference) => {
           performHostCall(
-            () => readSurface().bridge.sidekicks.native.revealInFileExplorer(pathReference),
+            () => readSurface().bridge.desktopBridge.native.revealInFileExplorer(pathReference),
             LEDGER_FILE_NOT_REVEALED_REFUSAL,
           );
         },

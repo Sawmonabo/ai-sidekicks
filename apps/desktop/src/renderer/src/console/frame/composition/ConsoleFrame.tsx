@@ -40,7 +40,7 @@
 //     into the window store and this fold is where the two meet. Neither is a copy
 //     of the other: the palette's state is not written to the store.
 //   • **The bridge is provided, never reached for.** No component below this one
-//     touches `window.sidekicks`.
+//     touches `window.desktopBridge`.
 //   • **The family-owned frame-lifetime reads wrap this whole subtree.** A view
 //     family cannot be imported here — `console-view-family-isolation` forbids the
 //     frame from naming one — so a read whose value the rail renders reaches the

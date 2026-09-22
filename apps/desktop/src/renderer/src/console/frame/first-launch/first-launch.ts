@@ -120,7 +120,7 @@ export function firstLaunchRoute(inputs: FirstLaunchInputs): ConsoleRoute | unde
  * THE `Never` BULLET THIS SERVES. The first-sixty-seconds surface may not present
  * fixture content as live, and the scenario is labeled. Since `DEFAULT_SCENARIO_ID`
  * became the demo, an unnamed fixture window OPENS into a scripted session with
- * several sidekicks and several people apparently at work — so the one launch nobody
+ * several agents and several people apparently at work — so the one launch nobody
  * asked anything of is exactly the launch most likely to be read as real.
  *
  * IT IS THE OPENING ARM AND NOT EVERY SCENARIO, deliberately, and the discriminator is

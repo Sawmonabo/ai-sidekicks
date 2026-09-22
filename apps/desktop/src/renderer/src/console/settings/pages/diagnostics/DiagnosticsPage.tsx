@@ -9,7 +9,7 @@
 //
 // The section names an overall status read, a stuck-run inspect, a failure-detail
 // read, a recovery request, and the redaction-policy read. Every one of them is a
-// registered daemon method, and none of them is exposed on `SidekicksBridge` yet — so
+// registered daemon method, and none of them is exposed on `DesktopBridge` yet — so
 // each travels the growth port under the slate row this page owns, against the fixture
 // today and against the wire the day it lands, with no call site here changing.
 //

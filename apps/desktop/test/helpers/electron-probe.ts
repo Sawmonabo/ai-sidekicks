@@ -286,7 +286,7 @@ export interface SmokeProbe {
   readonly ok: boolean;
   readonly windowMs: number;
   readonly probe: {
-    readonly sidekicks: string;
+    readonly desktopBridge: string;
     readonly require: string;
     readonly process: string;
     readonly global: string;
