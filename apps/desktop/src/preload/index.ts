@@ -1,7 +1,7 @@
 // Electron preload script.
 //
-// Today this file does one thing: expose a typed `SidekicksBridge` on
-// `window.sidekicks` via Electron's `contextBridge.exposeInMainWorld`. The
+// Today this file does one thing: expose a typed `DesktopBridge` on
+// `window.desktopBridge` via Electron's `contextBridge.exposeInMainWorld`. The
 // bridge object is produced by `createStubBridge()` from
 // `@ai-sidekicks/contracts`; every round-trip method on it throws
 // `NotImplementedError` until the real IPC handlers are wired against
@@ -38,7 +38,7 @@
 //     locked by `apps/desktop/src/main/window.ts`); the bridge is the only
 //     surface the renderer can reach.
 //
-// No auth material ever reaches `window.sidekicks`, and that is enforced
+// No auth material ever reaches `window.desktopBridge`, and that is enforced
 // TYPEWISE by the conditional-type test
 // `packages/contracts/src/desktop-bridge.test-d.ts`. The runtime side here is
 // trivial because the renderer can only consume what the static type contract
@@ -90,7 +90,7 @@ const auxiliaryWindowControls: AuxiliaryWindowControls = {
   },
 };
 
-contextBridge.exposeInMainWorld("sidekicks", {
+contextBridge.exposeInMainWorld("desktopBridge", {
   ...createStubBridge(createShellSignals(ipcRenderer)),
   window: auxiliaryWindowControls,
 });

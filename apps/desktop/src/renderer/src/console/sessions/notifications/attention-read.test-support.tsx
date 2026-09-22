@@ -13,7 +13,7 @@ import { act, render } from "@testing-library/react";
 import { expect } from "vitest";
 
 import {
-  SidekicksBridgeProvider,
+  DesktopBridgeProvider,
   createFixtureBridge,
   growthUnavailable,
   type ConsoleBridge,
@@ -176,9 +176,9 @@ export function renderProbe(
   registry: SessionStoreRegistry,
 ): ReturnType<typeof render> {
   return render(
-    <SidekicksBridgeProvider bridge={bridge}>
+    <DesktopBridgeProvider bridge={bridge}>
       <AttentionProbe read={read} registry={registry} />
-    </SidekicksBridgeProvider>,
+    </DesktopBridgeProvider>,
   );
 }
 

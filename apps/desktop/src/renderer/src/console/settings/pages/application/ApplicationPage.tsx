@@ -9,7 +9,7 @@
 // "One row, copy inline, no disclosure"). Two rows about the application itself are
 // one page, so this module claims the `application` section and composes them.
 // Splitting them into two registrations would need two ids the design does not name
-// for two rows it already places on one page — the opposite of the `sidekicks` case,
+// for two rows it already places on one page — the opposite of the `agents` case,
 // which is a page the design places in settings with no id to reach it by.
 //
 // THE BUILD FACTS ARE WIRE-VERBATIM
@@ -31,7 +31,7 @@ const OWNER = "settings-application";
 
 export function ApplicationPage(props: { readonly context: SettingsPageContext }): ReactNode {
   const { bridge, retainedSessionStore } = props.context;
-  const { app } = bridge.sidekicks;
+  const { app } = bridge.desktopBridge;
   return (
     <div className="meridian-settings-page">
       <dl className="meridian-settings-page__facts">

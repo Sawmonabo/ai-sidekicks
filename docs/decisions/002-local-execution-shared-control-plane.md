@@ -144,11 +144,3 @@ Hosted execution fails the product's local-execution requirement and increases t
 
 - [Session Is The Primary Domain Object](./001-session-is-the-primary-domain-object.md)
 - [Default Transports And Relay Boundaries](./008-default-transports-and-relay-boundaries.md)
-
-## Decision Log
-
-| Date       | Event        | Notes                                                           |
-| ---------- | ------------ | --------------------------------------------------------------- |
-| 2026-04-14 | Proposed     | Initial draft                                                   |
-| 2026-04-14 | Re-baselined | Reviewer assignment and acceptance validation remain incomplete |
-| 2026-04-15 | Accepted     | ADR accepted                                                    |

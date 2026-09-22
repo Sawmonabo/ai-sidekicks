@@ -10,7 +10,7 @@
 //     context: the composed-payload case asserts the exact `runtimenode.attach` input
 //     the view sends.
 //   • The renderer is untrusted, so the view reaches the control plane ONLY through
-//     `window.sidekicks` — the mock bridge IS that seam.
+//     `window.desktopBridge` — the mock bridge IS that seam.
 //
 // Harness: the Vitest `renderer` project (happy-dom) + `@testing-library/react`.
 

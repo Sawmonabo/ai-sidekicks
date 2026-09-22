@@ -48,7 +48,7 @@ import type { SessionStore } from "../../store/index.js";
 import { AgentBindingColumn } from "./AgentBindingColumn.js";
 import { PeerInvocationMount } from "./peer-invocation/PeerInvocationMount.js";
 import { RunLinkageMount } from "./run-linkage/RunLinkageMount.js";
-import { SidekickDefinitionEditorMount } from "./SidekickDefinitionEditorMount.js";
+import { AgentDefinitionEditorMount } from "./AgentDefinitionEditorMount.js";
 
 export interface AgentConsoleBodyProps {
   /** The session this console is scoped to, wire-verbatim. */
@@ -119,7 +119,7 @@ export function AgentConsoleBody(props: AgentConsoleBodyProps): React.JSX.Elemen
 
         <div className="meridian-agent-console__column" aria-label="Definition">
           <h3 className="meridian-agent-console__column-title">Definition</h3>
-          <SidekickDefinitionEditorMount agentId={props.agentId} />
+          <AgentDefinitionEditorMount agentId={props.agentId} />
         </div>
 
         <div className="meridian-agent-console__column" aria-label="Peers and linkage">

@@ -28,8 +28,8 @@ import type { SessionEventType } from "@ai-sidekicks/contracts";
 // --- Method names ---------------------------------------------------------
 //
 // ONLY THE TWO REGISTERED READS ARE NAMED HERE. The rest of the agent plane —
-// `agent.list`, the three `agent.*` writes, `sidekick.definitionList`,
-// `sidekick.peerInvocationSet`, and `orchestration.childRunLinkRead` — has no
+// `agent.list`, the three `agent.*` writes, `agent.definitionList`,
+// `agent.peerInvocationSet`, and `orchestration.childRunLinkRead` — has no
 // registered request/response pair anywhere in the corpus, so each is a growth
 // operation rather than a call: the string lives on its ledger row's
 // `expectedWireMethod` in `bridge/growth-operations/`, and a surface reaches it as
@@ -125,12 +125,12 @@ export const PEER_INVOCATION_TOOLS: readonly {
   readonly toolName: string;
   readonly linkType: ChildRunLinkType;
 }[] = [
-  { toolName: "ask_sidekick", linkType: "spawn" },
-  { toolName: "delegate_to_sidekick", linkType: "delegate" },
+  { toolName: "ask_agent", linkType: "spawn" },
+  { toolName: "delegate_to_agent", linkType: "delegate" },
 ];
 
 /** One row of the definition picker's read. */
-export interface SidekickDefinitionSummary {
+export interface AgentDefinitionSummary {
   readonly definitionId: string;
   readonly name?: string | undefined;
   readonly driverName?: string | undefined;
@@ -151,8 +151,8 @@ export interface SidekickDefinitionSummary {
 // looks. What stays here is the definition picker's reading, which is this family's
 // own projection of a registry row the bridge already declares.
 
-export interface SidekickDefinitionListReading {
-  readonly definitions: readonly SidekickDefinitionSummary[];
+export interface AgentDefinitionListReading {
+  readonly definitions: readonly AgentDefinitionSummary[];
 }
 
 /** Whether a value is one of a closed vocabulary this console knows. */

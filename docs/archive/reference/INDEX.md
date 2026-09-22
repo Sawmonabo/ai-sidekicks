@@ -74,7 +74,7 @@ Version-pinned wire-shape reference for the two provider CLIs the daemon drives.
 |                  | [implementation-details/06](paseo/implementation-details/06-server-providers-and-normalization.md) — adapter client signatures, wrapSessionProvider mechanics                         |
 |                  | [implementation-details/09](paseo/implementation-details/09-provider-transports-and-features.md) — per-provider transport specifics (Claude CLI, Codex JSON-RPC, OpenCode, ACP stdio) |
 | **Our docs**     | [design-audits/runtime-execution.md §3](design-audits/runtime-execution.md#3-provider-driver-contract) — Spec-004 contradiction, missing pauseRun/steerRun                            |
-|                  | [provider-wire/](provider-wire/README.md) — version-pinned Codex + Claude wire shapes, TRUST/PROVENANCE-graded; Codex regenerated from the `0.150.1` binary, Claude pinned at `2.1.251` with its schema-constructor census carried from `2.1.245` |
+|                  | [provider-wire/](../../reference/provider-wire/README.md) — version-pinned Codex + Claude wire shapes, TRUST/PROVENANCE-graded; Codex regenerated from the `0.150.1` binary, Claude pinned at `2.1.251` with its schema-constructor census carried from `2.1.245` |
 
 ### Run State Machine / Lifecycle
 

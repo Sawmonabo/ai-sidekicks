@@ -33,7 +33,7 @@ function cloneRecord(
   return {
     cloneId,
     workspaceId: "workspace-sidekicks",
-    cloneRoot: "/Users/dev/.sidekicks/clones/clone-01",
+    cloneRoot: "/Users/dev/.desktopBridge/clones/clone-01",
     branchName: "run-9f2c1a",
     state: "ready",
     cleanupPolicy: "on_run_complete",

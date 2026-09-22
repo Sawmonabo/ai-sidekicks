@@ -11,7 +11,7 @@
 
 ## Context
 
-One user drives a session from any of their linked devices, and the work executes on a runtime node that user owns. That creates a security challenge no single flat check answers: which device may act as the user, which machine may execute for the user, and what a sidekick may do once a run is under way are related but not identical. A flat trust model would either let anything holding the account credential execute anywhere, or turn every sidekick action into a prompt.
+One user drives a session from any of their linked devices, and the work executes on a runtime node that user owns. That creates a security challenge no single flat check answers: which device may act as the user, which machine may execute for the user, and what an agent may do once a run is under way are related but not identical. A flat trust model would either let anything holding the account credential execute anywhere, or turn every agent action into a prompt.
 
 ## Problem Statement
 
@@ -19,15 +19,17 @@ How should the system separate device trust, runtime-node trust, and approval sc
 
 ### Trigger
 
-The security architecture and approvals spec need a durable model for trust and permission decisions across the user's devices, the user's machines, and the sidekicks running on them.
+The security architecture and approvals spec need a durable model for trust and permission decisions across the user's devices, the user's machines, and the agents running on them.
 
 ## Decision
 
 We will use a layered trust model that separates device trust (which device, acting for the account, may call at all), runtime-node trust, run-level approval policy, and tool- or resource-level permission grants.
 
+Run-control interventions — `steer`, `interrupt`, `cancel`, `rollback` — sit in the device-trust layer and are not scoped by run authorship: any non-revoked device of the owning account may intervene in any run of that session ([Spec-010](../specs/010-approvals-permissions-and-trust-boundaries.md), [Spec-003](../specs/003-queue-steer-pause-resume.md)). An intervention against a run hosted on another of the user's machines is still admitted only under that node's per-dispatch approval ([Spec-022](../specs/022-cross-node-dispatch-and-approval.md)).
+
 ### Thesis — Why This Option
 
-Layering matches the real boundary structure of the system. A device can be linked to the account and drive a session without being trusted to execute anything — it executes nothing at all. A runtime node can be trusted to execute for its owner without thereby bypassing action-level approvals. Holding the account credential lets the user manage their own devices without that being a standing grant over every tool a sidekick might reach for. This model is strict enough to preserve local-machine trust and flexible enough to drive a session from a phone.
+Layering matches the real boundary structure of the system. A device can be linked to the account and drive a session without being trusted to execute anything — it executes nothing at all. A runtime node can be trusted to execute for its owner without thereby bypassing action-level approvals. Holding the account credential lets the user manage their own devices without that being a standing grant over every tool an agent might reach for. This model is strict enough to preserve local-machine trust and flexible enough to drive a session from a phone.
 
 ### Antithesis — The Strongest Case Against
 
@@ -143,12 +145,3 @@ The simpler flat model is unacceptable because it collapses account authenticati
 
 - [Local Execution Shared Control Plane](./002-local-execution-shared-control-plane.md)
 - [Default Transports And Relay Boundaries](./008-default-transports-and-relay-boundaries.md)
-
-## Decision Log
-
-| Date | Event | Notes |
-| --- | --- | --- |
-| 2026-04-14 | Proposed | Initial draft |
-| 2026-04-14 | Re-baselined | Reviewer assignment and acceptance validation remain incomplete |
-| 2026-04-15 | Accepted | ADR accepted |
-| 2026-08-03 | Reaffirmed | Run-control authorization amendment ([Spec-010](../specs/010-approvals-permissions-and-trust-boundaries.md) + [Spec-003](../specs/003-queue-steer-pause-resume.md), both flipped to `review` for their amendment window) evaluated against Spec-010 §ADR Triggers' "materially changes how trust and approval scopes work" trigger: **no decision change; Status stays `accepted`.** The amendment assigns run-control interventions (`steer` / `interrupt` / `cancel` / `rollback`) to this ADR's **device-trust layer**, unscoped by run authorship — any non-revoked device of the owning account may intervene in any run of that session — and leaves the node-trust, run-level-approval, and tool/resource-grant layers untouched: it operates inside the chosen layering rather than flattening it, so Option B (Flat Account-Wide Trust) stays rejected. §Success Criteria's device-trust criterion holds unchanged — an intervention against a run hosted on another of the user's machines is still admitted only under that node's per-dispatch approval ([Spec-022](../specs/022-cross-node-dispatch-and-approval.md); `Security Architecture §Inter-Node Trust Boundaries`). No layer is added, removed, or re-scoped. |

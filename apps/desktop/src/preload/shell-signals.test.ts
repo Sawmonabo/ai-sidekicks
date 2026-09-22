@@ -69,7 +69,7 @@ describe("the shell relay in the preload", () => {
     const askedForTheCaret = vi.fn();
     createShellSignals(probe.receiver).subscribeToComposerFocusRequest(askedForTheCaret);
 
-    probe.send("sidekicks:some-other-signal");
+    probe.send("desktop:some-other-signal");
 
     expect(askedForTheCaret).not.toHaveBeenCalled();
   });

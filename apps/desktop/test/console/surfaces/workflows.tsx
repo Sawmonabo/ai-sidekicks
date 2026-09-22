@@ -64,7 +64,7 @@ import { renderSettled } from "../console-harness.js";
 
 import {
   createFixtureBridge,
-  SidekicksBridgeProvider,
+  DesktopBridgeProvider,
   type ConsoleBridge,
 } from "../../../src/renderer/src/console/bridge/index.js";
 import { WORKFLOWS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenario/workflows/workflows.js";
@@ -287,11 +287,11 @@ export async function mountWorkflowsDestination(): Promise<MountedFamilySurface>
   const bridge = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
   const WorkflowsDestinationBody = await surfaceBodyComponent();
   const { container } = await renderSettled(
-    <SidekicksBridgeProvider bridge={bridge}>
+    <DesktopBridgeProvider bridge={bridge}>
       <LiveAnnouncerProvider>
         <WorkflowsDestinationBody context={surfaceContext(bridge)} />
       </LiveAnnouncerProvider>
-    </SidekicksBridgeProvider>,
+    </DesktopBridgeProvider>,
   );
   const element = container.querySelector<HTMLElement>(".meridian-workflows-destination");
   if (element === null) {
@@ -350,7 +350,7 @@ export async function mountWorkflowParkedRunPane(): Promise<MountedFamilySurface
   const bridge = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
   const WorkflowRunPaneBody = await paneBodyComponent("workflow-run");
   const { container } = await renderSettled(
-    <SidekicksBridgeProvider bridge={bridge}>
+    <DesktopBridgeProvider bridge={bridge}>
       <WorkflowRunPaneBody
         context={paneContext(
           {
@@ -361,7 +361,7 @@ export async function mountWorkflowParkedRunPane(): Promise<MountedFamilySurface
           bridge,
         )}
       />
-    </SidekicksBridgeProvider>,
+    </DesktopBridgeProvider>,
   );
   const region = requirePaneNamed(container, "Workflow run");
   await waitFor(
@@ -423,7 +423,7 @@ export async function mountWorkflowBuilderPane(): Promise<MountedFamilySurface> 
   const bridge = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
   const WorkflowBuilderPaneBody = await paneBodyComponent("workflow-builder");
   const { container } = await renderSettled(
-    <SidekicksBridgeProvider bridge={bridge}>
+    <DesktopBridgeProvider bridge={bridge}>
       <WorkflowBuilderPaneBody
         context={paneContext(
           {
@@ -434,7 +434,7 @@ export async function mountWorkflowBuilderPane(): Promise<MountedFamilySurface> 
           bridge,
         )}
       />
-    </SidekicksBridgeProvider>,
+    </DesktopBridgeProvider>,
   );
   return { element: requirePaneNamed(container, "Workflow builder"), bridge };
 }

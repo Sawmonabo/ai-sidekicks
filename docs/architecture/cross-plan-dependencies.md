@@ -22,6 +22,7 @@ flowchart TD
  n007_R2["Plan-006 Phase R2 — secure defaults, TLS, first-run keys"]
  n007_R3["Plan-006 Phase R3 — CLI package and daemon-status delivery"]
  n007_2B["Plan-006 Phase 2B — authenticated principal on dispatch context"]
+ n007_2D["Plan-006 Phase 2D — batched subscription frame"]
  %% Plan-007
  n009_2B["Plan-007 Phase 2B — repo identity keying and resolution"]
  n009_3["Plan-007 Phase 3 — repo IPC namespace and SDK"]
@@ -59,7 +60,6 @@ flowchart TD
  n016_1["Plan-014 Phase 1 — orchestration contracts and persistence"]
  n016_2["Plan-014 Phase 2 — daemon orchestration services"]
  n016_3["Plan-014 Phase 3 — orchestration wire namespace and SDK"]
- n016_3B["Plan-014 Phase 3B — sidekick definition reference"]
  n016_4["Plan-014 Phase 4 — desktop channel and child-run surfaces"]
  n016_4B["Plan-014 Phase 4B — session cost receipt"]
  %% Plan-015
@@ -135,13 +135,12 @@ flowchart TD
  n029_2["Plan-026 Phase 2 — account registry service and authorization"]
  n029_3["Plan-026 Phase 3 — credential homes and spawn binding"]
  n029_4["Plan-026 Phase 4 — cost attribution and operator surfaces"]
- n029_4B["Plan-026 Phase 4B — per-user billing attribution"]
  %% Plan-027
- n030_1["Plan-027 Phase 1 — sidekick definition contracts and migration"]
+ n030_1["Plan-027 Phase 1 — agent definition contracts and migration"]
  n030_2["Plan-027 Phase 2 — definition registry, CLI, SDK"]
- n030_3["Plan-027 Phase 3 — resolution and attach-by-reference"]
+ n030_3["Plan-027 Phase 3 — resolution when a run starts"]
  n030_4["Plan-027 Phase 4 — peer invocation"]
- n030_5["Plan-027 Phase 5 — desktop editor and enablement control"]
+ n030_5["Plan-027 Phase 5 — desktop library and editor"]
  %% Plan-028
  n031_1["Plan-028 Phase 1 — the daemon as a running process"]
  n031_2["Plan-028 Phase 2 — device identity keys"]
@@ -150,6 +149,13 @@ flowchart TD
  n031_5["Plan-028 Phase 5 — device registration and revocation"]
  n031_6["Plan-028 Phase 6 — per-device event attestation"]
  n031_7["Plan-028 Phase 7 — Remote Control frontend"]
+ %% Plan-030
+ n033_1["Plan-030 Phase 1 — skill contracts and the read over three origins"]
+ n033_2["Plan-030 Phase 2 — folder write, availability record, widening scan"]
+ n033_3["Plan-030 Phase 3 — session pack and mid-session liveness"]
+ n033_4["Plan-030 Phase 4 — Skills destination: rail, addresses, list"]
+ n033_5["Plan-030 Phase 5 — folder editor"]
+ n033_6["Plan-030 Phase 6 — availability on screen and the composer's Skills group"]
  n004_2 --> n004_3
  n004_3 --> n004_4
  n004_3 --> n010_3
@@ -157,7 +163,12 @@ flowchart TD
  n004_3B --> n013_2
  n004_4 --> n004_3B
  n005_3B --> n029_3
+ n006_4 --> n030_4
  n007_R1 --> n007_R2
+ n007_2D --> n013_2
+ n007_R1 --> n016_2
+ n007_R1 --> n023_6
+ n007_2D --> n023_6
  n007_R2 --> n007_R3
  n007_R2 --> n022_1
  n007_R3 --> n004_3B
@@ -236,6 +247,7 @@ flowchart TD
  n023_6 --> n030_5
  n023_7 --> n023_8
  n023_8 --> n027_6
+ n024_3B --> n023_6
  n024_3B --> n024_5
  n024_4 --> n024_5
  n026_1 --> n026_2
@@ -261,12 +273,11 @@ flowchart TD
  n029_2 --> n030_3
  n029_3 --> n026_7
  n029_3 --> n029_4
- n029_3 --> n029_4B
+ n029_3 --> n016_2
  n030_1 --> n030_2
  n030_2 --> n030_3
- n030_3 --> n016_3B
  n030_3 --> n030_4
- n030_4 --> n030_5
+ n030_3 --> n030_5
  n031_1 --> n031_2
  n031_2 --> n031_3
  n031_2 --> n031_5
@@ -276,6 +287,13 @@ flowchart TD
  n031_4 --> n031_7
  n031_5 --> n031_6
  n031_6 --> n031_7
+ n007_R1 --> n033_1
+ n033_1 --> n033_2
+ n033_2 --> n033_3
+ n033_3 --> n033_4
+ n023_6 --> n033_4
+ n033_4 --> n033_5
+ n033_5 --> n033_6
 ```
 
 ## Dispatch groups
@@ -308,6 +326,7 @@ Every phase in a group can be built in parallel; a group opens once the phases i
 |  | [Plan-023 Phase 1](../plans/023-first-run-onboarding.md) | onboarding contracts and state substrate. | — |
 |  | [Plan-025 Phase 1](../plans/025-mcp-server-configuration-and-governance.md) | MCP contracts and storage. | — |
 |  | [Plan-028 Phase 1](../plans/028-remote-control.md) | the daemon as a running process. | — |
+|  | [Plan-006 Phase 2D](../plans/006-local-ipc-and-daemon-control.md) | batched subscription frame. | — |
 | 2 | [Plan-003 Phase 3](../plans/003-queue-steer-pause-resume.md) | run-engine orchestration. | Plan-003 Phase 2 |
 |  | [Plan-006 Phase R2](../plans/006-local-ipc-and-daemon-control.md) | secure defaults, TLS, first-run keys. | Plan-006 Phase R1 |
 |  | [Plan-007 Phase 4](../plans/007-repo-attachment-and-workspace-binding.md) | desktop repo attach UI. | Plan-007 Phase 3 |
@@ -315,7 +334,6 @@ Every phase in a group can be built in parallel; a group opens once the phases i
 |  | [Plan-010 Phase 2](../plans/010-approvals-permissions-and-trust-boundaries.md) | daemon policy and approval services. | Plan-010 Phase 1 |
 |  | [Plan-012 Phase 2](../plans/012-artifacts-files-and-attachments.md) | ingest and publication producers. | Plan-012 Phase 1 |
 |  | [Plan-013 Phase 2](../plans/013-persistence-recovery-and-replay.md) | replay rebuild and recovery status. | Plan-013 Phase 1 |
-|  | [Plan-014 Phase 2](../plans/014-multi-agent-channels-and-orchestration.md) | daemon orchestration services. | Plan-014 Phase 1 |
 |  | [Plan-015 Phase 2](../plans/015-workflow-authoring-and-execution.md) | sequential execution and gate chain. | Plan-015 Phase 1 |
 |  | [Plan-016 Phase 2](../plans/016-identity-and-user-state.md) | identity to user mapping. | Plan-016 Phase 1 |
 |  | [Plan-018 Phase 2](../plans/018-observability-and-failure-recovery.md) | daemon health projections and recovery. | Plan-018 Phase 1 |
@@ -324,8 +342,9 @@ Every phase in a group can be built in parallel; a group opens once the phases i
 |  | [Plan-023 Phase 2](../plans/023-first-run-onboarding.md) | trust and credential primitives. | Plan-023 Phase 1 |
 |  | [Plan-025 Phase 2](../plans/025-mcp-server-configuration-and-governance.md) | MCP inventory and status observation. | Plan-025 Phase 1 |
 |  | [Plan-025 Phase 3](../plans/025-mcp-server-configuration-and-governance.md) | MCP configuration mutation engines. | Plan-025 Phase 1 |
-|  | [Plan-027 Phase 1](../plans/027-sidekick-definitions-and-peer-invocation.md) | sidekick definition contracts and migration. | Plan-014 Phase 1 |
+|  | [Plan-027 Phase 1](../plans/027-agent-definitions-and-peer-invocation.md) | agent definition contracts and migration. | Plan-014 Phase 1 |
 |  | [Plan-028 Phase 2](../plans/028-remote-control.md) | device identity keys. | Plan-028 Phase 1 |
+|  | [Plan-030 Phase 1](../plans/030-skills.md) | skill contracts and the read over three origins. | Plan-006 Phase R1 |
 | 3 | [Plan-003 Phase 4](../plans/003-queue-steer-pause-resume.md) | desktop run controls. | Plan-003 Phase 3 |
 |  | [Plan-006 Phase R3](../plans/006-local-ipc-and-daemon-control.md) | CLI package and daemon-status delivery. | Plan-006 Phase R2 |
 |  | [Plan-008 Phase 3](../plans/008-worktree-lifecycle-and-execution-modes.md) | mode selection, run-setup gate, IPC. | Plan-003 Phase 3 |
@@ -333,7 +352,6 @@ Every phase in a group can be built in parallel; a group opens once the phases i
 |  | [Plan-010 Phase 3](../plans/010-approvals-permissions-and-trust-boundaries.md) | approval IPC, SDK, projection. | Plan-010 Phase 2 |
 |  | [Plan-012 Phase 3](../plans/012-artifacts-files-and-attachments.md) | replication status, events, surfaces. | Plan-012 Phase 2 |
 |  | [Plan-013 Phase 3](../plans/013-persistence-recovery-and-replay.md) | runtime-binding recovery and resume. | Plan-013 Phase 2 |
-|  | [Plan-014 Phase 3](../plans/014-multi-agent-channels-and-orchestration.md) | orchestration wire namespace and SDK. | Plan-014 Phase 2 |
 |  | [Plan-015 Phase 2B](../plans/015-workflow-authoring-and-execution.md) | usage-limit park and durable pacing. | Plan-015 Phase 2 |
 |  | [Plan-015 Phase 3](../plans/015-workflow-authoring-and-execution.md) | multi-agent OWN channel and human phase. | Plan-015 Phase 2 |
 |  | [Plan-016 Phase 3](../plans/016-identity-and-user-state.md) | presence aggregation and projection. | Plan-016 Phase 2 |
@@ -346,12 +364,12 @@ Every phase in a group can be built in parallel; a group opens once the phases i
 |  | [Plan-026 Phase 2](../plans/026-provider-accounts-and-credential-homes.md) | account registry service and authorization. | Plan-010 Phase 2 |
 |  | [Plan-028 Phase 3](../plans/028-remote-control.md) | the relay. | Plan-028 Phase 2 |
 |  | [Plan-028 Phase 5](../plans/028-remote-control.md) | device registration and revocation. | Plan-028 Phase 2 |
+|  | [Plan-030 Phase 2](../plans/030-skills.md) | folder write, availability record, widening scan. | Plan-030 Phase 1 |
 | 4 | [Plan-003 Phase 3B](../plans/003-queue-steer-pause-resume.md) | rollback time-travel cluster. | Plan-003 Phase 4, Plan-006 Phase R3, Plan-008 Phase 3 |
 |  | [Plan-007 Phase 2B](../plans/007-repo-attachment-and-workspace-binding.md) | repo identity keying and resolution. | Plan-008 Phase 3 |
 |  | [Plan-008 Phase 4](../plans/008-worktree-lifecycle-and-execution-modes.md) | desktop execution-mode picker. | Plan-008 Phase 3 |
 |  | [Plan-009 Phase 4](../plans/009-gitflow-pr-and-diff-attribution.md) | desktop review surfaces. | Plan-009 Phase 2, Plan-009 Phase 3 |
 |  | [Plan-010 Phase 4](../plans/010-approvals-permissions-and-trust-boundaries.md) | desktop approval surfaces. | Plan-010 Phase 3 |
-|  | [Plan-014 Phase 4](../plans/014-multi-agent-channels-and-orchestration.md) | desktop channel and child-run surfaces. | Plan-014 Phase 3 |
 |  | [Plan-015 Phase 4](../plans/015-workflow-authoring-and-execution.md) | parallel execution and pool admission. | Plan-015 Phase 3 |
 |  | [Plan-015 Phase 5C](../plans/015-workflow-authoring-and-execution.md) | always-on engine event record. | Plan-015 Phase 2B |
 |  | [Plan-016 Phase 4](../plans/016-identity-and-user-state.md) | client surfaces and authorization. | Plan-016 Phase 3 |
@@ -363,11 +381,12 @@ Every phase in a group can be built in parallel; a group opens once the phases i
 |  | [Plan-023 Phase 5](../plans/023-first-run-onboarding.md) | onboarding desktop surface. | Plan-023 Phase 3 |
 |  | [Plan-025 Phase 5](../plans/025-mcp-server-configuration-and-governance.md) | MCP OAuth and client delivery. | Plan-025 Phase 4 |
 |  | [Plan-026 Phase 3](../plans/026-provider-accounts-and-credential-homes.md) | credential homes and spawn binding. | Plan-004 Phase 3B, Plan-026 Phase 2 |
-|  | [Plan-027 Phase 2](../plans/027-sidekick-definitions-and-peer-invocation.md) | definition registry, CLI, SDK. | Plan-006 Phase R3, Plan-010 Phase 2, Plan-027 Phase 1 |
+|  | [Plan-027 Phase 2](../plans/027-agent-definitions-and-peer-invocation.md) | definition registry, CLI, SDK. | Plan-006 Phase R3, Plan-010 Phase 2, Plan-027 Phase 1 |
 |  | [Plan-028 Phase 4](../plans/028-remote-control.md) | method proxy and terminal streaming. | Plan-028 Phase 3 |
 |  | [Plan-028 Phase 6](../plans/028-remote-control.md) | per-device event attestation. | Plan-028 Phase 5 |
-| 5 | [Plan-011 Phase 2](../plans/011-live-timeline-visibility-and-reasoning-surfaces.md) | projection and replay-aware subscription. | Plan-003 Phase 3B |
-|  | [Plan-014 Phase 4B](../plans/014-multi-agent-channels-and-orchestration.md) | session cost receipt. | Plan-014 Phase 4 |
+|  | [Plan-030 Phase 3](../plans/030-skills.md) | session pack and mid-session liveness. | Plan-030 Phase 2 |
+| 5 | [Plan-014 Phase 2](../plans/014-multi-agent-channels-and-orchestration.md) | daemon orchestration services. | Plan-006 Phase R1, Plan-014 Phase 1, Plan-026 Phase 3 |
+|  | [Plan-011 Phase 2](../plans/011-live-timeline-visibility-and-reasoning-surfaces.md) | projection and replay-aware subscription. | Plan-003 Phase 3B, Plan-006 Phase 2D |
 |  | [Plan-015 Phase 5](../plans/015-workflow-authoring-and-execution.md) | resumption, CLI, authoring surfaces. | Plan-015 Phase 4 |
 |  | [Plan-016 Phase 5](../plans/016-identity-and-user-state.md) | credential seam and identity-key roster. | Plan-016 Phase 4 |
 |  | [Plan-020 Phase 3](../plans/020-data-retention-and-gdpr.md) | write-path integration. | Plan-020 Phase 2 |
@@ -376,29 +395,58 @@ Every phase in a group can be built in parallel; a group opens once the phases i
 |  | [Plan-023 Phase 7](../plans/023-first-run-onboarding.md) | provider authentication. | Plan-023 Phase 4, Plan-023 Phase 5, Plan-026 Phase 3 |
 |  | [Plan-024 Phase 1](../plans/024-cross-node-dispatch-and-approval.md) | dispatch contracts and migrations. | Plan-010 Phase 4 |
 |  | [Plan-026 Phase 4](../plans/026-provider-accounts-and-credential-homes.md) | cost attribution and operator surfaces. | Plan-026 Phase 3 |
-|  | [Plan-026 Phase 4B](../plans/026-provider-accounts-and-credential-homes.md) | per-user billing attribution. | Plan-026 Phase 3 |
-|  | [Plan-027 Phase 3](../plans/027-sidekick-definitions-and-peer-invocation.md) | resolution and attach-by-reference. | Plan-014 Phase 3, Plan-026 Phase 2, Plan-027 Phase 2 |
 |  | [Plan-028 Phase 7](../plans/028-remote-control.md) | Remote Control frontend. | Plan-028 Phase 4, Plan-028 Phase 6 |
-| 6 | [Plan-011 Phase 4](../plans/011-live-timeline-visibility-and-reasoning-surfaces.md) | desktop timeline rendering. | Plan-011 Phase 2, Plan-011 Phase 3 |
+| 6 | [Plan-014 Phase 3](../plans/014-multi-agent-channels-and-orchestration.md) | orchestration wire namespace and SDK. | Plan-014 Phase 2 |
+|  | [Plan-011 Phase 4](../plans/011-live-timeline-visibility-and-reasoning-surfaces.md) | desktop timeline rendering. | Plan-011 Phase 2, Plan-011 Phase 3 |
 |  | [Plan-012 Phase 4](../plans/012-artifacts-files-and-attachments.md) | relay eager-pin upload. | Plan-012 Phase 3, Plan-016 Phase 5, Plan-028 Phase 3 |
-|  | [Plan-014 Phase 3B](../plans/014-multi-agent-channels-and-orchestration.md) | sidekick definition reference. | Plan-027 Phase 3 |
 |  | [Plan-015 Phase 5B](../plans/015-workflow-authoring-and-execution.md) | park cancellability and operator recovery. | Plan-015 Phase 2B, Plan-015 Phase 5 |
 |  | [Plan-017 Phase 2](../plans/017-notifications-and-attention-model.md) | preference storage and projections. | Plan-011 Phase 2, Plan-017 Phase 1 |
 |  | [Plan-020 Phase 4](../plans/020-data-retention-and-gdpr.md) | GDPR stub surface. | Plan-020 Phase 3 |
 |  | [Plan-021 Phase 4](../plans/021-desktop-shell-and-renderer.md) | keystore, WebAuthn dispatcher, fallback. | Plan-016 Phase 6, Plan-021 Phase 3 |
-|  | [Plan-024 Phase 2](../plans/024-cross-node-dispatch-and-approval.md) | target-side intake and Cedar evaluation. | Plan-014 Phase 4B, Plan-016 Phase 6, Plan-024 Phase 1, Plan-028 Phase 3 |
-|  | [Plan-027 Phase 4](../plans/027-sidekick-definitions-and-peer-invocation.md) | peer invocation. | Plan-014 Phase 4B, Plan-027 Phase 3 |
-| 7 | [Plan-012 Phase 5](../plans/012-artifacts-files-and-attachments.md) | authenticated relay fetch. | Plan-012 Phase 4 |
+| 7 | [Plan-014 Phase 4](../plans/014-multi-agent-channels-and-orchestration.md) | desktop channel and child-run surfaces. | Plan-014 Phase 3 |
+|  | [Plan-027 Phase 3](../plans/027-agent-definitions-and-peer-invocation.md) | resolution when a run starts. | Plan-014 Phase 3, Plan-026 Phase 2, Plan-027 Phase 2 |
+|  | [Plan-012 Phase 5](../plans/012-artifacts-files-and-attachments.md) | authenticated relay fetch. | Plan-012 Phase 4 |
 |  | [Plan-017 Phase 3](../plans/017-notifications-and-attention-model.md) | notification emission and delivery. | Plan-011 Phase 4, Plan-017 Phase 2 |
 |  | [Plan-020 Phase 5](../plans/020-data-retention-and-gdpr.md) | shred fan-out alignment checkpoint. | Plan-020 Phase 4 |
 |  | [Plan-021 Phase 5](../plans/021-desktop-shell-and-renderer.md) | auto-updater and deep-link handler. | Plan-021 Phase 4 |
-|  | [Plan-024 Phase 3](../plans/024-cross-node-dispatch-and-approval.md) | caller-side dispatch and outbox. | Plan-013 Phase 3, Plan-024 Phase 2 |
-|  | [Plan-024 Phase 4](../plans/024-cross-node-dispatch-and-approval.md) | approval integration and dual-signed record. | Plan-024 Phase 2 |
-| 8 | [Plan-012 Phase 6](../plans/012-artifacts-files-and-attachments.md) | relay GC, quotas, backpressure. | Plan-012 Phase 5 |
-|  | [Plan-021 Phase 6](../plans/021-desktop-shell-and-renderer.md) | renderer shell, router, composer. | Plan-021 Phase 5 |
-|  | [Plan-024 Phase 5](../plans/024-cross-node-dispatch-and-approval.md) | caller-side result observation. | Plan-024 Phase 3, Plan-024 Phase 4 |
-| 9 | [Plan-012 Phase 7](../plans/012-artifacts-files-and-attachments.md) | erasure fan-out and degraded status. | Plan-012 Phase 6 |
+| 8 | [Plan-014 Phase 4B](../plans/014-multi-agent-channels-and-orchestration.md) | session cost receipt. | Plan-014 Phase 4 |
+|  | [Plan-012 Phase 6](../plans/012-artifacts-files-and-attachments.md) | relay GC, quotas, backpressure. | Plan-012 Phase 5 |
+|  | [Plan-021 Phase 6](../plans/021-desktop-shell-and-renderer.md) | renderer shell, router, composer. | Plan-006 Phase R1, Plan-006 Phase 2D, Plan-021 Phase 5, Plan-022 Phase 3B |
+| 9 | [Plan-024 Phase 2](../plans/024-cross-node-dispatch-and-approval.md) | target-side intake and Cedar evaluation. | Plan-014 Phase 4B, Plan-016 Phase 6, Plan-024 Phase 1, Plan-028 Phase 3 |
+|  | [Plan-027 Phase 4](../plans/027-agent-definitions-and-peer-invocation.md) | peer invocation. | Plan-005 Phase 4, Plan-014 Phase 4B, Plan-027 Phase 3 |
+|  | [Plan-012 Phase 7](../plans/012-artifacts-files-and-attachments.md) | erasure fan-out and degraded status. | Plan-012 Phase 6 |
 |  | [Plan-021 Phase 7](../plans/021-desktop-shell-and-renderer.md) | build pipeline and release signing. | Plan-021 Phase 6 |
-|  | [Plan-027 Phase 5](../plans/027-sidekick-definitions-and-peer-invocation.md) | desktop editor and enablement control. | Plan-021 Phase 6, Plan-027 Phase 4 |
-| 10 | [Plan-021 Phase 8](../plans/021-desktop-shell-and-renderer.md) | E2E suite, harness, CI gate. | Plan-021 Phase 7 |
-| 11 | [Plan-024 Phase 6](../plans/024-cross-node-dispatch-and-approval.md) | result buffering and desktop approval UI. | Plan-021 Phase 8, Plan-024 Phase 5 |
+|  | [Plan-027 Phase 5](../plans/027-agent-definitions-and-peer-invocation.md) | desktop library and editor. | Plan-021 Phase 6, Plan-027 Phase 3 |
+|  | [Plan-030 Phase 4](../plans/030-skills.md) | Skills destination: rail, addresses, list. | Plan-021 Phase 6, Plan-030 Phase 3 |
+| 10 | [Plan-024 Phase 3](../plans/024-cross-node-dispatch-and-approval.md) | caller-side dispatch and outbox. | Plan-013 Phase 3, Plan-024 Phase 2 |
+|  | [Plan-024 Phase 4](../plans/024-cross-node-dispatch-and-approval.md) | approval integration and dual-signed record. | Plan-024 Phase 2 |
+|  | [Plan-021 Phase 8](../plans/021-desktop-shell-and-renderer.md) | E2E suite, harness, CI gate. | Plan-021 Phase 7 |
+|  | [Plan-030 Phase 5](../plans/030-skills.md) | folder editor. | Plan-030 Phase 4 |
+| 11 | [Plan-024 Phase 5](../plans/024-cross-node-dispatch-and-approval.md) | caller-side result observation. | Plan-024 Phase 3, Plan-024 Phase 4 |
+|  | [Plan-030 Phase 6](../plans/030-skills.md) | availability on screen and the composer's Skills group. | Plan-030 Phase 5 |
+| 12 | [Plan-024 Phase 6](../plans/024-cross-node-dispatch-and-approval.md) | result buffering and desktop approval UI. | Plan-021 Phase 8, Plan-024 Phase 5 |
+
+## Console build order
+
+The console has five rail destinations, in a fixed order ([ADR-031](../decisions/031-five-rail-destinations.md)): Sessions, Sidekicks, Skills, Workflows, Settings. Its frame, routes, pane chrome and fixture bridge are already in the tree from Plan-021's console phase, so what remains is each destination's live body, and every body is built by the plan that owns it and mounted into the console's owner slot. This table reads the dispatch groups above by destination: the phase that puts each screen on the glass, and the earliest group in which it can open.
+
+| Destination | Phase that builds the screen | Opens in group |
+| --- | --- | --- |
+| Every destination | [Plan-021 Phase 6](../plans/021-desktop-shell-and-renderer.md) adopts the console as the app's shell and wires the composer live. A body that lands before it renders inside the console against the fixture bridge; a body that lands after it renders live. | 8 |
+| Sessions | [Plan-007 Phase 4](../plans/007-repo-attachment-and-workspace-binding.md) (repo attach) | 2 |
+|  | [Plan-003 Phase 4](../plans/003-queue-steer-pause-resume.md) (run controls) | 3 |
+|  | [Plan-008 Phase 4](../plans/008-worktree-lifecycle-and-execution-modes.md) (execution-mode picker), [Plan-009 Phase 4](../plans/009-gitflow-pr-and-diff-attribution.md) (review), [Plan-010 Phase 4](../plans/010-approvals-permissions-and-trust-boundaries.md) (approvals), [Plan-014 Phase 4](../plans/014-multi-agent-channels-and-orchestration.md) (channels and child runs) | 4 |
+|  | [Plan-011 Phase 4](../plans/011-live-timeline-visibility-and-reasoning-surfaces.md) (the transcript's rows) | 6 |
+|  | [Plan-017 Phase 3](../plans/017-notifications-and-attention-model.md) (the bell and notification delivery) | 7 |
+|  | The Preview pane, under [Plan-021 §What Preview must build](../plans/021-desktop-shell-and-renderer.md#what-preview-must-build), once the `browser.*` namespace is registered ([ADR-036](../decisions/036-embedded-browser-for-preview.md)). It belongs to no numbered phase, so it has no node in the graph. | — |
+|  | The terminal bridge, an optional Claude Code plugin that gives the user's own terminal Claude Code sessions `SendToSession` and `ListSessions` against the daemon and hands a peer delivery to the daemon first ([ADR-037](../decisions/037-claude-code-mods-are-an-optional-terminal-bridge.md)), after [Plan-014 Phase 2](../plans/014-multi-agent-channels-and-orchestration.md) lands the daemon's own messaging. Nothing in the daemon depends on it, so it has no node in the graph. | — |
+| Sidekicks | [Plan-027 Phase 5](../plans/027-agent-definitions-and-peer-invocation.md) (the library and the editor) | 9 |
+| Skills | [Plan-030 Phase 4](../plans/030-skills.md) (rail, addresses, list), then Phase 5 (the folder editor), then Phase 6 (availability and the composer's Skills group) | 9, 10, 11 |
+| Workflows | [Plan-015 Phase 5](../plans/015-workflow-authoring-and-execution.md) (the builder, run detail, human forms and chat start), then Phase 5B (the operator recovery surface) | 5, 6 |
+| Settings | [Plan-025 Phase 5](../plans/025-mcp-server-configuration-and-governance.md) (the MCP servers page) | 4 |
+|  | [Plan-026 Phase 4](../plans/026-provider-accounts-and-credential-homes.md) (the Providers page) | 5 |
+|  | The other pages' chrome is in the tree from the console phase. Each page goes live when the wire it reads is registered, row by row under [Plan-021 §Console growth slate](../plans/021-desktop-shell-and-renderer.md#console-growth-slate). | — |
+
+Sidekicks and Skills open last because their screens wait on Plan-021 Phase 6, which sits behind that plan's Phases 2 to 5.
+
+Remote Control's own screens — the device list, the pairing flow, and which of this machine's ports the user's other devices may reach — are [Plan-028 Phase 7](../plans/028-remote-control.md)'s, and Remote Control adds no rail destination here ([ADR-031](../decisions/031-five-rail-destinations.md)): Settings holds none of them, and no destination row above claims them.

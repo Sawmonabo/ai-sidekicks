@@ -44,7 +44,7 @@ export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGro
   "agentAttach",
   "agentConfigUpdate",
   "agentDetach",
-  "sidekickPeerInvocationSet",
+  "agentPeerInvocationSet",
   "workflowRunRead",
   "workflowPhaseOutputRead",
   "workflowVersionChainRead",

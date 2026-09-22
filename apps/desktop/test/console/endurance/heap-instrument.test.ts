@@ -61,7 +61,7 @@ const COARSE_LAUNCH_OPTIONS: LaunchConsoleOptions = {
  * fixture handles (`fixture-handles.ts`) so a collision cannot make one case's
  * scaffolding another case's subject.
  */
-const PLANTED_ALLOCATION_GLOBAL = "__sidekicksHeapInstrumentPlantedAllocation";
+const PLANTED_ALLOCATION_GLOBAL = "__consoleHeapInstrumentPlantedAllocation";
 
 /**
  * How much of the planted figure a reading must move to count as having measured it.

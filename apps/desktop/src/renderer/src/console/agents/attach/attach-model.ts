@@ -4,7 +4,7 @@
 // filled form is submittable — is `attach-readiness.ts` beside it. This file is what a
 // caller may DO to the form; that one is what the entries mean.
 //
-// Attaching a sidekick is a FORM and not a wizard, and the shape of the request is
+// Attaching an agent is a FORM and not a wizard, and the shape of the request is
 // what forces that: the union refuses exactly one thing, a request naming neither a
 // definition nor a driver-and-model pair. Everything else is a field.
 //
@@ -66,7 +66,7 @@
 // render.
 
 import { Emitter, type Unsubscribe } from "../../core/index.js";
-import type { SidekickDefinitionSummary } from "../agent-wire.js";
+import type { AgentDefinitionSummary } from "../agent-wire.js";
 import {
   DEPENDENT_AXES,
   type DependentAxis,
@@ -83,10 +83,10 @@ import {
   type AttachReadiness,
 } from "./attach-readiness.js";
 
-export class AttachSidekickForm {
+export class AttachAgentForm {
   readonly #changes = new Emitter<void>("attach form");
   #arm: AttachArm = "inline";
-  #definition: SidekickDefinitionSummary | undefined;
+  #definition: AgentDefinitionSummary | undefined;
   #entered = new Map<AttachField, string>();
   #name = "";
 
@@ -99,7 +99,7 @@ export class AttachSidekickForm {
     return this.#arm;
   }
 
-  public get definition(): SidekickDefinitionSummary | undefined {
+  public get definition(): AgentDefinitionSummary | undefined {
     return this.#definition;
   }
 
@@ -145,7 +145,7 @@ export class AttachSidekickForm {
    * about a specific definition's field and carrying it across would silently apply
    * it to a value the caller never saw.
    */
-  public selectDefinition(definition: SidekickDefinitionSummary | undefined): void {
+  public selectDefinition(definition: AgentDefinitionSummary | undefined): void {
     this.#definition = definition;
     this.#entered = new Map();
     this.#arm = definition === undefined ? this.#arm : "definition";

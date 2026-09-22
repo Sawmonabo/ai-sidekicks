@@ -16,7 +16,7 @@
 // `result` body is the reading taken first-party against the pinned Claude
 // build; its ordinary-turn twin was captured in the same pass with the same
 // model and session shape. Both are pinned in
-// `docs/reference/provider-wire/claude.md`. The Codex bodies are shaped after
+// the pinned Claude Code wire census. The Codex bodies are shaped after
 // the app-server frames recorded in that family's sibling reference.
 
 import { describe, expect, it, vi } from "vitest";

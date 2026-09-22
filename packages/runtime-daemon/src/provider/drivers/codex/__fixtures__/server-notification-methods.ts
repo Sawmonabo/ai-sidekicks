@@ -1,7 +1,7 @@
 // GOLDEN VECTOR — Codex `ServerNotification` method census (the subset the
 // pinned reference records by exact name).
 //
-//   Source doc: docs/reference/provider-wire/codex.md Sections:
+//   Source: the pinned Codex wire census, sections:
 //                     a runtime filter, not a schema filter (the twenty-three
 //                     gated notifications)
 //   Pin             : codex-cli 0.150.1

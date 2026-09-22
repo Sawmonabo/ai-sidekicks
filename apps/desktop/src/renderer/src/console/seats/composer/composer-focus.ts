@@ -94,7 +94,7 @@ export function composerFocusListenerCount(): number {
 export function useShellComposerFocusRequests(bridge: ConsoleBridge): void {
   useEffect(
     () =>
-      bridge.sidekicks.shell.subscribeToComposerFocusRequest(() => {
+      bridge.desktopBridge.shell.subscribeToComposerFocusRequest(() => {
         requestComposerFocus();
       }),
     [bridge],

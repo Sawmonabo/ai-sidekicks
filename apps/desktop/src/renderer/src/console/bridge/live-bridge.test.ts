@@ -8,7 +8,7 @@
 // symptom — the read simply never resolves against anything, which reads exactly
 // like a session with no runtime nodes in it.
 //
-// The preload is the stand-in here, and it has to be: `window.sidekicks` is
+// The preload is the stand-in here, and it has to be: `window.desktopBridge` is
 // installed by a process this test does not run. Everything above it is real — the
 // real `createLiveBridge`, the real seam, the real registered name constants — and
 // the stand-in is built from the contracts package's own `createStubBridge`, so it
@@ -23,7 +23,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createStubBridge,
-  type SidekicksBridge,
+  type DesktopBridge,
   type Unsubscribe,
   type SessionId,
 } from "@ai-sidekicks/contracts";
@@ -44,7 +44,7 @@ const ROSTER_REPLY = { nodes: [], controlHolder: null };
 const EVENT_STYLE_MISSPELLING = "runtime_node.roster";
 
 interface PreloadStandIn {
-  readonly bridge: SidekicksBridge;
+  readonly bridge: DesktopBridge;
   readonly procedures: string[];
   readonly events: string[];
   readonly releases: string[];
@@ -98,7 +98,7 @@ function preloadStandIn(
     ...base,
     daemon: { ...base.daemon, subscribe },
     controlPlane: { ...base.controlPlane, call },
-  } as unknown as SidekicksBridge;
+  } as unknown as DesktopBridge;
   return { bridge, procedures, events, releases };
 }
 
@@ -214,7 +214,7 @@ describe("the presence subscription's session filter", () => {
           return () => undefined;
         },
       },
-    } as unknown as SidekicksBridge;
+    } as unknown as DesktopBridge;
     let signals = 0;
     createLiveBridge(bridge).runtimeNodePresenceSubscribe(SESSION_ID, () => {
       signals += 1;

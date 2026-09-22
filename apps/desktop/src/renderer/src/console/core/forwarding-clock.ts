@@ -5,7 +5,7 @@
 // its whole life: `LiveAnnouncerProvider` pins the clock it is given in `useState` and
 // re-mints its announcer when that pin moves, so a clock with a fresh identity per
 // render would rebuild the announcer once a render. But the window's clock is not a
-// constant either — `SidekicksBridgeProvider` replaces its resolution IN PLACE, with
+// constant either — `DesktopBridgeProvider` replaces its resolution IN PLACE, with
 // no remount of the tree below it, and the replacement carries a different scenario
 // engine and therefore a different frozen clock. A pinned reading is then a retired
 // engine's time, which is the exact conflation the fixture rule forbids: "the fixture

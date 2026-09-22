@@ -4,7 +4,7 @@
 | ------------------- | --------------------------------------------------------------------- |
 | Status              | approved                                                              |
 | Drafted             | 2026-05-03                                                            |
-| Owner               | user (a.sawmon@gmail.com)                                             |
+| Owner               | user                                                                  |
 | Implementer         | Claude Opus 4.7                                                       |
 | Brainstormed via    | `superpowers:brainstorming` skill (terminal step is `writing-plans`)  |
 | Source gap analysis | `.agents/tmp/plan-execution-housekeeping-gap-analysis.md` (transient) |

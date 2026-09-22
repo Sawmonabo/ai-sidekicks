@@ -62,10 +62,10 @@ export type RuntimeNodeAttachDraft = Omit<RuntimeNodeAttachRequest, "sessionId">
  * exactly the divergence the roster's retired default arm had already produced.
  *
  * OPTIONAL AT THE CALL SITE, unlike the roster's, and the asymmetry is deliberate:
- * this default is the shipped `window.sidekicks` arm this flow has always used, so
+ * this default is the shipped `window.desktopBridge` arm this flow has always used, so
  * an existing caller keeps the behaviour it has and the seam adds a way in rather
  * than a migration. A host holding a bridge of its own — the console under its
- * fixture, where `window.sidekicks` is either absent or the live daemon beside
+ * fixture, where `window.desktopBridge` is either absent or the live daemon beside
  * fixture data — supplies one and the flow asks whichever transport that host is
  * running on.
  */
@@ -102,7 +102,7 @@ export function attachReadsOverControlPlane(call: ControlPlaneAttachCall): Runti
  * The one member of the installed bridge this default arm reads, and nothing else.
  *
  * Declared structurally rather than taken from the ambient `Window` augmentation, and
- * that is a constraint rather than a preference: `sidekicks-bridge.d.ts` augments the
+ * that is a constraint rather than a preference: `desktop-bridge.d.ts` augments the
  * global only inside programs that INCLUDE it, and this leaf is pulled into two
  * console-tier typecheck programs that include renderer source without it. A module
  * that depended on the augmentation would compile in one program and fail in another
@@ -110,7 +110,7 @@ export function attachReadsOverControlPlane(call: ControlPlaneAttachCall): Runti
  * needs, so it states it.
  */
 interface InstalledControlPlaneBridge {
-  readonly sidekicks?: { readonly controlPlane?: { readonly call?: unknown } };
+  readonly desktopBridge?: { readonly controlPlane?: { readonly call?: unknown } };
 }
 
 /**
@@ -138,7 +138,7 @@ interface InstalledControlPlaneBridge {
  */
 export const installedBridgeAttachReads: RuntimeNodeAttachReads = {
   attachNode: async (request) => {
-    const installed = (globalThis as InstalledControlPlaneBridge).sidekicks?.controlPlane?.call;
+    const installed = (globalThis as InstalledControlPlaneBridge).desktopBridge?.controlPlane?.call;
     if (typeof installed !== "function") {
       throw new Error(
         "no installed bridge is available to attach through. A host that resolves its own bridge supplies the attach seam rather than relying on this default.",

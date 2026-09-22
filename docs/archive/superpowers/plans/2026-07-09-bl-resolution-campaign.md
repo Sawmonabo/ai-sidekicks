@@ -7,7 +7,7 @@
 | Status | approved (2026-07-10 — owner directed landing after the multi-round hardening review; recorded in PR-0's body) |
 | Drafted | 2026-07-09 |
 | Design | [2026-07-09-bl-resolution-campaign-design.md](../specs/2026-07-09-bl-resolution-campaign-design.md) |
-| Owner | user (a.sawmon@gmail.com) |
+| Owner | user |
 | Tracker | **this plan** — per-task checkboxes; the five BLs move to the archive as their code lands (Design §6) |
 
 **Goal:** Resolve BL-141, BL-133, BL-131, BL-123, BL-122 to shipped, tested code — each doc-gated unit as amendment → promotion → code, each ungated unit as one PR — and move every completed BL to the archive with a whole-corpus coherence scan.

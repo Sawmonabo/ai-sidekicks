@@ -14,7 +14,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  SidekicksBridgeProvider,
+  DesktopBridgeProvider,
   createFixtureBridge,
   growthUnavailable,
   useConsoleBridge,
@@ -58,16 +58,16 @@ function MountedMcpShell(props: { readonly mintKey?: () => string }): React.JSX.
  * The tree, as an element rather than a render.
  *
  * Split out so a case can re-render the SAME mount at a different bridge, which is
- * what `SidekicksBridgeProvider` does on a reconnect or a scenario switch and is the
+ * what `DesktopBridgeProvider` does on a reconnect or a scenario switch and is the
  * one thing a fresh `render` cannot express.
  */
 function shellTree(bridge: ConsoleBridge, mintKey?: () => string): React.JSX.Element {
   return (
-    <SidekicksBridgeProvider bridge={bridge}>
+    <DesktopBridgeProvider bridge={bridge}>
       <LiveAnnouncerProvider>
         {mintKey === undefined ? <MountedMcpShell /> : <MountedMcpShell mintKey={mintKey} />}
       </LiveAnnouncerProvider>
-    </SidekicksBridgeProvider>
+    </DesktopBridgeProvider>
   );
 }
 

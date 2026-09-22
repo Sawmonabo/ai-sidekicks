@@ -10,6 +10,7 @@
 // agent's work rather than about a session's spend.
 
 import type { GrowthOperationEntry, GrowthOperationId } from "../growth-port/growth-entry.js";
+import type { AgentDefinitionOperationId } from "./agent-definitions.js";
 import { op } from "./operation-entry.js";
 
 /**
@@ -20,9 +21,9 @@ import { op } from "./operation-entry.js";
  * key that is not an operation id fails here too. A hand-written list would be a
  * second copy of the id set — the thing `growth-entry.ts` exists to prevent.
  */
-type AgentOperationId = Extract<
-  GrowthOperationId,
-  `agent${string}` | "orchestrationChildRunLinkRead"
+type AgentOperationId = Exclude<
+  Extract<GrowthOperationId, `agent${string}` | "orchestrationChildRunLinkRead">,
+  AgentDefinitionOperationId
 >;
 
 /** The agent rows, in the order the single table carried them. */

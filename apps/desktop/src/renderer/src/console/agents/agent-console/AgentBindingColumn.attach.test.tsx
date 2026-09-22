@@ -1,4 +1,4 @@
-// Attaching a sidekick: the second press of a double click reaches the wire never.
+// Attaching an agent: the second press of a double click reaches the wire never.
 //
 // `agent.attach` creates a durable agent, so that is the property worth a whole file.
 // It is asserted against the REAL models over a bridge whose daemon call this suite
@@ -30,7 +30,7 @@ import { AgentBindingColumn } from "./AgentBindingColumn.js";
 
 afterEach(disposeOpenedModels);
 
-describe("agent binding column — attaching a sidekick", () => {
+describe("agent binding column — attaching an agent", () => {
   it("issues one request for a double click", async () => {
     const scriptedDaemon = new HeldAttachDaemon();
     const bridge = bridgeCalling(scriptedDaemon);

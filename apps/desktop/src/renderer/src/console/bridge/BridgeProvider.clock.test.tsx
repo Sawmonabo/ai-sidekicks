@@ -18,7 +18,7 @@ import { render } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 
-import { SidekicksBridgeProvider, useConsoleBridge, useConsoleClock } from "./BridgeProvider.js";
+import { DesktopBridgeProvider, useConsoleBridge, useConsoleClock } from "./BridgeProvider.js";
 import { consoleClockFor } from "./console-bridge.js";
 import type { ConsoleClock } from "../core/index.js";
 import { FIRST_RUN_SCENARIO_ID } from "./scenario/first-run.js";
@@ -57,12 +57,12 @@ describe("useConsoleClock — one identity, and the window's current reading", (
     const clocks: ConsoleClock[] = [];
     const windowTimes: number[] = [];
     const tree = (scenarioId: string): React.JSX.Element => (
-      <SidekicksBridgeProvider scenarioId={scenarioId}>
+      <DesktopBridgeProvider scenarioId={scenarioId}>
         <ClockProbe
           onClock={(clock) => clocks.push(clock)}
           onWindowTime={(time) => windowTimes.push(time)}
         />
-      </SidekicksBridgeProvider>
+      </DesktopBridgeProvider>
     );
     const { rerender } = render(tree(FLAGSHIP_SCENARIO_ID));
     const captured = lastOf(clocks, "a clock");
@@ -87,12 +87,12 @@ describe("useConsoleClock — one identity, and the window's current reading", (
     const pinnedTimes: number[] = [];
     const windowTimes: number[] = [];
     const tree = (scenarioId: string): React.JSX.Element => (
-      <SidekicksBridgeProvider scenarioId={scenarioId}>
+      <DesktopBridgeProvider scenarioId={scenarioId}>
         <PinnedClockProbe
           onPinnedTime={(time) => pinnedTimes.push(time)}
           onWindowTime={(time) => windowTimes.push(time)}
         />
-      </SidekicksBridgeProvider>
+      </DesktopBridgeProvider>
     );
     const { rerender } = render(tree(FLAGSHIP_SCENARIO_ID));
     const flagshipTime = lastOf(windowTimes, "a window time");

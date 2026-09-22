@@ -77,7 +77,7 @@ export function useOpenSessionStore(
 /**
  * The sessions this window has open, in open order.
  *
- * The console has no session-DIRECTORY read — no `SidekicksBridge` member lists the
+ * The console has no session-DIRECTORY read — no `DesktopBridge` member lists the
  * sessions on a node, and the console growth slate registers no row for one either — so
  * this registry is the only session set the renderer can name, and the two surfaces
  * that need one (the auxiliary window's context picker and the sessions

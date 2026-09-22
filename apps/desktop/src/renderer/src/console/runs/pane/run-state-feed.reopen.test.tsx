@@ -42,7 +42,7 @@ function mountedFeed(): {
   readonly openCount: () => number;
   readonly feed: () => RunStateFeed;
 } {
-  // Counted in the bridge family and captured there too: taking `sidekicks.daemon`
+  // Counted in the bridge family and captured there too: taking `desktopBridge.daemon`
   // is that family's licence, and a test in this one goes through what it publishes.
   // The counter wraps the CAPTURE and not the other way round, because the capture
   // answers the run-state stream itself rather than forwarding it — a counter inside

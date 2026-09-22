@@ -3,7 +3,7 @@
 // Purpose: enforce the renderer-untrusted boundary at the import surface. The
 // renderer process is the untrusted surface;
 // every Node / Electron / main-process / preload-process capability MUST
-// reach the renderer ONLY via the `window.sidekicks` bridge declared by
+// reach the renderer ONLY via the `window.desktopBridge` bridge declared by
 // `apps/desktop/src/preload/index.ts`. This config makes that boundary
 // structurally unbypassable: any direct import of Node/Electron APIs (or any
 // relative-path escape into `src/main/**` or `src/preload/**`) from renderer
@@ -79,7 +79,7 @@ const RENDERER_RESTRICTED_PATHS = [
   {
     name: "electron",
     message:
-      "The renderer is untrusted: `electron` must NEVER be imported from renderer source. Route through the preload bridge (`window.sidekicks`) instead. See apps/desktop/src/preload/index.ts.",
+      "The renderer is untrusted: `electron` must NEVER be imported from renderer source. Route through the preload bridge (`window.desktopBridge`) instead. See apps/desktop/src/preload/index.ts.",
   },
   {
     name: "fs",
@@ -114,12 +114,12 @@ const RENDERER_RESTRICTED_PATHS = [
   {
     name: "@ai-sidekicks/runtime-daemon",
     message:
-      "The renderer is untrusted: the daemon package must NEVER be imported from renderer source (directly or through a local helper). Route through the preload bridge (`window.sidekicks.daemon`).",
+      "The renderer is untrusted: the daemon package must NEVER be imported from renderer source (directly or through a local helper). Route through the preload bridge (`window.desktopBridge.daemon`).",
   },
   {
     name: "@ai-sidekicks/control-plane",
     message:
-      "The renderer is untrusted: the control-plane package must NEVER be imported from renderer source (directly or through a local helper). Route through the preload bridge (`window.sidekicks.controlPlane`).",
+      "The renderer is untrusted: the control-plane package must NEVER be imported from renderer source (directly or through a local helper). Route through the preload bridge (`window.desktopBridge.controlPlane`).",
   },
 ];
 
@@ -136,7 +136,7 @@ const RENDERER_RESTRICTED_PATTERNS = [
     // Electron subpath at once.
     group: ["electron/**"],
     message:
-      "The renderer is untrusted: `electron` (and any `electron/*` subpath) must NEVER be imported from renderer source. Route through the preload bridge (`window.sidekicks`) instead. See apps/desktop/src/preload/index.ts.",
+      "The renderer is untrusted: `electron` (and any `electron/*` subpath) must NEVER be imported from renderer source. Route through the preload bridge (`window.desktopBridge`) instead. See apps/desktop/src/preload/index.ts.",
   },
   {
     // `no-restricted-imports` does NOT auto-cover `node:fs` from a `fs` ban
@@ -159,7 +159,7 @@ const RENDERER_RESTRICTED_PATTERNS = [
     // semantics as the `electron/**` group.
     group: ["@ai-sidekicks/runtime-daemon/**", "@ai-sidekicks/control-plane/**"],
     message:
-      "The renderer is untrusted: daemon / control-plane package subpaths are forbidden in renderer source. Route through the preload bridge (`window.sidekicks`).",
+      "The renderer is untrusted: daemon / control-plane package subpaths are forbidden in renderer source. Route through the preload bridge (`window.desktopBridge`).",
   },
   {
     // Relative-path escape into the main/preload subtrees. `**` matches
@@ -167,10 +167,10 @@ const RENDERER_RESTRICTED_PATTERNS = [
     // `../../main/x`, `../../../main/x`, etc., and the same for `preload`. The
     // renderer-untrusted boundary means renderer source must NEVER reach into
     // another process's source — the only legitimate channel is the
-    // preload-exposed `window.sidekicks` bridge.
+    // preload-exposed `window.desktopBridge` bridge.
     group: ["**/main/**", "**/preload/**"],
     message:
-      "The renderer is untrusted: relative-path imports into `main/**` or `preload/**` are forbidden. The renderer's only cross-process surface is the `window.sidekicks` bridge.",
+      "The renderer is untrusted: relative-path imports into `main/**` or `preload/**` are forbidden. The renderer's only cross-process surface is the `window.desktopBridge` bridge.",
   },
 ];
 
@@ -221,27 +221,27 @@ const CONSOLE_RESTRICTED_PATTERNS = [
  * which fixture stands in for it under test.
  *
  * Five arms, because one spelling of the read is one identifier away from useless:
- * `window.sidekicks`, `globalThis.sidekicks`, and the cast form a typed reach needs —
- * `(window as { sidekicks?: SidekicksBridge }).sidekicks`, whose object is a
+ * `window.desktopBridge`, `globalThis.desktopBridge`, and the cast form a typed reach needs —
+ * `(window as { desktopBridge?: DesktopBridge }).desktopBridge`, whose object is a
  * `TSAsExpression` rather than an identifier, so the first three arms walk straight past
  * it. The cast arm keys on the cast alone rather than on what it wraps: a nested
- * `as unknown as` is a second `TSAsExpression`, and any `(x as T).sidekicks` at all is
+ * `as unknown as` is a second `TSAsExpression`, and any `(x as T).desktopBridge` at all is
  * a bridge reach whatever `x` is.
  *
  * The last two are the spellings the first three were measured to walk past. A COMPUTED
- * key — `globalThis["sidekicks"]` — is the same read with the property written as a
+ * key — `globalThis["desktopBridge"]` — is the same read with the property written as a
  * string, and it is keyed on the property alone rather than on the object, because a
- * computed `.sidekicks` off anything at all is a bridge reach. A DESTRUCTURE —
- * `const { sidekicks } = window;` — performs no member read at all: it names the global
+ * computed `.desktopBridge` off anything at all is a bridge reach. A DESTRUCTURE —
+ * `const { desktopBridge } = window;` — performs no member read at all: it names the global
  * as an initialiser and takes the binding straight off it.
  *
  * ONE SPELLING IS NOT CLOSABLE BY A SELECTOR and is stated in `apps/desktop/AGENTS.md`
- * beside the rule instead: an ALIAS — `const w = window; w.sidekicks` — needs the
+ * beside the rule instead: an ALIAS — `const w = window; w.desktopBridge` — needs the
  * selector to know what `w` holds, which esquery cannot answer.
  */
 const BRIDGE_GLOBAL_READ = {
   selector:
-    ':matches(MemberExpression[object.name="window"][property.name="sidekicks"], MemberExpression[object.name="globalThis"][property.name="sidekicks"], MemberExpression[object.type="TSAsExpression"][property.name="sidekicks"], MemberExpression[computed=true][property.value="sidekicks"], VariableDeclarator[init.name=/^(?:window|globalThis)$/] > ObjectPattern > Property[key.name="sidekicks"])',
+    ':matches(MemberExpression[object.name="window"][property.name="desktopBridge"], MemberExpression[object.name="globalThis"][property.name="desktopBridge"], MemberExpression[object.type="TSAsExpression"][property.name="desktopBridge"], MemberExpression[computed=true][property.value="sidekicks"], VariableDeclarator[init.name=/^(?:window|globalThis)$/] > ObjectPattern > Property[key.name="sidekicks"])',
   message:
     "The import-boundary rules in `apps/desktop/AGENTS.md`: renderer code reaches the bridge only through `console/bridge/live-bridge.ts`, and every surface above it takes the bridge from `BridgeProvider`'s context. A second reader is a second idea of when the bridge exists and what stands in for it under test.",
 };
@@ -834,7 +834,7 @@ export default [
     // makes a third reader a lint failure in the diff that adds it, where a subtree
     // scope would admit one silently.
     //
-    // One of them reads `window.sidekicks.daemon` with NO existence check at all,
+    // One of them reads `window.desktopBridge.daemon` with NO existence check at all,
     // where `readInstalledBridge` (`console/bridge/live-bridge.ts`) answers `undefined`
     // for both the absent and the misshapen global — so under a preload that failed to
     // install it throws inside a render. The migration is to take the bridge from

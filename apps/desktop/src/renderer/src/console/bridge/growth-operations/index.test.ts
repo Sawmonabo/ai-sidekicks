@@ -7,7 +7,7 @@
 // no wire method because none is registered anywhere to name.
 //
 // Four blocks name one apiece for every operation they carry — the workflow run row,
-// the workflow definition row, sidekick, and the session cost plane.
+// the workflow definition row, agent definitions, and the session cost plane.
 // Those strings are transcriptions of registries the console does not import and
 // cannot, so the one defect worth catching here is the transcription's own failure
 // mode: a method paired with the wrong operation. That is invisible to every
@@ -36,7 +36,7 @@ import type { GrowthSlateRowId } from "../growth-port/growth-slate-row.js";
 
 const WORKFLOW_SLATE_ROW: GrowthSlateRowId = "workflow-run-control";
 const DEFINITION_SLATE_ROW: GrowthSlateRowId = "workflow-definition-authoring";
-const SIDEKICK_SLATE_ROW: GrowthSlateRowId = "sidekick-definition-registry";
+const AGENT_DEFINITION_SLATE_ROW: GrowthSlateRowId = "agent-definition-registry";
 
 /** Every operation attributed to one slate row, read from the ledger itself. */
 function operationsServingRow(slateRow: GrowthSlateRowId): readonly GrowthOperationId[] {
@@ -192,31 +192,31 @@ describe("the growth ledger's definition-authoring row — the registry's other 
   });
 });
 
-describe("the growth ledger's sidekick block — the registry's five pairs", () => {
+describe("the growth ledger's agent-definition block — the registry's five pairs", () => {
   it("attributes five operations to the row, every one an RPC method", () => {
-    const sidekickOperationIds = operationsServingRow(SIDEKICK_SLATE_ROW);
+    const agentDefinitionOperationIds = operationsServingRow(AGENT_DEFINITION_SLATE_ROW);
 
     // All five. Stated rather than derived because it is the claim: the row carried
     // four while the per-session peer-invocation opt-in had no console surface to set
     // it, and the fifth joined when the agent console's peer-invocation control
     // landed. A sixth appearing here without that decision being revisited is the
     // drift worth failing on.
-    expect(sidekickOperationIds).toHaveLength(5);
-    for (const operationId of sidekickOperationIds) {
+    expect(agentDefinitionOperationIds).toHaveLength(5);
+    for (const operationId of agentDefinitionOperationIds) {
       expect(GROWTH_OPERATIONS[operationId].kind, operationId).toBe("method");
     }
   });
 
   it("names the registered method its own id folds to, so no entry is mispaired", () => {
-    for (const operationId of operationsServingRow(SIDEKICK_SLATE_ROW)) {
+    for (const operationId of operationsServingRow(AGENT_DEFINITION_SLATE_ROW)) {
       expect(GROWTH_OPERATIONS[operationId].expectedWireMethod, operationId).toBe(
-        wireMethodFoldedFrom(operationId, "sidekick"),
+        wireMethodFoldedFrom(operationId, "agent"),
       );
     }
   });
 
   it("names five distinct methods, so no two operations reach one wire", () => {
-    const methods = operationsServingRow(SIDEKICK_SLATE_ROW).map(
+    const methods = operationsServingRow(AGENT_DEFINITION_SLATE_ROW).map(
       (operationId) => GROWTH_OPERATIONS[operationId].expectedWireMethod,
     );
 
@@ -225,11 +225,11 @@ describe("the growth ledger's sidekick block — the registry's five pairs", () 
 
   it("negative control: the same fold rejects an entry whose method is another's", () => {
     const mispaired = {
-      ...GROWTH_OPERATIONS.sidekickDefinitionUpdate,
-      expectedWireMethod: GROWTH_OPERATIONS.sidekickDefinitionDelete.expectedWireMethod,
+      ...GROWTH_OPERATIONS.agentDefinitionUpdate,
+      expectedWireMethod: GROWTH_OPERATIONS.agentDefinitionDelete.expectedWireMethod,
     };
 
-    expect(mispaired.expectedWireMethod).not.toBe(wireMethodFoldedFrom(mispaired.id, "sidekick"));
+    expect(mispaired.expectedWireMethod).not.toBe(wireMethodFoldedFrom(mispaired.id, "agent"));
   });
 
   it("carries the peer-invocation pair, which is per-session state and not a definition", () => {
@@ -238,11 +238,11 @@ describe("the growth ledger's sidekick block — the registry's five pairs", () 
     // sets a session's own grant. Its wire method folds from its id in exactly the
     // same shape as its four siblings', which is what says it belongs to this row
     // rather than beside it.
-    const foldedIds = operationsServingRow(SIDEKICK_SLATE_ROW).map((operationId) =>
-      wireMethodFoldedFrom(operationId, "sidekick"),
+    const foldedIds = operationsServingRow(AGENT_DEFINITION_SLATE_ROW).map((operationId) =>
+      wireMethodFoldedFrom(operationId, "agent"),
     );
 
-    expect(foldedIds).toContain("sidekick.peerInvocationSet");
+    expect(foldedIds).toContain("agent.peerInvocationSet");
   });
 });
 
@@ -299,7 +299,7 @@ describe("the growth ledger's hydrated-event row — a projection with no namesp
 
 describe("the growth ledger's three rows with no method to name", () => {
   it("carries one operation each, and none of them names a wire method", () => {
-    // The counterpart of the workflow and sidekick blocks, and the reason those
+    // The counterpart of the workflow and agent-definition blocks, and the reason those
     // blocks' `toBe` assertions are meaningful: an entry names a method only where
     // its row's registry exists. None of these has one — the corpus resolves a
     // caller's principal daemon-side and never returns it, the callback-tool

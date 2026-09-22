@@ -147,32 +147,13 @@ export default {
       },
     },
     {
-      name: "console-not-plan-subtree",
-      comment:
-        "A plan-owned subtree whose owner MOUNTS INTO the console reaches the frame by calling " +
-        "`registerConsoleSurface`, which is a call and not an import — so the console imports " +
-        "it through no path, and this rule takes no exception. It is deliberately not a ban on " +
-        "every sibling subtree: the console absorbs the shipped legacy renderer " +
-        "components (`session-bootstrap/`, `runtime-node-attach/`) " +
-        "by import, and a gate stricter than its own plan is a defect. A later plan whose page " +
-        "mounts into the console adds its subtree to this list.",
-      severity: "error",
-      from: { path: `${CONSOLE}/` },
-      to: {
-        path:
-          "^src/renderer/src/(timeline|usage-meters|run-controls|provider-accounts|" +
-          "sidekick-definitions|mcp-governance)/",
-      },
-    },
-    {
       name: "console-not-shell",
       comment:
         "The console imported the shell. `src/renderer/src/shell/` composes console seats and " +
         "therefore sits ABOVE the whole console DAG — it is the shell that mounts the console, " +
         "never the other way round — so an edge from `console/` into it is an upward edge like " +
         "any other, and it was the one upward edge no rule here could see: the ladders below " +
-        "are scoped inside `${CONSOLE}/` on both endpoints, `console-not-plan-subtree` " +
-        "enumerates six mounted plan subtrees that do not include the shell, and " +
+        "are scoped inside `${CONSOLE}/` on both endpoints, and " +
         "`no-circular` only fires once the edge comes back. A body the console mounts belongs " +
         "in the view family that mounts it; a contract both sides need belongs in `seats/`. " +
         "The composition root files are subtracted for the reason they are subtracted from the " +

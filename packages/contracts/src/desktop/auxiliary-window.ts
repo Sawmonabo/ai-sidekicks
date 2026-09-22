@@ -144,11 +144,11 @@ export interface AuxiliaryWindowChannels {
  * plan registers on the same `ipcMain`.
  */
 export const AUXILIARY_WINDOW_CHANNELS: AuxiliaryWindowChannels = {
-  detachPane: "sidekicks:window/detach-pane",
-  focusAuxiliary: "sidekicks:window/focus-auxiliary",
-  closeAuxiliary: "sidekicks:window/close-auxiliary",
-  paneError: "sidekicks:window/pane-error",
-  paneReturn: "sidekicks:window/pane-return",
+  detachPane: "desktop:window/detach-pane",
+  focusAuxiliary: "desktop:window/focus-auxiliary",
+  closeAuxiliary: "desktop:window/close-auxiliary",
+  paneError: "desktop:window/pane-error",
+  paneReturn: "desktop:window/pane-return",
 };
 
 /**

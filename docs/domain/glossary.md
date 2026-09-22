@@ -18,7 +18,8 @@ This glossary covers the primary domain terms from `vision.md` and the canonical
 | `Presence` | The ephemeral liveness of one of the user's own devices or runtime nodes — which of them are currently reachable. It is never a roster of other people. |
 | `RuntimeNode` | The machine that executes a session's work, owned by the user. |
 | `Channel` | A communication surface inside a session where the user and agents, or agents and other agents, exchange messages or coordination events. |
-| `Agent` | A configured execution persona bound to a runtime node and used to perform runs. |
+| `Agent` | A configured execution persona bound to a runtime node and used to perform runs. Code and docs say agent for the concept; "sidekick" is the brand and the word a person reads on screen. |
+| `AgentDefinition` | A saved, reusable agent configuration the Sidekicks destination lists; a run started under one keeps the configuration it was resolved for. |
 | `Run` | A single execution episode performed by one agent inside one session. |
 | `RuntimeBinding` | An association between a `Run` and a specific provider driver instance. Fields: `driver_name`, `contract_version`, `resume_handle`, `runtime_metadata`. Persists recovery handles so a run can be resumed after interruption. Created by Plan-004 (provider driver contract), extended by Plan-013 for recovery. Stored in the `runtime_bindings` SQLite table. See [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md) and [Spec-013](../specs/013-persistence-recovery-and-replay.md). |
 | `QueueItem` | A persisted unit of deferred work awaiting admission into the run engine. |
@@ -31,12 +32,16 @@ This glossary covers the primary domain terms from `vision.md` and the canonical
 | `DiffArtifact` | An artifact that captures the change between two repository or workspace states. |
 | `Approval` | A durable decision record that resolves a gated request. |
 | `Workflow` | A reusable, versioned execution template that structures multi-phase work inside a session. |
-| `WorkflowDefinition` | The named, durable definition record describing a workflow's reusable sequence of phases. Scoped to a session or channel. |
-| `WorkflowVersion` | An immutable snapshot of a `WorkflowDefinition`'s phase structure at a point in time. |
+| `WorkflowDefinition` | The named, durable record of one workflow: the document an author wrote and the chain of immutable versions of it. Scoped `session`, `project` or `shared`. |
+| `WorkflowVersion` | An immutable snapshot of a `WorkflowDefinition`'s document body at a point in time, addressed by that body's content hash. |
 | `WorkflowRun` | A single execution instance of a specific `WorkflowVersion` within a session. |
-| `PhaseDefinition` | The static configuration inside a `WorkflowVersion` that describes one step in the workflow. |
+| `WorkflowDocument` | The authored body of a workflow: one JSON document holding exactly one trigger node, the rest of the graph as nodes, and the edges between them. Every kind the runtime offers is a node, and nothing is compiled into a second shape when the document is saved. |
+| `WorkflowStep` | The runtime record of one attempt of one node, keyed by the run, the node and the attempt number, carrying that attempt's status, timings, input, output and log. |
 | `Gate` | A checkpoint between workflow phases that must resolve before the next phase can start. |
 | `local-only` | A visibility or operating constraint meaning the relevant session continuity, execution path, or artifact remains usable on the user's own local runtime node without requiring current control-plane reachability. `local-only` is not a separate domain object or an alternate session model. |
+| `Transcript` | The session's own record of its conversation, written by the daemon and drawn on screen in order: messages, tool calls, approvals and replies. There is no replay surface over it: scrollback is scrollback, and a person scrolls it. |
+| `Conversation file` | The provider's own on-disk record of a session's conversation, kept under the credential home it runs in (Claude Code writes `projects/<project folder>/<session id>.jsonl`). An account switch copies this one file into the new account's home and resumes it there through the provider's own resume; nothing is re-sent as text. |
+| `Memory files` | The instruction files a provider reads from its home and the project at a session's start: `CLAUDE.md` and the memory folder on Claude Code, `AGENTS.md` on Codex. `providerAccount.memoryImport` copies an operator's ambient store of them into a named account's home once. |
 
 ## What This Is
 
@@ -59,10 +64,10 @@ This glossary is not a substitute for the detailed domain docs. Each term is def
 - `RuntimeNode`, `Channel`, `Agent`, `Run`, `QueueItem`, `RepoMount`, `Artifact`, and `Approval` are all session-scoped concepts. `User`, `Device`, and `Presence` are account-scoped and appear inside a session by reference.
 - `Worktree` is a specialized repository execution surface inside a `Workspace`; it is not a synonym for `Workspace`.
 - `ExecutionMode` determines how a `Run` uses a repo-bound `Workspace`.
-- `Run` is an execution episode, while `Agent` is the reusable configured actor that performs runs.
+- `Run` is an execution episode and `Agent` is the live actor inside a session that performs it; `AgentDefinition` is the saved, reusable configuration an `Agent` is resolved from.
 - `RuntimeBinding` ties a `Run` to a specific provider driver instance and carries the recovery handles needed for persistence and replay.
 - `Workflow` is a reusable execution template. `WorkflowDefinition` records the template; `WorkflowVersion` is an immutable snapshot; `WorkflowRun` is an execution instance inside a `Session`.
-- `PhaseDefinition` is one step inside a `WorkflowVersion`; a `Gate` is the checkpoint between phases that must resolve before the next phase can start.
+- `WorkflowDocument` is the body a `WorkflowVersion` snapshots, and each of its nodes is one step a run executes; a `WorkflowStep` records one attempt of one node; a `Gate` is the checkpoint between phases that must resolve before the next phase can start.
 - `local-only` may describe session continuity, execution scope, or artifact visibility, but it does not define a second kind of `Session`.
 
 ## Lifecycle

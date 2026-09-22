@@ -18,7 +18,7 @@ import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { RunState } from "@ai-sidekicks/contracts";
 
 import {
-  SidekicksBridgeProvider,
+  DesktopBridgeProvider,
   createFixtureBridge,
   type ConsoleBridge,
   type GrowthOutcome,
@@ -93,7 +93,7 @@ function renderPromptFor(
 } {
   const onRecoveryReceipt = vi.fn<() => void>();
   const promptFor = (addressedRunId: string): React.JSX.Element => (
-    <SidekicksBridgeProvider bridge={bridge}>
+    <DesktopBridgeProvider bridge={bridge}>
       <LiveAnnouncerProvider>
         <RecoveryPrompt
           bridge={bridge}
@@ -101,7 +101,7 @@ function renderPromptFor(
           onRecoveryReceipt={onRecoveryReceipt}
         />
       </LiveAnnouncerProvider>
-    </SidekicksBridgeProvider>
+    </DesktopBridgeProvider>
   );
   const view = render(promptFor(runId));
   return {

@@ -209,16 +209,16 @@ export const GROWTH_OPERATION_SUMMARIES: Readonly<Record<GrowthOperationId, stri
     "read a session's standing permissions with revoked rules included, because this list is the audit and a vanished rule reads as one never granted",
   approvalRuleRevoke:
     "revoke one standing permission, fired only by the confirming click of the two-step control",
-  // sidekicks.ts
-  sidekickDefinitionList:
+  // desktopBridge.ts
+  agentDefinitionList:
     "list this node's saved sidekick definitions, unfiltered — the registry returns full records, so there is no separate read verb to pair with it",
-  sidekickDefinitionCreate:
+  agentDefinitionCreate:
     "save a new definition, every axis but the name optional and an omitted axis stored as the inherit state rather than as today's default materialised",
-  sidekickDefinitionUpdate:
+  agentDefinitionUpdate:
     "patch a definition, an absent key leaving the stored value alone and an explicit null clearing it back to the inherit state",
-  sidekickDefinitionDelete:
+  agentDefinitionDelete:
     "delete a definition, which never touches an agent attached from it because attach copies rather than references",
-  sidekickPeerInvocationSet:
+  agentPeerInvocationSet:
     "set the session-scoped peer-invocation grant, answering with the post-append projected value so a caller renders what the daemon recorded rather than what it asked for",
   // ledger.ts
   hydratedEventRead:

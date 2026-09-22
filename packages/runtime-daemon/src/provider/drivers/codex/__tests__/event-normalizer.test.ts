@@ -12,7 +12,7 @@
 // Verifies invariant: none (declares none; normalization is structural).
 //
 // Fixture discipline: the two `__fixtures__/` modules are METHOD census
-// vectors derived from `docs/reference/provider-wire/codex.md` at pin
+// vectors derived from the pinned Codex wire census at pin
 // `codex-cli 0.150.1`. The reference reproduces no inbound PAYLOAD body
 // verbatim, so these are method vectors and never payload golden files. The
 // delta-family members `turn/diff/updated` and `turn/plan/updated` — whose
@@ -947,7 +947,7 @@ describe("Codex event normalizer — tool-keyed methods bind to the tools.ts nam
   it("covers exactly the two mutating tools that gate on approval at the pin", () => {
     // Pinned at two, not asserted as total over CODEX_TOOL_NAMES: the reverse
     // direction would demand `item/webSearch/requestApproval` and four more
-    // that `docs/reference/provider-wire/codex.md` does not show. Inventing
+    // that the pinned Codex wire census does not show. Inventing
     // them to satisfy a symmetry the protocol lacks is the transcription this
     // corpus forbids.
     expect([...CODEX_TOOL_KEYED_APPROVAL_METHODS].sort()).toEqual([
@@ -1394,7 +1394,7 @@ describe("CodexTerminalEmissionGate", () => {
 // --------------------------------------------------------------------------
 //
 // Shapes below are built from the pinned generated protocol
-// (`docs/reference/provider-wire/codex.md`): `RateLimitSnapshot` carries
+// (the pinned Codex wire census): `RateLimitSnapshot` carries
 // `rateLimitReachedType`, `limitId`, `limitName`, `planType`, `credits`,
 // `individualLimit`, `spendControlReached`, and the `primary` / `secondary`
 // `RateLimitWindow`s, each with `usedPercent`, `windowDurationMins`, and a

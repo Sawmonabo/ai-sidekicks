@@ -1,8 +1,8 @@
-// Renderer-wide ambient declaration for the `window.sidekicks` contextBridge global.
+// Renderer-wide ambient declaration for the `window.desktopBridge` contextBridge global.
 // The preload (`apps/desktop/src/preload/index.ts`) installs the bridge at runtime via
-// `contextBridge.exposeInMainWorld('sidekicks', ...)` — a runtime-only registration
+// `contextBridge.exposeInMainWorld('desktopBridge', ...)` — a runtime-only registration
 // with no static typing. TypeScript needs an ambient augmentation to type the resulting
-// `window.sidekicks` access; a dedicated `.d.ts` is the conventional Electron + Vite
+// `window.desktopBridge` access; a dedicated `.d.ts` is the conventional Electron + Vite
 // pattern for typing contextBridge-exposed globals.
 //
 // This file is picked up by both renderer typecheck graphs, but via different
@@ -12,7 +12,7 @@
 // entry. The test config needs its own glob because TS `extends` replaces
 // (does not merge) `include`, so the test config does not inherit the
 // production `["**/*"]`. With both in place every renderer consumer (production
-// and test) sees `window.sidekicks` as `SidekicksBridge`-typed without
+// and test) sees `window.desktopBridge` as `DesktopBridge`-typed without
 // importing anything.
 //
 // Hoisted out of `session-bootstrap/SessionBootstrap.tsx`: the declaration was
@@ -25,10 +25,10 @@
 // module scope here requires it). No `export {}` is needed — the `import type`
 // already marks the file as a module.
 
-import type { SidekicksBridge } from "@ai-sidekicks/contracts";
+import type { DesktopBridge } from "@ai-sidekicks/contracts";
 
 declare global {
   interface Window {
-    sidekicks: SidekicksBridge;
+    desktopBridge: DesktopBridge;
   }
 }

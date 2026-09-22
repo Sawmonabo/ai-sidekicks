@@ -155,7 +155,7 @@ export interface SettingsPageDescriptor {
  * inside it is a second act after that.
  *
  * IT IS NOT MERELY A SIZE QUESTION, and the case that forced this arm shows why. The
- * sidekicks page's body is the AGENTS family's, and that family's door is imported
+ * agent definitions page's body is the AGENTS family's, and that family's door is imported
  * EAGERLY by `session-surfaces-family.ts` for the agent console's surface registration. So
  * while this registry took only a `render`, the registration site had to reach the page
  * through that door, and the bundler — which assigns a module reachable both statically
@@ -183,7 +183,7 @@ export type SettingsPageRegistration =
  * Published through the family's door so a root composition file registers a page
  * without holding the registry class, the section vocabulary, or the descriptor
  * shape — which are this family's intra-family contract and stay deep. A door that
- * withheld the whole registry left `sidekicks-settings-page.ts` reaching around it,
+ * withheld the whole registry left `agents-settings-page.ts` reaching around it,
  * which inverts the decision rather than respecting it: the registration this file
  * performs is exactly the public surface a door exists to expose.
  */

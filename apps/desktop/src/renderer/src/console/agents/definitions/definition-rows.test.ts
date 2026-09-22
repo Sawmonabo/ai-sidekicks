@@ -13,12 +13,12 @@ import { describe, expect, it } from "vitest";
 
 import { growthUnavailable } from "../../bridge/index.js";
 import {
-  NO_SAVED_SIDEKICKS,
+  NO_SAVED_DEFINITIONS,
   describeDefinitionSettlement,
   describeDeletionQuestion,
   projectDefinitionRows,
   readDefinitionOutcome,
-  type SidekickDefinitionRecord,
+  type AgentDefinitionRecord,
 } from "./definition-rows.js";
 
 /**
@@ -28,7 +28,7 @@ import {
  * below measure the real shape: a helper that defaulted a member would hide exactly
  * the axis a projection had forgotten.
  */
-function definition(overrides: Partial<SidekickDefinitionRecord> = {}): SidekickDefinitionRecord {
+function definition(overrides: Partial<AgentDefinitionRecord> = {}): AgentDefinitionRecord {
   return {
     definitionId: "definition-1",
     name: "Reviewer",
@@ -197,7 +197,7 @@ describe("the registry projection — the order", () => {
 
 describe("the registry projection — reading one outcome", () => {
   it("keeps a refusal a refusal rather than an empty registry", () => {
-    const reading = readDefinitionOutcome(growthUnavailable("sidekickDefinitionList"));
+    const reading = readDefinitionOutcome(growthUnavailable("agentDefinitionList"));
     expect(reading.kind).toBe("refused");
     expect(reading.kind === "refused" ? reading.refusal.code : "").toBe("wire-unregistered");
   });
@@ -232,13 +232,13 @@ describe("the registry projection — what a settlement says out loud", () => {
   });
 
   it("says the empty registry's own sentence", () => {
-    expect(describeDefinitionSettlement({ kind: "empty" })).toBe(`${NO_SAVED_SIDEKICKS}.`);
+    expect(describeDefinitionSettlement({ kind: "empty" })).toBe(`${NO_SAVED_DEFINITIONS}.`);
   });
 
   it("speaks the refusal's sentence and not its code", () => {
     // Read aloud, a code is a token nobody can act on, ahead of the sentence that
     // matters. It stays on the screen, in mono, where it can be copied.
-    const refusal = growthUnavailable("sidekickDefinitionList");
+    const refusal = growthUnavailable("agentDefinitionList");
     const spoken = describeDefinitionSettlement({ kind: "refused", refusal });
     expect(spoken).toBe(refusal.detail);
     expect(spoken).not.toContain(refusal.code);
@@ -252,7 +252,7 @@ describe("the registry projection — what a settlement says out loud", () => {
       describeDefinitionSettlement({ kind: "rows", rows: projectDefinitionRows([definition()]) }),
       describeDefinitionSettlement({
         kind: "refused",
-        refusal: growthUnavailable("sidekickDefinitionList"),
+        refusal: growthUnavailable("agentDefinitionList"),
       }),
     ]);
     expect(spoken.size).toBe(3);

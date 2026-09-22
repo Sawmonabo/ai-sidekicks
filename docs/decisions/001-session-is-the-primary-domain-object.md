@@ -142,11 +142,3 @@ The single-device case remains a valid session with one device and one runtime n
 ### Related ADRs
 
 - [Local Execution Shared Control Plane](./002-local-execution-shared-control-plane.md) — execution and coordination split inside the session model
-
-## Decision Log
-
-| Date       | Event        | Notes                                                           |
-| ---------- | ------------ | --------------------------------------------------------------- |
-| 2026-04-14 | Proposed     | Initial draft                                                   |
-| 2026-04-14 | Re-baselined | Reviewer assignment and acceptance validation remain incomplete |
-| 2026-04-15 | Accepted     | ADR accepted                                                    |

@@ -1,6 +1,6 @@
 // The window's plumbing belongs to the bridge it was built from.
 //
-// `SidekicksBridgeProvider` replaces its resolution when the `bridge` prop changes —
+// `DesktopBridgeProvider` replaces its resolution when the `bridge` prop changes —
 // a reconnect, or the fixture's scenario switch — and every window under it renders
 // against the new one from the next commit on. What this file drives is the half
 // below that: the registry and binder were built FROM a bridge, and a hook that did
@@ -30,11 +30,7 @@ import {
   createFixture,
   withDaemonCall,
 } from "../../bridge/fixture/call-plane/bridge.test-support.js";
-import {
-  SidekicksBridgeProvider,
-  useConsoleBridge,
-  type ConsoleBridge,
-} from "../../bridge/index.js";
+import { DesktopBridgeProvider, useConsoleBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { ConsoleEntityProjectorRegistry, type SessionStoreRegistry } from "../../store/index.js";
 import { useSessionStoreRegistry } from "./session-lifecycle.js";
 
@@ -74,9 +70,9 @@ interface SwapHostProps extends RegistryProbeProps {
 
 function SwapHost(props: SwapHostProps): React.JSX.Element {
   return (
-    <SidekicksBridgeProvider bridge={props.bridge}>
+    <DesktopBridgeProvider bridge={props.bridge}>
       <RegistryProbe projectorRegistry={props.projectorRegistry} onObserve={props.onObserve} />
-    </SidekicksBridgeProvider>
+    </DesktopBridgeProvider>
   );
 }
 

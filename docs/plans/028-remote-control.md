@@ -3,7 +3,7 @@
 | Field            | Value                                                      |
 | ---------------- | ---------------------------------------------------------- |
 | **Status**       | `draft`                                                    |
-| **NNN**          | `031`                                                      |
+| **NNN**          | `028`                                                      |
 | **Slug**         | `remote-control`                                           |
 | **Date**         | `2026-09-11`                                               |
 | **Author(s)**    | `Sawmon Abo`                                               |
@@ -24,7 +24,7 @@ Anything that admits a second account to a session. Anything that puts a second 
 
 ## Build order
 
-This plan sits at Tier 9, and [Plan-024](024-cross-node-dispatch-and-approval.md) moves to Tier 10 because it consumes the relay built here in Phase 3.
+[Plan-024](024-cross-node-dispatch-and-approval.md) builds after this plan because it consumes the relay built here in Phase 3.
 
 ## Phases
 
@@ -112,13 +112,20 @@ An event a device originates is signed by that device's identity key, so the log
 
 This phase is gated on Phases 1 through 6 being merged. No frontend work for Remote Control starts before then; the screens are built against a relay that already works, not against a mock of one.
 
-It builds three things: the in-session connected-devices banner, the Settings → Linked Devices screen, and the CLI device commands. The banner names the devices currently connected to the session. The screen renders the registry and drives link, rename, and revoke. The CLI covers the same four operations for people who never open the shell.
+It builds six things: the in-session connected-devices banner, the Linked Devices screen, the device-pairing flow that screen walks, the CLI device commands, the phone client, and the web client. The banner names the devices currently connected to the session. The screen renders the registry and drives link, rename, and revoke, and pairing is the part of it a new device walks through. The CLI covers the same four operations for people who never open the shell. The phone client and the web client are the two non-desktop clients, each speaking the relay through the same SDK arm Phase 4 built, so neither re-implements a screen.
+
+It also builds the shared-ports list: which of this machine's dev-server ports the user's other devices may reach, as one managed list — a row per shared port with a control that stops sharing it, a field that adds a port before anything is listening on it, and the address to open on the other device. Nothing before this phase draws it.
+
+Every client with a hardware back gesture obeys the dismiss-only rule the spec sets: Back walks the same ladder the escape key walks and never interrupts a turn.
 
 **Done when**
 
 - The banner shows connected devices and updates as they connect and drop.
 - The Linked Devices screen lists, renames, and revokes, and walks a new device through linking.
 - The CLI has list, link, rename, and revoke.
+- The phone client and the web client each read the timeline, send, steer, stop, answer an approval, drive agents, view the diff, and use the terminal, over the relay.
+- The shared-ports list adds a port before anything is listening on it, stops sharing one, and gives an address that opens from another device.
+- A back gesture dismisses the topmost surface and never interrupts a running turn.
 - Each surface is exercised against a device driving a session over the relay, not a fixture.
 
 ### Phase 8 — Self-host deployment

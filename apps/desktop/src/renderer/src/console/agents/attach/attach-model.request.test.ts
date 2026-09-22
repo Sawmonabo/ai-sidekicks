@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
 
 import { PROVIDER_AXES } from "../agent-wire.js";
 import { DRIVER_CATALOG_FIXTURE } from "../driver-catalog.test-support.js";
-import { AttachSidekickForm } from "./attach-model.js";
+import { AttachAgentForm } from "./attach-model.js";
 import { ATTACH_FIELDS, type AttachRequest } from "./attach-readiness.js";
 import {
   DEFINITION,
@@ -160,7 +160,7 @@ describe("attach form — the session and the name the registered base requires"
   it("negative control: an unnamed form is incomplete on the inline arm", () => {
     // The pre-fix form reported `ready` here and composed a request carrying
     // neither member, which a conforming daemon refuses.
-    const form = new AttachSidekickForm();
+    const form = new AttachAgentForm();
     form.setField("driverName", "codex", DRIVER_CATALOG_FIXTURE);
     form.setField("modelId", "gpt-5.6", DRIVER_CATALOG_FIXTURE);
     const readiness = form.readiness(SESSION_ID, DRIVER_CATALOG_FIXTURE);
@@ -170,7 +170,7 @@ describe("attach form — the session and the name the registered base requires"
 
   it("negative control: an unnamed form is incomplete on the definition arm too", () => {
     // The same defect on the arm that needs nothing else: the id alone was ready.
-    const form = new AttachSidekickForm();
+    const form = new AttachAgentForm();
     form.selectDefinition(DEFINITION);
     const readiness = form.readiness(SESSION_ID, DRIVER_CATALOG_FIXTURE);
     expect(readiness.status).toBe("incomplete");
@@ -187,7 +187,7 @@ describe("attach form — the session and the name the registered base requires"
     // The definition's name is the DEFINITION's. A form that copied it would be
     // asserting a choice nobody made, and this one is chosen deliberately because
     // the fixture definition carries a name.
-    const form = new AttachSidekickForm();
+    const form = new AttachAgentForm();
     form.selectDefinition(DEFINITION);
     expect(form.name).toBe("");
   });
@@ -311,7 +311,7 @@ describe("attach form — what a dropped entry falls back to", () => {
 
 describe("attach form — notification", () => {
   it("notifies on every edit, so a render sees it", () => {
-    const form = new AttachSidekickForm();
+    const form = new AttachAgentForm();
     let edits = 0;
     const unsubscribe = form.onChange(() => {
       edits += 1;
@@ -325,7 +325,7 @@ describe("attach form — notification", () => {
   });
 
   it("negative control: selecting the arm already selected notifies nobody", () => {
-    const form = new AttachSidekickForm();
+    const form = new AttachAgentForm();
     let edits = 0;
     form.onChange(() => {
       edits += 1;

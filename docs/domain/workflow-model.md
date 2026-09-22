@@ -10,10 +10,10 @@ This document covers `WorkflowDefinition`, `WorkflowVersion`, and `WorkflowRun`,
 
 ## Definitions
 
-- `WorkflowDefinition`: a named, durable definition record that describes a reusable sequence of phases. Scoped to one of the three `WorkflowScope` tiers below.
-- `WorkflowVersion`: an immutable snapshot of a workflow definition's phase structure at a point in time. Editing a definition creates a new version rather than mutating an existing one.
+- `WorkflowDefinition`: a named, durable definition record that holds the node-graph document an author wrote. Scoped to one of the three `WorkflowScope` tiers below.
+- `WorkflowVersion`: an immutable snapshot of a workflow definition's document body at a point in time. Editing a definition creates a new version rather than mutating an existing one.
 - `WorkflowRun`: a single execution instance of a specific workflow version within a session. Each run tracks phase-level execution state independently.
-- `WorkflowScope`: the boundary within which a workflow definition is visible and executable — `session` (the authoring session), `project` (the sessions of one project), or `shared` (the daemon's cross-project tier). Scope identity is carried by a companion `scope_ref` value — the authoring session id at `session`, the canonical repository root at `project`, the empty string at `shared` — and definitions dedupe on `(scope, scope_ref, contentHash)`. Amended 2026-08-10 by the Tier-7 plan-readiness audit per [Spec-015 §Resolved Questions and V1 Scope Decisions](../specs/015-workflow-authoring-and-execution.md#resolved-questions-and-v1-scope-decisions); the pre-amendment `channel` value is struck — it was never specified by Spec-015 and had no defined visibility semantics.
+- `WorkflowScope`: the boundary within which a workflow definition is visible and executable — `session` (the authoring session), `project` (the sessions of one project), or `shared` (the daemon's cross-project tier). Scope identity is carried by a companion `scope_ref` value — the authoring session id at `session`, the canonical repository root at `project`, the empty string at `shared` — and definitions dedupe on `(scope, scope_ref, contentHash)` ([Spec-015 §Resolved Questions and V1 Scope Decisions](../specs/015-workflow-authoring-and-execution.md#resolved-questions-and-v1-scope-decisions)).
 
 ## What This Is
 
@@ -21,7 +21,7 @@ The workflow model is the source of truth for how reusable, multi-phase executio
 
 ## What This Is Not
 
-- A workflow is not a free-form conversation or ad-hoc sequence of runs. It is an authored definition with explicit phase structure.
+- A workflow is not a free-form conversation or ad-hoc sequence of runs. It is an authored document with an explicit node graph.
 - A workflow definition is not an artifact. Definitions are first-class persisted records. Artifact publication may represent derivative exports or summaries but must not be the canonical source of workflow definition truth.
 - A workflow run is not a single run in the run-state-machine sense. A workflow run orchestrates multiple phase executions, each of which may create runs through `OrchestrationRunCreate`.
 - A workflow is not an external workflow engine (Temporal, Restate). Execution uses the existing daemon-local persistence and run primitives per ADR-002.
@@ -38,13 +38,13 @@ The workflow model is the source of truth for how reusable, multi-phase executio
 ## Relationships To Adjacent Concepts
 
 - `Session` is the containing boundary for workflow definitions and runs.
-- `Project` and the daemon-wide `shared` tier are the two broader scope tiers above `session`; a channel is never a workflow scope (the pre-amendment `channel` value is struck per [Spec-015 §Resolved Questions and V1 Scope Decisions](../specs/015-workflow-authoring-and-execution.md#resolved-questions-and-v1-scope-decisions)).
+- `Project` and the daemon-wide `shared` tier are the two broader scope tiers above `session`; a channel is never a workflow scope ([Spec-015 §Resolved Questions and V1 Scope Decisions](../specs/015-workflow-authoring-and-execution.md#resolved-questions-and-v1-scope-decisions)).
 - `WorkflowPhaseState` tracks per-phase execution progress within a workflow run. See [Workflow Phase Model](./workflow-phase-model.md).
 - `Run` (from the run state machine) is the execution primitive used by individual phases. Each phase execution routes through `OrchestrationRunCreate` per Spec-014/015 constraints.
 - `Agent` and `Channel` (from agent-channel-and-run model) provide the execution persona and communication surface for phase work.
 - `Artifact` stores phase outputs with `artifactType: 'workflow_output'`. Artifacts are outputs of runs created during phase execution, not of the workflow run itself.
 - `Approval` primitives from Plan-010 are used by `human-approval` gates within phases.
-- `SessionEvent` timeline captures workflow lifecycle events (`workflow.phase_started`, `workflow.phase_completed`, `workflow.phase_failed`, `workflow.phase_suspended`, `workflow.resumed`, `workflow.cancelled`, `workflow.gate_resolved`). The list is illustrative, not the registry: the authoritative set is the 24 `workflow.*` types across five categories enumerated in [Spec-015 §Workflow Timeline Integration](../specs/015-workflow-authoring-and-execution.md#workflow-timeline-integration).
+- `SessionEvent` timeline captures workflow lifecycle events (`workflow.phase_started`, `workflow.phase_completed`, `workflow.phase_failed`, `workflow.phase_suspended`, `workflow.resumed`, `workflow.cancelled`, `workflow.gate_resolved`). The list is illustrative, not the registry: the authoritative set is the 34 `workflow.*` types across five categories enumerated in [Spec-015 §Workflow Timeline Integration](../specs/015-workflow-authoring-and-execution.md#workflow-timeline-integration).
 
 ## State Model
 
@@ -52,23 +52,26 @@ The workflow model is the source of truth for how reusable, multi-phase executio
 
 | State | Meaning |
 | --- | --- |
-| `pending` | The workflow run has been created but phase execution has not started. |
-| `running` | At least one phase is actively executing or the workflow is advancing between phases. |
-| `suspended` | A phase of the run is parked — awaiting a human, or waiting out a provider usage limit — and the run is neither progressing nor finished. The park's cause, and the resume instant where one was armed, are per-phase state ([Spec-015 §Park integrity and cancellability (SA-42)](../specs/015-workflow-authoring-and-execution.md#park-integrity-and-cancellability-sa-42)). |
-| `completed` | All phases have reached terminal states and the workflow finished successfully. |
-| `failed` | The workflow ended because a phase failed and the configured failure behavior resulted in a stop. |
-| `cancelled` | The workflow was explicitly cancelled by a user or system action, through `workflow.runCancel` ([Spec-015 §Operator run control (SA-45)](../specs/015-workflow-authoring-and-execution.md#operator-run-control-sa-45)). |
+| `new` | The workflow run has been created but no step has started. |
+| `running` | At least one step is executing, or the run is advancing between steps. |
+| `waiting` | A step of the run is parked — awaiting a human, or waiting out a provider usage limit — and the run is neither progressing nor finished. The park's cause, and the resume instant where one was armed, are per-phase state ([Spec-015 §Park integrity and cancellability (SA-42)](../specs/015-workflow-authoring-and-execution.md#park-integrity-and-cancellability-sa-42)). |
+| `succeeded` | Every step reached a terminal state and the run finished successfully. |
+| `failed` | A step failed and the configured failure behavior stopped the run, retries were exhausted, or a set run cap elapsed. |
+| `cancelled` | The workflow run was explicitly cancelled by a user or system action, through `workflow.runCancel` ([Spec-015 §Operator run control (SA-45)](../specs/015-workflow-authoring-and-execution.md#operator-run-control-sa-45)). |
+| `crashed` | The daemon restarted while the run was `new` or `running`, or in a state the sweep does not recognize, so the run was swept to this state on the next start. A run in `waiting` is never swept and is never pruned. |
 
 Allowed transitions:
 
-- `pending -> running` (first phase starts)
-- `running -> completed` (final phase completes successfully and terminal gate resolves)
-- `running -> failed` (phase failure with `stop` behavior, or retry exhaustion)
-- `running -> suspended` (a phase parks awaiting a human or a provider usage-limit reset)
-- `suspended -> running` (resume: operator-requested, or a durable auto-resume schedule firing)
+- `new -> running` (the first step starts)
+- `running -> succeeded` (the final step completes and the terminal gate resolves)
+- `running -> failed` (step failure with `stop` behavior, retry exhaustion, or a set run cap elapsing)
+- `running -> waiting` (a step parks awaiting a human or a provider usage-limit reset)
+- `waiting -> running` (resume: operator-requested, or a durable auto-resume schedule firing)
+- `waiting -> failed` (a set run cap elapses while the run is parked, so it fails there rather than resuming)
 - `running -> cancelled` (explicit cancellation)
-- `suspended -> cancelled` (a parked run is cancellable from every suspended or waiting state, without precondition)
-- `pending -> cancelled` (cancelled before execution begins)
+- `waiting -> cancelled` (a parked run is cancellable from `waiting` without precondition)
+- `new -> cancelled` (cancelled before execution begins)
+- `new -> crashed`, `running -> crashed` (swept on daemon start)
 
 ### Workflow Definition (no state machine)
 
@@ -83,14 +86,14 @@ Versions are immutable once created. There is no version-level state to manage. 
 ```
 WorkflowDefinition (1)
   └── WorkflowVersion (many, immutable)
-        ├── definition_body (canonical body: name, entry, phase-definitions array)
+        ├── definition_body (the canonical document: name, the trigger node, the nodes and the edges)
         └── WorkflowRun (many)
               └── WorkflowPhaseState (one per phase in the version)
 ```
 
 ## Example Flows
 
-- Example: A user authors a workflow `analyze -> plan -> implement -> review`. The system creates a `WorkflowDefinition` with one `WorkflowVersion` containing four phase definitions. Starting the workflow creates a `WorkflowRun` bound to that version with four `WorkflowPhaseState` rows, all initially `pending`.
+- Example: A user authors a workflow `analyze -> plan -> implement -> review`. The system creates a `WorkflowDefinition` with one `WorkflowVersion` containing four phase nodes. Starting the workflow creates a `WorkflowRun` bound to that version with four `WorkflowPhaseState` rows, all initially `pending`.
 - Example: A user edits the workflow to add a `test` phase between `implement` and `review`. The system creates version 2. An already-running instance on version 1 continues with four phases. New runs use version 2 with five phases.
 - Example: A workflow is exported as an artifact for team review. The exported artifact is a derivative view. Later execution still binds to the canonical persisted definition version, not to the artifact copy.
 
@@ -99,7 +102,7 @@ WorkflowDefinition (1)
 - A workflow run may be `cancelled` even if some phases have already `completed`. Completed phase outputs remain addressable, and a cancelled run preserves each parked phase's recorded park reason and cause while clearing its live schedule and attention key.
 - A workflow definition with a single phase is valid. The phase's gate type determines whether the workflow completes immediately (`auto-continue` or `done`) or blocks for approval.
 - A workflow run survives daemon restart or client reconnect. Phase state is persisted in `workflow_phase_states` and is recoverable.
-- If a workflow version's phase definitions reference capabilities unavailable at runtime, the workflow pauses in a blocked state rather than silently skipping phases.
+- If a phase node in a workflow version's document references capabilities unavailable at runtime, the workflow pauses in a blocked state rather than silently skipping phases.
 
 ## Related Specs
 

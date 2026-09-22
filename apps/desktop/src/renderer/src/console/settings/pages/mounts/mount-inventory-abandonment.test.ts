@@ -76,7 +76,7 @@ describe("mount inventory read — the line is abandoned between its own calls",
     const calls: string[] = [];
     const bridge = {
       source: "fixture",
-      sidekicks: {
+      desktopBridge: {
         daemon: {
           call: (method: string): Promise<unknown> => {
             calls.push(method);

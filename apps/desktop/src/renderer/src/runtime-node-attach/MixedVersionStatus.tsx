@@ -83,7 +83,7 @@
 // `AttachFlow.tsx#AttachFlowProps`): this view performs no wire call. The roster
 // entry is read upstream through the GENERIC bridge surface — the registered
 // control-plane-only `runtimenode.roster` query
-// (`window.sidekicks.controlPlane.call(...)`, exactly the sibling NodeRoster's
+// (`window.desktopBridge.controlPlane.call(...)`, exactly the sibling NodeRoster's
 // read) — by the parent, which selects the local node's entry and hands it down.
 // The write-attempt outcome likewise arrives as a prop: no live
 // version-sensitive write path exists in the renderer, so the parent that issues

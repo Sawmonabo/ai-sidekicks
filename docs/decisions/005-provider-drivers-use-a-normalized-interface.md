@@ -25,6 +25,8 @@ Provider capability and recovery behavior are foundational to Local Runtime Daem
 
 We will require every provider integration to implement a normalized driver interface with explicit capability advertisement.
 
+Transcript replay is part of that boundary. A driver either accepts a canonical transcript replayed into a fresh provider session or declares that it cannot and runs on the hand-over brief floor; the `exportTranscript` and `replayTranscript` operations and the `transcript_replay` capability flag are specified in [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md).
+
 ### Thesis — Why This Option
 
 A normalized driver boundary keeps session, run, queue, approval, and artifact semantics provider-agnostic. It also makes recovery and capability-aware control surfaces possible without scattering provider-name branches across the product.
@@ -143,12 +145,3 @@ Leaky abstraction is a manageable risk if the driver contract is intentionally s
 ### Related ADRs
 
 - [Local Execution Shared Control Plane](./002-local-execution-shared-control-plane.md)
-
-## Decision Log
-
-| Date | Event | Notes |
-| --- | --- | --- |
-| 2026-04-14 | Proposed | Initial draft |
-| 2026-04-14 | Re-baselined | Reviewer assignment and acceptance validation remain incomplete |
-| 2026-04-15 | Accepted | ADR accepted |
-| 2026-08-26 | Extended — replay contract added to the driver boundary | [ADR-029](./029-canonical-transcript-is-authoritative.md) rules the daemon's canonical transcript authoritative for the content of a provider session. The normalized interface this ADR established is what makes such a transcript derivable at all; ADR-029 adds one clause to this boundary's price of admission — a driver must accept a canonical transcript replayed into a fresh session, or declare that it cannot and run on the memo projection floor. The `exportTranscript` / `replayTranscript` operations and the `transcript_replay` capability flag land in [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md); the normalized-interface decision itself is unchanged and this ADR stays `accepted`. |

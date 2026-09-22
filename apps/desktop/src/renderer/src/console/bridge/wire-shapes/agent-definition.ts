@@ -1,17 +1,17 @@
-// The saved sidekick configuration the definitions page reads and writes, declared
+// The saved agent configuration the definitions page reads and writes, declared
 // here because no code package carries it.
 //
-// The sidekick-definitions design registers a five-verb `sidekick.*` namespace and
+// The agent-definitions design registers a five-verb `agent.*` namespace and
 // the payload contracts register its shapes; `packages/contracts` carries none of
 // them, and neither does
 // the client SDK. A definitions page whose stored row exists nowhere would have to
 // invent it inside a view family, which is what the growth slate exists to prevent —
 // so the shape is declared here, on the substrate, behind the
-// `sidekick-definition-registry` slate row, and every call to it goes through the
+// `agent-definition-registry` slate row, and every call to it goes through the
 // growth port.
 //
 // DELETION OBLIGATION. When `packages/contracts` registers these types, this module
-// is DELETED and `growth-signatures/sidekicks.ts` imports them from the contracts
+// is DELETED and `growth-signatures/agent-definitions.ts` imports them from the contracts
 // instead. The slate row leaves `growth-slate.ts` and the growth slate in the same
 // PR, and `failure-modes.test.ts` then fails on the port entries
 // that still claim fixture-only — which is the reminder this file wants at that
@@ -25,7 +25,7 @@
 // the other and not both, and the one it dropped is the one an operator needs to
 // clear an account or an effort they had pinned.
 //
-// WHAT IS DELIBERATELY NOT HERE. The `sidekick.peerInvocationSet` pair. It is the
+// WHAT IS DELIBERATELY NOT HERE. The `agent.peerInvocationSet` pair. It is the
 // per-session opt-in rather than a definition, its durable home is a session event
 // rather than this registry, and no surface on this substrate sets it — a shape
 // declared for it now would be minted ahead of its reader. It comes here with the
@@ -46,7 +46,7 @@ export const SIDEKICK_POSTURE_MODES = [
 ] as const;
 
 /** One pinned execution posture. Derived, so the vocabulary has one home. */
-export type SidekickPostureMode = (typeof SIDEKICK_POSTURE_MODES)[number];
+export type AgentPostureMode = (typeof SIDEKICK_POSTURE_MODES)[number];
 
 /**
  * One saved definition, as the registry serves it.
@@ -59,7 +59,7 @@ export type SidekickPostureMode = (typeof SIDEKICK_POSTURE_MODES)[number];
  * `definitionId` is the identity and `name` is the label. They are separate axes on
  * purpose: a rename must not orphan a stored reference, so nothing keys on the name.
  */
-export interface SidekickDefinition {
+export interface AgentDefinition {
   readonly definitionId: string;
   /** Mutable label, unique per node under full Unicode case folding. */
   readonly name: string;
@@ -70,7 +70,7 @@ export interface SidekickDefinition {
   readonly providerAccountId: string | null;
   /** `null` takes the driver's default; validated at resolution, never here. */
   readonly effort: string | null;
-  readonly executionPostureMode: SidekickPostureMode | null;
+  readonly executionPostureMode: AgentPostureMode | null;
   readonly instructions: string;
   readonly goal: string | null;
   /**
@@ -91,14 +91,14 @@ export interface SidekickDefinition {
  * added. Two hand-written axis lists would drift the first time an axis landed on
  * one and not the other, and the compiler would have nothing to say about it.
  */
-export interface SidekickDefinitionDraft {
+export interface AgentDefinitionDraft {
   readonly name: string;
   readonly description?: string;
   readonly driverName: string;
   readonly modelId: string;
   readonly providerAccountId?: string | null;
   readonly effort?: string | null;
-  readonly executionPostureMode?: SidekickPostureMode | null;
+  readonly executionPostureMode?: AgentPostureMode | null;
   readonly instructions?: string;
   readonly goal?: string | null;
   readonly toolAllowlist?: readonly string[] | null;

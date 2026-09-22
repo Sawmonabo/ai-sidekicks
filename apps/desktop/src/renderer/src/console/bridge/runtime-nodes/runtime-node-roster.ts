@@ -14,7 +14,7 @@
 // installed one, and the two are different objects — so the roster was the one
 // settings surface with no reading in a fixture build. Putting the pair on
 // `ConsoleBridge` is what makes a console-owned roster substitutable, and it is why
-// the console's "no `window.sidekicks` outside the bridge" rule can be kept by
+// the console's "no `window.desktopBridge` outside the bridge" rule can be kept by
 // STRUCTURE rather than by a guard that renders an absence.
 //
 // WHAT EACH BRIDGE DOES WITH THE PAIR
@@ -43,7 +43,7 @@
 // the presence set is derived from, the outcome types, and the one refusal constructor
 // every arm goes through — so neither arm can invent a name the other does not know.
 // The two LIVE arms are `runtime-node-roster-transport.ts` beside it, which speak to a
-// real `SidekicksBridge` and carry the two brand casts. The FIXTURE arm
+// real `DesktopBridge` and carry the two brand casts. The FIXTURE arm
 // is `fixture/settings/runtime-node-roster.ts`, one directory over, because that is
 // where a module exists so the fixture can answer — and keeping it here was what gave
 // this directory its only edge into `scenario/runtime/`, for one function.

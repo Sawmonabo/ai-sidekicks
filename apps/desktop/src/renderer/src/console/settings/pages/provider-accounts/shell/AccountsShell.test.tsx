@@ -176,13 +176,13 @@ describe("AccountsShell", () => {
     // stream member is stepped through, which is the shape that is not a reach.
     const refusing: ConsoleBridge = {
       ...bridge,
-      sidekicks: {
-        ...bridge.sidekicks,
+      desktopBridge: {
+        ...bridge.desktopBridge,
         daemon: {
           call: async (): Promise<never> => {
             throw new Error("the registry read could not be put");
           },
-          subscribe: bridge.sidekicks.daemon.subscribe,
+          subscribe: bridge.desktopBridge.daemon.subscribe,
         },
       },
     };

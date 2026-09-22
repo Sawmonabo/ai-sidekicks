@@ -6,14 +6,16 @@ Define the execution semantics of individual workflow phases: how phases run, ho
 
 ## Scope
 
-This document covers `PhaseDefinition` (static), `WorkflowPhaseState` (runtime), gate types, gate states, phase types, and the iteration model. The parent workflow lifecycle is defined in the companion [Workflow Model](./workflow-model.md).
+This document covers the phase nodes of a workflow's authored document (static), `WorkflowPhaseState` (runtime), gate types, gate states, phase types, and the iteration model. The parent workflow lifecycle is defined in the companion [Workflow Model](./workflow-model.md).
 
 ## Definitions
 
-- `PhaseDefinition`: a static configuration within a workflow version that describes one step in the workflow. Identified by a stable `WorkflowPhaseId`.
+- `WorkflowDocument`: the authored body a workflow version snapshots — exactly one trigger node, the rest of the graph as nodes, and the edges between them. Every kind the runtime offers is a node of that document, the four phase types among them, and nothing is compiled into a second shape when the document is saved.
+- Phase node: a node of one of the four phase kinds. It carries the static configuration one step of the workflow runs under — its phase type, its gate type, its failure behavior, its params and its retry bounds — and its executor calls the existing run, approval or form path when the node runs.
 - `WorkflowPhaseState`: the runtime execution record for a specific phase within a specific workflow run. Identified by the combination of `workflow_run_id` and `phase_id`.
+- `WorkflowStep`: the runtime record of one attempt of one node, keyed by the workflow run, the node and the attempt number. One step record exists per node attempt, which is what gives a branching run a faithful account of what happened when.
 - `WorkflowPhaseId`: a definition-side identifier. It names a phase in the template and remains stable across workflow versions that retain the same phase.
-- `PhaseRunId`: an execution-side identifier. It names one execution attempt of a phase (with iteration number, status, timestamps), derived deterministically as `BLAKE3(workflowRunId || phaseDefinitionId || attemptNumber)` — every bit a function of that preimage, none from a clock or entropy source, so replay reproduces the identical sequence. It is **not** a `RunId` from the run state machine and not a ULID: a phase execution _creates_ runs through `OrchestrationRunCreate`, each with its own `RunId`, while the `PhaseRunId` names the phase attempt that created them ([Spec-015 §Deterministic identity (SA-21)](../specs/015-workflow-authoring-and-execution.md#deterministic-identity-sa-21), clarified 2026-08-10 by the Tier-7 plan-readiness audit; the digest's concrete text rendering is open per [Spec-015 §Open Questions](../specs/015-workflow-authoring-and-execution.md#open-questions)).
+- `PhaseRunId`: an execution-side identifier. It names one execution attempt of a phase (with iteration number, status, timestamps), derived deterministically as `BLAKE3(workflowRunId || nodeId || attemptNumber)` — every bit a function of that preimage, none from a clock or entropy source, so replay reproduces the identical sequence. It is **not** a `RunId` from the run state machine and not a ULID: a phase execution _creates_ runs through `OrchestrationRunCreate`, each with its own `RunId`, while the `PhaseRunId` names the phase attempt that created them ([Spec-015 §Deterministic identity (SA-21)](../specs/015-workflow-authoring-and-execution.md#deterministic-identity-sa-21); the digest's concrete text rendering is open per [Spec-015 §Open Questions](../specs/015-workflow-authoring-and-execution.md#open-questions)).
 - `Gate`: a checkpoint between phases that must resolve before the next phase can start.
 - `GateState`: the runtime state of a phase's gate (`closed`, `open`, `bypassed`).
 - `FailureBehavior`: the configured response when a phase or its gate check fails (`retry`, `go-back-to`, `stop`).
@@ -31,7 +33,7 @@ The workflow phase model is the source of truth for how individual steps within 
 
 ## Phase Types
 
-V1 ships all four phase types per the 2026-04-22 BL-097 / ADR-015 full-engine amendment ([Spec-015 §Phase-Type and Gate-Type Taxonomy](../specs/015-workflow-authoring-and-execution.md#phase-type-and-gate-type-taxonomy); this table previously deferred `multi-agent` and `human` to V1.1, a claim the amendment reversed):
+V1 ships all four phase types ([Spec-015 §Phase-Type and Gate-Type Taxonomy](../specs/015-workflow-authoring-and-execution.md#phase-type-and-gate-type-taxonomy)):
 
 | Type | Description |
 | --- | --- |
@@ -86,7 +88,7 @@ Gate resolution results (event-level, not persisted as gate state):
 
 ## Iteration Model
 
-Retry configuration lives in the `PhaseDefinition` within the phase-definitions array of the `definition_body` JSON on `workflow_versions`. There is no dedicated retry-count column in the schema; iteration tracking is through session events (`workflow.phase_started` with iteration metadata).
+Retry configuration lives on the node itself, inside the document body stored on `workflow_versions`. There is no dedicated retry-count column in the schema; iteration tracking is through session events (`workflow.phase_started` with iteration metadata).
 
 - **Retry target**: the phase that produced the output, or a specific earlier phase (configured per gate via `go-back-to`).
 - **Max retries**: configurable per gate. Default: 3.
@@ -110,13 +112,14 @@ When retries are exhausted (iteration count exceeds `max_retries`), the phase tr
 ## Relationships To Adjacent Concepts
 
 - `WorkflowRun` (from workflow model) is the parent container. Each workflow run has one `WorkflowPhaseState` per phase in its version.
-- `PhaseDefinition` (from workflow version) provides the static configuration: phase type, gate type, failure behavior, and optional config.
+- The phase node in the version's document provides the static configuration: phase type, gate type, failure behavior, and optional config.
+- A node in the version's document is what a run executes, and one `WorkflowStep` record exists per node attempt — a projection over the events the run, approval and form pipelines already emit. The four phase kinds are nodes like any other, and it is their attempts that the `WorkflowPhaseState` rows, phase outputs and gate resolutions of this model record. The trigger node never enters the phase sequence, never receives a `PhaseRunId` and never produces a phase-state row.
 - `Run` (from run state machine) is the execution primitive. Each phase iteration creates at least one run.
-- `Agent` executes `single-agent` phases. The agent is configured in the phase definition's `config`.
+- `Agent` executes `single-agent` phases. The agent is configured in the phase node's own params.
 - `Channel` receives phase output. Each phase defaults to one primary target channel.
 - `Artifact` stores phase outputs with `artifactType: 'workflow_output'`. Each phase produces `{artifacts: ArtifactId[], summary: string, metadata: Record<string, unknown>}`.
 - `Approval` (from Plan-010) is used by `human-approval` gates. The approval request uses `category: 'gate'`.
-- `SessionEvent` timeline captures phase events: `workflow.phase_started`, `workflow.phase_completed`, `workflow.phase_failed`, `workflow.phase_suspended`, `workflow.gate_resolved`. The list is illustrative, not the registry: the authoritative set is the 24 `workflow.*` types across five categories enumerated in [Spec-015 §Workflow Timeline Integration](../specs/015-workflow-authoring-and-execution.md#workflow-timeline-integration).
+- `SessionEvent` timeline captures phase events: `workflow.phase_started`, `workflow.phase_completed`, `workflow.phase_failed`, `workflow.phase_suspended`, `workflow.gate_resolved`. The list is illustrative, not the registry: the authoritative set is the 34 `workflow.*` types across five categories enumerated in [Spec-015 §Workflow Timeline Integration](../specs/015-workflow-authoring-and-execution.md#workflow-timeline-integration).
 
 ## Example Flows
 

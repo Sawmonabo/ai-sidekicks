@@ -24,7 +24,7 @@ import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-suppo
 import { unhandledRejectionsDuring } from "../../core/unhandled-rejection.test-support.js";
 import { describe, expect, it } from "vitest";
 
-import { SidekicksBridgeProvider, type ConsoleBridge } from "../../bridge/index.js";
+import { DesktopBridgeProvider, type ConsoleBridge } from "../../bridge/index.js";
 import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
 import { DrivenGrowthStream } from "../../bridge/growth-port/driven-growth-stream.test-support.js";
 import type { GrowthStream } from "../../bridge/growth-port/growth-outcome.js";
@@ -83,9 +83,9 @@ describe("useShellStateBinding", () => {
     const stream = new DrivenGrowthStream<ShellReport>();
     const store = new FrameStore({ initialRoute: { kind: "sessions" } });
     const { container } = render(
-      <SidekicksBridgeProvider bridge={bridgeServing(stream)}>
+      <DesktopBridgeProvider bridge={bridgeServing(stream)}>
         <Harness store={store} registry={emptyRegistry()} />
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
     await act(async () => {
       stream.emit({ ...CONNECTED_SHELL_REPORT, transport: "loopback" });
@@ -101,9 +101,9 @@ describe("useShellStateBinding", () => {
     const stream = new DrivenGrowthStream<ShellReport>();
     const store = new FrameStore({ initialRoute: { kind: "sessions" } });
     render(
-      <SidekicksBridgeProvider bridge={bridgeServing(stream)}>
+      <DesktopBridgeProvider bridge={bridgeServing(stream)}>
         <Harness store={store} registry={emptyRegistry()} />
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
     await act(async () => {
       stream.emit(CONNECTED_SHELL_REPORT);
@@ -128,9 +128,9 @@ describe("useShellStateBinding", () => {
     const store = new FrameStore({ initialRoute: { kind: "sessions" } });
     const escaped = await unhandledRejectionsDuring(async () => {
       render(
-        <SidekicksBridgeProvider bridge={bridgeServing(stream)}>
+        <DesktopBridgeProvider bridge={bridgeServing(stream)}>
           <Harness store={store} registry={emptyRegistry()} />
-        </SidekicksBridgeProvider>,
+        </DesktopBridgeProvider>,
       );
       await act(async () => {
         stream.emit(CONNECTED_SHELL_REPORT);
@@ -161,9 +161,9 @@ describe("useShellStateBinding", () => {
     const store = new FrameStore({ initialRoute: { kind: "sessions" } });
     const registry = emptyRegistry();
     const { rerender } = render(
-      <SidekicksBridgeProvider bridge={bridgeServing(stream)}>
+      <DesktopBridgeProvider bridge={bridgeServing(stream)}>
         <Harness store={store} registry={registry} />
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
     await act(async () => {
       stream.emit(CONNECTED_SHELL_REPORT);
@@ -176,9 +176,9 @@ describe("useShellStateBinding", () => {
     const escaped = await unhandledRejectionsDuring(async () => {
       await act(async () => {
         rerender(
-          <SidekicksBridgeProvider bridge={bridgeFailingToSubscribe()}>
+          <DesktopBridgeProvider bridge={bridgeFailingToSubscribe()}>
             <Harness store={store} registry={registry} />
-          </SidekicksBridgeProvider>,
+          </DesktopBridgeProvider>,
         );
         await crossMacrotaskBoundary();
       });
@@ -194,9 +194,9 @@ describe("useShellStateBinding", () => {
     const stream = new DrivenGrowthStream<ShellReport>();
     const store = new FrameStore({ initialRoute: { kind: "sessions" } });
     render(
-      <SidekicksBridgeProvider bridge={bridgeServing(stream)}>
+      <DesktopBridgeProvider bridge={bridgeServing(stream)}>
         <Harness store={store} registry={emptyRegistry()} />
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
     await act(async () => {
       stream.emit(CONNECTED_SHELL_REPORT);
@@ -216,9 +216,9 @@ describe("useShellStateBinding", () => {
     const store = new FrameStore({ initialRoute: { kind: "sessions" } });
     const registry = emptyRegistry();
     const { rerender } = render(
-      <SidekicksBridgeProvider bridge={bridgeServing(stream)}>
+      <DesktopBridgeProvider bridge={bridgeServing(stream)}>
         <Harness store={store} registry={registry} />
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
     await act(async () => {
       stream.emit(CONNECTED_SHELL_REPORT);
@@ -230,9 +230,9 @@ describe("useShellStateBinding", () => {
 
     await act(async () => {
       rerender(
-        <SidekicksBridgeProvider bridge={refusingBridge()}>
+        <DesktopBridgeProvider bridge={refusingBridge()}>
           <Harness store={store} registry={registry} />
-        </SidekicksBridgeProvider>,
+        </DesktopBridgeProvider>,
       );
       await crossMacrotaskBoundary();
     });
@@ -248,9 +248,9 @@ describe("useShellStateBinding", () => {
     const store = new FrameStore({ initialRoute: { kind: "sessions" } });
     const registry = emptyRegistry();
     const { rerender } = render(
-      <SidekicksBridgeProvider bridge={bridgeServing(first)}>
+      <DesktopBridgeProvider bridge={bridgeServing(first)}>
         <Harness store={store} registry={registry} />
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
     await act(async () => {
       first.emit(CONNECTED_SHELL_REPORT);
@@ -259,9 +259,9 @@ describe("useShellStateBinding", () => {
 
     await act(async () => {
       rerender(
-        <SidekicksBridgeProvider bridge={bridgeServing(second)}>
+        <DesktopBridgeProvider bridge={bridgeServing(second)}>
           <Harness store={store} registry={registry} />
-        </SidekicksBridgeProvider>,
+        </DesktopBridgeProvider>,
       );
       await crossMacrotaskBoundary();
     });
@@ -283,15 +283,15 @@ describe("useShellStateBinding", () => {
     const store = new FrameStore({ initialRoute: { kind: "sessions" } });
     const registry = emptyRegistry();
     const { rerender } = render(
-      <SidekicksBridgeProvider bridge={bridgeServing(retired)}>
+      <DesktopBridgeProvider bridge={bridgeServing(retired)}>
         <Harness store={store} registry={registry} />
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
     act(() => {
       rerender(
-        <SidekicksBridgeProvider bridge={bridgeServing(new DrivenGrowthStream<ShellReport>())}>
+        <DesktopBridgeProvider bridge={bridgeServing(new DrivenGrowthStream<ShellReport>())}>
           <Harness store={store} registry={registry} />
-        </SidekicksBridgeProvider>,
+        </DesktopBridgeProvider>,
       );
     });
     await act(async () => {
@@ -310,9 +310,9 @@ describe("useShellStateBinding", () => {
   it("leaves the window unreported where the port refuses", async () => {
     const store = new FrameStore({ initialRoute: { kind: "sessions" } });
     const { container } = render(
-      <SidekicksBridgeProvider bridge={refusingBridge()}>
+      <DesktopBridgeProvider bridge={refusingBridge()}>
         <Harness store={store} registry={emptyRegistry()} />
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
     await act(async () => {
       await crossMacrotaskBoundary();

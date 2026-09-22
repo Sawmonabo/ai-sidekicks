@@ -1,4 +1,4 @@
-// The fixture bridge: a real `SidekicksBridge` backed by a scripted scenario.
+// The fixture bridge: a real `DesktopBridge` backed by a scripted scenario.
 //
 // WHAT PUTS A MODULE HERE. A module that exists so the fixture can ANSWER — the
 // bridge object itself, its two doors (the call door and the subscription door), the

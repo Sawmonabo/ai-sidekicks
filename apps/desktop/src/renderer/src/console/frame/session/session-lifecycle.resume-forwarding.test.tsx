@@ -19,11 +19,7 @@ import { describe, expect, it } from "vitest";
 import type { ReactNode } from "react";
 
 import { createFixture } from "../../bridge/fixture/call-plane/bridge.test-support.js";
-import {
-  SidekicksBridgeProvider,
-  type ConsoleBridge,
-  type GrowthPort,
-} from "../../bridge/index.js";
+import { DesktopBridgeProvider, type ConsoleBridge, type GrowthPort } from "../../bridge/index.js";
 import { REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { type SessionStoreRegistry } from "../../store/index.js";
 import {
@@ -107,7 +103,7 @@ function providerFor(
   bridge: ConsoleBridge,
 ): (props: { readonly children: ReactNode }) => React.JSX.Element {
   return function RecordingBridgeHost(props: { readonly children: ReactNode }): React.JSX.Element {
-    return <SidekicksBridgeProvider bridge={bridge}>{props.children}</SidekicksBridgeProvider>;
+    return <DesktopBridgeProvider bridge={bridge}>{props.children}</DesktopBridgeProvider>;
   };
 }
 

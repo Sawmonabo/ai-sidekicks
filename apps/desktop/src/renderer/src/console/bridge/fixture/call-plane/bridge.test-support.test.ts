@@ -210,7 +210,7 @@ describe("fixtureBridgeWithGrowth — a scripted port over a real bridge", () =>
       [SCRIPTED_OPERATION]: growthServing(SERVED_BRANCH_CONTEXT),
     });
 
-    expect(bridge.sidekicks).toBeDefined();
-    expect(typeof bridge.sidekicks.daemon.call).toBe("function");
+    expect(bridge.desktopBridge).toBeDefined();
+    expect(typeof bridge.desktopBridge.daemon.call).toBe("function");
   });
 });

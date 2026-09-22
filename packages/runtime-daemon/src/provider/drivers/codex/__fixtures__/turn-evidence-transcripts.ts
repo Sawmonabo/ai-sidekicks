@@ -1,6 +1,6 @@
 // GOLDEN VECTOR - Codex turn-evidence `turn/completed` payloads.
 //
-//   Source doc: docs/reference/provider-wire/codex.md Section:
+//   Source: the pinned Codex wire census, section:
 //                     transport
 //   Pin             : codex-cli 0.150.1
 //   Provenance      : Binary probe for the two RECORDED vectors below - a

@@ -19,7 +19,7 @@
 // WHAT AN OPEN ACTUALLY PROVES, STATED RATHER THAN ASSUMED. `daemon.subscribe` answers
 // with an unsubscribe handle or throws, and that is the whole of what the preload
 // contract offers: the handler is a payload sink with no error, end, or close arm, and
-// no member of `SidekicksBridge` reports connection state. So an open that RETURNED is
+// no member of `DesktopBridge` reports connection state. So an open that RETURNED is
 // direct evidence the wire is there, and an open that THREW is direct evidence it is
 // not. Neither is an inference from an unrelated failure, which
 // `transport-reconnect.ts` refuses and this module does not do: nothing here probes,

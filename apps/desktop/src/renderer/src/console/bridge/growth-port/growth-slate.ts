@@ -110,7 +110,7 @@ const GROWTH_SLATE_ROWS_BY_ID: {
   "agent-snapshot-axes": {
     id: "agent-snapshot-axes",
     wire: "the four `agent.*` verbs (roster read, attach, configuration update, detach) and the agent-list projection of the four attach-time snapshot axes (optional members)",
-    owningDocument: "the sidekick-definitions design and the orchestration design",
+    owningDocument: "the agent-definitions design and the orchestration design",
     wireRegistered: false,
   },
   // The linkage read is its own row rather than a member of the agent row above,
@@ -153,7 +153,7 @@ const GROWTH_SLATE_ROWS_BY_ID: {
   // WHERE THE PANE'S SAVE GOES, AND WHY IT IS NOT A ROW HERE. An artifact read hands
   // back bytes, and the pane has to be able to put them somewhere — so the question is
   // whether that producer is missing too. It is not: `native.showSaveDialog` is on the
-  // `SidekicksBridge` contract in `packages/contracts/src/desktop-bridge.ts` beside the
+  // `DesktopBridge` contract in `packages/contracts/src/desktop-bridge.ts` beside the
   // rest of the `native` namespace, and both bridges refuse it as an absent CAPABILITY
   // rather than an unregistered wire. A row here would be the wrong record of that —
   // this table's rows are wires no document registers, and adding one for a method the
@@ -278,11 +278,11 @@ const GROWTH_SLATE_ROWS_BY_ID: {
       "the provider driver design (the session callback-tool registry) and its contract (the SessionCallbackTool shape and the client-facing driver namespace a read verb would join)",
     wireRegistered: false,
   },
-  "sidekick-definition-registry": {
-    id: "sidekick-definition-registry",
-    wire: "all five sidekick method strings — the definition list, create, update, and delete, plus the per-session peer-invocation grant — with the saved-definition shape and the five definition-plane refusal codes they carry",
+  "agent-definition-registry": {
+    id: "agent-definition-registry",
+    wire: "all five agent-definition method strings — the definition list, create, update, and delete, plus the per-session peer-invocation grant — with the saved-definition shape and the five definition-plane refusal codes they carry",
     owningDocument:
-      "the sidekick-definitions design and its API and transport changes (the shapes are registered in the payload contracts and the codes in the error contracts, and no code package carries either)",
+      "the agent-definitions design and its API and transport changes (the shapes are registered in the payload contracts and the codes in the error contracts, and no code package carries either)",
     wireRegistered: false,
   },
   "hydrated-event-read": {

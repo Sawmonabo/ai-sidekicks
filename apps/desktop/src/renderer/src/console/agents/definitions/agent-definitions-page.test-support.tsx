@@ -1,4 +1,4 @@
-// What a test of the sidekicks page needs before it can assert anything.
+// What a test of the agent definitions page needs before it can assert anything.
 //
 // Extracted rather than repeated, and extracted rather than left in one file: the
 // page has six properties worth asserting and the scaffolding for them — a registry
@@ -20,17 +20,17 @@ import { settleScheduledRead } from "../../bridge/readings/scheduled-read.test-s
 import { LIVE_ANNOUNCEMENT_HOLD_MS, ManualClock } from "../../core/index.js";
 import { settle as settleReactWork } from "../../core/settle.test-support.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
-import { SidekickDefinitionsPage } from "./SidekickDefinitionsPage.js";
-import type { SidekickDefinitionRecord } from "./definition-rows.js";
+import { AgentDefinitionsPage } from "./AgentDefinitionsPage.js";
+import type { AgentDefinitionRecord } from "./definition-rows.js";
 
 type FixtureScenario = Parameters<typeof createFixtureBridge>[0]["scenario"];
-type ListOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["sidekickDefinitionList"]>>;
-type DeleteOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["sidekickDefinitionDelete"]>>;
+type ListOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["agentDefinitionList"]>>;
+type DeleteOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["agentDefinitionDelete"]>>;
 
 const EMPTY_SCENARIO: FixtureScenario = {
   id: "agents-definitions-test",
   label: "Sidekick definitions, with nothing scripted",
-  purpose: "Drives the sidekicks page against a registry whose replies this file supplies.",
+  purpose: "Drives the agent definitions page against a registry whose replies this file supplies.",
   sessionId: "session-agents",
   userIdsInJoinOrder: [],
   beats: [],
@@ -96,12 +96,12 @@ export class RegistryStub {
       ...fixture,
       growth: {
         ...fixture.growth,
-        sidekickDefinitionList: async () => {
+        agentDefinitionList: async () => {
           const index = Math.min(this.#listCallCount, this.#lists.length - 1);
           this.#listCallCount += 1;
           return await Promise.resolve(this.#lists[index] as ListOutcome);
         },
-        sidekickDefinitionDelete: async (request: { readonly definitionId: string }) => {
+        agentDefinitionDelete: async (request: { readonly definitionId: string }) => {
           this.#deletedIds = [...this.#deletedIds, request.definitionId];
           if (!this.#holdsDeletes) {
             return await Promise.resolve(this.#deleteOutcome);
@@ -124,9 +124,7 @@ export class RegistryStub {
   }
 }
 
-export function definition(
-  overrides: Partial<SidekickDefinitionRecord> = {},
-): SidekickDefinitionRecord {
+export function definition(overrides: Partial<AgentDefinitionRecord> = {}): AgentDefinitionRecord {
   return {
     definitionId: "definition-1",
     name: "Reviewer",
@@ -145,7 +143,7 @@ export function definition(
   };
 }
 
-export function served(definitions: readonly SidekickDefinitionRecord[]): ListOutcome {
+export function served(definitions: readonly AgentDefinitionRecord[]): ListOutcome {
   return { status: "served", value: definitions };
 }
 
@@ -169,7 +167,7 @@ export function renderPage(
   const clock = new ManualClock();
   const { container } = render(
     <LiveAnnouncerProvider clock={clock}>
-      <SidekickDefinitionsPage bridge={bridge} retainedSessionId={retainedSessionId} />
+      <AgentDefinitionsPage bridge={bridge} retainedSessionId={retainedSessionId} />
     </LiveAnnouncerProvider>,
   );
   return { container, clock };

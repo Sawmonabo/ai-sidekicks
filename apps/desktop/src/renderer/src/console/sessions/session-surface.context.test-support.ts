@@ -194,7 +194,7 @@ export function contextWith(options: {
       // The one member of the shipped bridge this destination calls. Recorded rather
       // than stubbed silently, so a case can assert that a banner was raised — and,
       // more often, that one was not.
-      sidekicks: {
+      desktopBridge: {
         native: {
           showNotification: (notificationOptions: unknown) => {
             options.emittedNotifications?.push(notificationOptions);

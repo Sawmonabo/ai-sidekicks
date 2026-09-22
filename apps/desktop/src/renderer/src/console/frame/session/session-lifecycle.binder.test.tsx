@@ -14,7 +14,7 @@ import { createStubBridge } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { SidekicksBridgeProvider, createFixtureBridge } from "../../bridge/index.js";
+import { DesktopBridgeProvider, createFixtureBridge } from "../../bridge/index.js";
 import { createLiveBridge } from "../../bridge/live-bridge.js";
 import { FLAGSHIP_SCENARIO } from "../../bridge/scenario/flagship/flagship.js";
 import { SessionStoreRegistry } from "../../store/index.js";
@@ -81,14 +81,14 @@ describe("useSessionStoreRegistry — the window's registry and the binder that 
     const observed: Observation[] = [];
     const bridge = createLiveBridge(createStubBridge());
     render(
-      <SidekicksBridgeProvider bridge={bridge}>
+      <DesktopBridgeProvider bridge={bridge}>
         <SessionProbe
           sessionId="session-unreadable"
           onObserve={(observation) => {
             observed.push(observation);
           }}
         />
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
 
     const { registry } = lastObservation(observed);

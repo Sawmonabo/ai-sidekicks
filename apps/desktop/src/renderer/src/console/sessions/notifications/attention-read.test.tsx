@@ -15,7 +15,7 @@ import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-suppo
 import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { SidekicksBridgeProvider } from "../../bridge/index.js";
+import { DesktopBridgeProvider } from "../../bridge/index.js";
 import type { AttentionProjectionReader } from "./attention-projection-read.js";
 import {
   AttentionProbe,
@@ -68,9 +68,9 @@ describe("the attention read — a session change is what re-reads it", () => {
     const second = bridgeOnFrozenTime();
     await act(async () => {
       view.rerender(
-        <SidekicksBridgeProvider bridge={second.bridge}>
+        <DesktopBridgeProvider bridge={second.bridge}>
           <AttentionProbe read={read} registry={registry} />
-        </SidekicksBridgeProvider>,
+        </DesktopBridgeProvider>,
       );
       await crossMacrotaskBoundary();
     });
@@ -92,9 +92,9 @@ describe("the attention read — a session change is what re-reads it", () => {
 
     await act(async () => {
       view.rerender(
-        <SidekicksBridgeProvider bridge={bridge}>
+        <DesktopBridgeProvider bridge={bridge}>
           <AttentionProbe read={read} registry={registry} />
-        </SidekicksBridgeProvider>,
+        </DesktopBridgeProvider>,
       );
       await crossMacrotaskBoundary();
     });

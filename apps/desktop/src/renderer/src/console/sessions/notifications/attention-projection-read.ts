@@ -9,7 +9,7 @@
 // `attention.projectionRead` is a daemon JSON-RPC method the corpus registers in
 // its own method-name registry, and `AttentionItem` is a shape that registry
 // fixes. Neither has landed in `packages/contracts`: nothing there exports an
-// attention type, no `SidekicksBridge` namespace names one, and the growth port
+// attention type, no `DesktopBridge` namespace names one, and the growth port
 // carries no attention operation on any slate row. A console that composed the
 // method string anyway would be wiring a surface live against an unregistered
 // wire, which the console growth slate makes a review rejection.

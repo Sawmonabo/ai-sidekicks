@@ -4,7 +4,7 @@
 // scenario read. That left the two functions that touch a real transport — the
 // control-plane read and the presence subscription — with no test at all, and those
 // are the two that turn a rejection into something a person reads. So this file
-// drives both against a scripted `SidekicksBridge`, and every case is about a way
+// drives both against a scripted `DesktopBridge`, and every case is about a way
 // the seam could look right and be wrong:
 //
 //   • **A refusal renders the REFUSER's code.** A `JsonRpcRemoteError` carries the
@@ -27,7 +27,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createStubBridge,
   type SessionId,
-  type SidekicksBridge,
+  type DesktopBridge,
   type Unsubscribe,
 } from "@ai-sidekicks/contracts";
 
@@ -58,7 +58,7 @@ const RETRY_AFTER_SECONDS = 30;
  * with a shape it did not choose. `createStubBridge` supplies the rest of the
  * surface, so the stand-in is the shape the preload really installs.
  */
-function bridgeRejectingWith(rejection: unknown): SidekicksBridge {
+function bridgeRejectingWith(rejection: unknown): DesktopBridge {
   const base = createStubBridge();
   return {
     ...base,
@@ -68,16 +68,16 @@ function bridgeRejectingWith(rejection: unknown): SidekicksBridge {
         throw rejection;
       },
     },
-  } as unknown as SidekicksBridge;
+  } as unknown as DesktopBridge;
 }
 
 /** A control plane that resolves the supplied value, unparsed by the stand-in. */
-function bridgeServing(reply: unknown): SidekicksBridge {
+function bridgeServing(reply: unknown): DesktopBridge {
   const base = createStubBridge();
   return {
     ...base,
     controlPlane: { ...base.controlPlane, call: async (): Promise<unknown> => reply },
-  } as unknown as SidekicksBridge;
+  } as unknown as DesktopBridge;
 }
 
 /** The refusal, or a failure naming what the read answered instead. */
@@ -199,7 +199,7 @@ function bridgeSubscribing(options: {
   readonly refuseEventName?: string | undefined;
   readonly rejection?: unknown;
 }): {
-  readonly bridge: SidekicksBridge;
+  readonly bridge: DesktopBridge;
   readonly taken: string[];
   readonly released: string[];
   readonly handlersByEventName: Map<string, (payload: unknown) => void>;
@@ -223,7 +223,7 @@ function bridgeSubscribing(options: {
         };
       },
     },
-  } as unknown as SidekicksBridge;
+  } as unknown as DesktopBridge;
   return { bridge, taken, released, handlersByEventName };
 }
 

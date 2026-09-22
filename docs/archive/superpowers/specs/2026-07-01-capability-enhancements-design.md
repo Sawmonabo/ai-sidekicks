@@ -4,7 +4,7 @@
 | ---------------- | -------------------------------------------------------------------- |
 | Status           | approved                                                             |
 | Drafted          | 2026-07-01                                                           |
-| Owner            | user (a.sawmon@gmail.com)                                            |
+| Owner            | user                                                                 |
 | Implementer      | Claude Fable 5                                                       |
 | Brainstormed via | `superpowers:brainstorming` skill (terminal step is `writing-plans`) |
 

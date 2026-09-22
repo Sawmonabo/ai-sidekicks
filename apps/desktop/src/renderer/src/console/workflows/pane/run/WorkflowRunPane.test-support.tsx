@@ -31,7 +31,7 @@
 import { render } from "@testing-library/react";
 import { vi } from "vitest";
 
-import { SidekicksBridgeProvider } from "../../../bridge/BridgeProvider.js";
+import { DesktopBridgeProvider } from "../../../bridge/BridgeProvider.js";
 import {
   createFixtureBridge,
   type ConsoleBridge,
@@ -167,9 +167,9 @@ export function silentBridge(): ConsoleBridge {
  */
 export function paneInWindow(context: PaneContextOf<"workflow-run">): React.JSX.Element {
   return (
-    <SidekicksBridgeProvider bridge={context.bridge}>
+    <DesktopBridgeProvider bridge={context.bridge}>
       <WorkflowRunPane context={context} />
-    </SidekicksBridgeProvider>
+    </DesktopBridgeProvider>
   );
 }
 

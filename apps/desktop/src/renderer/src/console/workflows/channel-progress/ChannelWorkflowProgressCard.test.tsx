@@ -17,7 +17,7 @@
 import { act, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { SidekicksBridgeProvider } from "../../bridge/BridgeProvider.js";
+import { DesktopBridgeProvider } from "../../bridge/BridgeProvider.js";
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { WORKFLOWS_SCENARIO } from "../../bridge/scenario/workflows/workflows.js";
 import { PAST_REFRESH_DEBOUNCE_MS, settle } from "../../core/settle.test-support.js";
@@ -36,13 +36,13 @@ interface MountedCard {
 function renderCard(channelId: string | undefined, openPane?: ConsolePaneOpener): MountedCard {
   const bridge = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
   const { container } = render(
-    <SidekicksBridgeProvider bridge={bridge}>
+    <DesktopBridgeProvider bridge={bridge}>
       <ChannelWorkflowProgressCard
         sessionId={WORKFLOWS_SESSION_ID}
         channelId={channelId}
         openPane={openPane}
       />
-    </SidekicksBridgeProvider>,
+    </DesktopBridgeProvider>,
   );
   return { container, bridge };
 }

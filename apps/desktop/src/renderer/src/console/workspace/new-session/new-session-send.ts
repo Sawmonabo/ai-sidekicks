@@ -145,14 +145,14 @@ export async function sendNewSessionDraft(
   for (const agent of request.agents) {
     if (request.alreadyAttachedDefinitionIds.has(agent.definitionId)) {
       // Named as completed even though this press did not issue it, on the create
-      // leg's rule: the slot says what EXISTS, and a sidekick put on the session by
+      // leg's rule: the slot says what EXISTS, and an agent put on the session by
       // the previous press is as much on it as one put there by this one.
       completedCalls.push(AGENT_ATTACH_METHOD);
       continue;
     }
     // Sequential and not `Promise.all`: the daemon stamps an agent's snapshot axes at
     // attach, and a partial batch reported as one rejection would leave the draft
-    // unable to say WHICH sidekicks are on the session — which is the fact a person
+    // unable to say WHICH agents are on the session — which is the fact a person
     // needs before deciding whether to press again.
     const answer = await settledGrowthCall("agentAttach", async () =>
       request.bridge.growth.agentAttach({

@@ -5,7 +5,7 @@
 // asserts the security-hardening runtime invariants:
 //
 //   1. The main window's renderer document loads within 5 seconds.
-//   2. `window.sidekicks` is defined (the preload bridge actually registered
+//   2. `window.desktopBridge` is defined (the preload bridge actually registered
 //      on the renderer surface — i.e., the `contextBridge.exposeInMainWorld`
 //      call ran).
 //   3. `window.require` is `undefined` (the `nodeIntegration: false` +
@@ -100,7 +100,7 @@
 //                              `false` and Rollup eliminates the branch
 //                              as dead code. The security-hardening
 //                              runtime invariants
-//                              (sidekicks defined; require / process /
+//                              (desktopBridge defined; require / process /
 //                              global all undefined) hold identically in
 //                              both modes — the smoke probe just adds
 //                              the readout machinery on top of the same
@@ -217,12 +217,12 @@ describe("desktop shell substrate boot", () => {
       expect(probe.ok).toBe(true);
       expect(probe.windowMs).toBeLessThanOrEqual(WINDOW_BUDGET_MS);
 
-      // Invariant 2: `window.sidekicks` is defined on the renderer.
+      // Invariant 2: `window.desktopBridge` is defined on the renderer.
       // Per the preload (`apps/desktop/src/preload/index.ts` line 32),
-      // `contextBridge.exposeInMainWorld("sidekicks", createStubBridge())`
+      // `contextBridge.exposeInMainWorld("desktopBridge", createStubBridge())`
       // runs on every preload load. If `contextIsolation`, `sandbox`, or
       // the preload path is misconfigured, this would be `"undefined"`.
-      expect(probe.probe.sidekicks).toBe("object");
+      expect(probe.probe.desktopBridge).toBe("object");
 
       // Invariant 3: `window.require` is `undefined` — i.e., no Node API
       // leak into the renderer. A renderer attempt to reach `require`,

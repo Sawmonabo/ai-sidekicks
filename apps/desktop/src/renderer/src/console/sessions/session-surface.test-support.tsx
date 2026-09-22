@@ -22,7 +22,7 @@ import {
 } from "../core/settle.test-support.js";
 import { LiveAnnouncer, LiveAnnouncerProvider } from "../primitives/index.js";
 import { politeText } from "../primitives/announce/live-region.test-support.js";
-import { SidekicksBridgeProvider } from "../bridge/index.js";
+import { DesktopBridgeProvider } from "../bridge/index.js";
 import { SessionAttentionBinding } from "./SessionAttentionBinding.js";
 import { SessionsSurface } from "./SessionsSurface.js";
 import type { ConsoleSurfaceContext, NewSessionControlComponent } from "../seats/index.js";
@@ -108,7 +108,7 @@ export function renderSurface(
 } {
   const announcer = new LiveAnnouncer({ clock: new ManualClock() });
   const mounted = render(
-    <SidekicksBridgeProvider bridge={context.bridge}>
+    <DesktopBridgeProvider bridge={context.bridge}>
       <LiveAnnouncerProvider announcer={announcer}>
         {/*
           The window's attention binding, mounted the way the frame mounts it. It is
@@ -130,7 +130,7 @@ export function renderSurface(
           />
         </SessionAttentionBinding>
       </LiveAnnouncerProvider>
-    </SidekicksBridgeProvider>,
+    </DesktopBridgeProvider>,
   ).container;
   const surfaceRoot = mounted.querySelector<HTMLElement>("section.meridian-sessions");
   if (surfaceRoot === null) {

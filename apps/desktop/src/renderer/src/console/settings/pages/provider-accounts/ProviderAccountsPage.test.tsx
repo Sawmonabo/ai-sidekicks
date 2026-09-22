@@ -36,7 +36,7 @@ import {
 } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { settleScheduledRead } from "../../../bridge/readings/scheduled-read.test-support.js";
 import {
-  SidekicksBridgeProvider,
+  DesktopBridgeProvider,
   createFixtureBridge,
   type ConsoleBridge,
 } from "../../../bridge/index.js";
@@ -85,7 +85,7 @@ interface PageMount {
 function renderPage(mount: PageMount = {}): HTMLElement {
   const bridge = mount.bridge ?? createFixtureBridge({ scenario: SETTINGS_SCENARIO });
   const { container } = render(
-    <SidekicksBridgeProvider bridge={bridge}>
+    <DesktopBridgeProvider bridge={bridge}>
       <LiveAnnouncerProvider>
         <ProviderAccountsPage
           context={settingsPageContextWith(bridge, SETTINGS_SCENARIO.sessionId, {
@@ -93,7 +93,7 @@ function renderPage(mount: PageMount = {}): HTMLElement {
           })}
         />
       </LiveAnnouncerProvider>
-    </SidekicksBridgeProvider>,
+    </DesktopBridgeProvider>,
   );
   return container;
 }

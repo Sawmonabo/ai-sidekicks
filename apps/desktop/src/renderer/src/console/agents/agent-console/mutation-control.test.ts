@@ -116,7 +116,7 @@ describe("mutation attempt — a refusal", () => {
   it("renders the daemon's own refusal verbatim and re-arms", async () => {
     const call = new HeldAttachCall();
     const attempt = new AgentMutationControl<AgentAttachReading>({ origin: ORIGIN });
-    const daemonRefusal = refuse("daemon", "sidekick.definition_not_found", "No such definition.");
+    const daemonRefusal = refuse("daemon", "agent.definition_not_found", "No such definition.");
 
     attempt.submit(call.perform);
     await call.refuseWith(new ConsoleRefusalError(daemonRefusal));

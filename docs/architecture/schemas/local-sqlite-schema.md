@@ -24,25 +24,25 @@ CREATE TABLE session_events (
   session_id             TEXT NOT NULL,              -- real session ULID/UUID, or a reserved node-scope sentinel for daemon-scope events (no FK; see Spec-005 §Security Events + Plan-020 D-020-8)
   sequence               INTEGER NOT NULL,           -- monotonic per session
   occurred_at            TEXT NOT NULL,              -- RFC 3339 UTC with ms precision (wall-clock; display + audit)
-  monotonic_ns           INTEGER NOT NULL,           -- process.hrtime.bigint() at emit; within-daemon ordering only (see Spec-013 §Clock Handling, BL-062)
+  monotonic_ns           INTEGER NOT NULL,           -- process.hrtime.bigint() at emit; within-daemon ordering only (see Spec-013 §Clock Handling)
   category               TEXT NOT NULL,              -- e.g. 'run_lifecycle', 'assistant_output', 'tool_activity'
   type                   TEXT NOT NULL,              -- specific event type within category
   actor                  TEXT,                       -- user_id or agent_id or NULL for system
   payload                TEXT NOT NULL DEFAULT '{}', -- JSON event payload
   pii_payload            BLOB,                       -- encrypted per-user AES-256-GCM (GDPR); NOT hashed/signed
   pii_user_id     TEXT,                       -- PII owner stamp (Plan-005 T3.1): the user whose key encrypts pii_payload. NULL on every row with no pii_payload. Deliberately no NOT NULL, no CHECK, and NO FK to user_keys — Spec-020 crypto-shred DELETEs the key row, and this stamp must OUTLIVE the key it names so I-005-2-12 can compare it against the same id signed into the canonical payload under PII_USER_ID_PAYLOAD_KEY (divergence is the tamper the read-side reports, not an error state the writer handles). Compaction CLEARS it alongside pii_payload: the audit-stub projection carries no PII and no PII owner, so a surviving stamp would name a user for a row whose encrypted payload is gone.
-  content_payload        BLOB,                       -- Assistant- and tool-generated prose (Spec-005 §Assistant Output + §Tool Activity): the assistant message body, the reasoning-update body, and tool-call arguments / result / error bodies. Sealed AES-256-GCM under the SESSION-scoped content key, AAD = session_id || event_id, stored iv || ciphertext || tag. That key is NOT derived from anything: it is a random 32-byte DEK looked up by session_id in session_content_keys and unwrapped under the daemon master key (Plan-005 I-005-3-08). Deriving it — the pre-2026-08-30 design — recreates the defect that finding fixed: the next rotate-on-shred destroys the old master and every existing content_payload on the daemon becomes permanently unreadable. NOT hashed/signed: excluded from the canonical bytes exactly as pii_payload is, with contentCiphertextDigest (BLAKE3 over the ciphertext) embedded in the signed payload instead, so the signature commits to these bytes without carrying them and survives their destruction. Deliberately NO owner-stamp sibling column: the sealing key is session-scoped and session_id is already a canonical signed member, so there is nothing left to bind — this is why the durable home for machine-authored prose costs one column and not two. NULL by construction on every audit_integrity and event_maintenance row (Plan-005 §Audit Integrity Invariant: never-compacted, never-shredded categories carry no destroyable content), and NULL on every row whose event type carries no prose. Compaction CLEARS it alongside pii_payload. Distinct from pii_payload, which holds USER-authored text under a per-user key and is a crypto-shred path; this column is machine-authored session work product and is deliberately NOT a per-user erasure path (Spec-020 §PII Data Map, the artifact-payload posture).
+  content_payload        BLOB,                       -- Assistant- and tool-generated prose (Spec-005 §Assistant Output + §Tool Activity): the assistant message body, the reasoning-update body, and tool-call arguments / result / error bodies. Sealed AES-256-GCM under the SESSION-scoped content key, AAD = session_id || event_id, stored iv || ciphertext || tag. That key is NOT derived from anything: it is a random 32-byte DEK looked up by session_id in session_content_keys and unwrapped under the daemon master key (Plan-005 I-005-3-08). Deriving it instead recreates the defect that finding fixed: the next rotate-on-shred destroys the old master and every existing content_payload on the daemon becomes permanently unreadable. NOT hashed/signed: excluded from the canonical bytes exactly as pii_payload is, with contentCiphertextDigest (BLAKE3 over the ciphertext) embedded in the signed payload instead, so the signature commits to these bytes without carrying them and survives their destruction. Deliberately NO owner-stamp sibling column: the sealing key is session-scoped and session_id is already a canonical signed member, so there is nothing left to bind — this is why the durable home for machine-authored prose costs one column and not two. NULL by construction on every audit_integrity and event_maintenance row (Plan-005 §Audit Integrity Invariant: never-compacted, never-shredded categories carry no destroyable content), and NULL on every row whose event type carries no prose. Compaction CLEARS it alongside pii_payload. Distinct from pii_payload, which holds USER-authored text under a per-user key and is a crypto-shred path; this column is machine-authored session work product and is deliberately NOT a per-user erasure path (Spec-020 §PII Data Map, the artifact-payload posture).
   correlation_id         TEXT,                       -- links related events
   causation_id           TEXT,                       -- parent event that caused this one
   version                TEXT NOT NULL DEFAULT '1.0'
                          CHECK (version GLOB '[0-9]*.[0-9]*'), -- semver "MAJOR.MINOR" per ADR-018 §Decision #1
                                                                -- (never INTEGER; comparison must parse MAJOR/MINOR as ints —
                                                                -- lexical TEXT comparison is unsafe, e.g. "1.10" < "1.9")
-  -- Integrity protocol (BL-050): hash-chain + per-event daemon signature
+  -- Integrity protocol: hash-chain + per-event daemon signature
   prev_hash              BLOB NOT NULL,              -- 32 bytes; row_hash of previous row (zero-filled at sequence=0)
   row_hash               BLOB NOT NULL,              -- 32 bytes; BLAKE3(prev_hash || JCS-canonical envelope bytes); frozen pre-compaction
   daemon_signature       BLOB NOT NULL,              -- 64 bytes; Ed25519 over same canonical bytes; frozen pre-compaction
-  -- Compaction (Plan-005 Tier 3 Phase 3): typed retention discriminator + post-compaction stub commitment
+  -- Compaction (Plan-005 Phase 3): typed retention discriminator + post-compaction stub commitment
   retention_class        TEXT CHECK (retention_class IS NULL OR retention_class = 'audit_stub'), -- NULL = live row (per-row chain-verified); 'audit_stub' = compacted (anchor + stub_signature verified). Column-level CHECK closes the discriminator domain; it is ALTER-ADD-COLUMN-addable (references only this column; NULL-permitting so pre-migration rows pass). Co-presence (audit_stub ⟺ non-NULL stub_signature) is a two-column invariant that cannot be an ALTER-added table-level CHECK without a 12-step table rebuild; it is instead enforced at the verification layer per Spec-005 §Post-Compaction Integrity (NULL stub_signature on an audit_stub row → stub_signature_invalid; surviving scalar columns category/type/actor/occurred_at bound to the signed payload projection → stub_scalar_mismatch on divergence).
   stub_signature         BLOB,                       -- 64 bytes; Ed25519 over canonical_bytes(audit-stub projection); NULL for live rows. Authenticates the post-compaction stub representation per Spec-005 §Post-Compaction Integrity (frozen row_hash/daemon_signature commit only to the now-discarded pre-compaction bytes)
   UNIQUE(session_id, sequence)
@@ -55,7 +55,7 @@ CREATE INDEX idx_session_events_correlation ON session_events(correlation_id) WH
 CREATE INDEX idx_session_events_live ON session_events(session_id, sequence) WHERE retention_class IS NULL;
 CREATE UNIQUE INDEX idx_session_events_run_terminal_once ON session_events(json_extract(payload, '$.runId'), json_extract(payload, '$.runVersion')) WHERE category = 'run_lifecycle' AND type IN ('run.completed', 'run.failed', 'run.interrupted');
 
--- Projection-level terminal-key CHECK (Spec-005 at-most-once terminal emission; assigned to the campaign B11
+-- Projection-level terminal-key CHECK (Spec-005 at-most-once terminal emission; assigned to the Plan-005
 -- schema work). SQLite has no ALTER TABLE ... ADD CHECK on an existing table (sqlite.org/`lang_altertable`.html), so a
 -- trigger trio is the idiomatic equivalent: abort any terminal run_lifecycle write whose runId/runVersion key is NULL
 -- OR the wrong storage class (json_type: runId 'text', runVersion 'integer' — a type-drifted "7"-vs-7 key bypasses the
@@ -83,17 +83,17 @@ BEGIN
 END;
 ```
 
-**Integrity protocol.** `prev_hash`, `row_hash`, and `daemon_signature` are required on every row. For un-compacted rows (`retention_class IS NULL`) the verifier recomputes the per-row chain hash + signature over the live `payload`. After compaction (`retention_class = 'audit_stub'`) the original canonical bytes are discarded, so `row_hash`/`daemon_signature` freeze as a commitment to the (now-gone) pre-compaction state and the **`stub_signature`** authenticates the surviving audit-stub bytes; range existence is additionally witnessed by the covering Merkle anchor in `pending_anchor_uploads` / `event_log_anchors`. The canonical serialization (RFC 8785 JCS) and the full verification order are specified in [Security Architecture § Audit Log Integrity](../security-architecture.md#audit-log-integrity) and [Spec-005 § Integrity Protocol](../../specs/005-session-event-taxonomy-and-audit-log.md#integrity-protocol) + [§ Post-Compaction Integrity](../../specs/005-session-event-taxonomy-and-audit-log.md#post-compaction-integrity). The `idx_session_events_run_terminal_once` partial unique index is the schema-level terminal-exactly-once backstop (Plan-005, campaign B11): a duplicate terminal `run_lifecycle` row for the same `(runId, runVersion)` epoch fails loud with a `UNIQUE` violation; NULL `runId`/`runVersion` rows bypass it (SQLite NULL-distinctness), so the Plan-003 terminal emitter (campaign B9) enforces the non-null-key precondition this index backstops. The engine semantics this backstop relies on are load-bearing, and each is cited to the official SQLite documentation: [expression indexes](https://sqlite.org/expridx.html) (the index keys on `json_extract(payload, …)` expressions), [partial indexes](https://sqlite.org/partialindex.html) (the `WHERE category = 'run_lifecycle' AND type IN (…)` filter), [UNIQUE-index enforcement](https://sqlite.org/lang_createindex.html#unique_indexes), and [NULL-distinctness](https://sqlite.org/nulls.html) (two NULLs are distinct for UNIQUE purposes, so NULL-key rows bypass the constraint). It ships via the additive migration `0006-run-lifecycle-terminal-backstop-index.ts`. The same migration installs the `trg_run_terminal_key_insert` / `trg_run_terminal_key_update` / `trg_run_terminal_key_promote` trigger trio — the projection-level CHECK-equivalent Spec-005's at-most-once-terminal-emission rule assigns to this schema work — which aborts terminal `run_lifecycle` writes whose `runId` / `runVersion` key is NULL **or the wrong storage class** (`json_type` must be `'text'` for `runId` and `'integer'` for `runVersion`, per the `RunId` string / any-run-progression-counter payload contract in [Spec-005 §Run Lifecycle](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle) — a `"7"`-vs-`7` type-drifted key would otherwise bypass the storage-class-keyed UNIQUE index for exactly the malformed rows the backstop exists to catch). The INSERT leg closes the NULL-distinctness bypass the UNIQUE index cannot catch; the UPDATE leg (`BEFORE UPDATE OF payload, category, type`, keyed off `OLD` so a row that WAS terminal cannot escape by mutation) additionally aborts a **value-changing key rewrite** (`NEW` key `IS NOT` `OLD`, null-safe — a compactor bug rewriting `(R,7)` to another non-null pair would otherwise free the index slot for a duplicate terminal) and a **`category`/`type` de-scope** (flipping a terminal row out of the guarded set is the same escape), enforcing stub-preservation against the compactor across the row's whole retention life. The promote leg closes the inverse escape: an UPDATE re-typing a non-terminal row INTO the guarded set is rejected outright — terminal rows are INSERT-only — so a null-keyed promotion cannot slip past the OLD-keyed update leg and the NULL-distinct UNIQUE index (campaign B11 schema work, hardened by the W2.5 re-audit).
+**Integrity protocol.** `prev_hash`, `row_hash`, and `daemon_signature` are required on every row. For un-compacted rows (`retention_class IS NULL`) the verifier recomputes the per-row chain hash + signature over the live `payload`. After compaction (`retention_class = 'audit_stub'`) the original canonical bytes are discarded, so `row_hash`/`daemon_signature` freeze as a commitment to the (now-gone) pre-compaction state and the **`stub_signature`** authenticates the surviving audit-stub bytes; range existence is additionally witnessed by the covering Merkle anchor in `pending_anchor_uploads` / `event_log_anchors`. The canonical serialization (RFC 8785 JCS) and the full verification order are specified in [Security Architecture § Audit Log Integrity](../security-architecture.md#audit-log-integrity) and [Spec-005 § Integrity Protocol](../../specs/005-session-event-taxonomy-and-audit-log.md#integrity-protocol) + [§ Post-Compaction Integrity](../../specs/005-session-event-taxonomy-and-audit-log.md#post-compaction-integrity). The `idx_session_events_run_terminal_once` partial unique index is the schema-level terminal-exactly-once backstop (Plan-005): a duplicate terminal `run_lifecycle` row for the same `(runId, runVersion)` epoch fails loud with a `UNIQUE` violation; NULL `runId`/`runVersion` rows bypass it (SQLite NULL-distinctness), so the Plan-003 terminal emitter enforces the non-null-key precondition this index backstops. The engine semantics this backstop relies on are load-bearing, and each is cited to the official SQLite documentation: [expression indexes](https://sqlite.org/expridx.html) (the index keys on `json_extract(payload, …)` expressions), [partial indexes](https://sqlite.org/partialindex.html) (the `WHERE category = 'run_lifecycle' AND type IN (…)` filter), [UNIQUE-index enforcement](https://sqlite.org/lang_createindex.html#unique_indexes), and [NULL-distinctness](https://sqlite.org/nulls.html) (two NULLs are distinct for UNIQUE purposes, so NULL-key rows bypass the constraint). It ships via the additive migration `0006-run-lifecycle-terminal-backstop-index.ts`. The same migration installs the `trg_run_terminal_key_insert` / `trg_run_terminal_key_update` / `trg_run_terminal_key_promote` trigger trio — the projection-level CHECK-equivalent Spec-005's at-most-once-terminal-emission rule assigns to this schema work — which aborts terminal `run_lifecycle` writes whose `runId` / `runVersion` key is NULL **or the wrong storage class** (`json_type` must be `'text'` for `runId` and `'integer'` for `runVersion`, per the `RunId` string / any-run-progression-counter payload contract in [Spec-005 §Run Lifecycle](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle) — a `"7"`-vs-`7` type-drifted key would otherwise bypass the storage-class-keyed UNIQUE index for exactly the malformed rows the backstop exists to catch). The INSERT leg closes the NULL-distinctness bypass the UNIQUE index cannot catch; the UPDATE leg (`BEFORE UPDATE OF payload, category, type`, keyed off `OLD` so a row that WAS terminal cannot escape by mutation) additionally aborts a **value-changing key rewrite** (`NEW` key `IS NOT` `OLD`, null-safe — a compactor bug rewriting `(R,7)` to another non-null pair would otherwise free the index slot for a duplicate terminal) and a **`category`/`type` de-scope** (flipping a terminal row out of the guarded set is the same escape), enforcing stub-preservation against the compactor across the row's whole retention life. The promote leg closes the inverse escape: an UPDATE re-typing a non-terminal row INTO the guarded set is rejected outright — terminal rows are INSERT-only — so a null-keyed promotion cannot slip past the OLD-keyed update leg and the NULL-distinct UNIQUE index (Plan-005 schema work).
 
 **Content payload (machine-authored prose).** `content_payload` is the durable encrypted home for the prose the _machine_ side of a session produces — the assistant message body, the reasoning-update body, and tool-call arguments / result / error bodies. It exists because [ADR-029](../../decisions/029-canonical-transcript-is-authoritative.md) rules the daemon's canonical transcript authoritative for the content of a provider session, and a projection rebuilt from `session_events` can only be authoritative for content the rows actually hold. It is a **sibling of `pii_payload`, not a replacement**: the two columns partition one row's text by authorship, `pii_payload` carrying user-authored text under that user's own key (a crypto-shred path) and `content_payload` carrying machine-authored session work product under a session-scoped stored key (deliberately not a per-user erasure path — [Spec-020 §PII Data Map](../../specs/020-data-retention-and-gdpr.md#pii-data-map), the artifact-payload posture). A row may carry both, one, or neither.
 
-**Sealing.** The session content key is a **random 32-byte AES-256 key generated once per session and stored wrapped**, never a value derived from the daemon master key. It lives in `session_content_keys` below as an XChaCha20-Poly1305 envelope under that master key — byte-for-byte the `user_keys.encrypted_key_blob` custody shape, over the master key whose ladder is [Spec-020 §Daemon Master Key](../../specs/020-data-retention-and-gdpr.md#daemon-master-key). **Stored-and-wrapped rather than derived is load-bearing, not stylistic** (2026-08-30, Codex PR #383 round 1): [Spec-020 §Retention Policies](../../specs/020-data-retention-and-gdpr.md)' rotate-on-shred generates a fresh master `M'`, re-wraps the stored key rows, and destroys `M`. A key _derived_ from `M` cannot be recovered once `M` is gone, so every existing body on the daemon would become permanently unreadable the first time any unrelated user exercised erasure — destroying co-owned session work product that the erasure request has no claim on, and doing it silently. A stored key is re-wrappable, so it survives rotation unchanged; only its envelope changes. Sealing is AES-256-GCM with a fresh 96-bit IV per write and AAD = `session_id || event_id`, the same record-binding `pii_payload` uses, so a ciphertext cannot be replayed onto another row or another session.
+**Sealing.** The session content key is a **random 32-byte AES-256 key generated once per session and stored wrapped**, never a value derived from the daemon master key. It lives in `session_content_keys` below as an XChaCha20-Poly1305 envelope under that master key — byte-for-byte the `user_keys.encrypted_key_blob` custody shape, over the master key whose ladder is [Spec-020 §Daemon Master Key](../../specs/020-data-retention-and-gdpr.md#daemon-master-key). **Stored-and-wrapped rather than derived is load-bearing, not stylistic**: [Spec-020 §Retention Policies](../../specs/020-data-retention-and-gdpr.md)' rotate-on-shred generates a fresh master `M'`, re-wraps the stored key rows, and destroys `M`. A key _derived_ from `M` cannot be recovered once `M` is gone, so every existing body on the daemon would become permanently unreadable the first time any unrelated user exercised erasure — destroying co-owned session work product that the erasure request has no claim on, and doing it silently. A stored key is re-wrappable, so it survives rotation unchanged; only its envelope changes. Sealing is AES-256-GCM with a fresh 96-bit IV per write and AAD = `session_id || event_id`, the same record-binding `pii_payload` uses, so a ciphertext cannot be replayed onto another row or another session.
 
-**Bound and truncation.** Unlike `pii_payload`, whose size is bounded in practice by human typing, `content_payload` admits machine-scale text: a tool result is routinely a file dump or a command's whole stdout. It is therefore bounded — `CONTENT_PAYLOAD_PLAINTEXT_MAX = 262144` bytes (256 KiB) of UTF-8 plaintext per row — and an over-bound body is **truncated at a codepoint boundary, never refused and never dropped**, because refusing the append would lose the turn entirely and dropping it would misreport that the turn never happened. Truncation is recorded, never silent: the signed `payload` carries `contentTruncated: true` and keeps `contentLength` at the **pre-truncation** byte length, so the size of what was dropped stays recoverable from the audit log, and no invisible or zero-width sentinel is written into the text ([Spec-004 §Required Behavior](../../specs/004-provider-driver-contract-and-capabilities.md#required-behavior)'s prohibition, applied unchanged). The full pre-truncation bytes remain reachable for `≤ 7` days in the bounded-retention diagnostic tier (`driver_raw_events` / `tool_traces`) and nowhere after that; the canonical prefix is what outlives them. The per-row bound governs one row only — a session's aggregate is governed by the existing [Spec-005 §Event Compaction Policy](../../specs/005-session-event-taxonomy-and-audit-log.md#event-compaction-policy) triggers, and **those triggers must count this column's bytes** (2026-08-30, Codex PR #383 round 1). The shipped compactor sums `payload` + `pii_payload` only, in both of its byte-accounting statements — the per-session `live_bytes` summary and the storage cutoff's running total — so without this obligation a content-bearing session compacts on the 50,000-event count trigger alone: at 256 KiB per row the store can reach roughly 12.5 GiB before the count fires, twenty-five times past the 500 MB threshold the policy claims. Both statements therefore add `COALESCE(LENGTH(content_payload), 0)`. Naming the two rather than saying _every accounting query_ is deliberate — it makes the obligation checkable by count. The thresholds themselves do not change; the triggers stay independent and a pass compacts their union.
+**Bound and truncation.** Unlike `pii_payload`, whose size is bounded in practice by human typing, `content_payload` admits machine-scale text: a tool result is routinely a file dump or a command's whole stdout. It is therefore bounded — `CONTENT_PAYLOAD_PLAINTEXT_MAX = 262144` bytes (256 KiB) of UTF-8 plaintext per row — and an over-bound body is **truncated at a codepoint boundary, never refused and never dropped**, because refusing the append would lose the turn entirely and dropping it would misreport that the turn never happened. Truncation is recorded, never silent: the signed `payload` carries `contentTruncated: true` and keeps `contentLength` at the **pre-truncation** byte length, so the size of what was dropped stays recoverable from the audit log, and no invisible or zero-width sentinel is written into the text ([Spec-004 §Required Behavior](../../specs/004-provider-driver-contract-and-capabilities.md#required-behavior)'s prohibition, applied unchanged). The full pre-truncation bytes remain reachable for `≤ 7` days in the bounded-retention diagnostic tier (`driver_raw_events` / `tool_traces`) and nowhere after that; the canonical prefix is what outlives them. The per-row bound governs one row only — a session's aggregate is governed by the existing [Spec-005 §Event Compaction Policy](../../specs/005-session-event-taxonomy-and-audit-log.md#event-compaction-policy) triggers, and **those triggers must count this column's bytes**. The shipped compactor sums `payload` + `pii_payload` only, in both of its byte-accounting statements — the per-session `live_bytes` summary and the storage cutoff's running total — so without this obligation a content-bearing session compacts on the 50,000-event count trigger alone: at 256 KiB per row the store can reach roughly 12.5 GiB before the count fires, twenty-five times past the 500 MB threshold the policy claims. Both statements therefore add `COALESCE(LENGTH(content_payload), 0)`. Naming the two rather than saying _every accounting query_ is deliberate — it makes the obligation checkable by count. The thresholds themselves do not change; the triggers stay independent and a pass compacts their union.
 
-**Compaction.** Compaction CLEARS `content_payload` alongside `pii_payload`, for the same reason: the audit-stub projection is a non-PII, non-content commitment and a surviving ciphertext would outlive the payload that describes it. The `contentCiphertextDigest` member does **not** survive, and does not need a stub field of its own: it is a commitment to bytes this same act destroys, and a commitment to nothing verifies nothing. Its two **descriptive** siblings do survive — the stub preserves `contentLength` and `contentTruncated` verbatim whenever the source payload carries them (2026-08-30, Codex PR #383 round 1). The distinction is the principle, not a compromise: an audit stub exists to record _what_ was destroyed, so how much the machine said and whether the log ever held all of it are exactly its business, while a digest of the destroyed bytes is not. Without them the pre-truncation-length guarantee two paragraphs above would silently expire at compaction. They ride the conditional-stub-member shape `channelId` already uses — payload-derived, not durable columns — so the [§Post-Compaction Integrity](../../specs/005-session-event-taxonomy-and-audit-log.md#post-compaction-integrity) scalar binding is untouched. That disposition is stated rather than left implicit — the corpus paid a dated amendment (2026-07-27) for leaving the `pii_user_id` compaction case implicit, and this column does not repeat it. Post-compaction integrity is unaffected: `row_hash` / `daemon_signature` were already frozen commitments to the discarded pre-compaction bytes, and `stub_signature` authenticates the surviving projection.
+**Compaction.** Compaction CLEARS `content_payload` alongside `pii_payload`, for the same reason: the audit-stub projection is a non-PII, non-content commitment and a surviving ciphertext would outlive the payload that describes it. The `contentCiphertextDigest` member does **not** survive, and does not need a stub field of its own: it is a commitment to bytes this same act destroys, and a commitment to nothing verifies nothing. Its two **descriptive** siblings do survive — the stub preserves `contentLength` and `contentTruncated` verbatim whenever the source payload carries them. The distinction is the principle, not a compromise: an audit stub exists to record _what_ was destroyed, so how much the machine said and whether the log ever held all of it are exactly its business, while a digest of the destroyed bytes is not. Without them the pre-truncation-length guarantee two paragraphs above would silently expire at compaction. They ride the conditional-stub-member shape `channelId` already uses — payload-derived, not durable columns — so the [§Post-Compaction Integrity](../../specs/005-session-event-taxonomy-and-audit-log.md#post-compaction-integrity) scalar binding is untouched. Post-compaction integrity is unaffected: `row_hash` / `daemon_signature` were already frozen commitments to the discarded pre-compaction bytes, and `stub_signature` authenticates the surviving projection.
 
-**Relay disposition — the column is node-local.** `content_payload` is **never relayed**, exactly as `pii_payload` is never relayed (2026-08-30, Codex PR #383 round 1). It follows by construction rather than by a new filter: the column is excluded from the canonical bytes, so no path that carries a row's signed bytes carries its machine-authored body ([Spec-005 §Canonical Serialization Rules](../../specs/005-session-event-taxonomy-and-audit-log.md#canonical-serialization-rules)).
+**Relay disposition — the column is node-local.** `content_payload` is **never relayed**, exactly as `pii_payload` is never relayed. It follows by construction rather than by a new filter: the column is excluded from the canonical bytes, so no path that carries a row's signed bytes carries its machine-authored body ([Spec-005 §Canonical Serialization Rules](../../specs/005-session-event-taxonomy-and-audit-log.md#canonical-serialization-rules)).
 
 **A second node holding a body is unreachable in V1.** A session executes on exactly one bound runtime node ([Spec-028 §Required Behavior](../../specs/028-remote-control.md#required-behavior)), and every row in that session's log is authored and sealed by that node. No other daemon holds a row of this session, so there is no projection anywhere that would show a body it cannot read, and the sealing key never needs to leave the node that minted it. The stored-rather-than-derived key remains a distributable object should a later design ever need it to be one, but nothing in V1 distributes it and no distribution leg is sketched here.
 
@@ -112,7 +112,7 @@ CREATE TABLE session_content_keys (
 
 The wrapped home of the key that seals every `content_payload` in one session — deliberately a mirror of `user_keys` rather than a new custody idea, so the machinery that already re-wraps that table covers this one. Keyed by session, because the body is machine-authored session work product rather than anything a person typed, so there is no per-user erasure axis to key it on ([Spec-020 §PII Data Map](../../specs/020-data-retention-and-gdpr.md#pii-data-map), the artifact-payload posture). The row is created lazily on the session's first content-bearing append, so a session that never runs an agent stores no key.
 
-**The wrap binds session and key version, and the AAD is what does it** (2026-08-30, Codex PR #383 round 3). The envelope is XChaCha20-Poly1305 with a 24-byte random nonce and `AAD = session_id || "ais.session-content-wrap.v1" || key_version`, the exact form [Spec-020 §User Keys](../../specs/020-data-retention-and-gdpr.md#user-keys) uses for `user_keys` (`user_id || "ais.master-wrap.v1" || key_version`), with its own info string so the two wrap domains can never be confused. Without the AAD the envelope authenticates on the master key **alone**, so two rows' `encrypted_key_blob` values could be swapped, or one replayed under a different `key_version`, and both would unwrap cleanly — the wrong key would then simply fail to open that session's bodies, surfacing as ordinary `'turn_content_unavailable'` while the ciphertext-digest verifier stayed green, because the event ciphertext was never touched. That is a silent key-substitution attack wearing the costume of a routine unreadable turn, which is precisely the confusion the sixteenth verification mode exists to prevent on the event side. Binding `key_version` additionally forecloses rollback to a superseded wrap. Plan-005 T3.6 owns the format and **must test both negatives** — a blob moved to another session's row and a blob replayed under another `key_version` each fail the unwrap — the obligation [Plan-020 I-020-9](../../plans/020-data-retention-and-gdpr.md#invariants) carries for the user wrap.
+**The wrap binds session and key version, and the AAD is what does it**. The envelope is XChaCha20-Poly1305 with a 24-byte random nonce and `AAD = session_id || "ais.session-content-wrap.v1" || key_version`, the exact form [Spec-020 §User Keys](../../specs/020-data-retention-and-gdpr.md#user-keys) uses for `user_keys` (`user_id || "ais.master-wrap.v1" || key_version`), with its own info string so the two wrap domains can never be confused. Without the AAD the envelope authenticates on the master key **alone**, so two rows' `encrypted_key_blob` values could be swapped, or one replayed under a different `key_version`, and both would unwrap cleanly — the wrong key would then simply fail to open that session's bodies, surfacing as ordinary `'turn_content_unavailable'` while the ciphertext-digest verifier stayed green, because the event ciphertext was never touched. That is a silent key-substitution attack wearing the costume of a routine unreadable turn, which is precisely the confusion the sixteenth verification mode exists to prevent on the event side. Binding `key_version` additionally forecloses rollback to a superseded wrap. Plan-005 T3.6 owns the format and **must test both negatives** — a blob moved to another session's row and a blob replayed under another `key_version` each fail the unwrap — the obligation [Plan-020 I-020-9](../../plans/020-data-retention-and-gdpr.md#invariants) carries for the user wrap.
 
 **It joins rotate-on-shred's existing transaction rather than following it.** [Spec-020](../../specs/020-data-retention-and-gdpr.md)' rotation step 2 re-wraps `user_keys` inside a single `BEGIN EXCLUSIVE` alongside the `rotation_in_progress` sentinel, and its guarantee is that _either every row is under `M'` after commit or every row remains under `M`_. This table is re-wrapped **in that same transaction**, not in a step of its own: a separate re-wrap pass would falsify that all-or-nothing claim, leaving a crash window in which user keys are under `M'` while content keys are still under `M` and the destroyed master is the only thing that could read them. The inner AES-256 key is unchanged by rotation — only the envelope moves — so no ciphertext is rewritten and no body is re-sealed.
 
@@ -128,7 +128,7 @@ CREATE TABLE session_snapshots (
   as_of_sequence        INTEGER NOT NULL,           -- snapshot reflects events up to this sequence (replay-cursor state)
   state_blob            BLOB NOT NULL,              -- serialized session state
   created_at            TEXT NOT NULL,
-  -- Compaction hints (Plan-005 Tier 3 Phase 4, migration 0NNN-session-snapshots-compaction-cursor.ts):
+  -- Compaction hints (Plan-005 Phase 4, migration 0NNN-session-snapshots-compaction-cursor.ts):
   -- let replay/projection detect compacted regions without scanning session_events.
   has_compacted_ranges  INTEGER NOT NULL DEFAULT 0, -- boolean: 0 or 1; whether [.., as_of_sequence] contains audit_stub rows
   compacted_range_count INTEGER NOT NULL DEFAULT 0, -- count of distinct compacted ranges reflected in this snapshot
@@ -140,10 +140,32 @@ CREATE INDEX idx_session_snapshots_session ON session_snapshots(session_id, as_o
 
 ---
 
+## Session Console State (Plan-001)
+
+The daemon's own session-scoped store for what a session holds outside its event log. [Spec-001 §State And Data Implications](../../specs/001-session-core.md#state-and-data-implications) declares three things durable here — the composer draft, its staged attachments, and the review notes left on a file's lines — so that a half-written message, its files and an unsent review reach the person's other devices; their columns land with the verbs that write them (`session.draftUpdate`, `session.attachmentAdd` / `session.attachmentRemove`, and the note verbs whose names are still owed). One column exists now, the session's own step bound, because the spawn path reads it before any of the three is built.
+
+It is **configuration, not session history**: it is not events-canonical, is not replayed, and is not rebuilt from the event log. A session's step bound is a preference the person set, so a log that can rebuild what a turn did has nothing to say about it.
+
+```sql
+-- Owner: Plan-001
+CREATE TABLE session_console_state (
+  session_id          TEXT NOT NULL PRIMARY KEY,  -- one row per session, written on the first press that needs it. `NOT NULL` is declared explicitly for the reason `provider_accounts.account_id` states: a TEXT PRIMARY KEY on a rowid table admits NULL, and two identity-less rows would both commit
+  max_steps_per_turn  INTEGER
+                      CHECK (max_steps_per_turn IS NULL OR (typeof(max_steps_per_turn) = 'integer' AND max_steps_per_turn >= 1)),  -- this session's OWN bound on how many steps one turn may take. NULL = no session override, so the machine's own Runtime value applies, and where that is unset each provider does what it does on its own ([Spec-003 §The Step Bound On A Turn](../../specs/003-queue-steer-pause-resume.md#the-step-bound-on-a-turn)). The floor is 1 because a bound of zero would forbid the turn it bounds; the ceiling is the person's, since neither provider publishes one. The MACHINE-wide value is not here: it belongs to the Runtime settings page, so one number has one home on each side of the override
+  updated_at          TEXT NOT NULL
+);
+```
+
+The number is carried onto a spawn through `runtime_bindings.spawn_config` and realized by the driver, `--max-turns` on one leg and the daemon's own per-turn count on the other; a change reaches the session's next turn and never the turn in flight.
+
+Migration: an additive `0NNN-session-console-state.ts`, its ordinal the next free version per the migration runner's append order at PR-open time, and its paired guarded-block registration in the same commit — the shape every unshipped migration in this document takes. It is a plain table add with no backfill.
+
+---
+
 ## Queue and Intervention Tables (Plan-003)
 
 ```sql
--- Owner: Plan-003 (the Spec-003 2026-08-18 admission-path + queue-PII amendment adds the
+-- Owner: Plan-003 (the Spec-003 admission-path + queue-PII rules carry the
 -- pii_payload / pii_user_id pair and admitting_intervention_id)
 CREATE TABLE queue_items (
   id              TEXT PRIMARY KEY,
@@ -155,8 +177,8 @@ CREATE TABLE queue_items (
   payload         TEXT NOT NULL DEFAULT '{}', -- JSON: NON-PII members only — context, metadata, and the
                                               -- non-PII identifiers. A user-authored send's body
                                               -- never rides this column (it encrypts into pii_payload;
-                                              -- Spec-003 §Required Behavior at-rest split, 2026-08-18
-                                              -- amendment). Orchestration-authored content (a workflow
+                                              -- Spec-003 §Required Behavior at-rest split).
+                                              -- Orchestration-authored content (a workflow
                                               -- phase input, an orchestrated child-run prompt) is session
                                               -- work product, not user PII, and stays here in
                                               -- plaintext with both PII columns NULL — the system arm has
@@ -166,7 +188,7 @@ CREATE TABLE queue_items (
                                               -- session_id), so the split costs no queryability.
   pii_payload     BLOB,                       -- encrypted per-user AES-256-GCM via Plan-005's
                                               -- PiiEncryptor (CP-005-1): the user-authored send
-                                              -- body (Plan-003 T1.4, Spec-003 2026-08-18 amendment).
+                                              -- body (Plan-003 T1.4, Spec-003).
                                               -- Same-key parity with session_events.pii_payload and
                                               -- interventions.pii_payload, so one Plan-020 Path-1 key
                                               -- deletion shreds every copy of the same send identically
@@ -177,16 +199,16 @@ CREATE TABLE queue_items (
                                               -- table otherwise lacks entirely (no other column names a
                                               -- user, so without it the GDPR fan-out cannot address
                                               -- these rows); NULL on rows carrying no PII leg
-  target_run_id   TEXT,                       -- run-bound admission arm (Plan-003 T1.4, 2026-08-16
-                                              -- rewind-hardening amendment round-2 fold): NULL on
+  target_run_id   TEXT,                       -- run-bound admission arm (Plan-003 T1.4,
+                                              -- rewind hardening): NULL on
                                               -- ordinary follow-up items (admission converts them
                                               -- into a new run); stamped solely by the edit-and-resend
                                               -- composite's admission in V1 — the item delivers into
                                               -- its bound run as its next provider send on run.resume,
                                               -- never converting into a new run
   admitting_intervention_id TEXT,             -- row-anchored linkage to the interventions row whose
-                                              -- admission created this item (Plan-003 T1.4, Spec-003
-                                              -- 2026-08-18 amendment): NULL on ordinary user sends,
+                                              -- admission created this item (Plan-003 T1.4,
+                                              -- Spec-003): NULL on ordinary user sends,
                                               -- stamped beside target_run_id in T3.17's single durable
                                               -- transaction. T3.5's drain reads it to resolve the
                                               -- intervention that admitted the item — a run accumulates
@@ -203,7 +225,7 @@ CREATE INDEX idx_queue_items_channel ON queue_items(channel_id) WHERE channel_id
 -- Path-1 erasure/export selector is a V1.1 maintenance scan, never a hot path, and both tables carry the
 -- stamp unindexed for the same reason.
 
--- Owner: Plan-003 (campaign B9 adds rejection_reason; the Spec-003 2026-08-16 rewind-hardening amendment adds the pii_payload / pii_user_id pair; the Spec-003/Spec-010 2026-08-18 admission-path amendment adds origin; the Spec-003 2026-09-06 typed-composite-guard amendment adds rejection_guard, this table's first post-ship column and therefore Plan-003's own next-ordinal migration rather than an edit of the shipped 0015) | Extended by: Spec-004 campaign B3 (client_idempotency_key intervention dedupe); Spec-003 campaign B2 (rollback type — targetPosition rides the payload JSON, no new column)
+-- Owner: Plan-003 (rejection_reason; Spec-003's rewind hardening adds the pii_payload / pii_user_id pair; the Spec-003/Spec-010 admission path adds origin; Spec-003's typed composite guard adds rejection_guard, this table's first post-ship column and therefore Plan-003's own next-ordinal migration rather than an edit of the shipped 0015) | Extended by: Spec-004 (client_idempotency_key intervention dedupe); Spec-003 (rollback type — targetPosition rides the payload JSON, no new column)
 CREATE TABLE interventions (
   id                     TEXT PRIMARY KEY,
   target_run_id          TEXT NOT NULL,
@@ -211,19 +233,19 @@ CREATE TABLE interventions (
                          CHECK(type IN ('steer', 'interrupt', 'cancel', 'rollback')),
   state                  TEXT NOT NULL DEFAULT 'requested'
                          CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired')),
-  payload                TEXT NOT NULL DEFAULT '{}', -- JSON: type-specific NON-PII fields only — neither a rollback's replacementSend body nor a steer's directive text rides this column (both encrypt into pii_payload; Spec-003 §Required Behavior at-rest split, 2026-08-16 amendment as widened to steer content 2026-08-18)
+  payload                TEXT NOT NULL DEFAULT '{}', -- JSON: type-specific NON-PII fields only — neither a rollback's replacementSend body nor a steer's directive text rides this column (both encrypt into pii_payload; Spec-003 §Required Behavior at-rest split, which covers steer content)
   expected_run_version   INTEGER NOT NULL,           -- MANDATORY fail-closed comparand (Spec-003 §Interfaces And Contracts / Plan-003 D-003-2)
-  client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (user client or daemon system-origination); replay-or-conflict intervention dedupe (Spec-004 §Required Behavior, campaign B3)
-  pii_payload            BLOB,                       -- encrypted per-user AES-256-GCM via Plan-005's PiiEncryptor (CP-005-1): the user-authored intervention body — the rollback replacementSend body (Plan-003 T1.4, Spec-003 2026-08-16 amendment) and, from the 2026-08-18 amendment, the steer directive text; same-key parity with session_events.pii_payload, so the Plan-020 Path-1 key deletion shreds every copy identically; NULLed by the daemon retention pass past the Spec-020 90-day full-retention bound (Spec-020 §PII Data Map row — no digest binding attaches, unlike session_events)
+  client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (user client or daemon system-origination); replay-or-conflict intervention dedupe (Spec-004 §Required Behavior)
+  pii_payload            BLOB,                       -- encrypted per-user AES-256-GCM via Plan-005's PiiEncryptor (CP-005-1): the user-authored intervention body — the rollback replacementSend body (Plan-003 T1.4, Spec-003) and the steer directive text; same-key parity with session_events.pii_payload, so the Plan-020 Path-1 key deletion shreds every copy identically; NULLed by the daemon retention pass past the Spec-020 90-day full-retention bound (Spec-020 §PII Data Map row — no digest binding attaches, unlike session_events)
   pii_user_id     TEXT,                       -- PII owner stamp: the requesting user whose key encrypts pii_payload; NULL on rows carrying no PII leg
-  origin                 TEXT NOT NULL               -- daemon-resolved admission-path discriminator (D-003-4 / D-010-20, 2026-08-18): 'user' for a request admitted over an identity-carrying transport, 'system' for the in-process orchestration entrypoint below the wire authz boundary (CP-003-10's budget / idle / moderation interventions). NO DEFAULT by design — a default would fail OPEN for the system path, so every insert site declares.
+  origin                 TEXT NOT NULL               -- daemon-resolved admission-path discriminator (D-003-4 / D-010-20): 'user' for a request admitted over an identity-carrying transport, 'system' for the in-process orchestration entrypoint below the wire authz boundary (CP-003-10's budget / idle / moderation interventions). NO DEFAULT by design — a default would fail OPEN for the system path, so every insert site declares.
                          CHECK(origin IN ('user', 'system')),
   result                 TEXT,                       -- JSON: outcome details
-  rejection_reason       TEXT,                       -- machine-readable rejected cause (driver.capability_unsupported foremost) — replay-durable: the wire contract forbids result on rejected, so an idempotent replay reconstructs rejectionReason from this column (Plan-003 T1.4/T3.12, campaign B9)
+  rejection_reason       TEXT,                       -- machine-readable rejected cause (driver.capability_unsupported foremost) — replay-durable: the wire contract forbids result on rejected, so an idempotent replay reconstructs rejectionReason from this column (Plan-003 T1.4/T3.12)
   -- Plan-003 EXTEND of its own SHIPPED CREATE (additive nullable, landing by its own next-ordinal
   -- migration -- the statement above shipped as
-  -- packages/runtime-daemon/src/migrations/0015-queue-and-interventions.ts (PR #402, 2026-09-01)
-  -- and is never edited): which of the atomic edit-and-resend composite's four
+  -- packages/runtime-daemon/src/migrations/0015-queue-and-interventions.ts
+  -- and is never edited): which of the atomic edit-and-resend composite's three
   -- structural refusal guards refused, as the closed literal the wire's rejectionGuard carries
   -- (Spec-003 §Required Behavior; api-payload-contracts.md §Plan-003 — Queue Steer Pause Resume;
   -- the shipped mirror is
@@ -235,14 +257,13 @@ CREATE TABLE interventions (
   -- OPEN vocabulary that no contract enumerates (error-contracts.md §Intervention registers no
   -- code for an intervention outcome), so recovering the literal from it would be exactly the
   -- match against an unpublished value set the typed member exists to abolish. Written by
-  -- Plan-003 T3.17 in the SAME write that settles state = 'rejected' (the four guards are
+  -- Plan-003 T3.17 in the SAME write that settles state = 'rejected' (the three guards are
   -- pre-dispatch admission refusals, so the settlement is one write); read back by T3.12's replay
-  -- reconstruction. NULL on every other refusal family -- the EIGHT the transition table admits
+  -- reconstruction. NULL on every other refusal family -- the SIX the transition table admits
   -- for a rollback: the capability gate, the authorization refusal, the target-position domain
-  -- check, the compaction-boundary classification, an incompatible target run state, the Spec-008
-  -- restore precondition, the uncompacted-rewind-span intersection, and execution-root busy -- and
-  -- on every non-rejected row, so presence reads as "a composite guard refused" and never as "some
-  -- rollback refused".
+  -- check, the compaction-boundary classification, an incompatible target run state, and the
+  -- uncompacted-rewind-span intersection -- and on every non-rejected row, so presence reads as
+  -- "a composite guard refused" and never as "some rollback refused".
   --
   -- The CHECK is attached to the COLUMN rather than stated as a table constraint, deliberately.
   -- SQLite's ALTER TABLE ... ADD COLUMN accepts a column-attached CHECK whose expression
@@ -258,14 +279,14 @@ CREATE TABLE interventions (
   -- ADD COLUMN appends, so the physical ordinal is after created_at rather than here; column order
   -- is not part of the contract (the 0017-command-receipt-mcp-task-handle.ts convention).
   --
-  -- No Spec-020 reciprocal is owed: the value is a daemon-minted member of a closed four-literal
+  -- No Spec-020 reciprocal is owed: the value is a daemon-minted member of a closed three-literal
   -- vocabulary, carries no user content, and identifies no user, so it takes no PII
   -- data-map row, no export disposition, and no erasure selector -- unlike the pii_payload /
   -- pii_user_id pair above.
   rejection_guard        TEXT                        -- NULL default; which composite guard refused
                          CHECK(rejection_guard IS NULL
                                OR (type = 'rollback' AND state = 'rejected'
-                                   AND rejection_guard IN ('no-active-turn', 'no-pending-send',
+                                   AND rejection_guard IN ('no-pending-send',
                                                            'user-authored-target',
                                                            'resumable-target'))),
   created_at             TEXT NOT NULL,
@@ -276,20 +297,20 @@ CREATE TABLE interventions (
 CREATE INDEX idx_interventions_run ON interventions(target_run_id);
 CREATE INDEX idx_interventions_state ON interventions(state) WHERE state IN ('requested', 'accepted');
 
--- Owner: Plan-003 | Extended by: Plan-013 (recovery + two-phase idempotency protocol, BL-051); Plan-004 (additive nullable mcp_task_id — MCP Tasks durable recovery handle, campaign B10; own Plan-004 migration, never a Plan-003 migration edit); Plan-025 (additive nullable mcp_binding_digest — governed-binding provenance for the durable trust-revocation neutralization, CP-025-7; own Plan-025 migration, never a Plan-003 migration edit)
+-- Owner: Plan-003 | Extended by: Plan-013 (recovery + two-phase idempotency protocol); Plan-004 (additive nullable mcp_task_id — MCP Tasks durable recovery handle; own Plan-004 migration, never a Plan-003 migration edit); Plan-025 (additive nullable mcp_binding_digest — governed-binding provenance for the durable trust-revocation neutralization, CP-025-7; own Plan-025 migration, never a Plan-003 migration edit)
 CREATE TABLE command_receipts (
   id                TEXT PRIMARY KEY,
   command_id        TEXT NOT NULL UNIQUE,         -- idempotency key (client-supplied)
   run_id            TEXT,
   status            TEXT NOT NULL
                     CHECK(status IN ('accepted', 'rejected', 'completed', 'failed')),
-  -- BL-051 two-phase commit columns
+  -- Two-phase commit columns
   idempotency_class TEXT NOT NULL
                     CHECK(idempotency_class IN ('idempotent', 'compensable', 'manual_reconcile_only')),
   dedupe_key        TEXT,                         -- propagated to remote side for 'compensable' tools
   started_at        TEXT,                         -- set by Phase 2 optimistic CAS; NULL until claimed
   completed_at      TEXT,                         -- set by Phase 3; NULL until terminal-status
-  -- Plan-004 EXTEND (campaign B10; additive nullable, own Plan-004 migration): receiver-generated
+  -- Plan-004 EXTEND (additive nullable, own Plan-004 migration): receiver-generated
   -- MCP Tasks taskId for a task-augmented MCP call (from the CreateTaskResult acceptance response).
   -- NULL until the receiver accepts — a crash before that leaves NULL and the call stays on the
   -- manual_reconcile_only halt. Spec-013 recovery reads this handle and polls tasks/get + tasks/result
@@ -372,13 +393,13 @@ CREATE TABLE runtime_bindings (
   driver_name         TEXT NOT NULL,            -- e.g. 'claude', 'codex'
   contract_version    TEXT NOT NULL             -- canonical, identifying semver of driver contract (build metadata rejected by the T2.2 write-path Zod guard)
                       CHECK (length(contract_version) > 0 AND length(contract_version) <= 64 AND instr(contract_version, char(0)) = 0),
-  cli_version_raw     TEXT                      -- verbatim provider-reported CLI version captured at binding write (Spec-004 §Required Behavior `cliVersion` report, campaign B3); NULL only on pre-B3 rows — the write path stores the pair or neither
+  cli_version_raw     TEXT                      -- verbatim provider-reported CLI version captured at binding write (Spec-004 §Required Behavior `cliVersion` report); NULL only on rows written before the pair existed — the write path stores the pair or neither
                       CHECK (cli_version_raw IS NULL OR (length(cli_version_raw) > 0 AND length(cli_version_raw) <= 128 AND instr(cli_version_raw, char(0)) = 0)),
   cli_version_semver  TEXT                      -- parsed floor-compare form of the pair; the fail-closed floor gate (`driver.cli_version_unparseable`) runs before any binding write, so a stored pair is always parseable
                       CHECK ((cli_version_semver IS NULL) = (cli_version_raw IS NULL) AND (cli_version_semver IS NULL OR (length(cli_version_semver) > 0 AND length(cli_version_semver) <= 64 AND instr(cli_version_semver, char(0)) = 0))),
   resume_handle       TEXT                      -- provider-owned opaque handle
                       CHECK (resume_handle IS NULL OR (length(resume_handle) > 0 AND length(resume_handle) <= 4096 AND instr(resume_handle, char(0)) = 0)),
-  spawn_config        TEXT NOT NULL DEFAULT '{}', -- JSON: daemon-owned record of the spawn-bound configuration realized at process spawn (executionPosture / callbackTools / subagentPolicy / outputSchema + the admitted cap, plus providerAccountId and resolvedExecutablePath — minted now, valued later by Plan-004 T3.17 / T3.23); written at every spawn — the durable source recovery re-reads to reconstruct ResumeSessionParams' data legs without the original client request (function legs re-injected fresh, never stored; campaign B10 T1.7 catch-up migration, Codex rounds 3–4). Daemon-constructed, so no provider-string CHECK — same trust class as runtime_metadata below
+  spawn_config        TEXT NOT NULL DEFAULT '{}', -- JSON: daemon-owned record of the spawn-bound configuration realized at process spawn (executionPosture / callbackTools / subagentPolicy / outputSchema + the admitted cap, plus providerAccountId, maxStepsPerTurn and resolvedExecutablePath — minted now, valued later by Plan-004 T3.17 / T3.23 / T3.29); written at every spawn — the durable source recovery re-reads to reconstruct ResumeSessionParams' data legs without the original client request (function legs re-injected fresh, never stored; the T1.7 catch-up migration). Daemon-constructed, so no provider-string CHECK — same trust class as runtime_metadata below
   runtime_metadata    TEXT NOT NULL DEFAULT '{}', -- JSON: provider-specific recovery data
   created_at          TEXT NOT NULL,
   updated_at          TEXT NOT NULL
@@ -395,18 +416,18 @@ CREATE TABLE driver_capabilities (
                       'tool_calls', 'reasoning_stream', 'model_mutation',
                       'structured_output', 'rollback', 'session_goals',
                       'callback_tools', 'subagents', 'cost_cap',
-                      'transcript_replay', 'context_compaction',
+                      'transcript_replay', 'limits_read', 'context_compaction',
                       'provider_commands', 'output_speed'
                     )),
   supported         INTEGER NOT NULL DEFAULT 0, -- boolean: 0 or 1
                     -- Campaign-B3/B6 widening note: the catch-up migration that widens the CHECK above MUST
                     -- widen the CHECK to every value the union declares at that moment, all at once — a CHECK is a whitelist, so admitting a value before any
                     -- row uses it costs nothing and spares a second migration — and MUST backfill supported=0 rows for every existing driver_name (undeclared =
-                    -- unsupported, I-004-2), since a cache whose row count differs from the union's breaks the hydrator's exact-cardinality guard before any refresh could heal it. The rows land in three waves
-                    -- matching the three union widenings: the thirteen campaign flags at Plan-004 T1.7, transcript_replay when T3.19 widens the union (2026-08-26), and
-                    -- context_compaction / provider_commands / output_speed when T3.26 widens it to seventeen (2026-08-29, the desktop-console parity amendment). That last
-                    -- widening rebuilds an ALREADY-SHIPPED CHECK (migration 0011 froze it at fourteen), so it consumes a next-ordinal table-rebuild migration in the documented
-                    -- lang_altertable shape rather than amending a CREATE — it adds no table and no column, and the local-SQLite table census does not move.
+                    -- unsupported, I-004-2), since a cache whose row count differs from the union's breaks the hydrator's exact-cardinality guard before any refresh could heal it. The rows land in four waves
+                    -- matching the four union widenings: the thirteen flags at Plan-004 T1.7, transcript_replay when T3.19 widens the union,
+                    -- context_compaction / provider_commands / output_speed when T3.26 widens it to seventeen, and limits_read when T3.28 widens it to eighteen (the account-limits read on a live process). Each of the last two
+                    -- widenings rebuilds an ALREADY-SHIPPED CHECK (migration 0011 froze it at fourteen and 0014 re-froze it at seventeen), so each consumes a next-ordinal table-rebuild migration in the documented
+                    -- lang_altertable shape rather than amending a CREATE — neither adds a table or a column, and the local-SQLite table census does not move for them.
   refreshed_at      TEXT NOT NULL,
   PRIMARY KEY (driver_name, capability_flag)
 );
@@ -448,7 +469,7 @@ CREATE TABLE driver_contract_meta (
   driver_name         TEXT PRIMARY KEY,
   contract_version    TEXT NOT NULL             -- canonical, identifying semver of the driver's advertised capability contract (build metadata rejected by the T2.4 write-path Zod guard)
                       CHECK (length(contract_version) > 0 AND length(contract_version) <= 64 AND instr(contract_version, char(0)) = 0),
-  cli_version_raw     TEXT                      -- cached `cliVersion.raw` from the last capability refresh (Spec-004 §Required Behavior, campaign B3); NULL only on pre-B3 rows
+  cli_version_raw     TEXT                      -- cached `cliVersion.raw` from the last capability refresh (Spec-004 §Required Behavior); NULL only on rows written before the pair existed
                       CHECK (cli_version_raw IS NULL OR (length(cli_version_raw) > 0 AND length(cli_version_raw) <= 128 AND instr(cli_version_raw, char(0)) = 0)),
   cli_version_semver  TEXT                      -- cached parsed form; cold-start hydration MUST treat a NULL pair as a cache miss and refresh from the driver — the required `GetCapabilitiesResult.cliVersion` is never fabricated from cache
                       CHECK ((cli_version_semver IS NULL) = (cli_version_raw IS NULL) AND (cli_version_semver IS NULL OR (length(cli_version_semver) > 0 AND length(cli_version_semver) <= 64 AND instr(cli_version_semver, char(0)) = 0))),
@@ -463,7 +484,7 @@ The build-metadata rejection above is grounded in the SemVer specification itsel
 ## Audit Log Crypto Tables (Plan-005)
 
 ```sql
--- Owner: Plan-005 | Migration: 0005-daemon-signing-keys.ts (Tier 3 Phase 2)
+-- Owner: Plan-005 | Migration: 0005-daemon-signing-keys.ts (Plan-005 Phase 2)
 -- Per-session daemon Ed25519 signing keypair. Private key is sealed via the
 -- OS keystore master key (@napi-rs/keyring v1.2.0 per Spec-020 §Daemon Master Key — Keychain
 -- kSecAttrAccessibleWhenUnlockedThisDeviceOnly on macOS / CRED_TYPE_GENERIC
@@ -485,7 +506,7 @@ CREATE TABLE daemon_signing_keys (
   rotated_at          TEXT                   -- reserved; see rotation note above
 );
 
--- Owner: Plan-005 | Migration: 0008-pending-anchor-uploads.ts (Tier 3 Phase 3)
+-- Owner: Plan-005 | Migration: 0008-pending-anchor-uploads.ts (Plan-005 Phase 3)
 -- Durable partition-tolerance queue for Merkle anchors awaiting control-plane upload. Unflushed
 -- anchors survive daemon restart without re-signing per Plan-005 §Merkle Anchor Emission (its
 -- partition-tolerance bullet: anchors queue locally on upload failure and flush on reconnect). The
@@ -505,7 +526,7 @@ CREATE TABLE pending_anchor_uploads (
   start_sequence      INTEGER NOT NULL,
   end_sequence        INTEGER NOT NULL,
   merkle_root         BLOB NOT NULL,         -- BLAKE3 Merkle root over row_hash leaves (RFC 9162 §2.1.1 MTH: split at largest power of two, 0x00/0x01 domain separation)
-  root_signature      BLOB NOT NULL,         -- Ed25519 by daemon_signing_keys.sealed_private_key over the anchor CLAIM ({endSequence, merkleRoot, nodeId, sessionId, startSequence}, RFC 8785) per Spec-005 §Anchoring Cadence (2026-08-11: coordinates signed, not merkle_root alone)
+  root_signature      BLOB NOT NULL,         -- Ed25519 by daemon_signing_keys.sealed_private_key over the anchor CLAIM ({endSequence, merkleRoot, nodeId, sessionId, startSequence}, RFC 8785) per Spec-005 §Anchoring Cadence (coordinates signed, not merkle_root alone)
   anchored_at         TEXT NOT NULL,         -- daemon-local timestamp at anchor computation
   uploaded_at         TEXT,                  -- non-NULL once control-plane confirms upload to event_log_anchors
   -- Durable retry/backoff state (partition-anchor queue durability decision, resolved per Plan-005 §Open Authoring Decisions (Category 2 — Audit-Surfaced)): survives daemon
@@ -541,7 +562,7 @@ CREATE TABLE node_capabilities (
 CREATE TABLE node_trust_state (
   node_id           TEXT NOT NULL PRIMARY KEY,
   trust_level       TEXT NOT NULL DEFAULT 'untrusted',
-                    -- V1 value set ratified by the Tier-5 audit (Plan-010 D-010-15): 'untrusted' | 'envelope_trusted'.
+                    -- V1 value set (Plan-010 D-010-15): 'untrusted' | 'envelope_trusted'.
                     -- The shipped 0002 migration carries no CHECK (a retroactive CHECK requires a table rebuild);
                     -- enforcement is at the seams: Plan-010 owns the elevation write (parse-at-boundary) and its
                     -- policy evaluator treats any out-of-set value as 'untrusted' (fail-closed read; Spec-010 §Fallback Behavior).
@@ -568,7 +589,7 @@ CREATE TABLE repo_mounts (
                   CHECK(state IN ('attached', 'detached', 'archived')),
   attached_at     TEXT NOT NULL,
   updated_at      TEXT NOT NULL,
-  metadata        TEXT NOT NULL DEFAULT '{}' -- JSON; commonDir: attach-persisted canonicalized git common directory — the repo-identity anchor bind/run re-derivation must match (Spec-007, PR #340; absent on pre-amendment rows, repaired at the first mutating contact per Spec-007's anchor-repair rule — health reads never write it)
+  metadata        TEXT NOT NULL DEFAULT '{}' -- JSON; commonDir: attach-persisted canonicalized git common directory — the repo-identity anchor bind/run re-derivation must match (Spec-007; absent on older rows, repaired at the first mutating contact per Spec-007's anchor-repair rule — health reads never write it)
 );
 
 CREATE INDEX idx_repo_mounts_session ON repo_mounts(session_id);
@@ -589,7 +610,7 @@ CREATE TABLE workspaces (
   fs_root         TEXT,                       -- resolved filesystem root
   state           TEXT NOT NULL DEFAULT 'provisioning'
                   CHECK(state IN ('provisioning', 'ready', 'busy', 'stale', 'archived')),
-  metadata        TEXT NOT NULL DEFAULT '{}', -- JSON; lastError detail on a failed mode switch (Spec-007); boundRoot: admitted bind origin — the branch-mode execution-root carrier, never cleared by reprovision (Spec-007/Spec-008, PR #340; absent on pre-amendment rows falls back to canonical_root); checkoutRoot: the current checkout's top level — derived at bind, rewritten when provisioning installs a provisioned root — the restore/tenancy normalized-root carrier (Spec-008; an absent pre-amendment key is derived at the run-setup gate from the just-materialized execution root's top level and healed back onto this key — never canonical_root, the bind-time checkout). It reaches the turn-snapshot callees by capture into run_execution_contexts.checkout_root at run setup, never by a callee reading this row: the tenancy comparison reads this column directly (node-local by construction — one node, one database), restore reads the run-context copy, which survives this workspace being reprovisioned or the nested bound path being deleted mid-turn (2026-08-17 amendment, CP-008-12 ⇄ CP-008-15)
+  metadata        TEXT NOT NULL DEFAULT '{}', -- JSON; lastError detail on a failed mode switch (Spec-007); boundRoot: admitted bind origin — the branch-mode execution-root carrier, never cleared by reprovision (Spec-007/Spec-008; absent on older rows it falls back to canonical_root); checkoutRoot: the current checkout's top level — derived at bind, rewritten when provisioning installs a provisioned root — the restore/tenancy normalized-root carrier (Spec-008; an absent key is derived at the run-setup gate from the just-materialized execution root's top level and healed back onto this key — never canonical_root, the bind-time checkout). It reaches the turn-snapshot callees by capture into run_execution_contexts.checkout_root at run setup, never by a callee reading this row: the tenancy comparison reads this column directly (node-local by construction — one node, one database), restore reads the run-context copy, which survives this workspace being reprovisioned or the nested bound path being deleted mid-turn (CP-008-12 ⇄ CP-008-15)
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL
 );
@@ -597,7 +618,7 @@ CREATE TABLE workspaces (
 CREATE INDEX idx_workspaces_session ON workspaces(session_id);
 CREATE INDEX idx_workspaces_repo ON workspaces(repo_mount_id);
 
--- Owner: Plan-008 (Tier-5 audit: provenance columns, active-branch uniqueness, cleanup stamp — D-008-5)
+-- Owner: Plan-008 (provenance columns, active-branch uniqueness, cleanup stamp — D-008-5)
 CREATE TABLE worktrees (
   id                    TEXT PRIMARY KEY,
   repo_mount_id         TEXT NOT NULL REFERENCES repo_mounts(id),
@@ -619,7 +640,7 @@ CREATE INDEX idx_worktrees_repo ON worktrees(repo_mount_id);
 CREATE UNIQUE INDEX idx_worktrees_active_branch ON worktrees(repo_mount_id, branch_name)
   WHERE state NOT IN ('retired', 'failed');
 
--- Owner: Plan-008 (Tier-5 audit: TTL + cleanup bookkeeping — D-008-5)
+-- Owner: Plan-008 (TTL + cleanup bookkeeping — D-008-5)
 CREATE TABLE ephemeral_clones (
   id              TEXT PRIMARY KEY,
   workspace_id    TEXT NOT NULL REFERENCES workspaces(id),
@@ -639,7 +660,7 @@ CREATE INDEX idx_ephemeral_clones_workspace ON ephemeral_clones(workspace_id);
 CREATE INDEX idx_ephemeral_clones_sweep ON ephemeral_clones(state, expires_at);  -- cleanup-tick scan
 
 -- Owner: Plan-008 | Extended by: Plan-009
--- Polymorphic root carrier (Tier-5 audit, D-008-5): worktree-mode rows reference the worktree,
+-- Polymorphic root carrier (D-008-5): worktree-mode rows reference the worktree,
 -- ephemeral-clone rows the clone, branch-mode rows neither (the main checkout carries no Plan-008 root row).
 CREATE TABLE branch_contexts (
   id                 TEXT PRIMARY KEY,
@@ -657,15 +678,14 @@ CREATE TABLE branch_contexts (
 CREATE INDEX idx_branch_contexts_workspace ON branch_contexts(workspace_id);
 CREATE UNIQUE INDEX idx_branch_contexts_worktree_workspace ON branch_contexts(worktree_id, workspace_id) WHERE worktree_id IS NOT NULL;  -- one binding row per (workspace, worktree) — D-008-15 upsert; the worktree-keyed BranchContextRead resolves on the pair
 
--- Owner: Plan-008 (Tier-5 audit, D-008-16)
+-- Owner: Plan-008 (D-008-16)
 -- Per-run execution binding (Spec-008 §State And Data Implications: execution mode as run setup data):
 -- which workspace/mode/root a repo-bound run executes against. run_id is event-sourced (runs live in
--- the event log, not a table) — PRIMARY KEY without FK. released_at stamps run-terminal release; a terminal-source rollback clears it atomically with the run's re-open, and a rollback composite ending without a confirmed rewind restores it (campaign B2 — Spec-003 §Required Behavior; the campaign's Plan-008 bundle owns the implementing task).
+-- the event log, not a table) — PRIMARY KEY without FK. released_at stamps run-terminal release; a terminal-source rollback clears it atomically with the run's re-open, and a rollback composite ending without a confirmed rewind restores it (Spec-003 §Required Behavior; the Plan-008 bundle owns the implementing task).
 -- Migration lineage: the block below is the table's FINAL shape, not the content of any single migration. Every
--- column except checkout_root shipped in the version-4 four-table CREATE (Plan-008 T1.3, PR #253); checkout_root
+-- column except checkout_root shipped in the version-4 four-table CREATE (Plan-008 T1.3); checkout_root
 -- lands via the Phase-3 table-rebuild migration (create successor -> copy omitting the column -> drop -> rename ->
--- recreate the index; `lang_altertable` §8 — Plan-008 T3.2, its only writer; 2026-08-17 amendment, shape corrected at
--- the PR's round-1 fold), after which PRAGMA table_info order matches this block exactly.
+-- recreate the index; `lang_altertable` §8 — Plan-008 T3.2, its only writer), after which PRAGMA table_info order matches this block exactly.
 CREATE TABLE run_execution_contexts (
   run_id             TEXT PRIMARY KEY,
   session_id         TEXT NOT NULL,                  -- event-sourced session id (no FK, matching session_id columns elsewhere)
@@ -673,14 +693,14 @@ CREATE TABLE run_execution_contexts (
   execution_mode     TEXT NOT NULL
                      CHECK(execution_mode IN ('read-only', 'branch', 'worktree', 'ephemeral clone')),
   execution_root     TEXT NOT NULL,
-  checkout_root TEXT NOT NULL, -- the enclosing working tree's top level for execution_root, captured at context creation by the Plan-008 T3.2 gate from workspaces.metadata.checkoutRoot (absent on pre-amendment workspace rows → derived at the gate from the just-materialized execution root's top level, the carrier healed — never canonical_root, the bind-time checkout; Codex PR #346 round 2): the durable normalized root CP-008-15 restore consumes, so rollback survives the turn deleting a nested execution_root. Same durable-capture-at-context-creation pattern as git_common_dir, and likewise mode-agnostic — read-only rows carry it too, because the CP-008-4 checkout-keyed run tenancy and the I-008-14 gate are both mode-agnostic. Under CP-008-12 the caller reads it from this row (beside execution_root and execution_mode) and passes it to the pure capture/restore callees, which never read workspace state themselves. Added by the Phase-3 table-rebuild migration that lands T3.2, not by the version-4 four-table CREATE (2026-08-17 amendment; shape corrected at the PR's round-1 fold — the ALTER documentation refuses ADD COLUMN... NOT NULL without a default unconditionally, and the empty-table allowance the bundled engine exhibits is undocumented, so the rebuild's documented semantics replace it): the successor table declares this column with no sentinel default, and the copy step omits it, so any pre-existing row fails the engine-enforced NOT NULL at copy time rather than back-filling a lie — vacuously clean in practice, since no writer of this table has ever shipped and every deployed instance holds it row-less. Declared here in its LOGICAL position beside execution_root, which after the rebuild is also its physical PRAGMA table_info position — no retention_class-style CID-last divergence; the migration-shape column pin asserts the identical order
+  checkout_root TEXT NOT NULL, -- the enclosing working tree's top level for execution_root, captured at context creation by the Plan-008 T3.2 gate from workspaces.metadata.checkoutRoot (absent on older workspace rows → derived at the gate from the just-materialized execution root's top level, the carrier healed — never canonical_root, the bind-time checkout): the durable normalized root CP-008-15 restore consumes, so rollback survives the turn deleting a nested execution_root. Same durable-capture-at-context-creation pattern as git_common_dir, and likewise mode-agnostic — read-only rows carry it too, because the CP-008-4 checkout-keyed run tenancy and the I-008-14 gate are both mode-agnostic. Under CP-008-12 the caller reads it from this row (beside execution_root and execution_mode) and passes it to the pure capture/restore callees, which never read workspace state themselves. Added by the Phase-3 table-rebuild migration that lands T3.2, not by the version-4 four-table CREATE (the ALTER documentation refuses ADD COLUMN... NOT NULL without a default unconditionally, and the empty-table allowance the bundled engine exhibits is undocumented, so the rebuild's documented semantics replace it): the successor table declares this column with no sentinel default, and the copy step omits it, so any pre-existing row fails the engine-enforced NOT NULL at copy time rather than back-filling a lie — vacuously clean in practice, since no writer of this table has ever shipped and every deployed instance holds it row-less. Declared here in its LOGICAL position beside execution_root, which after the rebuild is also its physical PRAGMA table_info position — no retention_class-style CID-last divergence; the migration-shape column pin asserts the identical order
   git_common_dir     TEXT NOT NULL,                  -- `git rev-parse --git-common-dir` (absolute) captured at context creation: the surviving canonical git dir for snapshot-ref ops, so Plan-008 T5.3 ref pruning outlives a worktree retirement of execution_root (worktree mode → main repo git dir; branch/read-only → <root>/.git; ephemeral clone → the clone's own git dir, refs sharing the clone's disposal lifecycle)
   worktree_id        TEXT REFERENCES worktrees(id),
   ephemeral_clone_id TEXT REFERENCES ephemeral_clones(id),
   branch_context_id  TEXT REFERENCES branch_contexts(id),
   created_at         TEXT NOT NULL,
   released_at        TEXT,
-  -- Mode-conditional identity (Tier-5 audit): the mode names exactly which root id is
+  -- Mode-conditional identity: the mode names exactly which root id is
   -- present, and every writable mode carries its branch context (Spec-008 §State And
   -- Data Implications); read-only carries none of the three.
   CHECK (
@@ -733,16 +753,16 @@ CREATE INDEX idx_pr_preparations_branch ON pr_preparations(branch_context_id);
 
 ```sql
 -- Owner: Plan-012
--- Tier-6 audit: + subject, size_bytes, annotations realize the OCI manifest envelope (D-012-1, D-012-2);
+-- + subject, size_bytes, annotations realize the OCI manifest envelope (D-012-1, D-012-2);
 --   + replication_status realizes the Spec-012 §Fallback Behavior manifest-first replication surface (A-012-3) — nullable;
---   the multi-state CHECK the audit deferred (anti-fabrication) arrived 2026-07-08: the cross-node relay
---   amendment spec-names the full value set (Spec-012 §Cross-Node Artifact Relay (V1)); see note below;
---   + relay_cek_ciphertext arrived 2026-07-09 (publisher-retained CEK, Spec-012 Publish step 1).
+--   its multi-state CHECK carries the value set the cross-node relay spec-names
+--   (Spec-012 §Cross-Node Artifact Relay (V1)); see note below;
+--   + relay_cek_ciphertext (publisher-retained CEK, Spec-012 Publish step 1).
 CREATE TABLE artifact_manifests (
   id                 TEXT PRIMARY KEY,
   session_id         TEXT NOT NULL,
   run_id             TEXT,
-  created_by         TEXT,                       -- user_id of the publishing caller; NULL for a daemon-produced artifact with no attributable caller. The permission-matrix Delete own-artifacts scope evaluates this column FAIL-CLOSED: a NULL matches no caller, so an unattributed artifact is never reached through that scope (PR #341 round 2 — a rule the store carries no data to evaluate is prose, not policy)
+  created_by         TEXT,                       -- user_id of the publishing caller; NULL for a daemon-produced artifact with no attributable caller. The permission-matrix Delete own-artifacts scope evaluates this column FAIL-CLOSED: a NULL matches no caller, so an unattributed artifact is never reached through that scope (a rule the store carries no data to evaluate is prose, not policy)
   artifact_type      TEXT NOT NULL              -- Spec-012 §Interfaces And Contracts discriminator (D-012-4)
                      CHECK(artifact_type IN ('file', 'diff', 'summary', 'log', 'design', 'workflow_output')),
   subject            TEXT REFERENCES artifact_manifests(id),  -- OCI `subject`: NULL for originals; a derivative (redacted/summarized shareable form) points to its source manifest, never an in-place UPDATE of the original (I-012-2, Spec-012 §State And Data Implications, A-012-4)
@@ -753,7 +773,7 @@ CREATE TABLE artifact_manifests (
   content_hash       TEXT NOT NULL,              -- SHA-256 content address (OCI `digest`); intrinsic to a content-addressed manifest (I-012-1), set at insert by the writing producer (AttachmentIngest or ArtifactPublish) from its own payload — D-012-1
   size_bytes         INTEGER NOT NULL,           -- OCI manifest-descriptor `size` (payload byte length); set at insert by the writing producer from its own payload, never a payload-less row — D-012-1
   annotations        TEXT NOT NULL DEFAULT '{}', -- OCI `annotations`: JSON-encoded string→string map (first-class OCI manifest property, not freeform `metadata`) — D-012-1, D-012-2
-  replication_status TEXT                        -- A-012-3 surface; value set spec-named by the 2026-07-08 relay amendment (mirrors ArtifactManifest.replicationStatus?: pending_replication while payload transfer is pending; pinned once every chunk is relay-acknowledged — the offline-availability guarantee attaches only to a LIVE relay pin (state = 'pinned' AND expires_at > now(), Spec-012 §TTL sweep disposition (V1), bounded 2026-08-26) and ends at the artifact's retention TTL, so this row can still read pinned after the relay has released the bytes, which is exactly why the fetch-path write-back below exists; over_cap / quota_exceeded = honest publisher-local degradation; expired = payload not obtainable from the relay, written on THIS node by its own fetch path on EITHER refusal that establishes it — artifact.relay_expired (410) at the mint, a chunk GET, or a resume; or a zero-row artifact.no_access_key (404), which is where a fetch lands once a GC path has removed the blob row and its recipient rows have cascaded away with it — refcount-zero delete, watermark eviction, or a TTL tombstone already purged past relay_tombstone_grace, while a TTL-swept blob still inside that grace takes the typed 410 instead (narrowed 2026-08-26) — because the relay's TTL sweep and watermark eviction run past the node boundary and emit no event, so a recipient learns of expiry only by fetching; every node holds its own row under manifest-first replication and its daemon is that row's only writer, the transition applies only to a pinned row, is idempotent, and an ordinary re-publish re-pin returns it to pinned, so the column tracks availability rather than latching (writer named 2026-08-17 by the ingest-protocol hardening amendment — the value was already in the CHECK below and had no recipient-side writer, which left the unresolved-attachment marker's expired cause unreachable). NULL = local-only artifact with no replication surface.
+  replication_status TEXT                        -- A-012-3 surface; value set spec-named by Spec-012's cross-node relay (mirrors ArtifactManifest.replicationStatus?: pending_replication while payload transfer is pending; pinned once every chunk is relay-acknowledged — the offline-availability guarantee attaches only to a LIVE relay pin (state = 'pinned' AND expires_at > now(), Spec-012 §TTL sweep disposition (V1)) and ends at the artifact's retention TTL, so this row can still read pinned after the relay has released the bytes, which is exactly why the fetch-path write-back below exists; over_cap / quota_exceeded = honest publisher-local degradation; expired = payload not obtainable from the relay, written on THIS node by its own fetch path on EITHER refusal that establishes it — artifact.relay_expired (410) at the mint, a chunk GET, or a resume; or a zero-row artifact.no_access_key (404), which is where a fetch lands once a GC path has removed the blob row and its recipient rows have cascaded away with it — refcount-zero delete, watermark eviction, or a TTL tombstone already purged past relay_tombstone_grace, while a TTL-swept blob still inside that grace takes the typed 410 instead — because the relay's TTL sweep and watermark eviction run past the node boundary and emit no event, so a recipient learns of expiry only by fetching; every node holds its own row under manifest-first replication and its daemon is that row's only writer, the transition applies only to a pinned row, is idempotent, and an ordinary re-publish re-pin returns it to pinned, so the column tracks availability rather than latching (the fetching daemon is that writer, which is what makes the unresolved-attachment marker's expired cause reachable). NULL = local-only artifact with no replication surface.
                      CHECK(replication_status IN ('pending_replication', 'pinned', 'over_cap', 'quota_exceeded', 'expired')),
   relay_cek_ciphertext BLOB,                  -- publisher-retained CEK for the relay pin, wrapped by the Spec-020 daemon master key; NULL for local-only artifacts, set at the first relay-bound publish — before any pin: a solo-session publish uploads nothing and stays pending_replication yet retains the CEK, so the first re-publish performs the initial pin under the SAME CEK. Re-publish re-wraps this SAME CEK for new recipients (the pinned ciphertext is under it; the relay holds only recipient-wrapped copies) — without it the publisher could not extend late-join access except by re-encrypting + re-uploading under a fresh key. Deliberately not a per-user erasure target: dies with the manifest row or the daemon master key (Spec-020 §PII Data Map artifact-payload posture). Spec-012 Publish step 1.
   metadata           TEXT NOT NULL DEFAULT '{}', -- JSON: freeform daemon-side provenance/media-type/etc. — distinct from the OCI `annotations` map (own column above)
@@ -777,12 +797,12 @@ CREATE TABLE artifact_payload_refs (
 );
 
 CREATE INDEX idx_artifact_payload_refs_manifest ON artifact_payload_refs(manifest_id);
--- 2026-08-17 (PR #341 round 2): the derived-refcount lookup key — ArtifactDelete and the session sweep
+-- The derived-refcount lookup key — ArtifactDelete and the session sweep
 -- count surviving references by storage_path on every reclaim decision (Spec-012 §Local Artifact
 -- Deletion And CAS Reclaim (V1)), and an unindexed lookup would full-scan the table each time.
 CREATE INDEX idx_artifact_payload_refs_storage_path ON artifact_payload_refs(storage_path);
 
--- Owner: Plan-012 (2026-07-09 cross-node relay amendment)
+-- Owner: Plan-012 (cross-node relay)
 -- The daemon-local durable artifact-encryption keypair — one row per user on this node
 -- (node scoping is the database itself: each daemon holds its own store). Relay CEKs are wrapped
 -- to this key, NEVER to the ADR-010 session-ephemeral X25519 keys (those are zeroed at session
@@ -811,7 +831,7 @@ CREATE UNIQUE INDEX idx_artifact_encryption_keys_active
   ON artifact_encryption_keys(user_id) WHERE retired_at IS NULL;
 ```
 
-> **Tier-6 audit — ratified design (Plan-012 → `approved`).** `artifact_manifests.subject` (OCI `subject`, self-referential FK — derivative-not-mutation per I-012-2, guarded by a table-level `CHECK(subject IS NULL OR subject <> id)` so no manifest is its own subject — a derivative must point to a _distinct_ source, the same self-reference guard pattern as `run_links` parent≠child), `artifact_manifests.size_bytes` (OCI manifest-descriptor `size`), and `artifact_manifests.annotations` (OCI `annotations`, a first-class string→string map per the [OCI image-manifest spec](https://github.com/opencontainers/image-spec/blob/main/manifest.md)) realize the OCI envelope per D-012-1. **`content_hash`/`size_bytes` are `NOT NULL`:** a content-addressed manifest's `digest` is intrinsic to its identity (I-012-1), and each producer (Plan-012 Task 2 AttachmentIngest, Task 3 ArtifactPublish) computes the SHA-256 + byte length from its own payload and inserts its manifest with both columns set in the same transaction as the payload-ref — the two are independent producers, each writing its own manifest (so the `artifactId` AttachmentIngest returns resolves from the ingest-written manifest, not a later publish), so neither is ever NULL and no payload-less manifest is ever read — this is 1:1 with the **required** `digest`/`size` fields on the `ArtifactManifest` wire shape ([api-payload-contracts.md](../contracts/api-payload-contracts.md)). **D-012-2 (OCI `annotations` reciprocity):** `annotations` is its own column rather than riding inside `metadata` JSON, so the at-rest shape is 1:1 with the wire — `ArtifactReadResponse.annotations` is a field distinct from `metadata` in [api-payload-contracts.md](../contracts/api-payload-contracts.md) — and consistent with `subject`/`size_bytes` getting dedicated columns; `metadata` stays purely freeform. `artifact_manifests.replication_status` (A-012-3) realizes the [Spec-012 §Fallback Behavior](../../specs/012-artifacts-files-and-attachments.md#fallback-behavior) manifest-first replication surface — the column exists (spec-required: shared artifacts replicate manifest-first with deferred payload, [Spec-012 §Resolved Questions and V1 Scope Decisions](../../specs/012-artifacts-files-and-attachments.md#resolved-questions-and-v1-scope-decisions) + [Spec-012 §Fallback Behavior](../../specs/012-artifacts-files-and-attachments.md#fallback-behavior)), nullable, and V1 writes the spec-named `pending_replication` while a shared artifact awaits payload transfer; it surfaces on the wire as the optional `ArtifactManifest.replicationStatus?` field (1:1 at-rest↔wire). It carried **no multi-state `CHECK`** at the audit: [Spec-012 §Fallback Behavior](../../specs/012-artifacts-files-and-attachments.md#fallback-behavior) named only `pending_replication` ("or equivalent"), so terminal/failed values were a deferred owner refinement — none was invented there (anti-fabrication). This schema edit + the `api-payload-contracts.md` artifact-wire edit + Plan-012 CP-012-1 landed as one ratified bundle in the audit swap. **(2026-07-08: the deferred refinement arrived — the [Spec-012 §Cross-Node Artifact Relay (V1)](../../specs/012-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) amendment spec-names the full value set `pending_replication | pinned | over_cap | quota_exceeded | expired`, so the CHECK above now exists; the wire mirror stays `ArtifactManifest.replicationStatus?`.)**
+> **The OCI manifest envelope.** `artifact_manifests.subject` (OCI `subject`, self-referential FK — derivative-not-mutation per I-012-2, guarded by a table-level `CHECK(subject IS NULL OR subject <> id)` so no manifest is its own subject — a derivative must point to a _distinct_ source, the same self-reference guard pattern as `run_links` parent≠child), `artifact_manifests.size_bytes` (OCI manifest-descriptor `size`), and `artifact_manifests.annotations` (OCI `annotations`, a first-class string→string map per the [OCI image-manifest spec](https://github.com/opencontainers/image-spec/blob/main/manifest.md)) realize the OCI envelope per D-012-1. **`content_hash`/`size_bytes` are `NOT NULL`:** a content-addressed manifest's `digest` is intrinsic to its identity (I-012-1), and each producer (Plan-012 Task 2 AttachmentIngest, Task 3 ArtifactPublish) computes the SHA-256 + byte length from its own payload and inserts its manifest with both columns set in the same transaction as the payload-ref — the two are independent producers, each writing its own manifest (so the `artifactId` AttachmentIngest returns resolves from the ingest-written manifest, not a later publish), so neither is ever NULL and no payload-less manifest is ever read — this is 1:1 with the **required** `digest`/`size` fields on the `ArtifactManifest` wire shape ([api-payload-contracts.md](../contracts/api-payload-contracts.md)). **D-012-2 (OCI `annotations` reciprocity):** `annotations` is its own column rather than riding inside `metadata` JSON, so the at-rest shape is 1:1 with the wire — `ArtifactReadResponse.annotations` is a field distinct from `metadata` in [api-payload-contracts.md](../contracts/api-payload-contracts.md) — and consistent with `subject`/`size_bytes` getting dedicated columns; `metadata` stays purely freeform. `artifact_manifests.replication_status` (A-012-3) realizes the [Spec-012 §Fallback Behavior](../../specs/012-artifacts-files-and-attachments.md#fallback-behavior) manifest-first replication surface — the column exists (spec-required: shared artifacts replicate manifest-first with deferred payload, [Spec-012 §Resolved Questions and V1 Scope Decisions](../../specs/012-artifacts-files-and-attachments.md#resolved-questions-and-v1-scope-decisions) + [Spec-012 §Fallback Behavior](../../specs/012-artifacts-files-and-attachments.md#fallback-behavior)), nullable, and V1 writes the spec-named `pending_replication` while a shared artifact awaits payload transfer; it surfaces on the wire as the optional `ArtifactManifest.replicationStatus?` field (1:1 at-rest↔wire). [Spec-012 §Cross-Node Artifact Relay (V1)](../../specs/012-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) spec-names the full value set `pending_replication | pinned | over_cap | quota_exceeded | expired`, which is what the CHECK above enforces; the wire mirror stays `ArtifactManifest.replicationStatus?`.
 
 ---
 
@@ -820,13 +840,13 @@ CREATE UNIQUE INDEX idx_artifact_encryption_keys_active
 The 9 canonical approval categories: `tool_execution`, `file_write`, `network_access`, `destructive_git`, `user_input`, `plan_approval`, `mcp_elicitation`, `gate`, `human_phase_contribution`.
 
 ```sql
--- Owner: Plan-010 (amended by the Tier-5 plan-readiness audit, D-010-2)
+-- Owner: Plan-010 (D-010-2)
 CREATE TABLE approval_requests (
   id                    TEXT PRIMARY KEY,
-  session_id            TEXT NOT NULL,        -- owning session (Spec-010 line 58; Spec-005 §Approval Flow payload; projection key);
+  session_id            TEXT NOT NULL,        -- owning session (Spec-010 §Required Behavior; Spec-005 §Approval Flow payload; projection key);
                                               -- no local FK target (sessions are control-plane rows per ADR-004)
   run_id                TEXT NOT NULL,        -- no REFERENCES: run state is event-sourced (ADR-017; interventions precedent)
-  requested_by          TEXT NOT NULL,        -- requester actor (user or agent actor id; Spec-010 line 58)
+  requested_by          TEXT NOT NULL,        -- requester actor (user or agent actor id; Spec-010 §Required Behavior)
   category              TEXT NOT NULL
                         CHECK(category IN (
                           'tool_execution', 'file_write', 'network_access', 'destructive_git',
@@ -834,27 +854,22 @@ CREATE TABLE approval_requests (
                           'human_phase_contribution'                              -- SA-12 addition; mirrors Spec-010 canonical enum
                         )),
   scope                 TEXT NOT NULL,        -- requested scope descriptor
-  resource_descriptor   TEXT NOT NULL DEFAULT '{}', -- target resource details (JSON; Spec-010 line 96 'must include')
+  resource_descriptor   TEXT NOT NULL DEFAULT '{}', -- target resource details (JSON; Spec-010 §Interfaces And Contracts, 'must include')
   ask_id                TEXT,                 -- originating driver_ask askId, set iff the request was minted by the
-                                              -- CP-010-6 driver-ask normalizer (Spec-010 §Resolved Questions, Part-B
-                                              -- fail-closed follow-up 2026-07-17); rebuilt from approval.requested.askId
-                                              -- at replay (D-010-6/D-010-7) so outcome/expiry routing to the native
-                                              -- ask survives restart with multiple in-flight asks on one run
-  expiry_at             TEXT,                 -- ISO 8601, nullable for no-expiry (equals the ask's expiresAt when
-                                              -- ask_id is set — the Spec-010 one-shared-deadline rule)
+                                              -- CP-010-6 driver-ask normalizer; rebuilt from approval.requested.askId
+                                              -- at replay (D-010-6/D-010-7) so outcome routing to the native
+                                              -- ask survives restart with several in-flight asks on one run
   state                 TEXT NOT NULL DEFAULT 'pending'
-                        CHECK(state IN ('pending', 'approved', 'rejected', 'expired', 'canceled')),
+                        CHECK(state IN ('pending', 'approved', 'rejected', 'canceled')),
+                                              -- No 'expired' state and no deadline column: a request waits until it is
+                                              -- answered. Moving the session's permission level to one that never asks
+                                              -- answers an open request -- the blocked call runs -- so it lands
+                                              -- 'approved'; only an interrupt or any other end of its run and the
+                                              -- provider process ending land 'canceled'. Nothing on this table is left
+                                              -- for a sweep to settle and silence is never read as either a grant or a
+                                              -- denial (Spec-010 §Required Behavior)
   created_at            TEXT NOT NULL,
-  updated_at            TEXT NOT NULL,        -- last state-transition instant (expiry/cancel carry no resolution row)
-  CHECK (ask_id IS NULL OR expiry_at IS NOT NULL)
-                                              -- an ask-associated (normalizer-minted) row always carries the shared
-                                              -- deadline: ask_id without expiry_at could never re-arm the durable
-                                              -- timeout after restart, re-creating an unbounded pending ask
-                                              -- (Spec-010 Part-B fail-closed follow-up 2026-07-17; replay-side
-                                              -- backstop — the approval-flow emission refinement enforces the same
-                                              -- askId ⇒ expiryAt pairing origin-blind at parse, so an invalid mint
-                                              -- refuses before it is durable; the T1.3 migration copies this CHECK
-                                              -- verbatim and pins it in its tests)
+  updated_at            TEXT NOT NULL         -- last state-transition instant (a cancel carries no resolution row)
 );
 
 CREATE INDEX idx_approval_requests_run ON approval_requests(run_id);
@@ -862,7 +877,7 @@ CREATE INDEX idx_approval_requests_session ON approval_requests(session_id);
 CREATE INDEX idx_approval_requests_state ON approval_requests(state) WHERE state = 'pending';
 CREATE UNIQUE INDEX idx_approval_requests_ask ON approval_requests(run_id, ask_id) WHERE ask_id IS NOT NULL;
 -- UNIQUE (run_id, ask_id): exactly one approval row per native ask — a normalizer retry or replay
--- re-mint collides here instead of persisting a duplicate pending row whose outcome/expiry routing
+-- re-mint collides here instead of persisting a duplicate pending row whose outcome routing
 -- would then fan out or pick arbitrarily (Spec-010 one ask↔one approval; duplicate-normalization test
 -- rides the T1.3 migration suite)
 
@@ -875,13 +890,13 @@ CREATE TABLE approval_resolutions (
                                               -- request; the wait-for-all aggregate settles across rows, never as
                                               -- multiple resolutions on one row
   approver_id              TEXT NOT NULL,     -- user recorded as approver (D-010-12: node-owner binding on the
-                                              -- local socket; verified PASETO sub on authenticated surfaces; Spec-010 line 97)
+                                              -- local socket; verified PASETO sub on authenticated surfaces; Spec-010 §Interfaces And Contracts)
   decision                 TEXT NOT NULL
                            CHECK(decision IN ('approved', 'rejected')),
-  effective_scope          TEXT NOT NULL,     -- granted scope; = request scope unless approver narrowed it (Spec-010 line 59);
+  effective_scope          TEXT NOT NULL,     -- granted scope; = request scope unless approver narrowed it (Spec-010 §Required Behavior);
                                               -- never broader than requested (domain invariant; Phase-2 enforced)
-  remembered_scope_kind    TEXT               -- 'run' | 'session' when remembering was requested; NULL otherwise (Spec-010 line 118)
-                           CHECK(remembered_scope_kind IS NULL OR remembered_scope_kind IN ('run', 'session')),
+  remembered_scope_kind    TEXT               -- 'run' | 'session' | 'project' when remembering was requested; NULL otherwise (Spec-010 §Interfaces And Contracts)
+                           CHECK(remembered_scope_kind IS NULL OR remembered_scope_kind IN ('run', 'session', 'project')),
   remembered_scope_pattern TEXT,              -- resource-matching pattern for the remembered rule, nullable
   resolved_at              TEXT NOT NULL,
   audit_metadata           TEXT NOT NULL DEFAULT '{}' -- JSON: audit trail
@@ -890,14 +905,14 @@ CREATE TABLE approval_resolutions (
 -- Owner: Plan-010
 CREATE TABLE remembered_approval_rules (
   id                         TEXT PRIMARY KEY,
-  session_id                 TEXT NOT NULL,   -- rules are session-scoped (Spec-010 line 82)
+  session_id                 TEXT NOT NULL,   -- rules are session-scoped (Spec-010 §Default Behavior)
   user_id             TEXT NOT NULL,   -- the GRANTOR (approver who opted in); audit key AND the actor-axis
                                               -- match key: a rule matches only when the adjudicating turn's effective principal equals it, so
                                               -- one user's grant never authorizes another's direction (D-010-10; Spec-010 §Required Behavior).
                                               -- Grantor = beneficiary by construction: the request was addressed to that principal (D-010-12)
-  node_id                    TEXT NOT NULL,   -- executing node whose trust envelope the grant rides; node-trust-invalidation key (Spec-010 line 91)
-  run_id                     TEXT,            -- originating run; NOT NULL iff scope_kind = 'run' (the Spec-010 line 111 'this run only' binding)
-  created_from_request_id    TEXT NOT NULL REFERENCES approval_resolutions(request_id), -- origin decision (Spec-010 line 106 audit history); the durable wire id carried on approval.remembered, so the FK rebuilds byte-equal from events alone (I-010-9)
+  node_id                    TEXT NOT NULL,   -- executing node whose trust envelope the grant rides; node-trust-invalidation key (Spec-010 §State And Data Implications)
+  run_id                     TEXT,            -- originating run; NOT NULL iff scope_kind = 'run' (the Spec-010 'this run only' binding, §Example Flows)
+  created_from_request_id    TEXT NOT NULL REFERENCES approval_resolutions(request_id), -- origin decision (Spec-010 §State And Data Implications, audit history); the durable wire id carried on approval.remembered, so the FK rebuilds byte-equal from events alone (I-010-9)
   category                   TEXT NOT NULL
                              CHECK(category IN (
                                'tool_execution', 'file_write', 'network_access', 'destructive_git',
@@ -905,9 +920,27 @@ CREATE TABLE remembered_approval_rules (
                                'human_phase_contribution'                              -- SA-12 addition; mirrors Spec-010 canonical enum
                              )),
   scope_kind                 TEXT NOT NULL
-                             CHECK(scope_kind IN ('run', 'session')),  -- explicit enum, not free-form (Spec-010 line 118)
+                             CHECK(scope_kind IN ('run', 'session', 'project')),  -- explicit enum, not free-form (Spec-010 §Interfaces And Contracts).
+                                              -- 'project' is every session on that project, which the card's own arm makes
   scope_pattern              TEXT,            -- resource-matching pattern within the kind boundary; NULL = category-wide within
                                               -- (session, node, user, kind); semantics are category-derived (D-010-10)
+  sense                      TEXT NOT NULL    -- allow or block: the remembered set is two-sided, because a decline on a network
+                             CHECK(sense IN ('allow', 'block')),
+                                              -- ask has a subject worth remembering too, and the host is then refused with no
+                                              -- card raised until the rule is replaced. NOT NULL rather than defaulted: a
+                                              -- missing sense would have to read as 'allow', and a silently-widened block is
+                                              -- the one reading a permission rule must never take. It agrees with the
+                                              -- originating decision by construction -- an approval mints an allow, a decline
+                                              -- a block -- which is what the emission refinement on approval.remembered pins
+  made_at_level              TEXT NOT NULL    -- the permission level the session stood at when the rule was made. A rule
+                             CHECK(made_at_level IN ('readonly', 'ask', 'reviewed')),
+                                              -- never answers BELOW it: at a more careful level the card asks again with the
+                                              -- same words and the press re-scopes the rule to that level, and at that level
+                                              -- or any looser one the daemon answers the ask itself. The comparand is the
+                                              -- five-level vocabulary, but only the three careful levels can MAKE a rule --
+                                              -- the other two raise no card -- so a row carrying 'sandboxed' or 'yolo' would
+                                              -- name a rule nothing could have made, and the CHECK leaves it unrepresentable
+                                              -- rather than trusting the writer. The matcher's comparand, not a display field
   granted_at                 TEXT NOT NULL,
   revoked_at                 TEXT,            -- nullable; set when rule is invalidated
   invalidation_trigger       TEXT
@@ -926,10 +959,10 @@ CREATE INDEX idx_remembered_rules_node ON remembered_approval_rules(node_id) WHE
 
 ## Credential Policy Artifacts (Plan-010)
 
-Content-addressed store for the credential-policy artifact documents that `executionPosture.credentialPolicyRef` cites ([Spec-010 §Required Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior), campaign B20 posture semantics; store authored by campaign B13). A row persists **write-ahead** — before the first `run.running` posture stamp citing its ref (the ADR-019 spawn-intent ordering discipline), so a stamped ref can never dangle — and is retained at least as long as any run event citing it (the audit-stub retention class governs compaction/shred). Content addressing makes rows immutable and self-deduplicating by construction: identical policy ⇒ identical ref, so re-resolution INSERTs idempotently by primary key, and two runs carrying the same ref carried the same effective policy.
+Content-addressed store for the credential-policy artifact documents that `executionPosture.credentialPolicyRef` cites ([Spec-010 §Required Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior) posture semantics). A row persists **write-ahead** — before the first `run.running` posture stamp citing its ref (the ADR-019 spawn-intent ordering discipline), so a stamped ref can never dangle — and is retained at least as long as any run event citing it (the audit-stub retention class governs compaction/shred). Content addressing makes rows immutable and self-deduplicating by construction: identical policy ⇒ identical ref, so re-resolution INSERTs idempotently by primary key, and two runs carrying the same ref carried the same effective policy.
 
 ```sql
--- Owner: Plan-010 (campaign B13, 2026-07-20)
+-- Owner: Plan-010
 CREATE TABLE credential_policy_artifacts (
   ref         TEXT PRIMARY KEY    -- content address: 'sha256:<hex>' over the RFC 8785 JCS-canonicalized
               NOT NULL,           -- artifact document stored in `artifact` (Spec-010 §Required Behavior);
@@ -999,7 +1032,7 @@ CREATE INDEX idx_cross_node_dispatch_approvals_expiry
   WHERE state IN ('requested', 'approved', 'executed');
 ```
 
-Caller-local durable record of an outbound cross-node dispatch whose result the caller has not yet observed, backing the run-idle exemption (campaign B17). While an open row — `closed_at IS NULL` **and** `expires_at > now` — names a run as its **originating run**, the `runHasPendingCrossNodeDispatch(runId)` predicate holds and the run-idle sweep hard-skips that run (per [Spec-022 § Cross-Node Failure Semantics](../../specs/022-cross-node-dispatch-and-approval.md#cross-node-failure-semantics); consumed by [Plan-014](../../plans/014-multi-agent-channels-and-orchestration.md) T2.7's idle-reaper seam — a hard skip, not an activity-timestamp bump). The expiry bound is **part of the predicate**, not merely a sweep side effect: an overdue open row (past `expires_at`, not yet closed by the expiry sweep) does not satisfy the predicate, so a caller restarting after the deadline never hard-skips the run on a stale row before the sweep has run — a restarting daemon rebuilds its idle timers fresh, so the lapse is safe across restart. On a **live** daemon the same lapse ends the exemption at the deadline while the `expiry_bound` close follows only on the next sweep; the fresh-idle-window guarantee therefore keys on that exemption **end**, not the row close, and the sweep's first encounter with an overdue open row re-arms the originating run rather than reaping it (the consumer-side re-arm lands with campaign B15). The daemon writes the row **before** the relay send (INSERT-before-relay-write ordering), so the initiating run's idle-exemption is durable across a caller restart at any point in the send path — a crash between the intent record and the relay write still leaves the run correctly idle-protected until its window closes. On send success the daemon then commits a **caller-local outbox** — one SQLite transaction stamps `sent_at` and appends the base-payload `dispatch.sent` event together — so the row marker and its audit event are all-or-nothing: a crash before the transaction leaves neither, after leaves both, never a half state where the row records delivery without the event or the event without the marker. `sent_at` is orthogonal to closure — a row may be open-unsent, open-sent, closed-sent, or closed-unsent — so no CHECK couples it with `closed_at`; a `send_failed` close specifically implies `sent_at` NULL by construction, since the marker is stamped only on the send-success path a synchronous failure never reaches. This record backs the run-idle hard-skip; it is **not** a resend outbox — the caller token and action payload are deliberately not retained here (see the custody sentence below), so a dispatch lost before its relay send is bounded by `expires_at` rather than silently resent or protecting the run indefinitely. The row is **closed in place** at conclusion — `closed_at` / `close_reason` stamped, the row is never deleted at close — so a restart rebuilds each run's open pending window from the open rows alone and never resurrects a concluded window. The terminal-observation event append (`dispatch.result_observed`, or `dispatch.approval_observed` for a denial) and this row's closure **commit in one SQLite transaction**: restart rebuilds from the rows alone, so a non-atomic close would either idle-protect a concluded dispatch to its expiry bound (event appended, row still open) or destroy the only recovery record before its audit event exists (row closed, event lost). This single-transaction atomicity is scoped to **terminal-observation** closes (`close_reason = 'observed_terminal'`) — the only closes that append an event; the other two close reasons append nothing and carry no atomicity obligation: the expiry sweep's `expiry_bound` close of an unobserved window, and the `send_failed` close, where a synchronous relay-send failure is caller-observed but precedes `dispatch.sent`, so (Spec-005 registers no send-failure event, and a terminal the caller never observes appends nothing) the caller closes the row in place immediately — the closed row standing as the durable record — rather than holding the run idle-protected to the expiry bound, with the expiry sweep remaining the backstop only for a crash during send. A terminal observed **after** the row has already closed (**any** `close_reason` — including an ambiguous `send_failed` whose frame in fact reached the target) or been pruned — the target's buffered-delivery window equals the caller's `expires_at`, so clock skew or delivery latency can straddle the edge — does not mutate, reopen, or re-close the row: the verified observation appends its `dispatch.result_observed` / `dispatch.approval_observed` event **idempotently, event-only**, deduped per `dispatch_id` against the prior event (an `observed_terminal` row implies its event exists; post-prune the event log is the dedupe source), so the audit trail is fulfilled while closed-in-place and never-resurrect hold and the restart rebuild (rows alone) is untouched. Event-only acceptance is **bounded to one expiry-sweep interval past `expires_at`**: a verified terminal arriving beyond that window is rejected **out-of-window** with a diagnostic and appends nothing — the target's buffered-delivery bound already ends at `expires_at` (= `caller_token.exp` + the 5-minute result-buffer window), so the bound rejects only replays or anomalies, never a legitimate delivery, and within it the event log still holds full `dispatch_id` payloads (Spec-005's compaction thresholds of 50,000 events / 500 MB / 90 days — [Spec-005 § Event Compaction Policy](../../specs/005-session-event-taxonomy-and-audit-log.md#event-compaction-policy) — sit orders of magnitude past it), so the dedupe source is provably sufficient with no Spec-005 change. If that observation is the first proof of delivery for a row whose `dispatch.sent` was never recorded (`sent_at` NULL, or post-prune absent from the log), the same transaction appends a late-repaired `dispatch.sent` immediately before the observation event; a dispatch that never yields a verified result closes at its expiry bound with no fabricated `dispatch.sent`, delivery left unknown and the closed row recording only the attempt. The complementary `dispatch.sent` event stays base-payload per [Spec-005 § Cross-Node Dispatch](../../specs/005-session-event-taxonomy-and-audit-log.md#cross-node-dispatch-cross_node_dispatch); it is the audit record, not the rebuild source. Only routing/liveness metadata lives here — ApprovalRecord envelopes, PASETO tokens, action payloads, and result payloads do not (those follow the `cross_node_dispatch_approvals` custody rules above).
+Caller-local durable record of an outbound cross-node dispatch whose result the caller has not yet observed, backing the run-idle exemption. While an open row — `closed_at IS NULL` **and** `expires_at > now` — names a run as its **originating run**, the `runHasPendingCrossNodeDispatch(runId)` predicate holds and the run-idle sweep hard-skips that run (per [Spec-022 § Cross-Node Failure Semantics](../../specs/022-cross-node-dispatch-and-approval.md#cross-node-failure-semantics); consumed by [Plan-014](../../plans/014-multi-agent-channels-and-orchestration.md) T2.7's idle-reaper seam — a hard skip, not an activity-timestamp bump). The expiry bound is **part of the predicate**, not merely a sweep side effect: an overdue open row (past `expires_at`, not yet closed by the expiry sweep) does not satisfy the predicate, so a caller restarting after the deadline never hard-skips the run on a stale row before the sweep has run — a restarting daemon rebuilds its idle timers fresh, so the lapse is safe across restart. On a **live** daemon the same lapse ends the exemption at the deadline while the `expiry_bound` close follows only on the next sweep; the fresh-idle-window guarantee therefore keys on that exemption **end**, not the row close, and the sweep's first encounter with an overdue open row re-arms the originating run rather than reaping it (the consumer-side re-arm lands with the consumer leg). The daemon writes the row **before** the relay send (INSERT-before-relay-write ordering), so the initiating run's idle-exemption is durable across a caller restart at any point in the send path — a crash between the intent record and the relay write still leaves the run correctly idle-protected until its window closes. On send success the daemon then commits a **caller-local outbox** — one SQLite transaction stamps `sent_at` and appends the base-payload `dispatch.sent` event together — so the row marker and its audit event are all-or-nothing: a crash before the transaction leaves neither, after leaves both, never a half state where the row records delivery without the event or the event without the marker. `sent_at` is orthogonal to closure — a row may be open-unsent, open-sent, closed-sent, or closed-unsent — so no CHECK couples it with `closed_at`; a `send_failed` close specifically implies `sent_at` NULL by construction, since the marker is stamped only on the send-success path a synchronous failure never reaches. This record backs the run-idle hard-skip; it is **not** a resend outbox — the caller token and action payload are deliberately not retained here (see the custody sentence below), so a dispatch lost before its relay send is bounded by `expires_at` rather than silently resent or protecting the run indefinitely. The row is **closed in place** at conclusion — `closed_at` / `close_reason` stamped, the row is never deleted at close — so a restart rebuilds each run's open pending window from the open rows alone and never resurrects a concluded window. The terminal-observation event append (`dispatch.result_observed`, or `dispatch.approval_observed` for a denial) and this row's closure **commit in one SQLite transaction**: restart rebuilds from the rows alone, so a non-atomic close would either idle-protect a concluded dispatch to its expiry bound (event appended, row still open) or destroy the only recovery record before its audit event exists (row closed, event lost). This single-transaction atomicity is scoped to **terminal-observation** closes (`close_reason = 'observed_terminal'`) — the only closes that append an event; the other two close reasons append nothing and carry no atomicity obligation: the expiry sweep's `expiry_bound` close of an unobserved window, and the `send_failed` close, where a synchronous relay-send failure is caller-observed but precedes `dispatch.sent`, so (Spec-005 registers no send-failure event, and a terminal the caller never observes appends nothing) the caller closes the row in place immediately — the closed row standing as the durable record — rather than holding the run idle-protected to the expiry bound, with the expiry sweep remaining the backstop only for a crash during send. A terminal observed **after** the row has already closed (**any** `close_reason` — including an ambiguous `send_failed` whose frame in fact reached the target) or been pruned — the target's buffered-delivery window equals the caller's `expires_at`, so clock skew or delivery latency can straddle the edge — does not mutate, reopen, or re-close the row: the verified observation appends its `dispatch.result_observed` / `dispatch.approval_observed` event **idempotently, event-only**, deduped per `dispatch_id` against the prior event (an `observed_terminal` row implies its event exists; post-prune the event log is the dedupe source), so the audit trail is fulfilled while closed-in-place and never-resurrect hold and the restart rebuild (rows alone) is untouched. Event-only acceptance is **bounded to one expiry-sweep interval past `expires_at`**: a verified terminal arriving beyond that window is rejected **out-of-window** with a diagnostic and appends nothing — the target's buffered-delivery bound already ends at `expires_at` (= `caller_token.exp` + the 5-minute result-buffer window), so the bound rejects only replays or anomalies, never a legitimate delivery, and within it the event log still holds full `dispatch_id` payloads (Spec-005's compaction thresholds of 50,000 events / 500 MB / 90 days — [Spec-005 § Event Compaction Policy](../../specs/005-session-event-taxonomy-and-audit-log.md#event-compaction-policy) — sit orders of magnitude past it), so the dedupe source is provably sufficient with no Spec-005 change. If that observation is the first proof of delivery for a row whose `dispatch.sent` was never recorded (`sent_at` NULL, or post-prune absent from the log), the same transaction appends a late-repaired `dispatch.sent` immediately before the observation event; a dispatch that never yields a verified result closes at its expiry bound with no fabricated `dispatch.sent`, delivery left unknown and the closed row recording only the attempt. The complementary `dispatch.sent` event stays base-payload per [Spec-005 § Cross-Node Dispatch](../../specs/005-session-event-taxonomy-and-audit-log.md#cross-node-dispatch-cross_node_dispatch); it is the audit record, not the rebuild source. Only routing/liveness metadata lives here — ApprovalRecord envelopes, PASETO tokens, action payloads, and result payloads do not (those follow the `cross_node_dispatch_approvals` custody rules above).
 
 ```sql
 -- Owner: Plan-024
@@ -1037,11 +1070,11 @@ Retention: a closed row is pruned once `expires_at` has elapsed — a concrete c
 
 ## Workflow Tables (Plan-015)
 
-Full workflow-engine V1 schema. Nine tables implement the 10-state phase machine, append-only hash-chained gate history (C-13/I7), parallel-join bookkeeping, and OWN-only channel linkage. `session_events` remains canonical truth; tables 3/4/7/8/9 are rebuildable projections, and 1/2/5/6 are immutable truth (6 additionally carries a per-run BLAKE3 chain anchored to [Spec-005 § Integrity Protocol](../../specs/005-session-event-taxonomy-and-audit-log.md#integrity-protocol)).
+Full workflow-engine V1 schema. Thirteen tables hold the surface: nine implement the 10-state phase machine, append-only hash-chained gate history (C-13/I7), parallel-join bookkeeping, and OWN-only channel linkage, and four more hold the per-step record, the armed triggers, the webhook tokens and the per-node key-value store ([Spec-015 §Interfaces And Contracts](../../specs/015-workflow-authoring-and-execution.md#interfaces-and-contracts)). `session_events` remains canonical truth; tables 3/4/7/8/9 and 10 are rebuildable projections, 1/2/5/6 are immutable truth (6 additionally carries a per-run BLAKE3 chain anchored to [Spec-005 § Integrity Protocol](../../specs/005-session-event-taxonomy-and-audit-log.md#integrity-protocol)), and 11/12/13 are MUTABLE truth: what this machine is armed to do next is a fact no event history can reconstruct, so the durable row is the truth and the in-process timer is only a cache over it, re-armed from the row after a restart ([Spec-015 §Truth vs projection vs ephemeral (SA-25)](../../specs/015-workflow-authoring-and-execution.md#truth-vs-projection-vs-ephemeral-sa-25)).
 
 The normalized-table-over-blob shape, the per-run hash-chained gate-resolution audit trail, and the rebuildable-projection split align with industry persistence precedents: durable-execution engines persist normalized state per run rather than monolithic blobs ([Restate — What is Durable Execution](https://restate.dev/what-is-durable-execution), fetched 2026-04-26); large-engine persistence tiers separate hot live state from cold archive ([Argo Workflows — Workflow Archive](https://argo-workflows.readthedocs.io/en/latest/workflow-archive/), fetched 2026-04-25); and append-only hash-chained audit trails are the canonical academic precedent for tamper-evident logging (_"a tamper-evident log... uses a hash chain to detect tampering with high probability"_ — [Crosby & Wallach, Efficient Data Structures for Tamper-Evident Logging, USENIX Security 2009](https://static.usenix.org/event/sec09/tech/full_papers/crosby.pdf), fetched 2026-04-25). [Spec-015 §References](../../specs/015-workflow-authoring-and-execution.md#references) > Persistence + hash-chain enumerates the full primary-source corpus.
 
-`workflow_definitions` stores no canvas geometry, at this table or any other. Canvas layout is client-local per [Spec-015 §Canvas layout is not definition bytes (SA-35)](../../specs/015-workflow-authoring-and-execution.md#canvas-layout-is-not-definition-bytes-sa-35) — the same tier as `human_phase_form_state` drafts — because a mutable per-author geometry is neither immutable truth nor a projection rebuildable from `session_events`, and the SA-25 hierarchy defines no third durable tier. Layout travels between machines only inside the definition file form, outside the hashed body. **The nine-table census is unchanged by every amendment since — the visual-builder amendment and the 2026-08-16 workflow-hardening amendment both add columns to tables that already exist: no table is added or removed.** The hardening amendment's growth is four park-and-resume projection columns across tables 3 and 4 plus two partial indexes; its always-on engine event record lands on the Plan-018-owned bounded-retention diagnostic tier ([Spec-015 §Engine event record (SA-43)](../../specs/015-workflow-authoring-and-execution.md#engine-event-record-sa-43)), whose bucket registration — including the fifth bucket's storage shape and any table-census move it implies, the existing four buckets being SQLite tables of this schema — is Plan-018's to record at its registration amendment (Plan-015 CP-015-9); no bucket for it exists in this schema today and the hardening amendment adds none.
+**Canvas geometry is stored, and it is not definition bytes.** A document's own `layout` section — a position per node, an optional viewport and the sticky notes — sits **outside** the hashed body and outside the BLAKE3 preimage, and is persisted in a `layout_json` column beside the body on `workflow_definitions` and on `workflow_versions` ([Spec-015 §Canvas layout is not definition bytes (SA-35)](../../specs/015-workflow-authoring-and-execution.md#canvas-layout-is-not-definition-bytes-sa-35)). It is part of the document rather than a client's private note, so it travels with the document — the file form carries it as an optional section, and a document that arrives with none is laid out deterministically, left to right, by the same layout library in the daemon and in the renderer, so a definition is never unopenable and opens the same way twice. Because no byte the engine reads changes with it, a drag mints no version and enters no rebuild; it is not a fourth storage tier. Park-and-resume adds four projection columns across tables 3 and 4 plus two partial indexes; its always-on engine event record lands on the Plan-018-owned bounded-retention diagnostic tier ([Spec-015 §Engine event record (SA-43)](../../specs/015-workflow-authoring-and-execution.md#engine-event-record-sa-43)), whose bucket registration — including the fifth bucket's storage shape and any table-census move it implies, the existing four buckets being SQLite tables of this schema — is Plan-018's to record when it registers the bucket (Plan-015 CP-015-9); no bucket for it exists in this schema today and none is added here.
 
 ```sql
 -- ========================================================================
@@ -1054,7 +1087,7 @@ CREATE TABLE workflow_definitions (
   session_id           TEXT NOT NULL,                  -- owning session
   name                 TEXT NOT NULL,                  -- author-facing name
   -- Three-value scope domain per Spec-015 §Resolved Questions and V1 Scope Decisions
-  -- (amended 2026-08-10, Tier-7 audit): 'session' binds to the authoring session,
+  -- 'session' binds to the authoring session,
   -- 'project' spans a project's sessions, 'shared' is the cross-project reuse tier —
   -- visible to any project on this daemon, out of this same table. 'shared' is
   -- breadth only: no distribution, no cross-machine sync, no additional table.
@@ -1084,9 +1117,10 @@ CREATE TABLE workflow_definitions (
   -- and collide on the dedupe key below, which is the intended convergence.
   parent_content_hash  TEXT,
   content_hash         TEXT NOT NULL,                  -- BLAKE3 over JCS-canonicalized definition body
-  schema_version       TEXT NOT NULL                   -- `ai-sidekicks-schema: 1.0` per C-8
-                       CHECK(schema_version GLOB '[0-9]*.[0-9]*'),
+  schema_version       TEXT NOT NULL                   -- the document's own schemaVersion, verbatim; V1 value '2' (Spec-015 §Required Behavior). A string rather than a number so a later '2.1' round-trips
+                       CHECK(schema_version GLOB '[0-9]*'),
   definition_body      TEXT NOT NULL,                  -- JSON (canonicalized per RFC 8785); full author-supplied definition
+  layout_json          TEXT,                           -- JSON: the document's own layout section — a position per node, an optional viewport, the sticky notes. OUTSIDE the content_hash preimage, so editing it mints no version; NULL = written with no layout, which opens laid out deterministically left to right
   created_at           TEXT NOT NULL,
   created_by           TEXT,                           -- user_id
   -- Only 'shared' is daemon-wide and therefore ref-free; 'session' and 'project'
@@ -1118,7 +1152,8 @@ CREATE TABLE workflow_versions (
   parent_version_id    TEXT REFERENCES workflow_versions(id), -- NULL at version_number=1
   parent_content_hash  TEXT,                           -- BLAKE3 of parent definition body; NULL at version 1
   content_hash         TEXT NOT NULL,                  -- BLAKE3 of THIS version's body
-  definition_body      TEXT NOT NULL,                  -- JSON (canonicalized per RFC 8785); THIS version's full definition body — name, entry record, and the phase-definitions array (each phase entry carrying the per-phase dependsOn list and join-phase parallelJoinPolicy when the definition declares explicit topology, Spec-015 §Graph model — nodes, ports, and edges (SA-32)) — the BLAKE3 preimage of content_hash, so a version read serves name/entry/phaseDefinitions parsed from this body and read -> export reproduces the canonical bytes verbatim (PR #318 review round: was phase_definitions, which stored the array alone and left later versions' name/entry unreconstructable against content_hash; not a duplicate of workflow_definitions.definition_body above — that row carries the definition's current author-supplied body, each version row snapshots its own immutable bytes)
+  definition_body      TEXT NOT NULL,                  -- JSON (canonicalized per RFC 8785); THIS version's full definition document — name, the trigger node, the nodes and the edges (Spec-015 §Graph model — nodes, ports, and edges (SA-32)) — the BLAKE3 preimage of content_hash, so a version read serves the whole document parsed from this body and read -> export reproduces the canonical bytes verbatim (storing the nodes alone would leave a later version's name and trigger unreconstructable against content_hash; not a duplicate of workflow_definitions.definition_body above — that row carries the definition's current author-supplied body, each version row snapshots its own immutable bytes)
+  layout_json          TEXT,                           -- JSON: this version's layout section, snapshotted beside its immutable body and outside content_hash's preimage, so an export of any version reproduces the file form it was written as
   author_note          TEXT,                           -- opt-in changelog message
   created_at           TEXT NOT NULL,
   created_by           TEXT,                           -- user_id
@@ -1152,7 +1187,7 @@ CREATE TABLE workflow_runs (
   max_duration_ms           INTEGER NOT NULL DEFAULT 86400000, -- SA-2 default 24h
   completed_at              TEXT,
   -- SA-3 pool reservations (snapshot only; pool runtime state is ephemeral and NOT persisted)
-  pool_reservations_snapshot TEXT NOT NULL DEFAULT '{}', -- JSON: {pty_slots: n, agent_memory_mb: n}
+  pool_reservations_snapshot TEXT NOT NULL DEFAULT '{}', -- JSON: {memory_mb: n}; memory is the one pool a reservation is taken against
   -- Result
   failure_reason            TEXT,                       -- null unless status in ('failed','cancelled')
   failure_detail            TEXT,                       -- JSON; includes cancellation_reason per Spec-015 §Workflow Timeline Integration
@@ -1189,13 +1224,10 @@ CREATE TABLE workflow_phase_states (
   -- TEXT under every candidate rendering, so this DDL does not wait on that ruling.
   id                      TEXT PRIMARY KEY,
   workflow_run_id         TEXT NOT NULL REFERENCES workflow_runs(id),
-  phase_id                TEXT NOT NULL,               -- logical phase id from the phase-definitions array in workflow_versions.definition_body
+  phase_id                TEXT NOT NULL,               -- logical id of the phase's own node in workflow_versions.definition_body
   -- The four V1 phase types per Spec-015 §Phase-Type and Gate-Type Taxonomy. Gate
   -- types (`auto-continue`, `quality-checks`, `human-approval`, `done`) live on the
-  -- gate column, never here. Corrected 2026-08-10 by the Tier-7 audit: the previous
-  -- constraint conflated the two taxonomies, carried two values (`gate`, `terminal`)
-  -- in no taxonomy at all, and omitted `automated` — so inserting a first-class V1
-  -- `automated` phase violated the CHECK.
+  -- gate column, never here.
   phase_type              TEXT NOT NULL
                           CHECK(phase_type IN (
                             'single-agent','multi-agent','automated','human'
@@ -1220,8 +1252,7 @@ CREATE TABLE workflow_phase_states (
                           CHECK(cancellation_reason IS NULL
                                 OR cancellation_reason IN ('sibling_failure','deadline_exceeded','user_cancel','gate_rejected')),
   -- Park state (Spec-015 §Park integrity and cancellability (SA-42) + §Provider-limit
-  -- pacing and durable resumption (SA-40); added 2026-08-16, workflow-hardening
-  -- amendment). Four columns, all carried by the `workflow.phase_suspended` payload
+  -- pacing and durable resumption (SA-40)). Four columns, all carried by the `workflow.phase_suspended` payload
   -- and projected from it — so a rebuild from session_events reconstructs all four
   -- byte-equal and none needs a special case in SA-25 — split RECORD versus LIVE,
   -- and the asymmetry is the contract: park_reason / park_cause are the RECORD of a
@@ -1267,7 +1298,7 @@ CREATE TABLE workflow_phase_states (
   -- run against. Never armed at or past the run's deadline_at: the SA-2 wall-clock
   -- deadline stays authoritative, and a phase that would wake after it parks
   -- unscheduled and the run hard-fails at the deadline instead. Moved here from
-  -- workflow_runs 2026-08-17 (the workflow-hardening amendment's review round):
+  -- workflow_runs (workflow hardening):
   -- parallel branches park independently, so the schedule is phase state.
   auto_resume_at          TEXT,                        -- RFC 3339 UTC; NULL unless a schedule is armed
   -- The outage fold key (SA-40): provider + account identity + the credential
@@ -1278,7 +1309,7 @@ CREATE TABLE workflow_phase_states (
   -- availability lock (Plan-015 I-015-23).
   park_attention_key      TEXT,
   -- Pool reservation (transient; for crash recovery decision)
-  pool_reservation        TEXT,                        -- JSON {pty_slots: n, agent_memory_mb: n}; NULL after release
+  pool_reservation        TEXT,                        -- JSON {memory_mb: n}; NULL after release and while waiting or parked
   -- Resume metadata
   resume_cursor           TEXT,                        -- opaque; for driver adapter; see Plan-013 recovery
   last_event_sequence     INTEGER,                     -- session_events.sequence projected from at rebuild
@@ -1450,14 +1481,12 @@ CREATE TABLE workflow_channels (
 CREATE INDEX idx_workflow_channels_channel ON workflow_channels(channel_id);
 
 -- ========================================================================
--- 9. human_phase_form_state — draft autosave (daemon-side fallback for V1.x)
+-- 9. human_phase_form_state — daemon-held draft of a human form
 -- ========================================================================
 -- Owner: Plan-015
--- Wave-1 status per Spec-015 §Ship-empty tables (SA-28) — V1 clients use
--- localStorage/IndexedDB; this table ships empty in V1 so the V1.x daemon-side draft
--- persistence has no migration cost. Its wire companion `workflow.humanFormDraftSave`
--- is declared in api-payload-contracts.md §Plan-015 with no V1 handler: table and
--- operation light up together in V1.x.
+-- Carries the human form kind's drafts from V1 (Spec-015 §Human form drafts (SA-28)).
+-- Written through `workflow.humanFormDraftSave`; each autosave bumps the row's own
+-- draft version. A client never keeps a form draft in window storage.
 CREATE TABLE human_phase_form_state (
   id                      TEXT PRIMARY KEY,           -- ULID
   phase_run_id            TEXT NOT NULL REFERENCES workflow_phase_states(id),
@@ -1473,6 +1502,101 @@ CREATE TABLE human_phase_form_state (
 
 CREATE INDEX idx_human_phase_form_state_phase ON human_phase_form_state(phase_run_id)
   WHERE submitted = 0;
+
+-- ========================================================================
+-- 10. workflow_steps — one row per step attempt (projection over the events
+--     the run, approval and form pipelines already emit)
+-- ========================================================================
+-- Owner: Plan-015
+-- A projection, not a second account of the run: every field below is derivable from the log, which
+-- is what keeps one step's history a function of the events rather than a parallel record.
+CREATE TABLE workflow_steps (
+  workflow_run_id   TEXT NOT NULL REFERENCES workflow_runs(id),
+  node_id           TEXT NOT NULL,                 -- the node in the pinned definition this attempt ran
+  attempt           INTEGER NOT NULL,              -- 1-based; a retry of the same node at the same point
+  execution_index   INTEGER NOT NULL,              -- per-run monotonic: the faithful what-happened-when order for a branching run, independent of graph shape
+  source_json       TEXT NOT NULL DEFAULT '[]'     -- JSON array, one entry per input slot: the edge that ACTUALLY fed it and which run of the source produced it (null for a slot nothing fed), so a run page can say this merge consumed the third run of a loop
+                    CHECK(json_valid(source_json) AND json_type(source_json) = 'array'),
+  status            TEXT NOT NULL
+                    CHECK(status IN ('pending', 'running', 'succeeded', 'failed', 'skipped')),
+  started_at        TEXT NOT NULL,
+  finished_at       TEXT,                          -- NULL while the step is pending or running
+  -- The three payload refs a step panel reads, each stored as the JSON WorkflowPayloadRef shape so a
+  -- run read stays bounded whatever the step produced: under the 64 KiB inline bound the payload is
+  -- items on this row, above it an artifact through the ordinary ingest pipeline and this row keeps the
+  -- reference, and past the retention bound the ref reads `expired` — a third arm, not an error, so a
+  -- run past that bound still lists with its status, timings and summary.
+  input_ref         TEXT NOT NULL
+                    CHECK(json_valid(input_ref)),
+  output_ref        TEXT NOT NULL
+                    CHECK(json_valid(output_ref)),
+  log_ref           TEXT NOT NULL
+                    CHECK(json_valid(log_ref)),
+  cost_cents        INTEGER,                       -- NULL = never billed, which is a different fact from a cost of zero and renders as no figure at all
+  cost_account_id   TEXT,                          -- the provider account that paid; deliberately no foreign key, for the reason agent_definitions states
+  error_json        TEXT                           -- JSON: the typed step error (message plus the node it belongs to); NULL on every non-failed status
+                    CHECK(error_json IS NULL OR json_valid(error_json)),
+  advisories_json   TEXT                           -- JSON array of non-fatal hints — an unwired branch that dropped items, a deprecated param, a truncated output. Never errors, and NULL where the step attached none
+                    CHECK(advisories_json IS NULL OR (json_valid(advisories_json) AND json_type(advisories_json) = 'array')),
+  PRIMARY KEY (workflow_run_id, execution_index),  -- the execution index is what identifies an attempt within its run; (node_id, attempt) can repeat across branches of one run
+  CHECK((cost_cents IS NULL) = (cost_account_id IS NULL))  -- a figure always names the account that paid it
+);
+
+CREATE INDEX idx_workflow_steps_node ON workflow_steps(workflow_run_id, node_id, attempt);
+
+-- ========================================================================
+-- 11. workflow_triggers — one row per armed trigger (MUTABLE TRUTH)
+-- ========================================================================
+-- Owner: Plan-015
+-- Arming is durable and the in-process timer is only a cache over these rows: on daemon start, after
+-- the projection rebuild, every enabled workflow re-arms from them. No event history can reconstruct
+-- what this machine is armed to do next, which is why the row is the truth.
+CREATE TABLE workflow_triggers (
+  definition_id     TEXT NOT NULL REFERENCES workflow_definitions(id),
+  node_id           TEXT NOT NULL,                 -- the trigger node in the definition
+  kind              TEXT NOT NULL,                 -- the trigger node kind, in the node catalog's own vocabulary; no CHECK list, because the catalog owns it and a copy here would go stale behind it
+  config_hash       TEXT NOT NULL,                 -- over the trigger's own params: a re-arm compares it, so an unchanged trigger is not disarmed and re-armed for a save that did not touch it
+  next_fire_at      TEXT,                          -- NULL where the kind has no schedule (a webhook, a chat start) or while disarmed
+  last_fire_at      TEXT,                          -- NULL until it has fired once
+  enabled           INTEGER NOT NULL DEFAULT 0
+                    CHECK(enabled IN (0, 1)),      -- a workflow is enabled or not as a whole: enabling arms every trigger it declares, disabling disarms all of them
+  PRIMARY KEY (definition_id, node_id)
+);
+
+CREATE INDEX idx_workflow_triggers_due ON workflow_triggers(next_fire_at)
+  WHERE enabled = 1 AND next_fire_at IS NOT NULL;  -- the arming sweep's only scan
+
+-- ========================================================================
+-- 12. workflow_webhook_tokens — one row per workflow with a webhook trigger
+--     (MUTABLE TRUTH)
+-- ========================================================================
+-- Owner: Plan-015
+-- The bearer token the loopback listener checks. Only its hash is stored: a stolen database must not
+-- yield a working token, and the listener compares a hash to a hash.
+CREATE TABLE workflow_webhook_tokens (
+  definition_id     TEXT PRIMARY KEY REFERENCES workflow_definitions(id),
+  token_hash        TEXT NOT NULL,
+  created_at        TEXT NOT NULL,
+  last_used_at      TEXT                           -- NULL until the address is first called
+);
+
+-- ========================================================================
+-- 13. workflow_node_state — the per-(workflow, node) key-value store
+--     (MUTABLE TRUTH)
+-- ========================================================================
+-- Owner: Plan-015
+-- Trigger cursor state — the last session event read, the last file-watch stamp — lives here and NEVER
+-- on the document, so the document stays hashable and safe to edit: a cursor written into the body
+-- would change the content hash on every fire and mint a version for nothing.
+CREATE TABLE workflow_node_state (
+  definition_id     TEXT NOT NULL REFERENCES workflow_definitions(id),
+  node_id           TEXT NOT NULL,
+  key               TEXT NOT NULL,
+  value_json        TEXT NOT NULL
+                    CHECK(json_valid(value_json)),
+  updated_at        TEXT NOT NULL,
+  PRIMARY KEY (definition_id, node_id, key)
+);
 ```
 
 **Index rationale + write-amplification estimate:** Per-index query justifications above are sized against SQLite's standard query-planner cost model — partial indexes with `WHERE` clauses are evaluated only over the matching subset, yielding the smallest workable index for the live-set queries ([SQLite — Partial Indexes](https://www.sqlite.org/partialindex.html), fetched 2026-04-25). The ~42 KB / 110-write projection for a 10-phase workflow assumes Spec-013's 50-event batch flushed under one `db.transaction(fn)` call — `better-sqlite3` commits each batch atomically and rolls back on throw (_"Calling [.transaction()] returns a new function that, when called, runs the given function inside an SQLite transaction"_ — [better-sqlite3 API docs](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/api.md), fetched 2026-04-25). Two to three batch flushes therefore absorb the full workflow lifecycle without triggering write-amplification regressions under `synchronous = FULL` WAL ([SQLite — Write-Ahead Logging](https://www.sqlite.org/wal.html), fetched 2026-04-25).
@@ -1483,7 +1607,7 @@ CREATE INDEX idx_human_phase_form_state_phase ON human_phase_form_state(phase_ru
 
 ## Channel and Orchestration Tables (Plan-014)
 
-DDL hardened during the Tier-5 plan-readiness audit (D-014-15, A-014-5, A-014-2, D-014-5). Posture per table: `channels`, `run_links`, and `agents` are events-canonical projections ([ADR-017](../../decisions/017-shared-event-sourcing-scope.md) Option B — rebuilt from `session_events` on replay; never written except by the projector); `session_budgets` is row-canonical daemon configuration (the `queue_items` posture — mutated by wire method, not evented). `channels` holds **user-created channels only**: the bootstrap main channel is projected (`deriveMainChannelId(sessionId)`, `packages/contracts/src/channel-id.ts`) and never has a row or a `channel.created` event — so it carries no `ChannelConfig`. Channels carry agents, not people: a channel restricts which sidekicks take turns in it, never who may read it.
+DDL per D-014-15, A-014-5, A-014-2 and D-014-5. Posture per table: `channels`, `run_links`, and `agents` are events-canonical projections ([ADR-017](../../decisions/017-shared-event-sourcing-scope.md) Option B — rebuilt from `session_events` on replay; never written except by the projector); `session_budgets` is row-canonical daemon configuration (the `queue_items` posture — mutated by wire method, not evented). `channels` holds **user-created channels only**: the bootstrap main channel is projected (`deriveMainChannelId(sessionId)`, `packages/contracts/src/channel-id.ts`) and never has a row or a `channel.created` event — so it carries no `ChannelConfig`. Channels carry agents, not people: a channel restricts which agents take turns in it, never who may read it.
 
 ```sql
 -- Owner: Plan-014 (events-canonical projection of channel.* events; user channels only — main is synthesized)
@@ -1493,7 +1617,7 @@ CREATE TABLE channels (
   name            TEXT,
   state           TEXT NOT NULL DEFAULT 'active'
                   CHECK(state IN ('active', 'muted', 'archived')),
-  config          TEXT NOT NULL DEFAULT '{}', -- JSON: ChannelConfig (packages/contracts/src/orchestration.ts) — {turnPolicy?, roundRobinOrder?, moderation?, turnsPerAgent?}; `turnsPerAgent` needs no column and rides the JSON (D-014-23, 2026-08-11)
+  config          TEXT NOT NULL DEFAULT '{}', -- JSON: ChannelConfig (packages/contracts/src/orchestration.ts) — {turnPolicy?, roundRobinOrder?, moderation?, turnsPerAgent?}; `turnsPerAgent` needs no column and rides the JSON (D-014-23)
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL
 );
@@ -1510,27 +1634,20 @@ CREATE TABLE run_links (
   internal_helper   INTEGER NOT NULL DEFAULT 0
                     CHECK(internal_helper IN (0, 1)),   -- durable home of the internal-helper flag (I-014-10)
   producing_node_id TEXT NOT NULL,                      -- runtime node that admitted the child run (reachability projection input)
-  invoking_principal_id TEXT,                           -- 2026-08-26 (CP-027-4 ⇄ CP-014-19): the effective principal of the TURN that
-                                                        -- issued a peer-invocation tool call, stamped daemon-side at child-run creation.
-                                                        -- NULL for links created by any other path (a workflow-spawned child, a handoff).
-                                                        -- A peer-invoked child run has no intervention row and no user who "started"
-                                                        -- it, and chaining to the parent RUN cannot answer which turn called: a run
-                                                        -- accumulates turns from several principals and recency is not a correct answer.
-                                                        -- Daemon-resolved, never client-supplied (the durable-recording discipline).
   created_at        TEXT NOT NULL,
-  PRIMARY KEY (child_run_id),                       -- single-parent: a child run links to exactly one parent (one-shot run.queued linkage D-014-3; depth-1 model)
+  PRIMARY KEY (child_run_id),                       -- single-parent: a child run links to exactly one parent (one-shot run.queued linkage D-014-3)
   CHECK (parent_run_id <> child_run_id)             -- a run never parents itself
 );
 
-CREATE INDEX idx_run_links_parent ON run_links(parent_run_id); -- parent → children scans (orchestration.childRunLinkRead; active-child accounting)
+CREATE INDEX idx_run_links_parent ON run_links(parent_run_id); -- parent → children scans (orchestration.childRunLinkRead; the session's agent tree)
 CREATE INDEX idx_run_links_session ON run_links(session_id);
 
 -- Owner: Plan-014 (events-canonical projection of agent.* events — A-014-2; state enum is the
 -- canonical 4-state agent lifecycle from domain/agent-channel-and-run-model.md §Lifecycle.
--- V1 wire mapping: agent.attach -> 'ready' (or 'configured' when the named default node is not
--- currently attached), agent.detach -> 'disabled', re-attach -> 'ready'; 'archived' is registered
--- but no V1 wire mutation reaches it. The resulting state is carried ON the agent.* event payloads
--- so the projection is deterministic from the log alone.)
+-- No wire verb brings an agent into a session or takes one out: a row appears where an agent
+-- takes part -- the session's own lead, a delegation from it, or an agent the person named in the
+-- composer -- and 'archived' is registered but no V1 wire mutation reaches it. The resulting state is
+-- carried ON the agent.* event payloads so the projection is deterministic from the log alone.)
 CREATE TABLE agents (
   id              TEXT PRIMARY KEY,
   session_id      TEXT NOT NULL,
@@ -1541,17 +1658,20 @@ CREATE TABLE agents (
   state           TEXT NOT NULL DEFAULT 'ready'
                   CHECK(state IN ('configured', 'ready', 'disabled', 'archived')),
   config          TEXT NOT NULL DEFAULT '{}',           -- JSON: agent-scoped driver config (opaque to the schema)
-  provider_account_id TEXT,                             -- 2026-08-26 (D-014-26): the Plan-026 `provider_accounts.account_id` this agent
-                                                        -- spawns under; NULL = the provider's registered default. Not inside
-                                                        -- `config` because the Spec-026 spawn gate reads it, and `config` is
-                                                        -- opaque to everything outside the driver
-  effort          TEXT,                                 -- 2026-08-26 (D-014-26): reasoning effort, validated against the target
+  provider_account_id TEXT,                             -- D-014-26: the Plan-026 `provider_accounts.account_id` this agent
+                                                        -- spawns under; NULL = whichever account is the provider's current one when a
+                                                        -- run starts, which is also what makes this agent follow the mark when it moves.
+                                                        -- Written by the terminal that settles a provider switch rather than by the
+                                                        -- switch request, the account being no axis of that request: it is where the
+                                                        -- new run landed. Not inside `config` because the Spec-026 spawn gate reads it,
+                                                        -- and `config` is opaque to everything outside the driver
+  effort          TEXT,                                 -- D-014-26: reasoning effort, validated against the target
                                                         -- model's driver-reported `effortLevels` rather than a schema CHECK --
                                                         -- the valid set is per-model and provider-owned, so a CHECK here would
                                                         -- go stale against the provider rather than protect anything
-  output_speed    TEXT,                                 -- 2026-08-29 (D-014-26, the output-speed axis): the EFFECTIVE speed mode this
+  output_speed    TEXT,                                 -- D-014-26, the output-speed axis: the EFFECTIVE speed mode this
                                                         -- agent spawns under. NULL = never set, so the provider's own default stands --
-                                                        -- an agent is not born with a speed mode and no attach surface carries one.
+                                                        -- an agent is not born with a speed mode and no surface sets one at birth.
                                                         -- Uncheckable here for the same reason as `effort`: the valid set is the
                                                         -- driver-published `outputSpeedLevels`, so a CHECK would go stale behind a vendor.
                                                         -- A column rather than a `config` key because the applying coordinator commits
@@ -1561,29 +1681,29 @@ CREATE TABLE agents (
                                                         -- restart, and `config` is opaque to the spawn path that has to read it
   execution_posture_mode TEXT
                   CHECK(execution_posture_mode IS NULL OR execution_posture_mode IN
-                        ('trusted','workspace-sandboxed','readonly-sandboxed')),
-                                                        -- 2026-08-26 (CP-027-7): the resolved posture MODE snapshotted at attach.
-                                                        -- NULL = the session default. A mode only, never a composed
+                        ('readonly','ask','reviewed','sandboxed','yolo')),
+                                                        -- CP-027-7: the permission level resolved when the run started,
+                                                        -- one of the five. NULL = the session default. A level only, never a composed
                                                         -- ExecutionPosture: writableRoots and credentialPolicyRef belong to a live
                                                         -- run's workspace and would freeze a path set that outlives it. CHECKable
                                                         -- here, unlike `effort` above, because this vocabulary is corpus-owned
                                                         -- rather than provider-reported, so it cannot go stale behind a vendor
-  tool_allowlist  TEXT,                                 -- 2026-08-26 (CP-027-7): JSON array, THREE-state like its wire axis —
+  tool_allowlist  TEXT,                                 -- CP-027-7: JSON array, THREE-state like its wire axis —
                                                         -- SQL NULL = driver defaults, '[]' = no tools, populated = exactly these.
                                                         -- Outside `config` because the daemon composes the callback registry from
                                                         -- it (I-027-10), and `config` is opaque to everything outside the driver
-  instructions    TEXT,                                 -- 2026-08-26 (CP-027-7): the system-prompt content AS APPLIED at attach
-  goal            TEXT,                                 -- 2026-08-26 (CP-027-7): the agent goal as applied; NULL = none
+  instructions    TEXT,                                 -- CP-027-7: the system-prompt content AS APPLIED when the run started
+  goal            TEXT,                                 -- CP-027-7: the agent goal as applied; NULL = none
                                                         -- Both are read by prompt construction, which is why they are typed
                                                         -- columns rather than `config` keys: after the source definition is
                                                         -- deleted the row itself must still answer what the agent was given
                                                         -- (I-027-12), and an opaque blob cannot be read back by that path
-  pending_switch  TEXT,                                 -- 2026-08-26 (D-014-26): the JSON AgentProviderSwitchPending shape, status literal
+  pending_switch  TEXT,                                 -- D-014-26: the JSON AgentProviderSwitchPending shape, status literal
                                                         -- included so the stored blob is self-identifying rather than a wire artifact
                                                         -- reproduced in a column: a row read in isolation names what it is -- {status:
                                                         -- 'pending', switchId, appliesAt: 'turn_boundary'|'run_boundary',
-                                                        -- interruptRequested, pendingAxes: {driverName?, providerAccountId?, modelId?,
-                                                        -- effort?, outputSpeed? (2026-08-29)}, replacedSwitchId?} -- shared with the mutation reply and the
+                                                        -- interruptRequested, pendingAxes: {driverName?, modelId?, effort?,
+                                                        -- outputSpeed?}, replacedSwitchId?} -- shared with the mutation reply and the
                                                         -- agent.config_updated payload, so what a client was told, what the log records,
                                                         -- and what a restart re-arms from are the same record. What is stored here is a
                                                         -- SUPERSET of that shared shape: it additionally carries admittingPrincipalId
@@ -1621,27 +1741,19 @@ CREATE TABLE agents (
 
 CREATE INDEX idx_agents_session ON agents(session_id);
 
--- Owner: Plan-014 (row-canonical daemon configuration — queue_items posture, NOT evented; one row per session, created on first read/update with Spec-014 §Budget Policies / §Scheduler Limits defaults; mutated only via orchestration.budgetUpdate, session owner only — D-014-5)
+-- Owner: Plan-014 (row-canonical daemon configuration — queue_items posture, NOT evented; one row per session, created on first read/update with no limits set; mutated only via orchestration.budgetUpdate, session owner only — D-014-5)
 CREATE TABLE session_budgets (
   session_id                    TEXT PRIMARY KEY,
-  cost_limit_cents              INTEGER NOT NULL DEFAULT 1000,  -- Spec-014: $10 per session
-  turn_limit_per_agent          INTEGER NOT NULL DEFAULT 50,    -- Spec-014 §Budget Policies (turn-limit row): max consecutive turns per (channel, agent), reset on interleave (D-014-8) — not a per-session total; the session default a channel's ChannelConfig.turnsPerAgent overrides per channel (D-014-23, 2026-08-11)
-  max_executing_channels        INTEGER NOT NULL DEFAULT 5,     -- Spec-014 §Scheduler Limits
-  max_queue_depth_per_channel   INTEGER NOT NULL DEFAULT 25,
-  max_pending_orchestration_runs INTEGER NOT NULL DEFAULT 10,
-  active_child_limit            INTEGER NOT NULL DEFAULT 5,     -- Spec-014 §Scheduler Limits (active-children row): daemon default, configurable
-  unpriced_family_caps          TEXT NOT NULL DEFAULT '[]',     -- JSON [{modelFamily, hardCapUsdCents}] — owner-supplied unpriced-family escapes, native-cap legs only (Spec-014 §Cost Derivation And Absent-Cost Semantics, campaign B6); wire mirror = OrchestrationBudgetUpdate.unpricedFamilyCaps
+  cost_limit_cents              INTEGER,                        -- NULL = no session cost limit; one exists only where the person set it (Spec-014 §Budget Policies)
+  turn_limit_per_agent          INTEGER,                        -- NULL = no turn limit; Spec-014 §Budget Policies (turn-limit row): max consecutive turns per (channel, agent), reset on interleave (D-014-8) — not a per-session total; the session value a channel's ChannelConfig.turnsPerAgent overrides per channel (D-014-23)
+  unpriced_family_caps          TEXT NOT NULL DEFAULT '[]',     -- JSON [{modelFamily, hardCapUsdCents}] — owner-supplied unpriced-family escapes, native-cap legs only (Spec-014 §Cost Derivation And Absent-Cost Semantics); wire mirror = OrchestrationBudgetUpdate.unpricedFamilyCaps
   updated_at                    TEXT NOT NULL,
-  -- Non-negative-integer floors on every limit; wire mirror = orchestration.budgetUpdate Zod .int().nonnegative() (D-014-5)
-  CHECK (typeof(cost_limit_cents) = 'integer' AND cost_limit_cents >= 0),
-  CHECK (typeof(turn_limit_per_agent) = 'integer' AND turn_limit_per_agent >= 0),
-  CHECK (typeof(max_executing_channels) = 'integer' AND max_executing_channels >= 0),
-  CHECK (typeof(max_queue_depth_per_channel) = 'integer' AND max_queue_depth_per_channel >= 0),
-  CHECK (typeof(max_pending_orchestration_runs) = 'integer' AND max_pending_orchestration_runs >= 0),
-  CHECK (typeof(active_child_limit) = 'integer' AND active_child_limit >= 0)
+  -- Each limit is NULL (no limit) or a non-negative integer; wire mirror = orchestration.budgetUpdate Zod .int().nonnegative().nullable() (D-014-5)
+  CHECK (cost_limit_cents IS NULL OR (typeof(cost_limit_cents) = 'integer' AND cost_limit_cents >= 0)),
+  CHECK (turn_limit_per_agent IS NULL OR (typeof(turn_limit_per_agent) = 'integer' AND turn_limit_per_agent >= 0))
 );
 
--- Live-leg goal-delivery crash consistency (Spec-014 §Session Goals, campaign B6): the durable
+-- Live-leg goal-delivery crash consistency (Spec-014 §Session Goals): the durable
 -- goal-dispatch intent written BEFORE the driver op (ADR-019 spawn-intent pattern); startup
 -- reconciliation completes a dangling row keyed on durable leg states: no 'failed' leg = interrupted apply (re-issue to EVERY leg, acked included — idempotent last-write-wins re-send; acked is advisory across restart); any 'failed' leg = revert mode (re-assert the prior goal on EVERY leg, pending included — an in-flight call may have applied unacked; never re-issue the new goal — a refusing leg is marked 'failed' BEFORE compensation begins, so a doomed mutation never re-applies across a crash) — each successful prior-goal re-assertion flips its leg to 'reverted' ('acked' -> 'reverted' and 'pending' -> 'reverted' alike — pending is unknown-outcome and converges only by re-assertion) — and delete WITHOUT appending (converging with a refusal outcome). Deleted on append — the append and the delete commit in ONE transaction (both tables daemon-local), so a committed event with a live row is unrepresentable; on failure, deleted only once EVERY non-'failed' leg is 'reverted' — pending included, since a pending leg's in-flight call may already carry the goal unacked (a failed or unconverged revert keeps the row durable with that leg still 'acked'/'pending', so restart reconciliation knows exactly which legs still carry the unapplied goal and the durable turn gate stays alive; further goal mutations for the session stay blocked until convergence) — a refused mutation never re-applies on replay.
 -- One in-flight goal mutation per session (goal ops serialize per session).
@@ -1650,9 +1762,45 @@ CREATE TABLE session_goal_dispatch_intents (
   payload     TEXT NOT NULL,   -- JSON {op: 'set'|'clear', goal?: {text}, prior: {goal?}, actor: UserId, legs: {bindingId: 'pending'|'acked'|'failed'|'reverted'}} — everything the crash-recovered session.goal_* event and the revert path need (Spec-005 envelope attribution; last-write-wins revert)
   created_at  TEXT NOT NULL
 );
+
+-- Two sessions trading messages. [Spec-014 §State And Data Implications](../../specs/014-multi-agent-channels-and-orchestration.md#state-and-data-implications)
+-- declares both of the tables below durable, session-scoped daemon state, because a daemon restart
+-- mid-exchange must deliver what it was holding and must not forget which two sessions were talking.
+-- The session directory those two are read against is NOT a table: it is derived from the sessions the
+-- daemon hosts and rebuilt when it starts, and an address that moved with a restarted provider process
+-- is looked up again rather than remembered.
+--
+-- Neither table holds a message. The send and the arrival are the ordinary tool events of the two
+-- sessions' own logs ([Spec-014 §Sessions Talking To Each Other](../../specs/014-multi-agent-channels-and-orchestration.md#sessions-talking-to-each-other)),
+-- which is where the words live; a queue row names the send it is holding and nothing else.
+CREATE TABLE session_exchanges (
+  session_id        TEXT NOT NULL,   -- the pair, held as ONE row with the two ids in ascending order
+  peer_session_id   TEXT NOT NULL,   -- so the count below is one count for one exchange. Two rows for one pair would be two answers to "how many since the person last wrote", and each session's own row in the sessions list reads the peer it is not
+  messages_since_user_wrote INTEGER NOT NULL DEFAULT 0
+                    CHECK (typeof(messages_since_user_wrote) = 'integer' AND messages_since_user_wrote >= 0),  -- what the exchange line on each session's row states, `talking to builder · 14`. Reset to zero when the person writes in either session; it is a fact on the row and never a limit, nothing of this runtime bounding how many messages two sessions trade
+  started_at        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL,
+  PRIMARY KEY (session_id, peer_session_id),
+  CHECK (session_id < peer_session_id)  -- the canonical ordering that makes the pair one row. An interrupt taken on either session reads this row to reach the other, so the pair is what is stored and the direction of the last message is not
+);
+
+-- Every message addressed to a PAUSED session, in arrival order. The daemon holds them while the
+-- session is paused and delivers them one at a time in this order when it continues; a row is deleted
+-- when its message is delivered, so the table is empty whenever nothing is being held.
+CREATE TABLE session_paused_message_queue (
+  target_session_id  TEXT NOT NULL,   -- the paused session the message is addressed to
+  arrival_sequence   INTEGER NOT NULL,  -- arrival order at the daemon, per target session. Delivery follows it exactly: a queue that delivered out of order would rewrite the conversation the sending session believes it had
+  source_session_id  TEXT NOT NULL,   -- the sending session
+  source_event_id    TEXT NOT NULL,   -- the send's own tool event on the SENDING session's log, which is where the message text already lives (session_events.content_payload holds tool-call arguments). No foreign key, for the reason the event log's own session_id carries none, and no body column: a second copy of the words would be a second record of them and would sit outside the per-session sealing the log applies
+  arrived_at         TEXT NOT NULL,
+  PRIMARY KEY (target_session_id, arrival_sequence),
+  UNIQUE (target_session_id, source_event_id)  -- one hold per send, so a re-delivery attempt after a restart queues nothing twice
+);
 ```
 
-Per-run token (`tokenLimit`, default 100000) and idle-timeout (`idleTimeoutMs`, default 300000) budgets are per-run `OrchestrationRunConfig` values resolved at admission (request override else session default) and persisted durably as the `run.queued` payload's `effectiveRunConfig` (Plan-014 D-014-5; api-payload `RunStateChangeEvent`) — they have no session-level column, and budget/idle enforcement rebuilds from that event field on replay, never by re-merging session defaults that may have changed mid-run. Budget _accounting_ (tokens/cost consumed) has no table: the daemon's `BudgetAccountant` is an in-memory projection rebuilt on replay from `usage_telemetry` + `run.*` events (D-014-5).
+Both tables land in one additive `0NNN-session-exchanges.ts` with its paired guarded-block registration, the ordinal resolved as the next free version per the migration runner's append order at PR-open time. Two plain table adds, no backfill, and nothing to revert beyond whatever an exchange was holding.
+
+Per-run token (`tokenLimit`) and idle-timeout (`idleTimeoutMs`) limits exist only where the person sets one on the run; neither carries a default, so with none set nothing interrupts the run for tokens or for being quiet. Both are per-run `OrchestrationRunConfig` values resolved at admission and persisted durably as the `run.queued` payload's `effectiveRunConfig` (Plan-014 D-014-5; api-payload `RunStateChangeEvent`) — they have no session-level column, and budget/idle enforcement rebuilds from that event field on replay, never by re-merging session values that may have changed mid-run. Budget _accounting_ (tokens/cost consumed) has no **accumulator** table: the daemon's `BudgetAccountant` is an in-memory projection rebuilt on replay from `usage_telemetry` + `run.*` events (D-014-5). `provider_account_usage_turns` below is not a second accountant: it projects the same `usage_telemetry` events into one row per turn so the figures can be sliced by account, by day and by model, which a running total cannot be (Spec-026 §State And Data Implications).
 
 ---
 
@@ -1897,36 +2045,38 @@ CREATE TABLE provider_accounts (
   account_id            TEXT NOT NULL PRIMARY KEY,  -- daemon-minted opaque immutable identity; never derived from credential material (Spec-026 §Account identity and credential generation). `NOT NULL` is declared explicitly because a `TEXT PRIMARY KEY` on a rowid table admits NULL, which is a documented SQLite compatibility quirk rather than a design choice: a PRIMARY KEY there is usually just a UNIQUE constraint, an historical oversight lets its column values be NULL, and the vendor's own stated workaround is a NOT NULL constraint on each PRIMARY KEY column — https://www.sqlite.org/quirks.html#primary_keys_can_sometimes_contain_nulls (§5, accessed 2026-08-31). NULLs compare distinct in that unique index, so two identity-less rows would both commit. A NULL identity keys nothing: `(account_id, credential_generation)` becomes unmatchable, the child table's `ON DELETE CASCADE` never fires for it, and the credential home derived from it cannot be attributed back. Neither documented exception applies here: this is not an `INTEGER PRIMARY KEY` rowid alias, and the table is not `WITHOUT ROWID`.
   provider              TEXT NOT NULL
                         CHECK(provider IN ('claude', 'codex')),  -- the same closed driver-id union the MCP governance tables use
-  display_label         TEXT NOT NULL,  -- operator-chosen label for disambiguation in the UI; free text, treated as user-adjacent PII (Spec-020 §PII Data Map)
   credential_home_path  TEXT NOT NULL,  -- absolute path to this account's isolated credential home; the daemon constructs the spawn environment from it and never inherits ambient provider credentials (I-026-4)
   credential_generation INTEGER NOT NULL DEFAULT 1
                         CHECK(typeof(credential_generation) = 'integer' AND credential_generation >= 1),  -- monotonic, starts at 1; bumped at every credential-home lifecycle transition (I-026-2). The CHECK makes the floor enforced rather than asserted: a zero or negative generation sorts BEFORE a freshly registered account, so a reading stamped with one would read as newer than the account it describes and invert the staleness comparison the stamp exists for. The `typeof` conjunct is not redundant with the `INTEGER` declaration and is the second half of the same guarantee: a SQLite column type is an AFFINITY, and INTEGER affinity converts a bound REAL only where the conversion is lossless, so `1.5` is stored as REAL `1.5`, satisfies `>= 1`, and makes a monotonic counter divisible — two bumps could then land on `1.5` and `1.75` and order by fraction rather than by generation. Lossless bindings are untouched: `2.0` and `'3'` both convert to integer and remain admitted, so the conjunct refuses exactly the values that were never generations.
   billing_mode          TEXT NOT NULL
                         CHECK(billing_mode IN ('subscription', 'metered', 'unknown')),  -- how this account is charged; `unknown` is the honest-absence arm, never a synonym for metered; drives cost labeling, never cost derivation (Spec-026 §Billing mode)
   is_default            INTEGER NOT NULL DEFAULT 0
-                        CHECK(is_default IN (0, 1)),  -- exactly one default per provider, enforced by the partial unique index below
+                        CHECK(is_default IN (0, 1)),  -- the provider's CURRENT account: the one a new run starts on, and the one a press on the Providers page moves, which carries every running session on that provider that is not pinned to an account with it (Spec-026 §Moving a session to another account). Exactly one per provider, enforced by the partial unique index below. The column keeps the `default` spelling the wire keeps in `isDefault` and in the `no_default` readiness arm, so the flag has one name across the schema and the payloads
   health_state          TEXT
                         CHECK(health_state IS NULL OR health_state IN ('authenticated', 'reauth_required', 'home_missing', 'indeterminate')),  -- the STORED outcome of the last validation of this account: the driver's authentication probe reading together with the credential-home observation taken at that same moment. NULL until a probe has ever been taken, which the wire renders as `indeterminate` — NOT as a failure and never as authenticated (I-026-9, I-026-10). This is the column the readiness projection reads; a registry read never re-derives it, so a read spawns no provider process and opens no credential file (Spec-026 §Node provider readiness and the sign-in handoff).
   health_observed_at    TEXT,  -- RFC 3339 UTC of the observation `health_state` records, written by the same act. NULL exactly when `health_state` is NULL, so the pair is set and cleared together; surfaced as `ProviderReadiness.observedAt` so a caller can apply its own age test. Deliberately NOT `updated_at`, which is NOT NULL and moves on any row mutation — a relabel would report an operator's display-label edit as a fresh authentication observation.
   observed_auth_mode    TEXT
                         CHECK(observed_auth_mode IS NULL OR observed_auth_mode IN ('oauth_subscription', 'oauth_token', 'api_key', 'external', 'none', 'unknown')),  -- the authentication mode the provider's OWN status surface reports for this home, OBSERVED and never assumed (Spec-026 §Non-interactive token registration). NULL until observed; `unknown` is the distinct arm for "observed, but the provider named a mode this daemon does not recognize" — a tolerant arm so a vendor adding a mode does not fail an observation closed. `oauth_token` is the ADR-028 D2 class and is what admits a token-mode account; the token VALUE is not here and is in no column of any table (Spec-026 §State And Data Implications).
-  last_refresh_observed_at TEXT,  -- RFC 3339 UTC of the most recent credential refresh the daemon has OBSERVED to have completed for this home, read from the provider's own durable marker where it publishes one. NULL = not observed, never "fine". Drives the freshness reading; the daemon never CAUSES a refresh to produce it (Spec-026 §Credential-home health observation).
+  last_refresh_observed_at TEXT,  -- RFC 3339 UTC of the most recent credential refresh the daemon has OBSERVED to have completed for this home, read from the provider's own durable marker where it publishes one. NULL = not observed, never "fine". Drives the freshness reading. The daemon never touches the credential itself: what renews a login is the provider's own code running inside its own home, which the limits read on one leg causes as that provider's own side effect, and a renewal there is no lifecycle transition — it moves this column and never `credential_generation` (Spec-026 §Credential-home health observation).
   logged_in_at          TEXT,  -- RFC 3339 UTC of the moment this home's credential was ISSUED. On a brokered sign-in that is the observed completion, which the daemon witnessed. On a token-mode registration it is the token's ISSUANCE time — read from the provider's own status surface where it publishes one, else supplied explicitly by the operator — and is NOT the registration time: a token is minted out of band and may be registered months later, so anchoring here to registration would shift the horizon forward by the token's pre-registration age and could report a credential as good after it had expired. Where no issuance anchor exists the column stays NULL and the estimate renders as unknown; it is never defaulted to `created_at`. NULL also for a home imported by a registration that neither signed in nor supplied a token. The re-login horizon derived from it is MODE-DISPATCHED and is an ESTIMATE, never a fact: the interval belongs to the provider's issuance policy, which the daemon does not control and cannot verify.
-  -- Provider-REPORTED account identity, surfaced by a health observation and stored so the
-  -- management page can tell two accounts of the same provider apart by something truer than the
-  -- operator's own label. Nullable and independently so: a provider may report any subset, and an
-  -- absent value stays absent rather than defaulting. A later observation REPLACES these values
-  -- (Spec-020 §PII Data Map, `provider_accounts` row); they are never logged, never evented, and
-  -- never carried on an error. Carriers for the render Spec-021 requires and the retention rule
-  -- Spec-020 already governs — added 2026-08-26 at the Codex round, which found the rule and the
-  -- render both citing a column that did not exist.
+  -- Provider-REPORTED account identity, surfaced by a health observation. This IS an account's
+  -- identity on every surface that names one — the address, the plan as the provider itself names it,
+  -- and the organisation where the plan has one — and there is no operator-typed label beside it: one
+  -- address can hold two accounts on different plans, so the plan and the organisation are part of
+  -- telling them apart rather than decoration around an invented name. Nullable and independently so:
+  -- a provider may report any subset, and an absent value stays absent rather than defaulting. A later
+  -- observation REPLACES these values (Spec-020 §PII Data Map, `provider_accounts` row); they are
+  -- never logged, never evented, and never carried on an error.
   observed_account_email     TEXT,
+  observed_account_plan      TEXT,  -- the provider's own word for the plan, verbatim; distinct from billing_mode, which says how the account is paid for rather than which plan it is on
   observed_account_org_id    TEXT,
   observed_account_org_name  TEXT,
   removal_intent        INTEGER NOT NULL DEFAULT 0
                         CHECK(removal_intent IN (0, 1)),  -- the durable half of the cross-store removal protocol (Spec-026 §Non-interactive token registration). The registry row and the sealed token are SEPARATE DURABILITY DOMAINS — SQLite and the OS keystore commit independently — so removal marks intent here FIRST, then destroys the secret, then deletes the row. A crash mid-sequence therefore strands a row already marked unusable rather than a live credential nobody can see. Admission REFUSES any account whose row is intent-marked, and daemon-start reconciliation completes every marked row and destroys every sealed value matching no row. Not a status enum: the row's other states are already carried by `health_state`, and folding removal into that column would let an observation overwrite an in-flight removal.
   probe_enabled         INTEGER NOT NULL DEFAULT 1
                         CHECK(probe_enabled IN (0, 1)),  -- per-account opt-out for the background health observer (Spec-026 §Credential-home health observation). Default-on, because an account nobody observes is an account whose stored reading silently ages; durable rather than in-memory, so a restart does not resume observing an account the operator silenced. Opting out suppresses the OBSERVER only: the deliberate probe verb and spawn validation still write the pair, because both are acts the operator or a run explicitly asked for.
+  window_start_enabled  INTEGER NOT NULL DEFAULT 1
+                        CHECK(window_start_enabled IN (0, 1)),  -- per-account switch for the one smallest turn the daemon spends at each window reset so the new window's clock starts then (Spec-026 §Credential-home health observation; `windowStartEnabled` on the wire). Default-on, and it sits UNDER `probe_enabled` rather than beside it: switching this off leaves the limits read running on its cadence, and switching `probe_enabled` off leaves this inert, so an account silenced for the observer spends nothing at a reset.
   created_at            TEXT NOT NULL,
   updated_at            TEXT NOT NULL,
   -- The stored observation is a PAIR, and the pair is enforced rather than asserted: a reading with
@@ -1936,11 +2086,13 @@ CREATE TABLE provider_accounts (
   CHECK ((health_state IS NULL) = (health_observed_at IS NULL))
 );
 
--- Exactly one default account per provider (I-026-5). A partial unique index rather than
--- application-level enforcement: two concurrent set-default calls racing on the same provider
--- would both read "no other default" and both write one, and the resulting ambiguity would be
--- resolved silently at the next spawn by whichever row sorted first — binding a run, and its
--- spend, to an account the operator did not choose. The database refuses the second writer instead.
+-- Exactly one current account per provider (I-026-5) — the flag this schema calls `is_default` and
+-- every surface calls the current account, one fact under two words. A partial unique index rather
+-- than application-level enforcement: two concurrent `providerAccount.setCurrent` calls racing on
+-- the same provider would both read "no other one" and both write one, and the resulting ambiguity
+-- would be resolved silently at the next spawn by whichever row sorted first — binding a run, and
+-- its spend, to an account the operator did not choose, and leaving a press that moves live sessions
+-- with two destinations. The database refuses the second writer instead.
 CREATE UNIQUE INDEX provider_accounts_one_default_per_provider
   ON provider_accounts(provider)
   WHERE is_default = 1;
@@ -1956,7 +2108,7 @@ CREATE UNIQUE INDEX provider_accounts_unique_credential_home
   ON provider_accounts(credential_home_path);
 ```
 
-The newest quota reading per account and limit. A provider's quota standing is **not one window**: the pinned Claude surface publishes five limit identifiers, **three of which share a 10080-minute window**, so a key of `(account, window length)` cannot hold them — two of the three would overwrite the third and the survivor would depend on arrival order. The limit identifier is therefore the key and the window length is an attribute of the reading, not part of its identity. Holding the newest reading durably is what lets a client that connects after a reading was taken render quota standing without waiting for the next one.
+The newest quota reading per account and limit. A provider's quota standing is **not one window**: one pinned provider publishes **several distinct limits at a time, more than one of them over the same window length**, so a key of `(account, window length)` cannot hold them — the ones sharing a length would overwrite each other and the survivor would depend on arrival order. The limit identifier is therefore the key and the window length is an attribute of the reading, not part of its identity. Holding the newest reading durably is what lets a client that connects after a reading was taken render quota standing without waiting for the next one.
 
 ```sql
 -- Owner: Plan-026
@@ -1973,31 +2125,75 @@ CREATE TABLE provider_account_usage_windows (
   observed_credential_generation INTEGER NOT NULL
                 CHECK(typeof(observed_credential_generation) = 'integer' AND observed_credential_generation >= 1),  -- the account's `credential_generation` when this reading was taken, mirroring the member the account-scoped quota event already carries. A credential-home rebuild does NOT delete these rows — a quota window describes the provider-side allowance, which keeps running while a home sits empty — so this stamp is what lets a consumer render a pre-rebuild reading as stale rather than as current (Spec-026 §Per-limit provider quota). Contrast the health pair on the parent row, which a generation bump invalidates outright, because that pair describes the home itself. The CHECK carries the same floor the parent row's `credential_generation` and the wire's `CredentialGenerationSchema` both enforce, so the stamp cannot be written outside the range of the values it claims to compare against: a stamp below 1 names a generation that never existed, matches no account state, and would render its reading permanently stale rather than legibly refusing at write time. It carries the parent's `typeof` conjunct for the same reason and with the same force: the staleness comparison is between this stamp and the parent's generation, so a fractional stamp admitted by INTEGER affinity would compare against a whole-numbered generation and place the reading between two of them.
   source        TEXT NOT NULL
-                CHECK(source IN ('probe', 'run')),  -- which sanctioned source produced the reading: the deliberate probe verb, or the account-scoped quota event emitted from real traffic. The background health observer is NOT a source and no third value exists, because reading quota on one pinned provider leg traverses a path documented to refresh proactively — which Spec-026 §Credential-home health observation forbids the observer to do.
+                CHECK(source IN ('probe', 'run')),  -- which sanctioned source produced the reading: a deliberate read of the provider's own limits surface, or the account-scoped quota event emitted from real traffic. The background health observation is not a third value because it is not a third provenance: it performs the same deliberate read on its cadence, as another caller of it, and its readings record as 'probe' (Spec-026 §Credential-home health observation). The two values differ in COMPLETENESS, which is what consumers key on: a 'probe' reading is a whole-account read and replaces that account's stored set, while a 'run' reading is sparse and merges into it, pruning nothing it does not name.
   PRIMARY KEY (account_id, limit_id)
 );
 ```
 
-Spend is joined to an account without duplicating account identity onto every usage row. A provider run carries the server-stamped `admittedProviderAccountId` on its `run.queued` admission record, so priced usage rows join to an account **through the run**. The one usage kind that carries account identity directly is `usage.rate_limit_update`, because provider quota is account-scoped and has no run to join through — the asymmetry is deliberate, and it also keeps user identity off every usage row.
+Spend joins to an account through the run wherever a run exists: a provider run carries the server-stamped `admittedProviderAccountId` on its `run.queued` admission record. **Two** usage kinds carry account identity directly, and both for the same reason — a figure that belongs to an account rather than to a run. `usage.rate_limit_update` does because provider quota is account-scoped and has no run to join through, and `usage.token_count` does because a turn can be spent on an account with no session at all (the window start, Spec-026 §Credential-home health observation) and because the per-turn projection below is keyed on the account rather than on the run. User identity stays off every usage row either way.
+
+One row per turn, so the figures an operator reads per account can be sliced by a day and by a model. It is a **projection** of the per-turn usage event ([Spec-005 §Usage Telemetry](../../specs/005-session-event-taxonomy-and-audit-log.md#usage-telemetry-usage_telemetry)) and not a second accountant: the same events feed it and feed the in-memory committed-spend fold, it is rebuilt on replay like every other projection, and every figure it answers is served through the one committed-spend accessor. What it adds over the fold is an **axis**, not a second arithmetic — a running total cannot be cut by a day or a model it never kept ([Spec-026 §State And Data Implications](../../specs/026-provider-accounts-and-credential-homes.md#state-and-data-implications)).
+
+```sql
+-- Owner: Plan-026
+CREATE TABLE provider_account_usage_turns (
+  source_event_id TEXT NOT NULL PRIMARY KEY,  -- the id of the `usage.token_count` event this row projects. It is the key because a turn IS that event: keying on it makes the projector idempotent, so a replay of the log writes each turn exactly once and a rebuild is byte-equal to the original. Deliberately NO foreign key to `session_events`: the retention pass prunes and compacts that log on its own schedule, and a cascade there would take an account's spend history with it — the figures outlive the rows they were derived from, and what a rebuild can no longer see it does not invent.
+  account_id      TEXT NOT NULL
+                  REFERENCES provider_accounts(account_id) ON DELETE CASCADE,  -- a turn's figures have no meaning without the account that paid for them; deregistering an account takes its usage rows with it, exactly as it takes its window readings
+  provider        TEXT NOT NULL
+                  CHECK(provider IN ('claude', 'codex')),  -- the same closed driver-id union the registry and the MCP governance tables use. Held on the row rather than joined from the account so a provider-wide slice reads one table, and it is the account's provider by construction
+  occurred_at     TEXT NOT NULL,  -- RFC 3339 UTC of the turn, carried from the source event's envelope. This is what the by-day slice groups on; the day boundary is the reader's, never baked in here
+  session_id      TEXT,  -- the session whose run spent this turn. NULL for a turn NO session owns -- the window-start turn Spec-026 spends on an account outside every session -- so the account's own totals include it and no session's receipt does. No foreign key, for the reason the event log's own `session_id` carries none
+  run_id          TEXT,  -- the run within that session. NULL exactly where `session_id` is NULL, and also where the provider attributed the turn no further than the session
+  model_id        TEXT,  -- the model the turn ran on, as the provider names it. This is what the by-model slice groups on; NULL where the provider attributed usage no further than the run, and a NULL groups as its own unattributed bucket rather than being folded into another model
+  input_tokens          INTEGER,
+  output_tokens         INTEGER,
+  cache_read_tokens     INTEGER,
+  cache_write_tokens    INTEGER,
+  reasoning_tokens      INTEGER,  -- the five counts, each NULL where the provider reported none. NULL is NOT zero: one provider reports all five per turn and the other reports what its per-model usage block carries, so coalescing an unreported count to zero would present a partial reading as a complete one. Taken from the carrier that is complete on each leg -- on the Claude leg the result frame's PER-MODEL block, never its top-level one, which counts the outer loop alone and undercounts as soon as helper conversations run.
+  cost_cents      INTEGER,  -- NULL = no cost figure for this turn, which is a different fact from a cost of zero and renders as no figure at all. One pinned provider reports no cost whatsoever, and the account surface draws tokens only for it rather than presenting a locally derived number as that provider's spend
+  cost_status     TEXT
+                  CHECK(cost_status IS NULL OR cost_status IN ('priced', 'unpriced')),
+  cost_source     TEXT
+                  CHECK(cost_source IS NULL OR cost_source IN ('provider_reported', 'derived_exact', 'derived_family_prefix', 'unpriced_native_cap')),  -- the provenance the three-tier derivation ladder assigned the figure, the same closed vocabulary the source event carries. Provenance is REUSED and not re-enumerated here: a second spelling of where a number came from is a second answer to one question
+  observed_credential_generation INTEGER NOT NULL
+                  CHECK(typeof(observed_credential_generation) = 'integer' AND observed_credential_generation >= 1),  -- the account's `credential_generation` when the turn was metered, mirroring the member the account-scoped quota event and the window readings both carry, and carrying the same floor and the same `typeof` conjunct for the same reasons: a stamp below 1 names a generation that never existed, and a fractional stamp admitted by INTEGER affinity would sort between two whole generations and make the comparison this stamp exists for meaningless.
+  CHECK ((cost_status IS NULL) = (cost_source IS NULL)),  -- a status with no provenance cannot say where its number came from, and a provenance with no status is a source for nothing. The pair is set and cleared together, as the registry's health pair is
+  CHECK (cost_cents IS NULL OR cost_status IS NOT NULL),  -- a figure always names how it was arrived at; an unlabelled number is the one thing this plane never draws as money
+  CHECK (run_id IS NULL OR session_id IS NOT NULL)  -- a run belongs to a session, so a row naming a run and no session describes a turn that cannot exist
+);
+
+-- The two slices the account surface draws, and nothing else reads this table by any other shape.
+CREATE INDEX idx_provider_account_usage_turns_account_day
+  ON provider_account_usage_turns(account_id, occurred_at);
+CREATE INDEX idx_provider_account_usage_turns_account_model
+  ON provider_account_usage_turns(account_id, model_id);
+```
+
+Rows are appended and never rewritten. A provider's own usage history, where it publishes one, is drawn **beside** this table with the vendor named and is never reconciled into it: two accountants counting the same tokens differently is what one source of truth exists to prevent.
+
+Migration: an additive `0NNN-provider-account-usage-turns.ts` with its paired guarded-block registration, the ordinal resolved as the next free version per the migration runner's append order at PR-open time. It is its own ordinal rather than a widening of the registry's, because `0016-provider-accounts.ts` — which creates `provider_accounts` and `provider_account_usage_windows` — is registered in the runner's chain and cannot be amended.
 
 ---
 
-## Sidekick Definition Tables (Plan-027)
+## Agent Definition Tables (Plan-027)
 
-Node-local registry of saved sidekick configurations, for [Spec-027](../../specs/027-sidekick-definitions-and-peer-invocation.md). One row per definition. This is **configuration, not session state**: it is not events-canonical, is never replayed, is never rebuilt from the event log, and never leaves the node (I-027-9).
+Node-local registry of saved agent configurations, for [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md). One row per definition. This is **configuration, not session state**: it is not events-canonical, is never replayed, is never rebuilt from the event log, and never leaves the node (I-027-9).
 
-`id` is daemon-minted, opaque, and immutable, and is stable across a rename — `name` is a mutable human label and is never an identity key (I-027-1). An agent attached from a definition holds a **snapshot** of it: no foreign key binds an agent to this table, and no read path serving a running agent consults it, so editing or deleting a definition can never widen an already-attached sidekick's authority (I-027-2).
+`id` is daemon-minted, opaque, and immutable, and is stable across a rename — `name` is a mutable human label and is never an identity key (I-027-1). A run started under a definition holds a **snapshot** of it: no foreign key binds a running agent to this table, and no read path serving one consults it, so editing or deleting a definition can never widen the authority of an agent already running (I-027-2).
 
-`provider_account_id` deliberately carries **no foreign key** to `provider_accounts` (D-027-1). `ON DELETE CASCADE` would discard operator-authored configuration when an account is removed; `ON DELETE SET NULL` would silently convert a pinned account into "the provider's default account", which is exactly the substitution the fail-closed resolution rule forbids; `ON DELETE RESTRICT` would make account removal fail because an unrelated definition names it. The reference is therefore unenforced at the schema layer and checked at attach time, which is the only point at which the answer matters.
+`bindings` is the definition's provider axes, and it is one JSON column rather than four loose ones. It holds a default binding and any number of overrides — `{ "default": { driverName, modelId, providerAccountId, effort }, "overrides": [ … ] }` — because one saved agent runs on either provider without being copied into a second definition, and four loose columns could hold only one provider's setup. The default is one of the bindings rather than a fallback beside them, and an override is a whole binding in its own right: an override's driver is unique within the definition and never repeats the default's, so which binding answers for a driver is never ambiguous. JSON rather than a child table because the list is bounded, always read with its row, and never queried across definitions — the same convention `tool_allowlist` on this table already follows.
+
+A `providerAccountId` inside a binding deliberately carries **no foreign key** to `provider_accounts` (D-027-1), which a JSON column could not express anyway and which the corpus would refuse if it could. `ON DELETE CASCADE` would discard operator-authored configuration when an account is removed; `ON DELETE SET NULL` would silently convert a pinned account into "the provider's default account", which is exactly the substitution the fail-closed resolution rule forbids; `ON DELETE RESTRICT` would make account removal fail because an unrelated definition names it. The reference is therefore unenforced at the schema layer and checked when a run resolves the binding, which is the only point at which the answer matters.
 
 `tool_allowlist` is three-state and the three states are **not** interchangeable (I-027-4): `NULL` means the driver's default tool set, the JSON array `'[]'` means no tools at all, and a populated array means exactly those tools. Representing "no tools" as an absent value would make the most restrictive choice unexpressible.
 
-`execution_posture_mode` stores the posture **mode literal only** (I-027-8). A composed `ExecutionPosture` carries a content-addressed `credentialPolicyRef` meaningful only against the session that composed it, so persisting one would let a stale definition re-grant a superseded trust decision, or dangle outright; the session composes the full posture at attach time from this mode.
+`execution_posture_mode` stores **one of the five permission levels, and nothing composed** (I-027-8): `readonly`, `ask`, `reviewed`, `sandboxed`, `yolo`, or NULL for the posture of whatever session or run the agent is used in. A composed `ExecutionPosture` carries a content-addressed `credentialPolicyRef` meaningful only against the session that composed it, so persisting one would let a stale definition re-grant a superseded trust decision, or dangle outright; the daemon composes the full posture from this level when the run starts. Planning is not a level and is not storable here — it is a session's own mode.
 
 ```sql
 -- Owner: Plan-027
-CREATE TABLE sidekick_definitions (
-  id                     TEXT NOT NULL PRIMARY KEY,  -- daemon-minted opaque immutable definitionId; stable across a rename (I-027-1). `NOT NULL` declared explicitly: a TEXT PRIMARY KEY on a rowid table admits NULL (the documented SQLite quirk armored the same way on provider_accounts.account_id above — https://www.sqlite.org/quirks.html#primary_keys_can_sometimes_contain_nulls), and a NULL definitionId keys nothing: attach-by-reference could never resolve it and NULLs compare distinct, so two identity-less rows would both commit.
+CREATE TABLE agent_definitions (
+  id                     TEXT NOT NULL PRIMARY KEY,  -- daemon-minted opaque immutable definitionId; stable across a rename (I-027-1). `NOT NULL` declared explicitly: a TEXT PRIMARY KEY on a rowid table admits NULL (the documented SQLite quirk armored the same way on provider_accounts.account_id above — https://www.sqlite.org/quirks.html#primary_keys_can_sometimes_contain_nulls), and a NULL definitionId keys nothing: no run could resolve it and NULLs compare distinct, so two identity-less rows would both commit.
   name                   TEXT NOT NULL  -- mutable human label; NEVER an identity key on any wire request, stored reference, or audit row
                          CHECK(length(name) > 0 AND length(name) <= 128 AND instr(name, char(0)) = 0),
   name_folded            TEXT NOT NULL,  -- full-Unicode case fold of `name`, computed by the store on every write (I-027-7).
@@ -2006,15 +2202,20 @@ CREATE TABLE sidekick_definitions (
                                          -- uniqueness and no concurrent pair of non-ASCII case variants can both commit.
   description            TEXT NOT NULL DEFAULT ''
                          CHECK(length(description) <= 1024 AND instr(description, char(0)) = 0),
-  driver_name            TEXT NOT NULL,  -- provider driver key (Plan-004 capability surface), matching agents.driver_name
-  model_id               TEXT NOT NULL,
-  provider_account_id    TEXT,  -- NULL = the provider's default account resolved at attach time. Deliberately NO foreign key (D-027-1) — the row must outlive its account so resolution can refuse legibly instead of substituting
-  effort                 TEXT,  -- NULL = the driver's default. Validated at resolution against the target model's driver-reported effortLevels, NOT against a corpus-wide enum, so no CHECK list appears here
-  execution_posture_mode TEXT  -- NULL = the session default posture. Mode literal ONLY — no credentialPolicyRef, writableRoots, or network member is ever persisted here (I-027-8)
+  icon                   TEXT,  -- NULL = the generic agent glyph. A glyph key from the console's own icon set; icon and accent are two fields, not one theme, so either changes without the other
+  accent_hue             TEXT,  -- NULL = no chosen hue, and the card draws the generic mark's own. One step of the console's twelve-step hue wheel
+  bindings               TEXT NOT NULL  -- the provider axes as one JSON object: a default binding plus its overrides, each binding naming a driver, a model, an optional provider account and an optional effort. Replaces the four loose provider columns, because a definition reaches both providers
+                         CHECK(json_valid(bindings)
+                               AND json_type(bindings) = 'object'
+                               AND json_type(bindings, '$.default') = 'object'
+                               AND json_type(bindings, '$.overrides') = 'array'),
+  turn_cap               INTEGER  -- NULL = no cap, and the daemon adds none of its own. The number of turns this agent may take before it is stopped; not a budget
+                         CHECK(turn_cap IS NULL OR turn_cap > 0),
+  execution_posture_mode TEXT  -- NULL = the posture of the session or run the agent is used in. One of the five permission levels and nothing composed — no credentialPolicyRef, writableRoots, or network member is ever persisted here (I-027-8)
                          CHECK(execution_posture_mode IS NULL OR execution_posture_mode IN (
-                           'trusted', 'workspace-sandboxed', 'readonly-sandboxed'
+                           'readonly', 'ask', 'reviewed', 'sandboxed', 'yolo'
                          )),
-  instructions           TEXT NOT NULL DEFAULT ''  -- the system-prompt text the sidekick runs under; operator-authored node-local configuration, never emitted into an event payload
+  instructions           TEXT NOT NULL DEFAULT ''  -- the system-prompt text the agent runs under; operator-authored node-local configuration, never emitted into an event payload
                          CHECK(length(instructions) <= 32768 AND instr(instructions, char(0)) = 0),
   goal                   TEXT
                          CHECK(goal IS NULL OR (length(goal) > 0 AND length(goal) <= 4096 AND instr(goal, char(0)) = 0)),
@@ -2028,11 +2229,15 @@ CREATE TABLE sidekick_definitions (
 -- one handle to a human reading a picker, and a service-layer-only check races under concurrent
 -- creates from the desktop and CLI clients at once. The index arbitrates the STORED FOLD KEY, so the
 -- guarantee is the full-Unicode one and not an ASCII subset of it.
-CREATE UNIQUE INDEX idx_sidekick_definitions_name_folded
-  ON sidekick_definitions(name_folded);
+CREATE UNIQUE INDEX idx_agent_definitions_name_folded
+  ON agent_definitions(name_folded);
 ```
 
 **Why a stored fold key rather than `COLLATE NOCASE`.** SQLite's built-in `NOCASE` collation folds only the 26 ASCII letters — [SQLite datatype documentation](https://sqlite.org/datatype3.html#collating_sequences), accessed 2026-08-26 — so an index built on it collides `Reviewer` with `reviewer` but admits a pair differing only in a non-ASCII case mapping. An earlier revision paired that ASCII index with a full-Unicode check in the definition store and called the index a concurrency backstop; that arrangement does not hold, because the layer performing the real fold is the layer that cannot be atomic. Two concurrent creates of `Ärger` and `ärger` each pass the service precheck, and the ASCII index then accepts both — the exact race the backstop was there to close. Persisting the fold (`name_folded`, written by the store on every insert and update) moves the full-Unicode comparison into the unique index itself, so uniqueness is decided once, by the database, under the same folding the service uses. The store still performs the fold — it owns the Unicode algorithm — but it is no longer the correctness boundary, only the producer of the key. `name` continues to hold the operator's original casing for display.
+
+## Session Search Index
+
+The search across every session and a session's own find are answered from one FTS5 virtual table over session titles and message text, SQLite's own full-text index, which the daemon's `better-sqlite3` 13.0.3 build carries against SQLite 3.53.4. It reaches every session the list holds, archived ones included, answers in the index's own ranked order with no cap, and is kept in step with the rows it indexes by the daemon's write path. Its DDL lands with the two search reads [api-payload-contracts §Session Method-Name Registry](../contracts/api-payload-contracts.md#session-method-name-registry) records as owed.
 
 ## Schema Version Table
 

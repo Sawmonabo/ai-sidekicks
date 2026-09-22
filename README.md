@@ -9,7 +9,7 @@
   '--___--'
 ```
 
-AI Sidekicks is an agentic coding desktop runtime: you and your AI sidekicks (Claude Code, Codex) build software in live sessions — steerable agents, sidekick-to-sidekick channels, approval-gated dispatch, git-worktree flow, and Remote Control from any of your linked devices. Every agent runs on your machine, on your own provider subscription.
+AI Sidekicks is an agentic coding desktop runtime: you and your AI sidekicks (Claude Code, Codex) build software in live sessions — steerable agents, agent-to-agent channels, approval-gated dispatch, git-worktree flow, and Remote Control from any of your linked devices. Every agent runs on your machine, on your own provider subscription. A sidekick is what the app calls an agent on screen; the code and the docs say agent.
 
 <p align="center">
   <img src="assets/hero/desktop-app-hero.png" alt="AI Sidekicks Desktop App" width="100%" />
@@ -170,7 +170,7 @@ A short alias `sk` installs alongside it; if an unrelated `sk` is already on you
 | Language | TypeScript (daemon, CLI, desktop, contracts) |
 | Desktop Shell | Electron |
 | Desktop UI | React + Vite |
-| Local Database | SQLite (WAL mode, 59 tables) |
+| Local Database | SQLite (WAL mode, 67 tables) |
 | Shared Database | Postgres (26 tables) |
 | Auth | PASETO v4 (access + refresh), WebAuthn, DPoP |
 | Relay Encryption | X25519 + XChaCha20-Poly1305 (V1), MLS RFC 9420 (V2) |
@@ -202,8 +202,8 @@ V1 ships 21 core features across CLI and Desktop GUI per [ADR-015: V1 Feature Sc
 | 13 | Event audit log | Event-sourced persistence backbone |
 | 14 | Artifacts (local + relayed) | Diffs, files, and attachments; an artifact stays fetchable from a linked device while the publishing runtime node is offline via an eager relay pin of E2EE ciphertext, up to the artifact's retention TTL |
 | 15 | Desktop GUI | Electron shell + React/Vite renderer over the same typed SDK |
-| 16 | Multi-agent channels | Sidekick-to-sidekick coordination primitives per [Spec-014](docs/specs/014-multi-agent-channels-and-orchestration.md) |
-| 17 | Workflow authoring and execution | Full workflow engine with a visual node-graph builder, session/project/shared definition scopes, chat-invoked start (the intercepted `/workflow start` command, the composer affordance, and the `workflow_start` callback tool per [ADR-027](docs/decisions/027-chat-invoked-workflow-start.md)), and a park-and-recovery surface — a phase parked on a provider usage limit or a human wait is readable from one run-read and acted on through authorized run-cancel and run-resume operations, the resume carrying the audited definition re-pin — per [Spec-015](docs/specs/015-workflow-authoring-and-execution.md), [ADR-026](docs/decisions/026-visual-node-graph-workflow-authoring.md) |
+| 16 | Multi-agent channels | Agent-to-agent coordination primitives per [Spec-014](docs/specs/014-multi-agent-channels-and-orchestration.md) |
+| 17 | Workflow authoring and execution | Full workflow engine with a visual node-graph builder, session/project/shared definition scopes, chat-invoked start (the intercepted `/workflow start` command, the composer affordance, and the `workflow_run` callback tool per [ADR-027](docs/decisions/027-chat-invoked-workflow-start.md)), and a park-and-recovery surface — a phase parked on a provider usage limit or a human wait is readable from one run-read and acted on through authorized run-cancel and run-resume operations, the resume carrying the audited definition re-pin — per [Spec-015](docs/specs/015-workflow-authoring-and-execution.md), [ADR-026](docs/decisions/026-visual-node-graph-workflow-authoring.md) |
 | 18 | MCP server configuration and governance | Server-config CRUD, operator-managed trusted-server store, status/health probing, server OAuth per [Spec-025](docs/specs/025-mcp-server-configuration-and-governance.md) + [Plan-025](docs/plans/025-mcp-server-configuration-and-governance.md) |
 | 19 | Session time-travel | Run rollback as a version-guarded intervention plus a forward `run.rolled_back` event, so the log never truncates; durable file restoration rides the turn-snapshot restore leg, and the superseded-turn timeline rendering is built by [Plan-011](docs/plans/011-live-timeline-visibility-and-reasoning-surfaces.md) |
 | 20 | Session goals | Per-session structured goal with set/clear RPC and goal events |

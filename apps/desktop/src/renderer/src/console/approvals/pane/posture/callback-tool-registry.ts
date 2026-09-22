@@ -17,11 +17,11 @@
 // policy decision and never left unanswered. So the withheld arm carries BOTH: the
 // registry's one born-withheld entry, and the refusal that says no read was answered.
 //
-// THE ENTRY IS THE CORPUS'S, NOT AN EXAMPLE. `workflow_start` is the first concrete
-// session callback tool the corpus registers, its name, description and input schema
-// are fixed by `api-payload-contracts.md`, and it is born-withheld by the same rule.
-// Rendering it is not the console inventing a registry: it is the console rendering
-// the one entry the contract says is there, in the state the contract says it is in.
+// THE ENTRY IS THE CONTRACT'S, NOT AN EXAMPLE. `workflow_run` is the first concrete
+// session callback tool the daemon registers, its name, description and input schema
+// are fixed by the wire contract, and it is born-withheld by the same rule. Rendering
+// it is not the console inventing a registry: it is the console rendering the one
+// entry the contract says is there, in the state the contract says it is in.
 
 import { useEffect, useState } from "react";
 
@@ -61,7 +61,7 @@ export type CallbackToolRegistryReading =
  */
 const BORN_WITHHELD_REGISTRY: readonly SessionCallbackTool[] = [
   {
-    name: "workflow_start",
+    name: "workflow_run",
     description:
       "Start a workflow run in this session by definition name. Resolution is most-specific-first across the session, project, and shared scopes.",
     inputSchema: {

@@ -7,7 +7,7 @@
 | Status | completed |
 | Drafted | 2026-07-02 |
 | Design | [2026-07-01-capability-enhancements-design.md](../specs/2026-07-01-capability-enhancements-design.md) |
-| Owner | user (a.sawmon@gmail.com) |
+| Owner | user |
 | Tracker | **this plan** — per-task checkboxes + status lifecycle; zero backlog items (Design R9) |
 
 **Goal:** Execute the capability-enhancement campaign: land all 34 adopted enhancement-corpus items plus the seven R8 CLI-parity capabilities into the V1 governance corpus as 23 bundle PRs (waves W0–W3, with the W1.5 batch spec re-promotion gate between the contract and plan layers), restore every affected plan's `approved` status via targeted re-audits (W2.5), and ship the single bucket-1 prerequisite code PR (W4: B23 turn-snapshot service) — so every owning plan's own `/plan-execution` run builds the rest at its natural slot.

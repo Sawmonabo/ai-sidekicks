@@ -20,7 +20,7 @@
 
 import { fireEvent, render, screen } from "@testing-library/react";
 
-import { SidekicksBridgeProvider } from "../../../../bridge/BridgeProvider.js";
+import { DesktopBridgeProvider } from "../../../../bridge/BridgeProvider.js";
 import {
   createFixtureBridge,
   type ConsoleBridge,
@@ -251,9 +251,9 @@ export async function renderSwitchableSlot(
   // which `exactOptionalPropertyTypes` refuses on an optional prop.
   const ownerBody = mounting.body === undefined ? {} : { body: mounting.body };
   const slotFor = (phase: HumanFormPhase | undefined): React.JSX.Element => (
-    <SidekicksBridgeProvider bridge={held}>
+    <DesktopBridgeProvider bridge={held}>
       <HumanFormSlot phase={phase} {...ownerBody} />
-    </SidekicksBridgeProvider>
+    </DesktopBridgeProvider>
   );
   const { container, rerender } = render(slotFor(mounting.phase));
   await settle();

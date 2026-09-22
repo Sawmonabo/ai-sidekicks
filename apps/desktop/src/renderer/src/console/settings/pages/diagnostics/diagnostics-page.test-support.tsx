@@ -15,7 +15,7 @@ import { afterEach, vi, type Mock } from "vitest";
 import type { RunState } from "@ai-sidekicks/contracts";
 
 import {
-  SidekicksBridgeProvider,
+  DesktopBridgeProvider,
   createFixtureBridge,
   growthUnavailable,
   type ConsoleBridge,
@@ -205,7 +205,7 @@ export function bridgeAnswering(script: DiagnosticsScript): {
  */
 export function renderPage(bridge: ConsoleBridge, sessionStore?: SessionStore): HTMLElement {
   const { container } = render(
-    <SidekicksBridgeProvider bridge={bridge}>
+    <DesktopBridgeProvider bridge={bridge}>
       <LiveAnnouncerProvider>
         <DiagnosticsPage
           context={settingsPageContextWith(bridge, SESSION_ID, {
@@ -213,7 +213,7 @@ export function renderPage(bridge: ConsoleBridge, sessionStore?: SessionStore): 
           })}
         />
       </LiveAnnouncerProvider>
-    </SidekicksBridgeProvider>,
+    </DesktopBridgeProvider>,
   );
   return container;
 }

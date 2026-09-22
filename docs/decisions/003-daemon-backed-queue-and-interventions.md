@@ -144,11 +144,3 @@ Client-side queueing fails the durability and shared-observation requirements ou
 
 - [Local Execution Shared Control Plane](./002-local-execution-shared-control-plane.md)
 - [SQLite Local State And Postgres Control Plane](./004-sqlite-local-state-and-postgres-control-plane.md)
-
-## Decision Log
-
-| Date       | Event        | Notes                                                           |
-| ---------- | ------------ | --------------------------------------------------------------- |
-| 2026-04-14 | Proposed     | Initial draft                                                   |
-| 2026-04-14 | Re-baselined | Reviewer assignment and acceptance validation remain incomplete |
-| 2026-04-15 | Accepted     | ADR accepted                                                    |

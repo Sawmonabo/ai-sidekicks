@@ -3,16 +3,16 @@
 // Hoisted on second use, per `apps/desktop/AGENTS.md`. Two suites drive a Start press
 // through the whole destination — what a SETTLED create does with the session it made,
 // and how many creates a burst of presses may put — and both need the same two things:
-// a `window.sidekicks` the probe can call, and a click on the one control that mounts
+// a `window.desktopBridge` the probe can call, and a click on the one control that mounts
 // it. A second copy of either would let the two disagree about what a press is.
 //
-// `window.sidekicks` AND NOT THE CONSOLE'S OWN BRIDGE, deliberately: the probe is a
+// `window.desktopBridge` AND NOT THE CONSOLE'S OWN BRIDGE, deliberately: the probe is a
 // pre-console component that reads the preload directly, which is the whole reason
 // the console guards its mount on the bridge SOURCE rather than handing it one.
 
 import { act } from "@testing-library/react";
 
-import type { SidekicksBridge } from "@ai-sidekicks/contracts";
+import type { DesktopBridge } from "@ai-sidekicks/contracts";
 
 /** The session the daemon mints for these suites. */
 export const CREATED_SESSION_ID = "7f3c1a2b-4d5e-4f60-8a71-9c2d3e4f5061";
@@ -21,14 +21,14 @@ export const CREATED_SESSION_ID = "7f3c1a2b-4d5e-4f60-8a71-9c2d3e4f5061";
 export function installProbeBridge(
   call: (method: string, params: unknown) => Promise<unknown>,
 ): void {
-  (window as unknown as { sidekicks: SidekicksBridge }).sidekicks = {
+  (window as unknown as { desktopBridge: DesktopBridge }).desktopBridge = {
     daemon: { call },
-  } as unknown as SidekicksBridge;
+  } as unknown as DesktopBridge;
 }
 
 /** Take the installed bridge away again, so no case inherits another's. */
 export function uninstallProbeBridge(): void {
-  delete (window as unknown as { sidekicks?: SidekicksBridge }).sidekicks;
+  delete (window as unknown as { desktopBridge?: DesktopBridge }).desktopBridge;
 }
 
 /** Press Start, the way a person does. */

@@ -2,7 +2,7 @@
 // terminal namespace and its write lease, and the dev-server probe.
 //
 // The auxiliary-window operations that used to sit here are gone from the ledger,
-// which is what a wire landing looks like: `SidekicksBridge.window` is registered
+// which is what a wire landing looks like: `DesktopBridge.window` is registered
 // and `src/main/auxiliary-window-ipc.ts` serves it, so they are reached through
 // `bridge/auxiliary-window-port.ts` and no longer through anything that refuses.
 //

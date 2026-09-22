@@ -9,7 +9,7 @@
 // there is no window in which it could reach past them.
 //
 // The elements are inspected rather than rendered, and that is the point rather than
-// a shortcut. Two of the components read `window.sidekicks` on mount, so MOUNTING
+// a shortcut. Two of the components read `window.desktopBridge` on mount, so MOUNTING
 // them here would assert something about happy-dom's missing preload instead of
 // about the wiring — and the wiring is the whole claim: which component, and which
 // session id it is handed. A React element carries both before anything renders it.

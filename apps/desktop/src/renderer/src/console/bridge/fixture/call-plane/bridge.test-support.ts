@@ -133,7 +133,7 @@ export function subscribeThroughBridge<Delivered = EventEnvelope>(
   eventName: string,
 ): readonly Delivered[] {
   const received: Delivered[] = [];
-  fixture.bridge.sidekicks.daemon.subscribe(eventName as DaemonEvent, (payload: unknown) => {
+  fixture.bridge.desktopBridge.daemon.subscribe(eventName as DaemonEvent, (payload: unknown) => {
     received.push(payload as Delivered);
   });
   return received;
@@ -151,7 +151,7 @@ export function callBridge(
   method: string,
   params?: unknown,
 ): Promise<unknown> {
-  return bridge.sidekicks.daemon.call(method as DaemonMethod, params);
+  return bridge.desktopBridge.daemon.call(method as DaemonMethod, params);
 }
 
 export function callThroughBridge(fixture: FixtureUnderTest, method: string): Promise<unknown> {
@@ -163,7 +163,7 @@ export function callThroughBridge(fixture: FixtureUnderTest, method: string): Pr
  *
  * A spread over a REAL bridge, which is the console's established shape for driving
  * one namespace member (`palette/commands/bridge-commands.test.tsx`). That the rest is real is
- * the point: a surface reaches the wire through `bridge.sidekicks.daemon.call` and
+ * the point: a surface reaches the wire through `bridge.desktopBridge.daemon.call` and
  * nothing else, so a case passing against a hand-built object would not have proved
  * it reached a bridge at all.
  *
@@ -185,7 +185,7 @@ export function withDaemonCall(
   const calls: RecordedDaemonCall[] = [];
   // Bound before the spread below, so the pass-through reaches the bridge this helper
   // WRAPPED rather than the arm it is building — which would call itself forever.
-  const wrappedCall = bridge.sidekicks.daemon.call.bind(bridge.sidekicks.daemon) as (
+  const wrappedCall = bridge.desktopBridge.daemon.call.bind(bridge.desktopBridge.daemon) as (
     method: string,
     params: unknown,
   ) => Promise<unknown>;
@@ -193,15 +193,15 @@ export function withDaemonCall(
     calls,
     bridge: {
       ...bridge,
-      sidekicks: {
-        ...bridge.sidekicks,
+      desktopBridge: {
+        ...bridge.desktopBridge,
         daemon: {
-          ...bridge.sidekicks.daemon,
+          ...bridge.desktopBridge.daemon,
           call: (async (method: string, params: unknown): Promise<unknown> => {
             const recorded: RecordedDaemonCall = { method, params };
             calls.push(recorded);
             return answer(recorded, async () => wrappedCall(method, params));
-          }) as ConsoleBridge["sidekicks"]["daemon"]["call"],
+          }) as ConsoleBridge["desktopBridge"]["daemon"]["call"],
         },
       },
     },
@@ -228,7 +228,7 @@ export function withDaemonCall(
  * reporting its own mistake as the surface's correct behaviour.
  */
 export function withCapturedStream(bridge: ConsoleBridge, streamName: string): StreamUnderTest {
-  const underlying = bridge.sidekicks.daemon.subscribe as (
+  const underlying = bridge.desktopBridge.daemon.subscribe as (
     name: string,
     sink: (payload: unknown) => void,
   ) => () => void;
@@ -242,10 +242,10 @@ export function withCapturedStream(bridge: ConsoleBridge, streamName: string): S
     },
     bridge: {
       ...bridge,
-      sidekicks: {
-        ...bridge.sidekicks,
+      desktopBridge: {
+        ...bridge.desktopBridge,
         daemon: {
-          ...bridge.sidekicks.daemon,
+          ...bridge.desktopBridge.daemon,
           subscribe: ((name: string, sink: (payload: unknown) => void) => {
             if (name !== streamName) {
               return underlying(name, sink);
@@ -254,7 +254,7 @@ export function withCapturedStream(bridge: ConsoleBridge, streamName: string): S
             return () => {
               capturedSink = undefined;
             };
-          }) as ConsoleBridge["sidekicks"]["daemon"]["subscribe"],
+          }) as ConsoleBridge["desktopBridge"]["daemon"]["subscribe"],
         },
       },
     },
@@ -280,20 +280,19 @@ export function withDaemonSubscribe(
 ): ConsoleBridge {
   // Bound before the spread, so the pass-through reaches the bridge this helper
   // WRAPPED rather than the arm it is building — which would call itself forever.
-  const wrappedSubscribe = bridge.sidekicks.daemon.subscribe.bind(bridge.sidekicks.daemon) as (
-    event: string,
-    handler: (payload: unknown) => void,
-  ) => Unsubscribe;
+  const wrappedSubscribe = bridge.desktopBridge.daemon.subscribe.bind(
+    bridge.desktopBridge.daemon,
+  ) as (event: string, handler: (payload: unknown) => void) => Unsubscribe;
   return {
     ...bridge,
-    sidekicks: {
-      ...bridge.sidekicks,
+    desktopBridge: {
+      ...bridge.desktopBridge,
       daemon: {
-        ...bridge.sidekicks.daemon,
+        ...bridge.desktopBridge.daemon,
         subscribe: ((event: string, handler: (payload: unknown) => void): Unsubscribe =>
           open(() =>
             wrappedSubscribe(event, handler),
-          )) as ConsoleBridge["sidekicks"]["daemon"]["subscribe"],
+          )) as ConsoleBridge["desktopBridge"]["daemon"]["subscribe"],
       },
     },
   };
@@ -364,7 +363,7 @@ export function bridgeAnswering(
  * `Partial<GrowthPort>` rather than a per-operation parameter: a caller replaces the
  * operations its surface reads and inherits the fixture's answer for every other one,
  * and the compiler holds each replacement to that operation's own request and value
- * types. Every other namespace — `sidekicks`, `growthServedOperations`, the scenario
+ * types. Every other namespace — `desktopBridge`, `growthServedOperations`, the scenario
  * engine — is the fixture's untouched, so a surface that starts reading one finds the
  * shipped answer rather than a hole.
  *

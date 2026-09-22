@@ -11,7 +11,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { SidekicksBridgeProvider, createFixtureBridge } from "../../../bridge/index.js";
+import { DesktopBridgeProvider, createFixtureBridge } from "../../../bridge/index.js";
 import { SETTINGS_SCENARIO } from "../../../bridge/scenario/settings/settings.js";
 import { LiveAnnouncerProvider } from "../../../primitives/index.js";
 import { McpServersPage, registerMcpServersPage } from "./McpServersPage.js";
@@ -34,11 +34,11 @@ import { SettingsPageRegistry } from "../../settings-page-registry.js";
 function renderPage(): HTMLElement {
   const bridge = createFixtureBridge({ scenario: SETTINGS_SCENARIO });
   const { container } = render(
-    <SidekicksBridgeProvider bridge={bridge}>
+    <DesktopBridgeProvider bridge={bridge}>
       <LiveAnnouncerProvider>
         <McpServersPage context={settingsPageContextWith(bridge, SETTINGS_SCENARIO.sessionId)} />
       </LiveAnnouncerProvider>
-    </SidekicksBridgeProvider>,
+    </DesktopBridgeProvider>,
   );
   return container;
 }

@@ -49,7 +49,7 @@ function bridgeAnswering(options: {
   const calls: { method: string; request: unknown }[] = [];
   const bridge = {
     source: "fixture",
-    sidekicks: {
+    desktopBridge: {
       daemon: {
         call: async (method: string, request: unknown): Promise<unknown> => {
           calls.push({ method, request });
@@ -140,7 +140,7 @@ describe("mount inventory read", () => {
     const clock = new ManualClock();
     const bridge = {
       source: "fixture",
-      sidekicks: {
+      desktopBridge: {
         daemon: {
           call: async (): Promise<unknown> => {
             throw new Error("transport closed");

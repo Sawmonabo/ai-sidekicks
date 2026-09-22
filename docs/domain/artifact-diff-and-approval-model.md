@@ -36,7 +36,7 @@ This model defines how runs publish durable outputs and how gated decisions are 
 
 - `Run` produces artifacts and may request approvals.
 - `RepoMount`, `Workspace`, and `Worktree` provide the filesystem or git states that diff artifacts compare.
-- Trust policy determines when an approval may be resolved. An approval is the user deciding what their sidekicks are allowed to do, so the session's owning user is the resolver — reachable from any of their linked devices.
+- Trust policy determines when an approval may be resolved. An approval is the user deciding what their agents are allowed to do, so the session's owning user is the resolver — reachable from any of their linked devices.
 - `QueueItem` and `Intervention` may be blocked on approval before they take effect.
 
 ## State Model

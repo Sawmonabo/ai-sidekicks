@@ -27,7 +27,7 @@ export type GrowthOperationKind = "method" | "subscription";
  * The non-callable prerequisites a row also needs.
  *
  * `bridge-member` is the one that is not a wire shape: a reading the SHELL composes
- * and hands the renderer over `SidekicksBridge`, which no port method can stand
+ * and hands the renderer over `DesktopBridge`, which no port method can stand
  * behind because the console resolves it off the bridge it already holds rather than
  * calling for it. Filing one as a `type-member` would say it is a field on a reply
  * some daemon sends, which is the opposite of where its composition lives.
@@ -242,7 +242,7 @@ export type GrowthOperationId =
   | "sessionGoalUpdate"
   | "sessionGoalClear"
   // agent plane — the four `agent.*` verbs the console calls, in the order a surface
-  // meets them: read the roster, put a sidekick in, move its provider axes, take it
+  // meets them: read the roster, put an agent in, move its provider axes, take it
   // out. Each id is its wire method's tail with the root folded in, which
   // `growth-operations/index.test.ts` holds every entry to.
   | "agentList"
@@ -252,13 +252,13 @@ export type GrowthOperationId =
   // orchestration — one parent run's child links and the fold of the creates that
   // were refused, which is the only record refused work leaves anywhere.
   | "orchestrationChildRunLinkRead"
-  // sidekick — the registry's own order; each id is its wire method's tail with the
+  // agent definition — the registry's own order; each id is its wire method's tail with the
   // root folded in, which `growth-operations/index.test.ts` holds every entry to.
-  | "sidekickDefinitionList"
-  | "sidekickDefinitionCreate"
-  | "sidekickDefinitionUpdate"
-  | "sidekickDefinitionDelete"
-  | "sidekickPeerInvocationSet"
+  | "agentDefinitionList"
+  | "agentDefinitionCreate"
+  | "agentDefinitionUpdate"
+  | "agentDefinitionDelete"
+  | "agentPeerInvocationSet"
   // the hydrated event read, and the session cost plane's two reads
   | "hydratedEventRead"
   | "orchestrationCostReceiptRead"

@@ -19,7 +19,7 @@ import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { AppearancePage, registerAppearancePage } from "./AppearancePage.js";
-import { SidekicksBridgeProvider, createFixtureBridge } from "../../../bridge/index.js";
+import { DesktopBridgeProvider, createFixtureBridge } from "../../../bridge/index.js";
 import { unscriptedScenario } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { consoleCommands } from "../../../palette/index.js";
 import { SCHEME_ATTRIBUTE } from "../../../tokens/index.js";
@@ -52,9 +52,9 @@ async function renderAppearancePage(
   }
   const context = settingsPageContextWith(bridge, undefined, { uiStateStore });
   const { container } = render(
-    <SidekicksBridgeProvider bridge={bridge}>
+    <DesktopBridgeProvider bridge={bridge}>
       <AppearancePage context={context} />
-    </SidekicksBridgeProvider>,
+    </DesktopBridgeProvider>,
   );
   await act(async () => {
     engine.advance(PAST_REFRESH_DEBOUNCE_MS);

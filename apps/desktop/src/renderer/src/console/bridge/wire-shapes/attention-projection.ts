@@ -10,7 +10,7 @@
 //
 // WHY THE CONSOLE DECLARES IT AT ALL. It is registered in no code package: there is
 // no `packages/contracts/src/attention/`, no `AttentionItem` export, and no
-// `SidekicksBridge` namespace that names one. A surface built against a shape that
+// `DesktopBridge` namespace that names one. A surface built against a shape that
 // exists nowhere would have to invent it inside a view family, which is exactly what
 // the growth slate exists to prevent — so the shape is declared here, on the
 // substrate, behind the `attention-plane` slate row, and every call to it goes

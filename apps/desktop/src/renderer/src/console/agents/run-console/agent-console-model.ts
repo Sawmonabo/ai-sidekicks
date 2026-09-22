@@ -50,11 +50,11 @@ import {
   createAgentRoster,
   createChildRunLinkage,
   createDriverCatalog,
-  createSidekickDefinitions,
+  createAgentDefinitions,
   type AgentRosterRead,
   type ChildRunLinkageRead,
   type DriverCatalogRead,
-  type SidekickDefinitionRead,
+  type AgentDefinitionRead,
 } from "./agent-console-reads.js";
 import type { AttachRequest } from "../attach/attach-readiness.js";
 
@@ -99,7 +99,7 @@ export class AgentConsoleModels {
   public readonly subject: SessionSubject;
   public readonly roster: AgentRosterRead;
   public readonly driverCatalog: DriverCatalogRead;
-  public readonly definitions: SidekickDefinitionRead;
+  public readonly definitions: AgentDefinitionRead;
 
   readonly #clock: ConsoleClock;
   #linkage: HeldChildRunLinkage | undefined;
@@ -116,7 +116,7 @@ export class AgentConsoleModels {
     this.#clock = consoleClockFor(bridge);
     this.roster = createAgentRoster(bridge, sessionStore, this.#clock);
     this.driverCatalog = createDriverCatalog(bridge, this.#clock);
-    this.definitions = createSidekickDefinitions(bridge, this.#clock);
+    this.definitions = createAgentDefinitions(bridge, this.#clock);
     this.roster.start();
     this.driverCatalog.start();
     this.definitions.start();
@@ -134,7 +134,7 @@ export class AgentConsoleModels {
   }
 
   /**
-   * Attach a sidekick. Zero-residue on refusal: no agent row, no partial
+   * Attach an agent. Zero-residue on refusal: no agent row, no partial
    * configuration, no run — which is the daemon's guarantee and the reason this
    * method neither pre-creates anything nor cleans anything up.
    */
@@ -172,7 +172,7 @@ export class AgentConsoleModels {
    */
   public async setPeerInvocation(enabled: boolean): Promise<PeerInvocationReading> {
     return servedGrowthValueOrRaise(
-      await this.subject.bridge.growth.sidekickPeerInvocationSet({
+      await this.subject.bridge.growth.agentPeerInvocationSet({
         sessionId: this.sessionId,
         enabled,
       }),

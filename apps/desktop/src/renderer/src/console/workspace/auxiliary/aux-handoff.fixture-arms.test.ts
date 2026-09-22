@@ -17,11 +17,11 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { SidekicksBridge } from "@ai-sidekicks/contracts";
+import type { DesktopBridge } from "@ai-sidekicks/contracts";
 
 import { AUXILIARY_WINDOW_CHANNELS } from "@ai-sidekicks/contracts";
 
-import { SIDEKICKS_BRIDGE_NAMESPACES } from "../../bridge/bridge-shape.js";
+import { DESKTOP_BRIDGE_NAMESPACES } from "../../bridge/bridge-shape.js";
 import { createFixtureBridge } from "../../bridge/index.js";
 import { FLAGSHIP_SCENARIO } from "../../bridge/scenario/flagship/flagship.js";
 import { AuxiliaryHandoff } from "./aux-handoff.js";
@@ -53,15 +53,15 @@ interface ShellCallLog {
  * hand-written list here went stale the moment the contract grew a namespace, and
  * the probe then read these cases' shell as absent.
  */
-function installBridgeWith(namespace: SidekicksBridge["window"]): void {
-  const bridge = Object.fromEntries(SIDEKICKS_BRIDGE_NAMESPACES.map((name) => [name, {}]));
-  (globalThis as { sidekicks?: unknown }).sidekicks = { ...bridge, window: namespace };
+function installBridgeWith(namespace: DesktopBridge["window"]): void {
+  const bridge = Object.fromEntries(DESKTOP_BRIDGE_NAMESPACES.map((name) => [name, {}]));
+  (globalThis as { desktopBridge?: unknown }).desktopBridge = { ...bridge, window: namespace };
 }
 
 /** Install a `window` namespace the way a preload does, and record what reaches it. */
 function installShell(): ShellCallLog {
   const log: ShellCallLog = { detached: [], focused: [] };
-  const namespace: SidekicksBridge["window"] = {
+  const namespace: DesktopBridge["window"] = {
     detachPane: async (request) => {
       log.detached.push({ ...request });
       return { windowId: "shell-window-1" };
@@ -78,7 +78,7 @@ function installShell(): ShellCallLog {
 }
 
 afterEach(() => {
-  Reflect.deleteProperty(globalThis, "sidekicks");
+  Reflect.deleteProperty(globalThis, "desktopBridge");
 });
 
 /**
@@ -94,7 +94,7 @@ function installShellWithNoHandlers(): void {
   const rejectUnhandled = async (): Promise<never> => {
     throw new Error(`No handler registered for '${AUXILIARY_WINDOW_CHANNELS.detachPane}'`);
   };
-  const namespace: SidekicksBridge["window"] = {
+  const namespace: DesktopBridge["window"] = {
     detachPane: rejectUnhandled,
     focusAuxiliary: rejectUnhandled,
     closeAuxiliary: rejectUnhandled,

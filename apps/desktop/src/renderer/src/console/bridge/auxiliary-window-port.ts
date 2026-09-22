@@ -2,12 +2,12 @@
 //
 // WHY IT IS BESIDE THE GROWTH PORT RATHER THAN INSIDE IT, which is the same reading
 // `console-bridge.ts` records for the runtime-node roster: the port refuses what the
-// corpus has not registered, and this wire IS registered — `SidekicksBridge.window` is
+// corpus has not registered, and this wire IS registered — `DesktopBridge.window` is
 // on the preload contract and `src/main/auxiliary-window-ipc.ts` serves it. Putting a
 // registered wire on the growth port would owe a slate row for a contract that already
 // exists, and would keep the live bridge refusing an operation the shell answers.
 //
-// WHY IT IS NOT REACHED AS `bridge.sidekicks.window` DIRECTLY. Two bridges answer this
+// WHY IT IS NOT REACHED AS `bridge.desktopBridge.window` DIRECTLY. Two bridges answer this
 // plane and they answer it differently — one over IPC to a shell, one out of a model
 // with no shell behind it — and neither answer may REJECT: every caller dispatches
 // from an effect or an event handler, where a rejection reaches nobody and leaves the
@@ -32,7 +32,7 @@ import type {
   AuxiliaryWindowHandle,
   AuxiliaryWindowPaneError,
   AuxiliaryWindowPaneReturn,
-  SidekicksBridge,
+  DesktopBridge,
 } from "@ai-sidekicks/contracts";
 
 import { lossyStringify, refuse, type NarrowedRefusal } from "../core/index.js";
@@ -103,25 +103,25 @@ export function refuseWithoutShell(): AuxiliaryWindowOutcome<never> {
  * The shell-backed plane, over the preload bridge's own namespace.
  *
  * TOTAL OVER FAILURE, which is the whole reason this wrapper exists rather than the
- * handoff calling `sidekicks.window` itself. Three things can go wrong on that
+ * handoff calling `desktopBridge.window` itself. Three things can go wrong on that
  * boundary and all three arrive as a rejection or a synchronous throw: the main
  * handler refused the descriptor, the handle names a window the shell is no longer
  * holding, or the preload never finished installing and the member is still the
  * contract's throwing stub. Each becomes `shell-refused` carrying what was said.
  */
-export function createShellAuxiliaryWindowPort(sidekicks: SidekicksBridge): AuxiliaryWindowPort {
+export function createShellAuxiliaryWindowPort(desktopBridge: DesktopBridge): AuxiliaryWindowPort {
   const paneErrors = new ShellSignalBridge<AuxiliaryWindowPaneError>((handler) =>
-    sidekicks.window.subscribePaneErrors(handler),
+    desktopBridge.window.subscribePaneErrors(handler),
   );
   const paneReturns = new ShellSignalBridge<AuxiliaryWindowPaneReturn>((handler) =>
-    sidekicks.window.subscribePaneReturns(handler),
+    desktopBridge.window.subscribePaneReturns(handler),
   );
   return {
-    detachPane: async (request) => settledShellCall(() => sidekicks.window.detachPane(request)),
+    detachPane: async (request) => settledShellCall(() => desktopBridge.window.detachPane(request)),
     focusAuxiliary: async (request) =>
-      settledShellCall(() => sidekicks.window.focusAuxiliary(request)),
+      settledShellCall(() => desktopBridge.window.focusAuxiliary(request)),
     closeAuxiliary: async (request) =>
-      settledShellCall(() => sidekicks.window.closeAuxiliary(request)),
+      settledShellCall(() => desktopBridge.window.closeAuxiliary(request)),
     subscribePaneErrors: async () => paneErrors.open(),
     subscribePaneReturns: async () => paneReturns.open(),
   };

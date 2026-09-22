@@ -9,7 +9,7 @@ import { crossMacrotaskBoundary } from "../../../../core/macrotask-boundary.test
 import { act, render } from "@testing-library/react";
 import type { ReactNode } from "react";
 
-import type { SidekicksBridge, UpdateState, Unsubscribe } from "@ai-sidekicks/contracts";
+import type { DesktopBridge, UpdateState, Unsubscribe } from "@ai-sidekicks/contracts";
 
 import { ManualClock } from "../../../../core/index.js";
 import type { SessionStore } from "../../../../store/index.js";
@@ -42,14 +42,14 @@ export const REFUSING_CARRIER: Partial<GrowthPort> = {
  * The shipped fixture bridge with its updater namespace replaced.
  *
  * The updater is the one seam these cases drive, and it is NOT a growth operation —
- * it is a registered `SidekicksBridge` namespace, so it is replaced here rather than
+ * it is a registered `DesktopBridge` namespace, so it is replaced here rather than
  * through the growth overrides. Everything else is the fixture's, which is what makes
  * the type annotation load-bearing: an arm added to `UpdateState` upstream fails this
  * file to compile instead of leaving a case asserting against a shape nobody serves.
  */
-export function bridgeWithUpdater(update: SidekicksBridge["update"]): ConsoleBridge {
+export function bridgeWithUpdater(update: DesktopBridge["update"]): ConsoleBridge {
   const fixture = fixtureBridgeWithGrowth(SCENARIO, REFUSING_CARRIER);
-  return { ...fixture, sidekicks: { ...fixture.sidekicks, update } };
+  return { ...fixture, desktopBridge: { ...fixture.desktopBridge, update } };
 }
 
 export function bridgeReporting(

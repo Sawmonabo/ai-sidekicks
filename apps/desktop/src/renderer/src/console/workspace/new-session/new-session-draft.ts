@@ -35,7 +35,7 @@
 // would reach `session.create` again: a double-click would mint two daemon sessions,
 // and a retry after the partial would mint a third, none of them the one the person is
 // looking at. The same argument applies one leg down, which is why the memory is
-// per-leg rather than one flag — a retry that re-attached a sidekick already on the
+// per-leg rather than one flag — a retry that re-attached an agent already on the
 // session would put two agents there for one the person chose once, and one that
 // re-queued the turn would send their words twice. So this class coalesces rather than
 // refuses, on the deck writer's idiom: a send while one is in flight yields THAT send,
@@ -57,7 +57,7 @@
 // refuse the leg by name. It is also the ONLY axis the shipped control offers, so a
 // draft that reaches a send from the screen always has one. A person composing a session says what it is for in the same
 // act, and a first turn that is still blank is the one refusal here that is a CHOICE
-// rather than a fact about the build: the session and its sidekicks exist, and nothing
+// rather than a fact about the build: the session and its agents exist, and nothing
 // has been said yet.
 //
 // AUTO-PIN IS STILL ABSENT, and now for a reason that can be discharged rather than a
@@ -87,7 +87,7 @@ export type DraftPostureMode = ExecutionPosture["mode"];
 
 /** One agent the draft will attach, by definition, with the account that pays. */
 export interface DraftAgentSelection {
-  /** The sidekick definition's daemon-minted opaque id — never its mutable name. */
+  /** The agent definition's daemon-minted opaque id — never its mutable name. */
   readonly definitionId: string;
   /** The account this agent's spend lands on, where the person picked one. */
   readonly providerAccountId: string | undefined;
@@ -278,7 +278,7 @@ export class NewSessionDraft {
         // An empty draft reaches no wire, so there is no composition this settlement
         // carried and none for a caller to measure itself against.
         sentRevision: undefined,
-        // NAMED FOR THE CONTROLS THAT EXIST. The sentence used to offer a sidekick, a
+        // NAMED FOR THE CONTROLS THAT EXIST. The sentence used to offer an agent, a
         // repository and a posture as alternatives, and a person reading it could
         // reach none of the three: the shipped control offers the first message and
         // nothing else. The lane that makes another axis pickable widens this

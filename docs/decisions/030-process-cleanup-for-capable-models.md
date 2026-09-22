@@ -125,10 +125,3 @@ If a class of defect that a deleted check used to catch recurs twice, add a stan
 ### Related ADRs
 
 - [ADR-023 — V1 CI/CD and release automation](./023-v1-ci-cd-and-release-automation.md) — owns the branch model this decision amends by removing protection from `develop`.
-
-## Decision Log
-
-| Date       | Event    | Notes                                                       |
-| ---------- | -------- | ----------------------------------------------------------- |
-| 2026-09-14 | Proposed | Drafted from the measured harness cost                      |
-| 2026-09-14 | Accepted | Two-way door; every deletion is one revert from restoration |

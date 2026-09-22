@@ -38,10 +38,10 @@ function bridgeRefusingClipboard(): ConsoleBridge {
   const { bridge } = createFixture();
   return {
     ...bridge,
-    sidekicks: {
-      ...bridge.sidekicks,
+    desktopBridge: {
+      ...bridge.desktopBridge,
       native: {
-        ...bridge.sidekicks.native,
+        ...bridge.desktopBridge.native,
         copyToClipboard: async (): Promise<void> => {
           throw new Error("the clipboard is unavailable");
         },

@@ -1,6 +1,6 @@
 // What a fixture answers one request/response call with.
 //
-// The other door of the two a `SidekicksBridge` has, and its own module for the reason
+// The other door of the two a `DesktopBridge` has, and its own module for the reason
 // the subscription door is: a call is settled by `scripted-reply.ts`, held to
 // `daemon-reply-registry.ts`, and turned into the one thing a bridge method may do —
 // resolve or reject. The bridge beside this file composes both doors and is read by
@@ -16,7 +16,7 @@ import { settleScriptedReply } from "../../scenario/runtime/index.js";
  * Answer one request/response call from the scenario, or reject by name.
  *
  * The classification is `scripted-reply.ts`'s — this is the arm that turns each
- * settlement into what a `SidekicksBridge` method may do, which is resolve or reject
+ * settlement into what a `DesktopBridge` method may do, which is resolve or reject
  * and nothing else. Three of the four settlements are rejections here, and each
  * rejects with a different value on purpose: an unscripted call is a fixture
  * AUTHORING error, a reply the clock never released is a fixture failure carrying the

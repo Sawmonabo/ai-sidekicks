@@ -48,8 +48,8 @@ describe("peer invocation — the tools are named regardless of the state", () =
         <PeerInvocation enabled={enabled} onSetEnabled={() => {}} onReRead={() => {}} />,
       );
       const tools = container.querySelector(".meridian-peer__tools")?.textContent ?? "";
-      expect(tools).toContain("ask_sidekick");
-      expect(tools).toContain("delegate_to_sidekick");
+      expect(tools).toContain("ask_agent");
+      expect(tools).toContain("delegate_to_agent");
       expect(tools).toContain("spawn");
       expect(tools).toContain("delegate");
     }

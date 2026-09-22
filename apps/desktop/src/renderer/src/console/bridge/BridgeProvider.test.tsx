@@ -23,7 +23,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { type ConsoleClock } from "../core/index.js";
 import {
-  SidekicksBridgeProvider,
+  DesktopBridgeProvider,
   useBridgeResolution,
   useConsoleBridge,
   useConsoleClock,
@@ -73,20 +73,20 @@ afterEach(() => {
   delete (globalThis as Record<string, unknown>)[SCENARIO_FIXTURE_GLOBAL];
 });
 
-describe("SidekicksBridgeProvider — the resolved bridge's lifetime", () => {
+describe("DesktopBridgeProvider — the resolved bridge's lifetime", () => {
   it("holds one engine across re-renders that change nothing it resolves on", () => {
     const observed: ConsoleBridge[] = [];
     const { rerender } = render(
-      <SidekicksBridgeProvider scenarioId={FLAGSHIP_SCENARIO_ID}>
+      <DesktopBridgeProvider scenarioId={FLAGSHIP_SCENARIO_ID}>
         <BridgeProbe onObserve={(bridge) => observed.push(bridge)} />
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
     const first = lastBridge(observed);
 
     rerender(
-      <SidekicksBridgeProvider scenarioId={FLAGSHIP_SCENARIO_ID}>
+      <DesktopBridgeProvider scenarioId={FLAGSHIP_SCENARIO_ID}>
         <BridgeProbe onObserve={(bridge) => observed.push(bridge)} />
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
 
     expect(observed.length).toBeGreaterThan(1);
@@ -97,16 +97,16 @@ describe("SidekicksBridgeProvider — the resolved bridge's lifetime", () => {
   it("replaces the engine when the scenario changes, and disposes the one it replaced", () => {
     const observed: ConsoleBridge[] = [];
     const { rerender } = render(
-      <SidekicksBridgeProvider scenarioId={FLAGSHIP_SCENARIO_ID}>
+      <DesktopBridgeProvider scenarioId={FLAGSHIP_SCENARIO_ID}>
         <BridgeProbe onObserve={(bridge) => observed.push(bridge)} />
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
     const flagship = engineOf(lastBridge(observed));
 
     rerender(
-      <SidekicksBridgeProvider scenarioId={FIRST_RUN_SCENARIO_ID}>
+      <DesktopBridgeProvider scenarioId={FIRST_RUN_SCENARIO_ID}>
         <BridgeProbe onObserve={(bridge) => observed.push(bridge)} />
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
     const firstRun = engineOf(lastBridge(observed));
 
@@ -124,9 +124,9 @@ describe("SidekicksBridgeProvider — the resolved bridge's lifetime", () => {
   it("disposes the engine it built when the console unmounts", () => {
     const observed: ConsoleBridge[] = [];
     const { unmount } = render(
-      <SidekicksBridgeProvider scenarioId={FLAGSHIP_SCENARIO_ID}>
+      <DesktopBridgeProvider scenarioId={FLAGSHIP_SCENARIO_ID}>
         <BridgeProbe onObserve={(bridge) => observed.push(bridge)} />
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
     const engine = engineOf(lastBridge(observed));
     expect(engine.isDisposed).toBe(false);
@@ -144,9 +144,9 @@ describe("SidekicksBridgeProvider — the resolved bridge's lifetime", () => {
     const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
     const observed: ConsoleBridge[] = [];
     const { unmount } = render(
-      <SidekicksBridgeProvider bridge={bridge}>
+      <DesktopBridgeProvider bridge={bridge}>
         <BridgeProbe onObserve={(seen) => observed.push(seen)} />
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
 
     expect(lastBridge(observed)).toBe(bridge);
@@ -163,9 +163,9 @@ describe("SidekicksBridgeProvider — the resolved bridge's lifetime", () => {
     const observed: ConsoleBridge[] = [];
     const tree: ReactNode = (
       <StrictMode>
-        <SidekicksBridgeProvider scenarioId={FLAGSHIP_SCENARIO_ID}>
+        <DesktopBridgeProvider scenarioId={FLAGSHIP_SCENARIO_ID}>
           <BridgeProbe onObserve={(bridge) => observed.push(bridge)} />
-        </SidekicksBridgeProvider>
+        </DesktopBridgeProvider>
       </StrictMode>
     );
 
@@ -221,17 +221,17 @@ describe("useConsoleClock — the clock is a fact about the bridge", () => {
     const bridgeB = firstRunBridge();
     const observed: ConsoleClock[] = [];
     const { rerender } = render(
-      <SidekicksBridgeProvider bridge={bridgeA}>
+      <DesktopBridgeProvider bridge={bridgeA}>
         <ClockProbe onObserve={(clock) => observed.push(clock)} />
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
     expect(lastClock(observed).now()).toBe(engineOf(bridgeA).clock.now());
 
     engineOf(bridgeB).tick();
     rerender(
-      <SidekicksBridgeProvider bridge={bridgeB}>
+      <DesktopBridgeProvider bridge={bridgeB}>
         <ClockProbe onObserve={(clock) => observed.push(clock)} />
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
 
     expect(lastClock(observed).now()).toBe(engineOf(bridgeB).clock.now());
@@ -248,14 +248,14 @@ describe("useConsoleClock — the clock is a fact about the bridge", () => {
     const bridgeB = firstRunBridge();
     const observed: ConsoleClock[] = [];
     const { rerender } = render(
-      <SidekicksBridgeProvider bridge={bridgeA}>
+      <DesktopBridgeProvider bridge={bridgeA}>
         <MountPinnedClockProbe onObserve={(clock) => observed.push(clock)} />
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
     rerender(
-      <SidekicksBridgeProvider bridge={bridgeB}>
+      <DesktopBridgeProvider bridge={bridgeB}>
         <MountPinnedClockProbe onObserve={(clock) => observed.push(clock)} />
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
 
     expect(lastClock(observed)).toBe(engineOf(bridgeA).clock);
@@ -272,14 +272,14 @@ describe("useConsoleClock — the clock is a fact about the bridge", () => {
 
     const observed: ConsoleClock[] = [];
     const { rerender } = render(
-      <SidekicksBridgeProvider bridge={bridgeA}>
+      <DesktopBridgeProvider bridge={bridgeA}>
         <ClockProbe onObserve={(clock) => observed.push(clock)} />
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
     rerender(
-      <SidekicksBridgeProvider bridge={bridgeA}>
+      <DesktopBridgeProvider bridge={bridgeA}>
         <ClockProbe onObserve={(clock) => observed.push(clock)} />
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
     expect(observed.length).toBeGreaterThan(1);
     expect(new Set(observed).size).toBe(1);

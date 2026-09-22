@@ -1,4 +1,4 @@
-// Letting one sidekick reach another — only after a person says so, never invisibly.
+// Letting one agent reach another — only after a person says so, never invisibly.
 //
 // THREE STATES, NOT TWO. The control renders the PROJECTED `peerInvocationEnabled`
 // member on the session read, and that member being ABSENT is its own state: the

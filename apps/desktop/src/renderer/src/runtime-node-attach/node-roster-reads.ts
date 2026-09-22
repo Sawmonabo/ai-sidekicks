@@ -7,7 +7,7 @@
 // this file, and a reader chasing "why does the row not say that" reads the other.
 //
 // THE SEAM IS REQUIRED, AND THAT IS THE POINT. This view used to default to
-// `window.sidekicks.controlPlane.call(…)` and `window.sidekicks.daemon.subscribe(…)`
+// `window.desktopBridge.controlPlane.call(…)` and `window.desktopBridge.daemon.subscribe(…)`
 // with the two wire strings written out here, which made this the SECOND production
 // home for both — the first is `console/bridge/runtime-nodes/runtime-node-roster.ts`, which is
 // where the registered procedure name and the presence event set are declared once
@@ -23,7 +23,7 @@
 // WHY IT IS A SEAM RATHER THAN A DIRECT BRIDGE CALL. A host that resolves its own
 // bridge holds a different object from the installed one and cannot otherwise stand
 // in for it — which is what made this view unreadable in a fixture build. Taking the
-// pair as a prop is also what keeps the console's "no `window.sidekicks` outside the
+// pair as a prop is also what keeps the console's "no `window.desktopBridge` outside the
 // bridge" rule a matter of STRUCTURE rather than of a guard that renders an absence.
 
 import { useCallback, useEffect } from "react";

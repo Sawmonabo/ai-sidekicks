@@ -10,7 +10,7 @@
 import type {
   DaemonEvent,
   DaemonEventPayload,
-  SidekicksBridge,
+  DesktopBridge,
   Unsubscribe,
 } from "@ai-sidekicks/contracts";
 
@@ -67,14 +67,14 @@ export function countedFixtureBridge(sessionId: string): CountedBridge {
     },
   });
   let liveSubscriptionCount = 0;
-  const daemon: SidekicksBridge["daemon"] = {
-    call: fixture.sidekicks.daemon.call,
+  const daemon: DesktopBridge["daemon"] = {
+    call: fixture.desktopBridge.daemon.call,
     subscribe: <EventName extends DaemonEvent>(
       event: EventName,
       handler: (payload: DaemonEventPayload<EventName>) => void,
     ): Unsubscribe => {
       liveSubscriptionCount += 1;
-      const release = fixture.sidekicks.daemon.subscribe(event, handler);
+      const release = fixture.desktopBridge.daemon.subscribe(event, handler);
       return () => {
         liveSubscriptionCount -= 1;
         release();
@@ -82,7 +82,7 @@ export function countedFixtureBridge(sessionId: string): CountedBridge {
     },
   };
   return {
-    bridge: { ...fixture, sidekicks: { ...fixture.sidekicks, daemon } },
+    bridge: { ...fixture, desktopBridge: { ...fixture.desktopBridge, daemon } },
     liveSubscriptionCount: () => liveSubscriptionCount,
   };
 }

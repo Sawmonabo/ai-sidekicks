@@ -1,4 +1,4 @@
-// The configuration a sidekick was attached under, drawn as the card reads it.
+// The configuration an agent was attached under, drawn as the card reads it.
 //
 // Split out of `AgentCard.tsx` because it answers a different question: the card
 // draws an agent's LIVE state — its binding, its run, the axes it is switching — and

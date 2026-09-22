@@ -8,7 +8,7 @@
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { SidekicksBridgeProvider, createFixtureBridge } from "../../../../bridge/index.js";
+import { DesktopBridgeProvider, createFixtureBridge } from "../../../../bridge/index.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../../bridge/scenario/ledger/ledger-quiet.js";
 import { type ConsoleRefusal } from "../../../../core/index.js";
 import { publishConsoleActRefusalSink } from "../../../../palette/index.js";
@@ -87,14 +87,14 @@ describe("the ledger feed — the palette acts on the mounted feed", () => {
       raisedWhileMounted.push(refusal);
     });
     const mounted = render(
-      <SidekicksBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
+      <DesktopBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
         <LedgerFeed
           sessionStore={openSessionStoreWithFeedLog(SHORT_LOG_EVENT_COUNT)}
           paneId={LEDGER_FIXTURE_PANE_ID}
           renderTimelineRow={(mount) => <p>{mount.row.summary}</p>}
           feedLabel="Session timeline"
         />
-      </SidekicksBridgeProvider>,
+      </DesktopBridgeProvider>,
     );
     dispatchConsoleCommand("ledger.find");
     expect(raisedWhileMounted).toStrictEqual([]);

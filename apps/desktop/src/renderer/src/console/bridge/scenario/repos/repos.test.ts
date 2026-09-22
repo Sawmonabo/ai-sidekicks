@@ -315,13 +315,13 @@ describe("the repos scenario — the two entity-scoped reads answer per entity",
     // unreachable from any scenario at all.
     const bridge = createFixtureBridge({ scenario: REPOS_SCENARIO });
 
-    const git = await bridge.sidekicks.daemon.call(MOUNT_READ_CALL, {
+    const git = await bridge.desktopBridge.daemon.call(MOUNT_READ_CALL, {
       repoMountId: GIT_MOUNT_ID,
     });
-    const plain = await bridge.sidekicks.daemon.call(MOUNT_READ_CALL, {
+    const plain = await bridge.desktopBridge.daemon.call(MOUNT_READ_CALL, {
       repoMountId: PLAIN_MOUNT_ID,
     });
-    const drifted = await bridge.sidekicks.daemon.call(MOUNT_READ_CALL, {
+    const drifted = await bridge.desktopBridge.daemon.call(MOUNT_READ_CALL, {
       repoMountId: DRIFTED_MOUNT_ID,
     });
 
@@ -342,7 +342,7 @@ describe("the repos scenario — the two entity-scoped reads answer per entity",
 
     const servedVerdicts = await Promise.all(
       rosterMountIds().map(async (repoMountId) =>
-        healthVerdictOf(await bridge.sidekicks.daemon.call(MOUNT_READ_CALL, { repoMountId })),
+        healthVerdictOf(await bridge.desktopBridge.daemon.call(MOUNT_READ_CALL, { repoMountId })),
       ),
     );
 
@@ -354,10 +354,10 @@ describe("the repos scenario — the two entity-scoped reads answer per entity",
     // four execution modes is a picker drawn against a mount that can host one.
     const bridge = createFixtureBridge({ scenario: REPOS_SCENARIO });
 
-    const gitModes = await bridge.sidekicks.daemon.call(CAPABILITIES_READ_CALL, {
+    const gitModes = await bridge.desktopBridge.daemon.call(CAPABILITIES_READ_CALL, {
       workspaceId: GIT_WORKSPACE_ID,
     });
-    const plainModes = await bridge.sidekicks.daemon.call(CAPABILITIES_READ_CALL, {
+    const plainModes = await bridge.desktopBridge.daemon.call(CAPABILITIES_READ_CALL, {
       workspaceId: PLAIN_WORKSPACE_ID,
     });
 
@@ -387,7 +387,7 @@ describe("the repos scenario — the two entity-scoped reads answer per entity",
     const bridge = createFixtureBridge({ scenario: REPOS_SCENARIO });
 
     await expect(
-      bridge.sidekicks.daemon.call(MOUNT_READ_CALL, {
+      bridge.desktopBridge.daemon.call(MOUNT_READ_CALL, {
         repoMountId: "9f2c4a10-0000-4000-8000-0000000000ff",
       }),
     ).rejects.toThrow();

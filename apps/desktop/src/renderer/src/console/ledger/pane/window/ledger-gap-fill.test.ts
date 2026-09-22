@@ -12,7 +12,7 @@ import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import {
-  SidekicksBridgeProvider,
+  DesktopBridgeProvider,
   createFixtureBridge,
   isUnbuiltWireRefusal,
   type ConsoleBridge,
@@ -53,7 +53,7 @@ function mountFill(
   return renderHook((props: LedgerGapFillInput) => useLedgerGapFill(props), {
     initialProps,
     wrapper: ({ children }: { readonly children?: React.ReactNode }) =>
-      createElement(SidekicksBridgeProvider, { bridge, children }),
+      createElement(DesktopBridgeProvider, { bridge, children }),
   });
 }
 

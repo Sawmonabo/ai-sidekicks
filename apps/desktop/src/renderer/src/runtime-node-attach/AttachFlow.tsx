@@ -79,7 +79,7 @@
 // hands one in. The DEFAULT is the arm this file has always used — the installed
 // preload bridge — so a caller that supplies nothing behaves exactly as before, which
 // is what makes this additive rather than a migration. What it buys is a host that
-// resolves its own transport: under a fixture build `window.sidekicks` is either
+// resolves its own transport: under a fixture build `window.desktopBridge` is either
 // absent, and this view crashes into a surface boundary, or it is the live daemon
 // answering beside fixture data in the same window — so before the seam this flow
 // could not be rendered under any scenario at all. Mirrors `NodeRosterReads` on the
@@ -129,9 +129,9 @@ import { CapabilityDeclaration } from "./CapabilityDeclaration.js";
 // so a deep import from out here reaches around a boundary nothing can see.
 import { useSubjectScopedState } from "../console/store/index.js";
 
-// The `window.sidekicks` ambient type lives in the renderer-wide
-// `sidekicks-bridge.d.ts`, part of the renderer typecheck graph via its
-// `include`, so `window.sidekicks` below is `SidekicksBridge`-typed without an
+// The `window.desktopBridge` ambient type lives in the renderer-wide
+// `desktop-bridge.d.ts`, part of the renderer typecheck graph via its
+// `include`, so `window.desktopBridge` below is `DesktopBridge`-typed without an
 // import here. The bridge exposes exactly six GENERIC capability surfaces
 // (desktop-bridge.ts:265-314) — there is no `runtimeNode` namespace and no
 // per-procedure typing yet, so the registered `runtimenode.attach` name rides

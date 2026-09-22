@@ -2,7 +2,7 @@
 // `agent.*` verbs, the child-run link read, and the per-session peer-invocation
 // grant — declared here because no code package carries them.
 //
-// The agent and sidekick-definition designs register these operations and the
+// The agent and agent-definition designs register these operations and the
 // payload contracts register their payloads;
 // `packages/contracts` carries the agent lifecycle EVENT types and every driver
 // catalog shape, and none of the reply shapes below. A console that declared them
@@ -11,12 +11,12 @@
 // substrate, behind the `agent-snapshot-axes` and `child-run-linkage` slate rows, and
 // every call to them goes through the growth port.
 //
-// This is `sidekick-definition.ts`'s shape next door, for the same reason and with
+// This is `agent-definition.ts`'s shape next door, for the same reason and with
 // the same obligation.
 //
 // DELETION OBLIGATION. When `packages/contracts` registers these types, this module
 // is DELETED and the `growth-signatures/` planes that name these shapes — the agent
-// plane and the sidekick one — import them from the contracts package instead. The
+// plane and the agent-definition one — import them from the contracts package instead. The
 // slate rows leave `growth-slate.ts` and the growth slate in the same
 // PR, and `failure-modes.test.ts` then fails on the port entries that still claim
 // fixture-only.

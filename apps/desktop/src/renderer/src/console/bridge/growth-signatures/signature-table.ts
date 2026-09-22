@@ -24,7 +24,7 @@ import type { PresenceGrowthSignatures } from "./presence.js";
 import type { ProviderAccountGrowthSignatures } from "./provider-accounts.js";
 import type { RunRecordGrowthSignatures } from "./run-records.js";
 import type { SessionGrowthSignatures } from "./sessions.js";
-import type { SidekickGrowthSignatures } from "./sidekicks.js";
+import type { AgentDefinitionGrowthSignatures } from "./agent-definitions.js";
 import type { WorkflowGrowthSignatures } from "./workflows.js";
 
 /**
@@ -47,7 +47,7 @@ export interface GrowthOperationSignatures
     IdentityGrowthSignatures,
     AgentGrowthSignatures,
     ApprovalGrowthSignatures,
-    SidekickGrowthSignatures,
+    AgentDefinitionGrowthSignatures,
     LedgerGrowthSignatures,
     DiagnosticsGrowthSignatures,
     ProviderAccountGrowthSignatures,

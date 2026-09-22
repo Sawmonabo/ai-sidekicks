@@ -515,7 +515,7 @@ export function makeSilentDriverDiagnostics(): DriverDiagnosticsEmitter {
  * terminal a test drives when the tripwire is not what it is testing.
  *
  * The numbers are shaped after the measured ordinary-turn reading recorded in
- * `docs/reference/provider-wire/claude.md` rather than invented: a real turn
+ * the pinned Claude Code wire census rather than invented: a real turn
  * reports a non-zero turn count, a non-zero API duration, a non-zero cost, and
  * a populated per-model usage map, and all four move together.
  */

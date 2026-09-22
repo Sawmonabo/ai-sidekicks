@@ -61,7 +61,7 @@ const UPDATE_CONTROL_FAILED = "control-failed";
  * hid a transition behind the older snapshot.
  */
 function useUpdateReading(bridge: ConsoleBridge): UpdateReading {
-  const holder = useMemo(() => new UpdaterReadingHolder(bridge.sidekicks.update), [bridge]);
+  const holder = useMemo(() => new UpdaterReadingHolder(bridge.desktopBridge.update), [bridge]);
   useEffect(() => {
     holder.open();
     return () => {
@@ -184,7 +184,7 @@ export function UpdatesBlock(props: {
           type="button"
           className="meridian-settings-page__action"
           onClick={() => {
-            void runControl(() => bridge.sidekicks.update.requestCheck());
+            void runControl(() => bridge.desktopBridge.update.requestCheck());
           }}
         >
           Check now
@@ -193,7 +193,7 @@ export function UpdatesBlock(props: {
           <RestartConfirmation
             sessionStore={retainedSessionStore}
             onConfirm={() => {
-              void runControl(() => bridge.sidekicks.update.requestRestart());
+              void runControl(() => bridge.desktopBridge.update.requestRestart());
             }}
           />
         ) : null}

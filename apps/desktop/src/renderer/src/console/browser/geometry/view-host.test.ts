@@ -42,12 +42,12 @@ function fixtureBridge(): ConsoleBridge {
 /**
  * The bridge a live window hands the pane, over the same preload contract.
  *
- * Built from the fixture's own `sidekicks` namespace rather than a hand-made object:
+ * Built from the fixture's own `desktopBridge` namespace rather than a hand-made object:
  * that value IS the preload contract, so this is the real live wrapper answering for
  * a window that has no view host, which is the arm the table has to reach today.
  */
 function liveBridge(): ConsoleBridge {
-  return createLiveBridge(fixtureBridge().sidekicks);
+  return createLiveBridge(fixtureBridge().desktopBridge);
 }
 
 describe("unavailablePaneViewHost", () => {

@@ -13,7 +13,7 @@
 // it — and the premise worth pinning inverted with it: what no scenario may do is
 // name the caller under some OTHER member, because the port reads exactly one field
 // and a second spelling would be a fact on the script that never reaches a surface. The
-// sidekick row has no finder because its premise cannot go stale: a definition is
+// agent-definition row has no finder because its premise cannot go stale: a definition is
 // node-local configuration and `ConsoleScenario` models no node at all, so there is
 // no field a scenario could grow that would make one derivable.
 
@@ -158,7 +158,7 @@ describe("the fixture's registry reads — refusing on a stated premise", () => 
       replies: [
         {
           call: "session.read",
-          result: { callbackTools: [{ name: "workflow_start", inputSchema: {} }] },
+          result: { callbackTools: [{ name: "workflow_run", inputSchema: {} }] },
         },
       ],
     };
@@ -176,7 +176,7 @@ describe("the fixture's registry reads — refusing on a stated premise", () => 
       ...FLAGSHIP_SCENARIO,
       id: "states-a-misnamed-callback-tool",
       replies: [
-        { call: "session.read", result: { tools: [{ name: "workflow_start", inputSchema: {} }] } },
+        { call: "session.read", result: { tools: [{ name: "workflow_run", inputSchema: {} }] } },
       ],
     };
 
@@ -188,7 +188,7 @@ describe("the fixture's registry reads — refusing on a stated premise", () => 
   it("refuses every unserved one under both bridges, each naming the row that owes its wire", async () => {
     const liveBridge = createLiveBridge(createStubBridge());
     const port = fixturePort();
-    const rows = ["callback-tool-registry-read", "sidekick-definition-registry"];
+    const rows = ["callback-tool-registry-read", "agent-definition-registry"];
     const served = new Set<string>(FIXTURE_SERVED_GROWTH_OPERATION_IDS);
     const operationIds = (Object.keys(GROWTH_OPERATIONS) as GrowthOperationId[]).filter(
       (operationId) =>
@@ -228,7 +228,7 @@ describe("the fixture's registry reads — refusing on a stated premise", () => 
       // The definition row's own refusal, taken from an operation the fixture does
       // NOT serve: its list read is answered from the script now, so the attribution
       // claim has to be made on a sibling that still refuses.
-      ["sidekickDefinitionCreate", "the sidekick-definitions design"],
+      ["agentDefinitionCreate", "the agent-definitions design"],
     ] as const) {
       const outcome = await callOperation(port, operationId);
 

@@ -11,7 +11,7 @@
 //
 // The second describe is about the entry the contract registers, read through the
 // real hook rather than restated: the row's disclosure panel names the tool's
-// ARGUMENTS, and `workflow_start` is the shape that proves it — the panel used to
+// ARGUMENTS, and `workflow_run` is the shape that proves it — the panel used to
 // list the schema's keywords, so neither `definitionName` nor `scope` appeared under
 // the trigger that says "Input schema".
 
@@ -126,7 +126,7 @@ describe("the entry the contract registers", () => {
     // exactly the arm the shipped registry entry rides today.
     await mountSettled(createFixtureBridge({ scenario: unscriptedScenario("callback-tools") }));
 
-    expect(screen.getByText("workflow_start")).not.toBeNull();
+    expect(screen.getByText("workflow_run")).not.toBeNull();
 
     await openTheSchema();
 

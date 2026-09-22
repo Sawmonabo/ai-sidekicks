@@ -32,7 +32,7 @@ The Local Runtime Daemon is the local execution kernel. It must own the parts of
 | `Git Engine` | Owns repo attach, worktree lifecycle, branch strategy, diff generation, and PR preparation. |
 | `Workspace Service` | Resolves execution roots, file access policy, attachments, and local filesystem context. |
 | `Tool And Terminal Service` | Runs shell commands, terminal sessions, and local tools under policy control. All PTY access flows through the `PtyHost` interface in `packages/contracts/` (see §PTY Backend Strategy). |
-| `Local Persistence Layer` | Stores canonical local event log, command receipts, runtime bindings, projections, and recovery metadata. All SQLite writes are isolated to a single writer worker thread per [Spec-013 §Writer Concurrency](../specs/013-persistence-recovery-and-replay.md#writer-concurrency); V1 driver pin is `better-sqlite3` **13.0.3** exact (Node-API; moved from `^12.9.0` on 2026-09-01 with the Electron-44 pin move per [ADR-022 §Decision Log](../decisions/022-v1-toolchain-selection.md#decision-log) and [Spec-013 §Driver Pin](../specs/013-persistence-recovery-and-replay.md#driver-pin)). |
+| `Local Persistence Layer` | Stores canonical local event log, command receipts, runtime bindings, projections, and recovery metadata. All SQLite writes are isolated to a single writer worker thread per [Spec-013 §Writer Concurrency](../specs/013-persistence-recovery-and-replay.md#writer-concurrency); V1 driver pin is `better-sqlite3` **13.0.3** exact (Node-API, per [ADR-022](../decisions/022-v1-toolchain-selection.md) and [Spec-013 §Driver Pin](../specs/013-persistence-recovery-and-replay.md#driver-pin)). |
 | `Local IPC Gateway` | Exposes stable local control APIs to renderer and CLI clients. |
 | `Control-Plane Adapter` | Produces SessionJoin, RelayNegotiation, PresenceRegister (this node's own liveness heartbeat), and SessionResumeAfterReconnect payloads, and forwards canonical events over the control-plane transport to the user's connected devices. |
 
@@ -49,7 +49,7 @@ Per [ADR-019](../decisions/019-windows-v1-tier-and-pty-sidecar.md), all PTY acce
 - **`RustSidecarPtyHost`** — primary on Windows. Spawns a child-process Rust sidecar built on `portable-pty` (wezterm) and communicates via LSP-style Content-Length framing over stdio (JSON control channel + length-prefixed binary data channel). The sidecar's lifecycle is tied to the daemon's session lifecycle; supervisor auto-restarts on crash and surfaces backpressure to the caller.
 - **`NodePtyHost`** — primary on macOS and Linux (in-process, zero per-spawn process overhead). Also ships as the Windows fallback for cases where the sidecar binary is missing, fails to start, or is explicitly disabled for debugging.
 
-The platform selector enforces the defaults above; consumers of `PtyHost` never see the backend choice. Implementation detail for the sidecar (crate structure, IPC protocol, distribution, signing, test matrix) lives in Plan-022 (tracked under BL-078).
+The platform selector enforces the defaults above; consumers of `PtyHost` never see the backend choice. Implementation detail for the sidecar (crate structure, IPC protocol, distribution, signing, test matrix) lives in Plan-022.
 
 ## Data Flow
 

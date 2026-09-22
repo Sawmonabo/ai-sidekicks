@@ -27,6 +27,8 @@ Add `applyIntervention(type, payload)` as a generic dispatcher in the driver con
 
 **Authorization.** The Cedar `principal` for any `applyIntervention` call is the verified `sub` claim of the caller's PASETO v4.public access token (a `UserId`). The token's DPoP `cnf.jkt` binding (per [RFC 9449 §3.1](https://datatracker.ietf.org/doc/html/rfc9449#section-3.1)) is a proof-of-possession check — not a second principal identity. Any body-level actor field (for example `initiatorId` on an `InterventionRequest`) is informational/routing metadata only and is never read by Cedar as an authorization input. See [API Payload Contracts §Authenticated Principal And Authorization Model](../architecture/contracts/api-payload-contracts.md#authenticated-principal-and-authorization-model).
 
+**One intervention crosses a session boundary.** An interrupt taken on a session that is trading messages with another session ends the turn on both and empties the queue between them. It stays one ordinary interrupt per run: the daemon reads the pair from its own exchange table, dispatches the same `applyIntervention` call the single-session path dispatches to each of the two runs, and draws the outcome on each transcript ([Spec-014 §Sessions Talking To Each Other](../specs/014-multi-agent-channels-and-orchestration.md#sessions-talking-to-each-other)). It is a **fan-out over the runs already in the exchange, not a cascade primitive**: no new intervention type is added, no verb spans two sessions, and the reach stops at the pair the table names — a session the interrupted pair was not talking to is untouched. Encoding the fan-out as its own verb is the rigidity this record rejected for pause.
+
 ## Alternatives Considered
 
 ### Option A: Generic `applyIntervention` Dispatcher (Chosen)
@@ -62,10 +64,3 @@ Add `applyIntervention(type, payload)` as a generic dispatcher in the driver con
 - [ADR-003: Daemon-Backed Queue And Interventions](./003-daemon-backed-queue-and-interventions.md)
 - [ADR-005: Provider Drivers Use A Normalized Interface](./005-provider-drivers-use-a-normalized-interface.md)
 - [Vercel AI SDK Registry Pattern](https://sdk.vercel.ai/docs)
-
-## Decision Log
-
-| Date       | Event    | Notes         |
-| ---------- | -------- | ------------- |
-| 2026-04-15 | Proposed | Initial draft |
-| 2026-04-15 | Accepted | ADR accepted  |

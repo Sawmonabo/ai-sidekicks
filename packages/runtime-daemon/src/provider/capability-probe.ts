@@ -86,7 +86,7 @@
 // the app-server answers `-32600` for a name its `ClientRequest` enumeration does
 // not carry AND for an accepted name whose payload does not deserialize, so the code
 // alone decides nothing. The discriminator is the deserializer's own message
-// (`docs/reference/provider-wire/codex.md `): an unaccepted name answers an `unknown
+// (the pinned Codex wire census): an unaccepted name answers an `unknown
 // variant` message naming that variant and enumerating the accepted set, while an
 // ACCEPTED method handed this probe's deliberately payload-free request answers a
 // missing-field message and a capability-gated one answers a plain-prose reason.
@@ -221,7 +221,7 @@ export type DriverCapabilityDetectionTable = Readonly<
  * The driver's ONE zero-turn channel is the client-request method enumeration:
  * a default (non-experimental) `initialize` negotiation fixes which methods the
  * connection accepts, and an unaccepted method answers `-32600`, whose message
- * enumerates the accepted set (`docs/reference/provider-wire/codex.md`). Two
+ * enumerates the accepted set (the pinned Codex wire census). Two
  * consequences run through every entry below. A flag whose mechanism IS a
  * client-request method is decided by that channel. A flag whose mechanism is a
  * turn parameter, a server-to-client frame, or a handshake-declared state is
@@ -363,7 +363,7 @@ export const CODEX_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = 
  * The one flag whose mechanism this channel could plausibly reach —
  * `interactive_requests` — names subtypes the provider RAISES; the pinned build's
  * inbound dispatcher refuses every one of them by name, exactly as it refuses the
- * negative control (`docs/reference/provider-wire/claude.md `), so the channel's
+ * negative control (the pinned Claude Code wire census), so the channel's
  * answer is decisive in the wrong direction. The channel doctrine above is kept
  * because it is what a future probeable subtype would be admitted under, and the
  * negative control is deliberately still declared for this driver: it becomes live

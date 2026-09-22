@@ -1,16 +1,13 @@
 import { Nothing, RefusalCard } from "../../primitives/index.js";
 import type { AttachHandoffControl } from "../attach/attach-handoff/index.js";
-import {
-  type SidekickRegistrySnapshot,
-  type SidekickRegistryView,
-} from "./definition-registry-view.js";
-import { NO_SAVED_SIDEKICKS } from "./definition-rows.js";
-import { SavedSidekickRow } from "./SavedSidekickRow.js";
+import { type AgentRegistrySnapshot, type AgentRegistryView } from "./definition-registry-view.js";
+import { NO_SAVED_DEFINITIONS } from "./definition-rows.js";
+import { SavedDefinitionRow } from "./SavedDefinitionRow.js";
 
 /** The saved column's four answers, one per arm of the reading. */
-export function SavedSidekicks(props: {
-  readonly snapshot: SidekickRegistrySnapshot;
-  readonly view: SidekickRegistryView;
+export function SavedDefinitions(props: {
+  readonly snapshot: AgentRegistrySnapshot;
+  readonly view: AgentRegistryView;
   /** This window's one attach handoff, which every row offers into. */
   readonly handoff: AttachHandoffControl;
   /**
@@ -42,7 +39,7 @@ export function SavedSidekicks(props: {
       <Nothing
         kind="empty"
         placement="surface"
-        title={`${NO_SAVED_SIDEKICKS}.`}
+        title={`${NO_SAVED_DEFINITIONS}.`}
         detail="Tuning one in a session and saving it puts it here, ready for the next session to start from."
       />
     );
@@ -50,15 +47,15 @@ export function SavedSidekicks(props: {
   return (
     <>
       {attachTargetSessionId === undefined ? (
-        <p className="meridian-sidekicks__attach-note">
+        <p className="meridian-agent-definitions__attach-note">
           Attaching happens in a session, and this window has none open. Opening one puts an{" "}
           <strong>Attach from here</strong> action on every row.
         </p>
       ) : null}
-      <ul className="meridian-sidekicks__rows">
+      <ul className="meridian-agent-definitions__rows">
         {reading.rows.map((row) => (
           <li key={row.definitionId}>
-            <SavedSidekickRow
+            <SavedDefinitionRow
               row={row}
               isArmed={snapshot.armedDeletionId === row.definitionId}
               isDeleting={snapshot.deletingId === row.definitionId}

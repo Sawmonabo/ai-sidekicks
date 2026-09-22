@@ -17,7 +17,7 @@
 import { act, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { SidekicksBridgeProvider } from "../../bridge/BridgeProvider.js";
+import { DesktopBridgeProvider } from "../../bridge/BridgeProvider.js";
 import {
   fixtureBridgeWithGrowth,
   growthAnswering,
@@ -71,12 +71,12 @@ function bridgeAnsweringRunLists(lists: ScriptedRunLists): ConsoleBridge {
 /** The card under a bridge this case owns, scoped to the channel that started the run. */
 function renderCard(bridge: ConsoleBridge): void {
   render(
-    <SidekicksBridgeProvider bridge={bridge}>
+    <DesktopBridgeProvider bridge={bridge}>
       <ChannelWorkflowProgressCard
         sessionId={WORKFLOWS_PARKED_RUN.sessionId}
         channelId={WORKFLOWS_CHANNEL_ID}
       />
-    </SidekicksBridgeProvider>,
+    </DesktopBridgeProvider>,
   );
 }
 

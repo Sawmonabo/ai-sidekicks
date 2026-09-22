@@ -9,7 +9,7 @@
 import { createStubBridge } from "@ai-sidekicks/contracts";
 import type { ReactNode } from "react";
 
-import { SidekicksBridgeProvider, type ConsoleBridge } from "../../bridge/index.js";
+import { DesktopBridgeProvider, type ConsoleBridge } from "../../bridge/index.js";
 import { createLiveBridge } from "../../bridge/live-bridge.js";
 import type { ConsoleRoute } from "../../routing/index.js";
 import type { FrameBanner } from "../../store/index.js";
@@ -61,7 +61,7 @@ export function bridgeWrapper(
   bridge: ConsoleBridge,
 ): (props: { readonly children: ReactNode }) => React.JSX.Element {
   return function BridgeHost(props: { readonly children: ReactNode }): React.JSX.Element {
-    return <SidekicksBridgeProvider bridge={bridge}>{props.children}</SidekicksBridgeProvider>;
+    return <DesktopBridgeProvider bridge={bridge}>{props.children}</DesktopBridgeProvider>;
   };
 }
 

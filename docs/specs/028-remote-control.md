@@ -11,7 +11,7 @@
 
 ## Purpose
 
-One user, many linked devices, one machine executing; any device can do everything the desktop can, including read the timeline, send, steer, stop, approve, drive sidekicks, view the diff, and use the terminal. No other people.
+One user, many linked devices, one machine executing; any device can do everything the desktop can, including read the timeline, send, steer, stop, approve, drive agents, view the diff, and use the terminal. No other people.
 
 ## Scope
 
@@ -22,7 +22,7 @@ Remote Control covers the whole path from a device that is not the executing mac
 - steer a run in flight
 - stop a run
 - answer an approval
-- attach, configure, and drive sidekicks
+- attach, configure, and drive agents
 - view the diff
 - open and use the terminal
 
@@ -47,6 +47,20 @@ A device is linked once. Linking mints the device's own identity key, registers 
 ### Parity by construction
 
 The client SDK swaps its local pipe for the relay. Every surface already speaks the SDK, so a device gets parity because the transport underneath changed, not because each screen was re-implemented for remote use. The consequence is the bar: a method that works over the local pipe and not over the relay is a defect in the transport, never a feature a device does not have. Parity is proven by running one suite against both transports rather than by enumerating screens.
+
+### What another device shows and does
+
+Parity is the transport's job; the rules below are what follows from the screen being somewhere else, and they hold on every client.
+
+- **Attention follows the person, not the machine.** An approval or a question raises the operating system's `Waiting on you` notification on the device the person is holding, and only while the console is not in front there; inside the console the bell carries it ([Spec-017 §Notification Delivery](017-notifications-and-attention-model.md#notification-delivery)). Answering from another device is the same card in the composer that it is on the executing machine.
+- **Preview is a live picture, never a local page.** The preview pane on another device shows the executing machine's own page: a frame stream from that machine's browser debug session, with wheel and keyboard input forwarded back and every frame acknowledged as it is applied — an unacknowledged frame stalls Chromium's own screencast queue after three frames (measured on Chromium 152), so the acknowledgement is part of the contract rather than an optimization. The address line reads `Runs on <machine>`, the page is never presented as a local one, and the stream runs only while that device has the pane open. One subscription carries both the frame stream and the input channel — `preview.screencastSubscribe` — and it exists for another device alone: the executing machine's own preview never goes through it.
+- **A mark means the same thing wherever it was drawn.** Marks drawn on the live picture carry the same element references — the page snapshot's reference and its box — as marks drawn on the executing machine, so the agent receives the same attachment either way.
+- **A browser act names its machine.** An agent's browser act driven from another device names the machine it ran on in its timeline row.
+- **An attachment is copied to the machine that will read it.** A file picked with Attach on another device is copied to the daemon when it is staged and held with the session, so its chip, its `×`, and Send behave exactly as they do on the executing machine, and the agent is handed a path on that machine.
+- **The shell says who holds it.** A device that does not hold the terminal's control lease sees a lease line over a read-only body naming which of the user's devices holds the shell. Taking the shell moves it to this device behind one in-place confirm, and the handoff lands between write frames, so the running program is untouched and the displaced device loses only a half-typed line. A hold that belongs to an agent's running command is never takeable that way; that line offers stopping the run instead ([Spec-002 §Required Behavior](002-runtime-node-attach.md#required-behavior)).
+- **A local address is the executing machine's address.** A localhost link in the timeline or in tool output opens in the preview pane, and from another device that row names the machine running the server. Which of the executing machine's ports the user's other devices may reach is one managed list: a row per shared port with a control that stops sharing it, a field that adds a port before anything is listening on it so the machine is set up once, and the address to open on the other device.
+- **Back dismisses, and never interrupts.** On a client with a hardware back gesture, Back dismisses the topmost surface — the same ladder the escape key walks — and stops short of the work: it never interrupts a turn, because a swipe is not the deliberate press the escape key is. The desktop has no back-gesture rule.
+- **The relay's own state is a printed fact**, carried by the daemon's status command rather than by any screen ([Spec-006 §Required Behavior](006-local-ipc-and-daemon-control.md#required-behavior)).
 
 ### The encryption envelope
 
@@ -73,7 +87,7 @@ Described here, not schematized; the shapes belong to Plan-028.
 - **A device registry.** One durable row per linked device: its id, its name, its kind, when it was linked, when it was last seen, its public identity key, and whether it has been revoked. The registry is the single answer to "which devices can act as me".
 - **`device.*` methods.** `device.list`, `device.link`, `device.rename`, `device.revoke`. Reachable from any non-revoked device, and from the CLI.
 - **An in-session connected-devices banner.** A small in-session surface naming the devices currently connected to this session, so it is never a surprise that a second screen is watching or driving.
-- **The Settings → Linked Devices screen.** The registry rendered: list, rename, revoke, and link a new device.
+- **The Linked Devices screen.** The registry rendered: list, rename, revoke, and link a new device. It is Remote Control's own screen, not a Settings page.
 
 ## Fallback Behavior
 
@@ -94,4 +108,7 @@ Described here, not schematized; the shapes belong to Plan-028.
 - [Spec-002: Runtime Node Attach](002-runtime-node-attach.md) — how a machine binds to a session.
 - [Spec-016: Identity Keys](016-identity-and-user-state.md) — identity-key custody and registration.
 - [Plan-024: Cross-Node Dispatch And Approval](../plans/024-cross-node-dispatch-and-approval.md) — the consumer of the relay this spec defines.
+- [Spec-006: Local IPC And Daemon Control](006-local-ipc-and-daemon-control.md) — the daemon status command that prints the relay's own state.
+- [Spec-017: Notifications And Attention Model](017-notifications-and-attention-model.md) — the notification channel a device's attention rides.
+- [Spec-021: Desktop Shell And Renderer](021-desktop-shell-and-renderer.md) — the console surfaces a device drives, the preview pane among them.
 - [Plan-028: Remote Control](../plans/028-remote-control.md) — the implementation plan for this spec.

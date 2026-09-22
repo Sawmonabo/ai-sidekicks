@@ -32,7 +32,7 @@ export const LEDGER_GROWTH_OPERATIONS: Readonly<Record<LedgerOperationId, Growth
   // no bridge namespace, so an invented string here would be traceable to nothing.
   hydratedEventRead: op("hydratedEventRead", "hydrated-event-read", "method"),
   // The session cost plane. Both ids are the registered method's TAIL without its
-  // root, unlike the workflow and sidekick blocks above: the console calls exactly
+  // root, unlike the workflow and agent-definition blocks above: the console calls exactly
   // these two verbs of a plane whose other pairs it never reaches, so a root folded
   // into both ids would lengthen every call site and disambiguate nothing. The
   // entry still names the method in full, so the transcription stays checkable.

@@ -1,4 +1,4 @@
-// The sidekicks page's body, and the root of the chunk it arrives in.
+// The agent definitions page's body, and the root of the chunk it arrives in.
 //
 // A LOADER-BACKED BODY, so the page, its registry view, its rows, and its editor seat are
 // not on the initial import graph. The page is a SETTINGS section: a person navigates to
@@ -36,19 +36,19 @@
 // than derived so the page never picks one, and `undefined` is a real answer — a window
 // that has opened no session offers no attach control at all.
 
-import "./sidekick-definitions-page.css";
+import "./agent-definitions-page.css";
 
 import { createElement } from "react";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { SidekickDefinitionsPage } from "./SidekickDefinitionsPage.js";
+import { AgentDefinitionsPage } from "./AgentDefinitionsPage.js";
 
-/** The saved-sidekick registry page, as the settings board loads it. */
+/** The saved-definition registry page, as the settings board loads it. */
 export function Body(context: {
   readonly bridge: ConsoleBridge;
   readonly retainedSessionId: string | undefined;
 }): React.ReactNode {
-  return createElement(SidekickDefinitionsPage, {
+  return createElement(AgentDefinitionsPage, {
     bridge: context.bridge,
     retainedSessionId: context.retainedSessionId,
   });

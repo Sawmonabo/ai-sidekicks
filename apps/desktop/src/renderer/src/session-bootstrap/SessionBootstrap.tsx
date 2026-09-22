@@ -1,5 +1,5 @@
 // Renderer SessionBootstrap component: it invokes `session.create` against the
-// daemon through the `window.sidekicks` preload bridge on mount and renders the
+// daemon through the `window.desktopBridge` preload bridge on mount and renders the
 // returned session id, with a rejected arm that renders the error envelope.
 // Join semantics are `sessionClient.join`'s responsibility, not this
 // component's.
@@ -27,9 +27,9 @@ import { useEffect, useRef, useState } from "react";
 
 import type { SessionCreateResponse } from "@ai-sidekicks/contracts";
 
-// The `window.sidekicks` ambient type lives in the renderer-wide
-// `sidekicks-bridge.d.ts` (part of this project via the renderer `tsconfig`'s
-// `include: ["**/*"]`), so `window.sidekicks` below is `SidekicksBridge`-typed
+// The `window.desktopBridge` ambient type lives in the renderer-wide
+// `desktop-bridge.d.ts` (part of this project via the renderer `tsconfig`'s
+// `include: ["**/*"]`), so `window.desktopBridge` below is `DesktopBridge`-typed
 // without an import here.
 
 type BootstrapState =
@@ -114,7 +114,7 @@ export function SessionBootstrap(props: SessionBootstrapProps): React.JSX.Elemen
     // type. This single cast site lifts when the narrowed `DaemonMethod` union
     // lands — see the daemon protocol stubs in
     // packages/contracts/src/desktop-bridge.ts.
-    const daemonCall = window.sidekicks.daemon.call as (
+    const daemonCall = window.desktopBridge.daemon.call as (
       method: string,
       params: unknown,
     ) => Promise<unknown>;

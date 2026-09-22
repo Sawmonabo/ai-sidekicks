@@ -1,4 +1,4 @@
-// Where the saved-sidekick registry page lives in settings, named once.
+// Where the saved-definition registry page lives in settings, named once.
 //
 // THE SET IS THE SETTINGS FAMILY'S AND THIS IS ONE CLAIM ON IT.
 // `settings/settings-sections.ts` declares the closed section vocabulary; what lives
@@ -6,7 +6,7 @@
 // the claim and the in-session surface that links back to the page read one string
 // rather than two that agree until one of them moves.
 //
-// CHECKED AT THE COMPOSITION ROOT AND NOT HERE. `console/sidekicks-settings-page.ts`
+// CHECKED AT THE COMPOSITION ROOT AND NOT HERE. `console/agents-settings-page.ts`
 // hands this constant to a registrar that requires a `SettingsSectionId`, so an id
 // that has left the settings vocabulary is a compile error in the one file where both
 // families are legally in scope. A view family may not name the settings family's
@@ -17,5 +17,5 @@
 // console's chunk root can both name it without either one pulling the settings page
 // into its graph.
 
-/** The settings section the saved-sidekick registry page is registered under. */
-export const SIDEKICK_DEFINITIONS_SECTION = "sidekicks" as const;
+/** The settings section the saved-definition registry page is registered under. */
+export const AGENT_DEFINITIONS_SECTION = "agents" as const;

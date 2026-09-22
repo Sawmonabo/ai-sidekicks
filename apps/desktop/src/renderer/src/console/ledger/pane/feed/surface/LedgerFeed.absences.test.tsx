@@ -79,7 +79,7 @@ describe("the ledger feed — a window holding nothing", () => {
   const CONTROL_NAME = "Sidekicks reaching each other";
 
   it("names the peer-invocation control when the session reported the grant off", () => {
-    // A session that cannot let its sidekicks reach each other cannot hold a handoff
+    // A session that cannot let its agents reach each other cannot hold a handoff
     // row: every invocation is adjudicated per call against this projected member and
     // answers denied, so the log staying empty is partly a setting rather than only a
     // quiet session — and the window says which.

@@ -13,7 +13,7 @@
       apps/desktop/electron.vite.config.ts (renderer.rollupOptions.input).
 
       The renderer is the UNTRUSTED process — every capability reaches it only
-      through window.sidekicks (exposed by the preload bridge at
+      through window.desktopBridge (exposed by the preload bridge at
       apps/desktop/src/preload/index.ts). No CSP meta tag here: the
       Content-Security-Policy is served on the response header by the
       sidekicks-renderer:// protocol handler, not on the document. That header is

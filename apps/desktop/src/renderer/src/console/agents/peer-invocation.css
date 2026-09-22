@@ -1,7 +1,7 @@
 /* The peer-invocation grant: one switch, and what it means.
  *
  * Beside `PeerInvocation.tsx` rather than inside `agents.css`, on the
- * `definitions/sidekick-definitions-page.css` precedent — one surface's rules in one
+ * `definitions/agent-definitions-page.css` precedent — one surface's rules in one
  * file. Split out of that sheet verbatim and in order; this was a MOVE and not a
  * restyle, and no pinned image may shift because of it.
  *

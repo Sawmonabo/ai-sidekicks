@@ -82,7 +82,7 @@
 //     renderer-safe (no `node:*`, `electron`, or `fs`/`path`/`process` runtime
 //     imports); the type-only form emits NO JS runtime import, so only the
 //     type-graph view of the wire shapes reaches the renderer.
-//   • The read seam beside it, which reaches `window.sidekicks` through no path of
+//   • The read seam beside it, which reaches `window.desktopBridge` through no path of
 //     its own either — a host composes the pair and hands it in.
 // No `electron`, no `node:*`, no `./src/main/**`, no `./src/preload/**`, and no
 // `@ai-sidekicks/client-sdk` (the Node-side `runtimeNodeClient.ts` SDK) —
@@ -108,7 +108,7 @@ import { useNodeRosterRead, type NodeRosterReads } from "./node-roster-reads.js"
  *
  * `reads` is REQUIRED. This view resolves no transport of its own: a mount hands it
  * the pair it already resolved, which is what keeps the wire names in one production
- * home and this component out of the `window.sidekicks` business entirely.
+ * home and this component out of the `window.desktopBridge` business entirely.
  */
 export interface NodeRosterProps {
   sessionId: SessionId;

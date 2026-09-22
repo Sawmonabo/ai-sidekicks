@@ -1,4 +1,4 @@
-// One saved sidekick, and the three things that can be done to it.
+// One saved definition, and the three things that can be done to it.
 //
 // ATTACH FROM HERE IS AN OFFER AND NOT A NAVIGATION. Pressing it hands this
 // definition to the session this window is working in, through the window's own
@@ -40,12 +40,12 @@
 import type { ConsoleRefusal } from "../../core/index.js";
 import { DerivedFigure, InlineRefusal, WireFigure } from "../../primitives/index.js";
 import type { AttachHandoffControl } from "../attach/attach-handoff/index.js";
-import { type SidekickRegistryView } from "./definition-registry-view.js";
-import { describeDeletionQuestion, type SidekickDefinitionRow } from "./definition-rows.js";
+import { type AgentRegistryView } from "./definition-registry-view.js";
+import { describeDeletionQuestion, type AgentDefinitionRow } from "./definition-rows.js";
 
-/** One saved sidekick: what it is, and the three things that can be done to it. */
-export function SavedSidekickRow(props: {
-  readonly row: SidekickDefinitionRow;
+/** One saved definition: what it is, and the three things that can be done to it. */
+export function SavedDefinitionRow(props: {
+  readonly row: AgentDefinitionRow;
   readonly isArmed: boolean;
   readonly isDeleting: boolean;
   /**
@@ -61,7 +61,7 @@ export function SavedSidekickRow(props: {
   /** Whether the detail column's one seat is currently holding this record. */
   readonly isOpenInEditor: boolean;
   readonly refusal: ConsoleRefusal | undefined;
-  readonly view: SidekickRegistryView;
+  readonly view: AgentRegistryView;
   /** This window's one attach handoff: what a press offers into, and reads back. */
   readonly handoff: AttachHandoffControl;
   /** The session an offer is made for, or `undefined` where this window holds none. */
@@ -98,22 +98,22 @@ export function SavedSidekickRow(props: {
     <article
       className={
         isOpenInEditor
-          ? "meridian-sidekick-row meridian-sidekick-row--open"
-          : "meridian-sidekick-row"
+          ? "meridian-saved-definition-row meridian-saved-definition-row--open"
+          : "meridian-saved-definition-row"
       }
     >
-      <div className="meridian-sidekick-row__head">
-        <span className="meridian-sidekick-row__name">{row.name}</span>
+      <div className="meridian-saved-definition-row__head">
+        <span className="meridian-saved-definition-row__name">{row.name}</span>
         <WireFigure value={row.definitionId} />
       </div>
       {row.description.length === 0 ? null : (
-        <p className="meridian-sidekick-row__description">{row.description}</p>
+        <p className="meridian-saved-definition-row__description">{row.description}</p>
       )}
-      <dl className="meridian-sidekick-row__axes">
+      <dl className="meridian-saved-definition-row__axes">
         {row.axes.map((axis) => (
-          <div className="meridian-sidekick-row__axis" key={axis.key}>
-            <dt className="meridian-sidekick-row__axis-label">{axis.label}</dt>
-            <dd className="meridian-sidekick-row__axis-reading">
+          <div className="meridian-saved-definition-row__axis" key={axis.key}>
+            <dt className="meridian-saved-definition-row__axis-label">{axis.label}</dt>
+            <dd className="meridian-saved-definition-row__axis-reading">
               {axis.source === "wire" ? (
                 <WireFigure value={axis.reading} />
               ) : (
@@ -124,11 +124,11 @@ export function SavedSidekickRow(props: {
         ))}
       </dl>
       {isArmed ? (
-        <div className="meridian-sidekick-row__confirm" role="group">
-          <p className="meridian-sidekick-row__question">{describeDeletionQuestion(row)}</p>
+        <div className="meridian-saved-definition-row__confirm" role="group">
+          <p className="meridian-saved-definition-row__question">{describeDeletionQuestion(row)}</p>
           <button
             type="button"
-            className="meridian-sidekick-row__action meridian-sidekick-row__action--destructive"
+            className="meridian-saved-definition-row__action meridian-saved-definition-row__action--destructive"
             onClick={() => {
               void view.confirmDeletion(row.definitionId);
             }}
@@ -138,7 +138,7 @@ export function SavedSidekickRow(props: {
           </button>
           <button
             type="button"
-            className="meridian-sidekick-row__action"
+            className="meridian-saved-definition-row__action"
             onClick={() => {
               view.cancelDeletion();
             }}
@@ -147,10 +147,10 @@ export function SavedSidekickRow(props: {
           </button>
         </div>
       ) : (
-        <div className="meridian-sidekick-row__actions">
+        <div className="meridian-saved-definition-row__actions">
           <button
             type="button"
-            className="meridian-sidekick-row__action"
+            className="meridian-saved-definition-row__action"
             onClick={() => {
               view.openEditor({ kind: "stored", definitionId: row.definitionId });
             }}
@@ -161,7 +161,7 @@ export function SavedSidekickRow(props: {
           </button>
           <button
             type="button"
-            className="meridian-sidekick-row__action meridian-sidekick-row__action--destructive"
+            className="meridian-saved-definition-row__action meridian-saved-definition-row__action--destructive"
             onClick={() => {
               view.armDeletion(row.definitionId);
             }}
@@ -173,7 +173,7 @@ export function SavedSidekickRow(props: {
           {attachTargetSessionId === undefined || isOfferedToTargetSession ? null : (
             <button
               type="button"
-              className="meridian-sidekick-row__action"
+              className="meridian-saved-definition-row__action"
               onClick={() => {
                 handoff.offer({
                   sessionId: attachTargetSessionId,
@@ -193,8 +193,8 @@ export function SavedSidekickRow(props: {
         </div>
       )}
       {offerForThisDefinition === undefined ? null : (
-        <div className="meridian-sidekick-row__handoff" role="group">
-          <p className="meridian-sidekick-row__handoff-note">
+        <div className="meridian-saved-definition-row__handoff" role="group">
+          <p className="meridian-saved-definition-row__handoff-note">
             Waiting in <WireFigure value={offerForThisDefinition.sessionId} />. That session&rsquo;s
             attach form opens on this sidekick.
             {offerSupersession === undefined ? null : (
@@ -208,7 +208,7 @@ export function SavedSidekickRow(props: {
           </p>
           <button
             type="button"
-            className="meridian-sidekick-row__action"
+            className="meridian-saved-definition-row__action"
             onClick={() => {
               handoff.withdraw();
             }}
@@ -225,7 +225,7 @@ export function SavedSidekickRow(props: {
           action={
             <button
               type="button"
-              className="meridian-sidekick-row__action"
+              className="meridian-saved-definition-row__action"
               onClick={() => {
                 view.dismissRefusal(row.definitionId);
               }}

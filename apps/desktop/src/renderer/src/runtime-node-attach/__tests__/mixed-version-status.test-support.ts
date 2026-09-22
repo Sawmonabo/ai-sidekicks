@@ -8,7 +8,7 @@
 // roster entry gaining a required member has to move once.
 //
 // THIS VIEW IS PROPS-ONLY. It touches no bridge arm, so there is no
-// `window.sidekicks` mock here, no global to install, and no `afterEach` deleting
+// `window.desktopBridge` mock here, no global to install, and no `afterEach` deleting
 // one — unlike the sibling `NodeRoster` / `AttachFlow` scaffolding.
 
 import { VERSION_FLOOR_EXCEEDED_CODE } from "@ai-sidekicks/contracts";

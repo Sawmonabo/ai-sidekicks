@@ -1,4 +1,4 @@
-// One line saying that a sidekick is working in this channel right now.
+// One line saying that an agent is working in this channel right now.
 //
 // A pure render over what `activity-model.ts` holds. Every decision about WHEN an
 // indicator exists — the edge that writes it, the edge that clears it, the rule that

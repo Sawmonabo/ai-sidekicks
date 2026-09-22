@@ -18,13 +18,13 @@
 /**
  * Every settings section, in rail order.
  *
- * The twelve the design enumerates, in its order, plus `sidekicks` and `daemon`. The
+ * The twelve the design enumerates, in its order, plus `agents` and `daemon`. The
  * rail a person reads is this tuple, and the union is derived from it for the reason
  * `seats/surface/surface-registry.ts` gives about its own slots: a union written beside a
  * hand-repeated array is two closed sets that agree until one of them is widened.
  *
- * `sidekicks` and `daemon` are the two ids that are this console's own rather than
- * the design's. The design puts the saved-sidekick page IN settings and reaches it
+ * `agents` and `daemon` are the two ids that are this console's own rather than
+ * the design's. The design puts the saved-definition page IN settings and reaches it
  * from the in-session attach picker, but its section enumeration names no id for it,
  * so a page that exists and a rail that cannot reach it was the alternative. An id
  * carries no wire and asserts nothing about the daemon, which is why it can be
@@ -33,7 +33,7 @@
 export const SETTINGS_SECTION_IDS = [
   "accounts",
   "mcp-servers",
-  "sidekicks",
+  "agents",
   "cost",
   "nodes",
   "notifications",
@@ -46,7 +46,7 @@ export const SETTINGS_SECTION_IDS = [
   "browser",
   // The local runtime's own page, which is the tray and daemon lifecycle's "one click
   // away": the supervisor detail, its attempt count and last heartbeat, and the stop
-  // and restart controls. Like `sidekicks` it is not one of the design's section ids
+  // and restart controls. Like `agents` it is not one of the design's section ids
   // — the design puts this detail one click behind the frame's chip and names no
   // section for it — and the alternative was a chip that claims a detail view nothing
   // can reach.
@@ -66,7 +66,7 @@ export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number];
 export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsSectionId, string>> = {
   accounts: "Accounts",
   "mcp-servers": "MCP servers",
-  sidekicks: "Sidekicks",
+  agents: "Sidekicks",
   cost: "Cost",
   nodes: "Nodes",
   notifications: "Notifications",

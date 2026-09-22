@@ -1,7 +1,7 @@
-// Conditional-type negative test against the `SidekicksBridge` interface.
+// Conditional-type negative test against the `DesktopBridge` interface.
 //
 //   "No auth material (daemon session token, PASETO tokens, DPoP key,
-//   WebAuthn PRF output) appears on the `window.sidekicks` surface —
+//   WebAuthn PRF output) appears on the `window.desktopBridge` surface —
 //   verified by a negative contract test against the bridge's exposed
 //   type."
 //
@@ -31,14 +31,14 @@
 // (`AssertNever<T extends never>`) is the canonical TS recipe: TS errors
 // with TS2344 when `T` is non-never, which is the failure we want.
 //
-//   • inject `sessionToken: string;` under `SidekicksBridge["app"]`
+//   • inject `sessionToken: string;` under `DesktopBridge["app"]`
 //   • run `pnpm --filter @ai-sidekicks/contracts typecheck`
 //   • expect TS2344 at the `AssertNever<Offenders>` line below
 //   • restore + re-run to confirm typecheck passes
 // This dance is run during the implementing task; subsequent edits to the
 // bridge re-trigger the same check in CI typecheck.
 
-import type { SidekicksBridge } from "./desktop-bridge.js";
+import type { DesktopBridge } from "./desktop-bridge.js";
 
 /**
  * Flatten every string property name reachable from `T` into a single union.
@@ -54,8 +54,8 @@ type AllKeys<T> = T extends (...args: never[]) => unknown
     ? { [K in keyof T]: K extends string ? K | AllKeys<T[K]> : never }[keyof T]
     : never;
 
-/** Union of every string property name reachable from `SidekicksBridge`. */
-type BridgeKeys = AllKeys<SidekicksBridge>;
+/** Union of every string property name reachable from `DesktopBridge`. */
+type BridgeKeys = AllKeys<DesktopBridge>;
 
 /**
  * Match any key whose lowercased form contains a forbidden substring.
@@ -90,7 +90,7 @@ type Offenders = ContainsForbidden<BridgeKeys>;
 /**
  * Type-level constraint failure when `T` is non-never. TS2344 fires at the
  * `AssertNever<Offenders>` instantiation below if `Offenders` is anything
- * other than `never` — i.e., if any key in `SidekicksBridge` matches the
+ * other than `never` — i.e., if any key in `DesktopBridge` matches the
  * forbidden-substring set.
  *
  * Note: `@typescript-eslint/no-unused-vars` (the rule active in this repo's
@@ -100,7 +100,7 @@ type Offenders = ContainsForbidden<BridgeKeys>;
 type AssertNever<T extends never> = T;
 
 /**
- * Load-bearing assertion. If `SidekicksBridge` ever grows a property name
+ * Load-bearing assertion. If `DesktopBridge` ever grows a property name
  * matching /token|dpop|prf|secret/i (at any depth), `Offenders` becomes a
  * non-never union and this line fails compilation with TS2344, blocking
  * `pnpm --filter @ai-sidekicks/contracts typecheck`.

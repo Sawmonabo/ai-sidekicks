@@ -3,7 +3,7 @@
 | Field       | Value                                                        |
 | ----------- | ------------------------------------------------------------ |
 | Drafted     | 2026-07-06                                                   |
-| Owner       | user (a.sawmon@gmail.com)                                    |
+| Owner       | user                                                         |
 | Implementer | Claude Fable 5                                               |
 | Derived via | plugin:memory-audit estate audit → superpowers:writing-plans |
 

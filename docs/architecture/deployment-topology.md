@@ -48,7 +48,7 @@ Rate limiting uses a deployment-aware abstraction with identical limits across a
 
 | Deployment | Edge Layer | Application Layer |
 | --- | --- | --- |
-| `Hosted Control Plane` (Cloudflare) | CF Workers native `rate_limit` binding (sliding-window counters, zero added latency) | Per-identity `RateLimitEscalationDO` Durable Object — escalation-block authority + authoritative window state, consulted on every check (eager-DO, [Plan-019 D-019-3](../plans/019-rate-limiting-policy.md#ratified-design-decisions-tier-5-audit)) |
+| `Hosted Control Plane` (Cloudflare) | CF Workers native `rate_limit` binding (sliding-window counters, zero added latency) | Per-identity `RateLimitEscalationDO` Durable Object — escalation-block authority + authoritative window state, consulted on every check (eager-DO, [Plan-019 D-019-3](../plans/019-rate-limiting-policy.md)) |
 | `Self-Hosted Control Plane` | `rate-limiter-flexible` with Postgres backend | `rate-limiter-flexible` with Postgres backend + `rate_limit_escalations` table |
 | `Single-Device Local` | No rate limiting (trusted by socket reachability) | No rate limiting |
 

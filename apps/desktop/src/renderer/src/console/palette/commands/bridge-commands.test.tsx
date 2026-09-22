@@ -12,7 +12,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import {
-  SidekicksBridgeProvider,
+  DesktopBridgeProvider,
   createFixtureBridge,
   type ConsoleBridge,
 } from "../../bridge/index.js";
@@ -59,10 +59,10 @@ describe("palette bridge commands — a refused act is rendered, never dropped",
     const bridge = fixtureBridge();
     const throwing: ConsoleBridge = {
       ...bridge,
-      sidekicks: {
-        ...bridge.sidekicks,
+      desktopBridge: {
+        ...bridge.desktopBridge,
         update: {
-          ...bridge.sidekicks.update,
+          ...bridge.desktopBridge.update,
           requestCheck: () => {
             throw new Error("update.requestCheck is not implemented");
           },
@@ -104,10 +104,10 @@ describe("palette bridge commands — a refused act is rendered, never dropped",
     const bridge = fixtureBridge();
     const instrumented: ConsoleBridge = {
       ...bridge,
-      sidekicks: {
-        ...bridge.sidekicks,
+      desktopBridge: {
+        ...bridge.desktopBridge,
         native: {
-          ...bridge.sidekicks.native,
+          ...bridge.desktopBridge.native,
           copyToClipboard: async (text: string) => {
             copied = text;
           },
@@ -118,7 +118,7 @@ describe("palette bridge commands — a refused act is rendered, never dropped",
 
     await commandById(commands, "bridge.copyBuildDetails").run();
 
-    const { version, platform, arch, locale } = bridge.sidekicks.app;
+    const { version, platform, arch, locale } = bridge.desktopBridge.app;
     expect(copied).toBe(`AI Sidekicks ${version} — ${platform}/${arch} — ${locale}`);
   });
 });
@@ -134,9 +134,9 @@ describe("palette bridge commands — the hook reaches the bridge through the pr
 
     await act(async () => {
       render(
-        <SidekicksBridgeProvider bridge={fixtureBridge()}>
+        <DesktopBridgeProvider bridge={fixtureBridge()}>
           <CommandProbe />
-        </SidekicksBridgeProvider>,
+        </DesktopBridgeProvider>,
       );
     });
 
@@ -159,6 +159,6 @@ describe("palette bridge commands — the hook reaches the bridge through the pr
       act(async () => {
         render(<OrphanProbe />);
       }),
-    ).rejects.toThrow(/SidekicksBridgeProvider/);
+    ).rejects.toThrow(/DesktopBridgeProvider/);
   });
 });

@@ -199,13 +199,13 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
     const fixture = createFixture().bridge;
     const bridge: ConsoleBridge = {
       ...fixture,
-      sidekicks: {
-        ...fixture.sidekicks,
+      desktopBridge: {
+        ...fixture.desktopBridge,
         daemon: {
-          ...fixture.sidekicks.daemon,
+          ...fixture.desktopBridge.daemon,
           call: (() => {
             throw new Error("the preload did not install a handler");
-          }) as ConsoleBridge["sidekicks"]["daemon"]["call"],
+          }) as ConsoleBridge["desktopBridge"]["daemon"]["call"],
         },
       },
     };

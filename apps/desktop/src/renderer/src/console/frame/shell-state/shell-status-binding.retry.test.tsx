@@ -26,7 +26,7 @@ import { describe, expect, it } from "vitest";
 
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { unhandledRejectionsDuring } from "../../core/unhandled-rejection.test-support.js";
-import { SidekicksBridgeProvider, type ConsoleBridge } from "../../bridge/index.js";
+import { DesktopBridgeProvider, type ConsoleBridge } from "../../bridge/index.js";
 import {
   fixtureBridgeWithGrowth,
   growthRefusing,
@@ -76,9 +76,9 @@ function stoppedStore(): FrameStore {
 /** Mount the retry over one bridge, and hand back a press the case can repeat. */
 function mountRetry(store: FrameStore, bridge: ConsoleBridge): () => Promise<void> {
   const { getByRole } = render(
-    <SidekicksBridgeProvider bridge={bridge}>
+    <DesktopBridgeProvider bridge={bridge}>
       <RetryHarness store={store} />
-    </SidekicksBridgeProvider>,
+    </DesktopBridgeProvider>,
   );
   return async () => {
     await act(async () => {

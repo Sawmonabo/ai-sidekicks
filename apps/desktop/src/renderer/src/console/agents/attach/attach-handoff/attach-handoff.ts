@@ -1,6 +1,6 @@
 // One definition, handed from the settings page to the session's attach form.
 //
-// TWO SURFACES, ONE ACT. The saved-sidekick registry lives in settings and the attach
+// TWO SURFACES, ONE ACT. The saved-definition registry lives in settings and the attach
 // form lives in a session, which is the shape the design asks for — a definition is
 // node-local and a session is not — and it leaves "attach from here" with nowhere to
 // put its subject. This handoff is that place: the row offers a definition, the attach

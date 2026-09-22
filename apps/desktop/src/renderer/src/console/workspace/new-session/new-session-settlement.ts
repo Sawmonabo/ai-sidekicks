@@ -21,8 +21,8 @@ import { refuse, type NarrowedRefusal } from "../../core/index.js";
  *
  * ONE CODE PER CALL THAT COULD NOT BE MADE, rather than one word covering the three:
  * a person pasting a code into an issue is telling somebody which leg stopped, and
- * "the session exists and its sidekicks do not" is a different state to act on from
- * "the session and its sidekicks exist and nothing was said".
+ * "the session exists and its agents do not" is a different state to act on from
+ * "the session and its agents exist and nothing was said".
  */
 export const NEW_SESSION_DRAFT_REFUSAL_CODES = [
   "draft-empty",
@@ -99,7 +99,7 @@ export const RUN_QUEUE_CREATE_METHOD = "run.queueCreate";
  * `completedCalls` carries the wire names verbatim and in order, because the rule
  * above requires the error slot to NAME the calls that succeeded — a person deciding
  * whether to press again needs to know a session already exists, and how many of its
- * sidekicks are on it.
+ * agents are on it.
  */
 export interface NewSessionSendResult {
   readonly outcome: NewSessionSendOutcome;

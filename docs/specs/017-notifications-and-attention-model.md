@@ -42,10 +42,15 @@ This spec covers in-app attention state, desktop notifications, cross-device not
   - pending approval or required input
   - run completion
   - run failure
-  - a sidekick naming the user in a channel (a mention is agent-authored; there is no other person to raise one)
+  - an agent naming the user in a channel (a mention is agent-authored; there is no other person to raise one)
 - Notification emission must be derived from canonical session or run state, not from client heuristics alone.
 - Users must be able to distinguish passive informational notifications from actionable blocking attention.
 - The attention model must support both run-scoped attention and session-scoped aggregate attention derived from canonical state.
+- Attention is counted from the projection and never recomputed by a client. Only unresolved actionable moments count; an entry leaves the counted group the moment its moment resolves; and informational moments — a run that finished, a run that failed — are listed and never counted.
+- There is one count, not several. The figure the in-app bell carries and the figure on the application icon are the same read of the same projection, so the two can never disagree, and the bell is the only badge the console draws on screen.
+- Every attention moment carries an identity of its own, so a later state for the same subject replaces what was already posted for it instead of standing a second notice beside it.
+- Losing the connection to the local daemon is not attention. It raises no entry, no count, and no notification, because nothing is waiting on a person to decide; it is a health reading instead ([Spec-018 §Required Behavior](018-observability-and-failure-recovery.md#required-behavior)).
+- A session in an exchange with another session is not waiting on the person either. The exchange line its row carries while the two are trading messages is never an attention entry, never reaches the count, and never reaches the bell: two sessions working on each other's behalf is work going on, not a decision anyone is being asked for ([Spec-014 §Sessions Talking To Each Other](014-multi-agent-channels-and-orchestration.md#sessions-talking-to-each-other)).
 
 ## Default Behavior
 
@@ -54,17 +59,20 @@ This spec covers in-app attention state, desktop notifications, cross-device not
 - When the desktop app is unfocused, actionable attention defaults to OS notification plus in-app badge.
 - When the app is focused, attention defaults to in-app surfaces first.
 - Run-scoped attention defaults to the fine-grained source projection, while session-scoped attention defaults to an aggregate of unresolved run-scoped and session-native signals.
+- Two preferences govern the console's notification surfaces and both default to on: showing a count on the application icon, and notifying outside the application — the second posting only while the app is not in front.
+- Those two are the whole of the preference surface. There is no per-kind switch, no per-session or per-channel mute, and nothing that makes a sound. Nothing outside the two silences a notification or the count — no environment variable, no hidden flag, no stored daemon preference — so a preference left on always means a notification would arrive, and the preference page never renders the daemon's own stored preference records as further switches.
 
 ## Fallback Behavior
 
-- If OS notifications are unavailable or denied, the system must still show in-app badges and attention summaries.
+- If OS notifications are unavailable or denied, the system must still show in-app badges and attention summaries: the two preference switches still draw, the preference page says in place that the operating system is refusing, and the bell and the in-app count keep working.
 - If notification delivery is delayed, the session attention projection must still reflect outstanding actionable items.
-- If a user has muted notifications globally, critical approval-request attention may still surface while informational events remain muted (per-session and per-channel mute is deferred per §Resolved Questions and V1 Scope Decisions; narrowed 2026-09-01 to match that section — the desktop console offers a global mute only).
+- If a user has muted notifications globally, critical approval-request attention may still surface while informational events remain muted (per-session and per-channel mute is deferred per §Resolved Questions and V1 Scope Decisions; the desktop console offers a global mute only).
 
 ## Interfaces And Contracts
 
-- `AttentionProjectionRead` must expose current actionable and informational attention state at both run and session scope.
-- `NotificationPreferenceRead` and `NotificationPreferenceUpdate` must support per-surface preferences.
+- `AttentionProjectionRead` must expose current actionable and informational attention state at both run and session scope. It is the one read behind the bell's count, the bell's list, and the count on the application icon, and the shell posts and withdraws the operating-system notification from that same read rather than from a channel of its own.
+- Every item in the projection names the moment it speaks for with a stable id — the subject and the state it is in — so a replacement notification replaces its predecessor instead of accumulating beside it.
+- `NotificationPreferenceRead` and `NotificationPreferenceUpdate` must support per-surface preferences; the two the console holds are the count on the application icon and notifying outside the application, and the preference page reads and writes nothing else.
 - `NotificationEmit` must reference the underlying canonical event or state trigger.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 - See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
@@ -78,12 +86,19 @@ This spec covers in-app attention state, desktop notifications, cross-device not
 
 ## Notification Delivery
 
+### The Console's Attention Surfaces
+
+- **The bell and its list.** The bell toggles the notifications list and reads as expanded while the list is open. The list opens in the same track the all-sessions list uses, in flow and never over the screen, and the two are never open together: opening one closes the other. The list holds a `Waiting on you` group with its count over the waiting entries, then an `Earlier` group over what finished or failed since it was last read. An entry is one line — a state dot, the title, the state word (`Waiting on you` · `Finished` · `Failed`), and how long ago it happened — newest first inside each group, and the whole line is the control: a session entry switches the screen to that session, a workflow-run entry opens that run, and neither closes the list. Opening the list puts focus on its first entry and closing it returns focus to the bell. Waiting entries pin above the rest and are the only counted ones. An entry carries no menu of its own, and nothing about a notification is ever said inside a session.
+- **The application icon.** The icon carries the same figure the bell carries — the dock icon on macOS and Linux, a number drawn onto the taskbar icon on Windows — from the same projection read, counting only what is waiting on the person right now, and absent at zero rather than showing a zero.
+- **A session row is not a notification.** A row's status dot is that session's own state, and the control that opens the all-sessions list carries no mark of its own. A session that finished while the person was away draws its done dot filled until they open it and hollow from the moment they do, from the one seen-or-unseen fact the projection keeps, so the row and the list can never disagree.
+
 ### Desktop-to-Desktop Delivery
 
 - **Primary path**: the control plane pushes notifications to connected clients via the existing SSE subscription (tRPC subscription, per [ADR-014](../decisions/014-trpc-control-plane-api.md)).
-- **Desktop shell**: receives SSE events and surfaces them as OS-native notifications using the Electron Notification API.
+- **Desktop shell**: receives SSE events and surfaces them as OS-native notifications using the Electron Notification API. Outside the application that notification is the only other channel, and it is posted only while the app is not in front, whichever screen is showing. It names the subject and its state and never what was said; clicking it opens that subject; it is withdrawn when its moment resolves; and it carries the stable id of the moment it speaks for, so a subject that moves from waiting to finished while nobody is looking replaces its own notice in place rather than standing a second one beside it. It carries the application's own name and icon on every platform that can post one, and where a platform cannot post one at all the preference page says so in place, exactly as it does of a refusal.
 - **CLI**: receives SSE events and prints notification content to stderr.
 - **Notification filtering**: only events matching the user's notification preferences (from the `notification_preferences` table, see [shared Postgres schema](../architecture/schemas/shared-postgres-schema.md)) are delivered. Events that do not match are silently dropped at the control plane before emission.
+- **Moments that land together are posted once**: the daemon, which already computes the count, merges the moments that resolve within a moment of each other by the subject they belong to, so one session is named once and two different sessions still each get their own notice. The in-app list keeps every line.
 
 ### Cross-Device Delivery
 

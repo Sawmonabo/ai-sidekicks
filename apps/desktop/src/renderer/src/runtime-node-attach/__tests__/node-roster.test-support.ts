@@ -8,7 +8,7 @@
 // gaining a required member has to move once.
 //
 // THE SEAM IS BUILT, NEVER A BRIDGE INSTALLED. `NodeRosterProps.reads` is required,
-// so there is no `window.sidekicks` arm to mock, no global to install, and no
+// so there is no `window.desktopBridge` arm to mock, no global to install, and no
 // `afterEach` deleting one. That is the point of the required prop rather than an
 // accident of the harness, and `NodeRoster.render.test.tsx` carries the control that
 // proves the view touches the global through no path at all.
