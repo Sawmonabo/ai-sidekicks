@@ -158,7 +158,7 @@ describe("the fixture's registry reads — refusing on a stated premise", () => 
       replies: [
         {
           call: "session.read",
-          result: { callbackTools: [{ name: "workflow_start", inputSchema: {} }] },
+          result: { callbackTools: [{ name: "workflow_run", inputSchema: {} }] },
         },
       ],
     };
@@ -176,7 +176,7 @@ describe("the fixture's registry reads — refusing on a stated premise", () => 
       ...FLAGSHIP_SCENARIO,
       id: "states-a-misnamed-callback-tool",
       replies: [
-        { call: "session.read", result: { tools: [{ name: "workflow_start", inputSchema: {} }] } },
+        { call: "session.read", result: { tools: [{ name: "workflow_run", inputSchema: {} }] } },
       ],
     };
 

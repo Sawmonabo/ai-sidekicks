@@ -3,7 +3,7 @@
 // The defect this reader exists for is one line: the panel listed
 // `Object.keys(inputSchema)`, which for a JSON Schema is `type`, `properties`,
 // `required`, `additionalProperties` — the schema's own KEYWORDS. So the shipped
-// `workflow_start` entry named neither `definitionName` nor `scope`, and the panel
+// `workflow_run` entry named neither `definitionName` nor `scope`, and the panel
 // answered "what does this tool take" with a list of words that are not arguments at
 // all. The first case below is that entry, read through this module rather than
 // restated: the registry's shape is the thing being asserted about.
