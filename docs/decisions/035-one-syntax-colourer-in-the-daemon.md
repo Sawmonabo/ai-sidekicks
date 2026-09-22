@@ -13,7 +13,7 @@
 
 ## Context
 
-Three surfaces draw source code: the transcript's code blocks, the diff in Review, and a file opened on its own. The console runs on the machine that owns the files and, through Remote Control, on other devices that do not. [Spec-021 §Console Libraries](../specs/021-desktop-shell-and-renderer.md#console-libraries) previously placed a `shiki` instance in each renderer process, in a Worker above about four kilobytes of source, and coloured diff lines in that Worker too. `shiki` is already a dependency of the desktop package.
+Three surfaces draw source code: the transcript's code blocks, the diff in Review, and a file opened on its own. The console runs on the machine that owns the files and, through Remote Control, on other devices that do not. The obvious shape — a `shiki` instance in each renderer process, in a Worker above about four kilobytes of source, colouring diff lines in the same Worker — puts a copy of the colourer and its grammars behind every window and every remote device. `shiki` is already a dependency of the desktop package.
 
 ## Problem Statement
 
@@ -138,14 +138,13 @@ Nothing in the console is a code editor: every surface that draws code draws tex
 
 ## References
 
-No outside research was needed; the decision rests on the specifications linked above.
+### Research Conducted
+
+| Source | Type | Key Finding | URL/Location |
+| --- | --- | --- | --- |
+| Feature census of reference app B, a Rust desktop console | Primary research | Its transcript colours a recognized language off the main thread, time-sliced, from a cache keyed on the document and bounded in both entries and bytes, and paints the result as coloured runs rather than as styled markup | Read for the console design; the reading is summarized here |
+| Feature census of reference app B, its editor and file preview | Primary research | Those two surfaces are served from a shared cache rather than each colouring the file again, and they recompute on a short delay after an edit instead of per keystroke; a file whose language is not recognized falls back to plain text | Read for the console design; the reading is summarized here |
 
 ### Related ADRs
 
 - [ADR-016: Electron Desktop Shell](016-electron-desktop-shell.md) — the renderer that paints the spans.
-
-## Decision Log
-
-| Date       | Event    | Notes                            |
-| ---------- | -------- | -------------------------------- |
-| 2026-09-21 | Accepted | Decided with the console design. |

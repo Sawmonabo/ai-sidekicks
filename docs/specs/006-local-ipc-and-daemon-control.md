@@ -67,7 +67,7 @@ This spec covers transport choice, version negotiation, request and stream seman
 - The wire format is JSON-RPC 2.0 with LSP-style Content-Length framing (not newline-delimited). Each message is preceded by `Content-Length: <byte-count>\r\n\r\n`.
 - Maximum message size: 1 MB.
 - Maximum request `id` size: 256 bytes once JSON-encoded. The `id` is opaque to the substrate and echoed verbatim, which makes it the one member of a response the caller sizes; an id past the bound is refused as `-32600 Invalid Request` **before dispatch**, and the refusal — like every error frame for an envelope whose id could not be recovered — carries `id: null` rather than echoing the offending value, per JSON-RPC 2.0 §5. Refusing the request is the only place the rule can be enforced: an oversized **response** cannot carry its own error, so the alternative is a closed connection on a request the daemon accepted.
-- Every request (except health checks) must include a `protocolVersion` field carrying an ISO 8601 date-string in `YYYY-MM-DD` form (per §Tier 1 (cont.): Plan-006 ratification in [api-payload-contracts.md](../architecture/contracts/api-payload-contracts.md)).
+- Every request (except health checks) must include a `protocolVersion` field carrying an ISO 8601 date-string in `YYYY-MM-DD` form (per [API Payload Contracts](../architecture/contracts/api-payload-contracts.md)).
 - Serialization: JSON via `JSON.stringify`/`JSON.parse`. No binary serialization.
 - The client SDK in `packages/client-sdk/` wraps JSON-RPC in a thin typed Zod layer (~500-1000 LOC), following the MCP TypeScript SDK pattern.
 
@@ -96,8 +96,6 @@ This spec covers transport choice, version negotiation, request and stream seman
 - The typed client SDK must expose the same semantic surface to Desktop Shell and CLI callers. The renderer consumes a narrower preload bridge API per [Spec-021 §Trust Stance](./021-desktop-shell-and-renderer.md#trust-stance), not this SDK directly.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 - See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
-
-> **Clarifying amendment (approved spec, 2026-05-28, PR #124).** The prior wording listed `DaemonStart` alongside the IPC methods, which a conformance reader could mis-read as mandating a `daemon.start` JSON-RPC handler. Daemon start is a process-spawn capability (CLI / desktop shell), not an IPC method — clarified above to match § Default Behavior and § Example Flows (both already model start as the shell launching the daemon). No capability change; this records a defect-fix to an approved spec, not a routine editorial change.
 
 ## State And Data Implications
 

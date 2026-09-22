@@ -137,15 +137,14 @@ The ledger reading holds for everything the agent produces, which is nearly all 
 
 ## References
 
-No outside research was needed; the decision rests on the specifications linked above.
+### Research Conducted
+
+| Source | Type | Key Finding | URL/Location |
+| --- | --- | --- | --- |
+| Feature census of two reference desktop apps, a Go one and a Rust one | Primary research | Both draw the person's own message as a right-aligned tinted bubble and both cap its width at roughly four-fifths of the column, and both fold a long one behind a show-more control — one of them at twelve rendered lines. Reference app A states the other half outright: its agent replies render as full-width prose with no bubble, no avatar and no name label | Read for the console design; the reading is summarized here |
+| Feature census of reference app A, its message navigation rail | Primary research | That app draws one tick per message of the person's own down the left edge of the whole conversation and fills the tick nearest the middle of the view, treating those messages as the landmarks a reader navigates by — the job this record gives the bubble | Read for the console design; the reading is summarized here |
 
 ### Related ADRs
 
 - [ADR-001: Session Is The Primary Domain Object](001-session-is-the-primary-domain-object.md) — the session whose transcript this draws.
 - [ADR-029: Canonical Transcript Is Authoritative](029-canonical-transcript-is-authoritative.md) — what the transcript's content is; this record is only how it is drawn.
-
-## Decision Log
-
-| Date       | Event    | Notes                            |
-| ---------- | -------- | -------------------------------- |
-| 2026-09-21 | Accepted | Decided with the console design. |

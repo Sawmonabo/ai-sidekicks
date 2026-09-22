@@ -25,7 +25,7 @@ The consequence this spec is built on: **a skill authored once can be made avail
 - **What a skill is, and where it lives.** A skill is a folder on disk. It lives in one of three origins, each of which exists both globally under the home folder and per project inside the repository:
   - **the console's own** — `~/.ai-sidekicks/skills/<name>/` and `<project>/.ai-sidekicks/skills/<name>/`;
   - **Claude Code's own** — `~/.claude/skills/` and `<project>/.claude/skills/`;
-  - **Codex's own** — `~/.codex/skills/`, `<project>/.codex/skills/`, and the project's `.agents/skills/`, which Codex also reads as a skill root. A folder found there carries the Codex origin and shows that root in its path.
+  - **Codex's own** — `$HOME/.agents/skills/` (its current user location), `~/.codex/skills/` (the older one it still reads), `<project>/.codex/skills/`, and the project's `.agents/skills/`, which Codex also reads as a skill root. A folder found there carries the Codex origin and shows that root in its path.
 
   Project folders travel with the repository. The daemon watches all of them.
 
@@ -61,9 +61,8 @@ The consequence this spec is built on: **a skill authored once can be made avail
 
 ## Preconditions
 
-- [x] All declared `Depends On` specs are at `approved` status
-- [x] Blocking open questions are resolved or explicitly deferred
 - The specs and decision records under `Depends On` say what this one assumes.
+- Blocking open questions are resolved or explicitly deferred.
 
 ## Required Behavior
 
@@ -167,7 +166,7 @@ The open folder holds, in reading order:
 ### Words, keys and sizing
 
 - **Keys.** `Cmd/Ctrl+S` saves. `Escape` closes an open in-place question first, and leaves the folder otherwise. `/` reaches the search field, `Arrow Up` and `Arrow Down` move between rows, and `Enter` opens the row in focus or applies the question that is open. Leaving with changes asks, and names what changed.
-- **Words.** No sentence on the screen begins with `You`. The screen says **sidekick** and never agent. No wire spelling reaches the screen beyond file names, paths and the provider's own call form. The rule covers what a screen reader reads as well as what the screen shows, so a control that draws only a glyph carries a word for a name and never the code spelling of the symbol it draws.
+- **Words.** No sentence on the screen begins with `You`. The screen says `sidekick` and never `agent`. No wire spelling reaches the screen beyond file names, paths and the provider's own call form. The rule covers what a screen reader reads as well as what the screen shows, so a control that draws only a glyph carries a word for a name and never the code spelling of the symbol it draws.
 - **Sizing.** Every chrome size on this screen is root-relative: no width custom property and no pane or main-flow floor is a bare pixel figure, and neither is any box the chrome lays out — no padding, margin, gap, floor, ceiling, flex basis or grid track — while the hairlines, the corner radii, the shadows, the icon boxes and the dots stay in pixels, because each of those is drawn rather than measured. A larger root therefore grows the whole screen in one proportion. Every text size and line height is a token of the console's type scale rather than a bare pixel figure.
 - **The folder's two columns fold to one** on a threshold asked of the pane that holds them, in the same root-relative unit the columns are written in — for example, one column once that pane is under 736 px at the default text size, which with the sessions pane closed is a window of about 860 px. The threshold is asked of the pane and not of the window, because a window query's own em is fixed to the browser's default and never reads the root size the appearance settings set. The console fits the window it is given, full screen or any smaller size, down to the usual minimum a desktop app keeps.
 
@@ -175,7 +174,7 @@ The open folder holds, in reading order:
 
 - A skill authored in the console's own tree is **available on both providers**. A skill found in a provider's own tree is **available on that provider alone**.
 - A new skill's scope is chosen explicitly on the form, and the path line shows the folder that choice produces as the name is typed, so where it lands is read rather than inferred.
-- The `New skill` form opens on **Global**, whether or not a project is attached; `This project` is one press away.
+- The `New skill` form opens on **Global**, whether or not a project is attached; `This project` is one press away, held with its reason (`No project is attached`) while none is. The project it names is the one the person came from — the session's project when the destination was opened from a session, otherwise the project of the most recently focused session — shown in the control's own label, with the machine's other known projects one press away in its list.
 - A new skill starts with the **bolt** picked from the twelve, and a skill whose record holds no icon draws the bolt, so every row and every open folder draws one of the twelve.
 - A folder opens at its **entry file**.
 - Rows order by **folder name**; the header carries no ordering control.
@@ -274,7 +273,7 @@ Described here; the shapes belong to [Plan-030](../plans/030-skills.md).
 - [ ] The sentence beside a provider's own folder says the record kept beside it holds two things and nothing else: where the skill is available, and its icon.
 - [ ] The four addresses are the list, the new-skill form, a folder, and a folder with one other file open; the entry file has no second address.
 - [ ] `Cmd/Ctrl+S` saves; `Escape` closes an open in-place question first and leaves the folder otherwise; `/` reaches the search field; `Arrow Up` and `Arrow Down` move between rows; `Enter` opens the row in focus or applies the open question; leaving with changes asks and names every changed field by its label and every changed file by its path, with files added or removed named once as `Files`.
-- [ ] No sentence on the screen begins with `You`; the screen says sidekick and never agent; no wire spelling appears beyond file names, paths and the provider's own call form, over every accessible name as well as every visible word; every control that draws only a glyph carries a word for a name.
+- [ ] No sentence on the screen begins with `You`; the screen says `sidekick` and never `agent`; no wire spelling appears beyond file names, paths and the provider's own call form, over every accessible name as well as every visible word; every control that draws only a glyph carries a word for a name.
 - [ ] Every chrome size on the screen is root-relative and every text size and line height is a type-scale token, so the screen at a larger root is the same screen in one proportion; the folder's two columns fold to one under the narrow threshold, asked of the pane rather than the window.
 - [ ] A file the daemon cannot read is listed with its size and no editor rather than omitted.
 - [ ] A folder carries subfolders at any depth: any prefix is accepted, the list orders by whole path, and no depth is capped.

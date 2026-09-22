@@ -13,7 +13,7 @@ This document covers `WorkflowDefinition`, `WorkflowVersion`, and `WorkflowRun`,
 - `WorkflowDefinition`: a named, durable definition record that holds the node-graph document an author wrote. Scoped to one of the three `WorkflowScope` tiers below.
 - `WorkflowVersion`: an immutable snapshot of a workflow definition's document body at a point in time. Editing a definition creates a new version rather than mutating an existing one.
 - `WorkflowRun`: a single execution instance of a specific workflow version within a session. Each run tracks phase-level execution state independently.
-- `WorkflowScope`: the boundary within which a workflow definition is visible and executable — `session` (the authoring session), `project` (the sessions of one project), or `shared` (the daemon's cross-project tier). Scope identity is carried by a companion `scope_ref` value — the authoring session id at `session`, the canonical repository root at `project`, the empty string at `shared` — and definitions dedupe on `(scope, scope_ref, contentHash)`. Amended 2026-08-10 by the Tier-7 plan-readiness audit per [Spec-015 §Resolved Questions and V1 Scope Decisions](../specs/015-workflow-authoring-and-execution.md#resolved-questions-and-v1-scope-decisions); the pre-amendment `channel` value is struck — it was never specified by Spec-015 and had no defined visibility semantics.
+- `WorkflowScope`: the boundary within which a workflow definition is visible and executable — `session` (the authoring session), `project` (the sessions of one project), or `shared` (the daemon's cross-project tier). Scope identity is carried by a companion `scope_ref` value — the authoring session id at `session`, the canonical repository root at `project`, the empty string at `shared` — and definitions dedupe on `(scope, scope_ref, contentHash)` ([Spec-015 §Resolved Questions and V1 Scope Decisions](../specs/015-workflow-authoring-and-execution.md#resolved-questions-and-v1-scope-decisions)).
 
 ## What This Is
 
@@ -38,7 +38,7 @@ The workflow model is the source of truth for how reusable, multi-phase executio
 ## Relationships To Adjacent Concepts
 
 - `Session` is the containing boundary for workflow definitions and runs.
-- `Project` and the daemon-wide `shared` tier are the two broader scope tiers above `session`; a channel is never a workflow scope (the pre-amendment `channel` value is struck per [Spec-015 §Resolved Questions and V1 Scope Decisions](../specs/015-workflow-authoring-and-execution.md#resolved-questions-and-v1-scope-decisions)).
+- `Project` and the daemon-wide `shared` tier are the two broader scope tiers above `session`; a channel is never a workflow scope ([Spec-015 §Resolved Questions and V1 Scope Decisions](../specs/015-workflow-authoring-and-execution.md#resolved-questions-and-v1-scope-decisions)).
 - `WorkflowPhaseState` tracks per-phase execution progress within a workflow run. See [Workflow Phase Model](./workflow-phase-model.md).
 - `Run` (from the run state machine) is the execution primitive used by individual phases. Each phase execution routes through `OrchestrationRunCreate` per Spec-014/015 constraints.
 - `Agent` and `Channel` (from agent-channel-and-run model) provide the execution persona and communication surface for phase work.

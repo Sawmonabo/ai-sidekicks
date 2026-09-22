@@ -22,11 +22,11 @@
 // execution-roots directory BY PROVENANCE — daemon-created derivatives of an
 // admitted mount, never user-supplied paths — so the containment rule governs
 // user-supplied bind paths only. Those roots sit outside the mount canonical
-// root, so applying this validator defensively
+// root, so applying this validator defensively at the
 // `completeReprovision(workspaceId, fsRoot)` seam would refuse every worktree
-// and ephemeral-clone root provisions.
+// and ephemeral-clone root it provisions.
 //
-// Two layers, because has two clauses
+// Two layers, because the containment invariant has two clauses
 // --------------------------------------------------------------------------
 // The invariant reads "within the canonical root of a repo mount attached to
 // THE SAME SESSION". Both halves are checked, in order:

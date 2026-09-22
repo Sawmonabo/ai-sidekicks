@@ -75,7 +75,7 @@ A rail of five icons costs five small squares of a fixed-width column and no tra
 
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
-| 1 | An agent definition has at least two consumers | Spec-027 resolves a definition when an agent is attached; Spec-015's agent step runs on the same definitions | With one consumer the definition could live beside it, and the destination would be overhead |
+| 1 | An agent definition has at least two consumers | Spec-027 resolves a definition whenever a run starts under it — a session's lead, an agent named in a composer, a workflow step; Spec-015's agent step runs on the same definitions | With one consumer the definition could live beside it, and the destination would be overhead |
 | 2 | Skills differ enough from agents to need their own screen | A skill is a folder of files loaded by a provider's own path; a definition is a record bound to a provider and a model | If the two converge, one destination is removed by a later record |
 | 3 | No sixth top-level screen is needed at V1 | Every console surface in Spec-021 §The surface set, Spec-027, Spec-030 and Spec-015 routes to one of the five | A sixth is added by a new record under the same rule |
 
@@ -87,7 +87,7 @@ A rail of five icons costs five small squares of a fixed-width column and no tra
 | --- | --- | --- | --- | --- |
 | A surface that is neither configuration nor authored content appears | Low | Low | A design review cannot sort it with the one-sentence rule | Extend the rule in a new record before adding the surface |
 | The rail feels heavy because four items are rarely used | Med | Low | The user says so | The rail is icons only; reorder or fold in a later record |
-| Skills and Sidekicks drift into duplicating each other's lists | Low | Med | The same row appears on both screens | Each screen lists only what it owns; the attach seam is a reference, not a copy |
+| Skills and Sidekicks drift into duplicating each other's lists | Low | Med | The same row appears on both screens | Each screen lists only what it owns; the definition editor's skills field is one link out, never a list |
 
 ## Reversibility Assessment
 
@@ -133,15 +133,14 @@ A rail of five icons costs five small squares of a fixed-width column and no tra
 
 ## References
 
-No outside research was needed; the decision rests on the specifications linked above.
+### Research Conducted
+
+| Source | Type | Key Finding | URL/Location |
+| --- | --- | --- | --- |
+| Feature census of reference app B, a Rust desktop console | Primary research | Its agent surface is a settings page — a toggle list with one card row per provider command-line tool, each a tile, a name, a one-line blurb and an on/off switch — reached from a nine-section navigation column that replaces the session list while it is open. The section can be opened by name; a row cannot, and no editor sits behind one | Read for the console design; the reading is summarized here |
+| Feature census of reference app A, a Go desktop console | Primary research | That app has no router at all: one shell with overlays mounted over it and one of four boot targets picked at start, so a surface inside the shell is reached by what happens to be open rather than by an address of its own | Read for the console design; the reading is summarized here |
 
 ### Related ADRs
 
 - [ADR-016: Electron Desktop Shell](016-electron-desktop-shell.md) — the shell the rail lives in.
 - [ADR-026: Visual Node-Graph Workflow Authoring](026-visual-node-graph-workflow-authoring.md) — the Workflows destination's builder.
-
-## Decision Log
-
-| Date       | Event    | Notes                            |
-| ---------- | -------- | -------------------------------- |
-| 2026-09-21 | Accepted | Decided with the console design. |

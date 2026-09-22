@@ -137,14 +137,13 @@ An empty git-initialized folder costs a few kilobytes and no process. Creating i
 
 ## References
 
-No outside research was needed; the decision rests on the specifications linked above.
+### Research Conducted
+
+| Source | Type | Key Finding | URL/Location |
+| --- | --- | --- | --- |
+| Feature census of reference app B, a Rust desktop console | Primary research | A session's checkout and its ref are picked before the first message and fixed afterwards there — an existing session draws read-only labels in place of the pickers and the ref picker refuses a pick — so a conversation that turns out to need a repository is started again rather than promoted in place | Read for the console design; the reading is summarized here |
+| Feature census of reference app B, session list | Primary research | A session with no project is labelled against the home directory rather than against a folder of its own, which is the shape that leaves every reader asking whether the session has a folder at all | Read for the console design; the reading is summarized here |
 
 ### Related ADRs
 
 - [ADR-001: Session Is The Primary Domain Object](001-session-is-the-primary-domain-object.md) — the object whose shape this fixes.
-
-## Decision Log
-
-| Date       | Event    | Notes                            |
-| ---------- | -------- | -------------------------------- |
-| 2026-09-21 | Accepted | Decided with the console design. |

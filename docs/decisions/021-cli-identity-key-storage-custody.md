@@ -31,8 +31,8 @@ Where and how should the CLI persist the long-term Ed25519 identity key that ADR
 
 ### Trigger
 
-- [BL-057](../archive/backlog-archive.md) names the storage contract gap: ADR-010 references the long-term Ed25519 identity key but does not specify at-rest storage for the CLI, which cannot use WebAuthn PRF.
-- The four research passes dispatched 2026-04-18 (Linux headless behavior of `@napi-rs/keyring`; Windows Wincred `CRED_PERSIST_ENTERPRISE` disclosure; macOS Data Protection Keychain eligibility; encrypted-file primitive choice + CLI industry precedent) independently surfaced the same cross-platform gap: `@napi-rs/keyring` does not expose a backend-identity signal on any of its three target platforms. Silent fallback is the dominant failure mode the ADR must defend against.
+- A storage-contract gap: [ADR-010](./010-paseto-webauthn-mls-auth.md) references the long-term Ed25519 identity key but does not specify at-rest storage for the CLI, which cannot use WebAuthn PRF.
+- Four research passes (Linux headless behavior of `@napi-rs/keyring`; Windows Wincred `CRED_PERSIST_ENTERPRISE` disclosure; macOS Data Protection Keychain eligibility; encrypted-file primitive choice plus CLI industry precedent) independently surfaced the same cross-platform gap: `@napi-rs/keyring` does not expose a backend-identity signal on any of its three target platforms. Silent fallback is the dominant failure mode the ADR must defend against.
 
 ## Decision
 
@@ -113,8 +113,8 @@ The Ed25519 identity key MUST NOT be silently regenerated. Specifically:
 
 - The decrypted Ed25519 private key lives only in the daemon process's memory.
 - The CLI binary itself MUST NOT hold the decrypted key — CLI invocations talk to the daemon over the [Spec-006 local IPC contract](../specs/006-local-ipc-and-daemon-control.md) and ask the daemon to perform signing operations on their behalf.
-- This constraint is inherited from [security-architecture.md §Local Daemon Authentication](../architecture/security-architecture.md#local-daemon-authentication-task-51) and is the reason the session token is required (not optional) — if any CLI binary could silently request the private key over IPC, the daemon's confidentiality boundary would collapse into the IPC surface.
-- Secret zeroization at daemon shutdown: the daemon overwrites the decrypted private-key buffer before process exit and on idle-timeout eviction (see [BL-058 forward declaration](../archive/backlog-archive.md)).
+- This constraint is inherited from [security-architecture.md §Local Daemon Authentication](../architecture/security-architecture.md#local-daemon-authentication) and is the reason the session token is required (not optional) — if any CLI binary could silently request the private key over IPC, the daemon's confidentiality boundary would collapse into the IPC surface.
+- Secret zeroization at daemon shutdown: the daemon overwrites the decrypted private-key buffer before process exit and on idle-timeout eviction.
 
 ### Platform-Specific Preconditions
 
@@ -247,7 +247,7 @@ The following are explicitly deferred past V1 and are recorded here so downstrea
 
 - [x] All unvalidated assumptions have a validation plan (see Assumption 3 — Developer-ID ACL on macOS; Assumption 5 — Linux D-Bus probe completeness).
 - [x] At least one alternative was seriously considered and steel-manned (Options B, C, D, E, F above).
-- [x] Antithesis was reviewed by someone other than the author (Opus 4.7 BL-057 review pass, Session D1 close-out 2026-04-18 — blocking citation errors surfaced in B1–B4 resolved in the same session).
+- [x] Antithesis was reviewed by someone other than the author.
 - [x] Failure modes have detection mechanisms (see Failure Mode Analysis table).
 - [x] Point of no return is identified and communicated (silent key rotation would invalidate all prior session signatures — §Refuse-On-Rotation Invariant).
 
@@ -264,7 +264,7 @@ The following are explicitly deferred past V1 and are recorded here so downstrea
 
 - [ADR-010: PASETO / WebAuthn / MLS Authentication Stack](./010-paseto-webauthn-mls-auth.md) — defines the Ed25519 identity key this ADR stores.
 - [Spec-006: Local IPC And Daemon Control](../specs/006-local-ipc-and-daemon-control.md) — session-token contract that bounds CLI access to decrypted key material.
-- [security-architecture.md §Local Daemon Authentication](../architecture/security-architecture.md#local-daemon-authentication-task-51) — authoritative daemon-auth model whose mode-0600 session token is the transport-layer peer of this ADR's at-rest custody model.
+- [security-architecture.md §Local Daemon Authentication](../architecture/security-architecture.md#local-daemon-authentication) — authoritative daemon-auth model whose mode-0600 session token is the transport-layer peer of this ADR's at-rest custody model.
 - [`@napi-rs/keyring` v1.2.0](https://github.com/Brooooooklyn/keyring-node) — transport library for tier 1.
 - [`keyring-rs` v3.6.3](https://github.com/open-source-cooperative/keyring-rs) — wrapped backend; `src/windows.rs:413` is the `CRED_PERSIST_ENTERPRISE` hardcoding site.
 - [OWASP Password Storage Cheat Sheet (2026 revision)](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html) — Argon2id parameter source for tier 2.
@@ -285,12 +285,3 @@ The following are explicitly deferred past V1 and are recorded here so downstrea
   - [CVE-2025-31191](https://nvd.nist.gov/vuln/detail/CVE-2025-31191) — macOS sandbox escape (keychain-adjacent)
   - [CVE-2025-69277](https://nvd.nist.gov/vuln/detail/CVE-2025-69277) — an Ed25519 point-validation flaw (reported in libsodium); cited for the point-validation threat class applicable to any Ed25519 verifier including `@noble/curves` (informs input validation on read)
   - [CVE-2026-28864](https://nvd.nist.gov/vuln/detail/CVE-2026-28864) — macOS Keychain Access permissions
-
-## Decision Log
-
-| Date | Event | Notes |
-| --- | --- | --- |
-| 2026-04-18 | Proposed | Initial draft resolving [BL-057](../archive/backlog-archive.md). Three-tier custody ladder with write-probe-read-delete invariant. Research-informed via 4 Opus 4.7 passes (Linux silent-keyutils, Windows `CRED_PERSIST_ENTERPRISE` hardcoding, macOS no-backend-inspection / no-Secure-Enclave, encrypted-file primitive selection + CLI industry precedent). |
-| 2026-04-18 | Amended | Opus 4.7 BL-057 review pass resolved blocking citation errors: `keyring-rs` hardcoding line corrected to `src/windows.rs:413` (v3.6.3); age scrypt path corrected to root `scrypt.go` (quoted phrase verbatim preserved); Credential Guard URL updated to `considerations-known-issues` (the page that actually states Generic-credentials are unprotected); Secure Enclave citation expanded to cite CryptoKit `SecureEnclave.P256` API surface as primary source with sec59b0b31ff retained as secondary. `@napi-rs/keyring` release-date removed (npm signal inconsistent with research claim); `hwchen/keyring-rs` URL updated to canonical `open-source-cooperative/keyring-rs`. Antithesis-review checkbox flipped. |
-| 2026-04-18 | Accepted | ADR accepted at Session D1 close-out. BL-057 Exit Criteria satisfied: ADR-010 amended with §CLI Identity Key Storage cross-reference; security-architecture.md cites fallback order; the relay spec references the storage contract. |
-| 2026-05-31 | Amended | Tier-4 plan-readiness-audit Codex review (PR #129): reconciled the tier-2 primitive-stack naming from `libsodium` to the actual `@noble` stack selected by [ADR-010](./010-paseto-webauthn-mls-auth.md) — `@noble/ciphers` (XChaCha20-Poly1305 AEAD) + `@noble/hashes` (`argon2id` KDF), both Cure53-audited, with `@noble/curves` additionally audited by Kudelski Security and Trail of Bits ([Plan-020 §Implementation Steps](../plans/020-data-retention-and-gdpr.md#implementation-steps) — post-2026-07-09 PII-data-map +1 shift, atop the 2026-07-08 preconditions +1). The prior `libsodium` naming conflated the audited algorithms with the C library; `sodium-native` (a libsodium binding) stays a dependency **only** for `sodium_mlock` / `sodium_memzero` memory hygiene (Plan-020), never the file-tier cipher or KDF. No decision content changed — the OS-keystore → Argon2id-file → refuse ladder and every invariant are unchanged; this is a naming reconciliation, so the ADR stays `accepted`. |

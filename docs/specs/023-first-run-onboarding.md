@@ -10,15 +10,11 @@
 | **Depends On** | [ADR-020: V1 Deployment Model (OSS Self-Host + Hosted SaaS) and OSS License](../decisions/020-v1-deployment-model-and-oss-license.md), [Spec-006: Local IPC And Daemon Control](./006-local-ipc-and-daemon-control.md), [Spec-021: Desktop Shell And Renderer](./021-desktop-shell-and-renderer.md), [Spec-005: Session Event Taxonomy And Audit Log](./005-session-event-taxonomy-and-audit-log.md), [Spec-026: Provider Accounts And Credential Homes](./026-provider-accounts-and-credential-homes.md) |
 | **Implementation Plan** | [Plan-023: First-Run Onboarding](../plans/023-first-run-onboarding.md) |
 
-> **Amendment (2026-08-25, first-run provider-authentication surfacing — the provider step a fresh install previously never met; user-ratified, closes [BL-154](../archive/backlog-archive.md)).** Flips the previously-`approved` spec to `review` per the audit runbook's spec-amendment rule, since it adds normative §Required Behavior, §Persistence, §Default Behavior, §Fallback Behavior, §Interfaces And Contracts, §State And Data Implications, and §Acceptance Criteria text, and **restores `approved` in the same diff** through the targeted readiness-audit delta riding it — the same-PR flip-and-restore shape [Spec-026](026-provider-accounts-and-credential-homes.md), [Plan-023](../plans/023-first-run-onboarding.md), and [Plan-026](../plans/026-provider-accounts-and-credential-homes.md) take in this swap; Plan-023's paired-spec Preconditions box carries the scoped Re-opened/Delivered record. **The growth.** §Required Behavior is restated as **two independently-triggered step groups**: the three-way deployment choice and the telemetry opt-in already specified here (**Group A**, unchanged in every particular), and the new §Provider Authentication (Group B), which settles whether the node can run an agent at all. Group B is **offered, never demanded** — onboarding may complete with zero registered accounts, and the completion summary says so — is triggered on exactly three conditions including **after** an account-plane refusal, and never runs ahead of a provider run that would otherwise have been admitted. It composes the registry and readiness surfaces [Spec-026](026-provider-accounts-and-credential-homes.md) defines rather than minting a second registry, reports a provider as set up **only** on the authenticated readiness arm, and offers no field, flag, or environment variable anywhere into which a provider credential could be supplied — sign-in completes through the provider's own first-party flow, which the vendor's published policy requires. Group B deliberately **holds no state of its own**: the registry is the single source of provider truth, so nothing about the step is persisted and nothing can drift from it. **Mints nothing**: no `onboarding.*` method (the five are unchanged in name, count, and shape), no config key, no event type (the `onboarding_lifecycle` category is deliberately unwidened — the account registry is node-local, non-evented configuration), no error code (the headless arm reuses `onboarding.headless_required`), and no table. One column pair is minted, and only on the daemon side: Spec-026's unshipped `provider_accounts` CREATE statement gains the stored health reading and its observation timestamp — no table, no migration ordinal, and no census move (SQLite stays at 56). Nothing in Group B's own surface is persisted.
-
-> **Amendment (2026-08-25, CLI executable-name canonicalization — the `sidekicks://` scheme value inside §Required Behavior).** Flips the previously-`approved` spec to `review` per the audit runbook's [§Spec-Status Promotion Gate](../operations/plan-implementation-readiness-audit-runbook.md) rule that an amendment touching §Required Behavior re-triggers the gate, and **restores `approved` in the same diff** through the targeted readiness-audit delta riding it — the in-swap flip-and-restore shape the cohort established and this same vehicle takes on [Plan-006](../plans/006-local-ipc-and-daemon-control.md). **The change is one value, and it is a repair rather than a design move.** §Three-Way Choice Semantics' Option-3 sentence named the deep-link scheme with an `ai-` prefix the scheme never carried: [Spec-021](./021-desktop-shell-and-renderer.md) **owns** the scheme, the same sentence cites Spec-021 as its authority, and Spec-021 has spelled it `sidekicks://` throughout — so this spec was restating its authority incorrectly and now restates it correctly. The scheme's canonical value has not moved. **Why it flips anyway:** the sentence is inside normative §Required Behavior and a reader implementing from this spec alone would have registered the wrong handler, which is the condition the gate exists for — the correction's obviousness is not a reason to skip the lifecycle, and the in-swap restore costs nothing that the ceremony buys. §CLI Surface additionally gains one descriptive sentence naming the `sk` alias and its `PATH` collision; that sentence is outside §Required Behavior and would not itself have flipped the spec. **Mints nothing**: no method, config key, event type, error code, table, or column, and no census moves.
-
 ## Purpose
 
 Define the one-time, client-daemon first-run onboarding flow that presents the three-way deployment choice committed in [ADR-020 §First-Run UX](../decisions/020-v1-deployment-model-and-oss-license.md#first-run-ux): (1) Free public relay (default), (2) Self-host your own relay, (3) Sign up for hosted SaaS.
 
-It also defines the **provider-authentication step group** that settles whether the node can start an agent run at all — the first-run gap [BL-154](../archive/backlog-archive.md) recorded, where a node completes onboarding with no provider account registered and learns it only when its first run is refused. The two step groups are independently triggered and independently skippable; §Required Behavior names which sections belong to which.
+It also defines the **provider-authentication step group** that settles whether the node can start an agent run at all, closing the first-run gap where a node completes onboarding with no provider account registered and learns it only when its first run is refused. The two step groups are independently triggered and independently skippable; §Required Behavior names which sections belong to which.
 
 This spec covers the **client-daemon** first-run experience across both V1 clients (CLI and desktop). It does not define the self-hosted _operator_ first-run — that is `docker-compose up` for the self-hosted package and is not subject to the three-way choice. [Spec-021](./021-desktop-shell-and-renderer.md) remains authoritative for keystore access, WebAuthn orchestration, and the preload bridge; this spec composes those surfaces, it does not restate them.
 
@@ -33,7 +29,7 @@ In scope:
 - Reset semantics: the CLI reset command, the daemon-side state transition, and the next-onboarding trigger shape.
 - Telemetry opt-in flow: presented as a _separate_ step after the three-way choice resolves.
 - Fallback handling for the structural branches: keystore unavailable, self-host TLS trust-on-first-use (TOFU) mismatch, no-network, conflicting daemon already configured, headless-no-TTY environments, resume of a partially-completed first-run.
-- Event taxonomy additions (`onboarding.choice_made`, `onboarding.choice_reset`) registered in [Spec-005](./005-session-event-taxonomy-and-audit-log.md) under the `onboarding_lifecycle` category (BL-086, completed 2026-04-18).
+- Event taxonomy additions (`onboarding.choice_made`, `onboarding.choice_reset`) registered in [Spec-005](./005-session-event-taxonomy-and-audit-log.md) under the `onboarding_lifecycle` category.
 - The provider-authentication step group (Group B): its three trigger conditions, its per-provider CLI and desktop interaction, its headless expression, and the handoff into each provider's own first-party sign-in.
 
 Out of scope (see Non-Goals):
@@ -42,7 +38,7 @@ Out of scope (see Non-Goals):
 - Self-hosted _operator_ first-run — that is `docker-compose up` for the self-hosted package.
 - Hosted SaaS sign-up page UX, pricing surface, billing, or account dashboard (hosted product concerns).
 - Relay protocol design or endpoint validation contract beyond calling the relay endpoints that already exist ([Spec-028](./028-remote-control.md)).
-- Enterprise SSO onboarding (OIDC / SAML) — deferred to V1.1+ alongside the rest of the enterprise track in [BL-060](../archive/backlog-archive.md).
+- Enterprise SSO onboarding (OIDC / SAML) — deferred to V1.1+ alongside the rest of the enterprise track.
 - The provider-account registry, credential homes, the readiness derivation, spawn validation, and the vendor authentication-policy constraints — all [Spec-026](026-provider-accounts-and-credential-homes.md)'s, composed here and never re-specified. Group B owns the _surface_; it owns none of the mechanism beneath it.
 
 ## Non-Goals
@@ -142,7 +138,7 @@ Telemetry opt-in must be presented as a _separate step_ after the three-way choi
 
 ### Provider Authentication (Group B)
 
-A node that finished Group A and never met Group B can reach the relay and cannot start a run. That was the state a fresh install was previously left in — the gap discovered only when the first provider run refused. This step group closes it by surfacing the state and handing the operator to the provider's own sign-in; it does not authenticate anyone.
+A node that finished Group A and never met Group B can reach the relay and cannot start a run. Without this step group that state is discovered only when the first provider run refuses. This step group closes the gap by surfacing the state and handing the operator to the provider's own sign-in; it does not authenticate anyone.
 
 **Trigger.** Group B is offered on exactly three conditions and on nothing else:
 
@@ -154,7 +150,7 @@ It must not trigger on install, on first daemon launch, on a health check, on se
 
 **The step.** For each provider the node supports, the step displays that provider's readiness **as the daemon derives it** ([Spec-026 §Node provider readiness and the sign-in handoff](026-provider-accounts-and-credential-homes.md#node-provider-readiness-and-the-sign-in-handoff)) — never a re-derivation from account fields — and offers, per provider:
 
-- **Register an account**, where the provider has none. The operator supplies a display label and declares a billing mode; the daemon mints the account identity and its isolated credential home. Registration goes through the node-local `providerAccount.*` namespace under node-operator authority: this flow mints no second registry, no second credential store, and no shared home.
+- **Register an account**, where the provider has none. The operator declares a billing mode; the daemon mints the account identity and its isolated credential home. Registration goes through the node-local `providerAccount.*` namespace under node-operator authority: this flow mints no second registry, no second credential store, and no shared home.
 - **Sign in.** The operator is handed the provider's own first-party sign-in flow against that account's credential home, with the remedy named — which provider, which account, the invocation, and the home. The flow **displays** the invocation and never runs it on the operator's behalf. There is no field, flag, or environment variable anywhere in this flow into which a provider token could be supplied, and that absence is deliberate: [Spec-026 §Vendor authentication-policy constraints](026-provider-accounts-and-credential-homes.md#vendor-authentication-policy-constraints) records the vendor's published requirement that sign-in complete through the vendor's own flow.
 - **Re-check.** Re-take that account's authentication probe deliberately and re-display. Re-checking is an explicit act, not a poll: the step reads the daemon's stored readiness and probes only when the operator asks.
 - **Skip this provider**, at any point and without consequence to the rest of the flow.
@@ -232,7 +228,7 @@ Request/response schemas belong in [api-payload-contracts.md](../architecture/co
 
 ### Event Taxonomy Additions
 
-This spec's two onboarding events are registered in [Spec-005](./005-session-event-taxonomy-and-audit-log.md) under the `onboarding_lifecycle` category (BL-086, completed 2026-04-18):
+This spec's two onboarding events are registered in [Spec-005](./005-session-event-taxonomy-and-audit-log.md) under the `onboarding_lifecycle` category:
 
 | Event (dotted form) | Payload |
 | --- | --- |
@@ -248,7 +244,7 @@ Payloads must not contain secret material (no tokens, no SPKI pin raw bytes — 
 - **Config persistence.** `[onboarding]` block in `config.toml` is the single source of truth for the resolved choice. Secrets are keystore-resident; only public state (choice ID, relay URL, SPKI pin, opt-in flag) lives in the config file.
 - **Partial state.** `$XDG_STATE_HOME/ai-sidekicks/onboarding.partial.json` (or `$HOME/.local/state/ai-sidekicks/onboarding.partial.json` if `XDG_STATE_HOME` is unset) holds in-progress state until the choice resolves. It is cleared on success, on reset, or after a 24-hour staleness window.
 - **Keystore writes.** Option 2 writes one entry keyed `ai-sidekicks:self-host-admin-token:<relay_url_host>`. Option 3 writes one entry keyed `ai-sidekicks:hosted-saas-scoped-token`. Both use the platform-appropriate backend per Spec-021.
-- **Audit.** Both new events (`onboarding.choice_made`, `onboarding.choice_reset`) append to the daemon's local event log per [Spec-013](./013-persistence-recovery-and-replay.md); registration in Spec-005 under `onboarding_lifecycle` landed via BL-086 (completed 2026-04-18).
+- **Audit.** Both new events (`onboarding.choice_made`, `onboarding.choice_reset`) append to the daemon's local event log per [Spec-013](./013-persistence-recovery-and-replay.md), and are registered in Spec-005 under `onboarding_lifecycle`.
 - **The provider step adds no persisted state.** Group B writes nothing to `config.toml`, nothing to the partial-state file, and no keystore entry: the account registry ([Spec-026](026-provider-accounts-and-credential-homes.md)) holds every fact it establishes. No credential material, credential-home path, or account identifier is written to `config.toml`.
 - **Multi-daemon coexistence.** A single OS user may run multiple daemon versions during upgrade overlap. The onboarding block is keyed to the daemon binary's config-schema version; the running daemon ignores `[onboarding]` blocks with incompatible schema versions and re-triggers the flow under the current schema (`migrated: true` path).
 
@@ -305,7 +301,7 @@ Payloads must not contain secret material (no tokens, no SPKI pin raw bytes — 
 - [ ] Self-host TLS fingerprint mismatch on reconnect refuses the connection and surfaces the recovery paths (reset or explicit `relay repin --force`) without silent re-trust.
 - [ ] Headless-no-TTY detection fails loud with the env-var instruction and exit 2; the env-var path produces byte-identical persisted state to the interactive path.
 - [ ] Partial state at `$XDG_STATE_HOME/ai-sidekicks/onboarding.partial.json` (fallback `$HOME/.local/state/ai-sidekicks/onboarding.partial.json`) allows resume across daemon restart and clears on success, reset, or 24-hour staleness.
-- [ ] `onboarding.choice_made` and `onboarding.choice_reset` events are emitted with the payload shapes defined here; registration in Spec-005 under `onboarding_lifecycle` landed via BL-086 (completed 2026-04-18).
+- [ ] `onboarding.choice_made` and `onboarding.choice_reset` events are emitted with the payload shapes defined here, and are registered in Spec-005 under `onboarding_lifecycle`.
 - [ ] The provider-authentication step group is offered on exactly its three triggers — inside a running onboarding flow after the three-way choice resolves, after a provider run is refused on the account plane, or on explicit activation (`sidekicks onboarding start --providers` / desktop _Set up providers_) — and never on install, first launch, session creation, or ahead of a provider run that would otherwise have been admitted.
 - [ ] A node with no accounts is offered registration for each provider; registration goes through the node-local `providerAccount.*` namespace under node-operator authority, each account receives its own credential home, and no account shares a home with another.
 - [ ] The step reports a provider as set up only on the authenticated readiness arm, displays an undetermined probe as undetermined rather than as success or as a sign-in failure, and does not prompt for a provider that already has an authenticated account.
@@ -352,10 +348,3 @@ Payloads must not contain secret material (no tokens, no SPKI pin raw bytes — 
 | RFC 7636 — Proof Key for Code Exchange (PKCE) | <https://datatracker.ietf.org/doc/html/rfc7636> | 2026-04-17 |
 | OWASP Certificate and Public Key Pinning | <https://owasp.org/www-community/controls/Certificate_and_Public_Key_Pinning> | 2026-04-17 |
 | `@napi-rs/keyring` (v1.2.0, Node-native OS keystore) | <https://github.com/Brooooooklyn/keyring-node> | 2026-04-17 |
-
-### Related BLs (completed)
-
-- BL-082 — Plan-023 implementation plan (this spec's plan counterpart).
-- BL-084 — `arbitration.paused` / `arbitration.resumed` events registered in Spec-005 `channel_arbitration` category (completed 2026-04-18).
-- BL-086 — `onboarding.choice_made` / `onboarding.choice_reset` registered in Spec-005 `onboarding_lifecycle` category (completed 2026-04-18).
-- BL-154 — the first-run provider-authentication gap, closed by §Provider Authentication (Group B) (completed 2026-08-25).

@@ -2,7 +2,7 @@
 
 Typed payload definitions for all named interfaces across all specs. Each contract specifies request shape, response shape, and error shapes using TypeScript/Zod notation.
 
-**Usage:** Implementation agents translate these definitions into Zod schemas in `packages/contracts/src/`. The organization by tier follows the build order recorded in [cross-plan-dependencies.md](../cross-plan-dependencies.md).
+**Usage:** Implementation agents translate these definitions into Zod schemas in `packages/contracts/src/`. The organization by plan follows the build order recorded in [cross-plan-dependencies.md](../cross-plan-dependencies.md).
 
 **Schema reference:** Column types and constraints are in [Local SQLite Schema](../schemas/local-sqlite-schema.md) and [Shared Postgres Schema](../schemas/shared-postgres-schema.md).
 
@@ -13,16 +13,16 @@ Typed payload definitions for all named interfaces across all specs. Each contra
 Every control-plane endpoint defined in this document is implicitly scoped to the authenticated caller. Authorization rules — including every Cedar policy evaluation — treat the following as controlling inputs:
 
 - **Principal identity.** The Cedar `principal` is the `sub` claim of the caller's PASETO v4.public access token (a `UserId`). This is the only identity Cedar evaluates. See [RFC 9068 §2.2 — `sub` claim](https://datatracker.ietf.org/doc/html/rfc9068#section-2.2) for the `sub`-as-principal pattern and [ADR-010 PASETO + WebAuthn + MLS Auth](../../decisions/010-paseto-webauthn-mls-auth.md) for the V1 PASETO profile.
-- **Proof-of-possession binding.** Each access token carries a DPoP-style confirmation claim (`cnf.jkt`, per [RFC 9449 §3.1 — Public Key Confirmation via Thumbprint](https://datatracker.ietf.org/doc/html/rfc9449#section-3.1)) whose value is the SHA-256 thumbprint of the caller's bound JWK. A token is valid only when accompanied by a DPoP proof signed by the matching private key. The bound access token is presented as `Authorization: DPoP <token>` per [RFC 9449 §7.1](https://www.rfc-editor.org/rfc/rfc9449#section-7.1) — never `Bearer`, which a conforming resource server rejects for a DPoP-bound token — and the accompanying proof carries the token's `ath` hash per [RFC 9449 §4.3](https://www.rfc-editor.org/rfc/rfc9449#section-4.3); see [security-architecture.md §DPoP sender-constraining](../security-architecture.md#control-plane-authentication-task-52) for the canonical statement. `cnf.jkt` is a replay-protection binding — **not** a second principal identity; Cedar never reads it as a `principal` input.
-- **Informational body fields.** Any body field that names a user — `approver`, `requester`, `initiatorId`, `actor`, and equivalents — is routing/audit metadata only. Cedar does **not** read these fields as authorization input. Servers must reject a request when the body-supplied actor disagrees with the verified `sub`, rather than trusting the body. The converse is an application of this same rule rather than an exception to it: a request that needs no user input declares **no principal member at all**, and `ReasoningSurfaceReadRequest` (§Plan-011, 2026-09-01) is the worked instance — its caller is resolved from the transport and its schema is strict, so a caller-supplied principal is refused rather than ignored. That is a resolution-side application of this bullet and deliberately not a sixth entry in the durable-recording list below, which enumerates only where an already-resolved principal is **retained** on a durable carrier — this read retains nothing.
-- **Run-control resource context (2026-08-03 run-control authorization amendment).** For run-control adjudication — the Cedar `Action::"intervene"` evaluation on the target `Run` resource, covering interventions, the orchestration-layer `run.pause` / `run.resume` verbs, and — since 2026-08-29 — user-triggered `driver.compactContext` identically — the target run's **hosting node** is a controlling request-context input, resolved daemon-side from the target run and never from a client-supplied field (the informational-body-fields rule above applies unchanged; the durable per-run hosting-node carrier this resolution reads is a named [Plan-003 §Preconditions](../../plans/003-queue-steer-pause-resume.md#preconditions) prerequisite — no shipped run accessor or schema column carries the node today, and the one consumer that needs no carrier is `driver.compactContext`, whose target is by construction a provider binding this daemon holds, so its hosting node resolves local without a lookup): authorization evaluates against session ownership, never run authorship, and a non-local hosting node **adds** the target-node approval requirement (an approval in the `tool_execution` category per [Spec-022 Cross-Node Dispatch And Approval](../../specs/022-cross-node-dispatch-and-approval.md)) rather than substituting for the role check. The principal is transport-verified on both run-control paths: on the daemon's local socket — which admits only the node owner's own clients under the layered socket-reachability + session-token model and carries no PASETO token (the Local-daemon endpoints bullet below; [security-architecture.md §Local Daemon Authentication](../security-architecture.md#local-daemon-authentication-task-51)) — the daemon binds the Cedar principal to its **node-owner user identity** — the daemon's standing control-plane-authentication posture ([component-architecture-local-daemon.md §Responsibilities](../component-architecture-local-daemon.md#responsibilities)) — resolved through the Plan-016-gated credential/identity provider seam the §Signing-Key Registration Method Registry below already rides (the CP-005-13 constructor-injected credential-provider and `resolveCurrentUserId` pattern; `runtimenode.attach` is client-driven and hands the daemon no principal, so no attach hook supplies the value), daemon-resolved, never read from a body actor field, and failing closed while the provider is unwired — the run-control registration of that provider is a named [Plan-003 §Preconditions](../../plans/003-queue-steer-pause-resume.md#preconditions) prerequisite; a cross-node caller reaches run-control only over identity-carrying paths — a cross-node intervention arrives via Spec-022 dispatch, where the target binds the principal to the verified `caller_token.sub` after checking the token's signature and its `req_hash` body binding (the Cross-node dispatch bullet below): the envelope's request-hash-bound signed token is that transport's sender-constraining mechanism, and no separate DPoP proof rides the relay leg. Contract text: [Spec-003 §Interfaces And Contracts](../../specs/003-queue-steer-pause-resume.md#interfaces-and-contracts); rule owner: [Spec-010 §Required Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior).
-- **Local-daemon endpoints.** Endpoints reachable only over the daemon's local IPC socket (JSON-RPC 2.0 per [ADR-009 JSON-RPC IPC Wire Format](../../decisions/009-json-rpc-ipc-wire-format.md)) are authorized by socket reachability plus a required 256-bit session token presented by the Desktop Shell or CLI client (per BL-056 reconciliation on 2026-04-18; see [security-architecture.md §Local Daemon Authentication](../security-architecture.md#local-daemon-authentication-task-51)); they do not require a PASETO access token. The renderer is not a direct daemon client — renderer-originated requests are brokered by the shell via the preload bridge. **Where a local handler reads that identity (2026-09-01):** socket reachability authorizes the _connection_, and a handler adjudicating per-caller policy needs the _principal_ — so the gateway resolves the node-owner user identity through the same Plan-016-gated credential/identity provider seam the run-control bullet above names and stamps it on the dispatch context every handler already receives ([Plan-006](../../plans/006-local-ipc-and-daemon-control.md) I-006-21, its Phase 2B). It is daemon-resolved and never read from a body actor field, so the informational-body-fields rule applies to local handlers unchanged; while the identity provider is unwired the member is absent and a handler that requires one **refuses**, never substituting a default — a placeholder identity is indistinguishable from a real caller to a policy check, which would turn a fail-closed read into a fail-open one. First consumer: [Plan-011](../../plans/011-live-timeline-visibility-and-reasoning-surfaces.md)'s reasoning-surface read (CP-006-17), whose `policy_redacted` decision is exactly such an adjudication. When a local-daemon request is later forwarded cross-node via dispatch, the target daemon verifies the dispatch envelope's `caller_token` — signature plus the `req_hash` body binding per [Spec-022 Cross-Node Dispatch And Approval](../../specs/022-cross-node-dispatch-and-approval.md) — before Cedar runs: the request-hash-bound signed token is that path's sender-constraining, and no separate DPoP proof is carried on the relay leg (the Cross-node dispatch bullet below).
+- **Proof-of-possession binding.** Each access token carries a DPoP-style confirmation claim (`cnf.jkt`, per [RFC 9449 §3.1 — Public Key Confirmation via Thumbprint](https://datatracker.ietf.org/doc/html/rfc9449#section-3.1)) whose value is the SHA-256 thumbprint of the caller's bound JWK. A token is valid only when accompanied by a DPoP proof signed by the matching private key. The bound access token is presented as `Authorization: DPoP <token>` per [RFC 9449 §7.1](https://www.rfc-editor.org/rfc/rfc9449#section-7.1) — never `Bearer`, which a conforming resource server rejects for a DPoP-bound token — and the accompanying proof carries the token's `ath` hash per [RFC 9449 §4.3](https://www.rfc-editor.org/rfc/rfc9449#section-4.3); see [security-architecture.md §DPoP sender-constraining](../security-architecture.md#control-plane-authentication) for the canonical statement. `cnf.jkt` is a replay-protection binding — **not** a second principal identity; Cedar never reads it as a `principal` input.
+- **Informational body fields.** Any body field that names a user — `approver`, `requester`, `initiatorId`, `actor`, and equivalents — is routing/audit metadata only. Cedar does **not** read these fields as authorization input. Servers must reject a request when the body-supplied actor disagrees with the verified `sub`, rather than trusting the body. The converse is an application of this same rule rather than an exception to it: a request that needs no user input declares **no principal member at all**, and `ReasoningSurfaceReadRequest` (§Plan-011) is the worked instance — its caller is resolved from the transport and its schema is strict, so a caller-supplied principal is refused rather than ignored. That is a resolution-side application of this bullet and deliberately not a sixth entry in the durable-recording list below, which enumerates only where an already-resolved principal is **retained** on a durable carrier — this read retains nothing.
+- **Run-control resource context.** For run-control adjudication — the Cedar `Action::"intervene"` evaluation on the target `Run` resource, covering interventions, the orchestration-layer `run.pause` / `run.resume` verbs, and user-triggered `driver.compactContext` identically — the target run's **hosting node** is a controlling request-context input, resolved daemon-side from the target run and never from a client-supplied field (the informational-body-fields rule above applies unchanged; the durable per-run hosting-node carrier this resolution reads is a named [Plan-003 §Preconditions](../../plans/003-queue-steer-pause-resume.md#preconditions) prerequisite — no shipped run accessor or schema column carries the node today, and the one consumer that needs no carrier is `driver.compactContext`, whose target is by construction a provider binding this daemon holds, so its hosting node resolves local without a lookup): authorization evaluates against session ownership, never run authorship, and a non-local hosting node **adds** the target-node approval requirement (an approval in the `tool_execution` category per [Spec-022 Cross-Node Dispatch And Approval](../../specs/022-cross-node-dispatch-and-approval.md)) rather than substituting for the role check. The principal is transport-verified on both run-control paths: on the daemon's local socket — which admits only the node owner's own clients under the layered socket-reachability + session-token model and carries no PASETO token (the Local-daemon endpoints bullet below; [security-architecture.md §Local Daemon Authentication](../security-architecture.md#local-daemon-authentication)) — the daemon binds the Cedar principal to its **node-owner user identity** — the daemon's standing control-plane-authentication posture ([component-architecture-local-daemon.md §Responsibilities](../component-architecture-local-daemon.md#responsibilities)) — resolved through the Plan-016-gated credential/identity provider seam the §Signing-Key Registration Method Registry below already rides (the CP-005-13 constructor-injected credential-provider and `resolveCurrentUserId` pattern; `runtimenode.attach` is client-driven and hands the daemon no principal, so no attach hook supplies the value), daemon-resolved, never read from a body actor field, and failing closed while the provider is unwired — the run-control registration of that provider is a named [Plan-003 §Preconditions](../../plans/003-queue-steer-pause-resume.md#preconditions) prerequisite; a cross-node caller reaches run-control only over identity-carrying paths — a cross-node intervention arrives via Spec-022 dispatch, where the target binds the principal to the verified `caller_token.sub` after checking the token's signature and its `req_hash` body binding (the Cross-node dispatch bullet below): the envelope's request-hash-bound signed token is that transport's sender-constraining mechanism, and no separate DPoP proof rides the relay leg. Contract text: [Spec-003 §Interfaces And Contracts](../../specs/003-queue-steer-pause-resume.md#interfaces-and-contracts); rule owner: [Spec-010 §Required Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior).
+- **Local-daemon endpoints.** Endpoints reachable only over the daemon's local IPC socket (JSON-RPC 2.0 per [ADR-009 JSON-RPC IPC Wire Format](../../decisions/009-json-rpc-ipc-wire-format.md)) are authorized by socket reachability plus a required 256-bit session token presented by the Desktop Shell or CLI client (see [security-architecture.md §Local Daemon Authentication](../security-architecture.md#local-daemon-authentication)); they do not require a PASETO access token. The renderer is not a direct daemon client — renderer-originated requests are brokered by the shell via the preload bridge. **Where a local handler reads that identity:** socket reachability authorizes the _connection_, and a handler adjudicating per-caller policy needs the _principal_ — so the gateway resolves the node-owner user identity through the same Plan-016-gated credential/identity provider seam the run-control bullet above names and stamps it on the dispatch context every handler already receives ([Plan-006](../../plans/006-local-ipc-and-daemon-control.md) I-006-21, its Phase 2B). It is daemon-resolved and never read from a body actor field, so the informational-body-fields rule applies to local handlers unchanged; while the identity provider is unwired the member is absent and a handler that requires one **refuses**, never substituting a default — a placeholder identity is indistinguishable from a real caller to a policy check, which would turn a fail-closed read into a fail-open one. First consumer: [Plan-011](../../plans/011-live-timeline-visibility-and-reasoning-surfaces.md)'s reasoning-surface read (CP-006-17), whose `policy_redacted` decision is exactly such an adjudication. When a local-daemon request is later forwarded cross-node via dispatch, the target daemon verifies the dispatch envelope's `caller_token` — signature plus the `req_hash` body binding per [Spec-022 Cross-Node Dispatch And Approval](../../specs/022-cross-node-dispatch-and-approval.md) — before Cedar runs: the request-hash-bound signed token is that path's sender-constraining, and no separate DPoP proof is carried on the relay leg (the Cross-node dispatch bullet below).
 - **Cross-node dispatch.** Cross-node approval envelopes follow [Spec-022 Cross-Node Dispatch And Approval](../../specs/022-cross-node-dispatch-and-approval.md): the Cedar `principal` on the target side is bound only to `caller_token.sub`; `approver_token.sub` is carried for audit and replay-binding via the shared `bound_jti` + `request_body_hash` and does **not** become a second principal.
-- **Durable principal recording on admitting writes (2026-08-18 admitting-principal carrier amendment).** The six bullets above govern how a principal is _resolved_ for one request. This bullet governs how it is _retained_. **Every admitting write records the daemon-resolved transport-authenticated principal on its own durable row.** An admitting write is one whose acceptance authorizes later work that the original request no longer accompanies — a subsequent turn, a drained queue item, a remembered grant — so the identity must survive the request that carried it. The recorded value is resolved by exactly the mechanisms above (node-owner binding on the local socket, the verified PASETO `sub` on authenticated surfaces, `caller_token.sub` on the cross-node arm), never read from a body actor field; a body-supplied actor disagreeing with the verified identity refuses as the existing `auth.principal_mismatch` error rather than being trusted or silently normalized. Recording it on the row it admits — rather than deriving it later from event history — is what makes the identity **replay-stable**: an accumulating history offers no single answer to "under whose authority was _this_ unit of work admitted", and the informational-body-fields rule above already forbids the only wire-carried candidate. Where the row can also be written by a non-user path, a daemon-resolved origin discriminator on the same row carries which admission path produced it, with the principal required exactly on the user arm and forbidden on the system arm — enforced by the storage engine wherever the carrier is a table row, and by the recorded value's own closed shape where it is not, so the user arm cannot persist unidentified and the system arm cannot smuggle an identity in. Instances — **(1)**-**(3)** each one column per owning surface under cross-plan-dependencies.md one-writer discipline, **(4)** a payload member for the reason the shape-deviation paragraph below gives, and **(5)** a member inside a durable JSON slot rather than a column of its own: **(1)** `approval_resolutions.approver_id` — the shipped instance ([Spec-010 §Required Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior), Plan-010 D-010-12), the approver whose decision a remembered grant later re-applies; **(2)** `interventions.admitting_principal_id` beside its `origin` discriminator — the intervention caller whose principal a steer-opened or replacement-send-opened turn executes under ([Spec-003 §Required Behavior](../../specs/003-queue-steer-pause-resume.md#required-behavior), Plan-003 D-003-4; consumed by Plan-010's turn-scoped resolution, CP-003-14 ⇄ CP-010-12); **(3)** the chat-borne workflow start's authoring user, adjudicated as `Action::"workflow::start"` ([Spec-015 §Start authorization (SA-39)](../../specs/015-workflow-authoring-and-execution.md#start-authorization-sa-39)) — [Plan-015](../../plans/015-workflow-authoring-and-execution.md) instantiates its own column on its own surface when that surface lands, since the rule is a class and not a shared column; **(4)** the turn-scoped effective principal on `usage.cost_update`'s payload — the party whose causation a unit of metered spend is attributed to ([Spec-005 §Usage Telemetry](../../specs/005-session-event-taxonomy-and-audit-log.md#usage-telemetry-usage_telemetry), 2026-08-26; produced by [Plan-003](../../plans/003-queue-steer-pause-resume.md) under CP-003-16 and consumed by [Spec-014 §Session Cost Receipt](../../specs/014-multi-agent-channels-and-orchestration.md#session-cost-receipt)); **(5)** `agents.pending_switch.admittingPrincipalId` — the user who admitted a same-agent provider switch whose application can outlive both the request and the daemon that took it ([Spec-014 §Same-Agent Provider Switch](../../specs/014-multi-agent-channels-and-orchestration.md#same-agent-provider-switch), 2026-08-26), **registered in this enumeration 2026-09-01** — its own §Plan-014 slot block has recorded it as held under this rule since it was minted, so this entry closes an enumeration that named four of its five members; it carries no `origin` discriminator because `agent.configUpdate` is its only producer, which that block states as a claim under this rule rather than leaving silent.
+- **Durable principal recording on admitting writes.** The six bullets above govern how a principal is _resolved_ for one request. This bullet governs how it is _retained_. **Every admitting write records the daemon-resolved transport-authenticated principal on its own durable row.** An admitting write is one whose acceptance authorizes later work that the original request no longer accompanies — a subsequent turn, a drained queue item, a remembered grant — so the identity must survive the request that carried it. The recorded value is resolved by exactly the mechanisms above (node-owner binding on the local socket, the verified PASETO `sub` on authenticated surfaces, `caller_token.sub` on the cross-node arm), never read from a body actor field; a body-supplied actor disagreeing with the verified identity refuses as the existing `auth.principal_mismatch` error rather than being trusted or silently normalized. Recording it on the row it admits — rather than deriving it later from event history — is what makes the identity **replay-stable**: an accumulating history offers no single answer to "under whose authority was _this_ unit of work admitted", and the informational-body-fields rule above already forbids the only wire-carried candidate. Where the row can also be written by a non-user path, a daemon-resolved origin discriminator on the same row carries which admission path produced it, with the principal required exactly on the user arm and forbidden on the system arm — enforced by the storage engine wherever the carrier is a table row, and by the recorded value's own closed shape where it is not, so the user arm cannot persist unidentified and the system arm cannot smuggle an identity in. Instances — **(1)**-**(3)** each one column per owning surface under cross-plan-dependencies.md one-writer discipline, **(4)** a payload member for the reason the shape-deviation paragraph below gives, and **(5)** a member inside a durable JSON slot rather than a column of its own: **(1)** `approval_resolutions.approver_id` — the shipped instance ([Spec-010 §Required Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior), Plan-010 D-010-12), the approver whose decision a remembered grant later re-applies; **(2)** `interventions.admitting_principal_id` beside its `origin` discriminator — the intervention caller whose principal a steer-opened or replacement-send-opened turn executes under ([Spec-003 §Required Behavior](../../specs/003-queue-steer-pause-resume.md#required-behavior), Plan-003 D-003-4; consumed by Plan-010's turn-scoped resolution, CP-003-14 ⇄ CP-010-12); **(3)** the chat-borne workflow start's authoring user, adjudicated as `Action::"workflow::start"` ([Spec-015 §Start authorization (SA-39)](../../specs/015-workflow-authoring-and-execution.md#start-authorization-sa-39)) — [Plan-015](../../plans/015-workflow-authoring-and-execution.md) instantiates its own column on its own surface when that surface lands, since the rule is a class and not a shared column; **(4)** the turn-scoped effective principal on `usage.cost_update`'s payload — the party whose causation a unit of metered spend is attributed to ([Spec-005 §Usage Telemetry](../../specs/005-session-event-taxonomy-and-audit-log.md#usage-telemetry-usage_telemetry); produced by [Plan-003](../../plans/003-queue-steer-pause-resume.md) under CP-003-16 and consumed by [Spec-014 §Session Cost Receipt](../../specs/014-multi-agent-channels-and-orchestration.md#session-cost-receipt)); **(5)** `agents.pending_switch.admittingPrincipalId` — the user who admitted a same-agent provider switch whose application can outlive both the request and the daemon that took it ([Spec-014 §Same-Agent Provider Switch](../../specs/014-multi-agent-channels-and-orchestration.md#same-agent-provider-switch)), **registered in this enumeration** — its own §Plan-014 slot block has recorded it as held under this rule since it was minted, so this entry closes an enumeration that named four of its five members; it carries no `origin` discriminator because `agent.configUpdate` is its only producer, which that block states as a claim under this rule rather than leaving silent.
 
   Instance (4) differs from the first three in **two** deliberate ways, and neither is an exception to the rule. First, it is not itself an admitting write: it is the **carrier by which an admitting write's principal reaches a downstream fold**, resolved daemon-side from instance (2)'s rows. The retention discipline binds it for the same reason it binds the others — a fold that had to find the principal by ordering a metered row against turn-boundary events would be "deriving it later from event history", which is precisely what this bullet forbids, and that derivation would additionally rest on an event type the corpus types as forward and non-state. Second, its durable home is a **canonical event payload rather than a projection column**, because the unit it must attach to is a metered turn and no per-turn table exists — minting one to hold a single derived identity would add a second record of boundaries the log already orders, which [ADR-029](../../decisions/029-canonical-transcript-is-authoritative.md) rejects on its own terms. The `session_events` row is durable, replay-stable, and integrity-chained, and a typed event's fields live in its payload, so the class's requirement — recorded on the row, never re-derived — is met exactly. The origin discriminator the paragraph above requires is carried by the value's own closed two-arm shape (`EffectivePrincipal`, §Plan-014): the user reference is required on the user arm and absent on the system arm, enforced by the union rather than by a table CHECK, since a wire payload has no table to constrain.
 
-**See also:** [Security Architecture §Permission Matrix](../security-architecture.md#permission-matrix-task-54), [ADR-010 PASETO + WebAuthn + MLS Auth](../../decisions/010-paseto-webauthn-mls-auth.md), [Cedar terminology — principal, action, resource, context](https://docs.cedarpolicy.com/overview/terminology.html).
+**See also:** [Security Architecture §Permission Matrix](../security-architecture.md#permission-matrix), [ADR-010 PASETO + WebAuthn + MLS Auth](../../decisions/010-paseto-webauthn-mls-auth.md), [Cedar terminology — principal, action, resource, context](https://docs.cedarpolicy.com/overview/terminology.html).
 
 ---
 
@@ -40,7 +40,9 @@ Package-local typed surfaces are **canonical in code**, not in this file. Exampl
 
 This file does **NOT** maintain doc-side mirrors of those types. A consumer searching for the canonical runtime type reads the code path directly; this file's role for those surfaces is to cite the code location and explain cross-cutting consistency, not to redefine them. The Zod schema in code is the source of truth, and divergence between this file's prose and the Zod schema is resolved in favor of the schema.
 
-The "no-mirror" disposition was ratified for [BL-102](../../backlog.md) mirror-class sub-items on 2026-04-30. Cross-cutting decisions that DO require ratification in this file (procedure-type tables, method-name regexes, SSE wire-frame primitives, brand-type catalogs) remain in scope; package-local interface shapes do not.
+The "no-mirror" disposition holds for mirror-class sub-items. Cross-cutting decisions that DO require ratification in this file (procedure-type tables, method-name regexes, SSE wire-frame primitives, brand-type catalogs) remain in scope; package-local interface shapes do not.
+
+**Three spellings for a member that may have no value, one per situation.** A state row that reports a fact spells it required and nullable (`costLimitCents: number | null`): the member is always present, and `null` is the fact that no limit is set, never a member the writer forgot. A patch that can clear a value spells it optional and nullable (`costLimitCents?: number | null`): an omitted member leaves the stored value as it stands, and an explicit `null` clears it, the merge-patch reading (RFC 7386). A create-time request that is never patched spells it plain optional (`tokenLimit?: number`): omitted means the default, and there is no stored value to clear. Every schema mirrors the spelling of the shape it validates, and a reader that cannot tell "absent" from "cleared" is a defect in the schema, not a case to handle in the caller.
 
 ---
 
@@ -56,9 +58,9 @@ type RunId = string & { readonly __brand: "RunId" };
 type ChannelId = string & { readonly __brand: "ChannelId" };
 type QueueItemId = string & { readonly __brand: "QueueItemId" };
 type InterventionId = string & { readonly __brand: "InterventionId" };
-type ArtifactId = string & { readonly __brand: "ArtifactId" }; // encoding: an RFC 9562 UUID the daemon mints at manifest creation, distinct from the payload's SHA-256 digest — Spec-012 §Required Behavior (ratified 2026-09-08); this block registers brands, never encodings
+type ArtifactId = string & { readonly __brand: "ArtifactId" }; // encoding: an RFC 9562 UUID the daemon mints at manifest creation, distinct from the payload's SHA-256 digest — Spec-012 §Required Behavior; this block registers brands, never encodings
 type WorkspaceId = string & { readonly __brand: "WorkspaceId" };
-type WorktreeId = string & { readonly __brand: "WorktreeId" }; // EphemeralCloneId + BranchContextId: §Plan-008 (Tier 5)
+type WorktreeId = string & { readonly __brand: "WorktreeId" }; // EphemeralCloneId + BranchContextId: §Plan-008
 type RepoMountId = string & { readonly __brand: "RepoMountId" };
 type ApprovalRequestId = string & { readonly __brand: "ApprovalRequestId" };
 type WorkflowDefinitionId = string & { readonly __brand: "WorkflowDefinitionId" };
@@ -69,9 +71,9 @@ type EventCursor = string & { readonly __brand: "EventCursor" };
 
 ---
 
-## Cross-Cutting: Error Contract (Task 4.1)
+## Cross-Cutting: Error Contract
 
-All API responses use this error envelope on failure. Partially satisfies BL-026.
+All API responses use this error envelope on failure.
 
 ```ts
 // Canonical error response
@@ -142,7 +144,7 @@ type RunFailureCategory =
   | "projection failure";
 
 type QueueItemState = "queued" | "admitted" | "superseded" | "canceled" | "expired";
-type InterventionType = "steer" | "interrupt" | "cancel" | "rollback"; // rollback: campaign B2 (Spec-003 §Required Behavior). Code-mirror gate DISCHARGED — the shipped provider-driver.ts union is four-membered (Plan-004 T1.8); ApplyInterventionParams deliberately stays three-armed, because rollback dispatches through the capability-gated rollbackTo parity operation, not through applyIntervention
+type InterventionType = "steer" | "interrupt" | "cancel" | "rollback"; // rollback: Spec-003 §Required Behavior. The shipped provider-driver.ts union is four-membered (Plan-004 T1.8); ApplyInterventionParams deliberately stays three-armed, because rollback dispatches through the capability-gated rollbackTo parity operation, not through applyIntervention
 type InterventionState = "requested" | "accepted" | "applied" | "rejected" | "degraded" | "expired";
 
 type ApprovalCategory =
@@ -170,8 +172,8 @@ type ExecutionPostureMode = "readonly" | "ask" | "reviewed" | "sandboxed" | "yol
 type NodeState = "registering" | "online" | "degraded" | "offline" | "revoked";
 type ExecutionMode = "read-only" | "branch" | "worktree" | "ephemeral clone";
 type WorkspaceState = "provisioning" | "ready" | "busy" | "stale" | "archived";
-type WorktreeState = "creating" | "ready" | "dirty" | "merged" | "retired" | "failed"; // EphemeralCloneState: §Plan-008 (Tier 5)
-type RepoMountState = "attached" | "detached" | "archived"; // VcsType + RepoMountHealth: §Plan-007 (Tier 5)
+type WorktreeState = "creating" | "ready" | "dirty" | "merged" | "retired" | "failed"; // EphemeralCloneState: §Plan-008
+type RepoMountState = "attached" | "detached" | "archived"; // VcsType + RepoMountHealth: §Plan-007
 
 type ArtifactState = "pending" | "published" | "superseded";
 type ArtifactVisibility = "local-only" | "shared";
@@ -185,27 +187,26 @@ type DriverCapabilityFlag =
   | "tool_calls"
   | "reasoning_stream"
   | "model_mutation"
-  | "structured_output" // schema-constrained final output (Spec-004 §Per-Driver Capability Matrix, campaign B3)
-  | "rollback" // conversation rollback via rollbackTo (campaign B3; the rollback InterventionType member landed via campaign B2)
-  | "session_goals" // setSessionGoal / clearSessionGoal (campaign B3)
-  | "callback_tools" // daemon-curated callback-tool registry (campaign B3)
-  | "subagents" // provider-native in-session subagents under subagentPolicy (campaign B3)
-  | "transcript_replay" // accepts a canonical transcript replayed into a fresh session via replayTranscript (2026-08-26, ADR-029; the Claude cell is probe-declared, not statically true — Spec-004 §Per-Driver Capability Matrix)
-  | "limits_read" // reads the bound session's own account limits from the ALREADY-RUNNING provider process, spending no model turn, via readAccountLimits (2026-09-21, Spec-004 §Interfaces And Contracts). The Claude leg declares it from the get_usage control request; the Codex leg declares it false and pushes its own limits with the turn instead, so a false cell here is a supported declaration and the daemon keeps that account's last reading rather than emulating the read
-  | "cost_cap" // realizes a daemon-supplied hard cost cap natively at spawn — Claude --max-budget-usd; gates the Spec-014 native-cap unpriced admission (campaign B6)
-  | "context_compaction" // compacts the bound session's own provider-side context on user request via compactContext (2026-08-29, Spec-004 §User-triggered context compaction)
-  | "provider_commands" // enumerates the provider's native slash-commands and skills via listProviderCommands — a LIVE read, never a stored registry (2026-08-29, Spec-004 §The provider command and skill surface)
+  | "structured_output" // schema-constrained final output (Spec-004 §Per-Driver Capability Matrix)
+  | "rollback" // conversation rollback via rollbackTo
+  | "session_goals" // setSessionGoal / clearSessionGoal
+  | "callback_tools" // daemon-curated callback-tool registry
+  | "subagents" // provider-native in-session subagents under subagentPolicy
+  | "transcript_replay" // accepts a canonical transcript replayed into a fresh session via replayTranscript (ADR-029; the Claude cell is probe-declared, not statically true — Spec-004 §Per-Driver Capability Matrix)
+  | "limits_read" // reads the bound session's own account limits from the ALREADY-RUNNING provider process, spending no model turn, via readAccountLimits (Spec-004 §Interfaces And Contracts). The Claude leg declares it from the get_usage control request; the Codex leg declares it false and pushes its own limits with the turn instead, so a false cell here is a supported declaration and the daemon keeps that account's last reading rather than emulating the read
+  | "cost_cap" // realizes a daemon-supplied hard cost cap natively at spawn — Claude --max-budget-usd; gates the Spec-014 native-cap unpriced admission
+  | "context_compaction" // compacts the bound session's own provider-side context on user request via compactContext (Spec-004 §User-triggered context compaction)
+  | "provider_commands" // enumerates the provider's native slash-commands and skills via listProviderCommands — a LIVE read, never a stored registry (Spec-004 §The provider command and skill surface)
   | "output_speed"; // declares a user-settable provider-side output-speed mode; BOTH pinned drivers declare it, and detectionSource is STATIC on both because reading the declared state is not zero-turn (Spec-004 §The output-speed axis). Claude realizes the axis through its own fast-output setting; Codex realizes it through the participant-settable per-turn `serviceTier` override on `turn/start` — present in the default, non-field-gated generation — against the speed tiers its model catalog publishes (`Model.serviceTiers`, `defaultServiceTier`, each tier `{ id, name, description }`, with a `Fast` tier carried in upstream source), behind the provider's own `features.fast_mode` gate and surfaced to the person as the composer's `Fast` / `Standard` control and the `/fast` word
-// Code-mirror gate (campaign B3/B6) DISCHARGED: the shipped executable union
+// The shipped executable union
 // (packages/contracts/src/provider-driver.ts) exports every member above, so no member is
-// declarable in doc only and the "MUST NOT declare" carve-out this note used to carry has no remaining
-// subject. The shipped assertValidCapabilityFlags still rejects
+// declarable in doc only. The shipped assertValidCapabilityFlags rejects
 // any snapshot whose key count differs, so union +
 // validator + driver_capabilities migration backfill + conformance tests widen together as ONE change or
-// not at all — the coupling that held on every wave: the campaign's Plan-004 bundle landed the first six,
-// Plan-004 T3.19 (2026-08-26) the fourteenth by extending that same union rather than opening a second
-// seam, Plan-004 T3.26 (2026-08-29) the fifteenth through seventeenth the same way, and Plan-004 T3.28
-// (2026-09-21) the eighteenth, limits_read. Each of those last two widenings rebuilds an
+// not at all — the coupling that held on every wave: the Plan-004 bundle landed the first six,
+// Plan-004 T3.19 the fourteenth by extending that same union rather than opening a second
+// seam, Plan-004 T3.26 the fifteenth through seventeenth the same way, and Plan-004 T3.28
+// the eighteenth, limits_read. Each of those last two widenings rebuilds an
 // ALREADY-SHIPPED CHECK — migration 0011 froze
 // driver_capabilities.capability_flag at fourteen values and 0014 re-froze it at seventeen — so each consumes a next-ordinal table-rebuild migration rather than amending a CREATE, adding no table and no column; cost_cap-gated admission code
 // (Plan-014 T2.3) dispatch-gates on that bundle (same named-bundle gate as the goal driver mirror).
@@ -215,7 +216,7 @@ type DriverCapabilityFlag =
 
 ## The Session Screen's Reads, By Region
 
-An index, not a second contract: each region of the session screen, what it needs, and the payload that answers it. It exists because the screen's regions cut across every tier below, and a builder reading one tier cannot see that one region is served by four of them. Where a row names an owed operation, the owed statement lives in that operation's own registry section and is not repeated here.
+An index, not a second contract: each region of the session screen, what it needs, and the payload that answers it. It exists because the screen's regions cut across every plan section below, and a builder reading one section cannot see that one region is served by four of them. Where a row names an owed operation, the owed statement lives in that operation's own registry section and is not repeated here.
 
 | Region | What it needs | What answers it |
 | --- | --- | --- |
@@ -234,7 +235,7 @@ An index, not a second contract: each region of the session screen, what it need
 
 ---
 
-## Tier 1: Plan-001 — Session Core (Task 4.2)
+## Plan-001 — Session Core
 
 ```ts
 // SessionCreate
@@ -274,7 +275,7 @@ interface SessionReadRequest {
 }
 interface SessionReadResponse {
   session: SessionSnapshot;
-  timelineCursors: { earliest?: EventCursor; latest: EventCursor; acknowledged?: EventCursor }; // earliest?: the position immediately BEFORE the oldest surviving row (Plan-005 T4.3), a directly resumable cursor — V1-constant encode(-1) (compaction stubs rows in place, never deletes; a future retention pass deleting through N-1 moves it to encode(N-1)). Consumer: resume from acknowledged ?? earliest; gap detection decode(acknowledged) < decode(earliest) ⇒ events lost ⇒ reset projection + resume from earliest. Optional for version skew: new daemons always set it; absent ⇒ responder predates the whole Plan-005 Phase-4 read surface; the consumer discovers the absence from this very session.read response and refuses the resume cycle SDK-locally before any projection reset or subsequent replay/subscribe wire call (`Plan-028` clause (d), campaign B12 — the earlier resume-from-start sketch is unreachable through the surface it names); required at next MAJOR per ADR-018.
+  timelineCursors: { earliest?: EventCursor; latest: EventCursor; acknowledged?: EventCursor }; // earliest?: the position immediately BEFORE the oldest surviving row (Plan-005 T4.3), a directly resumable cursor — V1-constant encode(-1) (compaction stubs rows in place, never deletes; a future retention pass deleting through N-1 moves it to encode(N-1)). Consumer: resume from acknowledged ?? earliest; gap detection decode(acknowledged) < decode(earliest) ⇒ events lost ⇒ reset projection + resume from earliest. Optional for version skew: new daemons always set it; absent ⇒ responder predates the whole Plan-005 Phase-4 read surface; the consumer discovers the absence from this very session.read response and refuses the resume cycle SDK-locally before any projection reset or subsequent replay/subscribe wire call (`Plan-028` clause (d)); required at next MAJOR per ADR-018.
 }
 
 // SessionSubscribe
@@ -282,7 +283,7 @@ interface SessionSubscribeRequest {
   sessionId: SessionId;
   afterCursor?: EventCursor;
 }
-// Response: SSE stream where each event is an EventEnvelope (defined in Tier 3, Plan-005)
+// Response: SSE stream where each event is an EventEnvelope (defined under §Plans 004, 005 And 006)
 type SessionSubscribeStream = AsyncIterable<EventEnvelope>;
 
 // A session's shape, decided by its BINDING and carried as a stored discriminator — never a mode
@@ -447,9 +448,9 @@ interface SessionAttachmentRemoveResponse {
 }
 ```
 
-### Session Method-Name Registry (Tier 1, Plan-001)
+### Session Method-Name Registry
 
-The console's `session.*` operations beyond the three [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase 3 rows registered in §JSON-RPC Method-Name Registry (Tier 1 Ratified) below, and beyond the lease pair registered in §Session Terminal-Control Method Registry. Names are `dotted-camelCase` per the canonical `METHOD_NAME_FORMAT`. These ride the **daemon JSON-RPC transport only**: a session's name, its working folder, its draft, and its staged files are node-local state the terminal-owning daemon is the record authority for, so no control-plane tRPC sibling exists — the `repo.*` / `approval.*` posture. Method strings stay imperative and disjoint-by-form from the past-participle [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) durable event names (`session.renamed`, `session.goal_updated`).
+The console's `session.*` operations beyond the three [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase 3 rows registered in §JSON-RPC Method-Name Registry below, and beyond the lease pair registered in §Session Terminal-Control Method Registry. Names are `dotted-camelCase` per the canonical `METHOD_NAME_FORMAT`. These ride the **daemon JSON-RPC transport only**: a session's name, its working folder, its draft, and its staged files are node-local state the terminal-owning daemon is the record authority for, so no control-plane tRPC sibling exists — the `repo.*` / `approval.*` posture. Method strings stay imperative and disjoint-by-form from the past-participle [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) durable event names (`session.renamed`, `session.goal_updated`).
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
@@ -463,7 +464,7 @@ The console's `session.*` operations beyond the three [Plan-006](../../plans/006
 
 `session.goalUpdate` and `session.goalClear` are registered in §Plan-014's method registry, where the goal's delivery contract lives, and are listed here only so the console's session surface reads whole in one place.
 
-**Two search reads are owed and unnamed.** The palette's search box and a session's own find box are answered by ONE daemon search over session titles and message text — the cross-session form returning hits grouped by session, each hit carrying its own message anchor, and the single-session form counting every hit in that session and loading the history a hit sits in only when the person steps to it. The renderer walks no rows it does not hold, which is the whole reason the read is daemon-side. No method name is ratified for either form here, so none is registered: the operations are owed, and the shapes land with the names.
+**Two search reads are owed and unnamed.** The palette's search box and a session's own find box are answered by ONE daemon search over session titles and message text — the cross-session form returning hits grouped by session, each hit carrying its own message anchor, and the single-session form counting every hit in that session and loading the history a hit sits in only when the person steps to it. The renderer walks no rows it does not hold, which is the whole reason the read is daemon-side. No method name is ratified for either form here, so none is registered: the operations are owed, and the shapes land with the names. The index behind both is SQLite's own FTS5 over session titles and message text, which the daemon's `better-sqlite3` 13.0.3 build carries against SQLite 3.53.4 ([local-sqlite-schema §Session Search Index](../schemas/local-sqlite-schema.md#session-search-index)); hits come back in the index's own ranked order with no cap.
 
 **A session's address mints no read.** The address another session writes to when it messages this one rides `SessionSnapshot` above, because the one surface that shows it — the inspector's `Copy address` — already reads that snapshot, and a second verb would be a second source for one fact. It is absent on a session with no live provider process, and it is re-read rather than remembered, a restarted process being reached at a new address. The two operations two sessions actually talk through are tools the daemon serves to the providers and are registered in §Plan-014's registry note, not here.
 
@@ -471,63 +472,63 @@ The console's `session.*` operations beyond the three [Plan-006](../../plans/006
 
 ---
 
-## Tier 1 (cont.): Plan-028 — Remote Control Bootstrap (control-plane tRPC + SSE substrate)
+## Plan-028 — Remote Control Bootstrap (control-plane tRPC + SSE substrate)
 
-The Remote Control bootstrap (Tier 1 carve-out per [Plan-028 §Phase 0 — Already shipped](../../plans/028-remote-control.md#phase-0--already-shipped)) wraps Plan-001's `session-directory-service.ts` (Tier 1 above) in a typed [tRPC v11](https://trpc.io/) router served from Cloudflare Workers via [`@trpc/server/adapters/fetch`](https://trpc.io/docs/server/adapters/fetch) per [ADR-014 tRPC Control-Plane API](../../decisions/014-trpc-control-plane-api.md). The Tier 4 Plan-028 surface (relay broker, presence register) lives in §Tier 4 below; this Tier 1 carve-out ratifies the procedure-type assignments, the canonical method-name registry, and the SSE wire-frame primitive that the bootstrap depends on. It closes the `BLOCKED-ON-C6` tags the bootstrap tasks carried.
+The Remote Control bootstrap (the carve-out per [Plan-028 §Phase 0 — Already shipped](../../plans/028-remote-control.md#phase-0--already-shipped)) wraps Plan-001's `session-directory-service.ts` (§Plan-001 — Session Core above) in a typed [tRPC v11](https://trpc.io/) router served from Cloudflare Workers via [`@trpc/server/adapters/fetch`](https://trpc.io/docs/server/adapters/fetch) per [ADR-014 tRPC Control-Plane API](../../decisions/014-trpc-control-plane-api.md). The rest of the Plan-028 surface (relay broker, presence register) lives in §Plans 003 And 016 below; this carve-out ratifies the procedure-type assignments, the canonical method-name registry, and the SSE wire-frame primitive that the bootstrap depends on. It closes the `BLOCKED-ON-C6` tags the bootstrap tasks carried.
 
 | tRPC procedure | Procedure type | Input schema (from `packages/contracts/src/session.ts`) | Output schema | Directory-service method called |
 | --- | --- | --- | --- | --- |
 | `session.create` | `mutation` | `SessionCreateRequestSchema` | `SessionCreateResponseSchema` | `directoryService.createSession(...)` |
 | `session.read` | `query` | `SessionReadRequestSchema` | `SessionReadResponseSchema` | `directoryService.readSession(...)` |
 
-The procedure-type assignments follow the tRPC convention: read-only operations use `query` (HTTP GET-like, idempotent); writes / state-changes use `mutation` (HTTP POST-like, non-idempotent). Method-name strings are `dotted-camelCase` (`session.create`, `session.read`) per the canonical format ratified in §Tier 1 (cont.): Plan-006 below — the same `dotted-camelCase` convention applies to both Plan-028's tRPC HTTP procedures and Plan-006's JSON-RPC IPC methods so that client SDK call-site shape is symmetric across local IPC and remote control-plane calls. The Tier 1 surface uses all-lowercase segments (`session.create`, `session.read`); within-segment camelCase is permitted in nested namespaces per LSP precedent (e.g. `textDocument.didOpen`, `settings.effectiveRead`).
+The procedure-type assignments follow the tRPC convention: read-only operations use `query` (HTTP GET-like, idempotent); writes / state-changes use `mutation` (HTTP POST-like, non-idempotent). Method-name strings are `dotted-camelCase` (`session.create`, `session.read`) per the canonical format ratified in §Plan-006-Partial — Local IPC Daemon Control below — the same `dotted-camelCase` convention applies to both Plan-028's tRPC HTTP procedures and Plan-006's JSON-RPC IPC methods so that client SDK call-site shape is symmetric across local IPC and remote control-plane calls. The `session.*` surface uses all-lowercase segments (`session.create`, `session.read`); within-segment camelCase is permitted in nested namespaces per LSP precedent (e.g. `textDocument.didOpen`, `settings.effectiveRead`).
 
 ```ts
 // session.create — tRPC mutation
-//   Input:  SessionCreateRequest (defined in Tier 1, Plan-001 above)
-//   Output: SessionCreateResponse (defined in Tier 1, Plan-001 above)
+//   Input:  SessionCreateRequest (defined under §Plan-001 — Session Core above)
+//   Output: SessionCreateResponse (defined under §Plan-001 — Session Core above)
 //   Wraps:  directoryService.createSession(...)
 
 // session.read — tRPC query
-//   Input:  SessionReadRequest (defined in Tier 1, Plan-001 above)
-//   Output: SessionReadResponse (defined in Tier 1, Plan-001 above)
+//   Input:  SessionReadRequest (defined under §Plan-001 — Session Core above)
+//   Output: SessionReadResponse (defined under §Plan-001 — Session Core above)
 //   Wraps:  directoryService.readSession(...)
 
 // session.subscribe — tRPC subscription (SSE-backed via @trpc/server/adapters/fetch)
-//   Input:  SessionSubscribeRequest (defined in Tier 1, Plan-001 above)
-//   Output: AsyncIterable<EventEnvelope> (EventEnvelope defined in Tier 3, Plan-005)
+//   Input:  SessionSubscribeRequest (defined under §Plan-001 — Session Core above)
+//   Output: AsyncIterable<EventEnvelope> (EventEnvelope defined under §Plans 004, 005 And 006)
 //   tRPC substrate: resolveResponse.ts detects subscription procedures and wraps
-//   the async generator into a ReadableStream-backed Response per BL-104 (2026-04-30).
+//   the async generator into a ReadableStream-backed Response.
 ```
 
-### SSE Wire Frame (Tier 1 Ratified)
+### SSE Wire Frame
 
-The wire frame below is the Tier 1 ratified shape, formerly carried inline as `BLOCKED-ON-C6` in the bootstrap plan (per that plan's readiness audit — SSE primitive scope and Workers reformulation). SSE adapter selection is settled by [BL-104 resolution (2026-04-30)](../../backlog.md): tRPC v11's shared HTTP resolver (`@trpc/server/adapters/fetch` substrate at `packages/server/src/unstable-core-do-not-import/http/resolveResponse.ts` upstream) detects subscription procedures and produces the SSE-streaming `Response` natively when invoked through `fetchRequestHandler` on Cloudflare Workers — no separate SSE adapter is required.
+The wire frame below is the ratified shape. SSE adapter selection is settled: tRPC v11's shared HTTP resolver (`@trpc/server/adapters/fetch` substrate at `packages/server/src/unstable-core-do-not-import/http/resolveResponse.ts` upstream) detects subscription procedures and produces the SSE-streaming `Response` natively when invoked through `fetchRequestHandler` on Cloudflare Workers — no separate SSE adapter is required.
 
 - `Content-Type: text/event-stream; charset=utf-8`
 - `Cache-Control: no-store`
 - `X-Accel-Buffering: no`
 - One `EventEnvelope` per SSE event, encoded as `data: <single-line JSON>` (`JSON.stringify` with no embedded newlines, per [WHATWG HTML §Server-sent events — `data` field](https://html.spec.whatwg.org/multipage/server-sent-events.html#dispatchMessage)).
-- `id:` carries the `EventCursor` value from Plan-005 (or a placeholder string at Tier 1 pending Plan-005 widening).
+- `id:` carries the `EventCursor` value from Plan-005 (or a placeholder string until Plan-005 widens it).
 - `retry: 5000` — advisory client retry interval in milliseconds (enforced at `packages/control-plane/src/server/sse-retry-prefix.ts`).
 - On reconnect with the `Last-Event-ID` header, the server emits all events strictly after that cursor.
 - `event: heartbeat\ndata: {}\n\n` every 15 seconds in the absence of data.
 
-The `EventEnvelopeVersion` brand carried on every emitted envelope is canonical at the Plan-005 definition below — `string & { readonly __brand: "EventEnvelopeVersion" }` per [ADR-018 §Decision #1](../../decisions/018-cross-version-compatibility.md#decision): on the wire it is the semver `"MAJOR.MINOR"` string. This is the **event envelope** version field, distinct from the JSON-RPC handshake `protocolVersion` field discussed in §Tier 1 (cont.): Plan-006 below.
+The `EventEnvelopeVersion` brand carried on every emitted envelope is canonical at the Plan-005 definition below — `string & { readonly __brand: "EventEnvelopeVersion" }` per [ADR-018 §Decision #1](../../decisions/018-cross-version-compatibility.md#decision): on the wire it is the semver `"MAJOR.MINOR"` string. This is the **event envelope** version field, distinct from the JSON-RPC handshake `protocolVersion` field discussed in §Plan-006-Partial — Local IPC Daemon Control below.
 
-The cross-tier `SessionEvent` discriminated-union surface is closed via [BL-102](../../backlog.md) no-mirror disposition (2026-04-30): the canonical type lives in `packages/contracts/src/event.ts` as a Zod-validated `z.discriminatedUnion("type", [...])`, this file does not maintain a wire-form mirror, and the §Source-of-Truth Policy above governs the relationship.
+The cross-plan `SessionEvent` discriminated-union surface is closed by the no-mirror disposition: the canonical type lives in `packages/contracts/src/event.ts` as a Zod-validated `z.discriminatedUnion("type", [...])`, this file does not maintain a wire-form mirror, and the §Source-of-Truth Policy above governs the relationship.
 
-The Plan-006 JSON-RPC method-name registry sub-item and the `protocolVersion` field-type sub-item are both closed in §Tier 1 (cont.): Plan-006 below — the latter via 2026-05-01 ratification of ISO 8601 `YYYY-MM-DD` date-string form, per [MCP §Architecture overview](https://modelcontextprotocol.io/docs/learn/architecture) precedent. (The prior closure-by-conflation between handshake-`protocolVersion` and the `EventEnvelopeVersion` brand above was rolled back in commit `735b069` (2026-04-30); the two surfaces remain distinct — `EventEnvelopeVersion` is a semver `MAJOR.MINOR` brand on event-envelopes, `protocolVersion` is a date-string on every JSON-RPC request after handshake.)
+The Plan-006 JSON-RPC method-name registry sub-item and the `protocolVersion` field-type sub-item are both closed in §Plan-006-Partial — Local IPC Daemon Control below — the latter as the ISO 8601 `YYYY-MM-DD` date-string form, per [MCP §Architecture overview](https://modelcontextprotocol.io/docs/learn/architecture) precedent. (The prior closure-by-conflation between handshake-`protocolVersion` and the `EventEnvelopeVersion` brand above was rolled back in commit `735b069`; the two surfaces remain distinct — `EventEnvelopeVersion` is a semver `MAJOR.MINOR` brand on event-envelopes, `protocolVersion` is a date-string on every JSON-RPC request after handshake.)
 
 ---
 
-## Tier 1 (cont.): Plan-006 — Plan-006-Partial (local IPC daemon-control)
+## Plan-006-Partial — Local IPC Daemon Control
 
-[Plan-006 Phase 3](../../plans/006-local-ipc-and-daemon-control.md) defines the JSON-RPC IPC surface served by the local runtime daemon to in-tree clients (CLI, desktop renderer). The Plan-006-partial Tier 1 carve-out per [`docs/plans/006-local-ipc-and-daemon-control.md`](../../plans/006-local-ipc-and-daemon-control.md) §Execution Windows ratifies a subset of that surface inline with Plan-001's session-core types. This subsection ratifies (1) the canonical method-name format that [Plan-006 §I-006-9](../../plans/006-local-ipc-and-daemon-control.md#i-006-9--method-names-conform-to-the-canonical-format-declared-in-api-payload-contractsmd) requires the registry to enforce mechanically at `register(method, ...)` call time and (2) the JSON-RPC handshake `protocolVersion` field type. The remaining Plan-006 sub-items are: (a) `MethodRegistry` runtime shape per F-006p-2-03 — closed via [BL-102](../../backlog.md) no-mirror disposition (2026-04-30); canonical source: `packages/contracts/src/jsonrpc-registry.ts`. (b) `LocalSubscriptionProducer<T>` shape per F-006p-3-02 — closed via [BL-102](../../backlog.md) no-mirror disposition (2026-04-30); canonical source: `packages/contracts/src/jsonrpc-streaming.ts` (the paired client-side consumer shape `LocalSubscriptionConsumer<T>` lives at `packages/client-sdk/src/transport/types.ts`; rename landed 2026-05-19 via BL-115). (c) `protocolVersion` field type per F-006p-2-01 — **closed via §JSON-RPC Handshake `protocolVersion` Field (Tier 1 Ratified) below (2026-05-01)**: ISO 8601 `YYYY-MM-DD` date-string form, current value `"2026-05-01"`. (d) JSON-RPC error envelope shape per F-006p-2-02 — closed via [BL-103](../../backlog.md) §JSON-RPC Wire Mapping ratification in [error-contracts.md](./error-contracts.md), separate from BL-102.
+[Plan-006 Phase 3](../../plans/006-local-ipc-and-daemon-control.md) defines the JSON-RPC IPC surface served by the local runtime daemon to in-tree clients (CLI, desktop renderer). The Plan-006-partial carve-out per [`docs/plans/006-local-ipc-and-daemon-control.md`](../../plans/006-local-ipc-and-daemon-control.md) §Execution Windows ratifies a subset of that surface inline with Plan-001's session-core types. This subsection ratifies (1) the canonical method-name format that [Plan-006 §I-006-9](../../plans/006-local-ipc-and-daemon-control.md#i-006-9--method-names-conform-to-the-canonical-format-declared-in-api-payload-contractsmd) requires the registry to enforce mechanically at `register(method, ...)` call time and (2) the JSON-RPC handshake `protocolVersion` field type. The remaining Plan-006 sub-items are: (a) `MethodRegistry` runtime shape per F-006p-2-03 — closed by the no-mirror disposition; canonical source: `packages/contracts/src/jsonrpc-registry.ts`. (b) `LocalSubscriptionProducer<T>` shape per F-006p-3-02 — closed by the no-mirror disposition; canonical source: `packages/contracts/src/jsonrpc-streaming.ts` (the paired client-side consumer shape `LocalSubscriptionConsumer<T>` lives at `packages/client-sdk/src/transport/types.ts`). (c) `protocolVersion` field type per F-006p-2-01 — **closed via §JSON-RPC Handshake `protocolVersion` Field below**: ISO 8601 `YYYY-MM-DD` date-string form, current value `"2026-05-01"`. (d) JSON-RPC error envelope shape per F-006p-2-02 — closed by the §JSON-RPC Wire Mapping ratification in [error-contracts.md](./error-contracts.md), separate from the no-mirror disposition.
 
-### JSON-RPC Method-Name Registry (Tier 1 Ratified)
+### JSON-RPC Method-Name Registry
 
-Closes the BL-102 sub-item "JSON-RPC method-name canonical-format registry (`session.create` vs `session/create`)" and feature ID F-006p-3-01.
+Closes the "JSON-RPC method-name canonical-format registry (`session.create` vs `session/create`)" and feature ID F-006p-3-01.
 
 **Canonical format**: `dotted-camelCase`. Method-name strings match the regex:
 
@@ -535,9 +536,9 @@ Closes the BL-102 sub-item "JSON-RPC method-name canonical-format registry (`ses
 /^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/
 ```
 
-Every dot-delimited segment starts with a lowercase letter and may contain camelCase (`[a-z][a-zA-Z0-9]*`) — the first segment (the namespace root) included. This adopts the dotted-camelCase _segment_ style of the LSP precedent ([Language Server Protocol §General Messages](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/) — e.g. `workspace.executeCommand`) and the MCP precedent ([Model Context Protocol §Protocol Messages](https://modelcontextprotocol.io/specification/2025-06-18/server/tools) — `tools.list`, `tools.call`), and applies that style **uniformly to every segment, the root included**. It did not always: the leading segment was once tightened to lowercase-only, which rejected LSP's own camelCase-rooted names such as `textDocument.didOpen` while citing LSP — whose roots are camelCase — as the precedent for the style, and which, once the ten-verb `providerAccount.*` namespace was ratified ([Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) / [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) / [ADR-028](../../decisions/028-provider-credential-custody-posture.md)) and registered in §Plan-026 — Provider Accounts And Credential Homes below, rejected a namespace root **this document itself registers** — so the `register()`-time guard below would have thrown on all ten verbs at daemon boot. The widening resolves the contradiction by moving the first segment to the class the later segments already admit, which is the class the cited precedent uses; renaming ten ratified verbs across every spec, plan, ADR, architecture contract, and runbook that carries them, to satisfy a regex whose own stated precedent contradicts it, was the wrong direction. Nothing else moves: segment-internal rules are unchanged, the two-segment minimum is unchanged, and an uppercase-**starting** segment is still rejected in any position (`Session.create` fails, as it always did). `providerAccount` is the only registered method root carrying an uppercase letter; every other registered root is a lowercase identifier. Registered or shipped, by the plan that owns each: `session`, `daemon`, `run`, `repo`, `approval`, `user`, `gdpr`, `runtimenode`, `channel`, `orchestration` and `agent` (Plan-014, whose `agent` root also carries Plan-027's definition-plane operations), `gitflow` (Plan-009), `mcp` (Plan-025), `timeline` (Plan-011), `attention` (Plan-017), `health` (Plan-018), `workflow` (Plan-015), `shell` (Plan-021, the one shell-hosted root), and the console's own `plan` (the plan verdict, Plan-010), `turn` and `question` (Plan-011), `command` (the running-command surface, Plan-004), and `preview` and `browser` (the page hosts, Plan-021). Still planned: `driver`, `settings`, `event`, `artifact`. The V1 Tier 1 surface (`session.create`, `session.read`, `session.subscribe`) uses all-lowercase segments; nested-namespace operations like `settings.effectiveRead` and `driver.listCapabilities` (lowercase root + camelCase tail) are permitted under this regex, as is a camelCase root such as `providerAccount.list`.
+Every dot-delimited segment starts with a lowercase letter and may contain camelCase (`[a-z][a-zA-Z0-9]*`) — the first segment (the namespace root) included. This adopts the dotted-camelCase _segment_ style of the LSP precedent ([Language Server Protocol §General Messages](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/) — e.g. `workspace.executeCommand`) and the MCP precedent ([Model Context Protocol §Protocol Messages](https://modelcontextprotocol.io/specification/2025-06-18/server/tools) — `tools.list`, `tools.call`), and applies that style **uniformly to every segment, the root included**. It did not always: the leading segment was once tightened to lowercase-only, which rejected LSP's own camelCase-rooted names such as `textDocument.didOpen` while citing LSP — whose roots are camelCase — as the precedent for the style, and which, once the ten-verb `providerAccount.*` namespace was ratified ([Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) / [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) / [ADR-028](../../decisions/028-provider-credential-custody-posture.md)) and register()ed in §Plan-026 — Provider Accounts And Credential Homes below, rejected a namespace root **this document itself registers** — so the `register`-time guard below would have thrown on all ten verbs at daemon boot. The widening resolves the contradiction by moving the first segment to the class the later segments already admit, which is the class the cited precedent uses; renaming ten ratified verbs across every spec, plan, ADR, architecture contract, and runbook that carries them, to satisfy a regex whose own stated precedent contradicts it, was the wrong direction. Nothing else moves: segment-internal rules are unchanged, the two-segment minimum is unchanged, and an uppercase-**starting** segment is still rejected in any position (`Session.create` fails, as it always did). `providerAccount` is the only registered method root carrying an uppercase letter; every other registered root is a lowercase identifier. Registered or shipped, by the plan that owns each: `session`, `daemon`, `run`, `repo`, `approval`, `user`, `gdpr`, `runtimenode`, `channel`, `orchestration` and `agent` (Plan-014, whose `agent` root also carries Plan-027's definition-plane operations), `gitflow` (Plan-009), `mcp` (Plan-025), `timeline` (Plan-011), `attention` (Plan-017), `health` (Plan-018), `workflow` (Plan-015), `shell` (Plan-021, the one shell-hosted root), and the console's own `plan` (the plan verdict, Plan-010), `turn` and `question` (Plan-011), `command` (the running-command surface, Plan-004), and `preview` and `browser` (the page hosts, Plan-021). Still planned: `driver`, `settings`, `event`, `artifact`. The V1 `session.*` surface (`session.create`, `session.read`, `session.subscribe`) uses all-lowercase segments; nested-namespace operations like `settings.effectiveRead` and `driver.listCapabilities` (lowercase root + camelCase tail) are permitted under this regex, as is a camelCase root such as `providerAccount.list`.
 
-The regex accepts the Tier 1 surface and rejects:
+The regex accepts the registered surface and rejects:
 
 - `session/create` — slash-style (visually conflated with HTTP path segments; ambiguous in JSON-RPC contexts where method names appear in the JSON `method` field, not URLs).
 - `SessionCreate` — PascalCase (collides with the project's TypeScript type-name convention; `Session.create` is rejected on the same ground — the root widening admits an uppercase letter _inside_ a segment, never at its start; `SessionCreate` is already a request-payload type symbol per `packages/contracts/src/session.ts`, so a string-form would be ambiguous at every call site).
@@ -551,7 +552,7 @@ The regex accepts the Tier 1 surface and rejects:
 | `session.read` | RPC (request/response) | Resolve session by id. |
 | `session.subscribe` | Long-lived (`LocalSubscriptionConsumer<EventEnvelope>`) | Replay-then-tail event stream. |
 
-**Cross-transport consistency**: This same `dotted-camelCase` format is used by Plan-028's tRPC HTTP procedures (per §Tier 1 (cont.): Plan-028 above). Both transport surfaces share the convention so that client SDK call-site shape is symmetric across local IPC and remote control-plane calls — `client.session.create({ ... })` reads identically whether the underlying transport is local JSON-RPC over Unix domain socket or tRPC HTTP over the control-plane.
+**Cross-transport consistency**: This same `dotted-camelCase` format is used by Plan-028's tRPC HTTP procedures (per §Plan-028 — Remote Control Bootstrap above). Both transport surfaces share the convention so that client SDK call-site shape is symmetric across local IPC and remote control-plane calls — `client.session.create({ ... })` reads identically whether the underlying transport is local JSON-RPC over Unix domain socket or tRPC HTTP over the control-plane.
 
 **Register-time enforcement** (closes [Plan-006 §I-006-9](../../plans/006-local-ipc-and-daemon-control.md#i-006-9--method-names-conform-to-the-canonical-format-declared-in-api-payload-contractsmd) `BLOCKED-ON-C6`): the method registry's `register(method, handler)` call MUST evaluate `method` against this regex and throw on mismatch. This is mechanical validation, not human review — out-of-format names cannot reach the dispatcher.
 
@@ -566,11 +567,11 @@ function register(method: string, handler: Handler): void {
 }
 ```
 
-The runtime regex check is owed by the Plan-006 substrate at `packages/runtime-daemon/src/ipc/registry.ts#isCanonicalMethodName` (the `register()`-time guard), which imports the canonical regex as the `METHOD_NAME_FORMAT` constant exported from `packages/contracts/src/jsonrpc-registry.ts` (the single source — no per-package re-declaration — per BL-142, 2026-06-21); the `MethodRegistry` interface itself (F-006p-2-03) is likewise canonical in code there per the §Source-of-Truth Policy at the top of this file (closed via [BL-102](../../backlog.md) no-mirror disposition, 2026-04-30).
+The runtime regex check is owed by the Plan-006 substrate at `packages/runtime-daemon/src/ipc/registry.ts#isCanonicalMethodName` (the `register()`-time guard), which imports the canonical regex as the `METHOD_NAME_FORMAT` constant exported from `packages/contracts/src/jsonrpc-registry.ts` (the single source — no per-package re-declaration); the `MethodRegistry` interface itself (F-006p-2-03) is likewise canonical in code there per the §Source-of-Truth Policy at the top of this file (closed by the no-mirror disposition).
 
-### JSON-RPC Handshake `protocolVersion` Field (Tier 1 Ratified)
+### JSON-RPC Handshake `protocolVersion` Field
 
-Closes the BL-102 sub-item for the `protocolVersion` field type and feature ID F-006p-2-01. Closes [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) `BLOCKED-ON-C6` markers across the JSON-RPC handshake substrate (`packages/contracts/src/jsonrpc.ts`, `packages/contracts/src/jsonrpc-negotiation.ts`, `packages/runtime-daemon/src/ipc/protocol-negotiation.ts`, and the client-SDK transport surface).
+Closes the sub-item for the `protocolVersion` field type and feature ID F-006p-2-01. Closes [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) `BLOCKED-ON-C6` markers across the JSON-RPC handshake substrate (`packages/contracts/src/jsonrpc.ts`, `packages/contracts/src/jsonrpc-negotiation.ts`, `packages/runtime-daemon/src/ipc/protocol-negotiation.ts`, and the client-SDK transport surface).
 
 **Canonical format**: ISO 8601 date-string in `YYYY-MM-DD` form. The substrate Zod schema at `packages/contracts/src/jsonrpc-negotiation.ts#ProtocolVersionSchema` MUST be:
 
@@ -578,15 +579,15 @@ Closes the BL-102 sub-item for the `protocolVersion` field type and feature ID F
 const ProtocolVersionSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 ```
 
-**Current value**: `"2026-05-01"` — the ratification date is the V1 protocol version. The daemon's supported set at `packages/runtime-daemon/src/ipc/protocol-negotiation.ts#DAEMON_SUPPORTED_PROTOCOL_VERSIONS` is `["2026-05-01"]` for V1; future revisions advance the date and append to the array.
+**Current value**: `"2026-05-01"` — the date string is the V1 protocol version. The daemon's supported set at `packages/runtime-daemon/src/ipc/protocol-negotiation.ts#DAEMON_SUPPORTED_PROTOCOL_VERSIONS` is `["2026-05-01"]` for V1; future revisions advance the date and append to the array.
 
-**Ordering convention**: ISO 8601 date-strings are lexicographically equivalent to chronologically ordered. The `negotiateProtocol` algorithm uses string-sort (`[...].sort().at(-1)!`) for max-version selection, with no separate semver parser. Floor / ceiling discrimination uses the same lex order against the daemon's supported set.
+**Ordering convention**: ISO 8601 date-strings are lexicographically equivalent to chronologically ordered. The `negotiateProtocol` algorithm uses string-sort() (`[...].sort.at(-1)!`) for max-version selection, with no separate semver parser. Floor / ceiling discrimination uses the same lex order against the daemon's supported set.
 
 **Rationale**: This project is an AI-agent IPC running `claude-driver` and `codex-driver` provider processes; the [Model Context Protocol (MCP) §Architecture overview](https://modelcontextprotocol.io/docs/learn/architecture) is the closest-analog 2024-2026 convention from Anthropic, and MCP uses date-string `protocolVersion` (e.g. `"2025-06-18"`) for the same handshake semantics. Date-strings encode release date inherently, dodge the semver "v1.5 with no v1.4" ambiguity, and are immediately readable in logs and error reports without a parser.
 
-**Distinction from `EventEnvelopeVersion`**: `protocolVersion` is the JSON-RPC handshake field on every request — it identifies the wire-protocol revision the client and daemon speak. `EventEnvelopeVersion` (per [ADR-018](../../decisions/018-cross-version-compatibility.md), defined in §Tier 3: Plan-005 below) is a semver `MAJOR.MINOR` brand on event envelopes — it identifies the event-data schema revision. The two surfaces are independent and evolve on independent cadences; conflating them was the failure mode rolled back in commit `735b069` (2026-04-30).
+**Distinction from `EventEnvelopeVersion`**: `protocolVersion` is the JSON-RPC handshake field on every request — it identifies the wire-protocol revision the client and daemon speak. `EventEnvelopeVersion` (per [ADR-018](../../decisions/018-cross-version-compatibility.md), defined under §Plans 004, 005 And 006 below) is a semver `MAJOR.MINOR` brand on event envelopes — it identifies the event-data schema revision. The two surfaces are independent and evolve on independent cadences; conflating them was the failure mode rolled back in commit `735b069`.
 
-### JSON-RPC Request `id` Bound (Tier 1 Ratified)
+### JSON-RPC Request `id` Bound
 
 **Canonical bound**: a request `id` may not exceed `JSON_RPC_ID_MAX_BYTES` (256) bytes once JSON-encoded. The constant is declared at `packages/contracts/src/jsonrpc.ts` beside the frame's message-size limit and re-exported unchanged by `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts`, which enforces it.
 
@@ -600,7 +601,7 @@ const ProtocolVersionSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 ---
 
-## Tier 2: Plan-002 — Runtime Node Attach (Task 4.4)
+## Plan-002 — Runtime Node Attach
 
 ```ts
 // RuntimeNodeAttach
@@ -630,7 +631,7 @@ interface RuntimeNodeHeartbeatRequest {
 interface RuntimeNodeCapabilityUpdateRequest {
   nodeId: NodeId;
   capabilities: Record<string, unknown>;
-  healthChanges?: { state: "online" | "degraded"; reason?: string }; // self-reported capability-health — the SAME 2-value RuntimeNodeHealthState axis as attach/heartbeat above (Spec-002 §Default-Behavior capabilityupdate amendment, 2026-06-04). A daemon self-reports only its own capability-health; offline is server-derived liveness-death (the staleness sweep, Plan-002 T3.6) and revoked is an authority-issued trust decision (detach/admin, Plan-002 T3.7) — neither is daemon-self-reportable, so both are unrepresentable here. The request narrows to the 2-value health axis; the response state below stays the broad server-derived NodeState liveness projection — the asymmetry is intentional (daemon asserts narrow, server reports broad).
+  healthChanges?: { state: "online" | "degraded"; reason?: string }; // self-reported capability-health — the SAME 2-value RuntimeNodeHealthState axis as attach/heartbeat above (Spec-002 §Default Behavior). A daemon self-reports only its own capability-health; offline is server-derived liveness-death (the staleness sweep, Plan-002 T3.6) and revoked is an authority-issued trust decision (detach/admin, Plan-002 T3.7) — neither is daemon-self-reportable, so both are unrepresentable here. The request narrows to the 2-value health axis; the response state below stays the broad server-derived NodeState liveness projection — the asymmetry is intentional (daemon asserts narrow, server reports broad).
 }
 interface RuntimeNodeCapabilityUpdateResponse {
   nodeId: NodeId;
@@ -647,8 +648,8 @@ interface RuntimeNodeDetachRequest {
 
 // RuntimeNodeRoster — control-plane tRPC ONLY (the namespace's first query; no daemon JSON-RPC
 // registration — the roster is control-plane-owned cross-node state, a daemon knows only itself).
-// Added 2026-06-09 (PR #150, user-directed Plan-002 Phase 5 scope expansion); pinned in
-// Spec-002 §Interfaces And Contracts (2026-06-09 amendment).
+// Added by the user-directed Plan-002 Phase 5 scope expansion; pinned in
+// Spec-002 §Interfaces And Contracts.
 interface RuntimeNodeRosterRequest {
   sessionId: SessionId;
 }
@@ -664,9 +665,9 @@ interface RuntimeNodeRosterEntry {
   attachedAt: string;
 }
 interface RuntimeNodeRosterResponse {
-  nodes: RuntimeNodeRosterEntry[]; // one entry per runtime_node_attachments row for the session — bounded by distinct nodes ever attached (UNIQUE(node_id, session_id)); both health axes carried verbatim, never collapsed into one scalar (reconciliation is the CLIENT's render-time concern — the Spec-002 line-73 never-mask stance)
+  nodes: RuntimeNodeRosterEntry[]; // one entry per runtime_node_attachments row for the session — bounded by distinct nodes ever attached (UNIQUE(node_id, session_id)); both health axes carried verbatim, never collapsed into one scalar (reconciliation is the CLIENT's render-time concern — Spec-002's never-mask stance)
   // Each shell's write-lease holder ([Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior)): ONE ENTRY PER HELD SHELL, and no entry at all for a shell nothing holds. A missing entry therefore reads the same two ways, deliberately — the lease is free, or a held lease is read-suppressed while its producing node is server-classified offline — and both mean no advertised holder, which is the fail-closed shape: writes to a shell with no advertised holder are refused, so nothing a client can do with the two cases differs.
-  // Source: the terminal-owning daemon is the lease authority and sole producer — it publishes every transition to the control plane via `runtimenode.leaseupdate` (the Terminal-Control registry's projection-sync mutation below), which persists the current holder of that shell in `session_terminal_leases` (shared Postgres; durable coordination record, same tier as `runtime_node_presence`, one row per `(session, shell)`, the holder cleared on the auto-release presence/attachment drop, on holder authorization loss — the holding device suspended or revoked — and on the agent-run write-burst release (`auto_released_run_idle`: the acquiring run's first lifecycle transition out of `running`) — per Spec-002; DDL forward-declared in [shared-postgres-schema.md §Session Terminal Lease](../schemas/shared-postgres-schema.md#session-terminal-lease-plan-022); table forward-assigned in cross-plan-dependencies §3 to the Plan-022 Phase 3B lease leg — campaign B16 — whose additive migration ships it and extends this roster read's projection beyond today's attachments × presence join).
+  // Source: the terminal-owning daemon is the lease authority and sole producer — it publishes every transition to the control plane via `runtimenode.leaseupdate` (the Terminal-Control registry's projection-sync mutation below), which persists the current holder of that shell in `session_terminal_leases` (shared Postgres; durable coordination record, the same storage class as `runtime_node_presence`, one row per `(session, shell)`, the holder cleared on the auto-release presence/attachment drop, on holder authorization loss — the holding device suspended or revoked — and on the agent-run write-burst release (`auto_released_run_idle`: the acquiring run's first lifecycle transition out of `running`) — per Spec-002; DDL forward-declared in [shared-postgres-schema.md §Session Terminal Lease](../schemas/shared-postgres-schema.md#session-terminal-lease-plan-022); table forward-assigned in cross-plan-dependencies §3 to the Plan-022 Phase 3B lease leg, whose additive migration ships it and extends this roster read's projection beyond today's attachments × presence join).
   // Projected from `session_terminal_leases` with ONE read-time liveness predicate, applied per row: a holder whose producing node carries `runtime_node_presence.health_state = 'offline'` is LEFT OUT of this list (the registry paragraph below — a read-side suppression, never a projection write), and every other shell's entry stands. This is not the collapsed-scalar masking the node rows forbid: that node's `healthState` / `lastHeartbeatAt` ride verbatim in the same response, so the payload never contradicts itself — an absent entry and a live `offline` verdict on the node rows read together, and no client offers write affordances against a holder the control plane cannot vouch live.
   controlHolder: Array<{
     terminalId: string; // the daemon's own handle for that shell; no client mints one
@@ -680,11 +681,11 @@ interface RuntimeNodeRosterResponse {
 }
 ```
 
-### Runtime-Node Method-Name Registry (Tier 2)
+### Runtime-Node Method-Name Registry
 
-Plan-002's runtime-node operations are exposed as five methods — four state-changing operations plus one roster read (`runtimenode.roster`, added 2026-06-09 by the user-directed Plan-002 Phase 5 scope expansion, PR #150). A sixth `runtimenode.*` method — the Plan-022 lease projection-sync mutation `runtimenode.leaseupdate` (campaign B4, 2026-07-13) — registers in the §Session Terminal-Control Method Registry below, where its lease context lives; the seventh and eighth — the Plan-005 signing-key registration/resolution pair `runtimenode.signingkeyregister` / `runtimenode.signingkeyroster` (T4.10 per CP-005-7 leg B / CP-002-5, 2026-07-29) — register in the §Signing-Key Registration Method Registry below, where their verification-key context lives. Method-name strings are `dotted-camelCase` per the canonical `METHOD_NAME_FORMAT` ratified in §Tier 1 (cont.): Plan-006 above (the `register(method, …)` guard at the regex constant) — the same convention shared across Plan-006's JSON-RPC daemon IPC (mechanically regex-enforced at register time) and Plan-028's tRPC control-plane procedures, so the SDK call-site shape (`client.runtimenode.attach({ … })`) is symmetric across transports. Plan-002 registers the four mutation handlers under the Plan-006-partial daemon IPC substrate, and the same four also cross the Plan-028 control-plane transport as `runtimenode.*` tRPC procedures the sibling `runtimeNodeRouter` mounts (Plan-002 T3.8); `runtimenode.roster` is **control-plane tRPC ONLY** (Plan-002 T5.0c) — the roster is control-plane-owned cross-node state (a daemon knows only itself), so the read deliberately does not ride the daemon JSON-RPC transport the four mutations share. The registry table below is the canonical source for both transports (per [Plan-002 §Dependencies](../../plans/002-runtime-node-attach.md)).
+Plan-002's runtime-node operations are exposed as five methods — four state-changing operations plus one roster read (`runtimenode.roster`, added by the user-directed Plan-002 Phase 5 scope expansion). A sixth `runtimenode.*` method — the Plan-022 lease projection-sync mutation `runtimenode.leaseupdate` — registers in the §Session Terminal-Control Method Registry below, where its lease context lives; the seventh and eighth — the Plan-005 signing-key registration/resolution pair `runtimenode.signingkeyregister` / `runtimenode.signingkeyroster` (T4.10 per CP-005-7 leg B / CP-002-5) — register in the §Signing-Key Registration Method Registry below, where their verification-key context lives. Method-name strings are `dotted-camelCase` per the canonical `METHOD_NAME_FORMAT` ratified in §Plan-006-Partial — Local IPC Daemon Control above (the `register(method, …)` guard at the regex constant) — the same convention shared across Plan-006's JSON-RPC daemon IPC (mechanically regex-enforced at register time) and Plan-028's tRPC control-plane procedures, so the SDK call-site shape (`client.runtimenode.attach({ … })`) is symmetric across transports. Plan-002 registers the four mutation handlers under the Plan-006-partial daemon IPC substrate, and the same four also cross the Plan-028 control-plane transport as `runtimenode.*` tRPC procedures the sibling `runtimeNodeRouter` mounts (Plan-002 T3.8); `runtimenode.roster` is **control-plane tRPC ONLY** (Plan-002 T5.0c) — the roster is control-plane-owned cross-node state (a daemon knows only itself), so the read deliberately does not ride the daemon JSON-RPC transport the four mutations share. The registry table below is the canonical source for both transports (per [Plan-002 §Dependencies](../../plans/002-runtime-node-attach.md)).
 
-The `runtimenode` namespace token is the concatenated domain noun — a spelling that **predates** the 2026-09-05 first-segment widening and is not required by it: `runtimeNode` would validate under the widened regex, but the concatenated root is the shipped, registered form on both transports and stays as it is; the widening admits a camelCase root, it does not ask any lowercase one to become one — distinct from the `runtime_node.*` **event** taxonomy (the 7 lifecycle events in [Spec-005 §Runtime Node Lifecycle](../../specs/005-session-event-taxonomy-and-audit-log.md#runtime-node-lifecycle-runtime_node_lifecycle)). The underscore `runtime_node.*` form is a valid _event_ name but is **rejected** as a _method_ name by `METHOD_NAME_FORMAT` (no underscores). `runtimenode.capabilityupdate` is the system's first multi-word procedure: it uses an all-lowercase run-on form within the `dotted-camelCase` regex (the regex permits camelCase in tail segments — `runtimenode.capabilityUpdate` would also be legal — but Plan-002 chose the run-on style to match the then-uniform single-verb arity of the `session.*` surface (since extended: the campaign's `session.goalUpdate`/`session.goalClear` (B6) and `session.takeControl`/`session.releaseControl` (B4) carry the camelCase-tail form the method-name grammar equally permits); the regex also permits a 3-segment `noun.sub.verb` form, reserved for a future nested-router need).
+The `runtimenode` namespace token is the concatenated domain noun — a spelling that **predates** the first-segment widening and is not required by it: `runtimeNode` would validate under the widened regex, but the concatenated root is the shipped, registered form on both transports and stays as it is; the widening admits a camelCase root, it does not ask any lowercase one to become one — distinct from the `runtime_node.*` **event** taxonomy (the 7 lifecycle events in [Spec-005 §Runtime Node Lifecycle](../../specs/005-session-event-taxonomy-and-audit-log.md#runtime-node-lifecycle-runtime_node_lifecycle)). The underscore `runtime_node.*` form is a valid _event_ name but is **rejected** as a _method_ name by `METHOD_NAME_FORMAT` (no underscores). `runtimenode.capabilityupdate` is the system's first multi-word procedure: it uses an all-lowercase run-on form within the `dotted-camelCase` regex (the regex permits camelCase in tail segments — `runtimenode.capabilityUpdate` would also be legal — but Plan-002 chose the run-on style to match the single-verb arity of the `session.*` surface (`session.goalUpdate`/`session.goalClear` and `session.takeControl`/`session.releaseControl` carry the camelCase-tail form the method-name grammar equally permits); the regex also permits a 3-segment `noun.sub.verb` form, reserved for a future nested-router need).
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
@@ -692,21 +693,21 @@ The `runtimenode` namespace token is the concatenated domain noun — a spelling
 | `runtimenode.heartbeat` | `mutation` | `RuntimeNodeHeartbeatRequest` | `null` — HTTP 200 `{ result: { data: null } }` (tRPC) / `result: null` (JSON-RPC); `RuntimeNodeHeartbeatResponseSchema` (`z.null()`) |
 | `runtimenode.capabilityupdate` | `mutation` | `RuntimeNodeCapabilityUpdateRequest` | `RuntimeNodeCapabilityUpdateResponse` |
 | `runtimenode.detach` | `mutation` | `RuntimeNodeDetachRequest` | `null` — HTTP 200 `{ result: { data: null } }` (tRPC) / `result: null` (JSON-RPC); `RuntimeNodeDetachResponseSchema` (`z.null()`) |
-| `runtimenode.roster` | `query` | `RuntimeNodeRosterRequest` | `RuntimeNodeRosterResponse` — control-plane tRPC ONLY (no daemon JSON-RPC registration; added 2026-06-09, PR #150) |
+| `runtimenode.roster` | `query` | `RuntimeNodeRosterRequest` | `RuntimeNodeRosterResponse` — control-plane tRPC ONLY (no daemon JSON-RPC registration) |
 
-The four dual-transport methods (`attach`/`heartbeat`/`capabilityupdate`/`detach`) are `mutation`s (state-changing, non-idempotent) per the tRPC procedure-type convention in §Tier 1 (cont.): Plan-028 above; `runtimenode.roster` is the namespace's first `query` — joined 2026-07-29 by Plan-005 T4.10's `runtimenode.signingkeyroster` per the §Signing-Key Registration Method Registry below — (an idempotent read: it projects the `runtime_node_attachments` × `runtime_node_presence` coordination records — plus, per campaign B4, the session's per-shell `controlHolder` lease state (daemon-enforced; its control-plane coordination record is pinned by the Plan-022 Phase 3B leg) — and writes nothing, so it authors no durable `runtime_node.*` event and does not collide with the [ADR-017 §Server-Derived Runtime-Node Lifecycle Events](../../decisions/017-shared-event-sourcing-scope.md#server-derived-runtime-node-lifecycle-events) V1.1 gate, which governs durable event authorship, not coordination-record reads), and it is mounted on the control-plane transport only (Plan-002 T5.0c). The request/response shapes are the interfaces defined directly above; the canonical Zod schemas live in `packages/contracts/` per the §Source-of-Truth Policy. `heartbeat` and `detach` carry a `null` response payload, not an empty `204` body: their resolvers return `null`, which tRPC serializes as an ordinary HTTP 200 success envelope `{ result: { data: null } }` (the control-plane router uses the default transformer, so there is no `data.json` wrapper). This matters because the SDK's `parseTrpcResult` calls `response.json()` on every 2xx response — a `204` with an empty body would throw `SyntaxError`, whereas `{ result: { data: null } }` parses cleanly and `z.null()` validates the extracted `null`. Over the JSON-RPC daemon transport — where JSON-RPC 2.0 requires a `result` member on success — they return `result: null`. Both transports are validated by the canonical `RuntimeNodeHeartbeatResponseSchema` / `RuntimeNodeDetachResponseSchema` (`z.null()`), so the SDK's `JsonRpcClient.call` (daemon) and the tRPC client both have a concrete result schema to pass (Plan-002 T1.3 / T4.1).
+The four dual-transport methods (`attach`/`heartbeat`/`capabilityupdate`/`detach`) are `mutation`s (state-changing, non-idempotent) per the tRPC procedure-type convention in §Plan-028 — Remote Control Bootstrap above; `runtimenode.roster` is the namespace's first `query` — joined by Plan-005 T4.10's `runtimenode.signingkeyroster` per the §Signing-Key Registration Method Registry below — (an idempotent read: it projects the `runtime_node_attachments` × `runtime_node_presence` coordination records — plus the session's per-shell `controlHolder` lease state (daemon-enforced; its control-plane coordination record is pinned by the Plan-022 Phase 3B leg) — and writes nothing, so it authors no durable `runtime_node.*` event and does not collide with the [ADR-017 §Server-Derived Runtime-Node Lifecycle Events](../../decisions/017-shared-event-sourcing-scope.md#server-derived-runtime-node-lifecycle-events) V1.1 gate, which governs durable event authorship, not coordination-record reads), and it is mounted on the control-plane transport only (Plan-002 T5.0c). The request/response shapes are the interfaces defined directly above; the canonical Zod schemas live in `packages/contracts/` per the §Source-of-Truth Policy. `heartbeat` and `detach` carry a `null` response payload, not an empty `204` body: their resolvers return `null`, which tRPC serializes as an ordinary HTTP 200 success envelope `{ result: { data: null } }` (the control-plane router uses the default transformer, so there is no `data.json` wrapper). This matters because the SDK's `parseTrpcResult` calls `response.json()` on every 2xx response — a `204` with an empty body would throw `SyntaxError`, whereas `{ result: { data: null } }` parses cleanly and `z.null()` validates the extracted `null`. Over the JSON-RPC daemon transport — where JSON-RPC 2.0 requires a `result` member on success — they return `result: null`. Both transports are validated by the canonical `RuntimeNodeHeartbeatResponseSchema` / `RuntimeNodeDetachResponseSchema` (`z.null()`), so the SDK's `JsonRpcClient.call` (daemon) and the tRPC client both have a concrete result schema to pass (Plan-002 T1.3 / T4.1).
 
-### Session Terminal-Control Method Registry (Tier 2, campaign B4)
+### Session Terminal-Control Method Registry
 
-The shared-terminal write lease ([Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior)) exposes two `session.*` methods and one control-plane projection-sync mutation (`runtimenode.leaseupdate`, the third table row). A **third `session.*` method sits in the fourth row and is not a lease operation at all** — `session.setTerminalFlowControl`, the renderer's back-pressure signal, registered 2026-09-21 and specified in its own block after the lease shapes below; it is grouped here because it addresses the same shell surface and takes the same transport posture, and it is called out as separate because it gates no bytes, holds no lease and adjudicates nothing. The two lease `session.*` methods are **daemon JSON-RPC ONLY in V1** — deliberately NOT the dual-transport shape of the four `runtimenode.*` mutations above: for those, the tRPC callee (the control plane) is itself the record authority, whereas the lease authority is the terminal-owning daemon and no documented control-plane→daemon command path exists to forward a remote mutation to it ([ADR-008](../../decisions/008-default-transports-and-relay-boundaries.md)'s relay is E2E peer connectivity, not a control-plane command channel), so a tRPC registration would place the mutation on a party that can neither adjudicate nor enforce it. [Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior) pins this V1 posture and the forward constraint (a future remote take rides the same relay leg as the terminal bytes it gates). The lease's client-facing control-plane surface is read-only projection, and its write path belongs to the single producer: the terminal-owning daemon publishes every transition — the two mutations' successes and the three auto-release classes (disconnect, authorization loss, agent-run write-burst end — [Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior)) — by calling `runtimenode.leaseupdate` (`RuntimeNodeLeaseUpdateRequest { sessionId, nodeId, terminalId, controlHolder: string | null, reason, transitionSeq, transitionedAt }` — the holder being a DEVICE identifier of the `PresenceRegisterRequest.deviceId` shape, because a device holds a shell and an account does not, `reason` mirroring the `pty.control_changed` enum, `transitionSeq` a per-shell strictly-increasing counter the daemon owns and persists in its local lease record — a daemon restart continues the sequence, never resets it; response `null`, `RuntimeNodeLeaseUpdateResponseSchema` = `z.null()`, the heartbeat/detach pattern), and control-plane-connected clients render `controlHolder` from the `runtimenode.roster` projection (`RuntimeNodeRosterResponse.controlHolder`; daemon-transport clients fold `pty.control_changed` and the mutation responses). The upsert into `session_terminal_leases` is **producer-bound and monotonic**, not bare last-write-wins: the control plane applies a write only when (1) the `(nodeId, sessionId)` pair has a live `runtime_node_attachments` row in an active state whose `user_id` equals the verified PASETO `sub` — the [§Authenticated Principal](#authenticated-principal-and-authorization-model) body-vs-`sub` rejection rule applied to the node binding, so a daemon can publish only for a node its own user owns and has attached to that session — **and, on a holder-asserting publish only (`controlHolder ≠ null`), that same `sub` is the session's recorded `owner_user_id`**: the §Signing-Key Registration Method Registry sibling predicate below, whose rationale transfers verbatim — [Plan-002 I-002-3](../../plans/002-runtime-node-attach.md#invariants) means no device revocation ever reaps an attachment, so without this predicate a revoked device's still-live attachment keeps publishing itself as `controlHolder` and the projection advertises a holder whose write authority the daemon's own force-clear has already dropped, the state [Spec-002 §Acceptance Criteria](../../specs/002-runtime-node-attach.md#acceptance-criteria) forbids (`controlHolder` returns to `null` at signal arrival). A **clear/release** publish (`controlHolder: null` — an explicit `session.releaseControl` success and all three auto-release classes) is deliberately **exempt** from the ownership predicate and stays attachment-gated only: it is the projection-layer form of [Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior)'s holder-gated-release rule — a holder stripped of authorization must still be able to relinquish, and refusing its force-clear publish would strand exactly the row the predicate exists to clear. Both halves of (1) ride the **same statement** as the write rather than a preceding probe (one snapshot — the single-statement authorization principle the §Signing-Key Registration Method Registry roster read below states), and the ownership `EXISTS` is repeated on **both** upsert arms — `INSERT … SELECT … WHERE EXISTS (…)` as well as `ON CONFLICT (session_id, terminal_id) DO UPDATE … WHERE … AND EXISTS (…)` — because a bare `VALUES … ON CONFLICT` evaluates its `DO UPDATE … WHERE` only for rows proposed for update ([INSERT §ON CONFLICT Clause](https://www.postgresql.org/docs/current/sql-insert.html#SQL-ON-CONFLICT)) and would therefore admit an unauthorized first claimant against an absent row; (2) the lease row's recorded `node_id` matches `nodeId` — the row binds to its producing terminal-owning node at first write, and a leaseupdate from a _different_ attached node is refused unless the recorded node has ceased to be a live terminal host, which holds on **either** of two signals: its `runtime_node_attachments` row has left the active set (the cooperative path — an explicit `runtimenode.detach`, the only writer of that column per [Plan-002 T3.7](../../plans/002-runtime-node-attach.md)) **or** its `runtime_node_presence.health_state` reads `offline` (the non-cooperative path — a crashed or powered-off host calls no detach, so the [Plan-002 T3.6](../../plans/002-runtime-node-attach.md) staleness sweep's `> 60s` verdict is the only departure signal it ever emits), in which case the write re-binds the row and re-baselines the sequence (terminal-host migration; monotonicity is per-producer). The second disjunct is load-bearing rather than belt-and-braces: without it the hatch is **unreachable** for a dead host, so no successor terminal host's publish is ever accepted and the projection can never advertise the true holder again — the dead-holder lockout [Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior) forbids, on the **presence** axis that clause already names ("the holder's presence/attachment drop frees it — no dead-holder lockout"). The predicate **reads** `health_state` and derives nothing, so the T3.6 sweep remains the single liveness-derivation writer (the stance the roster read above takes), and it binds at `offline` **and nothing weaker** — `degraded` is the deliberate reversible hysteresis band per [Spec-002 §Default Behavior](../../specs/002-runtime-node-attach.md#default-behavior), so re-binding on it would flip the recorded producer for a node that returns inside the band; a node with no `runtime_node_presence` row at all (none exists until its first heartbeat) satisfies neither disjunct and the hatch stays closed, fail-closed. The rule is symmetric on the old host's return: its publishes are refused on `node_id` mismatch until **its** hatch condition holds, so exactly one producer is recorded at any instant and the projection never flaps between two hosts; and (3) `transitionSeq` exceeds the stored value — an equal-or-lower sequence is acknowledged (`null`) and discarded, never applied, so a delayed transport retry of an older transition (a take retried after its release, an auto-clear racing a re-take) cannot resurrect a stale `controlHolder` over newer state. Violations of (1) or (2) are refused as unauthorized with no lease-row write; the roster projection therefore cannot diverge from the daemon-enforced lease through a stale, non-owning, or no-longer-authorized caller. Condition (2)'s hatch rides **inside** the statement too, closing a time-of-check/time-of-use gap an evaluation above the statement would leave open: the `DO UPDATE … WHERE` different-node disjunct is `node_id <> EXCLUDED.node_id AND <recorded-producer-departed>`, where the departure predicate consults the **recorded** row's node — `NOT EXISTS` an active `runtime_node_attachments` row for it, `OR EXISTS` its `runtime_node_presence` row reading `offline` — under the conflicting row's lock in the same snapshot as the write ([shared-postgres-schema.md §Session Terminal Lease](../schemas/shared-postgres-schema.md#session-terminal-lease-plan-022) carries the statement form). A probe-then-write split is exploitable in both directions the single statement closes: two successors racing a dead producer serialize on the row lock and the second re-evaluates against the first's committed re-bind (refused — the new recorded producer is live), and a returning former producer's delayed publish evaluates against the successor's row and is refused while the successor is live. Every refusal is therefore a **zero-row outcome that must be classified in-transaction** across its three causes: re-read and distinguish a merely-stale `transitionSeq` (acknowledged `null` and discarded per (3), the retry-safe arm), a failed (1) predicate (the unauthorized refusal), and a refused (2) re-bind (the recorded producer is still live) — never collapsing them, which would either silently swallow an authorization failure as a successful ack or surface a benign retry as a refusal. This is the same re-read-and-classify discipline the §Signing-Key Registration Method Registry states for its own zero-row arm; only the discipline transfers, not the arms (that surface discriminates insert-winner from byte-equal stored key). A refusal here costs projection freshness only, never terminal-write correctness: write authority is daemon-local and the daemon gates the write frame before it ever publishes ([Plan-022 I-022-9](../../plans/022-rust-pty-sidecar.md)).
+The shared-terminal write lease ([Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior)) exposes two `session.*` methods and one control-plane projection-sync mutation (`runtimenode.leaseupdate`, the third table row). A **third `session.*` method sits in the fourth row and is not a lease operation at all** — `session.setTerminalFlowControl`, the renderer's back-pressure signal, registered and specified in its own block after the lease shapes below; it is grouped here because it addresses the same shell surface and takes the same transport posture, and it is called out as separate because it gates no bytes, holds no lease and adjudicates nothing. The two lease `session.*` methods are **daemon JSON-RPC ONLY in V1** — deliberately NOT the dual-transport shape of the four `runtimenode.*` mutations above: for those, the tRPC callee (the control plane) is itself the record authority, whereas the lease authority is the terminal-owning daemon and no documented control-plane→daemon command path exists to forward a remote mutation to it ([ADR-008](../../decisions/008-default-transports-and-relay-boundaries.md)'s relay is E2E peer connectivity, not a control-plane command channel), so a tRPC registration would place the mutation on a party that can neither adjudicate nor enforce it. [Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior) pins this V1 posture and the forward constraint (a future remote take rides the same relay leg as the terminal bytes it gates). The lease's client-facing control-plane surface is read-only projection, and its write path belongs to the single producer: the terminal-owning daemon publishes every transition — the two mutations' successes and the three auto-release classes (disconnect, authorization loss, agent-run write-burst end — [Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior)) — by calling `runtimenode.leaseupdate` (`RuntimeNodeLeaseUpdateRequest { sessionId, nodeId, terminalId, controlHolder: string | null, reason, transitionSeq, transitionedAt }` — the holder being a DEVICE identifier of the `PresenceRegisterRequest.deviceId` shape, because a device holds a shell and an account does not, `reason` mirroring the `pty.control_changed` enum, `transitionSeq` a per-shell strictly-increasing counter the daemon owns and persists in its local lease record — a daemon restart continues the sequence, never resets it; response `null`, `RuntimeNodeLeaseUpdateResponseSchema` = `z.null()`, the heartbeat/detach pattern), and control-plane-connected clients render `controlHolder` from the `runtimenode.roster` projection (`RuntimeNodeRosterResponse.controlHolder`; daemon-transport clients fold `pty.control_changed` and the mutation responses). The upsert into `session_terminal_leases` is **producer-bound and monotonic**, not bare last-write-wins: the control plane applies a write only when (1) the `(nodeId, sessionId)` pair has a live `runtime_node_attachments` row in an active state whose `user_id` equals the verified PASETO `sub` — the [§Authenticated Principal](#authenticated-principal-and-authorization-model) body-vs-`sub` rejection rule applied to the node binding, so a daemon can publish only for a node its own user owns and has attached to that session — **and, on a holder-asserting publish only (`controlHolder ≠ null`), that same `sub` is the session's recorded `owner_user_id`**: the §Signing-Key Registration Method Registry sibling predicate below, whose rationale transfers verbatim — [Plan-002 I-002-3](../../plans/002-runtime-node-attach.md#invariants) means no device revocation ever reaps an attachment, so without this predicate a revoked device's still-live attachment keeps publishing itself as `controlHolder` and the projection advertises a holder whose write authority the daemon's own force-clear has already dropped, the state [Spec-002 §Acceptance Criteria](../../specs/002-runtime-node-attach.md#acceptance-criteria) forbids (`controlHolder` returns to `null` at signal arrival). A **clear/release** publish (`controlHolder: null` — an explicit `session.releaseControl` success and all three auto-release classes) is deliberately **exempt** from the ownership predicate and stays attachment-gated only: it is the projection-layer form of [Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior)'s holder-gated-release rule — a holder stripped of authorization must still be able to relinquish, and refusing its force-clear publish would strand exactly the row the predicate exists to clear. Both halves of (1) ride the **same statement** as the write rather than a preceding probe (one snapshot — the single-statement authorization principle the §Signing-Key Registration Method Registry roster read below states), and the ownership `EXISTS` is repeated on **both** upsert arms — `INSERT … SELECT … WHERE EXISTS (…)` as well as `ON CONFLICT (session_id, terminal_id) DO UPDATE … WHERE … AND EXISTS (…)` — because a bare `VALUES … ON CONFLICT` evaluates its `DO UPDATE … WHERE` only for rows proposed for update ([INSERT §ON CONFLICT Clause](https://www.postgresql.org/docs/current/sql-insert.html#SQL-ON-CONFLICT)) and would therefore admit an unauthorized first claimant against an absent row; (2) the lease row's recorded `node_id` matches `nodeId` — the row binds to its producing terminal-owning node at first write, and a leaseupdate from a _different_ attached node is refused unless the recorded node has ceased to be a live terminal host, which holds on **either** of two signals: its `runtime_node_attachments` row has left the active set (the cooperative path — an explicit `runtimenode.detach`, the only writer of that column per [Plan-002 T3.7](../../plans/002-runtime-node-attach.md)) **or** its `runtime_node_presence.health_state` reads `offline` (the non-cooperative path — a crashed or powered-off host calls no detach, so the [Plan-002 T3.6](../../plans/002-runtime-node-attach.md) staleness sweep's `> 60s` verdict is the only departure signal it ever emits), in which case the write re-binds the row and re-baselines the sequence (terminal-host migration; monotonicity is per-producer). The second disjunct is load-bearing rather than belt-and-braces: without it the hatch is **unreachable** for a dead host, so no successor terminal host's publish is ever accepted and the projection can never advertise the true holder again — the dead-holder lockout [Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior) forbids, on the **presence** axis that clause already names ("the holder's presence/attachment drop frees it — no dead-holder lockout"). The predicate **reads** `health_state` and derives nothing, so the T3.6 sweep remains the single liveness-derivation writer (the stance the roster read above takes), and it binds at `offline` **and nothing weaker** — `degraded` is the deliberate reversible hysteresis band per [Spec-002 §Default Behavior](../../specs/002-runtime-node-attach.md#default-behavior), so re-binding on it would flip the recorded producer for a node that returns inside the band; a node with no `runtime_node_presence` row at all (none exists until its first heartbeat) satisfies neither disjunct and the hatch stays closed, fail-closed. The rule is symmetric on the old host's return: its publishes are refused on `node_id` mismatch until **its** hatch condition holds, so exactly one producer is recorded at any instant and the projection never flaps between two hosts; and (3) `transitionSeq` exceeds the stored value — an equal-or-lower sequence is acknowledged (`null`) and discarded, never applied, so a delayed transport retry of an older transition (a take retried after its release, an auto-clear racing a re-take) cannot resurrect a stale `controlHolder` over newer state. Violations of (1) or (2) are refused as unauthorized with no lease-row write; the roster projection therefore cannot diverge from the daemon-enforced lease through a stale, non-owning, or no-longer-authorized caller. Condition (2)'s hatch rides **inside** the statement too, closing a time-of-check/time-of-use gap an evaluation above the statement would leave open: the `DO UPDATE … WHERE` different-node disjunct is `node_id <> EXCLUDED.node_id AND <recorded-producer-departed>`, where the departure predicate consults the **recorded** row's node — `NOT EXISTS` an active `runtime_node_attachments` row for it, `OR EXISTS` its `runtime_node_presence` row reading `offline` — under the conflicting row's lock in the same snapshot as the write ([shared-postgres-schema.md §Session Terminal Lease](../schemas/shared-postgres-schema.md#session-terminal-lease-plan-022) carries the statement form). A probe-then-write split is exploitable in both directions the single statement closes: two successors racing a dead producer serialize on the row lock and the second re-evaluates against the first's committed re-bind (refused — the new recorded producer is live), and a returning former producer's delayed publish evaluates against the successor's row and is refused while the successor is live. Every refusal is therefore a **zero-row outcome that must be classified in-transaction** across its three causes: re-read and distinguish a merely-stale `transitionSeq` (acknowledged `null` and discarded per (3), the retry-safe arm), a failed (1) predicate (the unauthorized refusal), and a refused (2) re-bind (the recorded producer is still live) — never collapsing them, which would either silently swallow an authorization failure as a successful ack or surface a benign retry as a refusal. This is the same re-read-and-classify discipline the §Signing-Key Registration Method Registry states for its own zero-row arm; only the discipline transfers, not the arms (that surface discriminates insert-winner from byte-equal stored key). A refusal here costs projection freshness only, never terminal-write correctness: write authority is daemon-local and the daemon gates the write frame before it ever publishes ([Plan-022 I-022-9](../../plans/022-rust-pty-sidecar.md)).
 
-**Roster-read liveness suppression on `controlHolder` (Plan-022 CP-022-5 audit delta, Codex PR #283 rounds 2-3, 2026-08-02/03 — replacing the round-1 write-side backstop, withdrawn; the write-side half of the dead-producer closure is condition (2)'s `offline` re-bind disjunct above).** The producer-bound conditions above leave one case needing more than the write path alone. When the recorded producer's own attachment leaves the active set, condition (1) refuses that node's publishes until it re-attaches — a reconnecting daemon converges (condition (1) tests for A live attachment on `(nodeId, sessionId)` and pins no `attachmentId` — a contrast the sibling §Signing-Key Registration Method Registry below carried until the 2026-08-11 admission-time registration decoupling deleted its attachment predicates outright; this registry's attachment gate is its own producer binding and stays) — but a producer that never returns (host crash, machine powered off) never republishes at all; condition (2)'s `offline` re-bind disjunct (the 2026-08-03 Spec-002 projection-conformance amendment) lets a successor terminal host take the row over, yet re-binding requires a successor to volunteer, so while none does, a lease held at the moment of loss would stay advertised on the roster indefinitely, contrary to [Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior)'s disconnect auto-release. The repair is a READ-side predicate, not a second writer: a `RuntimeNodeRosterResponse.controlHolder` entry is left out whenever its lease row's recorded `node_id` carries `runtime_node_presence.health_state = 'offline'`, and the projection row itself is never touched. Round 1 of this delta specified the opposite — a server-side holder clear applied in the same transaction that moves a `runtime_node_attachments` row out of the active set — and that transaction does not exist for the motivating case: a crashed or powered-off host calls no `runtimenode.detach`, and Plan-002's heartbeat staleness sweep transitions `runtime_node_presence.health_state` (`degraded`, then `offline`), never `runtime_node_attachments.state`, which moves only on the explicit detach path ([Plan-002 §Phase 3](../../plans/002-runtime-node-attach.md) T3.6 vs T3.7). The presence transition is the ONLY server-derived signal a departed producer emits, so it is the signal the repair must bind to. Five properties make the read-side form correct where the write-side one was not. (a) **It consumes a derived verdict rather than deriving one:** the roster read already LEFT JOINs `runtime_node_presence` to carry each node row's `healthState` and `lastHeartbeatAt`, and the predicate reads that stored `health_state` column while comparing no timestamps — so Plan-002's heartbeat sweep stays the single liveness-DERIVATION writer and this read derives no staleness of its own, the constraint the roster-read contract imposes. It is the shape of the sibling `readOnly` field this read already resolves per row from stored columns. (b) **It suppresses at `offline` and nothing weaker,** so the response cannot contradict itself: the producing node's `healthState` is returned verbatim in the same payload, and `online` / `degraded` producers keep advertising their holder — suppressing a reachable holder would be a worse lie than showing one. A node attached but not yet heartbeated (`health_state` NULL) likewise keeps it: the lease row exists only because that producer published under a live attachment, so it was reachable, and its first heartbeat is at most one heartbeat cadence away. (c) **The single-writer model is restored intact:** `session_terminal_leases` takes writes from the terminal-owning daemon's publishes alone — there is no second writer at all, the holder being a device identifier rather than a reference into another table ([schema write model](../schemas/shared-postgres-schema.md#session-terminal-lease-plan-022)). Because no row is written, `node_id` and `transition_seq` are untouched BY CONSTRUCTION — there is no server-mutated state for a returning daemon to disagree with, so its republish of the same snapshot at the same sequence is the ordinary acknowledged-and-discarded case and the roster is already correct without it. Plan-022 authors nothing inside a Plan-002 write path. (d) **It authors no `pty.control_changed`, and needs none** — nothing transitioned, a read authors no events, and the departed daemon is that stream's sole author ([ADR-017](../../decisions/017-shared-event-sourcing-scope.md)). (e) **Recovery needs no repair write:** when heartbeats resume the sweep restores `health_state` and the same read advertises the holder again; if the producer instead returns having released the lease, its republish lands the release at a higher `transitionSeq` through the ordinary monotonic path; and if a successor re-bound while it was gone, the returning host's republish is refused on condition (2) — the successor is now the recorded producer — and its holder claim ended with that re-bind. What the suppression does NOT do is revoke anything. Write authority is daemon-LOCAL per Plan-022 I-022-9, so a holder on a host merely partitioned from the control plane — alive, reachable by its own local writers — keeps its lease and keeps writing, because nothing here reaches its daemon-local lease record. Spec-002's auto-release on holder disconnect is discharged by the daemon in every case where a daemon survives to discharge it; this predicate covers only the residue — a host that is gone, where the daemon-local record went with it and the roster is the sole surviving surface.
+**Roster-read liveness suppression on `controlHolder` (Plan-022 CP-022-5; the write-side half of the dead-producer closure is condition (2)'s `offline` re-bind disjunct above).** The producer-bound conditions above leave one case needing more than the write path alone. When the recorded producer's own attachment leaves the active set, condition (1) refuses that node's publishes until it re-attaches — a reconnecting daemon converges (condition (1) tests for A live attachment on `(nodeId, sessionId)` and pins no `attachmentId` — a contrast the sibling §Signing-Key Registration Method Registry below carried until the admission-time registration decoupling deleted its attachment predicates outright; this registry's attachment gate is its own producer binding and stays) — but a producer that never returns (host crash, machine powered off) never republishes at all; condition (2)'s `offline` re-bind disjunct (Spec-002 projection conformance) lets a successor terminal host take the row over, yet re-binding requires a successor to volunteer, so while none does, a lease held at the moment of loss would stay advertised on the roster indefinitely, contrary to [Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior)'s disconnect auto-release. The repair is a READ-side predicate, not a second writer: a `RuntimeNodeRosterResponse.controlHolder` entry is left out whenever its lease row's recorded `node_id` carries `runtime_node_presence.health_state = 'offline'`, and the projection row itself is never touched. The write-side form — a server-side holder clear applied in the same transaction that moves a `runtime_node_attachments` row out of the active set — is unavailable, because that transaction does not exist for the motivating case: a crashed or powered-off host calls no `runtimenode.detach`, and Plan-002's heartbeat staleness sweep transitions `runtime_node_presence.health_state` (`degraded`, then `offline`), never `runtime_node_attachments.state`, which moves only on the explicit detach path ([Plan-002 §Phase 3](../../plans/002-runtime-node-attach.md) T3.6 vs T3.7). The presence transition is the ONLY server-derived signal a departed producer emits, so it is the signal the repair must bind to. Five properties make the read-side form the correct one. (a) **It consumes a derived verdict rather than deriving one:** the roster read already LEFT JOINs `runtime_node_presence` to carry each node row's `healthState` and `lastHeartbeatAt`, and the predicate reads that stored `health_state` column while comparing no timestamps — so Plan-002's heartbeat sweep stays the single liveness-DERIVATION writer and this read derives no staleness of its own, the constraint the roster-read contract imposes. It is the shape of the sibling `readOnly` field this read already resolves per row from stored columns. (b) **It suppresses at `offline` and nothing weaker,** so the response cannot contradict itself: the producing node's `healthState` is returned verbatim in the same payload, and `online` / `degraded` producers keep advertising their holder — suppressing a reachable holder would be a worse lie than showing one. A node attached but not yet heartbeated (`health_state` NULL) likewise keeps it: the lease row exists only because that producer published under a live attachment, so it was reachable, and its first heartbeat is at most one heartbeat cadence away. (c) **The single-writer model is restored intact:** `session_terminal_leases` takes writes from the terminal-owning daemon's publishes alone — there is no second writer at all, the holder being a device identifier rather than a reference into another table ([schema write model](../schemas/shared-postgres-schema.md#session-terminal-lease-plan-022)). Because no row is written, `node_id` and `transition_seq` are untouched BY CONSTRUCTION — there is no server-mutated state for a returning daemon to disagree with, so its republish of the same snapshot at the same sequence is the ordinary acknowledged-and-discarded case and the roster is already correct without it. Plan-022 authors nothing inside a Plan-002 write path. (d) **It authors no `pty.control_changed`, and needs none** — nothing transitioned, a read authors no events, and the departed daemon is that stream's sole author ([ADR-017](../../decisions/017-shared-event-sourcing-scope.md)). (e) **Recovery needs no repair write:** when heartbeats resume the sweep restores `health_state` and the same read advertises the holder again; if the producer instead returns having released the lease, its republish lands the release at a higher `transitionSeq` through the ordinary monotonic path; and if a successor re-bound while it was gone, the returning host's republish is refused on condition (2) — the successor is now the recorded producer — and its holder claim ended with that re-bind. What the suppression does NOT do is revoke anything. Write authority is daemon-LOCAL per Plan-022 I-022-9, so a holder on a host merely partitioned from the control plane — alive, reachable by its own local writers — keeps its lease and keeps writing, because nothing here reaches its daemon-local lease record. Spec-002's auto-release on holder disconnect is discharged by the daemon in every case where a daemon survives to discharge it; this predicate covers only the residue — a host that is gone, where the daemon-local record went with it and the roster is the sole surviving surface.
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
 | `session.takeControl` | `mutation` | `SessionTakeControlRequest` | `SessionTakeControlResponse` — daemon JSON-RPC ONLY in V1 (no control-plane tRPC registration; [Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior) transport posture) |
 | `session.releaseControl` | `mutation` | `SessionReleaseControlRequest` | `SessionReleaseControlResponse` — daemon JSON-RPC ONLY in V1 (no control-plane tRPC registration; [Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior) transport posture) |
-| `runtimenode.leaseupdate` | `mutation` | `RuntimeNodeLeaseUpdateRequest` | `null` — HTTP 200 `{ result: { data: null } }`; `RuntimeNodeLeaseUpdateResponseSchema` (`z.null()`) — control-plane tRPC ONLY, **daemon-called** (single producer: the terminal-owning daemon, producer-bound + monotonic per the contract paragraph above; no daemon JSON-RPC registration — clients never invoke the projection sync; Plan-022 Phase 3B / campaign B16) |
+| `runtimenode.leaseupdate` | `mutation` | `RuntimeNodeLeaseUpdateRequest` | `null` — HTTP 200 `{ result: { data: null } }`; `RuntimeNodeLeaseUpdateResponseSchema` (`z.null()`) — control-plane tRPC ONLY, **daemon-called** (single producer: the terminal-owning daemon, producer-bound + monotonic per the contract paragraph above; no daemon JSON-RPC registration — clients never invoke the projection sync; Plan-022 Phase 3B) |
 | `session.setTerminalFlowControl` | `mutation` | `SessionSetTerminalFlowControlRequest` | `SessionSetTerminalFlowControlResponse` — daemon JSON-RPC ONLY (the same V1 transport posture as the two lease methods: the PTY host this drives is daemon-local, so no other party can act on the signal). Not a lease operation — consumed by [Plan-022](../../plans/022-rust-pty-sidecar.md) T-022-3B-7 |
 
 **One lease per shell.** A session opens as many shells as the machine can hold, each its own tab, and the write lease is keyed per shell rather than per session: `terminalId` is a required member of both requests, and the roster projection names the holder PER SHELL, so one device can hold one shell while another of the account's devices — or an agent's running command — holds another. Without the key a take on one tab would silently move every other tab's lease, and the lease line under the tab strip could not speak for the active tab alone. The identifier is the daemon's own handle for that shell; no client mints one. The projection-sync mutation below carries it for the same reason, and the lease row's identity is `(session_id, terminal_id)` rather than `session_id` alone — the monotonic `transitionSeq` and the producer-binding conditions in the upsert contract below are per shell with it, so two shells' transitions never serialize against each other.
@@ -739,7 +740,7 @@ interface SessionReleaseControlResponse {
 }
 ```
 
-**The renderer's back-pressure signal (2026-09-21).** `session.setTerminalFlowControl` is the daemon-facing operation behind the renderer terminal's own flow control: when the terminal says it is behind, the daemon calls `pause(sessionId)` on its PTY host, and `resume(sessionId)` when it has caught up, so a flooding process is slowed where it is producing rather than filling the renderer and losing output at a discard watermark ([Plan-022](../../plans/022-rust-pty-sidecar.md) T-022-3B-7, which consumes this method and maps the pair onto each backend). **It is session-keyed and carries no `terminalId`**, unlike every lease shape above: the host operation it drives is `pause(sessionId)` / `resume(sessionId)`, so a member this method accepted and could not act on would be a promise the surface does not keep. **One method with a boolean rather than a pair**, because the renderer is declaring a state it is in rather than asking for two different acts, and a declared state is idempotent — the same value twice is the same state and changes nothing. It is **not gated by the write lease**: it moves no bytes toward the shell and asserts no authority over it, so making it lease-held would let a session without the lease be flooded by its own terminal with no way to say so. It mints **no error code**: a call naming a session this daemon holds no terminal for is an accepted no-op, because a back-pressure signal racing a closing shell is ordinary and a refusal would hand the client something it can do nothing about.
+**The renderer's back-pressure signal.** `session.setTerminalFlowControl` is the daemon-facing operation behind the renderer terminal's own flow control: when the terminal says it is behind, the daemon calls `pause(sessionId)` on its PTY host, and `resume(sessionId)` when it has caught up, so a flooding process is slowed where it is producing rather than filling the renderer and losing output at a discard watermark ([Plan-022](../../plans/022-rust-pty-sidecar.md) T-022-3B-7, which consumes this method and maps the pair onto each backend). **It is session-keyed and carries no `terminalId`**, unlike every lease shape above: the host operation it drives is `pause(sessionId)` / `resume(sessionId)`, so a member this method accepted and could not act on would be a promise the surface does not keep. **One method with a boolean rather than a pair**, because the renderer is declaring a state it is in rather than asking for two different acts, and a declared state is idempotent — the same value twice is the same state and changes nothing. It is **not gated by the write lease**: it moves no bytes toward the shell and asserts no authority over it, so making it lease-held would let a session without the lease be flooded by its own terminal with no way to say so. It mints **no error code**: a call naming a session this daemon holds no terminal for is an accepted no-op, because a back-pressure signal racing a closing shell is ordinary and a refusal would hand the client something it can do nothing about.
 
 ```ts
 interface SessionSetTerminalFlowControlRequest {
@@ -754,29 +755,29 @@ interface SessionSetTerminalFlowControlResponse {
 }
 ```
 
-**Publisher credential source and auth posture (Plan-022 CP-022-5, 2026-08-02).** The daemon publishes `runtimenode.leaseupdate` as the node's owning account through the constructor-injected `DaemonCredentialProvider` (Plan-005 T3.3, the CP-005-13 shape), minted per attempt. Like the sibling §Signing-Key Registration Method Registry below, an auth failure here is a RETRYABLE TRANSPORT failure on a bounded backoff and blocks no Tier-3 code: the provider is Tier-4-dormant until Plan-016's PASETO wiring, so through Tier 3 `session_terminal_leases` is expected-empty and the `runtimenode.roster` `controlHolder` join expected-null. Write gating never depends on it — the terminal-owning daemon refuses off its daemon-local lease record per Plan-022 I-022-9. Because the request body is a SNAPSHOT of that record and this registry's upsert is monotonic in `transitionSeq` and idempotent, a dropped publish is repaired by the daemon republishing current state on backoff or reconnect rather than by any server-side REPLAY of missed transitions — so servers MUST tolerate a republish carrying an already-applied `transitionSeq` as the acknowledged-and-discarded case this registry already specifies, and MUST NOT treat it as a duplicate-submission error. Republication covers every case in which the producer returns; the one case it cannot reach — a producer that never comes back — is closed on the WRITE side by condition (2)'s `offline` re-bind disjunct (a successor host's publish lands once the recorded producer is server-classified offline — the 2026-08-03 Spec-002 projection-conformance amendment) and at the READ surface by the roster liveness suppression specified in the upsert-contract paragraph above, which leaves that shell's `controlHolder` entry out while the producing node is `offline` and no successor has re-bound, writing nothing (Codex PR #283 rounds 2-3). A PERMANENTLY refused credential (the node-owner user suspended or revoked — no retry can revalidate it) converges through the same decay rather than through retries: the daemon's heartbeats refuse identically, the Plan-002 staleness sweep classifies the node `offline` within its `> 60s` bound, and the suppression plus the re-bind hatch take over — while the clear itself needs no ownership check at all, a `controlHolder: null` publish being attachment-gated only per the upsert contract's direction-asymmetric exemption, precisely the removed-holder force-clear case (Codex PR #283 round 3).
+**Publisher credential source and auth posture (Plan-022 CP-022-5).** The daemon publishes `runtimenode.leaseupdate` as the node's owning account through the constructor-injected `DaemonCredentialProvider` (Plan-005 T3.3, the CP-005-13 shape), minted per attempt. Like the sibling §Signing-Key Registration Method Registry below, an auth failure here is a RETRYABLE TRANSPORT failure on a bounded backoff and blocks no code that ships before it: the provider is dormant until Plan-016's PASETO wiring, so until then `session_terminal_leases` is expected-empty and the `runtimenode.roster` `controlHolder` join expected-null. Write gating never depends on it — the terminal-owning daemon refuses off its daemon-local lease record per Plan-022 I-022-9. Because the request body is a SNAPSHOT of that record and this registry's upsert is monotonic in `transitionSeq` and idempotent, a dropped publish is repaired by the daemon republishing current state on backoff or reconnect rather than by any server-side REPLAY of missed transitions — so servers MUST tolerate a republish carrying an already-applied `transitionSeq` as the acknowledged-and-discarded case this registry already specifies, and MUST NOT treat it as a duplicate-submission error. Republication covers every case in which the producer returns; the one case it cannot reach — a producer that never comes back — is closed on the WRITE side by condition (2)'s `offline` re-bind disjunct (a successor host's publish lands once the recorded producer is server-classified offline — Spec-002 projection conformance) and at the READ surface by the roster liveness suppression specified in the upsert-contract paragraph above, which leaves that shell's `controlHolder` entry out while the producing node is `offline` and no successor has re-bound, writing nothing. A PERMANENTLY refused credential (the node-owner user suspended or revoked — no retry can revalidate it) converges through the same decay rather than through retries: the daemon's heartbeats refuse identically, the Plan-002 staleness sweep classifies the node `offline` within its `> 60s` bound, and the suppression plus the re-bind hatch take over — while the clear itself needs no ownership check at all, a `controlHolder: null` publish being attachment-gated only per the upsert contract's direction-asymmetric exemption, precisely the removed-holder force-clear case.
 
-Refusals are typed in [Error Contracts §PTY](./error-contracts.md#pty): ownership authorization precedes lease state — `session.takeControl` is owner-only per the [Security Architecture permission matrix](../security-architecture.md#permission-matrix-task-54) row 'Take terminal control', refused `pty.permission_denied` (403) for a caller that does not own the session before any lease-state comparison — the refusal is ownership-determined and stable rather than varying with mutable lease state; holder identity itself is deliberately session-visible presence metadata (the `pty.control_changed` broadcast and the roster's `controlHolder` expose it to the account's own devices), so the ordering guards the authorization boundary, not a secret (release is holder-gated, not ownership-gated — a device stripped of authorization mid-hold can still relinquish during the signal-propagation window, and the revocation itself force-clears the lease on arrival at the lease authority per Spec-002); a take while another of the account's devices holds the lease returns `pty.control_held_by_other` with `data.fields.holderDeviceId`; a terminal write with no lease held returns `pty.control_not_held`. A release by a non-holder is likewise `pty.control_not_held` (releasing nothing is not idempotent-success — it signals a caller-state bug); a take by the current holder is idempotent success — no transition occurs and nothing broadcasts. Every successful transition broadcasts `pty.control_changed` ([Spec-005 census](../../specs/005-session-event-taxonomy-and-audit-log.md#pty-control-session_lifecycle)), authored by the terminal-owning daemon; transitions include the three auto-release classes — holder disconnect, holder authorization loss (device suspension or revocation), and the agent-run write-burst release (the acquiring run's first lifecycle transition out of `running` after an agent-path take; the acquiring surface and run id are daemon-local lease-record bookkeeping, never a request field, re-bound to the new run on an agent-path take from a different run on the same device (no broadcast — holder unchanged); `reason: 'auto_released_disconnect' | 'auto_released_authorization_lost' | 'auto_released_run_idle'`, [Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior)). Neither request carries a caller field — the principal binds per the V1 transport rule: a local daemon JSON-RPC caller binds to the **device co-located with the node**, which is the daemon's own recorded local device, the same absent-actor rule `ApprovalResolveRequest.approver` documents (absent on the local socket → the daemon's own binding; every runtime node has exactly one owning user per [runtime-node-model](../../domain/runtime-node-model.md), and that user's devices are what contend for a shell) — and the node's own agent runs take and release through the daemon's in-process lease authority under that **same device identity** (no wire hop; agents are `AgentId`-keyed domain actors, not devices, so no distinct agent holder exists — the user authorized those runs on their node and their terminal bytes exercise that authority, the holder surfaces stay device-grained, a device-vs-own-agent take is the idempotent self-retake case, and per-surface attribution rides the adjacent run/agent events on the timeline, not the lease record). A future relay-borne remote leg binds the relay peer's PASETO-verified **device identity** ([§Authenticated Principal And Authorization Model](#authenticated-principal-and-authorization-model)) and rides the terminal-byte channel per Spec-002's forward constraint — so `controlHolder`, the idempotent self-retake comparison, and the non-holder-release refusal are well-defined on every path that can reach the lease authority.
+Refusals are typed in [Error Contracts §PTY](./error-contracts.md#pty): ownership authorization precedes lease state — `session.takeControl` is owner-only per the [Security Architecture permission matrix](../security-architecture.md#permission-matrix) row 'Take terminal control', refused `pty.permission_denied` (403) for a caller that does not own the session before any lease-state comparison — the refusal is ownership-determined and stable rather than varying with mutable lease state; holder identity itself is deliberately session-visible presence metadata (the `pty.control_changed` broadcast and the roster's `controlHolder` expose it to the account's own devices), so the ordering guards the authorization boundary, not a secret (release is holder-gated, not ownership-gated — a device stripped of authorization mid-hold can still relinquish during the signal-propagation window, and the revocation itself force-clears the lease on arrival at the lease authority per Spec-002); a take while another of the account's devices holds the lease returns `pty.control_held_by_other` with `data.fields.holderDeviceId`; a terminal write with no lease held returns `pty.control_not_held`. A release by a non-holder is likewise `pty.control_not_held` (releasing nothing is not idempotent-success — it signals a caller-state bug); a take by the current holder is idempotent success — no transition occurs and nothing broadcasts. Every successful transition broadcasts `pty.control_changed` ([Spec-005 census](../../specs/005-session-event-taxonomy-and-audit-log.md#pty-control-session_lifecycle)), authored by the terminal-owning daemon; transitions include the three auto-release classes — holder disconnect, holder authorization loss (device suspension or revocation), and the agent-run write-burst release (the acquiring run's first lifecycle transition out of `running` after an agent-path take; the acquiring surface and run id are daemon-local lease-record bookkeeping, never a request field, re-bound to the new run on an agent-path take from a different run on the same device (no broadcast — holder unchanged); `reason: 'auto_released_disconnect' | 'auto_released_authorization_lost' | 'auto_released_run_idle'`, [Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior)). Neither request carries a caller field — the principal binds per the V1 transport rule: a local daemon JSON-RPC caller binds to the **device co-located with the node**, which is the daemon's own recorded local device, the same absent-actor rule `ApprovalResolveRequest.approver` documents (absent on the local socket → the daemon's own binding; every runtime node has exactly one owning user per [runtime-node-model](../../domain/runtime-node-model.md), and that user's devices are what contend for a shell) — and the node's own agent runs take and release through the daemon's in-process lease authority under that **same device identity** (no wire hop; agents are `AgentId`-keyed domain actors, not devices, so no distinct agent holder exists — the user authorized those runs on their node and their terminal bytes exercise that authority, the holder surfaces stay device-grained, a device-vs-own-agent take is the idempotent self-retake case, and per-surface attribution rides the adjacent run/agent events on the timeline, not the lease record). A future relay-borne remote leg binds the relay peer's PASETO-verified **device identity** ([§Authenticated Principal And Authorization Model](#authenticated-principal-and-authorization-model)) and rides the terminal-byte channel per Spec-002's forward constraint — so `controlHolder`, the idempotent self-retake comparison, and the non-holder-release refusal are well-defined on every path that can reach the lease authority.
 
-### Signing-Key Registration Method Registry (Tier 3, Plan-005 T4.10)
+### Signing-Key Registration Method Registry
 
-The per-event daemon-signature verification protocol ([Security Architecture §Per-Event Daemon Signature](../security-architecture.md#per-event-daemon-signature)) resolves the emitting daemon's Ed25519 PUBLIC key by `NodeId` from the session verification-key roster. This registry is that roster's signing-key surface: the daemon registers its session-scoped public key (the value `DaemonSigningKeyProvisioner.create(sessionId)` returned, or its row-verified `readPublicKey` re-read after a restart) — a registration that lands at ADMISSION TIME, with no attach precondition since the 2026-08-11 admission-time registration decoupling (the Spec-028-pinned leg, landed by Plan-028's restoring targeted readiness-audit delta jointly with the Plan-005-owned T4.10 surface, PR #323), the write being ownership-gated and bound to the daemon-held CP-005-13 credential — via `runtimenode.signingkeyregister`, persisting register-once into the Plan-005-owned [`daemon_signing_public_keys` table](../schemas/shared-postgres-schema.md#daemon-signing-public-keys-plan-005--verification-key-roster); any verifier — peer daemon, forensic export, control-plane-connected client — resolves keys via `runtimenode.signingkeyroster`. Both methods are **control-plane tRPC ONLY** (the store is control-plane-owned cross-node state, the `runtimenode.roster` reasoning; the register mutation is **daemon-called**, the `runtimenode.leaseupdate` shape). Registered by Plan-005 T4.10 per CP-005-7 leg B / CP-002-5 (2026-07-29): the procedure-key registrations on the shared `runtime-node-router.factory.ts` builder, the two `runtimeNodeClient.ts` typed pass-throughs, and the four additive `runtime-node.ts` schema exports are CP-002-5's complete sanctioned Plan-002 seam-edit set (CP-002-6 registered a fourth crossing — the renderer `attachmentId` forward — under the same shape 2026-08-01, RETRACTED 2026-08-11 with the delivery machinery when the decoupling deleted the `attachmentId` predicate), and the register/resolve service is the Plan-005-owned sibling `signing-key-service.ts` — deliberately **new procedures rather than an attach-request field**, because every shipped `runtimenode.*` request/response schema is `.strict()`, so an added member would break the new-daemon→old-control-plane skew direction at parse ([ADR-018 §Decision](../../decisions/018-cross-version-compatibility.md#decision) #7 bidirectional-MINOR); a new daemon calling an old control plane instead receives tRPC `NOT_FOUND` and degrades honestly (its uploaded anchors stay emitter-only-verifiable until the control plane upgrades — the procedure's absence is the discovery signal — and the daemon-side registrar re-attempts on a bounded exponential backoff capped at [Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior)'s 15-second heartbeat-cadence constant for the locally-materialized session's lifetime, so a mid-session upgrade converges to registered without a daemon restart). The registrar starts at the daemon-local session-establishment moment — `runtimenode.attach` is client-driven and the daemon is never a party to it, so no post-attach hook exists in the registrar's process — and publishes through a thin PASETO-authenticated tRPC caller deliberately scoped to `runtimenode.signingkeyregister` (the Plan-022 T-022-3B-3 `leaseupdate` single-procedure-caller precedent; the daemon takes no `client-sdk` dependency), authenticating as the **node-owner user** — the daemon's standing control-plane-authentication posture per [component-architecture-local-daemon.md §Responsibilities](../component-architecture-local-daemon.md#responsibilities) ("authenticate to the Control Plane using PASETO v4 tokens per Spec-028") — with a PASETO v4.public access token whose per-request DPoP proof is signed by a daemon-held key the token's `cnf.jkt` binds ([§Authenticated Principal](#authenticated-principal-and-authorization-model)), obtained per attempt through the constructor-injected credential-provider interface CP-005-13 registers against Plan-016's Tier-4 PASETO wiring (Codex PR #274 round 4, 2026-07-31: the token's issuance-into-the-daemon path is specified by no V1 document today — the same Tier-4 gate the production `resolveCurrentUserId` stub already imposes on every shipped `runtimenode.*` procedure — so an auth failure is a retryable transport failure on the backoff and no Tier-3 code is blocked), retrying the collapsed `runtimenode.permission_denied` refusal on the same backoff — since the 2026-08-11 decoupling it covers ownership convergence alone (a session the caller does not yet own; no attach is awaited), so the registrar converges once the caller owns the session (Codex PR #274 rounds 3–4, 2026-07-31; the attach-race arm retired with the attachment predicates). The attempt presents NO `attachmentId` (2026-08-11 admission-time decoupling): the request member, the `event.deliverAttachmentId` delivery method with its `EventDeliverAttachmentIdRequestSchema` / `EventDeliverAttachmentIdResponseSchema` contracts pair, the daemon's durable `daemon_attachment_deliveries` store, and the AttachFlow attach-success forward with its `daemon.status` reconnect replay (the CP-005-14 / CP-002-6 legs, both RETRACTED) are all deleted rather than shipped — the registrar's `nodeId` instead reads the daemon's own shipped Plan-002 Phase-2 node registry (`node_trust_state`), populated at daemon startup before any session materializes, so the attempt preconditions are the credential and the daemon's node identity, both daemon-local. **Scope note (Codex PR #284 round 3; closed 2026-08-11):** the attach-bound landing confined this registry to attached execution nodes, while [Security Architecture §Per-Event Daemon Signature](../security-architecture.md#per-event-daemon-signature) requires roster registration at join time — a never-attached daemon authors durable rows ([Spec-005 §User Message Events](../../specs/005-session-event-taxonomy-and-audit-log.md#user-message-events)'s `user.message`) that no roster key would have covered. The admission-time registration decoupling (landed by Plan-028's restoring targeted readiness-audit delta jointly with the Plan-005-owned T4.10 surface, PR #323) removed the attach precondition, so registration fires for every locally-materialized session — chat-only daemons included — restoring the at-join-time contract as specified behavior; the unrostered-origin honesty arm of Spec-028 remains the degrade for a node registered under no roster key (pre-roster software), not a structural gap for unattached daemons.
+The per-event daemon-signature verification protocol ([Security Architecture §Per-Event Daemon Signature](../security-architecture.md#per-event-daemon-signature)) resolves the emitting daemon's Ed25519 PUBLIC key by `NodeId` from the session verification-key roster. This registry is that roster's signing-key surface: the daemon registers its session-scoped public key (the value `DaemonSigningKeyProvisioner.create(sessionId)` returned, or its row-verified `readPublicKey` re-read after a restart) — a registration that lands at ADMISSION TIME, with no attach precondition since the admission-time registration decoupling (the Spec-028-pinned leg, jointly with the Plan-005-owned T4.10 surface), the write being ownership-gated and bound to the daemon-held CP-005-13 credential — via `runtimenode.signingkeyregister`, persisting register-once into the Plan-005-owned [`daemon_signing_public_keys` table](../schemas/shared-postgres-schema.md#daemon-signing-public-keys-plan-005--verification-key-roster); any verifier — peer daemon, forensic export, control-plane-connected client — resolves keys via `runtimenode.signingkeyroster`. Both methods are **control-plane tRPC ONLY** (the store is control-plane-owned cross-node state, the `runtimenode.roster` reasoning; the register mutation is **daemon-called**, the `runtimenode.leaseupdate` shape). Registered by Plan-005 T4.10 per CP-005-7 leg B / CP-002-5: the procedure-key registrations on the shared `runtime-node-router.factory.ts` builder, the two `runtimeNodeClient.ts` typed pass-throughs, and the four additive `runtime-node.ts` schema exports are CP-002-5's complete sanctioned Plan-002 seam-edit set, and the register/resolve service is the Plan-005-owned sibling `signing-key-service.ts` — deliberately **new procedures rather than an attach-request field**, because every shipped `runtimenode.*` request/response schema is `.strict()`, so an added member would break the new-daemon→old-control-plane skew direction at parse ([ADR-018 §Decision](../../decisions/018-cross-version-compatibility.md#decision) #7 bidirectional-MINOR); a new daemon calling an old control plane instead receives tRPC `NOT_FOUND` and degrades honestly (its uploaded anchors stay emitter-only-verifiable until the control plane upgrades — the procedure's absence is the discovery signal — and the daemon-side registrar re-attempts on a bounded exponential backoff capped at [Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior)'s 15-second heartbeat-cadence constant for the locally-materialized session's lifetime, so a mid-session upgrade converges to registered without a daemon restart). The registrar starts at the daemon-local session-establishment moment — `runtimenode.attach` is client-driven and the daemon is never a party to it, so no post-attach hook exists in the registrar's process — and publishes through a thin PASETO-authenticated tRPC caller deliberately scoped to `runtimenode.signingkeyregister` (the Plan-022 T-022-3B-3 `leaseupdate` single-procedure-caller precedent; the daemon takes no `client-sdk` dependency), authenticating as the **node-owner user** — the daemon's standing control-plane-authentication posture per [component-architecture-local-daemon.md §Responsibilities](../component-architecture-local-daemon.md#responsibilities) ("authenticate to the Control Plane using PASETO v4 tokens per Spec-028") — with a PASETO v4.public access token whose per-request DPoP proof is signed by a daemon-held key the token's `cnf.jkt` binds ([§Authenticated Principal](#authenticated-principal-and-authorization-model)), obtained per attempt through the constructor-injected credential-provider interface CP-005-13 registers against Plan-016's PASETO wiring (the token's issuance-into-the-daemon path is specified by no V1 document today — the same gate the production `resolveCurrentUserId` stub already imposes on every shipped `runtimenode.*` procedure — so an auth failure is a retryable transport failure on the backoff and no code that ships before it is blocked), retrying the collapsed `runtimenode.permission_denied` refusal on the same backoff — since the decoupling it covers ownership convergence alone (a session the caller does not yet own; no attach is awaited), so the registrar converges once the caller owns the session (the attach-race arm retired with the attachment predicates). The attempt presents NO `attachmentId` (admission-time decoupling): the request member, the `event.deliverAttachmentId` delivery method with its `EventDeliverAttachmentIdRequestSchema` / `EventDeliverAttachmentIdResponseSchema` contracts pair, the daemon's durable `daemon_attachment_deliveries` store, and the AttachFlow attach-success forward with its `daemon.status` reconnect replay (the CP-005-14 / CP-002-6 legs, both RETRACTED) are all deleted rather than shipped — the registrar's `nodeId` instead reads the daemon's own shipped Plan-002 Phase-2 node registry (`node_trust_state`), populated at daemon startup before any session materializes, so the attempt preconditions are the credential and the daemon's node identity, both daemon-local. **Scope note:** the attach-bound landing confined this registry to attached execution nodes, while [Security Architecture §Per-Event Daemon Signature](../security-architecture.md#per-event-daemon-signature) requires roster registration at join time — a never-attached daemon authors durable rows ([Spec-005 §User Message Events](../../specs/005-session-event-taxonomy-and-audit-log.md#user-message-events)'s `user.message`) that no roster key would have covered. The admission-time registration decoupling (jointly with the Plan-005-owned T4.10 surface) removed the attach precondition, so registration fires for every locally-materialized session — chat-only daemons included — restoring the at-join-time contract as specified behavior; the unrostered-origin honesty arm of Spec-028 remains the degrade for a node registered under no roster key (pre-roster software), not a structural gap for unattached daemons.
 
-The register upsert is **producer-bound and register-once**, the `runtimenode.leaseupdate` authorization shape: the control plane applies a write only when (1) the caller's verified PASETO `sub` owns the session (Codex PR #274 round 4, 2026-07-31 — without this predicate a revoked owner's daemon could keep minting durable, erasure-durable roster rows) — since the 2026-08-11 admission-time registration decoupling this is the SOLE authorization predicate: the attachment-ownership and `attachmentId`-equality predicates this arm carried 2026-08-01–2026-08-11 were DELETED with the attach precondition (no attachment row exists at admission time to check), and the producer binding is the daemon-held CP-005-13 credential itself — a PASETO v4.public access token whose per-request DPoP proof a daemon-held key signs under the token's `cnf.jkt` — which binds at USER granularity, never node granularity (`cnf.jkt` is replay-protection material, not a second principal). That is an accepted, NAMED WIDENING recorded by the decoupling: with one user owning two live daemons, either sibling's registrar can now mint the other's slot in one honest-looking call, where the prior `attachmentId` equality forced a loud two-call attach-usurpation footprint. Register-once plus the durable `signing_key_slot_conflict` alarm (below) remain the detection, and the non-forgeable node-identity credential is the cross-plan-dependencies.md V1.1 Plan-016/Plan-002 closure, absorbed when it lands through CP-005-13's credential-class-agnostic seam; a caller failing the predicate — a session the caller does not own, or a nonexistent session, all collapsed — is refused with the typed `runtimenode.permission_denied` error ([error-contracts.md §Runtime Node](./error-contracts.md#runtime-node) — HTTP 403 / tRPC `FORBIDDEN`, one collapsed refusal disclosing neither attachment existence nor session existence nor ownership, per that family's no-info-leak header, and deliberately never tRPC `NOT_FOUND`, which this namespace reserves as the old-control-plane procedure-absence discovery signal the registrar's retry contract discriminates on) before the floor or key comparison is reached — an unauthorized caller never reaches a key-existence oracle; (2) the request-carried self-declared `clientVersion` satisfies the session's current `min_client_version` floor — key registration is a version-sensitive domain write per [Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior); no attachment row exists at admission time to consult, so the check reads the request member, the same self-declared trust class `RuntimeNodeAttachRequest.clientVersion` itself carries (attach-parity trust — I-002-1's admit-read-only posture is preserved, and the declared value cannot change within one daemon process lifetime, so a below-floor park releases only on daemon upgrade + restart) — and a below-floor daemon is refused `version.floor_exceeded` (the [error-contracts.md §Version](./error-contracts.md#version) surface-3 code+message form) before any row write, while `runtimenode.signingkeyroster` — a read — carries no floor check; and (3) the `(session_id, node_id)` pair is unregistered, OR the presented key byte-equals the stored one (an acknowledged idempotent no-op — the retry-safe re-attach path). A registration presenting a **different** key for a registered pair is refused with the typed `runtimenode.signingkeyregister_conflict` error ([error-contracts.md §Runtime Node](./error-contracts.md#runtime-node) — HTTP 409 / tRPC `CONFLICT`, registry-only code+message) and no row write — never a silent overwrite; V1 ships no daemon signing-key rotation ceremony, so refusal IS the rotation policy (the control-plane mirror of Plan-005 T4.2's `refuse_on_rotation`; [Security Architecture §Per-Event Daemon Signature](../security-architecture.md#per-event-daemon-signature)). Register-once cuts both ways (round 5, 2026-08-01): with no rotation ceremony, a wrong FIRST registration is permanent for the session's life, so the genuine daemon's 409 is an integrity alarm, not a caller bug — its slot holds a key it never minted (a same-user sibling registered first, or its own key store was lost and re-minted). The refused daemon therefore appends the durable `audit_integrity_failed` event with the round-5 `failureMode: 'signing_key_slot_conflict'` ([Spec-005 §Audit Integrity](../../specs/005-session-event-taxonomy-and-audit-log.md#audit-integrity-audit_integrity)) to its session event log — session-visible and anchor-covered — rather than holding only a local log line; scoped at Codex PR #276 round 2 (2026-08-01, correcting this sentence's prior "so the parties whose verification the usurped slot breaks can detect it"): the alarm row is signed with the very key the roster refused, so roster-resolving external verifiers see it only as one more `signature_mismatch` among every row this daemon signs — the durable append serves local replay, the anchor-covered post-repair forensic record (authenticatable once the refused daemon's true key is established out-of-band), and operator surfacing, while the independently verifiable trust path for the conflict is the open design item recorded at [Spec-005 §Audit Integrity](../../specs/005-session-event-taxonomy-and-audit-log.md#audit-integrity-audit_integrity)'s sixteenth-mode prose. The three checks and the write are ATOMIC (Codex PR #274 rounds 3–4, 2026-07-31; the attachment level was deleted by the 2026-08-11 decoupling) — one transaction at READ COMMITTED closes all three TOCTOU windows: the session row is read `FOR SHARE` and held to commit, taken explicitly FIRST because the final INSERT's `session_id` FK acquires an implicit `FOR KEY SHARE` on `sessions` ([PostgreSQL 9.3 release notes §Locking](https://www.postgresql.org/docs/release/9.3.0/) — "foreign key checks use the new KEY SHARE lock mode"; the introducing release note is the direct primary statement, which the current-docs pages do not restate) and the canonical order forbids skipping a level a later statement acquires implicitly (`FOR SHARE`, not `FOR KEY SHARE`, because a future floor raise's `UPDATE` takes `FOR NO KEY UPDATE`, which only the former conflicts with per the row-lock conflict matrix, [PostgreSQL §13.3.2 Row-Level Locks](https://www.postgresql.org/docs/current/explicit-locking.html#ROW-LOCK-COMPATIBILITY) — so a floor rise cannot slip between check and write); ownership is read from that same locked `sessions` row rather than from a second level — `owner_user_id` is set once at creation and never moves, so there is no authorization transition for a write to race, and the level-1 `FOR SHARE` already held to commit is the whole authorization lock (this is an authorization READ, so Plan-002 I-002-3 is untouched: the transaction writes nothing outside the key table); the floor comparison runs in TypeScript (semver `MAJOR.MINOR` compares lexicographically wrong in SQL); and register-once applies as `INSERT ... ON CONFLICT (session_id, node_id) DO NOTHING` with in-transaction classification of the zero-row arm ([INSERT §ON CONFLICT Clause](https://www.postgresql.org/docs/current/sql-insert.html#SQL-ON-CONFLICT) — `DO NOTHING` "simply avoids inserting a row" and `RETURNING` returns "only rows that were successfully inserted or updated", so the zero-row arm is the loser's signal) — byte-equal stored key is the idempotent success, a different key throws the typed conflict — so a raw `23505` is never RAISED rather than caught: the `Querier` contract has no SAVEPOINTs, a raised unique violation aborts the transaction ("`ROLLBACK TO` is the only way to regain control of a transaction block that was put in aborted state by the system due to an error" — [PostgreSQL Tutorial §3.4 Transactions](https://www.postgresql.org/docs/current/tutorial-transactions.html)), and every subsequent command fails `25P02 in_failed_sql_transaction` ([PostgreSQL Appendix A — Error Codes](https://www.postgresql.org/docs/current/errcodes-appendix.html#ERRCODES-TABLE): `23505 unique_violation`, `25P02`) — no legal re-read. Two racing different-key registrations therefore resolve to exactly ONE stored key (round 4, correcting the round-3 clause that claimed both racers receive the 409): the INSERT winner returns the `null` success, while the zero-row loser's in-transaction re-read — a new statement, and Read Committed "starts each command with a new snapshot that includes all transactions committed up to that instant" ([PostgreSQL §13.2.1 Read Committed Isolation Level](https://www.postgresql.org/docs/current/transaction-iso.html#XACT-READ-COMMITTED)), so it legally sees the winner's committed row — classifies the stored different key into the typed 409: one success plus one 409, the shape T4.10's concurrency test asserts, never a raw `23505`. The lock order is registered in [`docs/architecture/schemas/shared-postgres-schema.md` §Lock Ordering Across Shared Tables](../schemas/shared-postgres-schema.md#lock-ordering-across-shared-tables). The roster query is floor-free but NOT authorization-free (Codex PR #274 rounds 3–4, 2026-07-31): [§Authenticated Principal](#authenticated-principal-and-authorization-model) scopes every control-plane endpoint — queries included — to its authenticated caller, so `runtimenode.signingkeyroster` requires the caller's verified principal to own the session (the Permission Matrix read posture), refused with the same typed `runtimenode.permission_denied` (403). The ownership check and the roster read are ONE SQL statement — a single-row ownership-predicate anchor (`EXISTS` over `sessions.owner_user_id`) LEFT-JOINed to `daemon_signing_public_keys` — because two separate statements at READ COMMITTED take two snapshots, letting a device revocation commit between probe and read and hand a just-revoked caller a roster newer than their authorization (round 4); one statement is one snapshot ([PostgreSQL §13.2.1 Read Committed Isolation Level](https://www.postgresql.org/docs/current/transaction-iso.html#XACT-READ-COMMITTED)), so the authorization and the returned entries are atomic WITHOUT a lock — a read-path `FOR SHARE` on the session row would serialize the revoker behind readers while making no reader's answer fresher (the shipped `readRoster` single-statement principle; the BL-141 campaign design's `readRoster` decision — superseded by ADR-025 Reading 1's uniform 403 — prescribed a locked transaction where its uniform-`404` negative required a `sessions` read — this surface's `403` collapse projects no `sessions` column, so the snapshot alone closes the race). The statement projects no `sessions` column, reaching that table only through the ownership `EXISTS`: a non-owner of a real session and a caller naming a nonexistent session yield the identical false ownership flag and byte-identical refusals, and the refusal path inspects no key column; an owner whose session has no registered keys gets the anchor row with NULL key columns — `{ entries: [] }` — so empty and denied stay distinguishable. Each entry's `registeredAt` normalizes through the `readRoster` `toIsoString` convention before the response parse (round 4): `TIMESTAMPTZ` hydrates as a JS `Date` under both shipped drivers (`pg`, PGlite) while the wire field is an ISO-8601 string whose `z.iso.datetime({ offset: true })` schema REJECTS a `Date`, so the T4.10 roster test runs against a real PGlite database through the response schema — exercising the hydration path rather than mocking it away. Primary sources for those three claims (round 5, 2026-08-01, each verified at content level): `pg` delegates result parsing to `pg-types`, whose [`lib/textParsers.js`](https://github.com/brianc/node-pg-types/blob/master/lib/textParsers.js) registers OID `1184` (`timestamptz`) to the `Date`-returning `postgres-date` parser (`register(1184, parseTimestampTz)` where `parseTimestampTz = require('postgres-date')`); PGlite's parser for the timestamp family is `parse: (x) => new Date(x)` in [`packages/pglite/src/types.ts`](https://github.com/electric-sql/pglite/blob/main/packages/pglite/src/types.ts); and [Zod §ISO datetimes](https://zod.dev/api#iso-datetimes) documents `z.iso.datetime()` as ISO-8601 STRING validation, so a `Date` instance fails its string precondition before any format check. No operator arm exists on this transport in V1 — the recorded residual against the reader list above: a "forensic export" reader reaches the roster through the session's owning principal (or direct database access under the operator's own custody), never an ungated query. The store deliberately carries no user FK — key material is machine-generated, carries no personal data, and sits outside the [Spec-020 §Shred Fan-Out](../../specs/020-data-retention-and-gdpr.md#shred-fan-out) Path-2 `REFERENCES users(id)` closure, so registered keys SURVIVE user erasure and the retained crypto-shredded `runtime_node.*` stream plus `event_log_anchors` rows stay verifiable.
+The register upsert is **producer-bound and register-once**, the `runtimenode.leaseupdate` authorization shape: the control plane applies a write only when (1) the caller's verified PASETO `sub` owns the session (without this predicate a revoked owner's daemon could keep minting durable, erasure-durable roster rows) — since the admission-time registration decoupling this is the SOLE authorization predicate: this arm carries no attachment-ownership or `attachmentId`-equality predicate, because no attachment row exists at admission time to check, and the producer binding is the daemon-held CP-005-13 credential itself — a PASETO v4.public access token whose per-request DPoP proof a daemon-held key signs under the token's `cnf.jkt` — which binds at USER granularity, never node granularity (`cnf.jkt` is replay-protection material, not a second principal). That is an accepted, NAMED WIDENING recorded by the decoupling: with one user owning two live daemons, either sibling's registrar can now mint the other's slot in one honest-looking call, where the prior `attachmentId` equality forced a loud two-call attach-usurpation footprint. Register-once plus the durable `signing_key_slot_conflict` alarm (below) remain the detection, and the non-forgeable node-identity credential is the cross-plan-dependencies.md V1.1 Plan-016/Plan-002 closure, absorbed when it lands through CP-005-13's credential-class-agnostic seam; a caller failing the predicate — a session the caller does not own, or a nonexistent session, all collapsed — is refused with the typed `runtimenode.permission_denied` error ([error-contracts.md §Runtime Node](./error-contracts.md#runtime-node) — HTTP 403 / tRPC `FORBIDDEN`, one collapsed refusal disclosing neither attachment existence nor session existence nor ownership, per that family's no-info-leak header, and deliberately never tRPC `NOT_FOUND`, which this namespace reserves as the old-control-plane procedure-absence discovery signal the registrar's retry contract discriminates on) before the floor or key comparison is reached — an unauthorized caller never reaches a key-existence oracle; (2) the request-carried self-declared `clientVersion` satisfies the session's current `min_client_version` floor — key registration is a version-sensitive domain write per [Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior); no attachment row exists at admission time to consult, so the check reads the request member, the same self-declared trust class `RuntimeNodeAttachRequest.clientVersion` itself carries (attach-parity trust — I-002-1's admit-read-only posture is preserved, and the declared value cannot change within one daemon process lifetime, so a below-floor park releases only on daemon upgrade + restart) — and a below-floor daemon is refused `version.floor_exceeded` (the [error-contracts.md §Version](./error-contracts.md#version) surface-3 code+message form) before any row write, while `runtimenode.signingkeyroster` — a read — carries no floor check; and (3) the `(session_id, node_id)` pair is unregistered, OR the presented key byte-equals the stored one (an acknowledged idempotent no-op — the retry-safe re-attach path). A registration presenting a **different** key for a registered pair is refused with the typed `runtimenode.signingkeyregister_conflict` error ([error-contracts.md §Runtime Node](./error-contracts.md#runtime-node) — HTTP 409 / tRPC `CONFLICT`, registry-only code+message) and no row write — never a silent overwrite; V1 ships no daemon signing-key rotation ceremony, so refusal IS the rotation policy (the control-plane mirror of Plan-005 T4.2's `refuse_on_rotation`; [Security Architecture §Per-Event Daemon Signature](../security-architecture.md#per-event-daemon-signature)). Register-once cuts both ways: with no rotation ceremony, a wrong FIRST registration is permanent for the session's life, so the genuine daemon's 409 is an integrity alarm, not a caller bug — its slot holds a key it never minted (a same-user sibling registered first, or its own key store was lost and re-minted). The refused daemon therefore appends the durable `audit_integrity_failed` event with the round-5 `failureMode: 'signing_key_slot_conflict'` ([Spec-005 §Audit Integrity](../../specs/005-session-event-taxonomy-and-audit-log.md#audit-integrity-audit_integrity)) to its session event log — session-visible and anchor-covered — rather than holding only a local log line: the alarm row is signed with the very key the roster refused, so roster-resolving external verifiers see it only as one more `signature_mismatch` among every row this daemon signs — the durable append serves local replay, the anchor-covered post-repair forensic record (authenticatable once the refused daemon's true key is established out-of-band), and operator surfacing, while the independently verifiable trust path for the conflict is the open design item recorded at [Spec-005 §Audit Integrity](../../specs/005-session-event-taxonomy-and-audit-log.md#audit-integrity-audit_integrity)'s sixteenth-mode prose. The three checks and the write are ATOMIC (the attachment level was deleted by the decoupling) — one transaction at READ COMMITTED closes all three TOCTOU windows: the session row is read `FOR SHARE` and held to commit, taken explicitly FIRST because the final INSERT's `session_id` FK acquires an implicit `FOR KEY SHARE` on `sessions` ([PostgreSQL 9.3 release notes §Locking](https://www.postgresql.org/docs/release/9.3.0/) — "foreign key checks use the new KEY SHARE lock mode"; the introducing release note is the direct primary statement, which the current-docs pages do not restate) and the canonical order forbids skipping a level a later statement acquires implicitly (`FOR SHARE`, not `FOR KEY SHARE`, because a future floor raise's `UPDATE` takes `FOR NO KEY UPDATE`, which only the former conflicts with per the row-lock conflict matrix, [PostgreSQL §13.3.2 Row-Level Locks](https://www.postgresql.org/docs/current/explicit-locking.html#ROW-LOCK-COMPATIBILITY) — so a floor rise cannot slip between check and write); ownership is read from that same locked `sessions` row rather than from a second level — `owner_user_id` is set once at creation and never moves, so there is no authorization transition for a write to race, and the level-1 `FOR SHARE` already held to commit is the whole authorization lock (this is an authorization READ, so Plan-002 I-002-3 is untouched: the transaction writes nothing outside the key table); the floor comparison runs in TypeScript (semver `MAJOR.MINOR` compares lexicographically wrong in SQL); and register-once applies as `INSERT ... ON CONFLICT (session_id, node_id) DO NOTHING` with in-transaction classification of the zero-row arm ([INSERT §ON CONFLICT Clause](https://www.postgresql.org/docs/current/sql-insert.html#SQL-ON-CONFLICT) — `DO NOTHING` "simply avoids inserting a row" and `RETURNING` returns "only rows that were successfully inserted or updated", so the zero-row arm is the loser's signal) — byte-equal stored key is the idempotent success, a different key throws the typed conflict — so a raw `23505` is never RAISED rather than caught: the `Querier` contract has no SAVEPOINTs, a raised unique violation aborts the transaction ("`ROLLBACK TO` is the only way to regain control of a transaction block that was put in aborted state by the system due to an error" — [PostgreSQL Tutorial §3.4 Transactions](https://www.postgresql.org/docs/current/tutorial-transactions.html)), and every subsequent command fails `25P02 in_failed_sql_transaction` ([PostgreSQL Appendix A — Error Codes](https://www.postgresql.org/docs/current/errcodes-appendix.html#ERRCODES-TABLE): `23505 unique_violation`, `25P02`) — no legal re-read. Two racing different-key registrations therefore resolve to exactly ONE stored key: the INSERT winner returns the `null` success, while the zero-row loser's in-transaction re-read — a new statement, and Read Committed "starts each command with a new snapshot that includes all transactions committed up to that instant" ([PostgreSQL §13.2.1 Read Committed Isolation Level](https://www.postgresql.org/docs/current/transaction-iso.html#XACT-READ-COMMITTED)), so it legally sees the winner's committed row — classifies the stored different key into the typed 409: one success plus one 409, the shape T4.10's concurrency test asserts, never a raw `23505`. The lock order is registered in [`docs/architecture/schemas/shared-postgres-schema.md` §Lock Ordering Across Shared Tables](../schemas/shared-postgres-schema.md#lock-ordering-across-shared-tables). The roster query is floor-free but NOT authorization-free: [§Authenticated Principal](#authenticated-principal-and-authorization-model) scopes every control-plane endpoint — queries included — to its authenticated caller, so `runtimenode.signingkeyroster` requires the caller's verified principal to own the session (the Permission Matrix read posture), refused with the same typed `runtimenode.permission_denied` (403). The ownership check and the roster read are ONE SQL statement — a single-row ownership-predicate anchor (`EXISTS` over `sessions.owner_user_id`) LEFT-JOINed to `daemon_signing_public_keys` — because two separate statements at READ COMMITTED take two snapshots, letting a device revocation commit between probe and read and hand a just-revoked caller a roster newer than their authorization; one statement is one snapshot ([PostgreSQL §13.2.1 Read Committed Isolation Level](https://www.postgresql.org/docs/current/transaction-iso.html#XACT-READ-COMMITTED)), so the authorization and the returned entries are atomic WITHOUT a lock — a read-path `FOR SHARE` on the session row would serialize the revoker behind readers while making no reader's answer fresher (the shipped `readRoster` single-statement principle; this surface's `403` collapse projects no `sessions` column, so the snapshot alone closes the race). The statement projects no `sessions` column, reaching that table only through the ownership `EXISTS`: a non-owner of a real session and a caller naming a nonexistent session yield the identical false ownership flag and byte-identical refusals, and the refusal path inspects no key column; an owner whose session has no registered keys gets the anchor row with NULL key columns — `{ entries: [] }` — so empty and denied stay distinguishable. Each entry's `registeredAt` normalizes through the `readRoster` `toIsoString` convention before the response parse: `TIMESTAMPTZ` hydrates as a JS `Date` under both shipped drivers (`pg`, PGlite) while the wire field is an ISO-8601 string whose `z.iso.datetime({ offset: true })` schema REJECTS a `Date`, so the T4.10 roster test runs against a real PGlite database through the response schema — exercising the hydration path rather than mocking it away. Primary sources for those three claims, each verified at content level: `pg` delegates result parsing to `pg-types`, whose [`lib/textParsers.js`](https://github.com/brianc/node-pg-types/blob/master/lib/textParsers.js) registers OID `1184` (`timestamptz`) to the `Date`-returning `postgres-date` parser (`register(1184, parseTimestampTz)` where `parseTimestampTz = require('postgres-date')`); PGlite's parser for the timestamp family is `parse: (x) => new Date(x)` in [`packages/pglite/src/types.ts`](https://github.com/electric-sql/pglite/blob/main/packages/pglite/src/types.ts); and [Zod §ISO datetimes](https://zod.dev/api#iso-datetimes) documents `z.iso.datetime()` as ISO-8601 STRING validation, so a `Date` instance fails its string precondition before any format check. No operator arm exists on this transport in V1 — the recorded residual against the reader list above: a "forensic export" reader reaches the roster through the session's owning principal (or direct database access under the operator's own custody), never an ungated query. The store deliberately carries no user FK — key material is machine-generated, carries no personal data, and sits outside the [Spec-020 §Shred Fan-Out](../../specs/020-data-retention-and-gdpr.md#shred-fan-out) Path-2 `REFERENCES users(id)` closure, so registered keys SURVIVE user erasure and the retained crypto-shredded `runtime_node.*` stream plus `event_log_anchors` rows stay verifiable.
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
-| `runtimenode.signingkeyregister` | `mutation` | `RuntimeNodeSigningKeyRegisterRequest` | `null` — HTTP 200 `{ result: { data: null } }`; `RuntimeNodeSigningKeyRegisterResponseSchema` (`z.null()`) — control-plane tRPC ONLY, **daemon-called** from the session-establishment registrar, landing at session admission with no attach precondition (2026-08-11 decoupling; ownership-gated + daemon-credentialed + register-once per the contract paragraph above; no daemon JSON-RPC registration; Plan-005 T4.10) |
+| `runtimenode.signingkeyregister` | `mutation` | `RuntimeNodeSigningKeyRegisterRequest` | `null` — HTTP 200 `{ result: { data: null } }`; `RuntimeNodeSigningKeyRegisterResponseSchema` (`z.null()`) — control-plane tRPC ONLY, **daemon-called** from the session-establishment registrar, landing at session admission with no attach precondition (decoupling; ownership-gated + daemon-credentialed + register-once per the contract paragraph above; no daemon JSON-RPC registration; Plan-005 T4.10) |
 | `runtimenode.signingkeyroster` | `query` | `RuntimeNodeSigningKeyRosterRequest` | `RuntimeNodeSigningKeyRosterResponse` — control-plane tRPC ONLY (the roster is control-plane-owned cross-node state; Plan-005 T4.10) |
 
 ```ts
 // RuntimeNodeSigningKeyRegister — control-plane tRPC ONLY, daemon-called from the session-establishment
 // registrar, landing at session admission with no attach precondition (Plan-005 T4.10 per CP-005-7 leg B / CP-002-5;
-// ownership-gated + daemon-credentialed — the attachment predicates were deleted by the 2026-08-11 admission-time decoupling)
+// ownership-gated + daemon-credentialed — the attachment predicates were deleted by the admission-time decoupling)
 interface RuntimeNodeSigningKeyRegisterRequest {
   sessionId: SessionId;
   nodeId: NodeId;
-  clientVersion: EventEnvelopeVersion; // semver "MAJOR.MINOR" (ADR-018 §Decision #1) — request-carried self-declared floor input, the same trust class RuntimeNodeAttachRequest.clientVersion carries (attach-parity); no attachment row exists at admission time to consult (2026-08-11 admission-time decoupling — the attachmentId member this interface carried 2026-08-01–2026-08-11 was deleted with the attach precondition)
+  clientVersion: EventEnvelopeVersion; // semver "MAJOR.MINOR" (ADR-018 §Decision #1) — request-carried self-declared floor input, the same trust class RuntimeNodeAttachRequest.clientVersion carries (attach-parity); no attachment row exists at admission time to consult (admission-time decoupling — this interface carries no attachmentId member)
   daemonSigningPublicKey: string; // 64-char lowercase hex of the 32-byte Ed25519 public key (the Plan-005 T2.3 wire convention); hex-decoded to BYTEA at persist
 }
 // Response: null — HTTP 200 { result: { data: null } } (RuntimeNodeSigningKeyRegisterResponseSchema = z.null(),
@@ -788,7 +789,7 @@ interface RuntimeNodeSigningKeyRegisterRequest {
 // is refused typed runtimenode.permission_denied
 // (403/FORBIDDEN) before the floor or key comparison is reached; a genuine daemon refused the
 // 409 for its own slot appends audit_integrity_failed failureMode 'signing_key_slot_conflict'
-// durably (round 5 — see the contract paragraph above).
+// durably (see the contract paragraph above).
 
 // RuntimeNodeSigningKeyRoster — control-plane tRPC ONLY (the NodeId-keyed verification-key
 // resolution surface per Security Architecture §Per-Event Daemon Signature). Ownership-gated:
@@ -802,7 +803,7 @@ interface RuntimeNodeSigningKeyRosterRequest {
 interface RuntimeNodeSigningKeyRosterEntry {
   nodeId: NodeId;
   daemonSigningPublicKey: string; // 64-char lowercase hex
-  registeredAt: string; // ISO 8601 — daemon_signing_public_keys.registered_at with no server-side derivation or masking; TIMESTAMPTZ hydrates as a JS Date under both shipped drivers (pg, PGlite), so the projection normalizes through the readRoster toIsoString convention before the response parse — z.iso.datetime({ offset: true }), the file convention, REJECTS a Date (Codex PR #274 round 4; the pg-types/PGlite/Zod primary sources are cited at the roster paragraph above, round 5)
+  registeredAt: string; // ISO 8601 — daemon_signing_public_keys.registered_at with no server-side derivation or masking; TIMESTAMPTZ hydrates as a JS Date under both shipped drivers (pg, PGlite), so the projection normalizes through the readRoster toIsoString convention before the response parse — z.iso.datetime({ offset: true }), the file convention, REJECTS a Date (the pg-types/PGlite/Zod primary sources are cited at the roster paragraph above)
 }
 interface RuntimeNodeSigningKeyRosterResponse {
   entries: RuntimeNodeSigningKeyRosterEntry[]; // one entry per registered (session, node); a node attached under a pre-leg-B daemon or control plane simply has no entry (emitter-only-verifiable — the honest degrade)
@@ -811,7 +812,7 @@ interface RuntimeNodeSigningKeyRosterResponse {
 
 ---
 
-## Tier 3: Plans 004, 005, 006 (Task 4.5)
+## Plans 004, 005 And 006
 
 ### Plan-004 — Provider Driver Contract (Internal Interface)
 
@@ -833,23 +834,23 @@ interface RuntimeNodeSigningKeyRosterResponse {
 // `DriverResumeResult`, `DriverRollbackResult`, `DriverGoalResult`, and `DriverAuthProbeResult`,
 // provider-declared `ProviderToolMetadata`, and the driver-normalized `CallbackToolInvocation` /
 // `McpServerStatusEmission` (each built from provider wire output before the daemon-injected
-// seam sees it, campaign B10).
+// seam sees it).
 // `resumeSession` returns the `DriverResumeResult` discriminated union (defined below)
 // to make silent-replacement structurally inexpressible per Spec-004 §Fallback Behavior.
 // `getCapabilities` returns the `GetCapabilitiesResult` wrapper (defined below) so the
 // per-tool `ProviderToolMetadata[]` rides alongside the flag matrix in a single
-// round-trip per Plan-004 Phase 4 ratified design.
+// round-trip per Plan-004 Phase 4.
 // Within the Zod-validated surfaces, `ProviderToolMetadata` STRIPS unknown keys (Spec-004
 // §Default Behavior forward-compat: "Unknown capability fields are ignored (tolerant
-// reader)" — campaign B3 re-framed contractVersion as change-detection, not negotiation),
+// reader)" — contractVersion is change-detection, not negotiation),
 // while the result envelopes reject unknown keys (`.strict()`);
 // and all seventeen untrusted provider-output free-form strings (`ProviderToolMetadata.name`/`.description`,
 // `DriverInterventionResult.fallbackAction`, `DriverResumeResult.bindingId`/`.providerFailureDetail`,
 // `DriverRollbackResult.fallbackAction`/`.bindingId`, `DriverGoalResult.fallbackAction`,
 // `DriverAuthProbeResult.detail`, `CallbackToolInvocation.toolName`/`.toolCallId`,
-// `McpServerStatusEmission.serverName` — the last three added by campaign B10, Codex rounds 4–5 —
+// `McpServerStatusEmission.serverName`
 // and `ProviderCommandEntry.name`/`.description`/`.scope` plus
-// `ProviderOutputSpeedState.declared`/`.reason`, the five added 2026-08-29 with the console-parity
+// `ProviderOutputSpeedState.declared`/`.reason`, the five that ride the console-parity
 // surfaces: both shapes are built from provider- or skill-authored metadata at the driver's own
 // normalize boundary and both travel to a client, so an unbounded one is an arbitrarily large
 // IPC response and renderer workload) —
@@ -858,13 +859,12 @@ interface RuntimeNodeSigningKeyRosterResponse {
 // `ProviderOutputSpeedState`) below —
 // are runtime-bounded (length + non-whitespace + NUL-rejection) via the package's `wireFreeFormString`
 // helper — Zod constraints not expressible in these TS interface shapes.
-// SHIPPED SUBSET vs CANONICAL SET (2026-08-29; discharged 2026-08-31). `packages/contracts/src/provider-driver.ts`
-// realized the TWELVE pre-amendment strings when this note was written; Plan-004 T3.26 (PR #388,
-// merged 2026-08-31) landed the `ProviderCommandEntry` and `ProviderOutputSpeedState` producers and
-// carried the file's own count claim to SEVENTEEN, so the file now realizes this enumeration in
-// full — the "twelve" its comments still name counts the twelve provider-boundary LENGTH CAPS
+// SHIPPED SUBSET vs CANONICAL SET. `packages/contracts/src/provider-driver.ts` realizes this
+// enumeration in full: Plan-004 T3.26 landed the `ProviderCommandEntry` and
+// `ProviderOutputSpeedState` producers and carried the file's own count claim to SEVENTEEN.
+// The "twelve" some comments name counts the twelve provider-boundary LENGTH CAPS
 // (twelve caps cover seventeen fields because four are reused across surfaces), a different census
-// that never competed with this one. The owed leg still open at this annotation (2026-08-31) is
+// that never competed with this one. The owed leg is
 // T4.9's SDK-seam schemas for the two console-parity verbs, under the same named-owner discipline:
 // T4.9 EXTENDs that file.
 interface ProviderDriver {
@@ -882,7 +882,7 @@ interface ProviderDriver {
   listModes(): Promise<ProviderMode[]>;
   getCapabilities(): Promise<GetCapabilitiesResult>;
   probeAuth(): Promise<DriverAuthProbeResult>;
-  // Render the run's canonical transcript into this provider's replay frames (2026-08-26,
+  // Render the run's canonical transcript into this provider's replay frames (
   // ADR-029; Spec-004 §Canonical Transcript Export And Replay). Pure with respect to session
   // state: it mutates nothing, writes nothing, and starts no turn.
   exportTranscript(params: ExportTranscriptParams): Promise<DriverTranscriptExportResult>;
@@ -894,14 +894,14 @@ interface ProviderDriver {
   // load, and a driver whose provider refuses prior-turn content declares the flag `false`.
   replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult>;
   // Ask the provider to compact the bound session's OWN context, on a user's explicit
-  // request and never on a threshold, timer, or heuristic (2026-08-29, Spec-004 §User-
+  // request and never on a threshold, timer, or heuristic (Spec-004 §User-
   // triggered context compaction). Gated on `context_compaction`. It SETTLES on the provider's
   // typed compaction evidence — the frame that already produces usage.context_compacted — and
   // NEVER on the request being accepted: the Codex method answers an empty ack and the Claude leg
   // is a driver_command frame that only settles, so acceptance is evidence of delivery and of
   // nothing else. There is deliberately NO prompt-injected emulation arm; a driver that cannot
   // compact declares the flag false and the call refuses as driver.capability_unsupported.
-  // The wait for that evidence is BOUNDED and has TWO terminals (2026-08-29): the driver's own
+  // The wait for that evidence is BOUNDED and has TWO terminals: the driver's own
   // declared per-binding compaction bound, and the run's provider binding ceasing to be live —
   // whichever lands first ends the wait, so a provider that acknowledges and then produces no
   // frame, or exits mid-compaction, cannot hold the operation open indefinitely. Expiry settles
@@ -910,7 +910,7 @@ interface ProviderDriver {
   // compaction does, so no boundary escapes Spec-003's rewind classifier.
   compactContext(params: CompactContextParams): Promise<DriverCompactionResult>;
   // Read the provider's own enumeration of native slash-commands and skills for the bound
-  // session (2026-08-29, Spec-004 §The provider command and skill surface). Gated on
+  // session (Spec-004 §The provider command and skill surface). Gated on
   // `provider_commands`. A LIVE read held as driver-session state and discarded with it: not
   // persisted, not cached across sessions, and folded into no projection — which is why this
   // capability adds no table and no column. Every entry carries the (driverName,
@@ -920,7 +920,7 @@ interface ProviderDriver {
   listProviderCommands(params: ListProviderCommandsParams): Promise<ProviderCommandListResult>;
 }
 
-// Console-parity shapes (2026-08-29, Spec-004 §Desktop Console Parity Surfaces).
+// Console-parity shapes (Spec-004 §Desktop Console Parity Surfaces).
 //
 // AUTHORIZATION (both verbs, at the wire boundary — before the capability gate and before any
 // driver dispatch). Neither mints a Cedar action and neither mints an error code.
@@ -935,7 +935,7 @@ interface ProviderDriver {
 //     owns the named binding — the `run.pause` / `run.resume` precedent above (§Authenticated
 //     Principal And Authorization Model: that action covers interventions and those orchestration
 //     verbs identically), reading the same Security Architecture permission-matrix run-control
-//     row — whose subject names compaction as of 2026-08-29, so this citation lands on a row that
+//     row — whose subject names compaction, so this citation lands on a row that
 //     names the operation; the matrix gains NO row, which is the same claim as reusing the
 //     action. It is NOT an intervention and does not widen `Spec-003`'s closed V1 control set; it
 //     shares the adjudication, not the envelope. I-003-19's non-local hosting-node approval leg
@@ -947,7 +947,7 @@ interface ProviderDriver {
 //     `InterventionResponseBase.rejectionReason`, and the way Spec-027 routes peer-invocation
 //     denials onto the callback-tool result arms.
 //
-// WIRE ADDRESSING (2026-08-29). NEITHER client-facing verb takes a `bindingId`, and the daemon
+// WIRE ADDRESSING. NEITHER client-facing verb takes a `bindingId`, and the daemon
 // resolves the live provider binding at dispatch — the addressing `RollbackToParams` already
 // specifies ("clients address the run"). This is not stylistic: no client-facing read publishes a
 // `bindingId` anywhere, so a binding-addressed wire request would be unconstructible from every
@@ -966,7 +966,7 @@ interface ProviderDriver {
 //     that has an agent to obtain a run id it does not otherwise need.
 //
 // AN AGENT CAN HOLD SEVERAL LIVE BINDINGS AT ONCE, so the RESULT is discriminated rather than the
-// request (2026-08-29, round-3 fold). Plan-014's admission pipeline has no one-active-run-per-agent
+// request (round-3 fold). Plan-014's admission pipeline has no one-active-run-per-agent
 // gate and V1 permits concurrent runs, so `agentId` does not resolve to one binding: the agent may
 // have a run per leg, and a provider switch that applied when one run ended leaves older runs on the
 // binding they spawned under. An enumeration is held per driver session and two of them can
@@ -1013,7 +1013,7 @@ interface CompactContextParams {
 }
 
 // The result of a compaction ATTEMPT, not of the request — a DISCRIMINATED UNION on `status`
-// (2026-08-29), so no arm can carry a member another arm's state makes meaningless and no
+//, so no arm can carry a member another arm's state makes meaningless and no
 // consumer has to guess which optional members its arm implies. `applied` is reachable only
 // after the provider's typed compaction frame is observed, and `boundaryPosition` is REQUIRED
 // there, typed `number | null` so a frame carrying no position is representable without being
@@ -1045,7 +1045,7 @@ interface ListProviderCommandsParams {
 // under one syntax; `scope` is present only where the provider declares one (the Codex skills
 // surface does, the Claude handshake enumeration does not), so its absence means the provider
 // stated no scope rather than that the scope is unknown to the driver. `enabled` follows that same
-// present-iff-the-provider-declares-one rule (2026-08-29, round-3 fold): the Codex `skills/list`
+// present-iff-the-provider-declares-one rule (round-3 fold): the Codex `skills/list`
 // entry carries an `enabled` Boolean ([Spec-004 §Per-Driver Capability Matrix](../../specs/004-provider-driver-contract-and-capabilities.md#per-driver-capability-matrix)) and the Claude
 // handshake enumeration publishes no enabled/disabled distinction at all, so ABSENT means the
 // provider draws no such distinction on this surface — never that the entry's state is unknown to
@@ -1057,7 +1057,7 @@ interface ListProviderCommandsParams {
 // explicitly `false` is not offerable and is rendered unavailable rather than advertised as
 // runnable, since the bound provider will not execute it; an absent `enabled` is offerable.
 //
-// V1 IS ENUMERATION AND DISCOVERY, NOT A DISPATCH CHANNEL (2026-08-29). No member of this shape
+// V1 IS ENUMERATION AND DISCOVERY, NOT A DISPATCH CHANNEL. No member of this shape
 // is a dispatch handle, and no wire route takes one: the ONLY entry V1 sends is the compaction
 // command, composed by the driver's own emulated leg and reached through `compactContext`, which
 // checks presence against this same enumeration. Selecting any other entry inserts nothing into
@@ -1067,10 +1067,10 @@ interface ListProviderCommandsParams {
 // origin — the only origin exempt from the neutralization tripwire — is admitted by
 // [Spec-004 §Required Behavior](../../specs/004-provider-driver-contract-and-capabilities.md#required-behavior) only against POST-DISPATCH typed evidence, which an arbitrary
 // provider command does not supply. A dispatch route therefore needs both C-18's escape
-// activated and a per-command typed-evidence contract, and is left to a future amendment.
+// activated and a per-command typed-evidence contract, and is left to a future change to this contract.
 // [Spec-004 §Required Behavior](../../specs/004-provider-driver-contract-and-capabilities.md#required-behavior)'s "exactly one `driver_command` producer" count stays exact.
 //
-// BOUNDED AT THE NORMALIZE BOUNDARY (2026-08-29). Every entry is assembled from provider- and
+// BOUNDED AT THE NORMALIZE BOUNDARY. Every entry is assembled from provider- and
 // skill-authored metadata — a local skill file's front matter is operator-writable and a provider
 // handshake enumeration is provider-writable — and the assembled list travels to a client, so an
 // unbounded one is an arbitrarily large IPC response and renderer workload rather than a merely
@@ -1108,7 +1108,7 @@ interface ProviderCommandBindingGroup {
   complete: boolean;
 }
 
-// The reply is the GROUP LIST, never a bare entry array (2026-08-29, round-3 fold — see the
+// The reply is the GROUP LIST, never a bare entry array (round-3 fold — see the
 // concurrent-bindings note at the request above). A single-binding agent yields one group, so the
 // common case costs one level of nesting and the concurrent case stays representable instead of
 // silently collapsing. The array is never empty on a success reply: an agent with no live binding
@@ -1118,7 +1118,7 @@ interface ProviderCommandListResult {
   bindings: ProviderCommandBindingGroup[];
 }
 
-// Transcript export/replay shapes (2026-08-26, ADR-029). The canonical transcript is a PROJECTION
+// Transcript export/replay shapes (ADR-029). The canonical transcript is a PROJECTION
 // the daemon rebuilds per call and caches nowhere, so it is passed IN rather than fetched by the
 // driver: a driver holding a transcript handle would be holding a second record of the log, which
 // is the divergence ADR-029 exists to eliminate.
@@ -1172,14 +1172,14 @@ interface DriverTranscriptReplayResult {
 interface CreateSessionParams {
   sessionId: SessionId;
   config: Record<string, unknown>;
-  // Spawn-time realization of the native-cap-escape admitted cap (campaign B6): providers that
+  // Spawn-time realization of the native-cap-escape admitted cap: providers that
   // bind budget caps at process spawn (Claude `--max-budget-usd`) realize it HERE — the initial
   // create path must never launch a native-cap-admitted leg capless while the accountant
   // reserves/debits as if enforced. StartRunParams / ResumeSessionParams carry the same value
   // for the run and recovery paths (Spec-014 §Cost Derivation And Absent-Cost Semantics).
   admittedCostCapCents?: number;
-  executionPosture?: ExecutionPosture; // spawn-time posture — provider legs that bind posture at process spawn (Claude `--settings` sandbox) realize it here; the per-run effective posture rides StartRunParams (Spec-004 §Required Behavior, campaign B3)
-  // The REQUESTED accelerated-output mode (2026-08-29, Spec-004 §The output-speed axis). Gated on
+  executionPosture?: ExecutionPosture; // spawn-time posture — provider legs that bind posture at process spawn (Claude `--settings` sandbox) realize it here; the per-run effective posture rides StartRunParams (Spec-004 §Required Behavior)
+  // The REQUESTED accelerated-output mode (Spec-004 §The output-speed axis). Gated on
   // the `output_speed` flag and validated against that driver's declared `outputSpeedLevels`
   // BEFORE spawn — an out-of-vocabulary value refuses with `agent.provider_axis_invalid` rather
   // than reaching the provider. Spawn-bound like posture and schema: the axis is a settings opt-in
@@ -1188,10 +1188,9 @@ interface CreateSessionParams {
   // what the provider actually declared is observed later as binding-held `ProviderOutputSpeedState`.
   outputSpeed?: string;
   callbackTools?: SessionCallbackTool[]; // daemon-curated callback-tool registry exposed into the session (Codex function-form dynamicTools; Claude daemon-hosted ephemeral MCP server via --mcp-config); gated on the callback_tools flag
-  subagentPolicy?: SubagentPolicy; // provider-native in-session subagent policy pass-through under the single-supervisor invariant (Spec-014 semantics land via campaign B6); gated on the subagents flag
-  outputSchema?: Record<string, unknown>; // normalized JSON Schema constraining schema-constrained final output (Spec-004 §Per-Driver Capability Matrix structured_output, campaign B10); gated on the structured_output flag. The Claude leg binds it per session at spawn (--json-schema); the Codex leg realizes it per turn via StartRunParams.outputSchema (turn/start.outputSchema). Named consumers: Spec-022 dispatch results, Plan-014 orchestration reads
-  // Provider-account identity at spawn (2026-08-18 amendment, Plan-004 T3.17; landed 2026-08-31,
-  // PR #397). OPAQUE TO THE DRIVER — never parsed, never used to locate credential material: the
+  subagentPolicy?: SubagentPolicy; // provider-native in-session subagent policy pass-through under the single-supervisor invariant (Spec-014 semantics); gated on the subagents flag
+  outputSchema?: Record<string, unknown>; // normalized JSON Schema constraining schema-constrained final output (Spec-004 §Per-Driver Capability Matrix structured_output); gated on the structured_output flag. The Claude leg binds it per session at spawn (--json-schema); the Codex leg realizes it per turn via StartRunParams.outputSchema (turn/start.outputSchema). Named consumers: Spec-022 dispatch results, Plan-014 orchestration reads
+  // Provider-account identity at spawn (Plan-004 T3.17). OPAQUE TO THE DRIVER — never parsed, never used to locate credential material: the
   // driver receives the already-constructed spawn environment, and pinning the account's credential
   // home into it (and denying the ambient names a bound leg must not read) are obligations on the
   // spawn path — Plan-026's fail-closed binding, consumed per CP-004-9 — not properties this member
@@ -1203,10 +1202,10 @@ interface CreateSessionParams {
   // and no client-supplied value to reconcile against the resolution. Spawn-bound because a run's
   // paying account is bound for the run's LIFETIME — `ResumeSessionParams` re-realizes it below from
   // the durable record rather than re-resolving whichever account is current at the resume. Omitting
-  // it is the unchanged pre-amendment path.
+  // it is the unchanged default path.
   providerAccountId?: string;
   // THIS SESSION'S OWN bound on how many steps one turn may take, carried onto the spawn because one
-  // leg realizes it as a start flag (2026-09-21, Spec-003 §The Step Bound On A Turn). Absent means
+  // leg realizes it as a start flag (Spec-003 §The Step Bound On A Turn). Absent means
   // the session set no bound of its own, in which case the machine's own Runtime value applies and
   // where that is unset each provider does what it does on its own. The driver carries the number
   // onto its own realization: `--max-turns` on the Claude leg, where the provider enforces it, and
@@ -1214,33 +1213,31 @@ interface CreateSessionParams {
   // like posture and speed, so `ResumeSessionParams` re-realizes it below; reaching the bound ends a
   // TURN and leaves the run where it was, so it is neither a budget nor an intervention.
   maxStepsPerTurn?: number;
-  onCallbackToolCall?: (invocation: CallbackToolInvocation) => Promise<CallbackToolResult>; // daemon-injected callback-tool dispatcher (campaign B10); the driver invokes it on a provider callback-tool request and answers the provider with the result. Gated on the callback_tools flag; the daemon-side host routes through Plan-010's Cedar pipeline (CP-004-7 / B13 T2.8). See CallbackToolInvocation below
-  onMcpServerStatus?: McpServerStatusProducer; // daemon-injected MCP server-status sink (campaign B10); the driver emits the per-session MCP server-status census (init) + status-change updates through it as typed McpServerStatusEmission values — the closure is pre-bound to the leg identity (sessionId + bindingId) at spawn and stamps them into the consumer-facing McpServerStatusUpdate (Codex round 5). Producer-only at Plan-004 — the consumer is Plan-025's status normalizer (§Plan-025 — MCP Governance Contract Surfaces below; Spec-025, registered 2026-07-22 B18). See McpServerStatusEmission below
+  onCallbackToolCall?: (invocation: CallbackToolInvocation) => Promise<CallbackToolResult>; // daemon-injected callback-tool dispatcher; the driver invokes it on a provider callback-tool request and answers the provider with the result. Gated on the callback_tools flag; the daemon-side host routes through Plan-010's Cedar pipeline (CP-004-7 / B13 T2.8). See CallbackToolInvocation below
+  onMcpServerStatus?: McpServerStatusProducer; // daemon-injected MCP server-status sink; the driver emits the per-session MCP server-status census (init) + status-change updates through it as typed McpServerStatusEmission values — the closure is pre-bound to the leg identity (sessionId + bindingId) at spawn and stamps them into the consumer-facing McpServerStatusUpdate. Producer-only at Plan-004 — the consumer is Plan-025's status normalizer (§Plan-025 — MCP Governance Contract Surfaces below; Spec-025). See McpServerStatusEmission below
 }
 
 interface ResumeSessionParams {
   sessionId: SessionId;
   resumeHandle: string; // opaque provider-owned handle
-  // recovery wire-through (campaign B6): on resume/relaunch of a native-cap-admitted run the daemon
+  // recovery wire-through: on resume/relaunch of a native-cap-admitted run the daemon
   // re-threads the admitted cap from the durable run.queued payload (admittedUnpricedCapCents), so the
   // provider-side hard stop survives daemon restart and session relaunch (Plan-013 recovery resumes
   // bindings through this seam; realized like StartRunParams.admittedCostCapCents on cap-capable legs)
   admittedCostCapCents?: number;
   // Resume is a FRESH process spawn (the C-12 posture-relaunch precedent), so every spawn-bound
   // surface CreateSessionParams binds must re-realize here or the resumed leg silently sheds it —
-  // a posture-less resume relaunches UNSANDBOXED, a schema-less one unconstrained (campaign B10,
-  // Codex rounds 3–4). The seven DATA legs below (re-derived by counting rather than by arithmetic:
-  // five at campaign B10, six when T3.17 added `providerAccountId`, seven with the step bound) are
+  // a posture-less resume relaunches UNSANDBOXED, a schema-less one unconstrained. The seven DATA legs below are
   // reconstructed by the daemon from the durable
   // runtime_bindings.spawn_config record (written at every spawn; Plan-004 T1.7) — never from the
   // original client request, which recovery does not have; the two FUNCTION legs are re-injected
   // fresh at every spawn (functions are never stored in spawn_config).
   executionPosture?: ExecutionPosture;
-  // The requested mode, re-realized on the fresh process (2026-08-29). It is spawn_config's fifth
+  // The requested mode, re-realized on the fresh process. It is spawn_config's fifth
   // reconstructed leg for exactly the reason posture is: a speed-less resume relaunches at the
   // provider's default while `agents.output_speed` still records the operator's accepted choice,
   // which is the silent-shedding failure this list exists to prevent. What the relaunched process
-  // declares is observed as binding-held `ProviderOutputSpeedState` (the 2026-08-29 round-3
+  // declares is observed as binding-held `ProviderOutputSpeedState` (the round-3
   // correction recorded on `ProviderSessionHandle` below), never returned on `DriverResumeResult`,
   // so a mode that stops being available across a restart surfaces as an observation rather than
   // as a stale request.
@@ -1264,7 +1261,7 @@ interface ResumeSessionParams {
   // never re-supplied: no wire request carries an account, and recovery holds none to take one from.
   // Same opacity rule as on `CreateSessionParams` above.
   providerAccountId?: string;
-  // The SEVENTH reconstructed data leg (2026-09-21): a resume that dropped the session's own step
+  // The SEVENTH reconstructed data leg: a resume that dropped the session's own step
   // bound would relaunch the Claude leg without `--max-turns` while the session record still holds
   // the number the person set, which is the silent shedding this list exists to prevent. Read back
   // from `runtime_bindings.spawn_config` like its siblings, never re-read from the session record at
@@ -1278,14 +1275,14 @@ interface StartRunParams {
   // native-cap-escape wire-through: the admitted family cap (= the run.queued server-stamped admittedUnpricedCapCents),
   // realized as the provider's native hard cap on cap-capable legs (Claude `--max-budget-usd`); a leg that
   // binds caps at spawn realizes it via CreateSessionParams.admittedCostCapCents (the spawn carrier above) — and a native-cap run on such a leg starts only inside a session spawned with the MATCHING cap: an existing uncapped process forces a capped relaunch at the session boundary before this startRun dispatches (posture-relaunch precedent), never a start-in-uncapped
-  // (Spec-014 §Cost Derivation And Absent-Cost Semantics, campaign B6)
+  // (Spec-014 §Cost Derivation And Absent-Cost Semantics)
   admittedCostCapCents?: number;
   runId: RunId;
   channelId: ChannelId;
   agentConfig: Record<string, unknown>;
   conversationHistory?: unknown[];
-  executionPosture?: ExecutionPosture; // per-run effective posture — the same object the daemon stamps on run.running (Spec-005 §Run Lifecycle). Codex realizes per-turn (turn/start sandbox params); a provider that binds posture at spawn realizes it at session boundaries, and a mid-session posture change on such a leg resolves via session relaunch, never silent partial application (Spec-004 §Required Behavior, campaign B3)
-  outputSchema?: Record<string, unknown>; // per-turn schema-constrained final output (Codex turn/start.outputSchema); the Claude leg binds it at spawn via CreateSessionParams.outputSchema (--json-schema). Gated on structured_output (Spec-004 §Per-Driver Capability Matrix, campaign B10)
+  executionPosture?: ExecutionPosture; // per-run effective posture — the same object the daemon stamps on run.running (Spec-005 §Run Lifecycle). Codex realizes per-turn (turn/start sandbox params); a provider that binds posture at spawn realizes it at session boundaries, and a mid-session posture change on such a leg resolves via session relaunch, never silent partial application (Spec-004 §Required Behavior)
+  outputSchema?: Record<string, unknown>; // per-turn schema-constrained final output (Codex turn/start.outputSchema); the Claude leg binds it at spawn via CreateSessionParams.outputSchema (--json-schema). Gated on structured_output (Spec-004 §Per-Driver Capability Matrix)
 }
 
 interface InterruptRunParams {
@@ -1297,11 +1294,11 @@ interface InterruptRunParams {
 // shape. `expectedRunVersion` is the MANDATORY fail-closed comparand (Plan-003
 // D-003-2) repeated on every arm — absent value rejected, never applied.
 // `clientIdempotencyKey` is the MANDATORY requester-generated UUID (Spec-004 §Required
-// Behavior, campaign B3): the daemon dedupes on it (replay-or-conflict), and it rides
+// Behavior): the daemon dedupes on it (replay-or-conflict), and it rides
 // through to the driver so provider-remote invocations that honor dedupe keys receive
 // it (the `compensable` propagation pattern, Spec-004 §Tool Metadata). Same field set
 // as the steer / interrupt / cancel arms of the InterventionRequestPayload union below —
-// the `rollback` arm (campaign B2) deliberately has NO ApplyInterventionParams counterpart:
+// the `rollback` arm deliberately has NO ApplyInterventionParams counterpart:
 // its driver leg is the dedicated capability-gated `rollbackTo` parity operation
 // (§Plan-004 below; Spec-003 §Interfaces And Contracts).
 type ApplyInterventionParams =
@@ -1328,11 +1325,10 @@ type ApplyInterventionParams =
     };
 
 // The ATTACHMENT-CARRIER contract, stated once here and cited from the InterventionRequestPayload
-// `steer` arm in §Plan-003 (2026-09-08 CP-012-7 discharge; the arm was `unknown[]` from campaign B3
-// until this date). The element type is ArtifactId — an id into Spec-012's manifest space, never an
+// `steer` arm in §Plan-003. The element type is ArtifactId — an id into Spec-012's manifest space, never an
 // untyped element and never an inline byte payload; caller bytes enter through the
 // boundary-validated ingest paths instead. [Spec-012 §Required Behavior](../../specs/012-artifacts-files-and-attachments.md#required-behavior) ratifies that encoding
-// (2026-09-08): an RFC 9562 UUID the daemon mints at manifest creation, carried distinctly from the
+//: an RFC 9562 UUID the daemon mints at manifest creation, carried distinctly from the
 // payload's SHA-256 digest — which is what makes an element REFUSABLE at this parse boundary rather
 // than only at resolution time. Caller-declared ORDER is preserved end to end, and an
 // element the turn cannot resolve or deliver surfaces as an explicit cause-bearing unresolved marker
@@ -1349,7 +1345,7 @@ type ApplyInterventionParams =
 // delivered rather than truncating it to fit — a truncating carrier is the silent drop this typing
 // exists to prevent, wearing a success status code. A schema constant cannot read operator
 // configuration, which is why the tunable bound is the daemon's and not this shape's. The brand is
-// homed with its lowest-tier consumer per Plan-004 CP-004-6 — this payload — and every higher-tier
+// homed with its earliest-shipping consumer per Plan-004 CP-004-6 — this payload — and every later
 // consumer imports it (`packages/contracts/src/provider-driver.ts#ArtifactIdSchema`); Plan-012 Task 1
 // imports rather than restates, so no second definition of an artifact id exists.
 interface SteerPayload {
@@ -1367,14 +1363,14 @@ interface CancelPayload {
 }
 
 interface DriverInterventionResult {
-  status: "applied" | "degraded"; // the complete driver-level vocabulary — `rejected` / `expired` are orchestration-layer verdicts rendered around driver dispatch, never driver-returned (Spec-004 §Required Behavior; normative mapping in queue-and-intervention-model.md §Driver Result To Lifecycle Mapping, campaign B3)
+  status: "applied" | "degraded"; // the complete driver-level vocabulary — `rejected` / `expired` are orchestration-layer verdicts rendered around driver dispatch, never driver-returned (Spec-004 §Required Behavior; normative mapping in queue-and-intervention-model.md §Driver Result To Lifecycle Mapping)
   fallbackAction?: string; // e.g. 'queue_and_interrupt' for degraded steer
-  refusalCode?: "driver.text_neutralization_failed"; // additive-optional, 2026-08-25 provider-bound text-neutrality amendment (Spec-004 §Required Behavior; authored by Plan-004 T3.18, consumed by Plan-003 T2.6 under CP-003-1). A CLOSED literal union, not a free-form string: the envelope parses untrusted provider output, and a daemon-selected code from a fixed set carries no provider-composed text, so this member is deliberately absent from the wireFreeFormString-bounded list above. `.strict()` is retained — it rejects UNKNOWN keys, and a declared optional key is not unknown. BEST-EFFORT by construction: the driver sets it only when the trip is classified before this call resolves — it never holds `applyIntervention` open waiting for its correlated frame to settle — so the run's `run.failed` terminal is the guarantee on both paths and an absent `refusalCode` is never evidence that no trip occurred.
+  refusalCode?: "driver.text_neutralization_failed"; // additive-optional, provider-bound text neutrality (Spec-004 §Required Behavior; authored by Plan-004 T3.18, consumed by Plan-003 T2.6 under CP-003-1). A CLOSED literal union, not a free-form string: the envelope parses untrusted provider output, and a daemon-selected code from a fixed set carries no provider-composed text, so this member is deliberately absent from the wireFreeFormString-bounded list above. `.strict()` is retained — it rejects UNKNOWN keys, and a declared optional key is not unknown. BEST-EFFORT by construction: the driver sets it only when the trip is classified before this call resolves — it never holds `applyIntervention` open waiting for its correlated frame to settle — so the run's `run.failed` terminal is the guarantee on both paths and an absent `refusalCode` is never evidence that no trip occurred.
 }
 
-// Driver-level conversation rollback (campaign B3). `position` is the normalized monotonic
+// Driver-level conversation rollback. `position` is the normalized monotonic
 // session position (the same turn/event ordinal vocabulary `DriverResumeResult.sessionPosition`
-// reports); the intervention-layer `targetPosition` (Spec-003 rollback content, campaign B2 —
+// reports); the intervention-layer `targetPosition` (Spec-003 rollback content —
 // a named merge prerequisite before any rollback emitter exists) maps onto this driver ordinal.
 // BOTH LEGS CUT IN PLACE, on the binding the run already has: neither mints a provider session or
 // thread, so neither re-points anything. Codex leg: `thread/revert {threadId, beforeTurnId}` — the
@@ -1390,18 +1386,18 @@ interface DriverInterventionResult {
 interface RollbackToParams {
   sessionId: SessionId;
   position: number;
-  bindingId: string; // leg key (campaign B2) — the run's live provider binding, the same per-binding addressing as SetSessionGoalParams below: run→bindings is 1:many in the shipped store, so `sessionId` alone cannot name the target leg. The DAEMON resolves the run's live binding at dispatch (client rollback payloads never carry it — clients address the run); a fork-composed rollback then repoints the live binding via `DriverRollbackResult.applied.bindingId`.
+  bindingId: string; // leg key — the run's live provider binding, the same per-binding addressing as SetSessionGoalParams below: run→bindings is 1:many in the shipped store, so `sessionId` alone cannot name the target leg. The DAEMON resolves the run's live binding at dispatch (client rollback payloads never carry it — clients address the run); a fork-composed rollback then repoints the live binding via `DriverRollbackResult.applied.bindingId`.
 }
 
 type DriverRollbackResult =
   // A successful rollback without a confirmed floor is structurally inexpressible (mirrors
-  // `DriverResumeResult`): position-compares consume it per Spec-013 via campaign B5/B14.
-  | { status: "applied"; sessionPosition: number; bindingId?: string } // bindingId: NO V1 LEG SETS IT — both cuts happen on the binding the run already has, so there is never a new leg to name. The member stands for a future leg that mints one, and an `applied` result carrying it from a V1 driver is a defect rather than an upgrade. sessionPosition: REQUIRED driver-confirmed post-rollback position — the new authoritative recovery floor. Untrusted driver output: the daemon domain-validates it like the request target (integer ≥ 0, recorded boundary, strictly below the pre-rollback position) before trusting it — an invalid or no-op report is a no-rewind failure, never a run.rolled_back — with the file-leg recovery carve-out excepted: on a recovery-admitted current-position target the driver's convergence no-op (sessionPosition == targetPosition, no movement) IS the confirmed floor and the composite proceeds to the fixpoint restore (Spec-003 §Required Behavior). bindingId (campaign B2): present iff the mechanism minted a new provider binding for the same run — the store-minted surrogate of a binding row already registered (provider resume_handle + runtime metadata) through the relaunch pattern's write seam before the result returned, never itself a resume handle; the daemon repoints the run's live binding on receipt. Under the 2026-08-26 Codex rebinding **both V1 legs mint one** — Claude `--resume-session-at` + `--fork-session`, and Codex `thread/fork`, which mints a new thread and repoints the run's live binding in the same operation — so a V1 driver reporting `applied` without it is reporting an unrecorded binding. The member stays optional for a future in-place mechanism, not for either shipped leg; runtime-bounded (length + non-whitespace + NUL-rejection) like `DriverResumeResult.bindingId` — the trust-boundary header's seventeen-string enumeration above
+  // `DriverResumeResult`): position-compares consume it per Spec-013.
+  | { status: "applied"; sessionPosition: number; bindingId?: string } // bindingId: NO V1 LEG SETS IT — both cuts happen on the binding the run already has, so there is never a new leg to name. The member stands for a future leg that mints one, and an `applied` result carrying it from a V1 driver is a defect rather than an upgrade. sessionPosition: REQUIRED driver-confirmed post-rollback position — the new authoritative recovery floor. Untrusted driver output: the daemon domain-validates it like the request target (integer ≥ 0, recorded boundary, strictly below the pre-rollback position) before trusting it — an invalid or no-op report is a no-rewind failure, never a run.rolled_back — with the file-leg recovery carve-out excepted: on a recovery-admitted current-position target the driver's convergence no-op (sessionPosition == targetPosition, no movement) IS the confirmed floor and the composite proceeds to the fixpoint restore (Spec-003 §Required Behavior). bindingId: present iff the mechanism minted a new provider binding for the same run — the store-minted surrogate of a binding row already registered (provider resume_handle + runtime metadata) through the relaunch pattern's write seam before the result returned, never itself a resume handle; the daemon repoints the run's live binding on receipt. Under the Codex rebinding **both V1 legs mint one** — Claude `--resume-session-at` + `--fork-session`, and Codex `thread/fork`, which mints a new thread and repoints the run's live binding in the same operation — so a V1 driver reporting `applied` without it is reporting an unrecorded binding. The member stays optional for a future in-place mechanism, not for either shipped leg; runtime-bounded (length + non-whitespace + NUL-rejection) like `DriverResumeResult.bindingId` — the trust-boundary header's seventeen-string enumeration above
   | { status: "degraded"; fallbackAction?: string };
 
-// Session-goal injection (campaign B3). `goalText` is the daemon-rendered textual form of the
+// Session-goal injection. `goalText` is the daemon-rendered textual form of the
 // session's structured goal — the structured shape is owned by the Spec-014 goal contract
-// (campaign B6), and the daemon renders structure → provider text at dispatch. Codex leg:
+//, and the daemon renders structure → provider text at dispatch. Codex leg:
 // `thread/goal/set` / `thread/goal/clear` (the `objective` field), live; Claude leg:
 // driver-held composition into the system prompt at the next turn/resume boundary (grade
 // `emulated` — Spec-004 §Parity Capability Mechanism Grades). Durable truth is the
@@ -1409,7 +1405,7 @@ type DriverRollbackResult =
 // goal on session resume, so driver-held state is never the recovery source.
 interface SetSessionGoalParams {
   sessionId: SessionId;
-  // Leg addressing (campaign B6): goal delivery fans out per live binding, and `run` →
+  // Leg addressing: goal delivery fans out per live binding, and `run` →
   // bindings is 1:many in the shipped store (store-minted surrogate ids; e.g. a capped or
   // posture relaunch mints a new binding for the same run) — so the BINDING is the leg key,
   // matching the durable intent's per-leg map. The driver resolves its provider session from
@@ -1423,7 +1419,7 @@ interface SetSessionGoalParams {
 
 interface ClearSessionGoalParams {
   sessionId: SessionId;
-  bindingId: string; // leg key — same per-binding fan-out as SetSessionGoalParams (campaign B6)
+  bindingId: string; // leg key — same per-binding fan-out as SetSessionGoalParams
   runId: RunId;
 }
 
@@ -1439,17 +1435,17 @@ type DriverGoalResult =
 // §Fallback Behavior requires that resume failure "surface `provider failure` detail and
 // a visible `recovery-needed` condition; it must not silently create a replacement provider
 // session under the same canonical run." The `resumed` variant's REQUIRED `sessionPosition`
-// (campaign B3) is the driver's normalized monotonic position — turn/event ordinal, the same
+// is the driver's normalized monotonic position — turn/event ordinal, the same
 // number-cursor convention as `lastReplayedSequence`/`afterSequence` below — which the daemon
 // compares against its recorded position; divergence reconciliation (halt-for-human, rollback
-// markers as the position floor) is Spec-013's, landing via campaign B5/B14 per ADR-017's
+// markers as the position floor) is Spec-013's, per ADR-017's
 // local-log-authoritative ruling. The compare also catches a provider silently returning a
 // fresh session on resume (e.g. Claude on a working-directory mismatch): a fresh session's
 // position cannot match the recorded one. Timestamps for the resumed case live on
 // `runtime_bindings.updated_at` (Plan-004 T2.1); the result shape carries only the
 // discriminated-union semantic payload.
 type DriverResumeResult =
-  // NO `outputSpeedState` MEMBER, and its absence is the 2026-08-29 round-3 correction rather than
+  // NO `outputSpeedState` MEMBER, and its absence is the round-3 correction rather than
   // an omission: a resume is a fresh spawn, so it has exactly the defect `ProviderSessionHandle`
   // does — the declaring handshake is turn-bearing, and this result resolves before any turn-bearing
   // exchange on the relaunched process. The declared state is observed later, as the binding-held
@@ -1462,12 +1458,11 @@ type DriverResumeResult =
   | {
       status: "failed";
       recoveryCondition: RecoveryCondition;
-      recoverySpanClassification: RecoverySpanClassification; // REQUIRED on this live driver return (Part-B follow-up 2026-07-17, named type below): a resume failure is produced fresh at resume time, never replayed, so a post-amendment driver emits `unclassifiable` when it cannot classify — omission is a schema failure
+      recoverySpanClassification: RecoverySpanClassification; // REQUIRED on this live driver return (named type below): a resume failure is produced fresh at resume time, never replayed, so a driver emits `unclassifiable` when it cannot classify — omission is a schema failure
       providerFailureDetail: string;
     };
 
-// Named once, referenced at every carrying surface (campaign B3, hoisting the previously
-// repeated inline union): REQUIRED form on `DriverResumeResult.failed` above; optional form
+// Named once, referenced at every carrying surface: REQUIRED form on `DriverResumeResult.failed` above; optional form
 // on `RunStateChangeEvent`, `RecoveryStatusReadResponse.sessions[]`, and
 // `FailureDetailReadResponse` below. `recovery-needed` = generic, operator reconciliation
 // required. `reauth-required` = the provider session or credential expired (detected mid-run
@@ -1476,19 +1471,19 @@ type DriverResumeResult =
 // (Spec-004 §Fallback Behavior).
 type RecoveryCondition = "recovery-needed" | "reauth-required";
 
-// Sibling classification of the halted span's CONTENT (Part-B fail-closed follow-up, 2026-07-17):
+// Sibling classification of the halted span's CONTENT (Part-B fail-closed follow-up):
 // orthogonal to `RecoveryCondition` above — that names why the run needs an operator; this names
 // what the diverged/halted span contains, so policy can tier on blast radius. V1 consumes it as
 // audit metadata ONLY: every divergence still halts for human action (Spec-013 §Fallback
 // Behavior). Recording it makes tiered auto-resolution (auto-resolve `read_only` /
 // `idempotent_write` divergence, always halt `irreversible`) a future policy flip rather than a
 // schema change — a flip gated on the Plan-013 CI divergence-injection tests (with a firing
-// negative control) landing first (campaign B14). `unclassifiable` MUST be handled exactly as
+// negative control) landing first. `unclassifiable` MUST be handled exactly as
 // `irreversible` — the fail-closed default. REQUIRED form on `DriverResumeResult.failed` above
-// (a live driver return, produced fresh at resume — never replayed — so a post-amendment driver
+// (a live driver return, produced fresh at resume — never replayed — so a driver
 // emits `unclassifiable` rather than omit); optional form on the three replay-visible carriers
 // (`RunStateChangeEvent`, `RecoveryStatusReadResponse.sessions[]`, `FailureDetailReadResponse`),
-// whose optionality admits pre-amendment history at replay only.
+// whose optionality admits older rows at replay only.
 // Deliberately NOT widening `RecoveryCondition`: the two axes answer different questions, and
 // conflating them would overload operator-remediation routing.
 type RecoverySpanClassification =
@@ -1497,8 +1492,7 @@ type RecoverySpanClassification =
   | "irreversible"
   | "unclassifiable";
 
-// Typed provider usage-limit signal (2026-08-18 amendment, Plan-004 T3.16; landed 2026-08-31,
-// PR #397). A SIBLING AXIS beside `RecoveryCondition` above, never a member of it — that axis
+// Typed provider usage-limit signal (Plan-004 T3.16). A SIBLING AXIS beside `RecoveryCondition` above, never a member of it — that axis
 // names why a run needs an operator; this one names a provider-stated allowance state, minted here
 // and scoped per-account by Plan-026 keying on `(accountId, credentialGeneration)` (CP-004-8 ⇄
 // CP-026-2). Recognition is TYPED-ONLY (I-004-6): each driver leg keys on a structured provider
@@ -1554,13 +1548,13 @@ interface CloseSessionParams {
   sessionId: SessionId;
 }
 
-// NO `outputSpeedState` MEMBER (2026-08-29 round-3 correction — it was drafted here and REMOVED
+// NO `outputSpeedState` MEMBER (round-3 correction — it was drafted here and REMOVED
 // before any producer landed). This is the driver-constructed RETURN of `createSession`, which
 // resolves before `startRun` can begin the first turn-bearing exchange, and `Spec-004 §Detection
 // source is static` establishes that the handshake declaring the speed state is emitted only as
 // part of such an exchange. A member here could therefore never be populated on any path, and a
 // structurally always-absent member is a field minted ahead of its producer — the ground on
-// which a capability flag with no reader was withdrawn rather than shipped. The observation is
+// which a capability flag with no reader is not shipped. The observation is
 // binding-held state instead; see `ProviderOutputSpeedState` below.
 interface ProviderSessionHandle {
   providerSessionId: string;
@@ -1568,7 +1562,7 @@ interface ProviderSessionHandle {
 }
 
 // The provider's own report — never a probe of its own and never synthesized from the request
-// (2026-08-29). IT IS BINDING-HELD DRIVER-SESSION STATE, NOT A SPAWN RETURN (round-3 correction).
+//. IT IS BINDING-HELD DRIVER-SESSION STATE, NOT A SPAWN RETURN (round-3 correction).
 // The declaring handshake is emitted only as part of a turn-bearing exchange (`Spec-004 §Detection
 // source is static`), so neither `createSession` nor `resumeSession` can carry it: both resolve
 // before the first such exchange, and neither may spend a synthetic turn or block waiting for one.
@@ -1600,7 +1594,7 @@ interface ProviderModel {
   id: string;
   name: string;
   capabilities: string[];
-  effortLevels?: string[]; // per-model reasoning-effort vocabulary, copied verbatim from the provider's own catalog read — the lists differ per model WITHIN one provider, so there is no provider-wide list (Spec-004 §Provider Parameter Vocabularies, corrected 2026-08-30); absent = the model exposes no effort selection
+  effortLevels?: string[]; // per-model reasoning-effort vocabulary, copied verbatim from the provider's own catalog read — the lists differ per model WITHIN one provider, so there is no provider-wide list (Spec-004 §Provider Parameter Vocabularies); absent = the model exposes no effort selection
 }
 
 interface ProviderMode {
@@ -1608,9 +1602,8 @@ interface ProviderMode {
   name: string;
 }
 
-// Effective sandbox/permission posture (campaign B3 hoist of the previously inline
-// RunStateChangeEvent field — shape owned by Spec-004, policy semantics by Spec-010 §Required
-// Behavior, campaign B20). Referenced by RunStateChangeEvent.executionPosture? (the run.running
+// Effective sandbox/permission posture (shape owned by Spec-004, policy semantics by Spec-010 §Required
+// Behavior). Referenced by RunStateChangeEvent.executionPosture? (the run.running
 // audit stamp) and by CreateSessionParams/StartRunParams (the spawn/turn carriers).
 // This is what a DRIVER APPLIES, not what a person chooses: a person chooses one of the five
 // permission levels, the posture carries that level verbatim as its `mode` (`ExecutionPostureMode`
@@ -1626,11 +1619,11 @@ type ExecutionPosture = ExecutionPostureNetwork & {
   mode: ExecutionPostureMode; // the session's permission level (§Shared Enums) — the only posture vocabulary in the product (Spec-010 §Required Behavior)
   writableRoots: string[];
   profileName?: string;
-  credentialPolicyRef: string; // content-addressed "sha256:<hex>" over the RFC 8785 JCS-canonicalized credential-policy artifact {schemaVersion: 1, denyPaths: string[], denyEnvVars: string[], envNameMatch: 'case-sensitive' | 'case-insensitive'} (daemon canonicalizes denyEnvVars names to the host's env-name case semantics — case-insensitive-env hosts fold to one spelling, case-sensitive verbatim — and records the host's match mode as envNameMatch so hosts that strip differently never share a ref; then lexicographically sorts + dedupes both arrays before hashing — JCS canonicalizes object members, not array order) — REQUIRED on every run: it records the deny list the daemon handed the provider in the provider's own form, and the provider's own rule enforces it (Claude Code's deny rules hold in every permission mode; Codex's filesystem denies hold wherever its sandbox runs, which Full Access does not), so auditors reconstruct exactly which credential paths and variables were handed over without embedding the raw installation-revealing list; the daemon persists the artifact row write-ahead (before the first citing posture stamp) so the ref never dangles (Spec-010 §Required Behavior, campaign B20).
+  credentialPolicyRef: string; // content-addressed "sha256:<hex>" over the RFC 8785 JCS-canonicalized credential-policy artifact {schemaVersion: 1, denyPaths: string[], denyEnvVars: string[], envNameMatch: 'case-sensitive' | 'case-insensitive'} (daemon canonicalizes denyEnvVars names to the host's env-name case semantics — case-insensitive-env hosts fold to one spelling, case-sensitive verbatim — and records the host's match mode as envNameMatch so hosts that strip differently never share a ref; then lexicographically sorts + dedupes both arrays before hashing — JCS canonicalizes object members, not array order) — REQUIRED on every run: it records the deny list the daemon handed the provider in the provider's own form, and the provider's own rule enforces it (Claude Code's deny rules hold in every permission mode; Codex's filesystem denies hold wherever its sandbox runs, which Full Access does not), so auditors reconstruct exactly which credential paths and variables were handed over without embedding the raw installation-revealing list; the daemon persists the artifact row write-ahead (before the first citing posture stamp) so the ref never dangles (Spec-010 §Required Behavior).
 };
 
-// Daemon-curated callback tool exposed into a session (campaign B3; authorization semantics
-// Spec-010, campaign B20). Mirrors the function-form provider tool shape (name + description +
+// Daemon-curated callback tool exposed into a session (authorization semantics
+// Spec-010). Mirrors the function-form provider tool shape (name + description +
 // JSON-Schema input) — the Codex leg maps 1:1 onto function-form `dynamicTools` specs invoked
 // via the `item/tool/call` server request; the Claude leg hosts the same registry as a
 // daemon-hosted ephemeral MCP server (`--mcp-config`), where tools surface as
@@ -1643,7 +1636,7 @@ interface SessionCallbackTool {
   inputSchema: Record<string, unknown>; // JSON Schema for the tool's arguments
 }
 
-// Callback-tool dispatch seam (campaign B10, Plan-004 T1.8 / T3.15 leg 3). The daemon injects
+// Callback-tool dispatch seam (Plan-004 T1.8 / T3.15 leg 3). The daemon injects
 // `onCallbackToolCall` at spawn (CreateSessionParams above); when the provider issues a callback-tool
 // request (Codex `item/tool/call`; the Claude hosted-MCP tool), the driver translates the wire request
 // into a `CallbackToolInvocation`, invokes the injected dispatcher, and answers the provider with the
@@ -1653,13 +1646,13 @@ interface SessionCallbackTool {
 // (CP-004-7 covers driver-host permission callbacks; B13 T2.8) — Plan-004 authors no Plan-010 symbols —
 // and landing the outcome as an ordinary `tool_activity` row. `CallbackToolInvocation` is normalized at
 // the driver boundary from untrusted provider output; `CallbackToolResult` is daemon-constructed and trusted.
-// Fail-closed availability (Codex round 5): the Cedar route is a Tier-5 consumer seam, so while the
+// Fail-closed availability: the Cedar route is a Plan-010 consumer seam, so while the
 // daemon has no registered `approval.requestCreate` seam, spawn WITHHOLDS the callbackTools registry
 // (tools not exposed) and the host's runtime backstop answers any stray invocation `denied` + a
 // DriverDiagnosticRecord — never `completed` without Cedar, never unanswered; the allow path activates
 // when Plan-010's seam registers (CP-004-7).
 interface CallbackToolInvocation {
-  toolName: string; // untrusted provider output — wireFreeFormString-bounded (the trust-boundary header's seventeen-string enumeration); resolved against the session's registered SessionCallbackTool set, and an UNKNOWN name answers `failed` without dispatch (campaign B10, Codex round 4)
+  toolName: string; // untrusted provider output — wireFreeFormString-bounded (the trust-boundary header's seventeen-string enumeration); resolved against the session's registered SessionCallbackTool set, and an UNKNOWN name answers `failed` without dispatch
   arguments: Record<string, unknown>; // validated against the registered tool's inputSchema BEFORE any Cedar round-trip — schema-invalid arguments answer `failed` without dispatch, so malformed provider output never reaches the approval pipeline
   toolCallId: string; // untrusted provider correlation id — wireFreeFormString-bounded, copied verbatim onto the answered result (tool-event pairing is exact-string match)
   sessionId: SessionId;
@@ -1670,19 +1663,18 @@ type CallbackToolResult =
   | { status: "denied"; output?: never; error?: string }
   | { status: "failed"; output?: never; error?: string };
 
-// MCP server-status producer seam (campaign B10, Plan-004 T1.8 / T3.13). Producer-only: the daemon
+// MCP server-status producer seam (Plan-004 T1.8 / T3.13). Producer-only: the daemon
 // injects `onMcpServerStatus` at spawn (CreateSessionParams above); the driver emits the per-session MCP
 // SERVER inventory (name + status) at init plus status-change updates through it — never an untyped
 // record. Servers only, never a per-server tool-list assumption (support is not visibility, Spec-004
 // §Per-Driver Capability Matrix). Driver telemetry/census surface (DO disposition — no persisted table,
-// no new CREATE owner). The consumer is Plan-025's status normalizer (Spec-025, registered 2026-07-22
-// B18 — §Plan-025 — MCP Governance Contract Surfaces below); consumer semantics live there.
+// no new CREATE owner). The consumer is Plan-025's status normalizer (Spec-025 — §Plan-025 — MCP Governance Contract Surfaces below); consumer semantics live there.
 type McpServerStatus = "unknown" | "starting" | "connected" | "needs-auth" | "failed";
 // Driver-emitted shape: serverName + status ONLY. The driver NEVER supplies leg identity — the daemon
 // pre-binds the injected producer closure to the leg at spawn (sessionId + the store-minted bindingId,
 // pre-minted before the spawn per the relaunch write-seam pattern), so a driver cannot misattribute —
 // or spoof — another leg's rows, and the init census emitted DURING createSession needs no id the driver
-// does not have (Codex round 5). `serverName` is untrusted provider/CLI output — wireFreeFormString-
+// does not have. `serverName` is untrusted provider/CLI output — wireFreeFormString-
 // bounded at the driver normalization seam (the seventeen-string enumeration above) before it reaches the
 // producer.
 interface McpServerStatusEmission {
@@ -1693,14 +1685,13 @@ interface McpServerStatusEmission {
 // producer closure stamps the leg identity onto every emission.
 interface McpServerStatusUpdate {
   sessionId: SessionId;
-  bindingId: string; // leg key (campaign B10, Codex rounds 4–5) — daemon-stamped from the injection context, never driver-supplied; run→bindings is 1:many (the RollbackToParams.bindingId precedent), so statuses key per (binding, server): a relaunched leg's fresh census supersedes its OWN predecessor without clobbering a concurrent live leg's rows
+  bindingId: string; // leg key — daemon-stamped from the injection context, never driver-supplied; run→bindings is 1:many (the RollbackToParams.bindingId precedent), so statuses key per (binding, server): a relaunched leg's fresh census supersedes its OWN predecessor without clobbering a concurrent live leg's rows
   serverName: string;
   status: McpServerStatus;
 }
 type McpServerStatusProducer = (emission: McpServerStatusEmission) => void;
 
-// Provider-native in-session subagent policy (campaign B3; orchestration semantics Spec-014 via
-// campaign B6). Single-supervisor invariant: the daemon is the only cross-session supervisor —
+// Provider-native in-session subagent policy (orchestration semantics Spec-014). Single-supervisor invariant: the daemon is the only cross-session supervisor —
 // provider subagents run in-session only, their usage aggregates into the run's own budgets, and
 // their tool calls flow through the same approval pipeline. `maxConcurrent` is Codex's own
 // `agents.max_concurrent_threads_per_session` setting and is sent on the Codex leg alone: Claude
@@ -1738,7 +1729,7 @@ interface SubagentDefinition {
   maxTurns?: number;
 }
 
-// Driver transport configuration (campaign B3) — a daemon driver-registry config surface, not
+// Driver transport configuration — a daemon driver-registry config surface, not
 // an RPC payload. V1: the Codex driver only (app-server --listen unix://|ws://, config-gated,
 // off by default); the Claude CLI exposes no local listener — remote Claude participation is
 // Spec-022 cross-node dispatch, recorded as the parity mechanism. `bearerTokenRef` is a
@@ -1752,7 +1743,7 @@ type DriverTransportConfig =
 
 interface DriverCapabilities {
   flags: Record<DriverCapabilityFlag, boolean>;
-  contractVersion: string; // change-detection signal, not negotiation: recorded at attach, compared on refresh to invalidate capability snapshots; the daemon never version-gates behavior on it (Spec-004 §Default Behavior, campaign B3)
+  contractVersion: string; // change-detection signal, not negotiation: recorded at attach, compared on refresh to invalidate capability snapshots; the daemon never version-gates behavior on it (Spec-004 §Default Behavior)
 }
 
 // Per-tool idempotency classification used by the daemon's two-phase command-receipt
@@ -1760,7 +1751,7 @@ interface DriverCapabilities {
 // Protocol).
 type IdempotencyClass = "idempotent" | "compensable" | "manual_reconcile_only";
 
-// Durable MCP Tasks recovery handle (campaign B10, Plan-004 T5.1 — LANDED: T3.13 authored the
+// Durable MCP Tasks recovery handle (Plan-004 T5.1 — LANDED: T3.13 authored the
 // receipt-write seam, and T5.1's own migration added the column and activated the seam on
 // Plan-003 Phase 1's `command_receipts` CREATE). A task-augmented MCP call under MCP 2025-11-25's
 // experimental Tasks utility carries a receiver-generated `taskId` (from the `CreateTaskResult`
@@ -1795,7 +1786,7 @@ interface NormalizedProviderToolMetadata {
   description?: string;
 }
 
-// CLI-version report (campaign B3, P0-2). `raw` is the verbatim provider-reported version
+// CLI-version report. `raw` is the verbatim provider-reported version
 // string (untrusted provider output on the nominal `GetCapabilitiesResult` return — bounded at
 // the Plan-004 write seam like `contractVersion`, not the Zod trust boundary); `semver` is the
 // driver-parsed normalized MAJOR.MINOR.PATCH the daemon compares against its configured
@@ -1813,7 +1804,7 @@ interface DriverCliVersionReport {
   semver: string;
 }
 
-// Zero-turn authentication probe result (campaign B3, P0-5). Zod `.strict()` — a result
+// Zero-turn authentication probe result. Zod `.strict()` — a result
 // envelope rejecting unknown keys, correct for an internal owned contract paired with
 // contract versioning. `indeterminate` (probe surface unavailable or unparseable) is treated
 // as NOT authenticated for admission — fail closed — while staying distinguishable so
@@ -1831,14 +1822,13 @@ interface DriverAuthProbeResult {
 // `DriverCapabilities` pure (flags + contractVersion only) while still carrying both
 // surfaces in a single round-trip. Modern precedent: MCP 2026 separates `initialize`
 // server capabilities from `tools/list`; LSP separates `ServerCapabilities` from
-// registered tool surfaces. `cliVersion` (campaign B3) is REQUIRED: a report without a
+// registered tool surfaces. `cliVersion` is REQUIRED: a report without a
 // parseable provider version never reaches the daemon (fail-closed by construction).
 interface GetCapabilitiesResult {
   capabilities: DriverCapabilities;
   tools: ProviderToolMetadata[];
   cliVersion: DriverCliVersionReport;
-  // Per-flag provenance of the reading above (2026-08-26 provider-CLI version-tolerance
-  // amendment, Spec-004 §Required Behavior). `probed` means decided against the installed
+  // Per-flag provenance of the reading above (Spec-004 §Required Behavior). `probed` means decided against the installed
   // build by a zero-turn probe whose negative control still refused; `static` means declared
   // from the driver's own per-driver table, which Spec-004 admits only where the flag has no
   // ADMISSIBLE probe -- zero-turn, non-mutating, and decisive at the consumed granularity --
@@ -1853,14 +1843,14 @@ interface GetCapabilitiesResult {
   // provenance re-reads the driver. Driver-side only: deliberately NOT mirrored into
   // `CapabilityDetails` (same carve-out as `cliVersion`) and NOT carried on the client-facing
   // `driver.listCapabilities` payload, which this member does not widen. That client-facing `driver.*` set
-  // stood at SEVEN names from its 2026-05-27 ratification until 2026-08-29, when
-  // `driver.compactContext` and `driver.listProviderCommands` took it to NINE (Plan-004 §Phase 4
-  // decision #2; registered against the Plan-006 namespace registry under CP-006-6). Both were
+  // carries NINE names, `driver.compactContext` and `driver.listProviderCommands`
+  // among them (Plan-004 §Phase 4
+  // decision #2; registered against the Plan-006 namespace registry under CP-006-6). Both are
   // admitted by that decision's own governing principle rather than as exceptions to it: each
   // operates on an already-existing session and neither establishes, restores, starts, nor tears
   // one down. The other four lifecycle operations above remain daemon-internal.
   detectionSource?: Record<DriverCapabilityFlag, CapabilityDetectionSource>;
-  // The output-speed axis's VALUE VOCABULARY (2026-08-29, Spec-004 §Provider Parameter
+  // The output-speed axis's VALUE VOCABULARY (Spec-004 §Provider Parameter
   // Vocabularies + §The output-speed axis). Present iff `capabilities.flags.output_speed` is
   // `true`; absent or empty means the axis is unsettable and an `agent.configUpdate` carrying
   // `outputSpeed` refuses fail-closed rather than forwarding an unvalidated value.
@@ -1874,7 +1864,7 @@ interface GetCapabilitiesResult {
   // values themselves are the provider's own; this contract names none of them.
   //
   // PRESENT ON BOTH READ PATHS, and that is a consequence of being static rather than a second
-  // rule (2026-08-29). Because the vocabulary is a property of the DRIVER, not of a reading, the
+  // rule. Because the vocabulary is a property of the DRIVER, not of a reading, the
   // wrapper carries it identically whether it was built by a live `getCapabilities()` call or
   // reconstructed by `DriverCapabilitiesWriter.hydrate()` — the hydrating path re-derives it from
   // the same per-driver table the live path reads, so nothing has to survive the durable cache.
@@ -1959,7 +1949,7 @@ interface CommandBackgroundResponse {
 
 ### Plan-005 — Session Event Taxonomy
 
-> **Cross-plan note (amendment 2026-06-02, PR #137 — Plan-002 Phase 2).** The per-event payload-shape Zod schemas for the `runtime_node.*` payloads below are **authored by Plan-002** in `packages/contracts/src/runtime-node.ts` (the file Plan-002 owns; CREATE), not by Plan-005. Plan-002 ships `capabilityDetails` (on `capability_declared`) and `previousState`/`newState` (on `capability_updated`) as an **interim opaque** `z.record(z.string(), z.unknown())` because the canonical `CapabilityDetails` consumes Plan-004's `provider-driver.ts` types, which do not yet exist. The `CapabilityDetails` interface defined here is the shape **Plan-005 Tier 3 binds** over those interim-opaque fields (EXTEND — closes Plan-004 CP-004-5 / Plan-005 CP-005-5): the bind lands first — Plan-005 Phase 1 T1.4, the canonical-first arm of a tolerant union. Registration of the schemas into the discriminated `SessionEventSchema` union (`event.ts`) followed in Plan-005 Phase 1 T1.12, which registered the five daemon-reachable variants and left `degraded` / `revoked` census-only; only their `EventEnvelope` integrity wrapping still rides a later Tier-3 leg. See cross-plan-dependencies.md Plan-002 row and Plan-002 §CP-002-1 (Payload-shape ownership).
+> **Cross-plan note (Plan-002 Phase 2).** The per-event payload-shape Zod schemas for the `runtime_node.*` payloads below are **authored by Plan-002** in `packages/contracts/src/runtime-node.ts` (the file Plan-002 owns; CREATE), not by Plan-005. Plan-002 ships `capabilityDetails` (on `capability_declared`) and `previousState`/`newState` (on `capability_updated`) as an **interim opaque** `z.record(z.string(), z.unknown())` because the canonical `CapabilityDetails` consumes Plan-004's `provider-driver.ts` types, which do not yet exist. The `CapabilityDetails` interface defined here is the shape **Plan-005 binds** over those interim-opaque fields (EXTEND — closes Plan-004 CP-004-5 / Plan-005 CP-005-5): the bind lands first — Plan-005 Phase 1 T1.4, the canonical-first arm of a tolerant union. Registration of the schemas into the discriminated `SessionEventSchema` union (`event.ts`) followed in Plan-005 Phase 1 T1.12, which registered the five daemon-reachable variants and left `degraded` / `revoked` census-only; only their `EventEnvelope` integrity wrapping still rides a later Plan-005 leg. See cross-plan-dependencies.md Plan-002 row and Plan-002 §CP-002-1 (Payload-shape ownership).
 
 ```ts
 // CapabilityDetails — wrapper shape carried by `runtime_node.capability_declared` and
@@ -1969,16 +1959,16 @@ interface CommandBackgroundResponse {
 // here as `NormalizedProviderToolMetadata` (post-default), since these payloads cross the event
 // boundary and must never carry an un-normalized `idempotency_class`. `GetCapabilitiesResult.cliVersion`
 // is intentionally NOT mirrored here — the CLI-version floor is an attach-time fail-closed gate, not a
-// per-snapshot capability property, so it never crosses the event boundary (campaign B3). The floor
+// per-snapshot capability property, so it never crosses the event boundary. The floor
 // check and the `driver_contract_meta.cli_version_*` cache write are refresh-path obligations evaluated
 // on EVERY refresh, before and independent of this snapshot's change-detection diff — a CLI-version-only
-// change is event-silent but never floor-silent or cache-stale (campaign B3).
+// change is event-silent but never floor-silent or cache-stale.
 // Why flattened (not nested under `capabilities`): in the event-payload context all three
 // surfaces compose one capability snapshot; readers (Plan-011 timeline, Plan-018 dashboards,
 // Plan-013 replay) discriminate `runtime_node.capability_*` events from the discriminated
 // union and consume the snapshot as a single object — there is no driver-method context
 // that requires DriverCapabilities to remain pure. Sources: Spec-005 §Runtime Node Lifecycle (capability rows); Plan-004
-// CP-004-5; Plan-005 Phase 1 T1.4 + Phase 3 doc-mirror audit.
+// CP-004-5; Plan-005 Phase 1 T1.4 + Phase 3 doc mirror.
 interface CapabilityDetails {
   flags: Record<DriverCapabilityFlag, boolean>;
   contractVersion: string;
@@ -2026,7 +2016,7 @@ interface EventEnvelope {
 }
 
 // sourceEpoch + sourcePosition — the cross-cutting epoch-attribution payload pair
-// (Plan-005 T1.9, the CP-003-12 registration, 2026-07-20; Spec-005 §Event Type
+// (Plan-005 T1.9, the CP-003-12 registration; Spec-005 §Event Type
 // Enumeration). Stamped TOGETHER at ingestion by Plan-003 T3.11's late-append leg on
 // pre-rollback-epoch rows (the pair from the straggler's per-event operation
 // association — (epoch, turn) recorded at operation open — falling back to the closed
@@ -2052,7 +2042,7 @@ interface EventEnvelope {
 // registration precedes ADR-018 §Reversibility Assessment's point of no return,
 // which is an emission event, not a code merge — pre-first-release, no production
 // deployment exists, so no "1.0" envelope has been emitted in a non-test environment
-// as of 2026-07-20 (shipped emitter code on develop does not cross it) — making the
+// (shipped emitter code on develop does not cross it) — making the
 // pair part of the v1.0 baseline payload contract from first emit; added after that
 // point it would be a MINOR envelope bump per ADR-018 §Decision #8's
 // new-optional-field rule, and Plan-005 T1.9 carries that conditional for its
@@ -2137,7 +2127,7 @@ type EventCategory =
 // key_reuse_detected does NOT carry this base (its spec cell has no "base +"
 // prefix) — it is an observer's node-level finding. The audit_integrity_failed
 // REGISTRAR arm takes a REDUCED base, {sessionId, verifierNodeId}, anchorId
-// excluded (Spec-005 2026-08-03) — see that arm below.
+// excluded (Spec-005) — see that arm below.
 
 interface AuditIntegrityVerifiedPayload {
   sessionId: SessionId;
@@ -2152,11 +2142,11 @@ interface AuditIntegrityVerifiedPayload {
 }
 
 // audit_integrity_failed is DISCRIMINATED on failureMode (Spec-005 §Audit
-// Integrity, 2026-08-01 amendment): the fifteen read-side verifier modes walked
+// Integrity): the fifteen read-side verifier modes walked
 // a range and REQUIRE the Merkle triple; the registrar's
 // signing_key_slot_conflict walked none, so requiring the triple there would
 // force it to fabricate roots for a tree it never touched. One event type, one
-// wire schema, two arms. The verified RANGE splits the same way (2026-08-03):
+// wire schema, two arms. The verified RANGE splits the same way:
 // fromSeq/toSeq are REQUIRED on the verifier arm — I-005-4-01's consumer dedupe
 // key — and absent from the registrar's, which walked no range.
 type VerifierFailureMode =
@@ -2178,8 +2168,8 @@ type VerifierFailureMode =
   | "content_ciphertext_digest_unbound"
   | "signing_key_slot_conflict"; // registrar-emitted; the sixteenth mode BY MINT
 // ORDER, which is how Spec-005 §Audit Integrity names it; the union's own
-// positional count moved to seventeen on 2026-08-30, when
-// content_ciphertext_digest_unbound landed as the SIXTEENTH member of the
+// positional count is seventeen, content_ciphertext_digest_unbound being the
+// SIXTEENTH member of the
 // verifier arm — two closed sets, each counted on its own terms.
 // failurePath names the verification GUARANTEE that failed, not the column the
 // defect occupies — which is why the three signature-survives-but-binding-broke
@@ -2222,7 +2212,7 @@ type AuditIntegrityFailedPayload =
       // range endpoints.
       sessionId: SessionId; // the refused registration's real id, never the sentinel
       // No anchorId — REDUCED base, the member excluded rather than optional
-      // (Spec-005 2026-08-03). It is permanently absent on this row: the signed
+      // (Spec-005). It is permanently absent on this row: the signed
       // payload is never mutated, and later coverage is represented by the
       // subsequently appended anchor spanning this row's range, exactly as for
       // any appended row. The schema is .strict(), so an offered anchorId is
@@ -2314,13 +2304,13 @@ interface EventSubscriptionRequest {
 // Response: SSE stream of EventEnvelope
 ```
 
-### Event-Anchor Upload Method Registry (Tier 3, Plan-005 T3.3)
+### Event-Anchor Upload Method Registry
 
 The Merkle-anchor integrity witness ([Security Architecture §Merkle Anchors (Control-Plane Witness)](../security-architecture.md#merkle-anchors-control-plane-witness)) is uploaded by the emitting daemon through a single control-plane procedure, `eventanchor.upload`, persisting into the Plan-005-owned [`event_log_anchors` table](../schemas/shared-postgres-schema.md#event-log-anchors-plan-005--integrity-witness). The method is **control-plane tRPC ONLY** and **daemon-called** — the `runtimenode.signingkeyregister` shape — because the store is control-plane-owned cross-node state and the daemon is the sole producer; it rides no daemon JSON-RPC transport. The request body is `AnchorPayload`, the exact seven-member metadata set bound to that table's columns, and it is **metadata only**: the canonical `AnchorPayloadSchema` in `packages/contracts/src/event-anchor.ts` is `.strict()` and carries no `payload`, `events`, or `pii_payload` member, so an upload smuggling event content is REFUSED at parse with `BAD_REQUEST` (400) rather than silently stripped — the structural enforcement of Plan-005 I-005-3-02 and of [ADR-017](../../decisions/017-shared-event-sourcing-scope.md)'s rejection of a shared event log. Event payloads never leave the emitting daemon.
 
 The upsert is **idempotent by range identity**: `INSERT ... ON CONFLICT (session_id, node_id, start_sequence, end_sequence) DO NOTHING RETURNING id`, whose zero-row arm is classified from the statement's own `RETURNING` rows into `{ stored: false }`. A re-upload of an identical range is therefore an acknowledged HTTP 200 success and deliberately **never a 409** — the daemon retries whenever an attempt's outcome is unknown to it, which is the normal case rather than the exceptional one, and an error status would strand the anchor in the local `pending_anchor_uploads` queue permanently. `end_sequence` is part of the key on purpose: a cadence anchor over `[1,1000]` and a wider compaction-covering anchor over `[1,5000]` share a `start_sequence` and MUST coexist, so the key dedups genuine re-uploads of the identical range and nothing else ("covering anchor" at verify time is a coverage test, `start_sequence <= range_start AND end_sequence >= range_end`, per [Spec-005 §Post-Compaction Integrity](../../specs/005-session-event-taxonomy-and-audit-log.md#post-compaction-integrity), never an exact-start match). Because Ed25519 is deterministic ([RFC 8032 §5.1.6](https://www.rfc-editor.org/rfc/rfc8032#section-5.1.6)), a re-signed anchor over the same root is byte-identical, so the conflicting row has nothing to reconcile and the server compares no commitment bytes. An anchor naming a session with no `sessions` row is refused tRPC `NOT_FOUND` (404) rather than surfacing the raw FK violation as a retryable 500 — a terminal answer the daemon needs, since re-sending the same body can never satisfy the constraint. That refusal is also the backstop for V1 scope: node-scope (sentinel-partitioned) chains anchor LOCALLY only, the daemon's upload worker filtering them out by the `DAEMON_SCOPE_SENTINEL_SESSION_ID` sentinel, and control-plane witnessing for them is a V1.1 extension per [ADR-017 §Node-Scope Anchor Witnessing](../../decisions/017-shared-event-sourcing-scope.md#node-scope-anchor-witnessing-v1-local-only-v11-control-plane-upload).
 
-The daemon authenticates as the **node-owner user** through the constructor-injected `DaemonCredentialProvider` interface (Plan-005 T3.3, the CP-005-13 shape), minted **per attempt** — a DPoP proof binds to one request, so reuse across attempts is replay ([RFC 9449 §11.1](https://www.rfc-editor.org/rfc/rfc9449#section-11.1)) — and presented as `Authorization: DPoP <token>` per [RFC 9449 §7.1](https://www.rfc-editor.org/rfc/rfc9449#section-7.1), never the `Bearer` form, alongside the proof bound to the attempt's `htm`/`htu` and carrying the token's `ath` hash ([RFC 9449 §4.3](https://www.rfc-editor.org/rfc/rfc9449#section-4.3)). Like the sibling §Signing-Key Registration Method Registry, the provider is Tier-4-dormant until Plan-016's PASETO wiring lands, so an auth failure is a RETRYABLE TRANSPORT failure on a bounded backoff and blocks no Tier-3 code: through Tier 3 the daemon still ANCHORS correctly and `event_log_anchors` is expected-empty, unflushed anchors accumulating durably in `pending_anchor_uploads` and flushing on reconnect. A new daemon calling an old control plane receives tRPC `NOT_FOUND` for the procedure itself and degrades honestly — its anchors stay emitter-only-verifiable until the control plane upgrades, the procedure's absence being the discovery signal, the same skew posture the signing-key registry documents.
+The daemon authenticates as the **node-owner user** through the constructor-injected `DaemonCredentialProvider` interface (Plan-005 T3.3, the CP-005-13 shape), minted **per attempt** — a DPoP proof binds to one request, so reuse across attempts is replay ([RFC 9449 §11.1](https://www.rfc-editor.org/rfc/rfc9449#section-11.1)) — and presented as `Authorization: DPoP <token>` per [RFC 9449 §7.1](https://www.rfc-editor.org/rfc/rfc9449#section-7.1), never the `Bearer` form, alongside the proof bound to the attempt's `htm`/`htu` and carrying the token's `ath` hash ([RFC 9449 §4.3](https://www.rfc-editor.org/rfc/rfc9449#section-4.3)). Like the sibling §Signing-Key Registration Method Registry, the provider is dormant until Plan-016's PASETO wiring lands, so an auth failure is a RETRYABLE TRANSPORT failure on a bounded backoff and blocks no code that ships before it: until then the daemon still ANCHORS correctly and `event_log_anchors` is expected-empty, unflushed anchors accumulating durably in `pending_anchor_uploads` and flushing on reconnect. A new daemon calling an old control plane receives tRPC `NOT_FOUND` for the procedure itself and degrades honestly — its anchors stay emitter-only-verifiable until the control plane upgrades, the procedure's absence being the discovery signal, the same skew posture the signing-key registry documents.
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
@@ -2337,7 +2327,7 @@ interface AnchorPayload {
   startSequence: number; // first session_events.sequence in the anchored range (inclusive)
   endSequence: number; // last session_events.sequence in the anchored range (inclusive); >= startSequence, mirroring the table CHECK
   merkleRoot: string; // base64 of exactly 32 bytes — the RFC 9162 §2.1.1 MTH over the range's row_hash entries, BLAKE3 as HASH
-  rootSignature: string; // base64 of exactly 64 bytes — Ed25519 by the emitting daemon's session-scoped key over the ANCHOR CLAIM: the RFC 8785 canonicalization of {endSequence, merkleRoot, nodeId, sessionId, startSequence} per Spec-005 §Anchoring Cadence (2026-08-11 amendment — previously merkleRoot alone; pre-first-release, no production anchors exist, and the shipped T3.3 signer takes the preimage update in the immediate Plan-005 follow-up code PR — landed 2026-08-12, PR #324)
+  rootSignature: string; // base64 of exactly 64 bytes — Ed25519 by the emitting daemon's session-scoped key over the ANCHOR CLAIM: the RFC 8785 canonicalization of {endSequence, merkleRoot, nodeId, sessionId, startSequence} per Spec-005 §Anchoring Cadence (the shipped T3.3 signer takes the preimage update in the immediate Plan-005 follow-up)
   anchoredAt: string; // ISO 8601 with offset — the DAEMON's timestamp at anchor computation, not the server's now() default
 }
 type EventAnchorUploadRequest = AnchorPayload;
@@ -2422,7 +2412,7 @@ interface LocalSubscriptionParams {
 // Response: a JSON-RPC notification stream of LocalSubscriptionFrame on the already-registered
 // $/subscription/notify method — one frame per batch, never one frame per event.
 
-// The batched subscription frame (2026-09-21, Plan-006 Phase 2D). The producer coalesces what it is
+// The batched subscription frame (Plan-006 Phase 2D). The producer coalesces what it is
 // handed into one frame per 16 ms or 50 events, whichever comes first, and the window opens on the
 // FIRST event rather than the last: a throttle, not a debounce, so a lone event is never held for a
 // whole window while a burst still collapses into one delivery.
@@ -2443,11 +2433,11 @@ interface LocalSubscriptionFrame {
 }
 ```
 
-The frame above is ratified here because it is a cross-cutting wire primitive, the class §Source-of-Truth Policy keeps in this file; the producer that emits it, `LocalSubscriptionProducer<T>`, stays canonical in code at `packages/contracts/src/jsonrpc-streaming.ts` under that same policy, and the Zod schema there governs on any divergence. Nothing is minted for the batching: the frame rides the registered `$/subscription/notify` method, the repair is the `afterCursor` read this surface already takes, and no method name, error code, or setting is added. Producer side: [Plan-006 §Phase 2D](../../plans/006-local-ipc-and-daemon-control.md#phase-2d--substrate-supplement-the-subscription-frame-is-batched-carries-changes-only-and-never-waits-for-a-consumer). Consumer side: [Plan-021](../../plans/021-desktop-shell-and-renderer.md)'s ledger frame, which repairs by snapshot on the `gap` flag.
+The frame above is defined here because it is a cross-cutting wire primitive, the class §Source-of-Truth Policy keeps in this file; the producer that emits it, `LocalSubscriptionProducer<T>`, stays canonical in code at `packages/contracts/src/jsonrpc-streaming.ts` under that same policy, and the Zod schema there governs on any divergence. Nothing is minted for the batching: the frame rides the registered `$/subscription/notify` method, the repair is the `afterCursor` read this surface already takes, and no method name, error code, or setting is added. Producer side: [Plan-006 §Phase 2D](../../plans/006-local-ipc-and-daemon-control.md#phase-2d--substrate-supplement-the-subscription-frame-is-batched-carries-changes-only-and-never-waits-for-a-consumer). Consumer side: [Plan-021](../../plans/021-desktop-shell-and-renderer.md)'s ledger frame, which repairs by snapshot on the `gap` flag.
 
 ---
 
-## Tier 4: Plans 003, 016 (Task 4.6)
+## Plans 003 And 016
 
 ### Plan-003 — Queue Steer Pause Resume
 
@@ -2456,7 +2446,7 @@ The frame above is ratified here because it is a cross-cutting wire primitive, t
 interface QueueItemCreateRequest {
   sessionId: SessionId;
   channelId?: ChannelId;
-  workspaceId?: WorkspaceId; // repo-bound run binding (Spec-008 run setup data; absent = non-repo run) — Tier-5 audit
+  workspaceId?: WorkspaceId; // repo-bound run binding (Spec-008 run setup data; absent = non-repo run)
   priority?: number; // default 0
   payload: Record<string, unknown>;
 }
@@ -2465,7 +2455,7 @@ interface QueueItemCreateResponse {
   state: QueueItemState;
   createdAt: string;
 }
-// Orchestration seam (Tier-5 audit, D-014-13): Plan-014's orchestration-run-service composes with
+// Orchestration seam (D-014-13): Plan-014's orchestration-run-service composes with
 // the daemon queue-admission service IN-PROCESS, passing an OrchestrationRunLinkCarrier (see
 // §Plan-014) after its own admission pipeline passes. The in-process admission API returns the
 // minted RunId (the run.queued emission's runId) alongside queueItemId, and run.queued carries the
@@ -2510,7 +2500,7 @@ interface QueueItemCancelResponse {
 // (Plan-003 D-003-1): an any-run-progression counter that advances on every run progression,
 // applied interventions included — distinct from the immutable EventEnvelope `.version` wire-contract
 // field (Spec-005 §EventEnvelope Version Semantics).
-// `clientIdempotencyKey` (campaign B3) is the second mandatory guard — a requester-generated UUID
+// `clientIdempotencyKey` is the second mandatory guard — a requester-generated UUID
 // giving at-least-once delivery exactly-once application: the daemon persists it on the
 // interventions row (UNIQUE(target_run_id, client_idempotency_key)); an identical retry replays
 // the originally recorded outcome without re-dispatching, and key reuse with a differing payload
@@ -2526,7 +2516,7 @@ type InterventionRequestPayload =
       content: string;
       // Same element type and same carrier contract as the driver-boundary `SteerPayload.attachments`
       // in §Plan-004 above, where the ordering rule, the unresolved-marker rule, and both count bounds
-      // are stated once (2026-09-08 CP-012-7 discharge). This arm and that payload are the two ends of
+      // are stated once (CP-012-7). This arm and that payload are the two ends of
       // one carrier: the daemon maps this list onto that one, so a second statement of the rule here
       // would be a second source of truth for one delivery contract.
       attachments?: ArtifactId[];
@@ -2547,7 +2537,7 @@ type InterventionRequestPayload =
       reason?: string;
     }
   | {
-      // campaign B2 (Spec-003 §Required Behavior). Full wire member — same guards, same
+      // Spec-003 §Required Behavior. Full wire member — same guards, same
       // lifecycle — but the driver leg is the dedicated `rollbackTo` parity operation
       // (RollbackToParams below), never an ApplyInterventionParams arm.
       type: "rollback";
@@ -2555,15 +2545,15 @@ type InterventionRequestPayload =
       expectedRunVersion: number;
       clientIdempotencyKey: string;
       targetPosition: number; // normalized session position (RollbackToParams.position vocabulary), domain-validated fail-closed at admission: an integer ≥ 0 (Zod int + nonnegative at parse) naming a recorded turn boundary of the target run strictly below its current position — daemon boundary-existence check, Spec-003 §Required Behavior; current-position targets admissible solely as the file-leg recovery carve-out. Serializes onto run.rolled_back identically on the confirmed path; a confirmed-floor mismatch degrade records the driver-confirmed position instead (the event never lies about the landing position)
-      // 2026-08-16 rewind-hardening amendment (Spec-003 §Required Behavior's atomic edit-and-resend bullet; Plan-003 I-003-21, mirrored by T1.2). OPTIONAL and PRESENCE-DISCRIMINATING: presence alone selects the atomic edit-and-resend composite — still ONE intervention on the SAME wire method, minting no new intervention type, method name, event type, error code, or table — and turns on that composite's four additional structural refusal guards (no active turn; no earlier pending send; a user-authored `user.message` boundary of the target run; a resumable target), each fail-closed at admission, pre-dispatch, and whole-intervention. Absence is an ordinary bare rollback, which is why an unregistered member fails closed rather than open. REQUEST-SIDE ONLY — the result never echoes it, which is exactly why `resendDisposition` below parses schema-optional. The body is persisted on the write-ahead intervention row through the user-keyed PII envelope (`interventions.pii_payload` + `pii_user_id`) BEFORE dispatch and never lands in plaintext `interventions.payload` (Spec-003 §Required Behavior; Spec-020 §PII Data Map).
+      // Rewind hardening (Spec-003 §Required Behavior's atomic edit-and-resend bullet; Plan-003 I-003-21, mirrored by T1.2). OPTIONAL and PRESENCE-DISCRIMINATING: presence alone selects the atomic edit-and-resend composite — still ONE intervention on the SAME wire method, minting no new intervention type, method name, event type, error code, or table — and turns on that composite's four additional structural refusal guards (no active turn; no earlier pending send; a user-authored `user.message` boundary of the target run; a resumable target), each fail-closed at admission, pre-dispatch, and whole-intervention. Absence is an ordinary bare rollback, which is why an unregistered member fails closed rather than open. REQUEST-SIDE ONLY — the result never echoes it, which is exactly why `resendDisposition` below parses schema-optional. The body is persisted on the write-ahead intervention row through the user-keyed PII envelope (`interventions.pii_payload` + `pii_user_id`) BEFORE dispatch and never lands in plaintext `interventions.payload` (Spec-003 §Required Behavior; Spec-020 §PII Data Map).
       replacementSend?: {
-        content: string; // the corrected message body — the `steer` arm's `content` vocabulary above, non-empty at parse (Zod `.min(1)`). No attachment member in V1: the leg replaces a user `user.message` body and nothing else, so widening it is a named future amendment rather than an unregistered field the daemon might silently drop.
+        content: string; // the corrected message body — the `steer` arm's `content` vocabulary above, non-empty at parse (Zod `.min(1)`). No attachment member in V1: the leg replaces a user `user.message` body and nothing else, so widening it is a named future change rather than an unregistered field the daemon might silently drop.
       };
     };
 
 // On an idempotent replay (same clientIdempotencyKey, identical payload) this response is
 // reconstructed from the persisted intervention row — same interventionId, current state,
-// current runVersion — never a second application (campaign B3).
+// current runVersion — never a second application.
 //
 // Rollback-only result surface, mirroring Spec-003 §Required Behavior's full rollback outcome vocabulary:
 // a file-leg-only four-literal cannot express the mandatory no-rewind and skipped-file degradations.
@@ -2691,7 +2681,7 @@ type RollbackDegradedResult = // partial / zero-effect dispositions — legal ON
       disposition: "resend-unapplied";
       resendDisposition: "unapplied";
     } & RollbackFileRestoreOutcome);
-// SCHEMA-OPTIONAL, PRODUCER-OBLIGATED (2026-08-16 rewind-hardening amendment; Plan-003 T1.3, produced and
+// SCHEMA-OPTIONAL, PRODUCER-OBLIGATED (rewind hardening; Plan-003 T1.3, produced and
 // asserted by T3.17). PRESENCE is not expressible as required: no member of a rollback result identifies
 // its request as composite (`replacementSend` is request-side and is never echoed) except the
 // composite-only `resend-unapplied` arm, which therefore REQUIRES it. Everywhere else the schema parses
@@ -2699,12 +2689,12 @@ type RollbackDegradedResult = // partial / zero-effect dispositions — legal ON
 // it while a bare rollback settlement NEVER does — presence reports a composite settlement without being
 // a parse-time discriminator. The VALUE, by contrast, IS expressible, and the fragment is split by
 // terminal state so the contract stops admitting shapes Spec-003 §Required Behavior declares invalid
-// (Codex round 6): in V1 the value is state-determined — `applied` ⇒ `"admitted"`, every `degraded` arm ⇒
+//: in V1 the value is state-determined — `applied` ⇒ `"admitted"`, every `degraded` arm ⇒
 // `"unapplied"` — so the applied class admits only the first literal and the degraded class only the
 // second, on the round-5 precedent that encodes a normative mapping in the arm types instead of leaving
 // it to prose. It stays a SEPARATE AXIS from the disposition (it names no leg and reports the replacement
 // leg's outcome, not the earliest-failing one) and from the rewind grouping; widening it — an `applied`
-// composite whose resend was unapplied — is a named future amendment, never an unregistered shape the
+// composite whose resend was unapplied — is a named future change, never an unregistered shape the
 // daemon might emit silently.
 interface RollbackAppliedResendOutcome {
   resendDisposition?: "admitted";
@@ -2716,8 +2706,8 @@ type RollbackInterventionResult =
   | (RollbackAppliedResult & RollbackAppliedResendOutcome)
   | (RollbackDegradedResult & RollbackDegradedResendOutcome);
 // The atomic edit-and-resend composite's three structural refusal guards, typed.
-// Spec-003 §Required Behavior states all three and this registry previously settled them as `rejected`
-// results carrying `rejectionReason` alone. That member is a machine-readable CAUSE and never prose (its
+// Spec-003 §Required Behavior states all three. Settling them as `rejected`
+// results carrying `rejectionReason` alone would not do: that member is a machine-readable CAUSE and never prose (its
 // own comment below, and the shipped console renders it verbatim in a refusal `code` slot that is "never
 // prose, never localized, never reworded" — `apps/desktop/src/renderer/src/console/core/refusal.ts#ConsoleRefusal`) —
 // what it is not is a CLOSED VOCABULARY: [error-contracts.md §Intervention](./error-contracts.md#intervention)
@@ -2734,7 +2724,7 @@ type RollbackInterventionResult =
 // dropped, so each names the CONDITION THE GUARD REQUIRES rather than restating the
 // failure. A RUNNING target is not a guard: the pencil is offered through a running turn, so the
 // composite takes the same pause-first path as a bare rollback and the conversation cut ends the live
-// turn itself. Closed: a fourth guard is an amendment of Spec-003 §Required Behavior and of this type, never a
+// turn itself. Closed: a fourth guard is a change to Spec-003 §Required Behavior and to this type, never a
 // free string the daemon invents. The union is the wire vocabulary only — the eligibility predicate that
 // evaluates the guards is the daemon's (Plan-003 T3.17), and the affordance's client-side projection of
 // it (I-003-24) stays a fail-closed projection, never a second source of eligibility truth. The literal
@@ -2745,47 +2735,47 @@ type RollbackCompositeRejectionGuard =
   | "no-pending-send"
   | "user-authored-target"
   | "resumable-target";
-// The response is discriminated on `interventionType` (campaign B9, Codex round 2) so the SDK-seam +
+// The response is discriminated on `interventionType` so the SDK-seam +
 // daemon Zod schema parse `result` STRICTLY per type: a `rollback` response validates `result` as
 // RollbackInterventionResult and a malformed rollback result FAILS validation — it never falls through a
 // permissive generic arm (which would let a malformed rollback outcome cross the boundary). The rollback
-// arm is additionally split by lifecycle state (Codex round 3) and state-scoped per disposition class
-// (Codex round 5): a TERMINAL rollback outcome REQUIRES the recorded disposition — Spec-003 needs it for
+// arm is additionally split by lifecycle state and state-scoped per disposition class
+//: a TERMINAL rollback outcome REQUIRES the recorded disposition — Spec-003 needs it for
 // rendering and the same-position file-leg-recovery carve-out reads the recorded outcome — and `applied`
 // admits ONLY RollbackAppliedResult while `degraded` admits ONLY RollbackDegradedResult — each intersected
 // with its OWN class-scoped resend fragment, which adds no disposition and narrows no disposition class,
-// but does bind the resend literal to the terminal state (round 6) — so a
+// but does bind the resend literal to the terminal state — so a
 // disposition-less terminal response fails parse, and so does a state/disposition mismatch (`applied` +
 // `files-unrestored` would otherwise exit-map 0 while rendering a failed restore, since the CLI derives
-// the POSIX code from `state`). `rejected` REQUIRES `rejectionReason` (round 5 — every refusal family of
+// the POSIX code from `state`). `rejected` REQUIRES `rejectionReason` (every refusal family of
 // Queue And Intervention Model §Intervention State Transition Table carries its machine-readable cause),
-// and since 2026-09-06 that arm additionally carries the additive-optional `rejectionGuard` when the
+// and that arm additionally carries the additive-optional `rejectionGuard` when the
 // refusal came from one of the composite's three structural guards (the arm comment below);
 // the non-disposition states (`requested` / `accepted` / `rejected` / `expired`) carry no `result`.
 interface InterventionResponseBase {
   interventionId: InterventionId;
   state: InterventionState;
   runVersion: number; // post-application run counter (D-003-1) — the caller threads this into the next intervention's `expectedRunVersion`. Carried on the response because an applied native steer advances the run version WITHOUT a `run.*` state change (Spec-003 §Driver-Level Steer Mechanics), so for that path the response is the only place the caller can read the fresh comparand.
-  rejectionReason?: string; // machine-readable cause on a `rejected` OUTCOME that is a normal `run.intervene` response, NOT a JSON-RPC transport error (campaign B9, Codex round 2): the static rollback capability refusal maps `requested → rejected` (Queue And Intervention Model §Driver Result To Lifecycle Mapping — the no-documented-fallback carve-out), so it rides HERE, never the JsonRpcError channel, and the CLI renders WHY (e.g. `driver.capability_unsupported`). A `degraded` cause is the RollbackInterventionResult disposition instead; a request-admission refusal (e.g. `intervention.idempotency_conflict`, 422) is a JsonRpcError that produces no intervention row, so it never rides here. Replay-durable (Codex round 4): the cause persists in the intervention row's own `rejection_reason` column (Plan-003 T1.4 DDL, written at the T3.12 refusal path) — the stored `result` cannot carry it (this contract forbids `result` on `rejected`), so an idempotent replay reconstructs the SAME machine-readable reason from that column, never fabricating one. Round 5: REQUIRED on the rollback `rejected` arm below — every rejected rollback (authorization, boundary-check, capability — the `Queue And Intervention Model §Intervention State Transition Table` refusal families) carries its cause and T3.12 persists all of them; optional here on the base only for the remaining states and non-rollback types.
+  rejectionReason?: string; // machine-readable cause on a `rejected` OUTCOME that is a normal `run.intervene` response, NOT a JSON-RPC transport error: the static rollback capability refusal maps `requested → rejected` (Queue And Intervention Model §Driver Result To Lifecycle Mapping — the no-documented-fallback carve-out), so it rides HERE, never the JsonRpcError channel, and the CLI renders WHY (e.g. `driver.capability_unsupported`). A `degraded` cause is the RollbackInterventionResult disposition instead; a request-admission refusal (e.g. `intervention.idempotency_conflict`, 422) is a JsonRpcError that produces no intervention row, so it never rides here. Replay-durable: the cause persists in the intervention row's own `rejection_reason` column (Plan-003 T1.4 DDL, written at the T3.12 refusal path) — the stored `result` cannot carry it (this contract forbids `result` on `rejected`), so an idempotent replay reconstructs the SAME machine-readable reason from that column, never fabricating one. REQUIRED on the rollback `rejected` arm below — every rejected rollback (authorization, boundary-check, capability — the `Queue And Intervention Model §Intervention State Transition Table` refusal families) carries its cause and T3.12 persists all of them; optional here on the base only for the remaining states and non-rollback types.
 }
 type InterventionRequestResponse =
   | (InterventionResponseBase & {
       interventionType: "rollback";
-      state: "applied"; // full-effect terminal — MANDATORY applied-class disposition (round 5)
+      state: "applied"; // full-effect terminal — MANDATORY applied-class disposition
       result: RollbackAppliedResult & RollbackAppliedResendOutcome;
-      rejectionGuard?: never; // the guard is the `rejected` arm's alone (Codex PR #449 round 4): `?: never` on every other arm so a producer-side variable carrying it fails at its construction site, not at the client's strict parse
+      rejectionGuard?: never; // the guard is the `rejected` arm's alone: `?: never` on every other arm so a producer-side variable carrying it fails at its construction site, not at the client's strict parse
     })
   | (InterventionResponseBase & {
       interventionType: "rollback";
-      state: "degraded"; // partial / zero-effect terminal — MANDATORY degraded-class disposition (round 5)
+      state: "degraded"; // partial / zero-effect terminal — MANDATORY degraded-class disposition
       result: RollbackDegradedResult & RollbackDegradedResendOutcome;
       rejectionGuard?: never;
     })
   | (InterventionResponseBase & {
       interventionType: "rollback";
-      state: "rejected"; // pre-dispatch refusal — the machine-readable cause is MANDATORY (round 5)
+      state: "rejected"; // pre-dispatch refusal — the machine-readable cause is MANDATORY
       rejectionReason: string;
-      rejectionGuard?: RollbackCompositeRejectionGuard; // Spec-003 §Required Behavior's three-structural-refusal-guards paragraph; Plan-003 I-003-21, mirrored by T1.3 and produced by T3.17). ADDITIVE-OPTIONAL and ARM-SCOPED: declared HERE and not on InterventionResponseBase, because only a `rollback` request can be a composite and only a `rejected` composite settles on one of these guards — a strict parse then REFUSES the member on a steer / interrupt / cancel rejection and on every non-`rejected` state, rather than admitting a guard on an arm that can never raise one. PRODUCER-OBLIGATED within the arm, the `resendDisposition` shape: no member of a `rejected` response identifies its request as composite (`replacementSend` is request-side and the response does not echo it), so requiredness is not expressible at the strict-parse boundary; the daemon's tested obligation is that a refusal raised by one of the three guards ALWAYS populates it and every other refusal family never does — the SIX [Queue And Intervention Model §Intervention State Transition Table](../../domain/queue-and-intervention-model.md#intervention-state-transition-table) admits for a rollback: capability, authorization, target-position domain, compaction-boundary, incompatible target run state, and uncompacted-rewind-span. `rejectionReason` is unchanged — the member exists so a renderer maps guard -> remedy by an exhaustive switch its sibling's open vocabulary cannot support. NO error code is minted: these guards settle as `rejected` RESULTS, never as `JsonRpcError` envelopes. REPLAY-DURABLE (round 2): a `rejected` intervention carries no `result` on this wire, so an idempotent replay of the same `clientIdempotencyKey` reconstructs the response from the durable row alone — the reason `rejectionReason` has the `interventions.rejection_reason` column — and the guard literal is NOT recoverable from that sibling, whose open unenumerated vocabulary is exactly what this member exists to close; the daemon therefore persists it to `interventions.rejection_guard` (additive nullable, vocabulary-closed and arm-bound by a column-attached CHECK) and a replay returns a value EQUAL to the recorded one, a daemon restart included. ADDITIVE-OPTIONAL UNDER THE EXISTING PROTOCOL VERSION: the arm has shipped, so ADR-018 §Decision #8's additive-only rule for already-published shapes binds, and a new optional member is squarely inside what that rule admits ("new optional fields with defaults, new event types, new enum values") and outside everything it forbids — no rename, no type change, no semantic change, no new required field, no new required semantic invariant. It therefore rides the `2026-05-01` protocol version and mints no revision, exactly as every additive member registered here since that ratification has (`replacementSend` and the `boundary-diverged` arm on this same rollback shape, `resendDisposition`, `run.queued`'s `admittedProviderAccountId`, and `usage.cost_update`'s `effectivePrincipal`), and as the daemon's still single-valued supported set at `packages/runtime-daemon/src/ipc/protocol-negotiation.ts#DAEMON_SUPPORTED_PROTOCOL_VERSIONS` records. A revision would buy nothing here in any case: what refuses an unknown key is the CLIENT's own `.strict()` schema, so tolerating one would take an old-protocol projection on the daemon — a compatibility layer for a mixed-revision install of a single in-tree monorepo release, which is not a configuration V1 supports.
+      rejectionGuard?: RollbackCompositeRejectionGuard; // Spec-003 §Required Behavior's three-structural-refusal-guards paragraph; Plan-003 I-003-21, mirrored by T1.3 and produced by T3.17). ADDITIVE-OPTIONAL and ARM-SCOPED: declared HERE and not on InterventionResponseBase, because only a `rollback` request can be a composite and only a `rejected` composite settles on one of these guards — a strict() parse then REFUSES the member on a steer / interrupt / cancel rejection and on every non-`rejected` state, rather than admitting a guard on an arm that can never raise one. PRODUCER-OBLIGATED within the arm, the `resendDisposition` shape: no member of a `rejected` response identifies its request as composite (`replacementSend` is request-side and the response does not echo it), so requiredness is not expressible at the strict-parse boundary; the daemon's tested obligation is that a refusal raised by one of the three guards ALWAYS populates it and every other refusal family never does — the SIX [Queue And Intervention Model §Intervention State Transition Table](../../domain/queue-and-intervention-model.md#intervention-state-transition-table) admits for a rollback: capability, authorization, target-position domain, compaction-boundary, incompatible target run state, and uncompacted-rewind-span. `rejectionReason` is unchanged — the member exists so a renderer maps guard -> remedy by an exhaustive switch its sibling's open vocabulary cannot support. NO error code is minted: these guards settle as `rejected` RESULTS, never as `JsonRpcError` envelopes. REPLAY-DURABLE: a `rejected` intervention carries no `result` on this wire, so an idempotent replay of the same `clientIdempotencyKey` reconstructs the response from the durable row alone — the reason `rejectionReason` has the `interventions.rejection_reason` column — and the guard literal is NOT recoverable from that sibling, whose open unenumerated vocabulary is exactly what this member exists to close; the daemon therefore persists it to `interventions.rejection_guard` (additive nullable, vocabulary-closed and arm-bound by a column-attached CHECK) and a replay returns a value EQUAL to the recorded one, a daemon restart included. ADDITIVE-OPTIONAL UNDER THE EXISTING PROTOCOL VERSION: the arm has shipped, so ADR-018 §Decision #8's additive-only rule for already-published shapes binds, and a new optional member is squarely inside what that rule admits ("new optional fields with defaults, new event types, new enum values") and outside everything it forbids — no rename, no type change, no semantic change, no new required field, no new required semantic invariant. It therefore rides the `2026-05-01` protocol version and mints no revision, exactly as every additive member registered here since that ratification has (`replacementSend` and the `boundary-diverged` arm on this same rollback shape, `resendDisposition`, `run.queued`'s `admittedProviderAccountId`, and `usage.cost_update`'s `effectivePrincipal`), and as the daemon's still single-valued supported set at `packages/runtime-daemon/src/ipc/protocol-negotiation.ts#DAEMON_SUPPORTED_PROTOCOL_VERSIONS` records. A revision would buy nothing here in any case: what refuses an unknown key is the CLIENT's own `.strict` schema, so tolerating one would take an old-protocol projection on the daemon — a compatibility layer for a mixed-revision install of a single in-tree monorepo release, which is not a configuration V1 supports.
       result?: never;
     })
   | (InterventionResponseBase & {
@@ -2804,26 +2794,26 @@ type InterventionRequestResponse =
 // `providerFailureDetail` surface that mirrors the `failed`-variant `providerFailureDetail` of `DriverResumeResult`
 // (§Plan-004 above) — Spec-004 §Fallback Behavior requires resume-failure detail to reach the canonical audit
 // log so Plan-013's recovery dispatcher and Plan-011's timeline can render the operator-actionable
-// reason for the failure without re-querying the driver. Plan-004 CP-004-5; Plan-005 Phase 3 audit. TWO PRODUCERS, ONE FIELD (2026-08-25): the resume failure that introduced this member writes FREE-FORM prose. The Spec-004 outbound-frame neutralization tripwire writes ONE fixed daemon-composed machine-readable form instead — the registered error code, one space byte (0x20), then `origin=` followed by one of `human_text` / `system_narration` / `unknown`, so `driver.text_neutralization_failed origin=human_text` is an entire value. Parse rule: read the cause as the substring before the first space and the origin as the substring after `origin=`; a value whose leading token is not a registered error code is the prose producer, and no consumer may assume the whole value is prose (Spec-004 §Required Behavior).
+// reason for the failure without re-querying the driver. Plan-004 CP-004-5; Plan-005 Phase 3. TWO PRODUCERS, ONE FIELD: the resume failure that introduced this member writes FREE-FORM prose. The Spec-004 outbound-frame neutralization tripwire writes ONE fixed daemon-composed machine-readable form instead — the registered error code, one space byte (0x20), then `origin=` followed by one of `human_text` / `system_narration` / `unknown`, so `driver.text_neutralization_failed origin=human_text` is an entire value. Parse rule: read the cause as the substring before the first space and the origin as the substring after `origin=`; a value whose leading token is not a registered error code is the prose producer, and no consumer may assume the whole value is prose (Spec-004 §Required Behavior).
 interface RunStateChangeEvent {
   runId: RunId;
-  runVersion: number; // run-progression counter (D-003-1): the optimistic-concurrency comparand clients read via run.subscribeState and pass back as `expectedRunVersion`. Advances on every run progression, applied interventions included. A no-state-change advance with no per-type event of its own (e.g. native steer) is NOT emitted as a discrete run.subscribeState event (no transition to record, [Spec-003 §Driver-Level Steer Mechanics](../../specs/003-queue-steer-pause-resume.md#driver-level-steer-mechanics)); the carve-out is the in-place rollback from paused (campaign B2) — it also transitions no state, but its per-type RunRolledBackEvent below rides the same stream carrying the fresh post-rollback runVersion, so subscribers are never blind to a rewind. A non-intervening subscriber may still hold a stale comparand after a steer-like advance until its next guarded request is correctly rejected `expired`, whereupon it re-reads run-state and retries (reject→re-read→retry; V1 adds no broadcast push for such no-per-type-event bumps — Spec-005 §Security Events / Run Lifecycle). Distinct from the immutable EventEnvelope `.version` (Spec-005 §EventEnvelope Version Semantics) — that is the wire-contract semver; this is the run aggregate's concurrency token.
+  runVersion: number; // run-progression counter (D-003-1): the optimistic-concurrency comparand clients read via run.subscribeState and pass back as `expectedRunVersion`. Advances on every run progression, applied interventions included. A no-state-change advance with no per-type event of its own (e.g. native steer) is NOT emitted as a discrete run.subscribeState event (no transition to record, [Spec-003 §Driver-Level Steer Mechanics](../../specs/003-queue-steer-pause-resume.md#driver-level-steer-mechanics)); the carve-out is the in-place rollback from paused — it also transitions no state, but its per-type RunRolledBackEvent below rides the same stream carrying the fresh post-rollback runVersion, so subscribers are never blind to a rewind. A non-intervening subscriber may still hold a stale comparand after a steer-like advance until its next guarded request is correctly rejected `expired`, whereupon it re-reads run-state and retries (reject→re-read→retry; V1 adds no broadcast push for such no-per-type-event bumps — Spec-005 §Security Events / Run Lifecycle). Distinct from the immutable EventEnvelope `.version` (Spec-005 §EventEnvelope Version Semantics) — that is the wire-contract semver; this is the run aggregate's concurrency token.
   previousState: RunState;
   currentState: RunState;
   failureCategory?: RunFailureCategory;
-  recoveryCondition?: RecoveryCondition; // named type in §Plan-004 above (campaign B3): 'recovery-needed' | 'reauth-required'
-  recoverySpanClassification?: RecoverySpanClassification; // span-content sibling of recoveryCondition (Part-B follow-up 2026-07-17)
+  recoveryCondition?: RecoveryCondition; // named type in §Plan-004 above: 'recovery-needed' | 'reauth-required'
+  recoverySpanClassification?: RecoverySpanClassification; // span-content sibling of recoveryCondition
   healthSignal?: "stuck-suspected";
   providerFailureDetail?: string; // populated on `run.failed` when failureCategory='provider'; two producers, one field — free-form prose from the resume-failure producer, one fixed `<registered code> origin=<arm>` form from the Spec-004 neutralization tripwire (parse rule in the comment block above)
-  completionKind?: "turn" | "task"; // on `run.completed`: whether the completion closes a conversational turn or the whole task — optional in the shared shape only for pre-B1 history; post-B1 emitters MUST set it (Spec-005 §Run Lifecycle run-state payload, 2026-07-02 B1 amendment)
-  intendedClose?: true; // daemon-initiated closeSession clean-terminal discriminator: present only on that path, absent on every other terminal; consumers MUST NOT classify such a terminal as a crash (Spec-005 §Run Lifecycle "Intended-close discriminator", 2026-07-02 B1 amendment)
-  executionPosture?: ExecutionPosture; // named type in §Plan-004 above (campaign B3 hoist — same shape, now shared with the CreateSessionParams/StartRunParams spawn/turn carriers). Stamped only on run.running — the post-setup-gate spawn-success transition, where the resolved workspace root and effective posture are final (Plan-003 gate seam; a run.starting stamp would be premature) — recording the run's effective sandbox/permission posture for audit (Spec-005 §Run Lifecycle run-state payload, 2026-07-02 B1 amendment item 11; shape owned by Spec-004 per campaign B3, policy semantics per Spec-010 §Required Behavior, campaign B20). Optionality is for pre-B20 history and non-running rows only: once B20's posture semantics land, run.running emitters MUST stamp the complete posture object — including credentialPolicyRef, which every run carries.
+  completionKind?: "turn" | "task"; // on `run.completed`: whether the completion closes a conversational turn or the whole task — optional in the shared shape only for pre-B1 history; post-B1 emitters MUST set it (Spec-005 §Run Lifecycle run-state payload)
+  intendedClose?: true; // daemon-initiated closeSession clean-terminal discriminator: present only on that path, absent on every other terminal; consumers MUST NOT classify such a terminal as a crash (Spec-005 §Run Lifecycle "Intended-close discriminator")
+  executionPosture?: ExecutionPosture; // named type in §Plan-004 above (same shape, shared with the CreateSessionParams/StartRunParams spawn/turn carriers). Stamped only on run.running — the post-setup-gate spawn-success transition, where the resolved workspace root and effective posture are final (Plan-003 gate seam; a run.starting stamp would be premature) — recording the run's effective sandbox/permission posture for audit (Spec-005 §Run Lifecycle run-state payload; shape owned by Spec-004, policy semantics per Spec-010 §Required Behavior). Optionality covers non-running rows only: run.running emitters MUST stamp the complete posture object — including credentialPolicyRef, which every run carries.
   trigger?:
     | "turn_limit"
     | "budget_exhausted"
     | "idle_timeout"
     | "moderation_denied"
-    | "workflow_phase_cancelled"; // stop-condition provenance (additive per ADR-018): 'turn_limit' rides run.completed at the turn limit (Plan-014 D-014-8 — the value CP-003-10 adds to Plan-003's trigger set); the four InterruptReason values ride run.interrupted on system interrupts (D-014-7; 'workflow_phase_cancelled' added 2026-08-11, Plan-014 D-014-23 — the Spec-015 SA-9 cascade). Absent on natural completion and user-initiated paths. The console has no runs pane to render it in: a stopped run's cause is told on the working line, which is where a run is paused and interrupted, and in the transcript's own state-changing rows ([Spec-021 §Required Behavior](../../specs/021-desktop-shell-and-renderer.md#required-behavior)).
+    | "workflow_phase_cancelled"; // stop-condition provenance (additive per ADR-018): 'turn_limit' rides run.completed at the turn limit (Plan-014 D-014-8 — the value CP-003-10 adds to Plan-003's trigger set); the four InterruptReason values ride run.interrupted on system interrupts (D-014-7; 'workflow_phase_cancelled' per Plan-014 D-014-23 — the Spec-015 SA-9 cascade). Absent on natural completion and user-initiated paths. The console has no runs pane to render it in: a stopped run's cause is told on the working line, which is where a run is paused and interrupted, and in the transcript's own state-changing rows ([Spec-021 §Required Behavior](../../specs/021-desktop-shell-and-renderer.md#required-behavior)).
   // run.queued linkage (orchestration-created runs only): the OrchestrationRunLinkCarrier fields
   // threaded into the durable payload as optional additive fields (CP-003-10; Plan-014 D-014-3 —
   // run_links is a pure events-canonical projection rebuilt from this event alone). Spec-005 §Run Lifecycle (run.queued row).
@@ -2836,7 +2826,7 @@ interface RunStateChangeEvent {
   // else session default) persisted durably so budget/idle enforcement rebuilds replay-stable even
   // if session defaults change mid-run (Plan-014 D-014-5, I-014-14; Spec-005 §Run Lifecycle run.queued row).
   effectiveRunConfig?: OrchestrationRunConfig;
-  // ── Path-independent admission stamps (campaign B6) — NOT part of the orchestration linkage
+  // ── Path-independent admission stamps — NOT part of the orchestration linkage
   // block above: run.queued carries these for EVERY provider run, whether admitted via the
   // ordinary run.queueCreate path or orchestration admission (the orchestration path threads
   // its values through the OrchestrationRunLinkCarrier; the ordinary path stamps directly at
@@ -2857,7 +2847,7 @@ interface RunStateChangeEvent {
   timestamp: string;
 }
 
-// Forward, NON-STATE rollback event (Spec-005 §Run Lifecycle, its per-type row; campaign B2). The
+// Forward, NON-STATE rollback event (Spec-005 §Run Lifecycle, its per-type row). The
 // structural type is owned here by the rollback intervention contract: `targetPosition` carries the
 // accepted `applyIntervention('rollback', {targetPosition})` value on the confirmed path — a confirmed-floor
 // mismatch degrade records the driver-confirmed landing position instead (Spec-003 §Required Behavior). Non-terminal — zero
@@ -2873,7 +2863,7 @@ interface RunRolledBackEvent {
   targetPosition: number; // the turn-boundary rewind anchor the run landed at (normalized session position; equals the request's targetPosition on the confirmed path — Spec-003 §Required Behavior)
 }
 
-// Provider-initiated mid-run asks (Spec-005 §Driver Ask Events, 2026-07-02 B1 amendment): the third
+// Provider-initiated mid-run asks (Spec-005 §Driver Ask Events): the third
 // `interactive_request` subfamily. `state` is the closed DriverAskState enum and MUST equal the emitting
 // event type's suffix (requested / responded / canceled — a mismatch is an emitter bug, fail
 // loud). `kind` discriminates permission-approval asks (routed into the approval pipeline) from
@@ -2890,11 +2880,11 @@ interface RunRolledBackEvent {
 // process ending. No expiry state, no deadline member and no sweep exists on this payload, and silence
 // can never be read as either an approval or a denial.
 // Variant-required fields are enforced at the EMISSION seam via the exported per-type refinement
-// (campaign B13's normalizer bundle: `driverAskPayloadRefinementFor(eventType)`, sibling of Plan-010
+// (the normalizer bundle: `driverAskPayloadRefinementFor(eventType)`, sibling of Plan-010
 // T1.1's `approvalFlowPayloadRefinementFor`): kind 'permission' ⇒ `input` on
 // every state; responded ⇒ `response` — refused on the other two — so a malformed event fails at the
 // emission parse, never at peer/restart projection.
-// `options` (2026-08-29) is ADDITIVE-OPTIONAL and carries the closed choice set an input-kind ask
+// `options` is ADDITIVE-OPTIONAL and carries the closed choice set an input-kind ask
 // offers, where the provider's own ask declares one — the Codex item/tool/requestUserInput and MCP
 // elicitation surfaces can, the Claude control round-trip does not. Reported at the DRIVER's
 // normalize boundary and never synthesized by a consumer, so its absence means the provider offered
@@ -2932,7 +2922,7 @@ interface DriverAskEvent {
 // state + queues a resume (orchestration-layer, never driver-gated per I-003-10); `resume` returns the
 // `paused` run to active execution with the SAME run id. Both carry a MANDATORY `expectedRunVersion`
 // optimistic-concurrency guard with the SAME fail-closed semantics as InterventionRequestPayload: a stale
-// comparand rejects the request (the run is left untouched), never silently applied. The Tier-4 audit
+// comparand rejects the request (the run is left untouched), never silently applied. This
 // EXTENDS Plan-003 D-003-2's mandatory-comparand obligation to these orchestration-layer verbs — `pause` /
 // `resume` hold no InterventionType membership (ADR-011), so the guard binds them by deliberate extension,
 // NOT by D-003-2's original intervention-only scope.
@@ -2963,9 +2953,9 @@ interface RunQueueSubscribeRequest {
 }
 ```
 
-### Run-Control Method-Name Registry (Tier 4)
+### Run-Control Method-Name Registry
 
-Plan-003's queue / intervention / pause-resume operations are exposed as eight `run.*` methods. The eight concrete strings are ratified (Plan-003 D-003-3 / CP-003-4) and registered here as the canonical wire contract; the reciprocal namespace `provides` is recorded on [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) (the `run.*` method-name owner) in the cross-plan dependency map. Method-name strings are `dotted-camelCase` per the canonical `METHOD_NAME_FORMAT` ratified in §Tier 1 (cont.): Plan-006 above — the `run.*` namespace token is the run-aggregate domain noun, distinct from the `run_lifecycle` **event** taxonomy in [Spec-005 §Run Lifecycle](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle) (the underscore form is a valid event name but is rejected as a method name by `METHOD_NAME_FORMAT`).
+Plan-003's queue / intervention / pause-resume operations are exposed as eight `run.*` methods. The eight concrete strings are ratified (Plan-003 D-003-3 / CP-003-4) and registered here as the canonical wire contract; the reciprocal namespace `provides` is recorded on [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) (the `run.*` method-name owner) in the cross-plan dependency map. Method-name strings are `dotted-camelCase` per the canonical `METHOD_NAME_FORMAT` ratified in §Plan-006-Partial — Local IPC Daemon Control above — the `run.*` namespace token is the run-aggregate domain noun, distinct from the `run_lifecycle` **event** taxonomy in [Spec-005 §Run Lifecycle](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle) (the underscore form is a valid event name but is rejected as a method name by `METHOD_NAME_FORMAT`).
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
@@ -2989,7 +2979,7 @@ Plan-003's queue / intervention / pause-resume operations are exposed as eight `
 
 No method name is ratified for the three here, so none is registered and no field is minted: the operations are owed, and their shapes land with their names. Spec-003's V1 control set is unchanged by them — they are the same three controls addressed at a child.
 
-`run.queueList` is the only `query` (idempotent read); the five mutations are state-changing per the tRPC procedure-type convention in §Tier 1 (cont.): Plan-028 above. The two `subscription`s stream their payload type per emission rather than returning a single response — `run.subscribeState` streams `RunStateChangeEvent | RunRolledBackEvent` (the state shape carries the `runVersion` comparand clients pass back as `expectedRunVersion`; the per-type non-state rollback arm — campaign B2, [Spec-005 §Run Lifecycle (run_lifecycle)](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle) — rides the same stream so subscribers observe position rewinds without a fabricated transition), and `run.subscribeQueue` streams the existing `QueueItemSummary` projection (no separate queue-change event type is introduced). All request/response shapes are the interfaces defined directly above; the canonical Zod schemas live in `packages/contracts/src/runControl.ts` (CP-003-3) per the §Source-of-Truth Policy.
+`run.queueList` is the only `query` (idempotent read); the five mutations are state-changing per the tRPC procedure-type convention in §Plan-028 — Remote Control Bootstrap above. The two `subscription`s stream their payload type per emission rather than returning a single response — `run.subscribeState` streams `RunStateChangeEvent | RunRolledBackEvent` (the state shape carries the `runVersion` comparand clients pass back as `expectedRunVersion`; the per-type non-state rollback arm — [Spec-005 §Run Lifecycle (run_lifecycle)](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle) — rides the same stream so subscribers observe position rewinds without a fabricated transition), and `run.subscribeQueue` streams the existing `QueueItemSummary` projection (no separate queue-change event type is introduced). All request/response shapes are the interfaces defined directly above; the canonical Zod schemas live in `packages/contracts/src/runControl.ts` (CP-003-3) per the §Source-of-Truth Policy.
 
 ### Plan-028 — Remote Control Relay
 
@@ -3032,11 +3022,11 @@ interface SessionResumeAfterReconnectResponse {
 }
 ```
 
-### Artifact-Attestation Bridge Method Registry (Tier 6, Plan-012 Task 7)
+### Artifact-Attestation Bridge Method Registry
 
 **Where the payload rides.** `ArtifactKeyAttestationPayload` (§Plan-012 — Artifacts Files And Attachments below) is an application-level payload sealed **inside** the Remote Control pairwise ciphertext envelope of [Spec-028](../../specs/028-remote-control.md) — no new frame message type, no `SessionKeyBundle` change, and no control-plane tRPC procedure; the relay forwards opaque ciphertext and learns nothing. Because that one envelope also carries the device↔node method-proxy traffic of Plan-028 Phase 4, the payload is tagged with a required `kind` member (`"artifact_key_attestation"`) so the receiving demultiplexer has an input at all. Plan-028 owns the tag vocabulary and the envelope codec in `packages/contracts/src/relay.ts` — one level below the `RelayFrameType` 1-byte frame enum in the same file: `RelayFrameType` separates frames, the tag separates payloads inside one frame's decrypted plaintext. Plan-012 registers this arm and keeps its runtime Zod schema in its own `packages/contracts/src/artifacts/` domain (Task 7, CP-012-4). **A decrypted payload whose `kind` is absent or is not a registered value is dropped with a logged refusal** and never dispatched to a bridge method — a forward-compatible peer's unrecognized family is discarded, never mistaken for a registered one, which is the rule that makes the seam safe to extend.
 
-The client↔daemon bridge for that arm (registered 2026-08-12, Codex PR #326 round 2 — the arm was named with no method carrying it across the local boundary, and the custody split forces one: the durable X25519 artifact key and the recipient-key cache are daemon-held in `packages/runtime-daemon`, while the pairwise envelope coordinator, decryption, and the injected `Ed25519IdentitySigner` (Plan-028; custody ADR-021 CLI / ADR-010 + Plan-021 desktop — the daemon never holds the identity key) are client-side). The pair registers on the `artifact.*` namespace Plan-012 already owns — a plan-owned registration under Plan-006's `MethodRegistry` substrate, no Plan-028 involvement, and not a `session.*` root extension. Handler files under `packages/runtime-daemon/src/ipc/handlers/`, backed by Task 7's attestation engine.
+The client↔daemon bridge for that arm (the arm is named with no method carrying it across the local boundary, and the custody split forces one: the durable X25519 artifact key and the recipient-key cache are daemon-held in `packages/runtime-daemon`, while the pairwise envelope coordinator, decryption, and the injected `Ed25519IdentitySigner` (Plan-028; custody ADR-021 CLI / ADR-010 + Plan-021 desktop — the daemon never holds the identity key) are client-side). The pair registers on the `artifact.*` namespace Plan-012 already owns — a plan-owned registration under Plan-006's `MethodRegistry` substrate, no Plan-028 involvement, and not a `session.*` root extension. Handler files under `packages/runtime-daemon/src/ipc/handlers/`, backed by Task 7's attestation engine.
 
 | Method | Type | Semantics |
 | --- | --- | --- |
@@ -3090,7 +3080,7 @@ interface PresenceDetailReadResponse {
   aggregateState: PresenceState;
 }
 
-// UserIdentityKeyRegister (Plan-016 T5.2, 2026-08-15 pass)
+// UserIdentityKeyRegister (Plan-016 T5.2)
 // Register-once per (user, fingerprint); self-only (authenticated sub must
 // equal userId). Same-key replay → acknowledged idempotent no-op; a different
 // publicKey under an existing fingerprint → user.identitykeyregister_conflict
@@ -3106,7 +3096,7 @@ interface UserIdentityKeyRegisterResponse {
   registeredAt: string; // original registration time — stable across idempotent replays
 }
 
-// UserIdentityKeyRoster (Plan-016 T5.3, 2026-08-15 pass) — the DEVICE roster:
+// UserIdentityKeyRoster (Plan-016 T5.3) — the DEVICE roster:
 // one entry per linked device of the account.
 // Ownership-gated; the ownership predicate and the row read execute in ONE statement so
 // an unowned session and a nonexistent session are refused with byte-identical
@@ -3129,24 +3119,24 @@ interface UserIdentityKey {
   registeredAt: string;
 }
 
-// RevokeAllTokensForUser (BL-070)
+// RevokeAllTokensForUser
 // Backs POST /auth/revoke-all-for-user. See security-architecture.md
-// §Bulk Revoke All For User (BL-070) for auth, side effects, multi-region
+// §Bulk Revoke All For User for auth, side effects, multi-region
 // propagation, and regulatory mapping.
 interface RevokeAllTokensForUserRequest {
   userId: UserId;
   reason: "account_compromise" | "password_reset" | "admin_action" | "self_service";
 }
 // Response: 204 No Content (no body).
-// Emits `user.tokens_revoked_all` per Spec-005 (BL-064) with payload
+// Emits `user.tokens_revoked_all` per Spec-005 with payload
 // base + {revokedAt, tokenCount}.
 // Auth: admin scope `admin:users:revoke` OR user's own access
 // token with step-up reauth per NIST SP 800-63B §4.2.3.
 ```
 
-### User Method-Name Registry (Tier 4)
+### User Method-Name Registry
 
-Plan-016's identity / user-state reads and updates are exposed as five `user.*` methods (Plan-016 CP-016-6 — widened from three at the 2026-08-15 promotion pass with the identity-key pair). Names are registered here pending the Plan-006 daemon method-name registry merge; the reciprocal `provides` is recorded on [Plan-006](../../plans/006-local-ipc-and-daemon-control.md). Same `dotted-camelCase` `METHOD_NAME_FORMAT` as the other namespaces above.
+Plan-016's identity / user-state reads and updates are exposed as five `user.*` methods (Plan-016 CP-016-6). Names are registered here pending the Plan-006 daemon method-name registry merge; the reciprocal `provides` is recorded on [Plan-006](../../plans/006-local-ipc-and-daemon-control.md). Same `dotted-camelCase` `METHOD_NAME_FORMAT` as the other namespaces above.
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
@@ -3158,9 +3148,9 @@ Plan-016's identity / user-state reads and updates are exposed as five `user.*` 
 
 `user.presenceDetail` returns the per-device presence fan-out for the caller's own account — which of their linked devices are reachable, and when each was last seen. It is owner-gated like every other read here (Plan-016 D-016-5 / I-016-6). The aggregated `presenceState` on `UserProjection` stays the cheap default for a caller that only needs one answer; the device-level breakdown is the surface Linked Devices renders. `user.identityKeyRoster` is ownership-gated (I-016-13); `user.identityKeyRegister` is self-only register-once (I-016-12), its production caller held by Plan-016's client-side presenter carrier box. `user.stateUpdate` and `user.identityKeyRegister` are the two mutations. Every method's daemon-side responder is authored (T4.6 the first three; T5.8 the identity-key pair) per the D-016-6 no-method-without-responder rule. Canonical Zod schemas live in `packages/contracts/` per the §Source-of-Truth Policy.
 
-### WebAuthn Ceremony Procedure Registry (Tier 4, Plan-016 Phase 6)
+### WebAuthn Ceremony Procedure Registry
 
-Registered 2026-09-01 (Codex round 5; widened to five rows at round 7). These are **control-plane tRPC procedures on the Plan-028 `sessionRouter`**, not daemon JSON-RPC methods: the caller is the Electron main process over its own control-plane channel per [Spec-021 §Main Process Responsibilities](../../specs/021-desktop-shell-and-renderer.md#main-process-responsibilities), never a client reaching through the local daemon gateway. No method string is minted, the five-method `user.*` registry above does not move, and Plan-016's I-016-8 daemon-as-gateway rule is untouched. The table holds **four ceremony operations plus one credential-lifecycle operation**; the heading keeps its original text, which six documents cite by anchor.
+These are **control-plane tRPC procedures on the Plan-028 `sessionRouter`**, not daemon JSON-RPC methods: the caller is the Electron main process over its own control-plane channel per [Spec-021 §Main Process Responsibilities](../../specs/021-desktop-shell-and-renderer.md#main-process-responsibilities), never a client reaching through the local daemon gateway. No method string is minted, the five-method `user.*` registry above does not move, and Plan-016's I-016-8 daemon-as-gateway rule is untouched. The table holds **four ceremony operations plus one credential-lifecycle operation**; the heading keeps its original text, which six documents cite by anchor.
 
 | Operation | Procedure type | Authentication | Request schema | Response schema |
 | --- | --- | --- | --- | --- |
@@ -3172,29 +3162,29 @@ Registered 2026-09-01 (Codex round 5; widened to five rows at round 7). These ar
 
 Both issue legs are `mutation` rather than `query` because each one **writes** — it records a challenge row, which is the fence the whole ceremony rests on.
 
-**The authentication pair is deliberately unauthenticated.** Sign-in is pre-authentication by construction: the ceremony is what produces the credential, so a user on a cold install or a reinstalled machine holds nothing to present, and gating it would make the flow unreachable exactly when it is needed ([Spec-016 §Required Behavior](../../specs/016-identity-and-user-state.md#required-behavior)). What bounds that caller instead is the **ceremony transaction id** — server-minted on the options reply, quoted back on the verify request, single-use, and expiring on the challenge's own clock, so the caller is bound to one transaction rather than to a session. Throttling is the existing [Spec-019 §Canonical Endpoint Group Registry](../../specs/019-rate-limiting-policy.md#canonical-endpoint-group-registry) `auth.endpoint` row (anonymous tier, per source address); **no registry row is minted**, because a per-token budget beside the per-source one would have nothing to bound here, single-use consumption already capping attempts per transaction at exactly one. The registration pair stays authenticated: enrolment binds an authenticator to an existing user, and an unauthenticated enrolment would let anyone bind a key to someone else's account. **`WebAuthnCredentialRevoke` is authenticated for the same reason and one more (round 7):** it resolves the credential row under the **caller's own** user id, which there is no way to know without a session. That resolution is also what makes the operation safe to expose — a request naming another user's credential id deletes nothing and returns success, exactly as a request naming an id that does not exist does, so the reply enumerates no one's authenticators. Revocation is a hard `DELETE` rather than a `revoked_at` tombstone: a tombstone would let the verify leg tell _revoked_ from _unknown_, the one distinction every refusal arm of this registry is written to withhold, and it would mint a column to obtain it. Removing the user's **last** credential is permitted — the Device Authorization Grant loopback [Spec-021 §Fallback Behavior](../../specs/021-desktop-shell-and-renderer.md#fallback-behavior) specifies is the way back in, and refusing would keep a compromised authenticator enrolled precisely when the user is trying to retire it.
+**The authentication pair is deliberately unauthenticated.** Sign-in is pre-authentication by construction: the ceremony is what produces the credential, so a user on a cold install or a reinstalled machine holds nothing to present, and gating it would make the flow unreachable exactly when it is needed ([Spec-016 §Required Behavior](../../specs/016-identity-and-user-state.md#required-behavior)). What bounds that caller instead is the **ceremony transaction id** — server-minted on the options reply, quoted back on the verify request, single-use, and expiring on the challenge's own clock, so the caller is bound to one transaction rather than to a session. Throttling is the existing [Spec-019 §Canonical Endpoint Group Registry](../../specs/019-rate-limiting-policy.md#canonical-endpoint-group-registry) `auth.endpoint` row (anonymous tier, per source address); **no registry row is minted**, because a per-token budget beside the per-source one would have nothing to bound here, single-use consumption already capping attempts per transaction at exactly one. The registration pair stays authenticated: enrolment binds an authenticator to an existing user, and an unauthenticated enrolment would let anyone bind a key to someone else's account. **`WebAuthnCredentialRevoke` is authenticated for the same reason and one more:** it resolves the credential row under the **caller's own** user id, which there is no way to know without a session. That resolution is also what makes the operation safe to expose — a request naming another user's credential id deletes nothing and returns success, exactly as a request naming an id that does not exist does, so the reply enumerates no one's authenticators. Revocation is a hard `DELETE` rather than a `revoked_at` tombstone: a tombstone would let the verify leg tell _revoked_ from _unknown_, the one distinction every refusal arm of this registry is written to withhold, and it would mint a column to obtain it. Removing the user's **last** credential is permitted — the Device Authorization Grant loopback [Spec-021 §Fallback Behavior](../../specs/021-desktop-shell-and-renderer.md#fallback-behavior) specifies is the way back in, and refusing would keep a compromised authenticator enrolled precisely when the user is trying to retire it.
 
 **What the replies carry, and why the split is where it is.** The authentication-**options** reply carries the `rpId`, the origin, the challenge, and the transaction id — and **no PRF evaluation input**. The authentication-**verify** reply carries the verdict, the signing credential's stored `uv_mode` (Plan-016 I-016-16), and a **freshly issued PASETO access/refresh pair**. The mode cannot be known any earlier: the desktop's credentials are discoverable, so the options leg offers no credential list and does not know which credential will answer. The token pair rides the verdict because that is the moment the user is known, and it is issued rather than merely unlocked because a cold install holds no refresh token to unwrap — a sign-in that only unlocks a stored one is unreachable exactly after a reinstall. It is sender-constrained per [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md) to the DPoP key the caller proves possession of on the verify request; that proof binds a key and establishes no identity, so it does not make this pair a credentialed one and the `Authentication` column above stays **none**.
 
-**Which DPoP proof, and why the shipped validator cannot serve this route (2026-09-01, Codex round 7).** [RFC 9449](https://datatracker.ietf.org/doc/html/rfc9449) defines two proof forms, and this route needs the one the corpus has not implemented. A **token-request** proof ([§5](https://datatracker.ietf.org/doc/html/rfc9449#section-5)) accompanies a request _for_ a token and carries no `ath`, because no access token exists yet. A **resource-request** proof ([§4.3](https://datatracker.ietf.org/doc/html/rfc9449#section-4.3)) accompanies a request that _presents_ one and **requires** `ath`, the hash of that token — which is the form every already-credentialed path in this corpus validates, including the CP-016-12 daemon credential seam. Pointing that validator at `WebAuthnAuthenticationVerify` would reject every legitimate sign-in for a missing `ath`; relaxing the check instead would accept a proof minted for some other request. So the verify leg validates the §5 form on its own terms: `typ` `dpop+jwt`, `htm` and `htu` matching this request's method and URI, `iat` inside the accepted window, a single-use `jti`, an embedded public `jwk` of a permitted algorithm carrying no private parameters, a signature verifying under that `jwk` — and **`ath` required to be absent** rather than merely unchecked, so an oversupplied proof is refused rather than accepted-and-ignored. The issued pair's `cnf.jkt` is the JWK SHA-256 thumbprint of that same key and is computed from the proof, never taken from a separate claim the caller makes; without that the route would hand an unauthenticated caller a bearer pair. A missing, malformed, replayed, or `ath`-bearing proof refuses the whole verification and issues nothing (Plan-016 I-016-20 / T6.3).
+**Which DPoP proof, and why the shipped validator cannot serve this route.** [RFC 9449](https://datatracker.ietf.org/doc/html/rfc9449) defines two proof forms, and this route needs the one the corpus has not implemented. A **token-request** proof ([§5](https://datatracker.ietf.org/doc/html/rfc9449#section-5)) accompanies a request _for_ a token and carries no `ath`, because no access token exists yet. A **resource-request** proof ([§4.3](https://datatracker.ietf.org/doc/html/rfc9449#section-4.3)) accompanies a request that _presents_ one and **requires** `ath`, the hash of that token — which is the form every already-credentialed path in this corpus validates, including the CP-016-12 daemon credential seam. Pointing that validator at `WebAuthnAuthenticationVerify` would reject every legitimate sign-in for a missing `ath`; relaxing the check instead would accept a proof minted for some other request. So the verify leg validates the §5 form on its own terms: `typ` `dpop+jwt`, `htm` and `htu` matching this request's method and URI, `iat` inside the accepted window, a single-use `jti`, an embedded public `jwk` of a permitted algorithm carrying no private parameters, a signature verifying under that `jwk` — and **`ath` required to be absent** rather than merely unchecked, so an oversupplied proof is refused rather than accepted-and-ignored. The issued pair's `cnf.jkt` is the JWK SHA-256 thumbprint of that same key and is computed from the proof, never taken from a separate claim the caller makes; without that the route would hand an unauthenticated caller a bearer pair. A missing, malformed, replayed, or `ath`-bearing proof refuses the whole verification and issues nothing (Plan-016 I-016-20 / T6.3).
 
-**The PRF evaluation input is a contract-fixed public constant (2026-09-01, Codex round 6).** Its registered value is the ASCII string `"ai-sidekicks/kek/v1"`, identical for every credential and every ceremony, and it is carried on **no** request or reply in this document — both the desktop legs and any future caller take it from this registration. Round 5 of the WebAuthn amendment had the relying party mint one per credential at registration and return it here; that is withdrawn, for a reason that is structural rather than stylistic. Options are issued **before** a discoverable sign-in names a credential, so at composition time there is no credential to look a per-credential value up for; the only way to serve one anyway is to return every candidate's, which turns a deliberately unauthenticated reply into a credential-enumeration oracle over the user's enrolled devices. Fixing the value by contract also closes the failure the per-credential design existed to prevent — an input that varies between two ceremonies against one credential derives two unrelated keys and silently orphans everything wrapped under the first — by leaving no axis on which it can vary. It costs no security: under the [W3C WebAuthn Level 3 `prf` extension](https://www.w3.org/TR/webauthn-3/#prf-extension) the secret is the authenticator's per-credential `CredRandom` and the evaluation input only selects which evaluation of it to take, and the value was public in either design. The per-authenticator key separation a unique salt would have bought is supplied on the client instead, by [Spec-021](../../specs/021-desktop-shell-and-renderer.md#webauthn-platform-authenticator-native-module)'s custody root: each credential's derived KEK wraps a copy of one installation-scoped key rather than wrapping any envelope directly, so two authenticators have two independent paths to the same envelopes without the relying party holding anything per credential. Yubico's PRF developers' guide recommends the unique per-credential salt; [Spec-021 §References](../../specs/021-desktop-shell-and-renderer.md#references) records that recommendation and why it does not transfer to a discoverable flow. Refusals are `user.webauthn_challenge_invalid` (400) for an unknown, consumed, or expired challenge or transaction id, and `user.webauthn_verification_failed` (400) for every verification arm — bad signature, wrong origin, wrong `rpId`, UV mismatch, regressed counter — so the reply is no oracle for which check failed.
+**The PRF evaluation input is a contract-fixed public constant.** Its registered value is the ASCII string `"ai-sidekicks/kek/v1"`, identical for every credential and every ceremony, and it is carried on **no** request or reply in this document — both the desktop legs and any future caller take it from this registration. A per-credential input minted by the relying party at registration is rejected, for a reason that is structural rather than stylistic. Options are issued **before** a discoverable sign-in names a credential, so at composition time there is no credential to look a per-credential value up for; the only way to serve one anyway is to return every candidate's, which turns a deliberately unauthenticated reply into a credential-enumeration oracle over the user's enrolled devices. Fixing the value by contract also closes the failure the per-credential design existed to prevent — an input that varies between two ceremonies against one credential derives two unrelated keys and silently orphans everything wrapped under the first — by leaving no axis on which it can vary. It costs no security: under the [W3C WebAuthn Level 3 `prf` extension](https://www.w3.org/TR/webauthn-3/#prf-extension) the secret is the authenticator's per-credential `CredRandom` and the evaluation input only selects which evaluation of it to take, and the value was public in either design. The per-authenticator key separation a unique salt would have bought is supplied on the client instead, by [Spec-021](../../specs/021-desktop-shell-and-renderer.md#webauthn-platform-authenticator-native-module)'s custody root: each credential's derived KEK wraps a copy of one installation-scoped key rather than wrapping any envelope directly, so two authenticators have two independent paths to the same envelopes without the relying party holding anything per credential. Yubico's PRF developers' guide recommends the unique per-credential salt; [Spec-021 §References](../../specs/021-desktop-shell-and-renderer.md#references) records that recommendation and why it does not transfer to a discoverable flow. Refusals are `user.webauthn_challenge_invalid` (400) for an unknown, consumed, or expired challenge or transaction id, and `user.webauthn_verification_failed` (400) for every verification arm — bad signature, wrong origin, wrong `rpId`, UV mismatch, regressed counter — so the reply is no oracle for which check failed.
 
 ---
 
-## Tier 5: Plans 007, 008, 010 (Task 4.7)
+## Plans 007, 008 And 010
 
 ### Plan-007 — Repo Attachment And Workspace Binding
 
 ```ts
-// Plan-007 shared shapes (Tier-5 audit, D-007-2 / D-007-4) — canonical origin
+// Plan-007 shared shapes (D-007-2 / D-007-4) — canonical origin
 // packages/contracts/src/repo.ts; Plan-008 imports these per Plan-007 CP-007-1.
 type VcsType = "git" | "none";
 // Derived projection, never persisted — Spec-007 §Repo Mount Health (V1 Definition).
 // "identity_mismatch": root reachable but the re-derived common directory no longer
 // equals the attach-persisted anchor (repo_mounts.metadata.commonDir); "unreachable"
-// takes precedence; re-attach is the recovery (2026-08-17 carried-findings
-// adjudication — additive-on-unshipped: widened before any Phase-3 wire consumer).
+// takes precedence; re-attach is the recovery (additive-on-unshipped:
+// widened before any Phase-3 wire consumer).
 interface RepoMountHealth {
   status: "healthy" | "unreachable" | "identity_mismatch";
   checkedAt: string; // ISO-8601 instant of the probe that produced the verdict
@@ -3250,7 +3240,7 @@ interface WorkspaceBindRequest {
 }
 interface WorkspaceBindResponse {
   workspaceId: WorkspaceId;
-  fsRoot?: string; // absent while state = 'provisioning' (writable binds — Plan-008 fills the root at provisioning completion); present for read-only binds (the EXACT ADMITTED RESOLVED DIRECTORY the bind requested — `directory` resolved against the mount canonical root for the relative form, taken as supplied for the absolute form, symlink-resolved and admitted by containment within an admitted root; equal to a containing root only when the bind names the root itself; 2026-08-17 carried-findings adjudication)
+  fsRoot?: string; // absent while state = 'provisioning' (writable binds — Plan-008 fills the root at provisioning completion); present for read-only binds (the EXACT ADMITTED RESOLVED DIRECTORY the bind requested — `directory` resolved against the mount canonical root for the relative form, taken as supplied for the absolute form, symlink-resolved and admitted by containment within an admitted root; equal to a containing root only when the bind names the root itself)
   executionMode: ExecutionMode;
   state: WorkspaceState;
 }
@@ -3280,14 +3270,14 @@ interface WorkspaceListResponse {
     executionMode: ExecutionMode;
     state: WorkspaceState;
     fsRoot?: string;
-    lastError?: string; // present iff state = 'stale' from a recorded failure (workspaces.metadata.lastError, Spec-007 line 91) — Tier-5 audit
+    lastError?: string; // present iff state = 'stale' from a recorded failure (workspaces.metadata.lastError, Spec-007 §State And Data Implications)
   }>;
 }
 ```
 
-### Repo Method-Name Registry (Tier 5)
+### Repo Method-Name Registry
 
-Plan-007's repo-attachment and workspace-binding surface is exposed as six `repo.*` methods, ratified by the Tier-5 plan-readiness audit (Plan-007 D-007-1, CP-007-5). Names register under the Plan-006-partial daemon `MethodRegistry` at Tier 5 per the §5 substrate-vs-namespace carve-out; registration's BL-142 precondition (registry-regex conformance to the Tier-1 `METHOD_NAME_FORMAT`) is resolved (2026-06-21). These methods ride the daemon JSON-RPC transport only — repo mounts and workspaces are node-local filesystem state (ADR-004), so no control-plane tRPC sibling exists. Method strings are imperative and disjoint-by-form from the past-participle Spec-005 durable event names (`repo.attached`, `repo.detached`).
+Plan-007's repo-attachment and workspace-binding surface is exposed as six `repo.*` methods (Plan-007 D-007-1, CP-007-5). Names register under the Plan-006-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out; registry-regex conformance to the `METHOD_NAME_FORMAT` is resolved. These methods ride the daemon JSON-RPC transport only — repo mounts and workspaces are node-local filesystem state (ADR-004), so no control-plane tRPC sibling exists. Method strings are imperative and disjoint-by-form from the past-participle Spec-005 durable event names (`repo.attached`, `repo.detached`).
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
@@ -3300,7 +3290,7 @@ Plan-007's repo-attachment and workspace-binding surface is exposed as six `repo
 
 Canonical Zod schemas live in `packages/contracts/src/repo.ts` per the §Source-of-Truth Policy.
 
-Plan-008's worktree-lifecycle and execution-mode surface adds seven further `repo.*` methods (Plan-008 D-008-3, Tier-5 audit) — the same namespace, not a new root, because the Tier-1 ratified namespace-root enumeration admits `repo` and mounts, workspaces, worktrees, and clones form one repo aggregate (sibling symmetry: `repo.executionModeCapabilitiesRead` ↔ `repo.executionModeSelect`). Registration rides the same Plan-006-partial `MethodRegistry` path; its BL-142 regex-conformance and BL-143 typed-domain-error-projection preconditions are both resolved (2026-06-21). Method strings stay imperative and disjoint-by-form from the past-participle Spec-005 durable event names (`worktree.created` … `worktree.retired`).
+Plan-008's worktree-lifecycle and execution-mode surface adds seven further `repo.*` methods (Plan-008 D-008-3) — the same namespace, not a new root, because the namespace-root enumeration admits `repo` and mounts, workspaces, worktrees, and clones form one repo aggregate (sibling symmetry: `repo.executionModeCapabilitiesRead` ↔ `repo.executionModeSelect`). Registration rides the same Plan-006-partial `MethodRegistry` path; its regex-conformance and typed-domain-error-projection preconditions are both resolved. Method strings stay imperative and disjoint-by-form from the past-participle Spec-005 durable event names (`worktree.created` … `worktree.retired`).
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
@@ -3334,7 +3324,7 @@ No method name is ratified for any of these here, so none is registered: the ope
 
 ```ts
 // Branded IDs + enums introduced by Plan-008 (canonical origin: packages/contracts/src/worktree.ts;
-// declared in-block rather than under §Branded ID Types / §Shared Enums for cite stability — Tier-5 audit)
+// declared in-block rather than under §Branded ID Types / §Shared Enums for cite stability)
 type EphemeralCloneId = string & { readonly __brand: "EphemeralCloneId" };
 type BranchContextId = string & { readonly __brand: "BranchContextId" };
 type EphemeralCloneState = "creating" | "ready" | "retired" | "failed";
@@ -3492,7 +3482,7 @@ interface SessionSweptToRepoRootPayload {
 ### Plan-010 — Approvals Permissions And Trust Boundaries
 
 ```ts
-// Plan-010 shapes (Tier-5 audit, D-010-1/D-010-3) — canonical origin
+// Plan-010 shapes (D-010-1/D-010-3) — canonical origin
 // packages/contracts/src/approval.ts. PermissionCheck is a daemon-internal API
 // (Spec-010: "inside the local daemon"); it has no JSON-RPC method string and no
 // SDK surface in V1 (D-010-5; the in-process check is the composed enforcement
@@ -3502,16 +3492,16 @@ interface SessionSweptToRepoRootPayload {
 
 type RememberedRuleId = string & { readonly __brand: "RememberedRuleId" }; // → §Branded ID Types
 
-// Remembered-grant scope — explicit enum, not free-form (Spec-010 line 118).
-// `request_only` (Spec-010 line 81) is expressed by OMITTING rememberedScope,
+// Remembered-grant scope — explicit enum, not free-form (Spec-010 §Interfaces And Contracts).
+// `request_only` (Spec-010 §Default Behavior) is expressed by OMITTING rememberedScope,
 // never by an enum member. Pattern semantics are category-derived (D-010-10):
 // path categories (file_write, destructive_git) = normalized-absolute-path
 // prefix containment; network_access = exact host equality (no wildcards in V1);
 // all other categories = exact scope-token equality. Absent pattern =
 // category-wide within the (session, node, user, kind) boundary — the
 // candidate set additionally requires rule.user_id = the adjudicating
-// turn's effective principal (D-010-10, run-control authorization
-// delta 2026-08-10): a grant remembered for one principal never authorizes
+// turn's effective principal (D-010-10, run-control
+// authorization): a grant remembered for one principal never authorizes
 // another principal's direction, so the lookup is never actor-blind.
 interface RememberedScope {
   // 'run' = remainder of the originating run; 'session' = session-wide, which the card's middle
@@ -3561,8 +3551,8 @@ interface ApprovalFlowEventPayload {
   askId?: string; // present on approval.requested when the request originates from a provider permission ask: the originating DriverAskEvent.askId, persisted at creation as the durable ask↔approval association — restart/replay reconstructs which native ask an outcome must answer when several asks are in flight on one run; required at the CP-010-6 normalizer emission seam (T2.8 — the sole driver-ask-originated requester), never set on direct requests and never client-suppliable (the public ApprovalRequestCreateRequest deliberately carries no askId — trust-boundary note there); persisted on the approval_requests projection row (ask_id — local-sqlite-schema.md §Approval Tables)
   category: ApprovalCategory;
   scope: string;
-  requestedBy?: string; // present on approval.requested — recorded requester actor (user or agent actor id, Spec-010 line 58)
-  resourceDescriptor?: Record<string, unknown>; // present on approval.requested — audit-grade target (Spec-010 line 96)
+  requestedBy?: string; // present on approval.requested — recorded requester actor (user or agent actor id, Spec-010 §Required Behavior)
+  resourceDescriptor?: Record<string, unknown>; // present on approval.requested — audit-grade target (Spec-010 §Interfaces And Contracts)
   approver?: UserId; // present on approval.approved / approval.rejected — the recorded resolver (D-010-12); on approval.remembered it is the rule's GRANTOR (rules mint only via resolve-with-remember)
   effectiveScope?: string; // present on approval.approved / approval.rejected — recorded effective scope (≤ requested, I-010-6)
   nodeId?: NodeId; // present on approval.remembered — the rule's bound node (D-010-10 match boundary; not derivable from ruleId on replay)
@@ -3601,7 +3591,7 @@ interface ApprovalRequestCreateRequest {
   runId: RunId;
   category: ApprovalCategory;
   scope: string;
-  resourceDescriptor: Record<string, unknown>; // REQUIRED (Spec-010 line 96); audit-grade target descriptor
+  resourceDescriptor: Record<string, unknown>; // REQUIRED (Spec-010 §Interfaces And Contracts); audit-grade target descriptor
 }
 interface ApprovalRequestCreateResponse {
   approvalRequestId: ApprovalRequestId;
@@ -3612,7 +3602,7 @@ interface ApprovalRequestCreateResponse {
 // ApprovalResolve
 interface ApprovalResolveRequest {
   approvalRequestId: ApprovalRequestId;
-  approver?: UserId; // informational/routing (Spec-010 line 97; D-010-12). Absent on the
+  approver?: UserId; // informational/routing (Spec-010 §Interfaces And Contracts; D-010-12). Absent on the
   // local socket → the daemon records its node-owner user binding; present → cross-checked
   // (local: vs the owner binding; PASETO surfaces: vs the verified `sub`) — mismatch is rejected
   // with `auth.principal_mismatch`. Never authoritative.
@@ -3632,7 +3622,7 @@ interface ApprovalResolveRequest {
 interface ApprovalResolveResponse {
   approvalRequestId: ApprovalRequestId;
   state: ApprovalState;
-  effectiveScope: string; // the recorded grant (Spec-010 line 59)
+  effectiveScope: string; // the recorded grant (Spec-010 §Required Behavior)
   approverId: UserId; // the RECORDED approver (server truth; AC-3 observable)
   resolvedAt: string;
 }
@@ -3672,10 +3662,10 @@ interface ApprovalProjectionReadResponse {
   approvals: Array<{
     id: ApprovalRequestId;
     runId: RunId;
-    requestedBy: string; // recorded requester actor — user or agent actor id (Spec-010 line 58)
+    requestedBy: string; // recorded requester actor — user or agent actor id (Spec-010 §Required Behavior)
     category: ApprovalCategory;
     scope: string;
-    resourceDescriptor: Record<string, unknown>; // requested resource (Spec-010 line 96)
+    resourceDescriptor: Record<string, unknown>; // requested resource (Spec-010 §Interfaces And Contracts)
     state: ApprovalState;
     createdAt: string;
     updatedAt: string; // last state-transition instant (a canceled row settles here; no resolution row)
@@ -3690,7 +3680,7 @@ interface ApprovalProjectionReadResponse {
 // RememberedRuleList
 interface RememberedRuleListRequest {
   sessionId: SessionId;
-  includeRevoked?: boolean; // default false; true = audit-history view (Spec-010 line 106)
+  includeRevoked?: boolean; // default false; true = audit-history view (Spec-010 §State And Data Implications)
 }
 interface RememberedRuleListResponse {
   rules: Array<{
@@ -3711,7 +3701,7 @@ interface RememberedRuleListResponse {
   }>;
 }
 
-// RememberedRuleRevoke — the explicit revocation path (Spec-010 line 106);
+// RememberedRuleRevoke — the explicit revocation path (Spec-010 §State And Data Implications);
 // writes revoked_at + 'explicit' and emits `approval.rule_revoked`
 interface RememberedRuleRevokeRequest {
   ruleId: RememberedRuleId;
@@ -3792,9 +3782,9 @@ interface PlanResolveResponse {
 }
 ```
 
-### Approval Method-Name Registry (Tier 5)
+### Approval Method-Name Registry
 
-Plan-010's approval surface is exposed as five `approval.*` methods, ratified by the Tier-5 plan-readiness audit (D-010-5; findings F-010-1-13/-14, F-010-3-01/-04, F-010-4-04). Names register under the Plan-006-partial daemon `MethodRegistry` at Tier 5 per the §5 substrate-vs-namespace carve-out (`repo.*` precedent); registration's BL-142 precondition (all five tails are camelCase) and BL-143 typed-domain-error-projection precondition are both resolved (2026-06-21). These methods ride the **daemon JSON-RPC transport only** — approval state is daemon-local SQLite per ADR-017 (coordination-records-only Postgres; no control-plane approval storage or tRPC sibling exists in V1; cross-user visibility rides roster-gated relay distribution of `approval_flow` events into each peer daemon's own projection, ADR-017 Option B). Method strings are imperative and disjoint-by-form from the past-participle Spec-005 `approval_flow` durable event names (`approval.resolve` method vs `approval.approved` event; `approval.ruleRevoke` vs `approval.rule_revoked` — the underscore event form is regex-invalid as a method name). `PermissionCheck` is deliberately **not** registered: it is the daemon-internal pre-execution gate (Spec-010: "inside the local daemon"), no V1 client consumes a wire preflight, and exposing one would invite stale-verdict (time-of-check/time-of-use) authorization against the security gate (D-010-5/D-010-18). A plural `approvals.listPending` was once glossed on the desktop side; this registry supersedes it, and the console has no approvals surface of its own to register one from — the one waiting request is a card on the composer.
+Plan-010's approval surface is exposed as five `approval.*` methods (D-010-5). Names register under the Plan-006-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out (`repo.*` precedent); the regex precondition (all five tails are camelCase) and the typed-domain-error-projection precondition are both resolved. These methods ride the **daemon JSON-RPC transport only** — approval state is daemon-local SQLite per ADR-017 (coordination-records-only Postgres; no control-plane approval storage or tRPC sibling exists in V1; cross-user visibility rides roster-gated relay distribution of `approval_flow` events into each peer daemon's own projection, ADR-017 Option B). Method strings are imperative and disjoint-by-form from the past-participle Spec-005 `approval_flow` durable event names (`approval.resolve` method vs `approval.approved` event; `approval.ruleRevoke` vs `approval.rule_revoked` — the underscore event form is regex-invalid as a method name). `PermissionCheck` is deliberately **not** registered: it is the daemon-internal pre-execution gate (Spec-010: "inside the local daemon"), no V1 client consumes a wire preflight, and exposing one would invite stale-verdict (time-of-check/time-of-use) authorization against the security gate (D-010-5/D-010-18). A plural `approvals.listPending` was once glossed on the desktop side; this registry supersedes it, and the console has no approvals surface of its own to register one from — the one waiting request is a card on the composer.
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
@@ -3811,7 +3801,7 @@ Canonical Zod schemas live in `packages/contracts/src/approval.ts` per the §Sou
 
 ---
 
-## Tier 6: Plans 009, 012, 013 (Task 4.8)
+## Plans 009, 012 And 013
 
 ### Plan-009 — Gitflow PR And Diff Attribution
 
@@ -4043,7 +4033,7 @@ interface GitSettledPayload {
 }
 ```
 
-Plan-009's gitflow PR-preparation and diff-attribution surface is exposed as four `gitflow.*` methods, ratified by the Tier-6 plan-readiness audit (Plan-009 D-009-5; Codex round-19 finding KuB_5). Method-name strings are `dotted-camelCase` per the canonical `METHOD_NAME_FORMAT` ratified in §Tier 1 (cont.): Plan-006 above — the `gitflow` namespace token is the gitflow domain noun (the Plan-009-owned `runtime-daemon/src/gitflow/` daemon module, D-009-3; consumed client-side by the `gitflowClient` SDK, [Plan-009 §Target Areas](../../plans/009-gitflow-pr-and-diff-attribution.md#target-areas)). The PascalCase request/response type symbols (`PRPrepare`, `GitActionExecute`, …) are **rejected** as method strings by that regex — it reserves PascalCase for the project's TypeScript type-name convention — so each wire name differs from its payload type symbol. Names register under the Plan-006-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out; registration's [BL-142](../../archive/backlog-archive.md) precondition (registry-regex conformance to the Tier-1 `METHOD_NAME_FORMAT`) is resolved (2026-06-21). These methods ride the **daemon JSON-RPC transport only** — branch contexts, diff artifacts, and PR preparations are node-local SQLite + local-git state (`branch_contexts` / `diff_artifacts` / `pr_preparations`, local-sqlite-schema.md), so no control-plane tRPC sibling exists.
+Plan-009's gitflow PR-preparation and diff-attribution surface is exposed as four `gitflow.*` methods (Plan-009 D-009-5). Method-name strings are `dotted-camelCase` per the canonical `METHOD_NAME_FORMAT` ratified in §Plan-006-Partial — Local IPC Daemon Control above — the `gitflow` namespace token is the gitflow domain noun (the Plan-009-owned `runtime-daemon/src/gitflow/` daemon module, D-009-3; consumed client-side by the `gitflowClient` SDK, [Plan-009 §Target Areas](../../plans/009-gitflow-pr-and-diff-attribution.md#target-areas)). The PascalCase request/response type symbols (`PRPrepare`, `GitActionExecute`, …) are **rejected** as method strings by that regex — it reserves PascalCase for the project's TypeScript type-name convention — so each wire name differs from its payload type symbol. Names register under the Plan-006-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out; registry-regex conformance to the `METHOD_NAME_FORMAT` is resolved. These methods ride the **daemon JSON-RPC transport only** — branch contexts, diff artifacts, and PR preparations are node-local SQLite + local-git state (`branch_contexts` / `diff_artifacts` / `pr_preparations`, local-sqlite-schema.md), so no control-plane tRPC sibling exists.
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
@@ -4056,7 +4046,7 @@ Plan-009's gitflow PR-preparation and diff-attribution surface is exposed as fou
 
 **The held-note store, and the two verbs it owes.** A review note is a DRAFT the daemon holds, scoped to the session, so a half-written review reaches the person's other devices; typed unsent text is never written to renderer-local storage. A note is located at a file and a line, carries a one-line quote of that line and its own words, and is edited or deleted while it is held. It leaves in exactly one of three ways — composed into the composer draft as a steer, posted as part of one review through `submitReview` above, or discarded — and nothing else. The daemon checks each held note against the diff it points into and marks a note whose line no longer exists as stranded: it stays readable, editable and deletable, and is excluded from a posted review. Once a note is posted it stops being a held note and becomes a hosting thread, which takes that thread's own reply and resolve and never the note's edit and delete. Adding, editing and deleting a note have no ratified method names, so none is registered here: the operations are owed, and their shapes land with their names. What is fixed is the store — session-scoped, daemon-held, one home per note — and the `noteId` the two hosting operations above address a note by.
 
-`gitflow.branchContextRead` is the only `query` (an idempotent branch-context read); the three writes are `mutation`s per the tRPC procedure-type convention in §Tier 1 (cont.): Plan-028 above — `diffArtifactCreate` mints a `diff_artifacts` row plus its linked `artifact_manifests` row (CP-009-2), `prPrepare` writes the durable `pr_preparations` record, and `gitActionExecute` performs the remote git mutation. The `GitHostingAdapter` interface and its nine supporting types (above) are daemon-internal (V1 wraps the `gh` CLI, D-009-1) — not registered wire methods. Canonical Zod schemas live in `packages/contracts/src/gitflow.ts` per the §Source-of-Truth Policy.
+`gitflow.branchContextRead` is the only `query` (an idempotent branch-context read); the three writes are `mutation`s per the tRPC procedure-type convention in §Plan-028 — Remote Control Bootstrap above — `diffArtifactCreate` mints a `diff_artifacts` row plus its linked `artifact_manifests` row (CP-009-2), `prPrepare` writes the durable `pr_preparations` record, and `gitActionExecute` performs the remote git mutation. The `GitHostingAdapter` interface and its nine supporting types (above) are daemon-internal (V1 wraps the `gh` CLI, D-009-1) — not registered wire methods. Canonical Zod schemas live in `packages/contracts/src/gitflow.ts` per the §Source-of-Truth Policy.
 
 ### Plan-012 — Artifacts Files And Attachments
 
@@ -4071,7 +4061,7 @@ Plan-009's gitflow PR-preparation and diff-attribution surface is exposed as fou
 //     DiffArtifact (artifactType: "diff") rides this envelope per CP-012-1 / CP-009-2. ---
 
 // artifactType discriminator (Spec-012 §Interfaces And Contracts) — the five Spec-012 §Required Behavior families (file, diff, summary,
-// log, design) plus workflow_output, the Spec-015 §Output Mode Specification (Tier-7) workflow phase-output type. Spec-012 §Required Behavior
+// log, design) plus workflow_output, the Spec-015 §Output Mode Specification workflow phase-output type. Spec-012 §Required Behavior
 // admits "at least" the five families, so the sixth value is additive, not a families-list rewrite (D-012-4).
 type ArtifactType = "file" | "diff" | "summary" | "log" | "design" | "workflow_output";
 
@@ -4087,13 +4077,13 @@ interface ArtifactManifest {
   subject?: ArtifactId; // OCI `subject`: present only on a derivative (redacted/summarized) manifest → source manifest (I-012-2, Spec-012 §State And Data Implications)
   visibility: ArtifactVisibility;
   state: ArtifactState;
-  replicationStatus?: "pending_replication" | "pinned" | "over_cap" | "quota_exceeded" | "expired"; // = SQLite `replication_status` (A-012-3; value set spec-named by the 2026-07-08 relay amendment — Spec-012 §Fallback Behavior grants the `pending_replication` fallback; the full set is spec-named in [Spec-012 §Wire-format additivity](../../specs/012-artifacts-files-and-attachments.md#wire-format-additivity) and mirrors the at-rest CHECK column). Absent = local-only artifact. Consumers read the PERSISTED value and never recompute it from live relay state — which is what lets the unresolved-attachment marker carry a non-`pinned` status verbatim as its cause. `expired` is written on the FETCHING node by its own fetch-refusal handling — on `artifact.relay_expired` (410) and equally on a zero-row `artifact.no_access_key` (404), since a GC path that removes the blob row cascades its recipient rows away and puts the later fetch on the 404 instead ([Spec-012 §Fetch (authenticated; relay-served in V1)](../../specs/012-artifacts-files-and-attachments.md#fetch-authenticated-relay-served-in-v1), the recipient-side writer added 2026-08-17 by the ingest-protocol hardening amendment); read it as "payload not obtainable from the relay, remedy is a re-publish" rather than narrowly as "TTL elapsed". The other three are publish-path values reaching recipients through manifest-first replication.
+  replicationStatus?: "pending_replication" | "pinned" | "over_cap" | "quota_exceeded" | "expired"; // = SQLite `replication_status` (A-012-3; value set spec-named by Spec-012 — §Fallback Behavior grants the `pending_replication` fallback; the full set is spec-named in [Spec-012 §Wire-format additivity](../../specs/012-artifacts-files-and-attachments.md#wire-format-additivity) and mirrors the at-rest CHECK column). Absent = local-only artifact. Consumers read the PERSISTED value and never recompute it from live relay state — which is what lets the unresolved-attachment marker carry a non-`pinned` status verbatim as its cause. `expired` is written on the FETCHING node by its own fetch-refusal handling — on `artifact.relay_expired` (410) and equally on a zero-row `artifact.no_access_key` (404), since a GC path that removes the blob row cascades its recipient rows away and puts the later fetch on the 404 instead ([Spec-012 §Fetch (authenticated; relay-served in V1)](../../specs/012-artifacts-files-and-attachments.md#fetch-authenticated-relay-served-in-v1), the recipient-side writer is the ingest protocol); read it as "payload not obtainable from the relay, remedy is a re-publish" rather than narrowly as "TTL elapsed". The other three are publish-path values reaching recipients through manifest-first replication.
   metadata: Record<string, unknown>; // freeform daemon-side provenance/media-type — distinct from the OCI `annotations` map above
   createdAt: string;
 }
 
 // ArtifactPublish — Spec-012 §Interfaces And Contracts: "must return artifact id and manifest metadata."
-// Trust-boundary rule (2026-08-17, Spec-012 §Ingest Validation And Payload Bounds (V1)): the ingest
+// Trust-boundary rule (Spec-012 §Ingest Validation And Payload Bounds (V1)): the ingest
 // pipeline binds to the TRUST BOUNDARY, not to a method name. A publish arriving from across the local
 // client↔daemon boundary runs the same validation pipeline over `payload`, and one declaring
 // `artifactType: "file"` is refused outright and directed to AttachmentIngest — the file family reaches
@@ -4104,12 +4094,12 @@ interface ArtifactPublishRequest {
   runId?: RunId;
   artifactType: ArtifactType; // discriminator — see ArtifactManifest.artifactType (Spec-012 §Interfaces And Contracts; D-012-4)
   visibility: ArtifactVisibility;
-  payload: string; // the artifact bytes — UTF-8 text verbatim, or base64 (RFC 4648 §4) under payloadEncoding "base64"; never a binary field, because the Spec-006 local wire is JSON-only (PR #341 round 2). The daemon decodes per the discriminator BEFORE hashing: content_hash and size_bytes bind the DECODED bytes, so an encoded and an unencoded publish of identical content share one CAS entry. A boundary-crossing publish is single-call and the 1 MB frame ceiling binds the SERIALIZED frame (PR #341 round 4): base64's fixed 4/3 expansion gives the predictable ≈700 KiB raw ceiling, while a utf8 payload's JSON-escaped size is content-dependent (quotes/backslashes/control characters expand 2–6× under JSON.stringify), so near-ceiling callers publish base64; larger file bytes take the AttachmentIngest trio, and daemon-internal publishes never cross the wire (Spec-012 §Ingest Validation And Payload Bounds (V1))
-  payloadEncoding?: "utf8" | "base64"; // default "utf8" — the request-side encoding discriminator (PR #341 round 2)
+  payload: string; // the artifact bytes — UTF-8 text verbatim, or base64 (RFC 4648 §4) under payloadEncoding "base64"; never a binary field, because the Spec-006 local wire is JSON-only. The daemon decodes per the discriminator BEFORE hashing: content_hash and size_bytes bind the DECODED bytes, so an encoded and an unencoded publish of identical content share one CAS entry. A boundary-crossing publish is single-call and the 1 MB frame ceiling binds the SERIALIZED frame: base64's fixed 4/3 expansion gives the predictable ≈700 KiB raw ceiling, while a utf8 payload's JSON-escaped size is content-dependent (quotes/backslashes/control characters expand 2–6× under JSON.stringify), so near-ceiling callers publish base64; larger file bytes take the AttachmentIngest trio, and daemon-internal publishes never cross the wire (Spec-012 §Ingest Validation And Payload Bounds (V1))
+  payloadEncoding?: "utf8" | "base64"; // default "utf8" — the request-side encoding discriminator
   mediaType: string; // MIME type
   // --- producer-supplied OCI envelope inputs (D-012-3). `size`/`digest` are NOT here:
   //     the daemon derives size_bytes + content_hash from `payload`. ---
-  subject?: ArtifactId; // OCI `subject`: set when publishing a derivative (redacted/summarized) form → points to the source manifest (I-012-2, Spec-012 §State And Data Implications); omit for originals. Resolution is SESSION-SCOPED (PR #341 round 2): the id must resolve within sessionId's manifest space, and a foreign-session or unknown id refuses artifact.not_found (404) — derivative chains never cross sessions, which is what keeps the Spec-012 session-deletion sweep complete by construction
+  subject?: ArtifactId; // OCI `subject`: set when publishing a derivative (redacted/summarized) form → points to the source manifest (I-012-2, Spec-012 §State And Data Implications); omit for originals. Resolution is SESSION-SCOPED: the id must resolve within sessionId's manifest space, and a foreign-session or unknown id refuses artifact.not_found (404) — derivative chains never cross sessions, which is what keeps the Spec-012 session-deletion sweep complete by construction
   annotations?: Record<string, string>; // OCI `annotations` string-map persisted to artifact_manifests.annotations; distinct from freeform `metadata`
   metadata?: Record<string, unknown>;
 }
@@ -4125,7 +4115,7 @@ interface ArtifactReadRequest {
 interface ArtifactReadResponse {
   manifest: ArtifactManifest; // the same envelope ArtifactPublish embeds (Spec-012 §Interfaces And Contracts)
   payloadHandle?: string; // CAS key or URL for deferred retrieval
-  payload?: string; // only if includePayload=true and size permits — where "permits" includes the base64 expansion: the encoded member plus envelope must fit the Spec-006 1 MB frame (PR #341 round 2); UTF-8 text verbatim or base64 per payloadEncoding
+  payload?: string; // only if includePayload=true and size permits — where "permits" includes the base64 expansion: the encoded member plus envelope must fit the Spec-006 1 MB frame; UTF-8 text verbatim or base64 per payloadEncoding
   payloadEncoding?: "utf8" | "base64"; // present when payload is — "utf8" only for byte-exact valid UTF-8 payloads (which JSON round-trips losslessly), "base64" otherwise; callers switch on it, never sniff
 }
 
@@ -4145,7 +4135,7 @@ interface ArtifactVisibilityUpdateResponse {
 // binds to the trust boundary, not to a method name — see the ArtifactPublish note above for the
 // boundary-crossing publish arm). The other five artifactType families are daemon- or engine-produced
 // in the common case and carry no untrusted-upload surface. Ingest is a THREE-CALL STREAM, not a
-// single payload-bearing call (2026-08-17, Spec-012 §Ingest Validation And Payload Bounds (V1),
+// single payload-bearing call (Spec-012 §Ingest Validation And Payload Bounds (V1),
 // transport binding): the local IPC transport enforces a hard 1 MB per-frame ceiling on the declared
 // Content-Length BEFORE buffering the body (MAX_MESSAGE_BYTES, declared in
 // packages/contracts/src/jsonrpc.ts and enforced by
@@ -4157,7 +4147,7 @@ interface ArtifactVisibilityUpdateResponse {
 // spool (an over-cap stream is refused garbage, not a classified threat — quarantine is reserved for
 // content refusals at pipeline steps 3-8). An abandoned stream's spool is reaped by the same
 // mtime-clocked reaper that owns quarantine expiry. The stream is a PROTOCOL, not a loose call
-// sequence (PR #341 round 4, Spec-012 stream protocol): Init is refused
+// sequence (Spec-012 stream protocol): Init is refused
 // artifact.ingest_capacity_exhausted (429 — transient, retry later, no stream state created) at
 // max_active_ingest_streams or when the aggregate of open streams' declared totals would breach
 // ingest_spool_max_bytes; sequencing is replay-idempotent with violations terminal
@@ -4165,12 +4155,12 @@ interface ArtifactVisibilityUpdateResponse {
 // bounded by max_ingest_stream_lifetime from Init, because the mtime reaper cannot see a hostile
 // trickle that keeps its spool young. `mediaType` and `declaredSizeBytes` are ADVISORY
 // INPUT, never trusted facts: the daemon derives both from the spooled bytes at Complete and
-// reconciles — with per-field consequences that are deliberately NOT the same (PR #341 round 2
-// corrected this comment's earlier conflation). A declared TYPE that contradicts the derived type is
+// reconciles — with per-field consequences that are deliberately NOT the same.
+// A declared TYPE that contradicts the derived type is
 // refused with artifact.unsupported_media_type (415) and quarantined — never silently corrected
 // (Spec-012 pipeline step 4). A declared SIZE below the cap is never refused at Init and a below-cap
 // mismatch resolves to the derived value in the response — but the declaration is also the stream's
-// spool RESERVATION and per-stream ceiling (PR #341 round 4): the running decoded count exceeding it
+// spool RESERVATION and per-stream ceiling: the running decoded count exceeding it
 // refuses artifact.too_large (413) and deletes the spool, because the aggregate admission budget
 // counts declared bytes and an unenforced declaration would make it gameable. The derived
 // values are what reach the manifest, the CAS key, and every downstream consumer. No call in the trio
@@ -4179,7 +4169,7 @@ interface ArtifactVisibilityUpdateResponse {
 // Complete relay methods (below) — the same streaming shape applied to a different boundary and
 // payload (relay-bound ciphertext chunks there; cleartext local bytes under validation here).
 // EVERY call of the trio is retry-safe against a lost response, and no member of these shapes carries
-// idempotency state (2026-08-17 ingest-protocol hardening amendment): a replayed Chunk is acknowledged
+// idempotency state (ingest-protocol hardening): a replayed Chunk is acknowledged
 // without re-appending, and a replayed Complete replays its original response verbatim from a
 // completion record the daemon holds on the stream's own registry entry. Calls on one ingestId are
 // additionally SINGLE-FLIGHT — sequence validation, spool append, running-count and digest advance,
@@ -4192,22 +4182,22 @@ interface AttachmentIngestInitRequest {
   runId?: RunId;
   fileName: string; // caller-supplied; length/character-bounded before it is recorded, and NEVER a storage path component — CAS addressing keys the payload by its SHA-256 (Spec-012 §Implementation Notes)
   mediaType?: string; // ADVISORY and OPTIONAL — a hint used only to narrow the expected signature, never to widen acceptance; absent is a first-class state (Spec-012 pipeline step 4: "a declared type absent altogether is fine; the derived value stands"). One consequence is normative: an undetermined-signature payload with NO declaration has nothing to admit under the step-6 signature-exempt branch and is refused
-  declaredSizeBytes: number; // ADVISORY as metadata, BINDING as a reservation (PR #341 round 4): refused with artifact.too_large (413) up front when it exceeds max_attachment_ingest_bytes, counted against ingest_spool_max_bytes at admission, and enforced as the stream's per-stream spool ceiling — the running decoded count may not exceed it; a smaller actual size reconciles downward at Complete without refusal
+  declaredSizeBytes: number; // ADVISORY as metadata, BINDING as a reservation: refused with artifact.too_large (413) up front when it exceeds max_attachment_ingest_bytes, counted against ingest_spool_max_bytes at admission, and enforced as the stream's per-stream spool ceiling — the running decoded count may not exceed it; a smaller actual size reconciles downward at Complete without refusal
 }
 interface AttachmentIngestInitResponse {
-  ingestId: string; // opaque single-use stream handle, session-bound and wall-clock-bounded by max_ingest_stream_lifetime from Init; scopes every subsequent Chunk/Complete call — each refused artifact.ingest_stream_invalid (409) once the stream is terminated, expired, or unknown, and every Chunk once it is completed (PR #341 round 4). ONE carved exception: a replayed Complete on a completed stream whose completion record still lives replays the original response verbatim (2026-08-17 ingest-protocol hardening amendment) — see AttachmentIngestCompleteRequest
+  ingestId: string; // opaque single-use stream handle, session-bound and wall-clock-bounded by max_ingest_stream_lifetime from Init; scopes every subsequent Chunk/Complete call — each refused artifact.ingest_stream_invalid (409) once the stream is terminated, expired, or unknown, and every Chunk once it is completed. ONE carved exception: a replayed Complete on a completed stream whose completion record still lives replays the original response verbatim (ingest-protocol hardening) — see AttachmentIngestCompleteRequest
 }
 interface AttachmentIngestChunkRequest {
   ingestId: string;
-  sequenceNumber: number; // 0-based, strictly consecutive. The daemon retains the last acknowledged sequence + the last appended chunk's SHA-256 (PR #341 round 4): an exact replay — same sequence, same bytes, the ordinary retry after a lost Chunk response — is acknowledged idempotently WITHOUT re-appending, so client retries are always safe; a same-sequence chunk with different bytes, a gap, or a regression terminates the stream (spool deleted) and refuses artifact.ingest_stream_invalid (409) — restart from Init
-  chunk: string; // base64 (RFC 4648 §4) of at most max_attachment_chunk_bytes = 512 KiB raw payload (Spec-012 §Bounds, PR #341 round 2) — the Spec-006 wire is JSON with no binary serialization, so bytes ride encoded, sized so the 4/3 expansion plus envelope fits the 1 MB frame ceiling by arithmetic; the spool append decodes, and every byte bound counts the DECODED bytes
+  sequenceNumber: number; // 0-based, strictly consecutive. The daemon retains the last acknowledged sequence + the last appended chunk's SHA-256: an exact replay — same sequence, same bytes, the ordinary retry after a lost Chunk response — is acknowledged idempotently WITHOUT re-appending, so client retries are always safe; a same-sequence chunk with different bytes, a gap, or a regression terminates the stream (spool deleted) and refuses artifact.ingest_stream_invalid (409) — restart from Init
+  chunk: string; // base64 (RFC 4648 §4) of at most max_attachment_chunk_bytes = 512 KiB raw payload (Spec-012 §Bounds) — the Spec-006 wire is JSON with no binary serialization, so bytes ride encoded, sized so the 4/3 expansion plus envelope fits the 1 MB frame ceiling by arithmetic; the spool append decodes, and every byte bound counts the DECODED bytes
 }
 interface AttachmentIngestChunkResponse {
   ingestId: string;
   receivedBytes: number; // spooled running total of DECODED bytes after this chunk — the enforced byte bound; exceeding max_attachment_ingest_bytes refuses with artifact.too_large (413) and deletes the spool
 }
 interface AttachmentIngestCompleteRequest {
-  ingestId: string; // the request's ONLY member — Complete runs pipeline steps 3-8 over the spooled bytes (signature detection reads a bounded leading prefix); step 8's admitting CAS rename commits the payload — admission is the pipeline's final successful act (Spec-012 pipeline step 8, PR #341 round 2). IDEMPOTENT within the stream's lifetime (2026-08-17 ingest-protocol hardening amendment): the response is recorded on the stream's registry entry, stamped with the committed digest, so a retry after a lost response replays that response VERBATIM — same artifactId, same contentHash — re-running no gate and inserting no second manifest row. Because this request carries no member beyond the ingestId, a "divergent" Complete has no wire form; the digest stamp is a fail-closed defence-in-depth check against a state a daemon-minted single-use handle makes unreachable, not a caller-supplied discriminator. The record shares the entry's in-memory lifetime, so past max_ingest_stream_lifetime the retry receives artifact.ingest_stream_invalid (409) and a re-ingest costs a second manifest row over one deduplicated CAS payload — the named residual, never duplicated bytes
+  ingestId: string; // the request's ONLY member — Complete runs pipeline steps 3-8 over the spooled bytes (signature detection reads a bounded leading prefix); step 8's admitting CAS rename commits the payload — admission is the pipeline's final successful act (Spec-012 pipeline step 8). IDEMPOTENT within the stream's lifetime (ingest-protocol hardening): the response is recorded on the stream's registry entry, stamped with the committed digest, so a retry after a lost response replays that response VERBATIM — same artifactId, same contentHash — re-running no gate and inserting no second manifest row. Because this request carries no member beyond the ingestId, a "divergent" Complete has no wire form; the digest stamp is a fail-closed defence-in-depth check against a state a daemon-minted single-use handle makes unreachable, not a caller-supplied discriminator. The record shares the entry's in-memory lifetime, so past max_ingest_stream_lifetime the retry receives artifact.ingest_stream_invalid (409) and a re-ingest costs a second manifest row over one deduplicated CAS payload — the named residual, never duplicated bytes
 }
 interface AttachmentIngestCompleteResponse {
   artifactId: ArtifactId;
@@ -4218,7 +4208,7 @@ interface AttachmentIngestCompleteResponse {
 }
 
 // ArtifactDelete — Spec-012 §Interfaces And Contracts + §Local Artifact Deletion And CAS Reclaim (V1)
-// (added 2026-08-16; Spec-020's artifact-payload posture already presupposed this mechanism — its retained
+// (Spec-020's artifact-payload posture already presupposed this mechanism — its retained
 // CEK "dies with the manifest row (artifact deletion)" — while the interface list named only four, so the
 // reference resolved to nothing). Three couplings are resolved by the contract rather than left implicit:
 //   (a) CAS refcount — the payload is reclaimed only when the LAST manifest naming its storage key is gone.
@@ -4230,7 +4220,7 @@ interface AttachmentIngestCompleteResponse {
 //   (c) retained relay CEK — the delete PROCEEDS but takes the publisher-retained relay_cek_ciphertext with
 //       it, so re-publish for that artifact becomes impossible and the late-join artifact.no_access_key
 //       remedy is no longer available. The response must surface that rather than deleting silently — and
-//       the signal is grounded in LOCAL state alone (PR #341 round 3): the daemon reports the destroyed
+//       the signal is grounded in LOCAL state alone: the daemon reports the destroyed
 //       retained CEK (rePublishForeclosed), never a "pin lost" claim, because whether the relay still holds
 //       the blob is the relay's own refcount/TTL lifecycle, neither tracked after publish nor queried at
 //       delete time. Any still-pinned recipients fetch normally until the blob's own refcount-zero or TTL
@@ -4239,32 +4229,31 @@ interface ArtifactDeleteRequest {
   artifactId: ArtifactId;
 }
 // Carried as ErrorResponse.details when the call refuses with artifact.delete_blocked (409) — the
-// code-specific details shape the typed SDK consumes (2026-08-17, PR #341 round 2; without it, the
+// code-specific details shape the typed SDK consumes (without it, the
 // "names the referencing manifests" requirement had no field name or value type). The generic
 // Record<string, unknown> stays the ErrorResponse-level type; this shape is the artifact.delete_blocked
 // contract for what that record contains.
 interface ArtifactDeleteBlockedDetails {
-  referencingArtifactIds: ArtifactId[]; // manifests naming the target as their `subject` — delete these derivatives first, or keep the source. BOUNDED (PR #341 round 3): at most the first 50, ascending by artifact id — deterministic across retries and always frame-fitting, because an unboundedly-derived source must not make its own 409 undeliverable; the full set is enumerable via the read path
+  referencingArtifactIds: ArtifactId[]; // manifests naming the target as their `subject` — delete these derivatives first, or keep the source. BOUNDED: at most the first 50, ascending by artifact id — deterministic across retries and always frame-fitting, because an unboundedly-derived source must not make its own 409 undeliverable; the full set is enumerable via the read path
   referencingArtifactTotal: number; // total count of referencing manifests — may exceed referencingArtifactIds.length when the list is capped
 }
 interface ArtifactDeleteResponse {
   artifactId: ArtifactId;
-  payloadDisposition: "reclaimed" | "reclaim_pending" | "retained_by_references"; // reclaimed = the CAS bytes are unlinked; retained_by_references = another manifest still names the shared payload, so the bytes deliberately stay; reclaim_pending = the post-commit unlink failed non-ENOENT (EACCES/EIO) and the periodic orphan sweep owns the retry — the zero-reference predicate over surviving rows is the durable reclaim record (PR #341 round 4; replaces the earlier payloadReclaimed boolean, which could not report the pending state truthfully)
-  rePublishForeclosed: boolean; // true when the deleted manifest carried a publisher-retained relay_cek_ciphertext, destroyed with the row: re-publish is permanently impossible for this artifact and the late-join artifact.no_access_key remedy is gone. Grounded in the destroyed LOCAL CEK alone — never a relay-liveness claim (PR #341 round 3; replaces the earlier relayPinLost spelling, whose truth value the daemon cannot derive once the relay has GC'd or expired the blob)
+  payloadDisposition: "reclaimed" | "reclaim_pending" | "retained_by_references"; // reclaimed = the CAS bytes are unlinked; retained_by_references = another manifest still names the shared payload, so the bytes deliberately stay; reclaim_pending = the post-commit unlink failed non-ENOENT (EACCES/EIO) and the periodic orphan sweep owns the retry — the zero-reference predicate over surviving rows is the durable reclaim record (replaces the earlier payloadReclaimed boolean, which could not report the pending state truthfully)
+  rePublishForeclosed: boolean; // true when the deleted manifest carried a publisher-retained relay_cek_ciphertext, destroyed with the row: re-publish is permanently impossible for this artifact and the late-join artifact.no_access_key remedy is gone. Grounded in the destroyed LOCAL CEK alone — never a relay-liveness claim (replaces the earlier relayPinLost spelling, whose truth value the daemon cannot derive once the relay has GC'd or expired the blob)
   deletedAt: string;
 }
 
-// --- Cross-node artifact relay methods (2026-07-08 ADR-015 amendment): the
+// --- Cross-node artifact relay methods (ADR-015): the
 //     ArtifactUploadInit / ArtifactUploadChunk / ArtifactUploadComplete /
 //     ArtifactFetchAuthorize / ArtifactFetchComplete request/response schemas land with Plan-012
-//     Tasks 7-10 when tier order reaches them (Plan-012's relay-scope readiness-audit delta landed
-//     2026-08-12 and restored the plan and Spec-012 approved; the gate is now the §5 Tier-6 row —
-//     Plan-028 + Plan-016 at Tier 4, Plan-019 at Tier 5 — plus phase decomposition, not the
+//     Tasks 7-10 when their upstream plans land (the gate is Plan-012's dependency on
+//     Plan-028, Plan-016 and Plan-019, plus phase decomposition, not the
 //     delta). Spec-012 §Interfaces names the methods;
-//     Spec-012 §Cross-Node Artifact Relay (V1) is the normative design — ArtifactUploadInit carries the relay-visible lifecycle envelope (digest, size, chunk accounting, retentionTier, wrapped-CEK recipient entries) as authenticated plaintext; ArtifactFetchAuthorize evaluates the blob's LIVENESS first (state = 'pinned' AND expires_at > now(); a row that is not a live pin is refused artifact.relay_expired 410 at that point, AHEAD of the selector, so the same request answers 410 on both sides of the hourly TTL sweep instead of flipping to 404 once the sweep's shred has run — added 2026-08-26 by the relay TTL-sweep disposition amendment. A check that precedes the selector necessarily SUBSUMES the grant check for a non-live blob: a session member holding no recipient row gets that 410 rather than the zero-row 404, deliberately — every caller here is authenticated and manifest-first replication already named the digest on their machine, the remedy under both codes is the same publisher re-publish, and after the sweep's shred the relay no longer holds the records that could tell a grantee from a grantless member. The 404 arms below are therefore reached only against a LIVE pin), then selects the recipient row on the REQUEST path (re-specified 2026-08-16): the caller presents the set of artifact-encryption key THUMBPRINTS it holds, the issuer requires exactly one row matching (ciphertext_digest, user_id = token sub, key_thumbprint ∈ that set) — zero is artifact.no_access_key 404, two or more is artifact.fetch_unauthorized 403 refused fail-closed — derives node_id FROM the resolved row (never caller input), and corroborates an active-state runtime_node_attachments row for that node_id AND user_id = the authenticated sub in the blob's own session before minting (the user leg added 2026-08-17, PR #341 round 2 — a recipient row whose attested node_id names another user's node fails corroboration rather than minting claims that describe no real attachment of the caller); the response returns that one row's wrapped CEK plus its key_thumbprint so the daemon knows which private key to unwrap with (CEKs wrap to durable per-(user, node) artifact-encryption keys, never session-ephemeral keys). A thumbprint is a public-key fingerprint, not a credential: it disambiguates among rows the caller already owns and grants nothing, because user_id is pinned to sub inside the same predicate. ArtifactFetchComplete is the authenticated post-verification ack that alone writes delivered_at (never inferred from a chunk GET); the artifact.published event carries the signed cekCommitment, never wrapped CEKs (Spec-012 Publish steps 1/3/4, Fetch steps 5-6).
+//     Spec-012 §Cross-Node Artifact Relay (V1) is the normative design — ArtifactUploadInit carries the relay-visible lifecycle envelope (digest, size, chunk accounting, retentionTier, wrapped-CEK recipient entries) as authenticated plaintext; ArtifactFetchAuthorize evaluates the blob's LIVENESS first (state = 'pinned' AND expires_at > now(); a row that is not a live pin is refused artifact.relay_expired 410 at that point, AHEAD of the selector, so the same request answers 410 on both sides of the hourly TTL sweep instead of flipping to 404 once the sweep's shred has run — the relay TTL-sweep disposition. A check that precedes the selector necessarily SUBSUMES the grant check for a non-live blob: a session member holding no recipient row gets that 410 rather than the zero-row 404, deliberately — every caller here is authenticated and manifest-first replication already named the digest on their machine, the remedy under both codes is the same publisher re-publish, and after the sweep's shred the relay no longer holds the records that could tell a grantee from a grantless member. The 404 arms below are therefore reached only against a LIVE pin), then selects the recipient row on the REQUEST path: the caller presents the set of artifact-encryption key THUMBPRINTS it holds, the issuer requires exactly one row matching (ciphertext_digest, user_id = token sub, key_thumbprint ∈ that set) — zero is artifact.no_access_key 404, two or more is artifact.fetch_unauthorized 403 refused fail-closed — derives node_id FROM the resolved row (never caller input), and corroborates an active-state runtime_node_attachments row for that node_id AND user_id = the authenticated sub in the blob's own session before minting (a recipient row whose attested node_id names another user's node fails corroboration rather than minting claims that describe no real attachment of the caller); the response returns that one row's wrapped CEK plus its key_thumbprint so the daemon knows which private key to unwrap with (CEKs wrap to durable per-(user, node) artifact-encryption keys, never session-ephemeral keys). A thumbprint is a public-key fingerprint, not a credential: it disambiguates among rows the caller already owns and grants nothing, because user_id is pinned to sub inside the same predicate. ArtifactFetchComplete is the authenticated post-verification ack that alone writes delivered_at (never inferred from a chunk GET); the artifact.published event carries the signed cekCommitment, never wrapped CEKs (Spec-012 Publish steps 1/3/4, Fetch steps 5-6).
 //     Deliberately not typed here yet — no invented shapes. ---
 
-// --- Attachment references on turn-scoped carriers (Spec-012 §Interfaces And Contracts, 2026-08-16).
+// --- Attachment references on turn-scoped carriers (Spec-012 §Interfaces And Contracts).
 //     The element type is ArtifactId — an id into Spec-012's manifest space — carried as an ordered
 //     ArtifactId[], never an untyped element and never an inline byte payload: a carrier references
 //     artifacts by id only, and caller bytes enter through the boundary-validated ingest paths — the
@@ -4273,7 +4262,7 @@ interface ArtifactDeleteResponse {
 //     is preserved end to end, and an element the turn cannot resolve or deliver surfaces as an explicit
 //     unresolved marker in its declared position naming the cause from the closed union — deleted,
 //     local_only_remote, or the manifest's own non-pinned replication status carried verbatim
-//     (pending_replication / over_cap / quota_exceeded / expired; PR #341 round 3) — silently dropping it
+//     (pending_replication / over_cap / quota_exceeded / expired) — silently dropping it
 //     is prohibited (Spec-012 §Fallback Behavior). The count bound is
 //     max_attachments_per_carrier, enforced here rather than on AttachmentIngest, whose Init/Chunk/Complete
 //     stream carries exactly one payload and has no count to cap.
@@ -4281,15 +4270,15 @@ interface ArtifactDeleteResponse {
 //     steer and intervention arms were typed `unknown[]` and DELIBERATELY NOT edited from the Plan-012
 //     side, because those wire arms belong to the plans that own the driver boundary and retyping them
 //     was registered as the Plan-012 cross-plan follow-up obligation CP-012-7 so the change would land
-//     under its owners. IT HAS: both arms are `ArtifactId[]` as of 2026-09-08, retyped by Plan-004
+//     under its owners. IT HAS: both arms are `ArtifactId[]`, typed by Plan-004
 //     (SteerPayload, §Plan-004 above — where the carrier contract is stated once) and Plan-003 (the
 //     InterventionRequestPayload `steer` arm, §Plan-003), so every V1 attachment carrier registered
-//     here is now typed and CP-012-7's prerequisite — no V1 carrier may be wired to deliver an
-//     attachment over an untyped arm — is discharged rather than outstanding. ---
+//     here is typed and CP-012-7's prerequisite — no V1 carrier may be wired to deliver an
+//     attachment over an untyped arm — holds. ---
 
 // --- ArtifactKeyAttestationPayload — the `artifact_key_attestation` arm sealed inside Spec-028's
-//     Remote Control pairwise envelope (typed 2026-08-12, Codex PR #326 round 2: the arm was named
-//     with no named schema, so Plan-028's envelope codec had no type to build the tagged arm from).
+//     Remote Control pairwise envelope (the arm carries a named schema, so Plan-028's envelope
+//     codec has a type to build the tagged arm from).
 //     Realizes Spec-012 §Cross-Node Artifact Relay (V1) Publish step 3; the runtime Zod schema
 //     lands in packages/contracts/src/artifacts/ (Plan-012 Task 7) and Plan-028's envelope codec
 //     references it (CP-012-4) — see the §Artifact-Attestation Bridge Method Registry above for
@@ -4304,12 +4293,12 @@ interface ArtifactKeyAttestationPayload {
   sessionId: SessionId;
   nodeId: NodeId; // the daemon whose artifact key this attests — inside the signed preimage, so a carrier cannot re-home a key to another node
   artifactPublicKey: string; // base64 of exactly 32 bytes — the node's durable X25519 artifact-encryption public key (the CEK-wrap recipient key, Spec-012 Publish step 1). The recipient-row key thumbprint is DERIVED from these bytes by the receiver, never carried — a carried copy could only agree or lie
-  identityKeyFingerprint: string; // selector into the attesting user's registered identity-key set — the user_identity_keys roster read (Plan-016 CP-016-13 consumer b, 2026-08-15); the verifier resolves it within THAT user's keys only (an unknown fingerprint refuses; the member can narrow the check, never widen trust across users)
+  identityKeyFingerprint: string; // selector into the attesting user's registered identity-key set — the user_identity_keys roster read (Plan-016 CP-016-13 consumer b); the verifier resolves it within THAT user's keys only (an unknown fingerprint refuses; the member can narrow the check, never widen trust across users)
   identitySignature: string; // lowercase hex of 64 bytes (the Plan-005 T2.3 wire convention) — Ed25519 by the selected long-term identity key (custody ADR-021 CLI / ADR-010 + Plan-021 desktop; the signing operation is Plan-028's injected Ed25519IdentitySigner, Plan-028) over the LITERAL Spec-012 preimage session_id ‖ node_id ‖ artifact_public_key — UTF-8 id bytes ‖ the raw 32 key bytes, injective without length prefixes because both ids are fixed-length canonical UUID strings; the same literal-concatenation convention as Plan-028's session_id ‖ ephemeral_x25519_public bundle signature, no re-canonicalization the spec doesn't state
 }
 ```
 
-> **Tier-6 audit — ratified design (Plan-012 → `approved`).** The ArtifactPublish/ArtifactRead pair now composes a single named `ArtifactManifest` envelope ([Spec-012 §Interfaces And Contracts](../../specs/012-artifacts-files-and-attachments.md#interfaces-and-contracts)) instead of inlining and duplicating the fields — this is the `ArtifactManifest` shape Plan-012 Task 1 mints, and the envelope Plan-009's `DiffArtifact` (`artifactType: "diff"`) rides per CP-012-1 / CP-009-2 (Plan-009 consumes the envelope **concept**, unchanged, not a flat field layout). `ArtifactPublishResponse` embeds `manifest: ArtifactManifest` per [Spec-012 §Interfaces And Contracts](../../specs/012-artifacts-files-and-attachments.md#interfaces-and-contracts) ("must return artifact id **and manifest metadata**") — this **replaces the prior `manifestUrl` pointer**, which was drift from that "must" clause: the `ArtifactRead` clause grants handle/inline latitude to the **payload** on _Read_ only, never to the manifest, so both responses return the manifest metadata inline (D-012-3 — resolved by aligning the wire to the spec, not an owner decision). `ArtifactReadResponse` is `manifest` + `payloadHandle?`/`payload?` ([Spec-012 §Interfaces And Contracts](../../specs/012-artifacts-files-and-attachments.md#interfaces-and-contracts)). The wire envelope mirrors the `artifact_manifests` row in [Local SQLite Schema](../schemas/local-sqlite-schema.md) 1:1: `digest`/`size` are **required** on the wire because a content-addressed manifest always carries both (I-012-1), and the at-rest `content_hash`/`size_bytes` columns are correspondingly **`NOT NULL`** — each producer (AttachmentIngest, ArtifactPublish) computes the SHA-256 + byte length from its own payload and inserts its manifest with both columns set in the same transaction as the payload-ref, and AttachmentIngest and ArtifactPublish are independent producers (the `artifactId` `AttachmentIngestResponse` returns resolves from the ingest-written manifest, not a later publish), so there is no payload-less manifest to reconcile (D-012-1). _(2026-08-17: `AttachmentIngest` is now carried as the `AttachmentIngestInit`/`AttachmentIngestChunk`/`AttachmentIngestComplete` trio — the resolving response in this dated record is today's `AttachmentIngestCompleteResponse`; the producer-independence design is unchanged.)_ `annotations` is a dedicated OCI string→string column (D-012-2; at-rest `NOT NULL DEFAULT '{}'`), required on the wire, never folded into freeform `metadata`. The at-rest `replication_status` column (nullable) surfaces as the optional `replicationStatus?` wire field (A-012-3 — V1 writes `pending_replication` while a shared artifact awaits deferred payload transfer; open set, no closed union, mirroring the at-rest no-CHECK stance). _(2026-07-08: the deferred refinement arrived — the [Spec-012 §Cross-Node Artifact Relay (V1)](../../specs/012-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) amendment spec-names `pending_replication | pinned | over_cap | quota_exceeded | expired`, the at-rest column now carries the matching CHECK, and the wire field is the closed union above — the open-set stance in this dated record is superseded; the field stays optional.)_ Producer inputs are closed too (D-012-3): `ArtifactPublishRequest` accepts `subject?` (so a Task-4 I-012-2 derivative names its source at publish) and `annotations?`, while `size`/`digest` stay server-derived from `payload` — otherwise the `annotations` column and derivative `subject` would be write-dead. This wire edit + the `local-sqlite-schema.md` artifact edit + Plan-012 CP-012-1 / Task 3 form one whole-or-not bundle.
+> **The artifact manifest envelope.** The ArtifactPublish/ArtifactRead pair composes a single named `ArtifactManifest` envelope ([Spec-012 §Interfaces And Contracts](../../specs/012-artifacts-files-and-attachments.md#interfaces-and-contracts)) instead of inlining and duplicating the fields — this is the `ArtifactManifest` shape Plan-012 Task 1 mints, and the envelope Plan-009's `DiffArtifact` (`artifactType: "diff"`) rides per CP-012-1 / CP-009-2 (Plan-009 consumes the envelope **concept**, unchanged, not a flat field layout). `ArtifactPublishResponse` embeds `manifest: ArtifactManifest` per [Spec-012 §Interfaces And Contracts](../../specs/012-artifacts-files-and-attachments.md#interfaces-and-contracts) ("must return artifact id **and manifest metadata**") — this **replaces the prior `manifestUrl` pointer**, which was drift from that "must" clause: the `ArtifactRead` clause grants handle/inline latitude to the **payload** on _Read_ only, never to the manifest, so both responses return the manifest metadata inline (D-012-3 — resolved by aligning the wire to the spec, not an owner decision). `ArtifactReadResponse` is `manifest` + `payloadHandle?`/`payload?` ([Spec-012 §Interfaces And Contracts](../../specs/012-artifacts-files-and-attachments.md#interfaces-and-contracts)). The wire envelope mirrors the `artifact_manifests` row in [Local SQLite Schema](../schemas/local-sqlite-schema.md) 1:1: `digest`/`size` are **required** on the wire because a content-addressed manifest always carries both (I-012-1), and the at-rest `content_hash`/`size_bytes` columns are correspondingly **`NOT NULL`** — each producer (AttachmentIngest, ArtifactPublish) computes the SHA-256 + byte length from its own payload and inserts its manifest with both columns set in the same transaction as the payload-ref, and AttachmentIngest and ArtifactPublish are independent producers (the `artifactId` `AttachmentIngestResponse` returns resolves from the ingest-written manifest, not a later publish), so there is no payload-less manifest to reconcile (D-012-1). _(`AttachmentIngest` is now carried as the `AttachmentIngestInit`/`AttachmentIngestChunk`/`AttachmentIngestComplete` trio — the resolving response in this dated record is today's `AttachmentIngestCompleteResponse`; the producer-independence design is unchanged.)_ `annotations` is a dedicated OCI string→string column (D-012-2; at-rest `NOT NULL DEFAULT '{}'`), required on the wire, never folded into freeform `metadata`. The at-rest `replication_status` column (nullable) surfaces as the optional `replicationStatus?` wire field (A-012-3 — V1 writes `pending_replication` while a shared artifact awaits deferred payload transfer). [Spec-012 §Cross-Node Artifact Relay (V1)](../../specs/012-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) spec-names the closed set `pending_replication | pinned | over_cap | quota_exceeded | expired`, the at-rest column carries the matching CHECK, and the wire field is the closed union above; it stays optional. Producer inputs are closed too (D-012-3): `ArtifactPublishRequest` accepts `subject?` (so a Task-4 I-012-2 derivative names its source at publish) and `annotations?`, while `size`/`digest` stay server-derived from `payload` — otherwise the `annotations` column and derivative `subject` would be write-dead. This wire edit + the `local-sqlite-schema.md` artifact edit + Plan-012 CP-012-1 / Task 3 form one whole-or-not bundle.
 
 **Plan artifacts and a chat's files.** Two console surfaces are projections of this manifest space and add no store of their own. **A finished plan** is written by the daemon as an artifact of its session in the existing summary family the moment the plan turn ends, keyed by its own stable id and carrying the plan's text as the agent wrote it; its state moves in place as the plan is answered, so the inspector's artifact list reads the plan's word — waiting, accepted, handed on — and the plan reader renders the STORED text and never the provider's own plan file. The artifact survives a restart and is listed on the person's other devices, which is the whole reason the plan is an artifact rather than a rendering of a held request. **A chat session's files** are artifacts too: every file and folder a chat writes into its managed workspace is one, and each write to the same path is a NEW VERSION of that artifact kept with the time it was written — a later write never replaces an earlier one, which is what lets the file pane step through versions and compare one against the one before it. That comparison is the only diff a chat draws and it is never against a repository, so no branch, commit, base or staging concept reaches it.
 
@@ -4327,12 +4316,12 @@ interface RecoveryStatusReadResponse {
     state: "healthy" | "replaying" | "degraded" | "blocked";
     lastReplayedSequence?: number;
     failureCategory?: RunFailureCategory;
-    recoveryCondition?: RecoveryCondition; // named type in §Plan-004 (campaign B3)
-    recoverySpanClassification?: RecoverySpanClassification; // span-content sibling of recoveryCondition (Part-B follow-up 2026-07-17)
-    // Per-run identities behind a blocked/degraded session entry (campaign B14): names which
+    recoveryCondition?: RecoveryCondition; // named type in §Plan-004
+    recoverySpanClassification?: RecoverySpanClassification; // span-content sibling of recoveryCondition
+    // Per-run identities behind a blocked/degraded session entry: names which
     // runs need reconciliation in a multi-run session — a Plan-013 T15.5 divergence halt or a
     // failed resume each land one entry. Optional and additive: absent when no run-level
-    // recovery condition exists. Entry contract (round 5): a divergence-halt entry is
+    // recovery condition exists. Entry contract: a divergence-halt entry is
     // SELF-SUFFICIENT — recoverySpanClassification REQUIRED (the daemon always derives one; the
     // audit-metadata recording is the T15.5 deliverable), failureCategory absent (the run did
     // not fail), and there is no failure to drill into; a failed-resume entry carries
@@ -4442,11 +4431,11 @@ The dry-run read and the restore call have no ratified method names, so neither 
 
 ---
 
-## Tier 7: Plans 011, 017, 018 (Task 4.9)
+## Plans 011, 017 And 018
 
 ### Plan-011 — Live Timeline Visibility And Reasoning Surfaces
 
-Every paged timeline reply is bounded by the frame it becomes (2026-09-01, Plan-011 Phase 1). A JSON-RPC reply leaves the daemon inside one `Content-Length`-framed body, and a body over `MAX_MESSAGE_BYTES` is not a failed request: the framer refuses to emit it and the **connection closes** ([Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format), F-006p-2-05). A row-count ceiling does not bound that — a `TimelineRow` carries three free-form fields at `EVENT_FIELD_MAX_LEN` plus a 4 KiB `summary`, and `JSON.stringify` expands a control character to a six-byte escape, so 256 contract-valid rows exceed the cap several times over before `payload`, which this contract does not bound at all. So each of the three paged members — `TimelineReadResponse.entries`, `ChildRunExpandResponse.entries`, and `ReasoningSurfaceReadResponse.reasoningEntries` — carries a byte budget (`TIMELINE_PAGE_MAX_BYTES` = `MAX_MESSAGE_BYTES` less a reserve for the envelope and the reply's non-paged members), a producer stops at whichever of the row limit and the byte budget trips first, and all three replies discriminate on `hasMore` so a caller can always continue. **The row limit that binds is the CALLER'S** (2026-09-01, Plan-011 Phase 1): `TimelineReadRequest.limit` is optional and a response schema never sees the request, so `entries` is schema-bounded only at the global `TIMELINE_READ_LIMIT_MAX` and a read for ten rows answering with two hundred and fifty-six parses — a client sizing a viewport, a budget, or a render pass from the window it asked for is handed a larger one with nothing on the reply saying the request was not honoured. The effective ceiling is therefore resolved per request — the caller's `limit` where it supplied one, the same global constant where it did not, which stays the default and the schema bound — and enforced at the daemon binder beside the request-scope checks, the only layer holding both numbers. `ChildRunExpandRequest` declares no `limit`, so its ceiling is that constant, stated on the same binder so one rule covers both paged reads. **The budget bounds aggregation and never bounds a page below one entry** (2026-09-01, Plan-011 Phase 1): a continuing arm requires at least one entry — a page promising more and delivering none re-offers the same cursor forever while reading like progress — so where the first candidate alone exceeds the budget the producer pages that single entry and the reply is refused **for its size** at the response boundary, naming the member and its measured bytes on an error frame the substrate can deliver, rather than the page-fill helper returning a bare zero whose only representable answer is the empty continuing page the schema now refuses. A **terminal** arm carries no such floor: an empty final page is the honest answer to a continuation whose cursor already sat at the end and to a filtered read that matched nothing. The budget is not bounded for one `timeline.subscribe` emission, which is a single row on its own frame: a row that blows a frame by itself is an oversized projected event payload, which `session.subscribe` has carried since it shipped, and bounding it is an event-envelope and framer decision rather than one a Plan-011 page budget may make on their behalf.
+Every paged timeline reply is bounded by the frame it becomes (Plan-011 Phase 1). A JSON-RPC reply leaves the daemon inside one `Content-Length`-framed body, and a body over `MAX_MESSAGE_BYTES` is not a failed request: the framer refuses to emit it and the **connection closes** ([Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format), F-006p-2-05). A row-count ceiling does not bound that — a `TimelineRow` carries three free-form fields at `EVENT_FIELD_MAX_LEN` plus a 4 KiB `summary`, and `JSON.stringify` expands a control character to a six-byte escape, so 256 contract-valid rows exceed the cap several times over before `payload`, which this contract does not bound at all. So each of the three paged members — `TimelineReadResponse.entries`, `ChildRunExpandResponse.entries`, and `ReasoningSurfaceReadResponse.reasoningEntries` — carries a byte budget (`TIMELINE_PAGE_MAX_BYTES` = `MAX_MESSAGE_BYTES` less a reserve for the envelope and the reply's non-paged members), a producer stops at whichever of the row limit and the byte budget trips first, and all three replies discriminate on `hasMore` so a caller can always continue. **The row limit that binds is the CALLER'S** (Plan-011 Phase 1): `TimelineReadRequest.limit` is optional and a response schema never sees the request, so `entries` is schema-bounded only at the global `TIMELINE_READ_LIMIT_MAX` and a read for ten rows answering with two hundred and fifty-six parses — a client sizing a viewport, a budget, or a render pass from the window it asked for is handed a larger one with nothing on the reply saying the request was not honoured. The effective ceiling is therefore resolved per request — the caller's `limit` where it supplied one, the same global constant where it did not, which stays the default and the schema bound — and enforced at the daemon binder beside the request-scope checks, the only layer holding both numbers. `ChildRunExpandRequest` declares no `limit`, so its ceiling is that constant, stated on the same binder so one rule covers both paged reads. **The budget bounds aggregation and never bounds a page below one entry** (Plan-011 Phase 1): a continuing arm requires at least one entry — a page promising more and delivering none re-offers the same cursor forever while reading like progress — so where the first candidate alone exceeds the budget the producer pages that single entry and the reply is refused **for its size** at the response boundary, naming the member and its measured bytes on an error frame the substrate can deliver, rather than the page-fill helper returning a bare zero whose only representable answer is the empty continuing page the schema now refuses. A **terminal** arm carries no such floor: an empty final page is the honest answer to a continuation whose cursor already sat at the end and to a filtered read that matched nothing. The budget is not bounded for one `timeline.subscribe` emission, which is a single row on its own frame: a row that blows a frame by itself is an oversized projected event payload, which `session.subscribe` has carried since it shipped, and bounding it is an event-envelope and framer decision rather than one a Plan-011 page budget may make on their behalf.
 
 ```ts
 // TimelineRead
@@ -4463,7 +4452,7 @@ interface TimelineReadRequest {
 // "cursor-based continuation"). The terminal arm PERMITS one and never requires it — the two members
 // answer different questions, and a client that has just read to the end and now wants TimelineSubscribe
 // to "support live append plus replay recovery" from exactly there needs that position.
-// The continuing arm additionally requires entries to be NON-EMPTY (2026-09-01, Plan-011 Phase 1):
+// The continuing arm additionally requires entries to be NON-EMPTY (Plan-011 Phase 1):
 // a page promising more and delivering none advances no cursor while reading like progress, so the
 // client re-asks from the same position and loops. The terminal arm keeps no floor — an empty final
 // page is the honest answer to an exhausted continuation and to a filtered read that matched nothing.
@@ -4485,16 +4474,16 @@ interface TimelineRowBase {
   payload: Record<string, unknown>;
 }
 
-type TimelineEntry = TimelineRowBase & { kind: "general" }; // the non-run arm (Codex round 4 on PR #232): carries no run attribution structurally — the projector stamps kind from the event family, so a run-scoped family can never arrive on this arm. The arm additionally REFUSES category: "run_lifecycle" (2026-09-01, Plan-011 Phase 1): all-or-none attribution is enforced by arm SELECTION, so a row whose kind was stamped wrong never reaches the run arm and its missing triple is never checked — it would arrive as a legitimately attribution-free general row. Every one of Spec-005 §Run Lifecycle's fourteen types is run-scoped (the ten state transitions share a payload shape carrying a required runId; the four non-state rows each re-list it), so the refusal costs no correct projection. The refusal is THREE-LEGGED, not category alone (2026-09-01, Plan-011 Phase 1): category was only ever decisive for run_lifecycle, so the arm also refuses a canonical type in the derived census of Spec-005 types whose registered payload names a run unconditionally, and — for the types whose run identity is registered OPTIONAL (every artifact_publication type, five usage_telemetry types, user.message), which no type-level test can decide — a payload naming a run under either registered spelling, runId or the intervention family's targetRunId. The census is derived from Plan-005's per-category arrays rather than transcribed, and its size is pinned by a test so a taxonomy growth changes it loudly
+type TimelineEntry = TimelineRowBase & { kind: "general" }; // the non-run arm: carries no run attribution structurally — the projector stamps kind from the event family, so a run-scoped family can never arrive on this arm. The arm additionally REFUSES category: "run_lifecycle" (Plan-011 Phase 1): all-or-none attribution is enforced by arm SELECTION, so a row whose kind was stamped wrong never reaches the run arm and its missing triple is never checked — it would arrive as a legitimately attribution-free general row. Every one of Spec-005 §Run Lifecycle's fourteen types is run-scoped (the ten state transitions share a payload shape carrying a required runId; the four non-state rows each re-list it), so the refusal costs no correct projection. The refusal is THREE-LEGGED, not category alone (Plan-011 Phase 1): category was only ever decisive for run_lifecycle, so the arm also refuses a canonical type in the derived census of Spec-005 types whose registered payload names a run unconditionally, and — for the types whose run identity is registered OPTIONAL (every artifact_publication type, five usage_telemetry types, user.message), which no type-level test can decide — a payload naming a run under either registered spelling, runId or the intervention family's targetRunId. The census is derived from Plan-005's per-category arrays rather than transcribed, and its size is pinned by a test so a taxonomy growth changes it loudly
 
 type RunScopedTimelineEntry = TimelineRowBase & {
   kind: "run"; // literal discriminator — row.kind narrowing is structural, never a probe of the free-form type: string
-  runId: RunId; // run identity — with position + epoch, the REQUIRED all-or-none attribution triple the run.rolled_back live client rule keys on, never dug out of payload (CP-003-13, Codex rounds 2-3 on PR #232): arm selection is by kind, so a run-scoped row missing any of the three fails ITS Zod arm — the malformed-row test — and can never fall through to the general arm
+  runId: RunId; // run identity — with position + epoch, the REQUIRED all-or-none attribution triple the run.rolled_back live client rule keys on, never dug out of payload (CP-003-13): arm selection is by kind, so a run-scoped row missing any of the three fails ITS Zod arm — the malformed-row test — and can never fall through to the general arm
   position: number; // the row's projection-resolved originating run position (Plan-003 T3.14's uniform row-to-turn assignment); the live rule compares it against the run.rolled_back boundary's carried targetPosition (sequence is the session event sequence, never a run position)
-  epoch: number; // the row's projection-resolved execution epoch (T3.14's row attribution: the stamped sourceEpoch on late rows, the operation association's epoch on in-time content-asynchronous rows, the run's current epoch at emission otherwise — Codex round 2, PR #232); position alone can never recover the epoch, since re-execution reuses ordinals
-  superseded?: { targetPosition: number }; // present exactly when the row's turn is superseded, absence = current (campaign B9 CP-003-13, 2026-07-20) — projection-computed from Plan-003 T3.14's exported supersededTurns(runId); deliberately single-field (Codex round 4, PR #232): the marker's run identity and source epoch ARE the containing row's runId + epoch, so no duplicated fields exist to disagree and live marking (the row plus the boundary cutoff) is identical to replay marking by construction; targetPosition = the superseding rollback's rewind cutoff — the first accepted rollback in the run's lineage, at the row's epoch or later, that rewound the surviving history containing the row (a later rollback below an earlier retained prefix supersedes the inherited rows; a row ranks superseded when position exceeds the run's effective cutoff for its epoch — the minimum cutoff among accepted rollbacks at epoch >= the row's); identical on TimelineRead and TimelineSubscribe replay, rows delivered after a boundary arriving with the marker already projection-computed — per Spec-011 §Required Behavior
+  epoch: number; // the row's projection-resolved execution epoch (T3.14's row attribution: the stamped sourceEpoch on late rows, the operation association's epoch on in-time content-asynchronous rows, the run's current epoch at emission otherwise); position alone can never recover the epoch, since re-execution reuses ordinals
+  superseded?: { targetPosition: number }; // present exactly when the row's turn is superseded, absence = current — projection-computed from Plan-003 T3.14's exported supersededTurns(runId); deliberately single-field: the marker's run identity and source epoch ARE the containing row's runId + epoch, so no duplicated fields exist to disagree and live marking (the row plus the boundary cutoff) is identical to replay marking by construction; targetPosition = the superseding rollback's rewind cutoff — the first accepted rollback in the run's lineage, at the row's epoch or later, that rewound the surviving history containing the row (a later rollback below an earlier retained prefix supersedes the inherited rows; a row ranks superseded when position exceeds the run's effective cutoff for its epoch — the minimum cutoff among accepted rollbacks at epoch >= the row's); identical on TimelineRead and TimelineSubscribe replay, rows delivered after a boundary arriving with the marker already projection-computed — per Spec-011 §Required Behavior
   // Where a projection echoes canonical keys into payload, they must AGREE with the outer triple
-  // (2026-09-01, Plan-011 Phase 1 — I-011-3's no-second-source rule reaching the payload): payload run
+  // (Plan-011 Phase 1 — I-011-3's no-second-source rule reaching the payload): payload run
   // identity under either spelling (runId, targetRunId) must equal this row's runId, and payload
   // sourceEpoch / sourcePosition must equal this row's epoch / position. Echoing stays OPTIONAL and
   // absence passes; only disagreement is refused, because consumers filter and mark superseded on the
@@ -4504,29 +4493,28 @@ type RunScopedTimelineEntry = TimelineRowBase & {
 };
 
 type LegacyStubTimelineEntry = TimelineRowBase & {
-  kind: "legacy_stub"; // a run-scoped audit stub compacted in the vacuous-attribution era (Codex round 5, PR #232): runId is preserved — every run-scoped stub preserves it (Spec-005 §Compacted Event Format) — but position and epoch are structurally ABSENT because they are unknowable (Plan-005 T3.2/T3.5's vacuous-default era; Plan-003's span check treats such a stub as the standing-refusal class, so its run can never admit a rollback while it exists). The row renders as the compaction placeholder alone and is exempt from the marking rule by construction — it can never be ranked, never carries superseded, and the projector stamps this kind only for vacuous-era stub rows (a live run row missing attribution fails the run arm, never lands here)
+  kind: "legacy_stub"; // a run-scoped audit stub compacted in the vacuous-attribution era: runId is preserved — every run-scoped stub preserves it (Spec-005 §Compacted Event Format) — but position and epoch are structurally ABSENT because they are unknowable (Plan-005 T3.2/T3.5's vacuous-default era; Plan-003's span check treats such a stub as the standing-refusal class, so its run can never admit a rollback while it exists). The row renders as the compaction placeholder alone and is exempt from the marking rule by construction — it can never be ranked, never carries superseded, and the projector stamps this kind only for vacuous-era stub rows (a live run row missing attribution fails the run arm, never lands here)
   runId: RunId;
 };
 
 type TimelineRollbackBoundary = Omit<TimelineRowBase, "category" | "type" | "payload"> & {
   kind: "rollback_boundary"; // literal discriminator
-  category: "run_lifecycle"; // pinned with `type`, and for the same reason (2026-09-01, Plan-011 Phase 1): run.rolled_back is registered under one category and no other, so leaving this open on the one arm whose event type is closed would leave the half that can still disagree — and a renderer grouping or filtering by category would file the rewind cutoff under the wrong family
+  category: "run_lifecycle"; // pinned with `type`, and for the same reason (Plan-011 Phase 1): run.rolled_back is registered under one category and no other, so leaving this open on the one arm whose event type is closed would leave the half that can still disagree — and a renderer grouping or filtering by category would file the rewind cutoff under the wrong family
   runId: RunId; // the rewound run
   position: number; // the boundary row's own originating position
   epoch: number; // the epoch the rollback rewound
   superseded?: { targetPosition: number }; // an earlier boundary row is itself superseded when a later rollback cuts below it — same single-field marker semantics as the run arm
   type: "run.rolled_back";
-  payload: RunRolledBackEvent; // validated into the typed shape (defined at §Tier 4 run.* above) at projection, so the live client rule reads a typed targetPosition — never an unsafe cast; an entry failing that validation is a projection defect surfaced at emission, never delivered untyped (Codex round 2, PR #232). Delivery is visibility-resolved, never keyed on the event's optional channelId: the boundary fans out to every filtered subscription whose filter admits any row of the affected run (Codex round 4, PR #232), so a channel-filtered subscriber holding that run's rows always receives the cutoff. Outer attribution and payload cannot disagree (Codex round 5, PR #232): the boundary arm's schema refines runId === payload.runId, sessionId === payload.sessionId, and position === payload.targetPosition (the boundary row ranks at the confirmed rewind floor — which is why a later rollback below it supersedes it), so a conflicting boundary fails parse as a projection defect, never delivered. The `Omit` on the base is load-bearing rather than stylistic (Plan-011 T1.1, PR shipping `packages/contracts/src/timeline/row.ts`): a plain `TimelineRowBase &` intersection would type `payload` as `Record<string, unknown> & RunRolledBackEvent`, which no `RunRolledBackEvent`-typed value satisfies (an interface carries no implicit index signature) and which `RunRolledBackEventSchema` cannot be annotated against — the typed payload this comment promises would be unconstructible. `type` is Omitted for the same reason it is re-declared: this arm narrows the base's free-form string to one literal
+  payload: RunRolledBackEvent; // validated into the typed shape (defined under §Plans 003 And 016 above) at projection, so the live client rule reads a typed targetPosition — never an unsafe cast; an entry failing that validation is a projection defect surfaced at emission, never delivered untyped. Delivery is visibility-resolved, never keyed on the event's optional channelId: the boundary fans out to every filtered subscription whose filter admits any row of the affected run, so a channel-filtered subscriber holding that run's rows always receives the cutoff. Outer attribution and payload cannot disagree: the boundary arm's schema refines runId === payload.runId, sessionId === payload.sessionId, and position === payload.targetPosition (the boundary row ranks at the confirmed rewind floor — which is why a later rollback below it supersedes it), so a conflicting boundary fails parse as a projection defect, never delivered. The `Omit` on the base is load-bearing rather than stylistic (Plan-011 T1.1, PR shipping `packages/contracts/src/timeline/row.ts`): a plain `TimelineRowBase &` intersection would type `payload` as `Record<string, unknown> & RunRolledBackEvent`, which no `RunRolledBackEvent`-typed value satisfies (an interface carries no implicit index signature) and which `RunRolledBackEventSchema` cannot be annotated against — the typed payload this comment promises would be unconstructible. `type` is Omitted for the same reason it is re-declared: this arm narrows the base's free-form string to one literal
 };
 
 type TimelineRow =
   | TimelineRollbackBoundary
   | RunScopedTimelineEntry
   | LegacyStubTimelineEntry
-  | TimelineEntry; // the row union every timeline surface returns — TimelineReadResponse.entries, the TimelineSubscribe SSE stream, and ChildRunExpandResponse.entries are all TimelineRow — genuinely discriminated on the literal kind (Codex rounds 3-5, PR #232): the contracts Zod discriminatedUnion selects the arm by kind (rollback_boundary | run | legacy_stub | general), each arm validates strictly, and consumers narrow structurally on row.kind — never probing type: string, never casting
+  | TimelineEntry; // the row union every timeline surface returns — TimelineReadResponse.entries, the TimelineSubscribe SSE stream, and ChildRunExpandResponse.entries are all TimelineRow — genuinely discriminated on the literal kind: the contracts Zod discriminatedUnion selects the arm by kind (rollback_boundary | run | legacy_stub | general), each arm validates strictly, and consumers narrow structurally on row.kind — never probing type: string, never casting
 
-// The incompleteness marker (2026-09-01, Plan-011 T1.2) — the Tier-7 audit residual
-// shaped. Spec-011 §Fallback Behavior requires that a child run whose detail fetch fails "remains
+// The incompleteness marker (Plan-011 T1.2). Spec-011 §Fallback Behavior requires that a child run whose detail fetch fails "remains
 // visible and marked incomplete rather than disappearing"; before this, no member carried the mark, so
 // the only signal of incompleteness was a low eventCount, which is indistinguishable from a child run
 // that genuinely did little. The cause vocabulary is CLOSED and every member is a term the corpus
@@ -4562,7 +4550,7 @@ interface ChildRunSummary {
   //   never inferred from a small count. No compatibility arm — no daemon, SDK, or client ships an
   //   emitter or parser of this shape (Plan-011 Phase 1 is the first), so ADR-018's rules, which guard
   //   deployed skew from the first shipped parser onward, impose none.
-  // runId !== parentRunId (2026-09-01, Plan-011 Phase 1): a run that is its own parent makes the
+  // runId !== parentRunId (Plan-011 Phase 1): a run that is its own parent makes the
   //   run-lineage graph cyclic, and every consumer of that graph walks it — the renderer nests a child
   //   under its parent, Spec-014's one-layer nesting rule is checked against the chain, and cost
   //   attribution sums along it. Refused once at the parse boundary rather than defended against
@@ -4573,13 +4561,12 @@ interface ChildRunSummary {
 interface TimelineSubscribeRequest {
   sessionId: SessionId;
   afterCursor?: EventCursor;
-  channelId?: ChannelId; // filter to a channel's rows — filtering never suppresses a run.rolled_back boundary for a run whose rows the filter admits (visibility-resolved fan-out; Codex round 4, PR #232)
+  channelId?: ChannelId; // filter to a channel's rows — filtering never suppresses a run.rolled_back boundary for a run whose rows the filter admits (visibility-resolved fan-out)
 }
 // Response: SSE stream of TimelineRow (the discriminated union above)
 
 // ReasoningSurfaceRead
-// No principal member, by design (2026-09-01, Plan-011 Phase 1) — the Tier-7 audit's "unshaped
-// principal" residual settled as an explicit no-member decision rather than left as an omission.
+// No principal member, by design (Plan-011 Phase 1): the absence is an explicit no-member decision, not an omission.
 // The caller is resolved from the transport per the Authenticated Principal And Authorization Model
 // section above: its opening rule scopes every endpoint in this document to the authenticated caller
 // implicitly, and its informational-body-fields rule makes any user-naming body field routing
@@ -4592,20 +4579,20 @@ interface TimelineSubscribeRequest {
 // the retention class.
 interface ReasoningSurfaceReadRequest {
   runId: RunId;
-  afterCursor?: EventCursor; // continuation position, the same opaque cursor the sibling reads take (2026-09-01, Plan-011 Phase 1) — a reasoning entry is projected from the run's events, so its resume position is an event position, and one namespace spelling its cursor two ways would make a client hold two kinds of bookmark for one surface
+  afterCursor?: EventCursor; // continuation position, the same opaque cursor the sibling reads take (Plan-011 Phase 1) — a reasoning entry is projected from the run's events, so its resume position is an event position, and one namespace spelling its cursor two ways would make a client hold two kinds of bookmark for one surface
 }
 type ReasoningSurfaceReadResponse =
-  // Closed availability discriminant (Tier-7 audit Codex round, PR #318): the prior shape — available: boolean
+  // Closed availability discriminant: an open shape — available: boolean
   // with two free optionals — serialized the available / unavailable / compacted / policy-redacted cases
   // identically, leaving Spec-011 §Acceptance Criteria's distinguish-the-cases requirement and §Fallback
   // Behavior's compacted arm unrepresentable. Amended in place rather than compatibility-extended: the shape
   // predates this PR as canonical-doc text only — no daemon, SDK, or driver ships an emitter or parser of it
   // (Plan-011 Phase 1 undispatched) — so ADR-018's compatibility rules, which guard
   // deployed skew from the first shipped parser onward, impose no legacy boolean arm here.
-  // The available state is the one that PAGES, so it is the one that splits on hasMore (2026-09-01,
+  // The available state is the one that PAGES, so it is the one that splits on hasMore (
   // Plan-011 Phase 1) — the same continuation rule TimelineReadResponse carries, nested inside the
   // availability discriminant so the four states stay four and a paged reply is not a fifth state.
-  // reasoningEntries is non-empty ON THE CONTINUING ARM ONLY (narrowed 2026-09-01, Plan-011 Phase 1).
+  // reasoningEntries is non-empty ON THE CONTINUING ARM ONLY (Plan-011 Phase 1).
   // A zero-entry available page claims a reasoning surface exists and then shows nothing, which renders
   // identically to unavailable while asserting the opposite — true of a FIRST read, and false of a
   // continuation whose afterCursor already sat at the end of the surface, which unavailable, compacted,
@@ -4635,14 +4622,14 @@ type ReasoningSurfaceReadResponse =
 // ChildRunExpand
 interface ChildRunExpandRequest {
   runId: RunId; // child run to expand
-  afterCursor?: EventCursor; // continuation position (2026-09-01, Plan-011 Phase 1) — named to match the sibling reads rather than a bare `cursor`: one namespace, one name for the position a caller resumes from
+  afterCursor?: EventCursor; // continuation position (Plan-011 Phase 1) — named to match the sibling reads rather than a bare `cursor`: one namespace, one name for the position a caller resumes from
 }
 // Discriminated on hasMore exactly as TimelineReadResponse is, and for the same reason: a child run is
 // not inherently smaller than a session window — a long-running subagent produces more rows than fit one
 // frame — so the expansion needs the same continuation, on the same two arms, with the same rule about
 // which of them may carry a cursor — and the same non-empty floor on the continuing arm, for the same
 // reason: a child run's expansion loops a client on a repeated cursor exactly as a session read does.
-// Two further rules the schema enforces (2026-09-01, Plan-011 Phase 1):
+// Two further rules the schema enforces (Plan-011 Phase 1):
 // every entry that carries a run identity must carry THIS run's (the general arm is exempt, having none —
 // a session-scoped row inside a child's window is context, not misattribution), and runId !== parentRunId,
 // since a run that is its own parent makes the lineage graph cyclic and every walk of it — nesting,
@@ -4759,9 +4746,9 @@ interface QuestionResolveResponse {
 }
 ```
 
-### Timeline Method-Name Registry (Tier 7, Plan-011 T1.4)
+### Timeline Method-Name Registry
 
-Plan-011's timeline surface is exposed as four `timeline.*` methods, registered by the Tier-7 plan-readiness audit's Plan-011 restore (T1.4 registers the strings against the Plan-006-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out — the `repo.*` / `approval.*` precedent). These methods ride the **daemon JSON-RPC transport only**: the timeline is a daemon-local projection over the session event log per [ADR-017](../../decisions/017-shared-event-sourcing-scope.md), and no tRPC sibling exists in V1. Method tails are camelCase per the BL-142 convention the Approval Method-Name Registry records.
+Plan-011's timeline surface is exposed as four `timeline.*` methods, registered by Plan-011 (T1.4 registers the strings against the Plan-006-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out — the `repo.*` / `approval.*` precedent). These methods ride the **daemon JSON-RPC transport only**: the timeline is a daemon-local projection over the session event log per [ADR-017](../../decisions/017-shared-event-sourcing-scope.md), and no tRPC sibling exists in V1. Method tails are camelCase per the convention the Approval Method-Name Registry records.
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
@@ -4852,11 +4839,11 @@ interface NotificationEmitParams {
 }
 ```
 
-> **Scope and aggregate carrier (Plan-017 D-017-2).** `runId` is the scope discriminator: an item carrying it is run-scoped, an item omitting it is the session-scoped aggregate that [Spec-017 §Required Behavior](../../specs/017-notifications-and-attention-model.md#required-behavior) requires alongside run scope. There is no separate aggregate type and no aggregate-only field. On an aggregate, `severity` carries the aggregation — `actionable` while **any** unresolved contributor (a run-scoped item or a pending request) is actionable, `informational` only when every contributor is — per [Spec-017 §Default Behavior](../../specs/017-notifications-and-attention-model.md#default-behavior), while `trigger` and `sourceEventId` are taken from one deterministically selected representative contributor: highest severity first (`actionable` before `informational`), then earliest `createdAt`, then lexicographically smallest `id`. Because the representative is a real contributor rather than a synthesized placeholder, `sourceEventId` always resolves on an aggregate and stays non-optional. Aggregates are read-projection-only: `AttentionProjectionRead` returns them and `NotificationEmit` never carries one — a notification is emitted from the single canonical trigger that caused it, so no aggregate is ever emitted and no per-contributor fan-out is inferred from one. At rest, the queued form of this shape persists `trigger` as the column `attention_trigger` (a keyword-avoidance rename only; the domain is byte-identical) — see [shared-postgres-schema.md §Notification Queue (Plan-017)](../schemas/shared-postgres-schema.md#notification-queue-plan-017). Canonical statement: [Plan-017 §API And Transport Changes](../../plans/017-notifications-and-attention-model.md#api-and-transport-changes) and [Plan-017 §Ratified Design Decisions (Tier-7 audit)](../../plans/017-notifications-and-attention-model.md#ratified-design-decisions-tier-7-audit) D-017-2.
+> **Scope and aggregate carrier (Plan-017 D-017-2).** `runId` is the scope discriminator: an item carrying it is run-scoped, an item omitting it is the session-scoped aggregate that [Spec-017 §Required Behavior](../../specs/017-notifications-and-attention-model.md#required-behavior) requires alongside run scope. There is no separate aggregate type and no aggregate-only field. On an aggregate, `severity` carries the aggregation — `actionable` while **any** unresolved contributor (a run-scoped item or a pending request) is actionable, `informational` only when every contributor is — per [Spec-017 §Default Behavior](../../specs/017-notifications-and-attention-model.md#default-behavior), while `trigger` and `sourceEventId` are taken from one deterministically selected representative contributor: highest severity first (`actionable` before `informational`), then earliest `createdAt`, then lexicographically smallest `id`. Because the representative is a real contributor rather than a synthesized placeholder, `sourceEventId` always resolves on an aggregate and stays non-optional. Aggregates are read-projection-only: `AttentionProjectionRead` returns them and `NotificationEmit` never carries one — a notification is emitted from the single canonical trigger that caused it, so no aggregate is ever emitted and no per-contributor fan-out is inferred from one. At rest, the queued form of this shape persists `trigger` as the column `attention_trigger` (a keyword-avoidance rename only; the domain is byte-identical) — see [shared-postgres-schema.md §Notification Queue (Plan-017)](../schemas/shared-postgres-schema.md#notification-queue-plan-017). Canonical statement: [Plan-017 §API And Transport Changes](../../plans/017-notifications-and-attention-model.md#api-and-transport-changes) and [Plan-017](../../plans/017-notifications-and-attention-model.md) D-017-2.
 
-### Attention Method-Name Registry (Tier 7, Plan-017)
+### Attention Method-Name Registry
 
-Plan-017's client-facing attention surface is exposed as three `attention.*` methods split across the two transports [Plan-017 §API And Transport Changes](../../plans/017-notifications-and-attention-model.md#api-and-transport-changes) assigns (D-017-3; the code-side registrations land at Plan-017 T2.6). `attention.projectionRead` rides the **daemon JSON-RPC transport only**: the attention projection is a daemon-local replay-derived projection over canonical session and run state per [ADR-017](../../decisions/017-shared-event-sourcing-scope.md) — the `timeline.*` posture above — registered against the Plan-006-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out (the §2 `packages/runtime-daemon/src/ipc/` row's Plan-017 `attention.*` entry). `attention.preferenceRead` / `attention.preferenceUpdate` ride **control-plane tRPC only**: `notification_preferences` is control-plane Postgres and the callee is the record authority — the `runtimenode.roster` posture — mounted as an `attention`-namespaced router on `host.ts` via the §2 router-registration carve-out. Method tails are camelCase per the BL-142 convention the Approval Method-Name Registry records.
+Plan-017's client-facing attention surface is exposed as three `attention.*` methods split across the two transports [Plan-017 §API And Transport Changes](../../plans/017-notifications-and-attention-model.md#api-and-transport-changes) assigns (D-017-3; the code-side registrations land at Plan-017 T2.6). `attention.projectionRead` rides the **daemon JSON-RPC transport only**: the attention projection is a daemon-local replay-derived projection over canonical session and run state per [ADR-017](../../decisions/017-shared-event-sourcing-scope.md) — the `timeline.*` posture above — registered against the Plan-006-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out (the §2 `packages/runtime-daemon/src/ipc/` row's Plan-017 `attention.*` entry). `attention.preferenceRead` / `attention.preferenceUpdate` ride **control-plane tRPC only**: `notification_preferences` is control-plane Postgres and the callee is the record authority — the `runtimenode.roster` posture — mounted as an `attention`-namespaced router on `host.ts` via the §2 router-registration carve-out. Method tails are camelCase per the convention the Approval Method-Name Registry records.
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
@@ -4864,7 +4851,7 @@ Plan-017's client-facing attention surface is exposed as three `attention.*` met
 | `attention.preferenceRead` | `query` | `NotificationPreferenceReadRequest` | `NotificationPreferenceReadResponse` |
 | `attention.preferenceUpdate` | `mutation` | `NotificationPreferenceUpdateRequest` | `NotificationPreferenceUpdateResponse` |
 
-Two deliberate non-registrations complete the namespace. **No `attention.subscribe` exists**: notification delivery rides the existing control-plane SSE subscription rather than a new endpoint per [Spec-017 §Desktop-to-Desktop Delivery](../../specs/017-notifications-and-attention-model.md#desktop-to-desktop-delivery) and [Plan-017 §API And Transport Changes](../../plans/017-notifications-and-attention-model.md#api-and-transport-changes) — a subscription method here would mint the second endpoint that bullet forbids. **`NotificationEmit` is deliberately not a client method** (the `PermissionCheck` precedent in the Approval Method-Name Registry): emission is derived from canonical state (Plan-017 I-017-1), so no V1 client emits notifications. Its wire form is the fourth `attention.*` string, `attention.notificationEmit` — a control-plane tRPC `mutation`, **daemon-called** (the `eventanchor.upload` shape; request `NotificationEmitParams`, response `null` — the `runtimenode.leaseupdate` / heartbeat pattern, `NotificationEmitResponseSchema` = `z.null()`), registered on the same `attention` router (Plan-017 T3.2). The daemon authenticates as the node-owner user through the constructor-injected `DaemonCredentialProvider` (the CP-005-13 shape, minted per attempt; live at Tier 7 — Plan-016's Tier-4 PASETO wiring precedes this plan by tier order — so an auth failure is a retryable transport failure, the `eventanchor.upload` posture). Authorization is two predicates evaluated in the same transaction as any queue write, refusals writing nothing: the verified caller `sub` must hold a live `runtime_node_attachments` row in an active state for the named `sessionId` (the attachment-gated shape of the §Session Terminal-Control Method Registry's condition (1), evaluated over any of the caller's nodes — emission carries no node identity and pins no `attachmentId`), and the recipient `userId` must own the same session — a queued `summary` is derived personal session content (Plan-017 CP-017-1), so a notification is never minted into a session the emitting node is not attached to nor delivered to a non-member. Filtering and routing happen control-plane-side after these predicates: the emit-time preference filter, then SSE push to a connected device or a `notification_queue` row otherwise ([shared-postgres-schema.md §Notification Queue (Plan-017)](../schemas/shared-postgres-schema.md#notification-queue-plan-017)). Not a relay op: [ADR-008](../../decisions/008-default-transports-and-relay-boundaries.md)'s relay is E2E peer connectivity, not a control-plane command channel, and the derived rendering fields are exactly what the control plane must read to filter, queue, and purge. Canonical Zod schemas live in `packages/contracts/src/attention/` per the §Source-of-Truth Policy.
+Two deliberate non-registrations complete the namespace. **No `attention.subscribe` exists**: notification delivery rides the existing control-plane SSE subscription rather than a new endpoint per [Spec-017 §Desktop-to-Desktop Delivery](../../specs/017-notifications-and-attention-model.md#desktop-to-desktop-delivery) and [Plan-017 §API And Transport Changes](../../plans/017-notifications-and-attention-model.md#api-and-transport-changes) — a subscription method here would mint the second endpoint that bullet forbids. **`NotificationEmit` is deliberately not a client method** (the `PermissionCheck` precedent in the Approval Method-Name Registry): emission is derived from canonical state (Plan-017 I-017-1), so no V1 client emits notifications. Its wire form is the fourth `attention.*` string, `attention.notificationEmit` — a control-plane tRPC `mutation`, **daemon-called** (the `eventanchor.upload` shape; request `NotificationEmitParams`, response `null` — the `runtimenode.leaseupdate` / heartbeat pattern, `NotificationEmitResponseSchema` = `z.null()`), registered on the same `attention` router (Plan-017 T3.2). The daemon authenticates as the node-owner user through the constructor-injected `DaemonCredentialProvider` (the CP-005-13 shape, minted per attempt; live once Plan-016's PASETO wiring lands, which precedes this plan — so an auth failure is a retryable transport failure, the `eventanchor.upload` posture). Authorization is two predicates evaluated in the same transaction as any queue write, refusals writing nothing: the verified caller `sub` must hold a live `runtime_node_attachments` row in an active state for the named `sessionId` (the attachment-gated shape of the §Session Terminal-Control Method Registry's condition (1), evaluated over any of the caller's nodes — emission carries no node identity and pins no `attachmentId`), and the recipient `userId` must own the same session — a queued `summary` is derived personal session content (Plan-017 CP-017-1), so a notification is never minted into a session the emitting node is not attached to nor delivered to a non-member. Filtering and routing happen control-plane-side after these predicates: the emit-time preference filter, then SSE push to a connected device or a `notification_queue` row otherwise ([shared-postgres-schema.md §Notification Queue (Plan-017)](../schemas/shared-postgres-schema.md#notification-queue-plan-017)). Not a relay op: [ADR-008](../../decisions/008-default-transports-and-relay-boundaries.md)'s relay is E2E peer connectivity, not a control-plane command channel, and the derived rendering fields are exactly what the control plane must read to filter, queue, and purge. Canonical Zod schemas live in `packages/contracts/src/attention/` per the §Source-of-Truth Policy.
 
 ### Plan-018 — Observability And Failure Recovery
 
@@ -4874,7 +4861,7 @@ interface HealthStatusReadRequest {
   scope?: "daemon" | "control_plane" | "provider" | "replay";
 }
 interface HealthStatusReadResponse {
-  overall: "healthy" | "degraded" | "blocked"; // the three Spec-018 §Default Behavior status categories — blocked (replay-rebuild / policy-blocked surfaces as blocked read-only), not "unhealthy": the mirror carried the drifted third arm (Tier-7 audit reconciliation; Plan-018 T1.1 is the schema source)
+  overall: "healthy" | "degraded" | "blocked"; // the three Spec-018 §Default Behavior status categories — blocked (replay-rebuild / policy-blocked surfaces as blocked read-only), not "unhealthy": the mirror carried the drifted third arm (Plan-018 T1.1 is the schema source)
   components: Array<{
     name: string;
     state: "healthy" | "degraded" | "blocked"; // same closed three-category set as overall
@@ -4890,8 +4877,8 @@ interface FailureDetailReadRequest {
 interface FailureDetailReadResponse {
   runId: RunId;
   failureCategory: RunFailureCategory;
-  recoveryCondition?: RecoveryCondition; // named type in §Plan-004 (campaign B3)
-  recoverySpanClassification?: RecoverySpanClassification; // span-content sibling of recoveryCondition (Part-B follow-up 2026-07-17)
+  recoveryCondition?: RecoveryCondition; // named type in §Plan-004
+  recoverySpanClassification?: RecoverySpanClassification; // span-content sibling of recoveryCondition
   humanSummary: string;
   technicalDetails: Record<string, unknown>;
   occurredAt: string;
@@ -4928,7 +4915,7 @@ interface RecoveryActionRequestResponse {
 // toggle per bucket plus the retention_policy_override warning surface. The redaction DECISION
 // logic (which fields are denied, placeholder shapes, sink coverage) is deliberately daemon-local
 // with no wire contract — a consumer that needs to evaluate redaction rather than read policy
-// state requires a Plan-018 amendment publishing the rule set first (Plan-018 §PII in Diagnostics).
+// state requires a Plan-018 change publishing the rule set first (Plan-018 §PII in Diagnostics).
 interface DiagnosticRedactionPolicyReadRequest {} // daemon-singleton policy; no parameters
 interface DiagnosticRedactionPolicyReadResponse {
   buckets: Array<{
@@ -4941,9 +4928,9 @@ interface DiagnosticRedactionPolicyReadResponse {
 }
 ```
 
-### Health Method-Name Registry (Tier 7, Plan-018 T1.4)
+### Health Method-Name Registry
 
-Plan-018's health and recovery surface is exposed as five `health.*` methods, registered by the Tier-7 plan-readiness audit's Plan-018 walk (T1.4 exports the strings from the contracts package; T2.10 registers them against the Plan-006-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out — the `repo.*` / `approval.*` / `timeline.*` precedent). These methods ride the **daemon JSON-RPC transport only**: health, failure-detail, and stuck-run projections are daemon-owned derivations over canonical state (ADR-003 / ADR-017 posture), and the control-plane dependency-health read is merged into the daemon-side projection (Plan-018 T2.3) rather than exposed as a tRPC sibling. Method tails are camelCase per the BL-142 convention the Approval Method-Name Registry records; no Spec-005 durable event family shares the `health` root, so no form collision exists.
+Plan-018's health and recovery surface is exposed as five `health.*` methods, registered by Plan-018 (T1.4 exports the strings from the contracts package; T2.10 registers them against the Plan-006-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out — the `repo.*` / `approval.*` / `timeline.*` precedent). These methods ride the **daemon JSON-RPC transport only**: health, failure-detail, and stuck-run projections are daemon-owned derivations over canonical state (ADR-003 / ADR-017 posture), and the control-plane dependency-health read is merged into the daemon-side projection (Plan-018 T2.3) rather than exposed as a tRPC sibling. Method tails are camelCase per the convention the Approval Method-Name Registry records; no Spec-005 durable event family shares the `health` root, so no form collision exists.
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
@@ -4955,9 +4942,9 @@ Plan-018's health and recovery surface is exposed as five `health.*` methods, re
 
 The four `query` rows are idempotent reads; `health.recoveryActionRequest` is the single mutation — the operator-triggered recovery path whose every action and outcome T2.6 records as a durable audit record. Canonical Zod schemas live in `packages/contracts/src/health/health.ts` (T1.1–T1.3, method-name constants T1.4) per the §Source-of-Truth Policy.
 
-### Shell-Hosted Method Registry (Tier 7, Plan-021 CP-021-9)
+### Shell-Hosted Method Registry
 
-Registered 2026-09-01 (Codex round 4). Every other registry in this document names a method the **daemon** answers and a client calls. This one is the reverse leg: the method is hosted by the Electron **main process**, and its only caller is the supervised daemon child. JSON-RPC is symmetric, so nothing in the transport had to change, but the direction had never been used in this corpus and is stated rather than left implicit.
+Every other registry in this document names a method the **daemon** answers and a client calls. This one is the reverse leg: the method is hosted by the Electron **main process**, and its only caller is the supervised daemon child. JSON-RPC is symmetric, so nothing in the transport had to change, but the direction had never been used in this corpus and is stated rather than left implicit.
 
 **Transport.** The `MessagePortMain` duplex created at `utilityProcess.fork` and handed to exactly one endpoint — the supervised daemon. It is never exposed on the preload bridge, never on a socket, and never on the control-plane client, so a request from any other origin is unreachable rather than refused; the handler additionally asserts the receiving port's identity and drops anything else, which is a local assertion on a private channel and **not** a wire refusal, so no error code is registered for it.
 
@@ -4965,13 +4952,13 @@ Registered 2026-09-01 (Codex round 4). Every other registry in this document nam
 | --- | --- | --- | --- | --- |
 | `shell.deriveKek` | daemon → shell | RPC (request/response) | `ShellDeriveKekRequest` | `ShellDeriveKekResponse` |
 
-The namespace root is `shell` rather than `shellKey` or `daemonKey`. That choice was made under the pre-2026-09-05 rule, when §JSON-RPC Method-Name Registry's canonical regex allowed no uppercase character in the first segment; the widening to `/^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/` removes that constraint but nothing else recommends the longer roots, so `shell` — one lowercase word, needing no camelCase — stands. The `register()`-time guard enforces the format on this surface exactly as on the daemon-hosted ones.
+The namespace root is `shell` rather than `shellKey` or `daemonKey`. §JSON-RPC Method-Name Registry's canonical regex `/^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/` would admit a camelCase root, but nothing recommends the longer roots, so `shell` — one lowercase word, needing no camelCase — stands. The `register()`-time guard enforces the format on this surface exactly as on the daemon-hosted ones.
 
-**What it carries, and where the HKDF runs (pinned 2026-09-01, Codex round 5; narrowed at round 6).** The request carries exactly **one** input, the [Plan-020](../../plans/020-data-retention-and-gdpr.md) daemon-master-key HKDF salt. Round 5 had it carry a second — the credential's persisted PRF evaluation input, passed through from the authentication-options reply — and round 6 removes it on both grounds that matter: that input is now a contract-fixed constant the shell already holds (§WebAuthn Ceremony Procedure Registry), and the daemon never had a way to obtain a per-credential one anyway, holding no credential row and sitting on the far side of this boundary. The response carries the finished **32-byte key-encryption key**. The derivation is performed **inside the shell-hosted method**, so no authenticator-derived secret crosses the RPC: main runs the ceremony, unwraps this installation's custody root key with the ceremony-derived wrapping key, feeds **the root** into HKDF-SHA-256 with the caller's salt and the contract-fixed info string `"ai-sidekicks/daemon-master/v1"`, and returns only the result. Deriving from the root rather than straight from the PRF output is what keeps the daemon's key **stable across enrolments**: a KEK derived from one credential's PRF bytes would change the moment the user enrolled or removed an authenticator, silently orphaning everything the daemon had wrapped, and the daemon cannot re-wrap what it cannot decrypt. Putting the HKDF on the daemon side would have sent the authenticator's raw secret across a process boundary to be transformed by the party that does not own it, which is the shape this whole retirement existed to remove. The info string is fixed **by this contract** rather than supplied by the caller, because a caller-chosen info is a second axis on which two honest implementations silently derive different keys from the same authenticator. Main answers it with the injected `PrfKeyDerivationService` of [Plan-021](../../plans/021-desktop-shell-and-renderer.md) CP-021-9 (producer task T-021r-4-7), which runs the WebAuthn PRF ceremony through the resolved per-platform binding. The KEK crosses this one channel and no other; it appears in no `DesktopBridge` type and reaches no renderer. This registry replaces the retired `webAuthn.deriveKeyMaterial` preload-bridge method, which let the untrusted renderer choose the PRF salt and returned derived key material across the bridge.
+**What it carries, and where the HKDF runs.** The request carries exactly **one** input, the [Plan-020](../../plans/020-data-retention-and-gdpr.md) daemon-master-key HKDF salt. It carries no second input — no credential PRF evaluation input passed through from the authentication-options reply — on both grounds that matter: that input is a contract-fixed constant the shell already holds (§WebAuthn Ceremony Procedure Registry), and the daemon has no way to obtain a per-credential one anyway, holding no credential row and sitting on the far side of this boundary. The response carries the finished **32-byte key-encryption key**. The derivation is performed **inside the shell-hosted method**, so no authenticator-derived secret crosses the RPC: main runs the ceremony, unwraps this installation's custody root key with the ceremony-derived wrapping key, feeds **the root** into HKDF-SHA-256 with the caller's salt and the contract-fixed info string `"ai-sidekicks/daemon-master/v1"`, and returns only the result. Deriving from the root rather than straight from the PRF output is what keeps the daemon's key **stable across enrolments**: a KEK derived from one credential's PRF bytes would change the moment the user enrolled or removed an authenticator, silently orphaning everything the daemon had wrapped, and the daemon cannot re-wrap what it cannot decrypt. Putting the HKDF on the daemon side would have sent the authenticator's raw secret across a process boundary to be transformed by the party that does not own it, which is the shape this whole retirement existed to remove. The info string is fixed **by this contract** rather than supplied by the caller, because a caller-chosen info is a second axis on which two honest implementations silently derive different keys from the same authenticator. Main answers it with the injected `PrfKeyDerivationService` of [Plan-021](../../plans/021-desktop-shell-and-renderer.md) CP-021-9 (producer task T-021r-4-7), which runs the WebAuthn PRF ceremony through the resolved per-platform binding. The KEK crosses this one channel and no other; it appears in no `DesktopBridge` type and reaches no renderer.
 
-### Page-Host Method Registry (Tier 7, Plan-021)
+### Page-Host Method Registry
 
-The Preview pane and the machine-wide Browser page are served by two new daemon JSON-RPC roots, `preview` and `browser`. Every verb below is new: the daemon has no page-host surface today, `packages/contracts/src` registers neither root, and the renderer's page-host operations answer with a typed refusal and are marked as not on the wire. Both roots register against the Plan-006 `MethodRegistry` at that plan's Tier 3, which owns them along with the daemon-side pieces they answer from ([Plan-006 CP-006-18](../../plans/006-local-ipc-and-daemon-control.md#cp-006-18--the-daemons-page-host-namespaces-preview-and-browser-owed-to-plan-021-cp-021-11)).
+The Preview pane and the machine-wide Browser page are served by two new daemon JSON-RPC roots, `preview` and `browser`. Every verb below is new: the daemon has no page-host surface today, `packages/contracts/src` registers neither root, and the renderer's page-host operations answer with a typed refusal and are marked as not on the wire. Both roots register against the Plan-006 `MethodRegistry` in that plan's remainder, which owns them along with the daemon-side pieces they answer from ([Plan-006 CP-006-18](../../plans/006-local-ipc-and-daemon-control.md#cp-006-18--the-daemons-page-host-namespaces-preview-and-browser-owed-to-plan-021-cp-021-11)).
 
 **Why the daemon and not the shell.** There are TWO page hosts and ONE endpoint: the desktop's own native page view, and — where no desktop runs — the daemon's headless browser. Both expose a Chrome-debug endpoint, one resolver in the daemon returns the active one, and nothing above it branches, so an agent never knows which host it is talking to. Putting the verbs on the daemon is what makes that true; putting them on the shell would give the no-desktop case no surface at all. The renderer owns no page: it publishes the rectangle a page is positioned to and renders the outcomes, through the preload bridge's own page-host namespace — a **bridge namespace canonical in `packages/contracts/src/desktop-bridge.ts`** per the §Source-of-Truth Policy, which shares the word `browser` with the root below and is a different surface: the bridge positions and captures a page, the root below manages pages, site data and the node-wide switches. The bridge's `daemon`, `native` and `window` namespaces are canonical in that same file and are not mirrored here; what the design fixes about them is one rule each — every address the console hands outward goes through the bridge's external-open except a loopback address printed in a reply, a tool row or a shell, which opens in the Preview pane instead; the composer's attach picker takes files only and several at a time, never a folder; and pane detachment is the renderer-initiated move of one pane into its own window.
 
@@ -5165,7 +5152,7 @@ interface BrowserSettingsUpdateResponse {
 }
 ```
 
-### Settings Surface Reads And Writes (Tier 7, Plan-021)
+### Settings Surface Reads And Writes
 
 **No `settings.*` method is registered, and none is minted.** The Settings screen is nine pages, and every page reads and writes through a surface that already exists or through the machine's own settings file; where a control has no surface, the verb is owed and deliberately unnamed until the surface that owns it lands. This section says which payloads each page uses, so the screen can be built against a wire that is either present or explicitly absent rather than against a guess.
 
@@ -5185,13 +5172,11 @@ interface BrowserSettingsUpdateResponse {
 
 ---
 
-## Tier 5 / Tier 7: Plans 014, 015 (Task 4.10)
-
-Heading retitled by the Tier-5 audit: Plan-014 executes at Tier 5, Plan-015 at Tier 7. The original "Tier 8" label predated the tier graph.
+## Plans 014 And 015
 
 ### Plan-014 — Multi-Agent Channels And Orchestration
 
-Contracts rewritten during the Tier-5 plan-readiness audit (D-014-1..20). Canonical TypeScript source once shipped: `packages/contracts/src/orchestration.ts` (single file — ChannelCreate included). `AgentId` is a new branded UUID (`brandedUuidIdSchema<AgentId>("AgentId")`). All mutations are daemon JSON-RPC (channel/orchestration/agent authority is daemon-local, ADR-001/ADR-003 posture).
+Contracts per D-014-1..20. Canonical TypeScript source once shipped: `packages/contracts/src/orchestration.ts` (single file — ChannelCreate included). `AgentId` is a new branded UUID (`brandedUuidIdSchema<AgentId>("AgentId")`). All mutations are daemon JSON-RPC (channel/orchestration/agent authority is daemon-local, ADR-001/ADR-003 posture).
 
 ```ts
 // Typed configs (D-014-4) — replace the former Record<string, unknown> placeholders
@@ -5200,7 +5185,7 @@ interface ChannelConfig {
   turnPolicy?: TurnPolicy;
   roundRobinOrder?: AgentId[]; // REQUIRED non-empty when turnPolicy === "round-robin" (validation error otherwise)
   moderation?: { preTurnGate?: boolean; postTurnReview?: boolean }; // Spec-014 §Moderation Hooks; both default false (V1 opt-in)
-  turnsPerAgent?: number; // D-014-23 (2026-08-11): positive integer — per-channel override of the session's per-agent consecutive-turn limit (session_budgets.turn_limit_per_agent, set by the person or absent); absent = session value. The OWN-channel budget provider Spec-015 consumes (A-015-07); enforced by the turn-policy arbiter under unchanged D-014-8 counting. Create-time-fixed like every ChannelConfig member — V1 ships no post-create channel-config mutation, so an overridden channel recovers from its limit by interleave alone (the owner raise via orchestration.budgetUpdate reaches only session-default channels; Spec-014 §Resolved Questions, PR #321 round 1)
+  turnsPerAgent?: number; // D-014-23: positive integer — per-channel override of the session's per-agent consecutive-turn limit (session_budgets.turn_limit_per_agent, set by the person or absent); absent = session value. The OWN-channel budget provider Spec-015 consumes (A-015-07); enforced by the turn-policy arbiter under unchanged D-014-8 counting. Create-time-fixed like every ChannelConfig member — V1 ships no post-create channel-config mutation, so an overridden channel recovers from its limit by interleave alone (the owner raise via orchestration.budgetUpdate reaches only session-default channels; Spec-014 §Resolved Questions)
 }
 interface OrchestrationRunConfig {
   tokenLimit?: number; // per-run token budget; none unless the person sets one (Spec-014 §Budget Policies)
@@ -5211,7 +5196,7 @@ type InterruptReason =
   | "budget_exhausted"
   | "idle_timeout"
   | "moderation_denied"
-  | "workflow_phase_cancelled"; // D-014-8: closed set carried on system-initiated interrupts; the fourth member added 2026-08-11 (D-014-23) — invoked only by the workflow engine's SA-9 phase-termination cascade (Spec-015/Plan-015) through the D-014-7 in-process entrypoint
+  | "workflow_phase_cancelled"; // D-014-8: closed set carried on system-initiated interrupts; the fourth member (D-014-23) — invoked only by the workflow engine's SA-9 phase-termination cascade (Spec-015/Plan-015) through the D-014-7 in-process entrypoint
 
 // ChannelCreate — wire: channel.create (refuses the reserved main name — main is projected, never a row; D-014-15)
 interface ChannelCreateRequest {
@@ -5304,7 +5289,7 @@ interface OrchestrationRunCreateResponse {
 // D-014-3). `rejectedCreates` is event-folded at read time from the parent's
 // `orchestration.rejected` events: zero-residue refusals (I-014-8) leave no run/queue/
 // link row, so the fold is the only data path that lets the child-run view surface
-// refusal records (events-canonical projection, the BudgetAccountant posture — Tier-5 audit).
+// refusal records (events-canonical projection, the BudgetAccountant posture).
 interface ChildRunLinkReadRequest {
   parentRunId: RunId;
 }
@@ -5338,9 +5323,9 @@ interface OrchestrationBudgetState {
   costLimitCents: number | null; // null = no session cost limit; one exists only where the person set it
   turnLimitPerAgent: number | null; // null = no turn limit; one exists only where the person set it
   // owner-supplied unpriced-family escapes — native-cap provider legs only
-  // (Spec-014 §Cost Derivation And Absent-Cost Semantics, campaign B6); empty by default
+  // (Spec-014 §Cost Derivation And Absent-Cost Semantics); empty by default
   unpricedFamilyCaps: { modelFamily: string; hardCapUsdCents: number }[]; // one entry per modelFamily — duplicate families rejected at validation
-  observedCostCents: number; // BudgetAccountant projection (in-memory, replay-rebuilt from TWO folds: persisted usage.cost_update.costCents — derivation emit-once, never re-run against the current table, so an update re-prices nothing retroactively — PLUS worst-case debits of terminal native-cap runs from run.queued.admittedUnpricedCapCents, whose cost rows are costless by design; folding rows alone would resurrect their headroom) (Spec-014, campaign B6)
+  observedCostCents: number; // BudgetAccountant projection (in-memory, replay-rebuilt from TWO folds: persisted usage.cost_update.costCents — derivation emit-once, never re-run against the current table, so an update re-prices nothing retroactively — PLUS worst-case debits of terminal native-cap runs from run.queued.admittedUnpricedCapCents, whose cost rows are costless by design; folding rows alone would resurrect their headroom) (Spec-014)
   // Σ snapshot-at-admission reservations over ACTIVE native-cap-escape runs — admission
   // predicate: observed + reserved + newCap ≤ costLimitCents wherever a cost limit is set; with
   // costLimitCents null nothing is compared and admission is never refused on cost. At each such run's terminal the
@@ -5350,9 +5335,9 @@ interface OrchestrationBudgetState {
   // stamp it directly; the OrchestrationRunLinkCarrier only threads it for orchestration-created
   // runs): unpricedFamilyCaps updates apply to future admissions only; restart/replay rebuilds
   // reservations + debits from run.queued records alone — native-cap ordinary runs included
-  // (Spec-014 §Cost Derivation And Absent-Cost Semantics, campaign B6)
+  // (Spec-014 §Cost Derivation And Absent-Cost Semantics)
   reservedCostCents: number;
-  // ── Cost display consistency (Spec-014 §Cost Figure Display Consistency, 2026-08-17, D-014-24) ──
+  // ── Cost display consistency (Spec-014 §Cost Figure Display Consistency, D-014-24) ──
   // A DECOMPOSITION of the number this response already reported, not new arithmetic: the two
   // observed legs below are exactly the TWO folds observedCostCents is rebuilt from (see above),
   // so they are replay-stable for the same reason it is. Identities hold at every fold state
@@ -5390,7 +5375,7 @@ interface OrchestrationBudgetUpdateRequest {
   costLimitCents?: number | null;
   turnLimitPerAgent?: number | null;
   // replace-set semantics; hardCapUsdCents a positive integer — the named
-  // fail-closed escape for unpriced families on native-cap legs (Spec-014, campaign B6)
+  // fail-closed escape for unpriced families on native-cap legs (Spec-014)
   unpricedFamilyCaps?: { modelFamily: string; hardCapUsdCents: number }[]; // replace-set keyed by modelFamily: one entry per family, duplicates rejected at validation
 }
 // Same state type as the read response — so the cost-display members above (including
@@ -5402,7 +5387,7 @@ interface OrchestrationBudgetUpdateRequest {
 type OrchestrationBudgetUpdateResponse = OrchestrationBudgetState;
 
 interface SessionGoal {
-  text: string; // 1–4096 chars, non-blank, NUL-rejected (standard bounded free-form guards — persisted to the event log and injected into provider prompts); the Spec-014 §Session Goals structured shape; extending it requires a spec revision (campaign B6)
+  text: string; // 1–4096 chars, non-blank, NUL-rejected (standard bounded free-form guards — persisted to the event log and injected into provider prompts); the Spec-014 §Session Goals structured shape; extending it requires a spec revision
 }
 interface SessionGoalUpdateRequest {
   sessionId: SessionId;
@@ -5433,7 +5418,7 @@ interface AgentConfigUpdateRequest {
   modelId?: string;
   defaultNodeId?: NodeId | null; // tri-state: absent = leave unchanged; null = clear the pin (table NULL = any local attached node); value = rebind — rebinding/clearing may flip "configured" <-> "ready"
   config?: Record<string, unknown>;
-  // 2026-08-26 (D-014-26) — the provider axis ([Spec-014 §Same-Agent Provider Switch](../../specs/014-multi-agent-channels-and-orchestration.md#same-agent-provider-switch)). Every
+  // D-014-26 — the provider axis ([Spec-014 §Same-Agent Provider Switch](../../specs/014-multi-agent-channels-and-orchestration.md#same-agent-provider-switch)). Every
   // member is additive-optional and an omitted member is UNCHANGED, never reset.
   // Moving this is the PROVIDER SWITCH, picked from the composer's model control, which lists both
   // providers' models under two headings. Continuity is a HAND-OVER BRIEF composed on a throwaway
@@ -5476,7 +5461,7 @@ interface AgentConfigUpdateResponse {
   agentId: AgentId;
   state: AgentState; // post-update state (rebind may have changed it)
   updatedAt: string;
-  // Present exactly when this update moved the provider axis (2026-08-26, D-014-26). Absent on a
+  // Present exactly when this update moved the provider axis (D-014-26). Absent on a
   // pure rename or node rebind, so its presence is the wire's switch discriminator.
   switch?: AgentProviderSwitchDisposition;
 }
@@ -5578,7 +5563,7 @@ interface AgentProviderSwitchFailed {
     | "driver_unavailable"
     | "model_unavailable"
     | "effort_unavailable"
-    // 2026-08-29 — the deferred application reached a target whose driver no longer declares
+    // The deferred application reached a target whose driver no longer declares
     // `output_speed`, or whose declared vocabulary no longer carries the pended value. Minted
     // WITH the output-speed axis rather than after it: a spawn-bound axis is settled at a run boundary
     // the caller has already been acknowledged for, so without its own member an axis-specific
@@ -5599,7 +5584,7 @@ interface AgentProviderSwitchFailed {
 // cleared at all (an agent always has both), and clearing `effort` or
 // `outputSpeed` is not an operation `AgentConfigUpdate` offers, whose omitted members are
 // uniformly "unchanged, never
-// reset". Minting the clear would widen this record to the tri-state in the same amendment.
+// reset". Minting the clear would widen this record to the tri-state in the same change.
 // `outputSpeed` is carried in this record rather than only at the coordinator: it is spawn-bound, so it
 // is the axis most likely to be pending across a restart, and an axis a caller can request but
 // the durable slot cannot hold would be acknowledged and then silently dropped. Its settlement is
@@ -5647,14 +5632,14 @@ interface AgentProviderSwitchOutcome {
   // event it is carried by this member alone, the event having no status.
   continuity: "in_place" | "resumed" | "brief" | "replayed";
   // REQUIRED, and an EMPTY ARRAY IS A CLAIM: it asserts that nothing was dropped. A driver that
-  // does not know what it lost may not emit one. Closed vocabulary — a new loss kind is an
-  // amendment, never a free string. Requiredness is scoped to the continuity arm: "in_place" and
+  // does not know what it lost may not emit one. Closed vocabulary — a new loss kind is a
+  // contract change, never a free string. Requiredness is scoped to the continuity arm: "in_place" and
   // "resumed" MUST carry the empty array (nothing was reconstituted, so no loss could occur),
   // "brief" MUST be non-empty and MUST include "conversation_history_summarized" together with
   // "provider_private_reasoning", and "replayed" MUST be non-empty and MUST include
   // "conversation_history_restarted" — a fallback that restarts the conversation and claimed no
   // loss would be claiming the restart was free.
-  // The claim is scoped to TRANSCRIPT CONTENT and to nothing else (2026-08-29). An empty array
+  // The claim is scoped to TRANSCRIPT CONTENT and to nothing else. An empty array
   // asserts that the conversation arrived intact; it asserts nothing about whether a requested
   // provider SETTING took effect on the new binding. Those are different facts with different
   // carriers — a spawn-bound axis the provider declined is reported by the live read-back on the
@@ -5674,7 +5659,7 @@ type DeclaredLossKind =
   | "live_tool_calls" // tool calls arrive as history and never as work in flight; a call that was about to run does not run
   | "provider_skill_and_command_names" // the old provider's own skills and commands name nothing on the new one
   | "turn_content_unavailable" // a logged turn's body could not be read when the fold ran; the turn is carried with its structural position and an empty body rather than being dropped, because an empty body alone reads as "the author said nothing" and a dropped turn reads as "the turn never happened" and both are false. The first of the two members produced at pipeline step 1 (Fold), which is daemon-side and upstream of the driver: it reaches AgentProviderSwitchOutcome.declaredLosses through the canonical projection, never through DriverTranscriptExportResult, whose own comment scopes that member to steps 3 and 4
-  | "turn_content_truncated"; // a logged turn's body exceeded CONTENT_PAYLOAD_PLAINTEXT_MAX at append and is stored as a codepoint-boundary prefix in session_events.content_payload; the fold carries the prefix and names the loss rather than replaying a silently shortened turn. The second member produced at pipeline step 1 (Fold), reaching AgentProviderSwitchOutcome.declaredLosses through the canonical projection like its sibling above and never through DriverTranscriptExportResult. Deliberately NOT folded into "context_truncated", whose scope is the brief's verbatim budget evicting whole exchanges and never halves, and NOT reported as "turn_content_unavailable", which would overstate a turn that is available as a prefix (Spec-005 §Assistant Output, the 2026-08-30 machine-authored prose amendment)
+  | "turn_content_truncated"; // a logged turn's body exceeded CONTENT_PAYLOAD_PLAINTEXT_MAX at append and is stored as a codepoint-boundary prefix in session_events.content_payload; the fold carries the prefix and names the loss rather than replaying a silently shortened turn. The second member produced at pipeline step 1 (Fold), reaching AgentProviderSwitchOutcome.declaredLosses through the canonical projection like its sibling above and never through DriverTranscriptExportResult. Deliberately NOT folded into "context_truncated", whose scope is the brief's verbatim budget evicting whole exchanges and never halves, and NOT reported as "turn_content_unavailable", which would overstate a turn that is available as a prefix (Spec-005 §Assistant Output)
 
 interface AgentListRequest {
   sessionId: SessionId;
@@ -5688,10 +5673,10 @@ interface AgentListResponse {
     defaultNodeId?: NodeId;
     config: Record<string, unknown>; // driver-scoped persona config (Spec-014 A-014-2); {} when never supplied (agents.config NOT NULL DEFAULT '{}')
     state: AgentState;
-    // 2026-08-26 (D-014-26): the agent's EFFECTIVE provider axis — the binding it runs under now,
+    // D-014-26: the agent's EFFECTIVE provider axis — the binding it runs under now,
     // never the pending one. Absent `providerAccountId` = the provider's registered default;
-    // absent `effort` = the driver's own default for the model; absent `outputSpeed` (added
-    // 2026-08-29 with the output-speed axis) = never set, so the provider's own default stands. Each is
+    // absent `effort` = the driver's own default for the model; absent `outputSpeed`
+    // = never set, so the provider's own default stands. Each is
     // served from that axis's own column on the agent row — the columns an applying switch commits
     // its binding into — so every axis a caller can move is also an axis a caller can read back.
     // A spawn-bound axis readable only as a PENDING intent would go dark at the moment it applied.
@@ -5699,7 +5684,7 @@ interface AgentListResponse {
     effort?: string;
     outputSpeed?: string;
     // What the PROVIDER declared, as against `outputSpeed` above, which is what was REQUESTED
-    // (2026-08-29, Spec-004 §The output-speed axis). Projected at response-build time from the
+    // (Spec-004 §The output-speed axis). Projected at response-build time from the
     // binding-held `ProviderOutputSpeedState` — the observation the driver recorded when the
     // declaring handshake arrived — and stored in no column, so it cannot go stale. LIVE-SCOPED on
     // the SA-44 park-member precedent.
@@ -5789,19 +5774,19 @@ interface OrchestrationRunLinkCarrier {
   // OrchestrationRunConfig member so it can never arrive on OrchestrationRunCreateRequest.config
   // (client-injection hazard); frozen per run, immune to later unpricedFamilyCaps updates;
   // replay rebuilds reservations + terminal debits from run.queued records alone; absent on
-  // priced runs (Spec-014 §Cost Derivation And Absent-Cost Semantics, campaign B6).
+  // priced runs (Spec-014 §Cost Derivation And Absent-Cost Semantics).
   // The carrier only THREADS this for orchestration-created runs — the durable run.queued
   // fields are path-independent (ordinary run.queueCreate admissions stamp them directly at
   // the queue write; CP-003-10).
   admittedUnpricedCapCents?: number;
-  // As-of-admission model family (campaign B6): resolved agentId → agent model →
+  // As-of-admission model family: resolved agentId → agent model →
   // pricing-family key at admission. Threading copy for the orchestration path; the durable,
   // path-independent home is run.queued.admittedModelFamily (stamped for every provider run).
   admittedModelFamily?: string;
 }
 ```
 
-**Method-string registry — Plan-014** (daemon JSON-RPC; all strings now enabled by [BL-142](../../archive/backlog-archive.md) for camelCase-tail registration and [BL-143](../../archive/backlog-archive.md) for typed-error wire projection, both resolved 2026-06-21):
+**Method-string registry — Plan-014** (daemon JSON-RPC; all strings now enabled by camelCase-tail registration and typed-error wire projection, both shipped):
 
 | Method | Procedure type | Request → Response | Notes |
 | --- | --- | --- | --- |
@@ -5813,9 +5798,9 @@ interface OrchestrationRunLinkCarrier {
 | `orchestration.runCreate` | RPC | `OrchestrationRunCreateRequest` → `OrchestrationRunCreateResponse` | Admission pipeline; composes with Plan-003 queue admission in-process |
 | `orchestration.childRunLinkRead` | RPC | `ChildRunLinkReadRequest` → `ChildRunLinkReadResponse` | run_links projection + event-folded `rejectedCreates` (zero-residue refusals, I-014-8) |
 | `orchestration.budgetRead` | RPC | `OrchestrationBudgetReadRequest` → `OrchestrationBudgetReadResponse` |  |
-| `orchestration.costReceiptRead` | RPC | `SessionCostReceiptRequest` → `SessionCostReceiptResponse` | Read-only decomposition of the committed-spend fold (2026-08-18, D-014-25 — shapes below); served from the same accountant accessor as `orchestration.budgetRead`, so the two can never disagree |
+| `orchestration.costReceiptRead` | RPC | `SessionCostReceiptRequest` → `SessionCostReceiptResponse` | Read-only decomposition of the committed-spend fold (D-014-25 — shapes below); served from the same accountant accessor as `orchestration.budgetRead`, so the two can never disagree |
 | `orchestration.budgetUpdate` | RPC | `OrchestrationBudgetUpdateRequest` → `OrchestrationBudgetUpdateResponse` | Session-owner-only (wire-boundary authorization) |
-| `session.goalUpdate` | RPC | `SessionGoalUpdateRequest` → `SessionGoalUpdateResponse` | Owner-only, per the Security Architecture permission matrix ([Spec-014 §Session Goals](../../specs/014-multi-agent-channels-and-orchestration.md#session-goals), campaign B6); an accepted update emits `session.goal_updated` carrying the same canonical `goal` |
+| `session.goalUpdate` | RPC | `SessionGoalUpdateRequest` → `SessionGoalUpdateResponse` | Owner-only, per the Security Architecture permission matrix ([Spec-014 §Session Goals](../../specs/014-multi-agent-channels-and-orchestration.md#session-goals)); an accepted update emits `session.goal_updated` carrying the same canonical `goal` |
 | `session.goalClear` | RPC | `SessionGoalClearRequest` → `SessionGoalClearResponse` | Owner-only; an accepted clear emits `session.goal_cleared` (clearing is the distinct operation — an update without a goal is malformed) |
 | `agent.configUpdate` | RPC | `AgentConfigUpdateRequest` → `AgentConfigUpdateResponse` | Emits `agent.config_updated`; the provider, model, effort, account and speed axes all ride it |
 | `agent.list` | RPC | `AgentListRequest` → `AgentListResponse` | agents-table projection |
@@ -5830,9 +5815,9 @@ interface OrchestrationRunLinkCarrier {
 | --- | --- | --- | --- |
 | `channel.directoryPublish` | tRPC mutation | `ChannelDirectoryPublishRequest` → `ChannelDirectoryPublishResponse` | Idempotent ingest for the per-origin candidate-retention fold; authenticated caller identity must match the payload's `originNodeId` for the create-once `kind` / `name` binding (D-014-22) |
 
-Error vocabulary: [error-contracts.md](./error-contracts.md) §Channel / §Orchestration / §Agent (D-014-16) plus the §Session `session.goal_delivery_failed` (502) and `session.goal_mutation_in_flight` (409) mappings for the live goal-delivery RPCs (campaign B6). Durable events owned by Plan-014 (Spec-005 registrations): `channel.created` / `channel.muted` / `channel.unmuted` / `channel.archived`, `agent.config_updated` / `agent.provider_switched` / `agent.provider_switch_failed`, `arbitration.paused` / `arbitration.resumed`, `orchestration.rejected`, `usage.budget_warning`, `moderation.review_flagged`, `session.goal_updated` / `session.goal_cleared` (campaign B6 — emitted by the goal RPCs above) — see [Spec-005 §Event Type Registry](../../specs/005-session-event-taxonomy-and-audit-log.md).
+Error vocabulary: [error-contracts.md](./error-contracts.md) §Channel / §Orchestration / §Agent (D-014-16) plus the §Session `session.goal_delivery_failed` (502) and `session.goal_mutation_in_flight` (409) mappings for the live goal-delivery RPCs. Durable events owned by Plan-014 (Spec-005 registrations): `channel.created` / `channel.muted` / `channel.unmuted` / `channel.archived`, `agent.config_updated` / `agent.provider_switched` / `agent.provider_switch_failed`, `arbitration.paused` / `arbitration.resumed`, `orchestration.rejected`, `usage.budget_warning`, `moderation.review_flagged`, `session.goal_updated` / `session.goal_cleared` (emitted by the goal RPCs above) — see [Spec-005 §Event Type Registry](../../specs/005-session-event-taxonomy-and-audit-log.md).
 
-**Session cost receipt (2026-08-18, Plan-014 D-014-25).** One new read pair, `orchestration.costReceiptRead`, taking the wire-method registry for this plan from fifteen pairs to sixteen. The reply is a **decomposition of the committed-spend fold**, not a second computation: every figure below is served from the same accountant accessor that answers `orchestration.budgetRead`, so a divergence between the two is a bug in exactly one place. Read-only — no receipt member is accepted on any request, so a caller can never assert an attribution or a total.
+**Session cost receipt (Plan-014 D-014-25).** One new read pair, `orchestration.costReceiptRead`, taking the wire-method registry for this plan from fifteen pairs to sixteen. The reply is a **decomposition of the committed-spend fold**, not a second computation: every figure below is served from the same accountant accessor that answers `orchestration.budgetRead`, so a divergence between the two is a bug in exactly one place. Read-only — no receipt member is accepted on any request, so a caller can never assert an attribution or a total.
 
 ```ts
 interface SessionCostReceiptRequest {
@@ -5890,7 +5875,7 @@ interface SessionCostReceiptAccountRow {
 }
 ```
 
-No new event type, no new error code, and no new table: the receipt is a decomposition of an existing in-memory fold, so `usage.budget_warning` and `session_budgets` are unchanged and `usage.cost_update` was unchanged **by this amendment** — the 2026-08-26 turn-scoped effective-principal carrier (instance (4) of §Authenticated Principal And Authorization Model) is what later added the `effectivePrincipal` member those rows carry. The paying-account axis is **supplied rather than minted here** — it arrives as the `run.queued` server stamp `admittedProviderAccountId` plus the registry's billing mode ([Plan-026](../../plans/026-provider-accounts-and-credential-homes.md), CP-026-3) — and this plan reads it without widening it.
+No new event type, no new error code, and no new table: the receipt is a decomposition of an existing in-memory fold, so `usage.budget_warning` and `session_budgets` are unchanged and `usage.cost_update` is unchanged — the turn-scoped effective-principal carrier (instance (4) of §Authenticated Principal And Authorization Model) is what later added the `effectivePrincipal` member those rows carry. The paying-account axis is **supplied rather than minted here** — it arrives as the `run.queued` server stamp `admittedProviderAccountId` plus the registry's billing mode ([Plan-026](../../plans/026-provider-accounts-and-credential-homes.md), CP-026-3) — and this plan reads it without widening it.
 
 ### Plan-015 — Workflow Authoring And Execution
 
@@ -5901,8 +5886,8 @@ The visual builder ([Spec-015 §Visual Workflow Builder](../../specs/015-workflo
 Order, fan-out and join are the document's own edges ([Spec-015 §Graph model — nodes, ports, and edges (SA-32)](../../specs/015-workflow-authoring-and-execution.md#graph-model--nodes-ports-and-edges-sa-32)): a node runs when every one of its `main` inputs is settled, a fan-in waits in a per-node partial-input buffer until every slot is filled, and a document whose nodes declare no edges runs as the sequential chain its node order gives. Nothing outside the document declares that order.
 
 ```ts
-// Workflow-definition scope (Spec-015 §Resolved Questions and V1 Scope Decisions,
-// amended 2026-08-10). Three values: `session` binds the definition to its authoring
+// Workflow-definition scope (Spec-015 §Resolved Questions and V1 Scope Decisions).
+// Three values: `session` binds the definition to its authoring
 // session, `project` spans a project's sessions, `shared` is the cross-project tier —
 // a definition reusable by any project on the same daemon, out of the same local
 // definition store. `shared` widens visibility/reuse breadth only: no distribution,
@@ -5953,7 +5938,7 @@ interface WorkflowDefinitionCreateRequest {
 interface WorkflowDefinitionCreateResponse {
   definitionId: WorkflowDefinitionId;
   versionNumber: number;
-  // Additive-OPTIONAL per ADR-018 (Tier-7 audit): `WorkflowDefinitionCreateResponse`
+  // Additive-OPTIONAL per ADR-018: `WorkflowDefinitionCreateResponse`
   // is an already-published shape. Present so a caller can pin the version it just
   // authored without a follow-up read; absent from older daemons.
   contentHash?: string; // BLAKE3 over RFC 8785 JCS canonicalization
@@ -6175,8 +6160,8 @@ interface WorkflowDefinitionReadResponse {
   createdAt: string;
 }
 
-// WorkflowDefinitionList — workflow.definitionList. NEW at the Tier-7 audit: the ten
-// pre-audit operations contained no enumeration, so neither the CLI `list` subcommand
+// WorkflowDefinitionList — workflow.definitionList. NEW: the other ten
+// operations contain no enumeration, so neither the CLI `list` subcommand
 // nor any definition picker could name a definition it did not already hold an id for.
 // Enumeration is scope-resolved most-specific-first — a caller in a session sees that
 // session's definitions, its project's, and the daemon's `shared` tier, deduped by
@@ -6201,11 +6186,11 @@ interface WorkflowDefinitionSummary {
   // workflow.runStart accepts as `workflowVersionId`; clients pass it through
   // verbatim and never synthesize it. `latestVersionNumber` stays alongside it
   // because workflow.versionRead addresses by (definitionId, versionNumber).
-  // Required: this shape is new at the Tier-7 audit, so ADR-018's
+  // Required: this shape is new, so ADR-018's
   // additive-optional rule does not bind it.
   latestWorkflowVersionId: string;
   // Required here, unlike the optional `contentHash` on WorkflowDefinitionCreateResponse:
-  // this shape is new at the Tier-7 audit, so ADR-018's additive-optional rule for
+  // this shape is new, so ADR-018's additive-optional rule for
   // already-published shapes does not bind it, and an enumeration entry without a hash
   // cannot be pinned by the caller that just listed it.
   contentHash: string;
@@ -6213,8 +6198,8 @@ interface WorkflowDefinitionSummary {
   // (`session`, then `project`, then `shared`) would actually pick from the caller's
   // context, so a picker or `sidekicks workflow list` can show which definition a run
   // would use rather than leaving the caller to re-derive the order
-  // (Spec-015 §Definition scope in the builder (SA-36)). Required: this shape is new
-  // at the Tier-7 audit, so ADR-018's additive-optional rule does not bind it.
+  // (Spec-015 §Definition scope in the builder (SA-36)). Required: this shape is new,
+  // so ADR-018's additive-optional rule does not bind it.
   resolvesAtThisContext: boolean;
   // The three facts a catalog row shows beside the name, so the table needs no second read per row.
   // `lastRun` is absent where the definition has never run — a different fact from a run that failed.
@@ -6241,7 +6226,7 @@ interface WorkflowVersionReadResponse {
   versionNumber: number;
   // The opaque server-minted reference to THIS version — the exact value
   // workflow.runStart accepts as `workflowVersionId`; see the constructibility
-  // note there. Required: this shape is new at the Tier-7 audit, so ADR-018's
+  // note there. Required: this shape is new, so ADR-018's
   // additive-optional rule for already-published shapes does not bind it.
   workflowVersionId: string;
   contentHash: string;
@@ -6275,7 +6260,7 @@ interface WorkflowRunStartRequest {
   // on the wire.
   workflowVersionId: string;
   sessionId: SessionId;
-  // Additive-OPTIONAL per ADR-018 (2026-08-11 chat-start amendment, ADR-027). The
+  // Additive-OPTIONAL per ADR-018 (ADR-027). The
   // originating channel of a chat-borne start — provenance and progress-surface binding
   // only. Not an input to the SA-39 role adjudication, but daemon-VALIDATED before it
   // binds a surface: the handler requires the daemon-resolved starting user to
@@ -6304,8 +6289,8 @@ interface WorkflowRunStartResponse {
 interface PhaseState {
   phaseId: WorkflowPhaseId;
   // `phaseRunId`, `attemptNumber`, and `formRevision` below are additive-OPTIONAL
-  // per ADR-018 — `PhaseState` is an already-published shape, so the Tier-7 audit
-  // could widen it but not make a new field required. Readers must tolerate their
+  // per ADR-018 — `PhaseState` is an already-published shape, so it can be widened
+  // but cannot take a new required field. Readers must tolerate their
   // absence.
   //
   // The execution instance, and the OWN-channel anchor (SA-6). A derived opaque
@@ -6325,8 +6310,7 @@ interface PhaseState {
   // drafts only (Spec-015 §Human form drafts (SA-28)). Emitted for `human` phases by daemons at
   // this contract revision; absent from older daemons and on non-`human` phases.
   formRevision?: number;
-  // --- Park surface (added 2026-08-18 by the park-surface + operator-controls
-  // amendment; four additive-OPTIONAL members under the same ADR-018 rule as the
+  // --- Park surface (four additive-OPTIONAL members under the same ADR-018 rule as the
   // three above — readers must tolerate their absence). They mirror the four
   // per-phase park columns of local-sqlite-schema.md §Workflow Tables (Plan-015).
   //
@@ -6405,10 +6389,9 @@ interface WorkflowRunReadResponse {
   endedAt?: string;
 }
 
-// WorkflowRunCancel — workflow.runCancel. NEW at the 2026-08-18 park-surface +
-// operator-controls amendment (BL-151, now archived). Until it landed, the `cancelled` run status
-// had no named producer from the day it was declared, and Plan-015 T5.11's engine
-// cancellability rule had no reachable caller. This operation and the
+// WorkflowRunCancel — workflow.runCancel. It is the named producer of the `cancelled` run
+// status and the reachable caller of Plan-015 T5.11's engine
+// cancellability rule. This operation and the
 // workflow.cancelled event type mint TOGETHER — a cancellation that moved run status
 // without appending its canonical event would break the SA-25 rebuild, because a
 // replay would restore the last suspension payload's schedule and attention key and
@@ -6440,7 +6423,7 @@ interface WorkflowRunCancelResponse {
   alreadyCancelled: boolean;
 }
 
-// WorkflowRunResume — workflow.runResume. NEW at the same amendment. Resumes a parked
+// WorkflowRunResume — workflow.runResume. Resumes a parked
 // run and carries the OPTIONAL explicit re-pin of
 // Spec-015 §Frozen-definition repair (SA-41). The re-pin is a member of this request
 // rather than a thirteenth method by design: SA-41 defines the repair only as an
@@ -6487,7 +6470,7 @@ interface PhaseOutputReadResponse {
     // `artifact_ref` outputs point at a Plan-012 manifest; Plan-015 stores the
     // reference, never the bytes, and adds no second upload path. `valueKind` is
     // additive-OPTIONAL per ADR-018 — `PhaseOutputReadResponse` is an already-
-    // published shape, so the Tier-7 audit could widen it but not add a required
+    // published shape, so it can be widened but cannot take a required
     // field. Always emitted at this contract revision; absent from older daemons,
     // where the reader falls back to `artifactId`: set means `artifact_ref`, unset
     // means `inline`.
@@ -6510,8 +6493,8 @@ interface WorkflowGateResolveResponse {
   gateState: "open" | "closed";
   nextPhaseId?: WorkflowPhaseId;
   // The SA-26 dual anchor. Both fields are additive-OPTIONAL per ADR-018 —
-  // `WorkflowGateResolveResponse` is an already-published shape, so the Tier-7 audit
-  // could widen it but not add required fields. A daemon at this contract revision
+  // `WorkflowGateResolveResponse` is an already-published shape, so it can be widened
+  // but cannot take required fields. A daemon at this contract revision
   // always emits the two together; both are absent from older daemons, never one.
   // The DURABLE pairing is unconditional either way: every appended
   // workflow_gate_resolutions row is paired with a session_events row carrying the
@@ -7049,12 +7032,12 @@ interface WorkflowGateResolvedPayload extends WorkflowPhaseEventPayload {
 | --- | --- | --- | --- |
 | `workflow.definitionCreate` | RPC | `WorkflowDefinitionCreateRequest` → `WorkflowDefinitionCreateResponse` | Content-hashes and persists version 1; cycle-check rejects an invalid DAG at author time; a `shared`-target create clears the daemon's operator-scope authorization first (Spec-015 §Core SDK and persistence contracts) |
 | `workflow.definitionRead` | RPC | `WorkflowDefinitionReadRequest` → `WorkflowDefinitionReadResponse` | Latest version unless `version` is supplied |
-| `workflow.definitionList` | RPC | `WorkflowDefinitionListRequest` → `WorkflowDefinitionListResponse` | **NEW at the Tier-7 audit** — the ten pre-audit operations had no enumeration, so a caller could only read a definition whose id it already held; scope-resolved most-specific-first |
+| `workflow.definitionList` | RPC | `WorkflowDefinitionListRequest` → `WorkflowDefinitionListResponse` | **NEW** — the other ten operations carry no enumeration, so a caller could only read a definition whose id it already held; scope-resolved most-specific-first |
 | `workflow.versionRead` | RPC | `WorkflowVersionReadRequest` → `WorkflowVersionReadResponse` | Immutable version body; a running instance stays pinned to its own |
 | `workflow.runStart` | RPC | `WorkflowRunStartRequest` → `WorkflowRunStartResponse` | Binds a run to a pinned version; emits `workflow.started`; adjudicates the SA-39 named action per start and refuses `workflow.start_denied` (ADR-027) |
 | `workflow.runRead` | RPC | `WorkflowRunReadRequest` → `WorkflowRunReadResponse` | Projection read; rebuildable from `session_events`. Carries the four live park members on each parked `PhaseState`, so a parked run renders from this one call (Spec-015 §Park surfacing on the read model) |
-| `workflow.runCancel` | RPC | `WorkflowRunCancelRequest` → `WorkflowRunCancelResponse` | **NEW 2026-08-18 (BL-151)** — the named producer of the `cancelled` run status, which had none since it was declared; emits `workflow.cancelled` in the same unit of work as the status write (I-015-25); adjudicates `Action::"workflow::cancel"` and refuses `workflow.control_denied`, or `workflow.run_not_cancellable` against a `succeeded` / `failed` run (an already-`cancelled` run replays idempotently) |
-| `workflow.runResume` | RPC | `WorkflowRunResumeRequest` → `WorkflowRunResumeResponse` | **NEW 2026-08-18 (BL-151)** — operator resumption of a parked run, carrying the optional explicit SA-41 re-pin as a request member rather than a method of its own; emits `workflow.resumed` (with the audited re-pin member on an accepted repair); adjudicates `Action::"workflow::resume"` and refuses `workflow.control_denied`, `workflow.resume_not_parked`, or one of the three existing `workflow.repair_*` codes on the re-pin leg |
+| `workflow.runCancel` | RPC | `WorkflowRunCancelRequest` → `WorkflowRunCancelResponse` | **NEW** — the named producer of the `cancelled` run status, which had none since it was declared; emits `workflow.cancelled` in the same unit of work as the status write (I-015-25); adjudicates `Action::"workflow::cancel"` and refuses `workflow.control_denied`, or `workflow.run_not_cancellable` against a `succeeded` / `failed` run (an already-`cancelled` run replays idempotently) |
+| `workflow.runResume` | RPC | `WorkflowRunResumeRequest` → `WorkflowRunResumeResponse` | **NEW** — operator resumption of a parked run, carrying the optional explicit SA-41 re-pin as a request member rather than a method of its own; emits `workflow.resumed` (with the audited re-pin member on an accepted repair); adjudicates `Action::"workflow::resume"` and refuses `workflow.control_denied`, `workflow.resume_not_parked`, or one of the three existing `workflow.repair_*` codes on the re-pin leg |
 | `workflow.phaseOutputRead` | RPC | `PhaseOutputReadRequest` → `PhaseOutputReadResponse` | Outputs stay addressable after completion; a retry adds rows, never mutates (SA-16) |
 | `workflow.gateResolve` | RPC | `WorkflowGateResolveRequest` → `WorkflowGateResolveResponse` | Appends one chain row plus its `session_events` anchor; emits `workflow.gate_resolved` |
 | `workflow.humanFormDraftSave` | RPC | `HumanPhaseFormDraftSaveRequest` → `HumanPhaseFormDraftSaveResponse` | Writes the daemon-held draft of a human form; each save bumps the row's own draft version (SA-28) |
@@ -7092,15 +7075,15 @@ The session's workflow callback tools are **sixteen** (ADR-027; [Spec-015 §Inte
 
 No tool in the set takes the session or the channel it acts on as an argument, per [Spec-010 §Interfaces And Contracts](../../specs/010-approvals-permissions-and-trust-boundaries.md#interfaces-and-contracts): the daemon derives it from the invoking turn's own context — absent when the turn is not channel-scoped — validates the derived value under the SA-38 channel rule, and refuses a smuggled one, so a forged target cannot be reached. `workflow_run` and `workflow_node_execute` take a definition by name and resolve it most-specific-first (session → project → shared), issuing the same start path as `workflow.runStart`; a Cedar denial answers `denied` carrying `workflow.start_denied`. None of the sixteen is a JSON-RPC method: the chat-start surface adds no registry row of its own.
 
-Error vocabulary: [error-contracts.md](./error-contracts.md) §Workflow. That section defines ten codes (`workflow.not_found`, `workflow.invalid_phase`, `workflow.gate_closed`, `workflow.start_denied`, the three SA-41 repair refusals `workflow.repair_not_parked` / `workflow.repair_attempt_in_flight` / `workflow.repair_version_unaccountable`, and the three operator-recovery refusals `workflow.control_denied` / `workflow.run_not_cancellable` / `workflow.resume_not_parked` — the seven landed entries of the owed extension: `workflow.start_denied` by the chat-start amendment, the repair codes at the workflow-hardening amendment's 2026-08-17 review round, and the recovery codes at the 2026-08-18 park-surface + operator-controls amendment) against a surface with at least twenty-two refusal points — chain-break detection, a sandbox that cannot start while the run's posture is `sandboxed`, `fail-fast` sibling abort, `max_phase_transitions` / `max_duration` breach, human-form optimistic-concurrency conflict, definition content-hash mismatch, expression-parse refusal, and — added by the visual-builder amendment, which mints no code of its own and opens no parallel surface — invalid graph shape (any of the seven refused shapes), scope-ref violation, a tool binding carrying an inline governance facet, and an unknown top-level key in an imported definition file, and — added with the graph-topology closure and the `shared`-scope authorization boundary of [Spec-015 §Core SDK and persistence contracts](../../specs/015-workflow-authoring-and-execution.md#core-sdk-and-persistence-contracts) — an inconsistent topology spelling (a partially-supplied predecessor set, or a join policy on a phase that is not a join) and the operator-authorization refusal on a `shared`-target `workflow.definitionCreate`, and — added by the 2026-08-11 chat-start amendment — the start refusal `workflow.start_denied` already covers, and — added by the 2026-08-16 workflow-hardening amendment, whose park, pacing, and cancellability rules mint no code of their own — the three refusals of the [Spec-015 §Frozen-definition repair (SA-41)](../../specs/015-workflow-authoring-and-execution.md#frozen-definition-repair-sa-41) path, each now carrying its registered `workflow.repair_*` code above: a re-pin against a run that is not parked, one requested while any of the run's attempts is still in flight (the resuming phase continuing one rather than entering fresh, or a parked parallel sibling holding one — SA-41's run-wide boundary), and one whose target version cannot account for the phases the run already completed — the omitted phase id and the unreachable topology counting as one refusal point, since SA-41 states they are the same failure — and, added by the 2026-08-18 park-surface + operator-controls amendment, the three the operator-recovery operations contribute, each minting its code in the same diff so no unregistered refusal ever ships: an authorization denial on either operation (one point with two ordered arms, one code, the `workflow.start_denied` shape), a cancel against a run that already reached `succeeded` or `failed`, and a resume against a run that is not parked. The re-pin leg of `workflow.runResume` adds **no** point — its three refusals are the SA-41 points already counted above. **Census arithmetic (re-derived 2026-08-18, not carried forward):** nineteen at the workflow-hardening amendment's 2026-08-17 review round, plus the three operator-recovery points = twenty-two. The Tier-7 audit surfaced the gap; seven of the twenty-two points now carry registered codes, the extension covering the remaining fifteen is still owed on that document — unmoved, because every point added since has landed with its code — and until it lands no workflow handler may mint an unregistered code ([Spec-015 §Loud-errors discipline (C-12)](../../specs/015-workflow-authoring-and-execution.md#loud-errors-discipline-c-12) forbids untyped refusals). Durable events owned by Plan-015: the thirty-four `workflow.*` types across the five workflow families enumerated in [Spec-015 §Event types (SA-19)](../../specs/015-workflow-authoring-and-execution.md#event-types-sa-19--34-types-under-workflow) and registered in the [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) census, whose five categories that spec carries as its own sections; their typed payloads are the `Workflow*Payload` shapes above.
+Error vocabulary: [error-contracts.md](./error-contracts.md) §Workflow. That section defines ten codes (`workflow.not_found`, `workflow.invalid_phase`, `workflow.gate_closed`, `workflow.start_denied`, the three SA-41 repair refusals `workflow.repair_not_parked` / `workflow.repair_attempt_in_flight` / `workflow.repair_version_unaccountable`, and the three operator-recovery refusals `workflow.control_denied` / `workflow.run_not_cancellable` / `workflow.resume_not_parked`) against a surface with at least twenty-two refusal points — chain-break detection, a sandbox that cannot start while the run's posture is `sandboxed`, `fail-fast` sibling abort, `max_phase_transitions` / `max_duration` breach, human-form optimistic-concurrency conflict, definition content-hash mismatch, expression-parse refusal, the visual builder's invalid graph shape (any of the seven refused shapes), scope-ref violation, a tool binding carrying an inline governance facet, and an unknown top-level key in an imported definition file; from the graph-topology closure and the `shared`-scope authorization boundary of [Spec-015 §Core SDK and persistence contracts](../../specs/015-workflow-authoring-and-execution.md#core-sdk-and-persistence-contracts), an inconsistent topology spelling (a partially-supplied predecessor set, or a join policy on a phase that is not a join) and the operator-authorization refusal on a `shared`-target `workflow.definitionCreate`; the chat-start refusal `workflow.start_denied` already covers its own point; the three refusals of the [Spec-015 §Frozen-definition repair (SA-41)](../../specs/015-workflow-authoring-and-execution.md#frozen-definition-repair-sa-41) path, each carrying its registered `workflow.repair_*` code above: a re-pin against a run that is not parked, one requested while any of the run's attempts is still in flight (the resuming phase continuing one rather than entering fresh, or a parked parallel sibling holding one — SA-41's run-wide boundary), and one whose target version cannot account for the phases the run already completed — the omitted phase id and the unreachable topology counting as one refusal point, since SA-41 states they are the same failure — and the three the operator-recovery operations contribute, each minting its code in the same diff so no unregistered refusal ever ships: an authorization denial on either operation (one point with two ordered arms, one code, the `workflow.start_denied` shape), a cancel against a run that already reached `succeeded` or `failed`, and a resume against a run that is not parked. The park, pacing and cancellability rules mint no code of their own. The re-pin leg of `workflow.runResume` adds **no** point — its three refusals are the SA-41 points already counted above. **Census arithmetic:** nineteen points plus the three operator-recovery points = twenty-two. Seven of the twenty-two carry registered codes; the extension covering the remaining fifteen is owed on that document, and until it lands no workflow handler may mint an unregistered code ([Spec-015 §Loud-errors discipline (C-12)](../../specs/015-workflow-authoring-and-execution.md#loud-errors-discipline-c-12) forbids untyped refusals). Durable events owned by Plan-015: the thirty-four `workflow.*` types across the five workflow families enumerated in [Spec-015 §Event types (SA-19)](../../specs/015-workflow-authoring-and-execution.md#event-types-sa-19--34-types-under-workflow) and registered in the [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) census, whose five categories that spec carries as its own sections; their typed payloads are the `Workflow*Payload` shapes above.
 
 ---
 
-## GDPR And Rate Limiting (Task 4.11)
+## GDPR And Rate Limiting
 
 ### Spec-019 — Rate Limiting
 
-Shapes below are canonical per [Plan-019](../../plans/019-rate-limiting-policy.md) (Tier-5 audit, D-019-6/D-019-14/D-019-17); code home is `packages/contracts/src/rate-limiter.ts` + `admin-bans.ts` (Plan-019 Phase 1). Endpoint-group keys come from [Spec-019 §Canonical Endpoint Group Registry](../../specs/019-rate-limiting-policy.md#canonical-endpoint-group-registry).
+Shapes below are canonical per [Plan-019](../../plans/019-rate-limiting-policy.md) (D-019-6/D-019-14/D-019-17); code home is `packages/contracts/src/rate-limiter.ts` + `admin-bans.ts` (Plan-019 Phase 1). Endpoint-group keys come from [Spec-019 §Canonical Endpoint Group Registry](../../specs/019-rate-limiting-policy.md#canonical-endpoint-group-registry).
 
 ```ts
 // RateLimitCheck (internal operation, both backends)
@@ -7114,7 +7097,7 @@ interface RateLimitCheckRequest {
   tier?: RateLimitTier; // resolved server-side; never caller-supplied
   context?: Record<string, unknown>;
 }
-// Two-arm union (Plan-019, Tier-5 audit): the degraded arm is minted only by the
+// Two-arm union (Plan-019): the degraded arm is minted only by the
 // fail-open wrapper during grace and carries no window fields — nothing authoritative
 // exists while the backend is unreachable; `graceEndsAt` = grace expiry (503 boundary).
 type RateLimitCheckResponse =
@@ -7223,7 +7206,7 @@ interface UserDataDeleteResponse {
 }
 ```
 
-### GDPR Method-Name Registry (Tier 4)
+### GDPR Method-Name Registry
 
 The three `gdpr.*` stub methods (Plan-020 D-020-3, registered on Plan-006's `MethodRegistry`; reciprocal `provides` recorded on [Plan-006](../../plans/006-local-ipc-and-daemon-control.md)). All three return the unconditional not-implemented stub in V1 (§above); the Request / Response schemas are the reserved V1.1 contract, not a V1 success surface.
 
@@ -7237,7 +7220,7 @@ In V1 every call resolves to the unconditional `-32603` / `data.type = "gdpr.end
 
 ## Plan-025 — MCP Governance Contract Surfaces
 
-Registered 2026-07-22 (campaign B18; [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md)). The eleven `mcp.*` operations register against the Plan-006 `MethodRegistry` at Plan-025's tier (the CP-006-3 late-namespace pattern; `mcp.subscribe` rides the Plan-006 streaming primitive, the `session.subscribe` consumer shape); the five event payloads mirror [Spec-005 §MCP Governance (`mcp_governance`)](../../specs/005-session-event-taxonomy-and-audit-log.md#mcp-governance-mcp_governance) (registered into contracts by Plan-005 T1.10; payloads authored by Plan-025 — the emitter-authors-payload precedent); the status read model consumes the Plan-004 `McpServerStatusUpdate` seam (§Tier 3 above). Authorization: every mutating operation evaluates the Cedar `mcp` action family through Plan-010's `PermissionCheckService` before any provider call or store write; the V1 principal is the node-local operator (caller-owns-the-node) — no `ApprovalCategory` value is added. Idempotency: every governance mutation — and the receipted operational command `mcp.oauthLogin` — carries the mandatory requester-generated UUID `clientIdempotencyKey` (the Spec-004/B3 discipline; the intervention-surface precedent) with durable receipt replay per Spec-025 §Authorization (`mcp.reconnect` is unreceipted). Error codes: [error-contracts.md §MCP Governance](./error-contracts.md#mcp-governance). Sanitization: no payload below carries config values, env-var values, header values, tokens, or unsanitized paths (Spec-025's no-custody invariant) — raw `scopeRef` filesystem paths included: durable event payloads identify project/local bindings by the keyed `scopeRefDigest` of the audit ref (`McpServerBindingAuditRef` below), never the path itself; `serverName` / `toolName` are untrusted provider-adjacent strings, `wireFreeFormString`-bounded under the seventeen-string rule, classified as non-PII infrastructure identifiers for the plaintext audit payload per Spec-025 §Status Observation and Events — the deliberate, documented residual Plan-020's call-site PII classification pass inherits. Identity throughout is the scope-qualified binding `(provider, scope, scopeRef, serverName)` per Spec-025 §Unified Inventory — a **discriminated union on `scope`**, so an invalid shape (`scopeRef` on `user`, a missing `scopeRef` on `project`/`local`, or the non-existent `(codex, local)` combination) is a schema-level rejection, never a service-layer surprise or a collapsed primary key. Two grains share this section deliberately: the config **binding** above and the Plan-004 **runtime-binding leg** (`sessionId` + `bindingId`) — live per-session state (status legs, live mutation results, reconnect targets) always keys by leg, never by collapsing legs into the binding scalar.
+Governed by [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md). The eleven `mcp.*` operations register against the Plan-006 `MethodRegistry` when Plan-025 lands (the CP-006-3 late-namespace pattern; `mcp.subscribe` rides the Plan-006 streaming primitive, the `session.subscribe` consumer shape); the five event payloads mirror [Spec-005 §MCP Governance (`mcp_governance`)](../../specs/005-session-event-taxonomy-and-audit-log.md#mcp-governance-mcp_governance) (registered into contracts by Plan-005 T1.10; payloads authored by Plan-025 — the emitter-authors-payload precedent); the status read model consumes the Plan-004 `McpServerStatusUpdate` seam (§Plans 004, 005 And 006 above). Authorization: every mutating operation evaluates the Cedar `mcp` action family through Plan-010's `PermissionCheckService` before any provider call or store write; the V1 principal is the node-local operator (caller-owns-the-node) — no `ApprovalCategory` value is added. Idempotency: every governance mutation — and the receipted operational command `mcp.oauthLogin` — carries the mandatory requester-generated UUID `clientIdempotencyKey` (the Spec-004/B3 discipline; the intervention-surface precedent) with durable receipt replay per Spec-025 §Authorization (`mcp.reconnect` is unreceipted). Error codes: [error-contracts.md §MCP Governance](./error-contracts.md#mcp-governance). Sanitization: no payload below carries config values, env-var values, header values, tokens, or unsanitized paths (Spec-025's no-custody invariant) — raw `scopeRef` filesystem paths included: durable event payloads identify project/local bindings by the keyed `scopeRefDigest` of the audit ref (`McpServerBindingAuditRef` below), never the path itself; `serverName` / `toolName` are untrusted provider-adjacent strings, `wireFreeFormString`-bounded under the seventeen-string rule, classified as non-PII infrastructure identifiers for the plaintext audit payload per Spec-025 §Status Observation and Events — the deliberate, documented residual Plan-020's call-site PII classification pass inherits. Identity throughout is the scope-qualified binding `(provider, scope, scopeRef, serverName)` per Spec-025 §Unified Inventory — a **discriminated union on `scope`**, so an invalid shape (`scopeRef` on `user`, a missing `scopeRef` on `project`/`local`, or the non-existent `(codex, local)` combination) is a schema-level rejection, never a service-layer surprise or a collapsed primary key. Two grains share this section deliberately: the config **binding** above and the Plan-004 **runtime-binding leg** (`sessionId` + `bindingId`) — live per-session state (status legs, live mutation results, reconnect targets) always keys by leg, never by collapsing legs into the binding scalar.
 
 ```ts
 // ---- Primitives (Spec-025) ----
@@ -7279,8 +7262,7 @@ type McpServerBindingAuditRef =
   | { provider: McpProvider; scope: "project"; scopeRefDigest: string; serverName: string }
   | { provider: "claude"; scope: "local"; scopeRefDigest: string; serverName: string };
 
-// Effective-binding derivation output (Plan-025 T28.4.11; registered 2026-08-26 at the
-// effective-binding discharge). NOT a carrier threaded in from another plan — Plan-025 derives this
+// Effective-binding derivation output (Plan-025 T28.4.11). NOT a carrier threaded in from another plan — Plan-025 derives this
 // in-plan from the post-drift composed-config snapshot it already builds at T28.4.6, which is what
 // discharged its §Preconditions carrier box. `null` is a first-class answer meaning the tool
 // resolved from NO governed binding: a provider built-in, or a tool served by the daemon's own
@@ -7382,13 +7364,13 @@ type McpServerConfigView =
 // inventory preserves that grain instead of overwriting divergent leg states into one scalar.
 interface McpServerLegStatus {
   sessionId: SessionId;
-  bindingId: string; // the Plan-004 runtime-binding leg key (§Tier 3 McpServerStatusUpdate) — NOT this section's config binding
+  bindingId: string; // the Plan-004 runtime-binding leg key (§Plans 004, 005 And 006 McpServerStatusUpdate) — NOT this section's config binding
   status: McpServerStatus;
   observedAt?: string; // ISO-8601 of this leg's newest observation
 }
 
 // Inventory read model (mcp.list / mcp.get): four merged sources per binding — provider-declared
-// config, live status (McpServerStatus, §Tier 3 seam), the trust row, the override rows. A
+// config, live status (McpServerStatus, §Plans 004, 005 And 006 seam), the trust row, the override rows. A
 // DISCRIMINATED PAIR on trustUnavailable (Spec-025 §Fallback Behavior): the normal arm serves all
 // four sources; the degraded arm (trust store unreachable) serves the provider-observed sources
 // only, with every trust- and override-dependent field STRUCTURALLY ABSENT rather than fabricated —
@@ -7529,7 +7511,7 @@ Wire surfaces for [Spec-026](../../specs/026-provider-accounts-and-credential-ho
 
 The namespace has exactly ten verbs, each carrying the payload pair named below: the two read verbs `providerAccount.list` and `providerAccount.subscribe`, and the eight mutating verbs `providerAccount.register`, `providerAccount.update`, `providerAccount.remove`, `providerAccount.setCurrent`, `providerAccount.probe`, `providerAccount.resetCredentialHome`, `providerAccount.login`, and `providerAccount.loginCancel`. `providerAccount.subscribe` is grouped with the reads: it mutates nothing and takes the same node-operator gate its sibling read does, for the same disclosure reason. `providerAccount.probe` is grouped with the mutating verbs for two reasons, and the weaker one is the row write: it writes back the observed health state and its observation timestamp to the probed account's row, and — **atomically with that write** — applies I-026-2's generation rule, which names "a transition of the account's probe result into or out of `authenticated`" as a lifecycle transition. So a probe that observes the same authenticated-ness as the stored row leaves `credentialGeneration` untouched, while one that observes a **crossing** of the authenticated boundary bumps it in the same transaction as the health write. Both directions bump: a repaired credential must end the old attention epoch ([Spec-015 §Provider-limit pacing and durable resumption (SA-40)](../../specs/015-workflow-authoring-and-execution.md#provider-limit-pacing-and-durable-resumption-sa-40) keys on `(accountId, credentialGeneration)`, so parked work resumes against a generation that is genuinely new), and a destroyed one must not leave consumers holding a generation that still reads as usable. The verb mints and removes no account. The load-bearing reason for the gate is that it reaches into a credential home and drives provider-side credential I/O. That is operator-authority work, so it takes the node-operator gate rather than the laxer read gate.
 
-**The probe verb is not the only writer of the stored pair.** Every validation that actually observes an account's authentication state writes it back under the same rule — the deliberate probe above, the fail-closed validation the spawn path performs (Spec-026 §Validation at spawn — fail-closed), and, from the 2026-08-26 amendment, the **background health observer** (Spec-026 §Credential-home health observation), which is the third writer and joins the set rather than replacing it. **The generation-bump authority is deliberately NOT widened with it.** `credentialGeneration` still bumps only on I-026-2's credential-home lifecycle transitions, and a background observation is not one: [Spec-015 §Provider-limit pacing and durable resumption (SA-40)](../../specs/015-workflow-authoring-and-execution.md#provider-limit-pacing-and-durable-resumption-sa-40) keys parked work on `(accountId, credentialGeneration)`, so an observer that bumped on a transient fault would end a parked-work attention epoch for nothing — the precise harm the both-directions bump rule above exists to produce **only** when the boundary is genuinely crossed by an act that changed the home. The observer is constrained in what the DAEMON may do to take its reading, not in what the provider may do inside its own home: the daemon never reads, writes or copies credential material, never speaks a provider token endpoint itself, and never puts a provider into external-authentication mode. What it does is ask a provider its own limits question inside that provider's own per-account home, which on one pinned leg renews that login as a side effect — the provider's own rotation, taken by the provider, under the provider's own re-read-before-refresh guard. That is the keep-alive, and it is safe only because the home is daemon-owned and is never the operator's own; a renewal of that kind is NOT a credential-home lifecycle transition and moves no `credentialGeneration`. Anything else would make the stored reading a record of _explicit probes_ rather than of _the last validation_, which is what the readiness derivation reads and what `observedAt` claims: a node whose first run succeeded would otherwise keep serving `indeterminate` indefinitely while every run started fine. Spawn validation is a read-path caller in every other respect — it takes no operator gate and mints nothing — but its observation is an observation, and the row records observations.
+**The probe verb is not the only writer of the stored pair.** Every validation that actually observes an account's authentication state writes it back under the same rule — the deliberate probe above, the fail-closed validation the spawn path performs (Spec-026 §Validation at spawn — fail-closed), and the **background health observer** (Spec-026 §Credential-home health observation), which is the third writer and joins the set rather than replacing it. **The generation-bump authority is deliberately NOT widened with it.** `credentialGeneration` still bumps only on I-026-2's credential-home lifecycle transitions, and a background observation is not one: [Spec-015 §Provider-limit pacing and durable resumption (SA-40)](../../specs/015-workflow-authoring-and-execution.md#provider-limit-pacing-and-durable-resumption-sa-40) keys parked work on `(accountId, credentialGeneration)`, so an observer that bumped on a transient fault would end a parked-work attention epoch for nothing — the precise harm the both-directions bump rule above exists to produce **only** when the boundary is genuinely crossed by an act that changed the home. The observer is constrained in what the DAEMON may do to take its reading, not in what the provider may do inside its own home: the daemon never reads, writes or copies credential material, never speaks a provider token endpoint itself, and never puts a provider into external-authentication mode. What it does is ask a provider its own limits question inside that provider's own per-account home, which on one pinned leg renews that login as a side effect — the provider's own rotation, taken by the provider, under the provider's own re-read-before-refresh guard. That is the keep-alive, and it is safe only because the home is daemon-owned and is never the operator's own; a renewal of that kind is NOT a credential-home lifecycle transition and moves no `credentialGeneration`. Anything else would make the stored reading a record of _explicit probes_ rather than of _the last validation_, which is what the readiness derivation reads and what `observedAt` claims: a node whose first run succeeded would otherwise keep serving `indeterminate` indefinitely while every run started fine. Spawn validation is a read-path caller in every other respect — it takes no operator gate and mints nothing — but its observation is an observation, and the row records observations.
 
 **The identifier is opaque everywhere.** `ProviderAccountId` is daemon-minted and immutable. No client, driver, or renderer parses it, decomposes it, or uses it to locate credential material — it selects a credential environment and nothing else. It is deliberately not derived from an email, a provider subject id, or any credential value, because those rotate and an identity that rotates cannot key historical spend.
 
@@ -7569,10 +7551,15 @@ interface ProviderAccount {
   // never re-derived and never defaulted to `updated_at`: a registry read still spawns no provider
   // process, and an edit to a billing mode must not read as a fresh authentication observation.
   healthObservedAt: string | null;
-  // The four members below land with the 2026-08-26 sign-in amendment. Each is nullable-by-absence
-  // rather than defaulted: an unobserved fact is reported as unobserved, never as a value the
-  // daemon has not seen. `ProviderAccount` has not shipped, so these are required-shape additions
-  // in the same reading the readiness member took, not ADR-018 additive-optional retrofits.
+  // The window-start switch sits UNDER `probeEnabled` rather than beside it: on by default, and
+  // inert while `probeEnabled` is false, so an account silenced for the observer spends nothing at a
+  // window's reset either. It is its own durable value because the two are separately settable in
+  // the direction that matters — an operator may keep the limits read running and still decline to
+  // spend a turn at every reset (Spec-026 §Credential-home health observation).
+  windowStartEnabled: boolean;
+  // The four members below are nullable-by-absence rather than defaulted: an unobserved fact is
+  // reported as unobserved, never as a value the daemon has not seen. They are required-shape
+  // rather than additive-optional, the same reading the readiness member takes.
   observedAuthMode: ProviderAuthMode | null; // = `provider_accounts.observed_auth_mode`; null until observed
   loggedInAt: string | null; // RFC 3339 UTC of the sign-in this credential came from; null where neither a brokered sign-in nor a token registration produced it
   // ESTIMATE, and the wire says so in its name. Mode-dispatched from `loggedInAt` by the provider's
@@ -7599,9 +7586,7 @@ type ProviderAuthMode =
   | "none"
   | "unknown";
 
-// NOTE (amended 2026-08-26, ADR-028 D2 — this note previously stated an absolute; the ADR is
-// what authorizes replacing it, and the replacement is deliberately as mechanically checkable as
-// the absolute was). Credential material appears on EXACTLY ONE input on this wire surface and on
+// NOTE (ADR-028 D2). Credential material appears on EXACTLY ONE input on this wire surface and on
 // NO output: `ProviderAccountRegisterRequest.nonInteractiveToken` below. It is write-only — it is
 // on no reply, no event, no error, no notification, no metric, and no log line, and no reply type
 // in this section carries a token-shaped member of any name. The census claim a reviewer can
@@ -7741,7 +7726,7 @@ interface ProviderAccountListResponse {
   usageWindows: ProviderAccountUsageWindow[];
   // Required, not additive-optional: `ProviderAccountListResponse` is registered here and has not
   // shipped, so ADR-018's additive-optional rule for already-published shapes does not bind it — the
-  // same reading the Tier-7 audit's new shapes carry. A reply that could omit readiness would push
+  // same reading the neighbouring new shapes carry. A reply that could omit readiness would push
   // every client back into deriving it locally, which I-026-9 exists to prevent.
   // Exactly one entry per provider the request selects: never zero, never two. With `accountId`
   // supplied the selection is that account's provider, so the reply still carries exactly one entry
@@ -7823,6 +7808,11 @@ interface ProviderAccountUpdateRequest {
   // would move the namespace census for a boolean. Omitted = unchanged; the column default is
   // enabled, so silence never silences an observer.
   probeEnabled?: boolean;
+  // The window-start switch, carried here for the same reason its sibling is: an ordinary mutable
+  // account preference, not a verb. Omitted = unchanged; the column default is enabled. Setting it
+  // true while `probeEnabled` is false leaves it inert rather than refusing, because the two are one
+  // switch under another on the surface and the parent is what silences both.
+  windowStartEnabled?: boolean;
 }
 interface ProviderAccountUpdateResponse {
   account: ProviderAccount;
@@ -7924,7 +7914,7 @@ interface ProviderAccountProbeResponse {
 // OPERATOR to act on, plus an opaque daemon-minted attempt id. It is deliberately NOT a shell
 // string: `ProviderSignInRemedy.signInInvocation` remains display-only and no client-supplied
 // string is ever executed — the daemon authors this invocation itself, which is a different act
-// with a different trust story, and the 2026-08-25 note that reasoned the display-only remedy is
+// with a different trust story, and the note that reasoned the display-only remedy is
 // untouched for the surface it governs.
 //
 // SHAPE MIRRORS THE PROVIDER'S OWN, deliberately: the pinned Codex login-start returns either an
@@ -8059,7 +8049,7 @@ interface ProviderAccountUsageWindow {
 
 ## Plan-027 — Agent Definitions And Peer Invocation
 
-Registered 2026-08-26 ([Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md)). The four definition-plane `agent.*` operations register against the Plan-006 `MethodRegistry` at Plan-027's tier, inside the `agent` root Plan-014 registers — the CP-006-3 late-registration pattern, with no new root. Authorization is the one named Cedar operation action of [Spec-010 §Implementation Notes](../../specs/010-approvals-permissions-and-trust-boundaries.md#implementation-notes): `Action::"agent::manage"` for every definition mutation. It names a **node-scoped** resource descriptor, because definition mutation is node-global — the four operations carry no `sessionId`, and none is invented for authorization. A peer-invocation call is no named action at all: a call on the bridge is an ordinary tool call, so it rides the existing `tool_execution` approval category through the approval pipeline at the session's own permission level. No `ApprovalCategory` value is added, and the manage action mints no `remembered_approval_rules` row: that table closes `category` over the approval-pipeline categories and requires `created_from_request_id` to reference an `approval_resolutions` row, neither of which a named-operation action produces, so a grant row for it is not merely unnecessary but unrepresentable. Refusals: [error-contracts.md §Agent Definitions](./error-contracts.md#agent-definitions). **No event type is minted**: definition mutation is node-local configuration rather than session history, and every session-visible consequence of a peer invocation is already carried by the existing tool-activity and run-lifecycle events. Definitions never leave the node — no relay, control-plane, or export surface carries one.
+Governed by [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md). The four definition-plane `agent.*` operations register against the Plan-006 `MethodRegistry` when Plan-027 lands, inside the `agent` root Plan-014 registers — the CP-006-3 late-registration pattern, with no new root. Authorization is the one named Cedar operation action of [Spec-010 §Implementation Notes](../../specs/010-approvals-permissions-and-trust-boundaries.md#implementation-notes): `Action::"agent::manage"` for every definition mutation. It names a **node-scoped** resource descriptor, because definition mutation is node-global — the four operations carry no `sessionId`, and none is invented for authorization. A peer-invocation call is no named action at all: a call on the bridge is an ordinary tool call, so it rides the existing `tool_execution` approval category through the approval pipeline at the session's own permission level. No `ApprovalCategory` value is added, and the manage action mints no `remembered_approval_rules` row: that table closes `category` over the approval-pipeline categories and requires `created_from_request_id` to reference an `approval_resolutions` row, neither of which a named-operation action produces, so a grant row for it is not merely unnecessary but unrepresentable. Refusals: [error-contracts.md §Agent Definitions](./error-contracts.md#agent-definitions). **No event type is minted**: definition mutation is node-local configuration rather than session history, and every session-visible consequence of a peer invocation is already carried by the existing tool-activity and run-lifecycle events. Definitions never leave the node — no relay, control-plane, or export surface carries one.
 
 ```ts
 // A daemon-minted opaque immutable identifier. NEVER the definition's name: the name is a mutable
@@ -8133,6 +8123,11 @@ type AgentResolvedConfiguration = {
 interface AgentDefinitionListRequest {}
 interface AgentDefinitionListResponse {
   definitions: AgentDefinition[];
+  // How many workflow definitions bind each definition, folded per reply over the current body of
+  // every workflow definition on the node (each `agent`-typed param counted once per workflow) and
+  // never stored. Optional as a whole, and absent only when the workflow store could not be read;
+  // a listed definition no workflow binds maps to 0 (Spec-027 §Interfaces And Contracts).
+  workflowUsage?: Record<AgentDefinitionId, number>;
 }
 
 // agent.definitionCreate — every axis except name is optional; omitted axes store as the null
@@ -8213,10 +8208,10 @@ interface AgentDefinitionDeleteResponse {
 // approval pipeline under the session's own permission level — an asking level raises the same
 // approval card any tool call raises, a remembered rule can answer it, and a level that never asks
 // never asks for this either — and a decline answers `denied` rather than hiding the tool.
-// State-gated registration was specified first and withdrawn — it made any change invisible until the
+// State-gated registration is refused — it would make any change invisible until the
 // next spawn, because `callbackTools` rides only CreateSessionParams / ResumeSessionParams and no
 // live-registry mutation seam exists, so an operator who changed what the session permits mid-session
-// would have seen nothing change until the leg respawned. Per-call adjudication needs no such seam.
+// would see nothing change until the leg respawned. Per-call adjudication needs no such seam.
 // One withholding is inherited rather than invented: while Plan-010's
 // approval.requestCreate seam is unregistered, Spec-004's fail-closed availability rule withholds the
 // WHOLE callbackTools registry at spawn, and these six go with it.
@@ -8338,4 +8333,4 @@ interface AgentBridgeListResult {
 
 **The namespace stays at four, and the storage folds under it.** The library and the editor mint no verb: the definition list's reply shape changes with the binding fold above, create gains the bindings, the icon and the hue, update replaces the bindings whole, and delete is untouched. The four provider columns fold into ONE bindings column on the definition table, beside nullable columns for the icon and the hue — a stored JSON value rather than a child table, because the corpus's convention carries a bounded list that is always read with its row inline, which the tool allowlist on that same table already does, and a binding is never queried across definitions.
 
-**Two library readings are new wire and deliberately unspecified.** A card's usage count and the last time an agent ran are the two facts the library would show that nothing on this surface can answer, and neither is minted here: a usage count is a fold over run history rather than a definition field, and specifying it before the fold exists would fix a shape the fold has to satisfy. They stay unspecified, and the library reads them as absent until they land.
+**One library reading is derived on the list reply, and one stays unspecified.** How many workflows bind a definition is `workflowUsage` on `AgentDefinitionListResponse` above: a fold over the workflow definitions on the node, computed per reply and never stored, so the card and the delete confirmation read a number that is true when it is drawn. The last time an agent ran is a fold over run history rather than a definition field, and specifying it before that fold exists would fix a shape the fold has to satisfy; it stays unspecified, and the library reads it as absent until it lands.

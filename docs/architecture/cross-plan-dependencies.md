@@ -163,6 +163,7 @@ flowchart TD
  n004_3B --> n013_2
  n004_4 --> n004_3B
  n005_3B --> n029_3
+ n006_4 --> n030_4
  n007_R1 --> n007_R2
  n007_2D --> n013_2
  n007_R1 --> n016_2
@@ -412,7 +413,7 @@ Every phase in a group can be built in parallel; a group opens once the phases i
 |  | [Plan-012 Phase 6](../plans/012-artifacts-files-and-attachments.md) | relay GC, quotas, backpressure. | Plan-012 Phase 5 |
 |  | [Plan-021 Phase 6](../plans/021-desktop-shell-and-renderer.md) | renderer shell, router, composer. | Plan-006 Phase R1, Plan-006 Phase 2D, Plan-021 Phase 5, Plan-022 Phase 3B |
 | 9 | [Plan-024 Phase 2](../plans/024-cross-node-dispatch-and-approval.md) | target-side intake and Cedar evaluation. | Plan-014 Phase 4B, Plan-016 Phase 6, Plan-024 Phase 1, Plan-028 Phase 3 |
-|  | [Plan-027 Phase 4](../plans/027-agent-definitions-and-peer-invocation.md) | peer invocation. | Plan-014 Phase 4B, Plan-027 Phase 3 |
+|  | [Plan-027 Phase 4](../plans/027-agent-definitions-and-peer-invocation.md) | peer invocation. | Plan-005 Phase 4, Plan-014 Phase 4B, Plan-027 Phase 3 |
 |  | [Plan-012 Phase 7](../plans/012-artifacts-files-and-attachments.md) | erasure fan-out and degraded status. | Plan-012 Phase 6 |
 |  | [Plan-021 Phase 7](../plans/021-desktop-shell-and-renderer.md) | build pipeline and release signing. | Plan-021 Phase 6 |
 |  | [Plan-027 Phase 5](../plans/027-agent-definitions-and-peer-invocation.md) | desktop library and editor. | Plan-021 Phase 6, Plan-027 Phase 3 |

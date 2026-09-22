@@ -24,7 +24,7 @@ Anything that admits a second account to a session. Anything that puts a second 
 
 ## Build order
 
-This plan sits at Tier 9, and [Plan-024](024-cross-node-dispatch-and-approval.md) moves to Tier 10 because it consumes the relay built here in Phase 3.
+[Plan-024](024-cross-node-dispatch-and-approval.md) builds after this plan because it consumes the relay built here in Phase 3.
 
 ## Phases
 

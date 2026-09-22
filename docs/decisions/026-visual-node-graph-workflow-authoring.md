@@ -1,13 +1,13 @@
 # ADR-026: Visual Node-Graph Workflow Authoring
 
-| Field | Value |
-| --- | --- |
-| **Status** | `accepted` |
-| **Type** | `Type 2 (one-way door)` |
-| **Domain** | `Workflow / Authoring UX` |
-| **Date** | `2026-08-10` |
-| **Author(s)** | `Claude (AI-assisted)` |
-| **Reviewers** | `Codex — PR #318 review round (2026-08-11), whose two mechanism-naming findings landed in the paired Spec-015 visual-builder amendment (the SA-32 topology persistence spelling and the SA-36 operator-boundary enforcement); user ratification 2026-08-18 (the ADR-026 / ADR-027 promotion closure)` |
+| Field         | Value                     |
+| ------------- | ------------------------- |
+| **Status**    | `accepted`                |
+| **Type**      | `Type 2 (one-way door)`   |
+| **Domain**    | `Workflow / Authoring UX` |
+| **Date**      | `2026-08-10`              |
+| **Author(s)** | `Claude (AI-assisted)`    |
+| **Reviewers** | `Codex; User`             |
 
 ## Context
 
@@ -23,7 +23,7 @@ How should the visual workflow-authoring surface be built, and what exactly shou
 
 ### Trigger
 
-The V1 product direction requires a node-graph workflow editor and a cross-project reusable definition tier, both of which land as a Spec-015 amendment. Two of the three sub-decisions are hard to reverse once definitions exist in the field — the persisted definition/layout contract and the graph-to-phase mapping — so they need a recorded decision before the amendment ships, not after.
+The V1 product direction requires a node-graph workflow editor and a cross-project reusable definition tier, both specified in Spec-015. Two of the three sub-decisions are hard to reverse once definitions exist in the field — the persisted definition/layout contract and the graph-to-phase mapping — so they need a recorded decision before the amendment ships, not after.
 
 ## Decision
 
@@ -53,7 +53,7 @@ The three constraints are what make the surface safe rather than merely attracti
 
 The list-editor objection is right about accessibility and wrong about capability. The model this surface authors has branches, loops, merges and capability attachments; a list renders a fan-out as a nested indent whose join is invisible until it is opened, and renders a loop as nothing at all. The facts an author most needs at a glance — which step runs which agent, which tools a step can reach, which gate blocks on a person, where a branch rejoins — are _adjacency_ facts, and adjacency is what a graph shows and a list hides. Accessibility is therefore taken as an obligation on the canvas rather than a reason to choose the list: keyboard-reachable node creation, connection and inspection, one live announcer for every structural change, and the library's own keyboard handling switched off so a second announcer is never created.
 
-The catalog objection is met by structure, not by restraint. One declarative description per kind drives its palette row, its ports, its parameter form, its summary line and its validation, so a kind is one registry entry plus one executor plus its tests rather than a bespoke surface; the palette is that registry serialized, so a kind added in the daemon appears with no renderer change and no kind is ever hand-listed twice. Parity pressure is answered where it belongs: a new kind is a catalog entry with an executor and a test, and a new _semantic_ — a second execution order, a second error spelling, a second expression dialect — must amend [Spec-015 §Phase-Type and Gate-Type Taxonomy](../specs/015-workflow-authoring-and-execution.md#phase-type-and-gate-type-taxonomy) first, which is where that decision belongs and where the C-11 execution-model-enum precedent already lives. The `go-back-to` seam is narrowed to what it is: iteration is the loop kind, drawn and labelled with both of its ways out, and the one shape that stays undrawable is a reset to an earlier step, rendered as a labelled back-reference so the refusal happens at the connection layer rather than at save time.
+The catalog objection is met by structure, not by restraint. One declarative description per kind drives its palette row, its ports, its parameter form, its summary line and its validation, so a kind is one registry entry plus one executor plus its tests rather than a bespoke surface; the palette is that registry serialized, so a kind added in the daemon appears with no renderer change and no kind is ever hand-listed twice. Parity pressure is answered where it belongs: a new kind is a catalog entry with an executor and a test, and a new _semantic_ — a second execution order, a second error spelling, a second expression dialect — changes [Spec-015 §Phase-Type and Gate-Type Taxonomy](../specs/015-workflow-authoring-and-execution.md#phase-type-and-gate-type-taxonomy) first, which is where that decision belongs and where the C-11 execution-model-enum precedent already lives. The `go-back-to` seam is narrowed to what it is: iteration is the loop kind, drawn and labelled with both of its ways out, and the one shape that stays undrawable is a reset to an earlier step, rendered as a labelled back-reference so the refusal happens at the connection layer rather than at save time.
 
 The layout cost is bounded by the document itself: geometry is part of what is saved and part of what is exported, so a definition opens as it was arranged wherever it is opened. The only uncovered case is a document written with no layout at all — through the SDK, the CLI or an agent — and that one is laid out deterministically, left to right, by the same layout library in the daemon and in the renderer, so it is never unopenable and looks the same on every device. Keeping geometry out of the hash is what keeps dragging free: it changes no byte, mints no hash and creates no version.
 
@@ -113,7 +113,7 @@ The layout cost is bounded by the document itself: geometry is part of what is s
 
 - **Reversal cost:** Low for the rendering layer — all meaning (the mapping, the refusal set, the file form, the layout boundary) lives in shared contracts that import nothing from the rendering library, so swapping the canvas is a component-layer rewrite with no persisted-data consequence and no migration. High for the three persisted commitments: (1) the graph-to-phase mapping, since changing what a graph shape means changes what existing definitions execute; (2) the canonical-bytes/layout boundary, since moving anything across it changes the content hash of every existing definition and breaks version chains, run pins, and every verification anchored to them; (3) the scope-ref binding shape, since `(scope, scope_ref, content_hash)` determines definition identity and changing it re-partitions stored definitions.
 - **Blast radius:** `packages/contracts/src/workflow/` (mapping, refusal set, file form, entry record, tool-binding reference), `packages/runtime-daemon/src/workflow/` (definition service and migration), `packages/client-sdk/src/workflowClient.ts`, `apps/desktop/src/renderer/src/console/workflows/builder/`, `apps/cli/src/commands/workflow-*.ts`, and every stored `workflow_definitions` / `workflow_versions` row.
-- **Migration path:** Swapping the library is a rewrite of the builder subtree only, with the contract-layer tests unchanged as the correctness anchor. Reversing any of the three persisted commitments requires a Spec-015 amendment plus a data migration that re-canonicalizes and re-hashes every stored definition, re-pins every run bound to an affected version, and re-keys the dedupe index — with no way to preserve existing content hashes across the change.
+- **Migration path:** Swapping the library is a rewrite of the builder subtree only, with the contract-layer tests unchanged as the correctness anchor. Reversing any of the three persisted commitments requires a change to Spec-015 plus a data migration that re-canonicalizes and re-hashes every stored definition, re-pins every run bound to an affected version, and re-keys the dedupe index — with no way to preserve existing content hashes across the change.
 - **Point of no return:** The first definition authored on a user's machine. Before that, all three commitments are implementation-cost only; after it, each carries a migration.
 
 ## Consequences
@@ -133,22 +133,22 @@ The layout cost is bounded by the document itself: geometry is part of what is s
 - The canvas carries the library's attribution mark; removal requires a paid subscription tier that is not assumed available.
 - A document written with no layout at all — through the SDK, the CLI or an agent — opens through the deterministic layout rather than as someone arranged it, and the definition body gains a section that carries no executable meaning.
 - Canvas accessibility must be built deliberately — keyboard-reachable node creation, connection, and inspection — where a list editor would have had it for free. Recorded as an obligation on the implementation.
-- Standing product pressure to add engine semantics that "look drawable"; the mitigation is procedural (a Spec-015 taxonomy amendment first), not technical.
+- Standing product pressure to add engine semantics that "look drawable"; the mitigation is procedural (the Spec-015 taxonomy changes first), not technical.
 
 ### Unknowns
 
-- Whether the catalog's size settles where it is. Each further kind is a registry entry, an executor and its tests; a further _semantic_ is a taxonomy amendment first, and which of the two a request is will not always be obvious on first reading.
+- Whether the catalog's size settles where it is. Each further kind is a registry entry, an executor and its tests; a further _semantic_ changes the taxonomy first, and which of the two a request is will not always be obvious on first reading.
 - Whether the canvas's keyboard and announcer surface reaches the standard a list editor would have had for free. It is an obligation on the implementation rather than a property of the library.
 
 ## Decision Validation
 
 ### Pre-Implementation Checklist
 
-The first five rows are the decision-quality gates the `proposed → accepted` promotion discharges; all five resolved 2026-08-18. The six rows below them are **build-time** obligations this ADR imposes on the implementation, each carried by a named Plan-015 task — they resolve when that code lands, not at promotion, and are deliberately left open here rather than pre-checked.
+The first five rows are decision-quality gates and are resolved. The six rows below them are **build-time** obligations this ADR imposes on the implementation, each carried by a named Plan-015 task.
 
 - [x] All unvalidated assumptions have a validation plan (§Assumptions Audit rows 2 and 4 are flagged and carry theirs)
 - [x] At least one alternative was seriously considered and steel-manned (Options B, C, and D)
-- [x] Antithesis was reviewed by someone other than the author — Codex at the PR #318 review round (2026-08-11), which folded two mechanism-naming findings into the paired Spec-015 amendment rather than into this ADR, and user ratification 2026-08-18, the ratification this ADR's `proposed → accepted` promotion requires
+- [x] Antithesis was reviewed by someone other than the author
 - [x] Failure modes have detection mechanisms (every §Failure Mode Analysis row names one)
 - [x] Point of no return is identified and communicated (the first user-authored definition)
 - [ ] The graph-to-phase mapping is a pure function over shared-contract types, importing nothing from the rendering library (build-time; Plan-015 T1.7)
@@ -196,10 +196,3 @@ Measurement is by named Plan-015 test rather than by calendar date: this decisio
 - [Spec-015 — Workflow Authoring And Execution](../specs/015-workflow-authoring-and-execution.md) — `§Visual Workflow Builder` is the normative specification of this decision (SA-32 … SA-37, C-17)
 - [Plan-015 — Workflow Authoring And Execution](../plans/015-workflow-authoring-and-execution.md) — T1.7 / T1.8 / T5.5 / T5.6 / T5.7 and invariants I-015-14 … I-015-16 implement it
 - [Spec-025 — MCP Server Configuration and Governance](../specs/025-mcp-server-configuration-and-governance.md) — owns the scope-qualified binding identity and the governance facets constraint 3 keeps out of definitions
-
-## Decision Log
-
-| Date | Event | Notes |
-| --- | --- | --- |
-| 2026-08-10 | Proposed | Drafted alongside the Spec-015 visual-builder amendment and its Plan-015 task set. Lands `proposed`; Plan-015's `ADR-026 ratified accepted` §Preconditions box holds T1.7 / T1.8 / T5.5 / T5.6 / T5.7 until it is accepted. |
-| 2026-08-18 | Ratified — `proposed → accepted` | Promoted by the park-surface + operator-controls amendment PR, which closes the two ADR promotions Plan-015 has carried as born-unchecked §Preconditions boxes since 2026-08-10 and 2026-08-11. Nothing in the decision changes: Option A (a first-class node-graph builder over the shared contract types) stands as drafted, the three counter-arguments of §Antithesis are answered in §Synthesis as recorded, and Options B–D stay steel-manned in §Alternatives Considered. The pre-promotion sweep found **no committed campaign plan scheduling an amendment against this ADR** (`docs/archive/superpowers/plans/` carries no ADR-026 reference), so no scheduled work vetoes the promotion. Five decision-quality Pre-Implementation Checklist rows resolved; the six build-time rows stay open by design, each annotated with the Plan-015 task that closes it. Consequential same-PR edits: Plan-015's `ADR-026 ratified accepted` box checked with its Delivered record, the Phase-1 precondition corrected from its "for T1.7 and T1.8 only" reading to the phase-wide Gate-5 truth, the box narrative's stale claim that `## Rollout Order` sequences this promotion corrected (it sequences code items; the Gate-5 `precondition_box_checked` entries are what held Phases 1 and 5), and the README ADR census re-derived 24 → 26 `accepted`. The full-phase Gate-5 hold on Phases 1 and 5 is released. |

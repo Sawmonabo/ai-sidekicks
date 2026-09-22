@@ -32,7 +32,6 @@ This plan covers runtime health projections, failure-category reads, stuck-run i
 - [x] Paired spec is approved
 - [x] Required ADRs are accepted
 - [x] Blocking open questions are resolved or explicitly deferred
-- [x] **Plan-readiness audit complete per [`docs/operations/plan-implementation-readiness-audit-runbook.md`](../operations/plan-implementation-readiness-audit-runbook.md)** — Tier-7 audit (2026-08-10, PR #318): backfilled §Implementation Phase Sequence (4 phases), §Invariants (I-018-1..5), and §Cross-Plan Obligations (CP-018-1..4) by transcribing this plan's already-committed body and the four counterparties' already-committed obligation text; extended §Required ADRs; and reconciled the stale six-family metric count in Spec-024 and the self-host runbook against the ratified 2026-06-10 D-019-8 pass. Backfill only — no new design — so Plan-018 stays `approved` per the backfill precedent. The PR's review round added the four reconciliations the §Notes 2026-08-10 entry's review-round addendum records; each records or names a mechanism ratified text already mandates — none invents behavior — so the same precedent holds.
 
 Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).
 
@@ -60,7 +59,7 @@ Plan-018 is the implementation surface for [Spec-018 §PII in Diagnostics](../sp
 - Default-deny outbound: no diagnostic bucket content MAY leave the daemon host by default. Outbound telemetry carries summary-only signals derived by construction from non-PII inputs (counts, categories, latencies). Raw content transmission is opt-in per bucket.
 - Shred fan-out coverage: each bucket's TTL purge path participates in the crypto-shred fan-out per [Spec-020 §Shred Fan-Out](../specs/020-data-retention-and-gdpr.md#shred-fan-out) Path 3 (bounded-retention purge) so a user-purge request triggers purge of any bucket rows authored by the purged user before the TTL would otherwise expire them.
 
-**Redaction-decision locality (no wire contract).** The redaction and default-deny _decision logic_ — which fields are denied, which placeholder shape replaces them, which sink an opt-in covers — is daemon-local code in `diagnostic-redaction-policy.ts`. It is deliberately **not** published as a typed payload in [API Payload Contracts](../architecture/contracts/api-payload-contracts.md), because no cross-package consumer evaluates redaction: the daemon is the only principal that sees unredacted diagnostic content, and it redacts before egress rather than handing rules to a caller. What does cross a contract boundary is the operator-readable policy _state_ — the `DiagnosticRedactionPolicy` read named in §API And Transport Changes below (current TTL, per-bucket opt-in toggles, `retention_policy_override` warning surface). A future consumer that needs to _evaluate_ redaction rather than _read_ policy state requires a Plan-018 amendment publishing the rule set as a typed contract first; until then, changing a redaction rule is a code change with no cross-plan contract ripple.
+**Redaction-decision locality (no wire contract).** The redaction and default-deny _decision logic_ — which fields are denied, which placeholder shape replaces them, which sink an opt-in covers — is daemon-local code in `diagnostic-redaction-policy.ts`. It is deliberately **not** published as a typed payload in [API Payload Contracts](../architecture/contracts/api-payload-contracts.md), because no cross-package consumer evaluates redaction: the daemon is the only principal that sees unredacted diagnostic content, and it redacts before egress rather than handing rules to a caller. What does cross a contract boundary is the operator-readable policy _state_ — the `DiagnosticRedactionPolicy` read named in §API And Transport Changes below (current TTL, per-bucket opt-in toggles, `retention_policy_override` warning surface). A future consumer that needs to _evaluate_ redaction rather than _read_ policy state requires a change to this plan publishing the rule set as a typed contract first; until then, changing a redaction rule is a code change with no cross-plan contract ripple.
 
 ## Prometheus `/metrics` Exposition (Spec-024 row 9)
 
@@ -77,18 +76,18 @@ Plan-018 owns the daemon-side `/metrics` endpoint required by [Spec-024 row 9](.
 - Credential rotation/reload: `METRICS_AUTH_TOKEN_FILE` and `METRICS_TLS_CLIENT_ALLOWLIST_FILE` are change-detected and re-read on the authorization path, so replacing file contents rotates the credential without a daemon restart; a rotated-away token or de-listed fingerprint is rejected from the next request onward with no accept-both grace window (the behavior T3.3's rotation test pins). `METRICS_TLS_CERT_FILE` / `METRICS_TLS_KEY_FILE` / `METRICS_TLS_CLIENT_CA_FILE` take effect on daemon restart.
 - Disable: `METRICS_BIND=off` disables the endpoint entirely. Disabling MUST emit a banner + `security.default.override=metrics_disabled` log event per [Spec-024 §Fallback Behavior](../specs/024-self-host-secure-defaults.md#fallback-behavior).
 
-**Metric families (daemon scope — the relay mounts the equivalent relay-side set).** The daemon registry exposes exactly six families: the five Spec-024 row 9a families (the set D-019-8 ratified — that count does not move) plus the plan-owned `retention_policy_override` warning gauge mandated by [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics) and required by I-018-3 / T2.7. The gauge is daemon-only — it reports diagnostic-bucket retention state, which has no relay-side equivalent — and sits outside the row-9a security set, so Spec-024's row-9a enumeration is unchanged. Any further daemon metric family requires a Plan-018 amendment.
+**Metric families (daemon scope — the relay mounts the equivalent relay-side set).** The daemon registry exposes exactly six families: the five Spec-024 row 9a families (the set D-019-8 ratified — that count does not move) plus the plan-owned `retention_policy_override` warning gauge mandated by [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics) and required by I-018-3 / T2.7. The gauge is daemon-only — it reports diagnostic-bucket retention state, which has no relay-side equivalent — and sits outside the row-9a security set, so Spec-024's row-9a enumeration is unchanged. Any further daemon metric family requires a change to this plan.
 
 | Family | Type | Labels (bounded) | Source |
 | --- | --- | --- | --- |
 | `token_auth_failure_total` | counter | `reason: "expired"\|"invalid"\|"dpop_mismatch"\|"principal_mismatch"\|"scope_denied"` (5 bounded values) | Auth middleware |
 | `cedar_deny_total` | counter | `policy_family: "session"\|"runtime_node"\|"artifact"\|"admin"` (bounded; owned by ADR-012) | Cedar authorization layer |
 | `relay_connection_churn_total` | counter | `phase: "connect"\|"disconnect"\|"reconnect"\|"rejected"` (4 bounded values) | Relay client (mounted by the relay-side equivalent) |
-| `backup_success_total` | counter | `kind: "event_end"\|"nightly"\|"manual"` (3 bounded values) | Backup job (Plan-001/BL-063) |
+| `backup_success_total` | counter | `kind: "event_end"\|"nightly"\|"manual"` (3 bounded values) | Backup job (Plan-001 + the persistence-hardening plan) |
 | `auto_update_check_status` | gauge | none | Update-notify poller (Plan-006 row 7a) — values: `0=ok`, `1=behind`, `2=poll_failed` |
 | `retention_policy_override` | gauge | none | Diagnostic-bucket retention policy (T2.7) — values: `0` = no TTL override beyond 30 days, `1` = an override > 30 days is active; re-asserted on every daemon startup and on every policy read (I-018-3). Plan-owned per [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics); outside the row-9a set |
 
-**Rate-limit families are control-plane-side, not daemon-side (Tier-5 audit, Plan-019 D-019-8).** The daemon has no rate-limit enforcer — [Spec-019 §Scope](../specs/019-rate-limiting-policy.md#scope) excludes the local IPC path, and its AC-8 asserts the daemon path is never rate-limited — so the former daemon-side `rate_limit_trip_total{bucket}` family is removed from this table. The canonical rate-limit family set (`rate_limit_trip_total{endpoint,tier}`, `rate_limit_block_total{window_size}`, `rate_limit_backend_error_total{backend}`, `rate_limit_failclosed_total{backend}`, `admin_ban_total{action}`) is owned by [Plan-019](./019-rate-limiting-policy.md#ratified-design-decisions-tier-5-audit), registered + emitted control-plane-side under this section's label invariants (Plan-019 CP-019-4), and exposed on the self-host relay `GET /metrics` by [Plan-028](./028-remote-control.md); hosted exposition is an explicit V1 gap (Plan-019 D-019-15).
+**Rate-limit families are control-plane-side, not daemon-side (Plan-019 D-019-8).** The daemon has no rate-limit enforcer — [Spec-019 §Scope](../specs/019-rate-limiting-policy.md#scope) excludes the local IPC path, and its AC-8 asserts the daemon path is never rate-limited — so no daemon-side `rate_limit_trip_total{bucket}` family appears in this table. The canonical rate-limit family set (`rate_limit_trip_total{endpoint,tier}`, `rate_limit_block_total{window_size}`, `rate_limit_backend_error_total{backend}`, `rate_limit_failclosed_total{backend}`, `admin_ban_total{action}`) is owned by [Plan-019](./019-rate-limiting-policy.md#design-decisions), registered + emitted control-plane-side under this section's label invariants (Plan-019 CP-019-4), and exposed on the self-host relay `GET /metrics` by [Plan-028](./028-remote-control.md); hosted exposition is an explicit V1 gap (Plan-019 D-019-15).
 
 **PII-free-by-construction invariants (I-018-2).**
 
@@ -108,8 +107,8 @@ Plan-018 owns the daemon-side `/metrics` endpoint required by [Spec-024 row 9](.
 
 ## API And Transport Changes
 
-- Add `HealthStatusRead`, `FailureDetailRead`, `StuckRunInspect`, and `RecoveryActionRequest` to the typed client SDK and daemon contracts. Each operation — these four plus the `DiagnosticRedactionPolicy` policy-state read below — is callable over exactly one registered wire method: the five `health.*` dotted-camelCase strings recorded in the [Health Method-Name Registry](../architecture/contracts/api-payload-contracts.md#health-method-name-registry-tier-7-plan-018-t14) (`health.statusRead`, `health.failureDetailRead`, `health.stuckRunInspect`, `health.recoveryActionRequest`, `health.redactionPolicyRead`), exported as contracts constants by T1.4 and registered against the Plan-006-partial daemon `MethodRegistry` with handler wiring by T2.10. Daemon JSON-RPC transport only — no tRPC sibling; the control-plane dependency-health read is merged daemon-side (T2.3).
-- **`RunFailureCategory` is a closed four-arm union — Plan-018 consumes it, never extends it.** The arms are exactly `"provider failure"`, `"transport failure"`, `"local persistence failure"`, and `"projection failure"`, defined in [API Payload Contracts §Shared Enums](../architecture/contracts/api-payload-contracts.md#shared-enums), described in [Run State Machine](../domain/run-state-machine.md), consumed as a closed set by [Plan-013](./013-persistence-recovery-and-replay.md) (Tier-6 audit, A-013-4 pinned the category → recovery-state mapping), and embedded in the Spec-005 `run.*` state-transition payload as `failureCategory?`. `FailureDetailRead.failureCategory` imports that enum under the same `failureCategory` carrier name the Spec-005 payload and `RecoveryStatusReadResponse` already use. Adding a fifth arm is therefore a cross-plan contract change touching the contracts mirror, Spec-005's payload shape, and Plan-013's mapping — never a Plan-018-local edit.
+- Add `HealthStatusRead`, `FailureDetailRead`, `StuckRunInspect`, and `RecoveryActionRequest` to the typed client SDK and daemon contracts. Each operation — these four plus the `DiagnosticRedactionPolicy` policy-state read below — is callable over exactly one registered wire method: the five `health.*` dotted-camelCase strings recorded in the [Health Method-Name Registry](../architecture/contracts/api-payload-contracts.md#health-method-name-registry) (`health.statusRead`, `health.failureDetailRead`, `health.stuckRunInspect`, `health.recoveryActionRequest`, `health.redactionPolicyRead`), exported as contracts constants by T1.4 and registered against the Plan-006-partial daemon `MethodRegistry` with handler wiring by T2.10. Daemon JSON-RPC transport only — no tRPC sibling; the control-plane dependency-health read is merged daemon-side (T2.3).
+- **`RunFailureCategory` is a closed four-arm union — Plan-018 consumes it, never extends it.** The arms are exactly `"provider failure"`, `"transport failure"`, `"local persistence failure"`, and `"projection failure"`, defined in [API Payload Contracts §Shared Enums](../architecture/contracts/api-payload-contracts.md#shared-enums), described in [Run State Machine](../domain/run-state-machine.md), consumed as a closed set by [Plan-013](./013-persistence-recovery-and-replay.md), which pins the category → recovery-state mapping, and embedded in the Spec-005 `run.*` state-transition payload as `failureCategory?`. `FailureDetailRead.failureCategory` imports that enum under the same `failureCategory` carrier name the Spec-005 payload and `RecoveryStatusReadResponse` already use. Adding a fifth arm is therefore a cross-plan contract change touching the contracts mirror, Spec-005's payload shape, and Plan-013's mapping — never a Plan-018-local edit.
 - **Policy or approval blockage is not a failure category.** [Spec-018 §Required Behavior](../specs/018-observability-and-failure-recovery.md#required-behavior) lists it fifth among the conditions operators must distinguish, but a policy-blocked run has not failed, so it is surfaced as a blocking reason on the stuck-run surface — `StuckRunInspectResponse.blockingReason` in the contracts mirror — rather than as a fifth `RunFailureCategory` arm. Its operational handling belongs to the Spec-010 approval-UX surfaces per [Spec-018 §Implementation Notes](../specs/018-observability-and-failure-recovery.md#implementation-notes), so Plan-018 renders the blockage and links out rather than owning a blockage runbook. The count asymmetry (five distinguishable conditions, four failure categories) is intended and must not be "fixed" by widening the enum.
 - Add `DiagnosticRedactionPolicy` contract: operator-readable current policy, opt-in toggles per bucket, and `retention_policy_override` warning surface. Default state is deny-outbound, ≤ 7-day TTL, no raw-content capture.
 - Expose control-plane dependency health in a form that can be merged with daemon-owned observability projections.
@@ -117,7 +116,7 @@ Plan-018 owns the daemon-side `/metrics` endpoint required by [Spec-024 row 9](.
 
 ## Invariants
 
-Load-bearing constraints every Plan-018 PR — and every downstream extension — must preserve. Weakening or removing one is a coordinated cross-plan amendment, not a local edit. Each entry names the governing clause it grounds in, or declares itself plan-owned.
+Load-bearing constraints every Plan-018 PR — and every downstream extension — must preserve. Weakening or removing one is a coordinated cross-plan change, not a local edit. Each entry names the governing clause it grounds in, or declares itself plan-owned.
 
 - **I-018-1 — The daemon `/metrics` cardinality ceiling is a merge gate, not a warning.** Total emitted series across the six registered daemon families — the five row-9a families plus the `retention_policy_override` warning gauge — stays below 200 per daemon instance. An integration test asserts the live series count; exceeding the ceiling blocks merge until the label allow-list tightens, rather than emitting a warning and shipping. **Grounds in.** [Spec-024 §Required Behavior](../specs/024-self-host-secure-defaults.md#required-behavior) row 9a states the ceiling ("cardinality ceiling < 200 series per daemon instance"). The merge-blocking enforcement posture layered on top of it is **plan-owned**: the spec states the ceiling but no enforcement mechanism for it. **Why load-bearing.** A metrics endpoint that degrades gracefully past its ceiling degrades silently — series growth is monotonic in practice, so a warning is observed once and then ignored while scrape cost and daemon memory grow unbounded on operator hardware nobody is watching. **Verification.** T3.4.
 - **I-018-2 — Metric labels are PII-free by construction, enforced at emission time.** Label values come from a closed, compile-time-enumerable allow-list per family; no label value derives from user IDs, session IDs, command text, file paths, URLs, tokens, or any free-form content; an out-of-allow-list value throws at emission time rather than being silently coerced or truncated. **Grounds in.** [Spec-024 §Required Behavior](../specs/024-self-host-secure-defaults.md#required-behavior) row 9a ("Labels MUST be bounded and PII-free"), serving the default-deny posture of [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics). The closed allow-list plus emission-time throw is the **plan-owned** enforcement mechanism for that MUST — the spec states the property, not how it is detected. **Why load-bearing.** `/metrics` is scraped by systems outside the daemon's trust boundary; a single dynamic label value leaks PII to every scraper and every retained scrape sample simultaneously, and truncating or masking it does not help because partial PII is still PII per Spec-018. Throwing at emission converts a silent leak into a loud test failure at the moment a new code path adds an observation. **Verification.** T3.1.
@@ -131,9 +130,9 @@ Each entry transcribes an obligation already committed in the named counterparty
 
 ### CP-018-1 — Metric-family label invariants are a doc contract Plan-019 registers against (⇄ Plan-019 CP-019-4)
 
-**Obligation.** Plan-019 registers its canonical control-plane `rate_limit_*` metric families against this plan's §Prometheus `/metrics` Exposition label invariants — bounded, compile-time-enumerable label values, PII-free by construction, emission-time enforcement (I-018-2). Plan-019 records the relationship as `consumes ←` and scopes it explicitly: a **doc contract only, with no Plan-018 code consumed and therefore no tier inversion** despite Plan-019 sitting at Tier 5 and Plan-018 at Tier 7.
+**Obligation.** Plan-019 registers its canonical control-plane `rate_limit_*` metric families against this plan's §Prometheus `/metrics` Exposition label invariants — bounded, compile-time-enumerable label values, PII-free by construction, emission-time enforcement (I-018-2). Plan-019 records the relationship as `consumes ←` and scopes it explicitly: a **doc contract only, with no Plan-018 code consumed**, so neither plan waits on the other's code.
 
-**Resolution.** Live and reciprocal. Plan-019's side is CP-019-4; the reciprocal recorded there is that Plan-019's canonical family set supersedes the former daemon-side `rate_limit_trip_total{bucket}` registry row (D-019-8, Tier-5 audit) — the supersession this plan's §Prometheus `/metrics` Exposition already carries and its 2026-06-10 Notes entry records. Plan-018 owes Plan-019 a stable label-invariant contract, not code; a change to the invariants is a cross-plan amendment because Plan-019's registrations are validated against them.
+**Resolution.** Live and reciprocal. Plan-019's side is CP-019-4; the reciprocal recorded there is that Plan-019's canonical family set is the sole registry for those families (D-019-8), as this plan's §Prometheus `/metrics` Exposition already states. Plan-018 owes Plan-019 a stable label-invariant contract, not code; a change to the invariants is a cross-plan change because Plan-019's registrations are validated against them.
 
 ### CP-018-2 — The four diagnostic buckets are Path-3 shred targets (⇄ Plan-020 CP-020-7)
 
@@ -145,7 +144,7 @@ Each entry transcribes an obligation already committed in the named counterparty
 
 **Obligation.** Plan-005 forward-declared that Plan-018 SHOULD consume three audit-integrity events — `audit_integrity_verified`, `audit_integrity_failed`, `key_reuse_detected` — for an audit-health dashboard, and stated that the obligation is **binding when Plan-018 is authored**. Plan-018 is authored, so the condition has fired and the obligation is binding.
 
-**Resolution.** Binding; consumption mechanism **not yet designed**. This entry records the obligation and the three event names only. Plan-018 does not here declare which surface consumes them, whether they map to a metric family (they are not among the five row-9a families, so a new family would require the amendment §Prometheus `/metrics` Exposition already demands), or what the dashboard shape is — that design is owed by a future Plan-018 amendment and must not be inferred from this entry. Plan-005 owns event emission and naming; Plan-018 owes the consuming surface.
+**Resolution.** Binding; consumption mechanism **not yet designed**. This entry records the obligation and the three event names only. Plan-018 does not here declare which surface consumes them, whether they map to a metric family (they are not among the five row-9a families, so a new family would require the change §Prometheus `/metrics` Exposition already demands), or what the dashboard shape is — that design is owed by a future change to this plan and must not be inferred from this entry. Plan-005 owns event emission and naming; Plan-018 owes the consuming surface.
 
 ## Implementation Steps
 
@@ -160,16 +159,15 @@ Each entry transcribes an obligation already committed in the named counterparty
 
 ## Implementation Phase Sequence
 
-Four phases decompose the six §Implementation Steps above; nothing here is new design. Phase 1 covers Step 1; Phase 2 covers Steps 2-4; Phase 3 covers Step 5; Phase 4 covers Step 6. Phase 1 has no unsatisfied upstream code dependency beyond the Tier-7 audit; Phases 2-4 serialize behind their predecessors. Migration ordinals are written `0NNN` and resolve to the next free number in the target migration directory at implementation time, per the shared-numbering convention.
+Four phases decompose the six §Implementation Steps above; nothing here is new design. Phase 1 covers Step 1; Phase 2 covers Steps 2-4; Phase 3 covers Step 5; Phase 4 covers Step 6. Phase 1 has no unsatisfied upstream code dependency; Phases 2-4 serialize behind their predecessors. Migration ordinals are written `0NNN` and resolve to the next free number in the target migration directory at implementation time, per the shared-numbering convention.
 
 ### Phase 1 — Health, failure, and recovery contracts
 
-**Precondition:** Tier-7 plan-readiness audit complete. Implementation Step 1; gates every later phase, which all type against these shapes.
+**Precondition:** none. Implementation Step 1; gates every later phase, which all type against these shapes.
 
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8-complete" }
 ```
 
 #### Tasks
@@ -203,12 +201,12 @@ preconditions:
 
 - **T1.4 — `health.*` wire method-name registration.**
   - **Files:** `packages/contracts/src/health/health.ts` (EXTEND — same file as T1.1)
-  - Export the five `health.*` method-name constants — `health.statusRead`, `health.failureDetailRead`, `health.stuckRunInspect`, `health.recoveryActionRequest`, `health.redactionPolicyRead` — matching the [Health Method-Name Registry](../architecture/contracts/api-payload-contracts.md#health-method-name-registry-tier-7-plan-018-t14) one-to-one, so every Plan-018 operation resolves a registered wire method string rather than merely a schema name. Daemon JSON-RPC transport only — no tRPC sibling exists; the control-plane dependency-health read is merged daemon-side by T2.3.
-  - **Tests:** `packages/contracts/src/__tests__/health.test.ts` (EXTEND) — each constant matches the Tier-1 `METHOD_NAME_FORMAT` regex imported from `packages/contracts/src/jsonrpc-registry.ts` (never a re-declared copy); the five strings are pairwise distinct and cover the five operations one-to-one.
+  - Export the five `health.*` method-name constants — `health.statusRead`, `health.failureDetailRead`, `health.stuckRunInspect`, `health.recoveryActionRequest`, `health.redactionPolicyRead` — matching the [Health Method-Name Registry](../architecture/contracts/api-payload-contracts.md#health-method-name-registry) one-to-one, so every Plan-018 operation resolves a registered wire method string rather than merely a schema name. Daemon JSON-RPC transport only — no tRPC sibling exists; the control-plane dependency-health read is merged daemon-side by T2.3.
+  - **Tests:** `packages/contracts/src/__tests__/health.test.ts` (EXTEND) — each constant matches the `METHOD_NAME_FORMAT` regex imported from `packages/contracts/src/jsonrpc-registry.ts` (never a re-declared copy); the five strings are pairwise distinct and cover the five operations one-to-one.
   - **Acceptance:** a client can name every health operation by wire method string from the contracts package alone — no daemon import, no string literal at call sites.
   - **Spec coverage:** Spec-018 §Interfaces And Contracts
   - **Verifies invariant:** none (naming task; daemon registration and handler wiring land in T2.10)
-  - **Consumes:** `METHOD_NAME_FORMAT` ← `packages/contracts/src/jsonrpc-registry.ts` (BL-142 single source); the `health` namespace-root admission ← [API Payload Contracts §JSON-RPC Method-Name Registry (Tier 1 Ratified)](../architecture/contracts/api-payload-contracts.md#json-rpc-method-name-registry-tier-1-ratified)
+  - **Consumes:** `METHOD_NAME_FORMAT` ← `packages/contracts/src/jsonrpc-registry.ts` (single source); the `health` namespace-root admission ← [API Payload Contracts §JSON-RPC Method-Name Registry](../architecture/contracts/api-payload-contracts.md#json-rpc-method-name-registry)
 
 ### Phase 2 — Daemon health projections, recovery actions, and diagnostic-bucket retention
 
@@ -217,7 +215,6 @@ preconditions:
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8-complete" }
   - { type: plan_phase, plan: 018, phase: 1, status: merged }
 ```
 
@@ -230,7 +227,7 @@ preconditions:
   - **Acceptance:** a user-scoped purge can be indexed rather than table-scanned on every bucket — the storage precondition I-018-5 needs.
   - **Spec coverage:** Spec-018 §State And Data Implications
   - **Verifies invariant:** none (schema task; I-018-5 is verified by T2.9)
-  - **Consumes:** the daemon migration runner ← Plan-001 (shipped Tier 1)
+  - **Consumes:** the daemon migration runner ← Plan-001 (shipped)
 
 - **T2.2 — `health_snapshots` shared-Postgres columns.**
   - **Files:** `packages/control-plane/src/migrations/0NNN-health-snapshots.ts` (CREATE), `docs/architecture/schemas/shared-postgres-schema.md` (EXTEND — doc mirror)
@@ -239,7 +236,7 @@ preconditions:
   - **Acceptance:** health remains queryable without opening a timeline; no raw diagnostic payload reaches shared Postgres.
   - **Spec coverage:** Spec-018 §State And Data Implications
   - **Verifies invariant:** none (schema task)
-  - **Consumes:** the control-plane migration runner ← Plan-001 (shipped Tier 1)
+  - **Consumes:** the control-plane migration runner ← Plan-001 (shipped)
 
 - **T2.3 — Health-status projection service.**
   - **Files:** `packages/runtime-daemon/src/observability/health-status-service.ts` (CREATE), `packages/control-plane/src/health/` (CREATE — control-plane dependency-health read)
@@ -311,7 +308,7 @@ preconditions:
   - **Acceptance:** every Plan-018 operation is callable end-to-end over daemon JSON-RPC; no health surface is reachable except through a registered method.
   - **Spec coverage:** Spec-018 §Interfaces And Contracts
   - **Verifies invariant:** none (transport wiring; the services it dispatches to carry their own tasks' invariants)
-  - **Consumes:** the five method-name constants ← T1.4; services ← T2.3, T2.4, T2.5, T2.6, T2.8; the `MethodRegistry` substrate ← Plan-006-partial (shipped Tier 1)
+  - **Consumes:** the five method-name constants ← T1.4; services ← T2.3, T2.4, T2.5, T2.6, T2.8; the `MethodRegistry` substrate ← Plan-006-partial (shipped)
 
 ### Phase 3 — Prometheus `/metrics` exposition
 
@@ -320,7 +317,6 @@ preconditions:
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8-complete" }
   - { type: plan_phase, plan: 018, phase: 2, status: merged }
 ```
 
@@ -369,7 +365,6 @@ preconditions:
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8-complete" }
   - { type: plan_phase, plan: 018, phase: 3, status: merged }
 ```
 
@@ -432,15 +427,6 @@ preconditions:
 - Automated retry policy remains unresolved across drivers (deferral tracked in parent [Spec-018](../specs/018-observability-and-failure-recovery.md))
 - Health projections can become misleading if replay and provider diagnostics are not merged from authoritative sources
 - Bounded-retention implementation can become misleading if raw diagnostic expiry is not clearly distinguished from canonical observability truth
-
-## Progress Log
-
-### Notes
-
-<!-- Per-PR human commentary (round-trips, learnings, partial-ship details). Append-only. -->
-
-- 2026-06-10 — Tier-5 plan-readiness audit (Plan-019 walk, D-019-8): removed the daemon-side `rate_limit_trip_total{bucket}` family from §Prometheus `/metrics` Exposition (the daemon has no rate-limit enforcer per [Spec-019 §Scope](../specs/019-rate-limiting-policy.md#scope) / AC-8) and recorded the supersession note pointing at Plan-019's canonical control-plane family set. Daemon family count 6 → 5; cardinality ceiling unchanged. Spec-024 rows 9a/9b reconciled in the same audit pass.
-- 2026-08-10 — Tier-7 plan-readiness audit (PR #318): the plan's dispatch scaffolding was backfilled and one stale-count class was reconciled. **Backfill (records what was already committed; no new design).** §Implementation Phase Sequence decomposes the six §Implementation Steps into four phases with `#### Tasks` blocks and per-phase machine-readable preconditions — Phase 1 covers Step 1, Phase 2 covers Steps 2-4 (widened from the walker's "diagnostic buckets and retention" title so Steps 2-3 are not orphaned by the decomposition), Phase 3 covers Step 5, Phase 4 covers Step 6. §Invariants declares I-018-1..5 (cardinality-ceiling merge gate; PII-free-by-construction labels; ≤ 7-day bucket TTL with override warning; default-deny outbound; Path-3 flush reaching all four buckets), each grounded in a named spec clause or declared plan-owned, with §Prometheus `/metrics` Exposition, §Test And Verification Plan, and §Done Checklist repointed at the ids. §Cross-Plan Obligations declares CP-018-1..4 by transcribing the counterparties' committed text — Plan-019 CP-019-4 (label-invariant doc contract), Plan-020 CP-020-7 (Path-3 fan-out), Plan-005 CP-005-10 (forward declaration now fired: the obligation and the three event names `audit_integrity_verified` / `audit_integrity_failed` / `key_reuse_detected` are recorded, the consumption mechanism deliberately is **not**, and must not be inferred), and Spec-024 row 9b (bind-auth contract owned here, relay wiring owned there). §Required ADRs gains ADR-003, ADR-012, and ADR-017 — already load-bearing in the body (queue/intervention health, `cedar_deny_total`'s policy-family labels, the runtime-local-no-Postgres-counterpart rule). §API And Transport Changes and Phase 1 T1.1 now state the `RunFailureCategory` four-arm closure explicitly and record that policy or approval blockage is not a fifth arm but a `blockingReason` on the stuck-run surface, routed to Spec-010 per [Spec-018 §Implementation Notes](../specs/018-observability-and-failure-recovery.md#implementation-notes). §PII in Diagnostics now states that redaction _decision logic_ is code-local with no wire contract, while the operator-readable policy _state_ is the contracted surface. **Reconciliation.** [Spec-024 §Acceptance Criteria](../specs/024-self-host-secure-defaults.md#acceptance-criteria) and the self-host secure-defaults runbook still claimed six daemon counter families; both are corrected to the five row-9a families already ratified by the 2026-06-10 D-019-8 pass; Spec-024's `/metrics`-auth open question is retired against rows 9a/9b, which have carried the bearer-or-mTLS answer since that pass; and the same acceptance criterion's auth clause — which still asserted the bearer-only premise that open question carried — is widened to that ratified scheme, so the retirement does not leave the consequence standing without its deleted premise. Recording an already-ratified decision at a site that missed it is reconciliation, not new design, so Spec-024 stays `approved`. Backfill plus reconciliation only — Plan-018 stays `approved` per the backfill precedent. Not applied here: the cross-plan dependency-map edits (owned by a sibling in the same audit swap). **Review-round addendum (2026-08-11, same PR):** four Codex findings reconciled under the Plan-011-restore test (every edit records an existing relationship, structure, or ownership fact ratified text already asserts — none invents behavior). (1) The five `health.*` wire method strings are registered — new T1.4/T2.10, the Health Method-Name Registry, and the `DiagnosticRedactionPolicyRead` mirror shapes — catching the contracts mirror up to the §API And Transport Changes contract and giving T4.1 callable operations. (2) The `METRICS_AUTH` credential inputs are named — `METRICS_AUTH_TOKEN_FILE`; `METRICS_TLS_CERT_FILE` / `METRICS_TLS_KEY_FILE`; `METRICS_TLS_CLIENT_CA_FILE` / `METRICS_TLS_CLIENT_ALLOWLIST_FILE` — the concrete-variable layer of the bind/auth contract this plan already owns for both surfaces (CP-018-4); Spec-024 is untouched because its rows 9a/9b already ratify the material classes. (3) The health-status vocabulary is reconciled to Spec-018's `healthy` / `degraded` / `blocked` (the contracts mirror carried the drifted `unhealthy` arm) and the failure field to the corpus-wide `failureCategory` carrier (this plan's task text carried the drifted `category` spelling). (4) The Spec-018-mandated `retention_policy_override` warning gauge is registered as the sixth daemon family: the row-9a set stays the five D-019-8 ratified, and the registry total moves 5 → 6 — this entry's earlier "6 → 5" recorded the rate-limit-family removal, which stands; the new sixth is a different, plan-owned family.
 
 ## Done Checklist
 

@@ -39,6 +39,9 @@ This glossary covers the primary domain terms from `vision.md` and the canonical
 | `WorkflowStep` | The runtime record of one attempt of one node, keyed by the run, the node and the attempt number, carrying that attempt's status, timings, input, output and log. |
 | `Gate` | A checkpoint between workflow phases that must resolve before the next phase can start. |
 | `local-only` | A visibility or operating constraint meaning the relevant session continuity, execution path, or artifact remains usable on the user's own local runtime node without requiring current control-plane reachability. `local-only` is not a separate domain object or an alternate session model. |
+| `Transcript` | The session's own record of its conversation, written by the daemon and drawn on screen in order: messages, tool calls, approvals and replies. There is no replay surface over it: scrollback is scrollback, and a person scrolls it. |
+| `Conversation file` | The provider's own on-disk record of a session's conversation, kept under the credential home it runs in (Claude Code writes `projects/<project folder>/<session id>.jsonl`). An account switch copies this one file into the new account's home and resumes it there through the provider's own resume; nothing is re-sent as text. |
+| `Memory files` | The instruction files a provider reads from its home and the project at a session's start: `CLAUDE.md` and the memory folder on Claude Code, `AGENTS.md` on Codex. `providerAccount.memoryImport` copies an operator's ambient store of them into a named account's home once. |
 
 ## What This Is
 

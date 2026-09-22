@@ -63,11 +63,14 @@ Rules 2, 4, 9, and 12 are answered by static analysis, not by reading: symbol re
 - A subagent brief names the goal, the files and symbols that already exist, what not to touch, and what done looks like. Split parallel work by non-overlapping file sets; parallel reading is safe, parallel writing conflicts.
 - Research scratch goes under `.agents/tmp/<topic>/` (gitignored). A committed document never links there; if a finding matters, write it into the document that needs it, with its source.
 - When reviewing, report every finding with a severity; do not pre-filter. Always fix every review finding of any severity, nitpicks included.
+- A design mock is a picture, never source. Nothing from its markup, styles, script or sample data, and no size or figure it hard-codes, is copied into product code or a tracked document; the product derives every figure from data and every measurement from the token scale.
+- A requirement is never weakened to fit what a provider or a library offers today. Find the mechanism that meets it; a true gap is reported to the person as a gap, never shipped as a smaller requirement, an absence line, or a provider limitation restated as the design.
 
 ## Docs
 
 - `docs/specs/` what a feature is · `docs/plans/` how it gets built · `docs/decisions/` ADRs (Type 1 reversible, Type 2 one-way) · `docs/domain/`, `docs/architecture/`, `docs/operations/` reference.
 - Skeletons in each folder's template file, for when you want one. A new spec or plan starts `draft` and becomes `ready`; existing documents keep the status they carry. A document records what was intended when it was written. Changing code later does not reopen it, does not change its status, and needs no audit; edit a document only when you want it to say something different.
 - Link to a heading as an ordinary markdown link (`[Spec-005 §Heading](../specs/005-x.md#heading)`); `lychee` checks links in CI. No line-number citations. When you rename or move a heading, fix every link to it in the same commit. `docs/operations/failure-mode-catalog.md` is the five-item checklist for edits that rename or move things.
+- A document says what the product will be, and carries no history. The current design outranks any older prose: an earlier phase or tier scheme, a dated audit box, an amendment log, a "previously" sentence or a review note is rewritten to the current design or deleted, never kept beside it, because a reader who meets stale text wastes context on it or builds the wrong thing. History lives in git and in `docs/archive/`.
 - `docs/archive/` is history: nothing in it is updated or used for current work, and anything worth keeping for the record can be moved into it.
 - `docs/backlog.md` lists only work blocked on the outside world.

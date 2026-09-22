@@ -97,11 +97,3 @@ We will default to OS-local IPC for client-to-daemon communication, use authenti
 
 - [Local Execution Shared Control Plane](./002-local-execution-shared-control-plane.md)
 - [Device Trust and Permission Model](./007-device-trust-and-permission-model.md)
-
-## Decision Log
-
-| Date | Event | Notes |
-| --- | --- | --- |
-| 2026-04-14 | Proposed | Initial draft |
-| 2026-04-14 | Re-baselined | Reviewer assignment and template-complete acceptance remain incomplete |
-| 2026-04-15 | Accepted | ADR accepted |

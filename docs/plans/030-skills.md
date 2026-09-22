@@ -124,7 +124,7 @@ Each of these is one state of the built screen, reached through the interface an
 
 ### Sweeps over the built screen
 
-Run over every state above: the rail draws five destinations in order with Skills current; the screen says sidekick and never agent; no sentence begins with `You`; no wire spelling appears beyond file names, paths and the provider's own call form, read over every accessible name as well as every visible word; every glyph-only control carries a word for a name; no horizontal overflow at 1440 × 900; no runtime error on any state; both colour schemes render; reduced motion is respected; one remote origin; and every chrome size root-relative with every text size and line height a type-scale token, so the screen at a larger root is the same screen in one proportion.
+Run over every state above: the rail draws five destinations in order with Skills current; the screen says `sidekick` and never agent; no sentence begins with `You`; no wire spelling appears beyond file names, paths and the provider's own call form, read over every accessible name as well as every visible word; every glyph-only control carries a word for a name; no horizontal overflow at 1440 × 900; no runtime error on any state; both colour schemes render; reduced motion is respected; one remote origin; and every chrome size root-relative with every text size and line height a type-scale token, so the screen at a larger root is the same screen in one proportion.
 
 Tooling is the console's existing tiers ([Spec-021 §Console Test Tiers](../specs/021-desktop-shell-and-renderer.md#console-test-tiers)): Vitest with happy-dom for unit, Vitest browser mode through `@vitest/browser-playwright` for the browser and accessibility tiers with `axe-core` 4.13.0 run in-page, `@playwright/test` 1.62.1's Electron launcher for the end-to-end flow, `@testing-library/react` for the console unit tier, and `knip` 6.34.0 with `dependency-cruiser` 18.2.0 for the structural gates.
 
@@ -135,7 +135,3 @@ Tooling is the console's existing tiers ([Spec-021 §Console Test Tiers](../spec
 - **A mid-session save that the provider never sees.** On Claude Code a scope directory that did not exist when a session started stays invisible for that session's whole life unless the reload request is sent. Create the roots before launch and send the reload after every write; a save that reports success and does not reach the running session is the failure this mitigates.
 - **Seven recursive watches cost handles and wake-ups.** Use one recursive watch per root with a debounce, coalesce a burst of writes into one registry rebuild, and never poll.
 - **A very large folder.** A skill folder has no depth cap and no file cap by design. List every file, read the ones that can be read, and bound the editor by refusing to open a body over the readable size rather than by hiding the row.
-
-## Notes
-
-Dated notes about decisions taken during the build, newest first. What has merged is `git log --oneline --grep 'Plan-030'`.

@@ -147,16 +147,15 @@ One tool call is the shortest wait that keeps a turn whole, and it is short: an 
 
 ## References
 
-No outside research was needed; the decision rests on the specifications linked above.
+### Research Conducted
+
+| Source | Type | Key Finding | URL/Location |
+| --- | --- | --- | --- |
+| Live probe of the shared Codex `app-server` at `0.155.1` | Primary research | One service holds many conversations, each taking its own folder, configuration and tool servers at `thread/start`; the service reports usage per thread, so spend attributes without a split of ours; a joined conversation holds about 17 MB of real memory against about 58 MB standing alone, the service about 40 MB with one client; a dropped attachment reconnects by itself within about five seconds and has given up by about twenty-four | Measured for the console design; the figures are inlined here and in the Codex wire reference |
+| Cross-home resume, probed on both providers at their pinned builds | Primary research | A Claude transcript copied into a fresh, signed-out configuration home is found and loaded by that provider's own resume, and a Codex rollout copied into a fresh home is listed and resumed with the same identifier and turn — both up to the model call, which needs a second signed-in account | Measured for the console design; the reading is inlined in §Assumptions Audit |
+| Feature census of two reference desktop apps, a Go one and a Rust one | Primary research | Both run one provider process per session with nothing shared per account, and both stop an idle one on a half-hour timer; the guards that grew around those timers — a turn in flight, a pending approval, queued work, and a wake-up timer living inside the provider process with no lifecycle of its own — are the work a stop of ours would end unseen | Read for the console design; the reading is summarized here |
 
 ### Related ADRs
 
 - [ADR-028: Provider Credential Custody Posture](028-provider-credential-custody-posture.md) — what a credential home is and who may read it.
 - [ADR-029: Canonical Transcript Is Authoritative](029-canonical-transcript-is-authoritative.md) — the transcript that stands in where a provider's own resume cannot reopen the conversation.
-
-## Decision Log
-
-| Date | Event | Notes |
-| --- | --- | --- |
-| 2026-09-21 | Accepted | Decided with the console design. |
-| 2026-09-21 | Codex leg amended | Codex moves from one process per session to one service per account home, with the four conditions in §Decision; the Claude Code leg is unchanged. Decided with the console design on the measured shape of the shared `app-server`. |

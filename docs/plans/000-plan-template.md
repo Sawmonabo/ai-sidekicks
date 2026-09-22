@@ -42,7 +42,3 @@ Done when: the sentence.
 ## Risks
 
 - A risk and what you would do about it.
-
-## Notes
-
-Dated notes about decisions taken during the build, newest first. What has merged is `git log --oneline --grep 'Plan-NNN'`.

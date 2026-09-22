@@ -23,7 +23,7 @@ The control plane was about to gain multiple consumers (CLI, desktop app, browse
 
 ## Decision
 
-Use tRPC v11 for control plane request-response operations and SSE subscriptions (notifications, run streaming). Use WebSocket with JSON-RPC 2.0 payloads for the bidirectional device channel (device liveness and device-to-node control traffic (relay traffic is outside this JSON-RPC subset: relay negotiation rides tRPC request-response and the relay WSS connection speaks the sealed relay frames [Spec-028](../specs/028-remote-control.md) defines — ciphertext envelopes and broker control frames alike); session-timeline and run-output event streams stay on tRPC SSE per [ADR-008](./008-default-transports-and-relay-boundaries.md)'s transport assignment — enumeration corrected by the 2026-07-02 Decision Log row).
+Use tRPC v11 for control plane request-response operations and SSE subscriptions (notifications, run streaming). Use WebSocket with JSON-RPC 2.0 payloads for the bidirectional device channel (device liveness and device-to-node control traffic (relay traffic is outside this JSON-RPC subset: relay negotiation rides tRPC request-response and the relay WSS connection speaks the sealed relay frames [Spec-028](../specs/028-remote-control.md) defines — ciphertext envelopes and broker control frames alike); session-timeline and run-output event streams stay on tRPC SSE per [ADR-008](./008-default-transports-and-relay-boundaries.md)'s transport assignment).
 
 ## Alternatives Considered
 
@@ -109,11 +109,3 @@ Use tRPC v11 for control plane request-response operations and SSE subscriptions
 - [ADR-009: JSON-RPC IPC Wire Format](./009-json-rpc-ipc-wire-format.md)
 - [ADR-002: Local Execution Shared Control Plane](./002-local-execution-shared-control-plane.md)
 - [tRPC v11 Documentation](https://trpc.io/docs)
-
-## Decision Log
-
-| Date | Event | Notes |
-| --- | --- | --- |
-| 2026-04-15 | Proposed | Initial draft |
-| 2026-04-15 | Accepted | ADR accepted |
-| 2026-07-02 | Amended — WebSocket subset enumeration corrected | Capability-enhancement campaign (B8 companion edit): the §Decision WebSocket enumeration said "live event streaming", contradicting the transport assignment (session-timeline / run-output streams are SSE-owned); restated as the bidirectional device channel. ADR-009's 2026-07-02 narrowing cites this ADR as the split authority, so the authority itself now carries the correct enumeration. |

@@ -208,9 +208,3 @@ Not chosen now: a read-only Sidekicks pane drawn inside terminal Claude Code (a 
 ### Related ADRs
 
 - [ADR-033: One Claude Code Process Per Session, One Codex Service Per Account](033-one-claude-process-per-session-one-codex-service-per-account.md) — the process the daemon drives and the wire it drives it on; this record keeps that path and adds nothing inside the process.
-
-## Decision Log
-
-| Date | Event | Notes |
-| --- | --- | --- |
-| 2026-09-21 | Accepted | Decided with the console design after the headless probe; revisit when the docs page for mods exists or the flag is on by default. |
