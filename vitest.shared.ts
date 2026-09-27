@@ -55,6 +55,25 @@ const SHARED_COVERAGE_EXCLUDES: readonly string[] = [
   "src/migrations/**",
 ];
 
+interface TestTimeouts {
+  readonly testTimeout?: number;
+  readonly hookTimeout?: number;
+}
+
+/**
+ * The package's own test and hook limits, lifted during a mutation run. Stryker
+ * sets `STRYKER_MUTATOR_WORKER` in every test-runner process it starts, and there
+ * every statement carries mutant switches and coverage counters, so a test that
+ * loops over package code runs many times slower (the daemon's plaintext-bound
+ * test: 49 ms plain, over 5 s instrumented). Stryker's own per-mutant timeout
+ * still ends a mutant that hangs.
+ */
+export function sharedTestTimeouts(limits: TestTimeouts = {}): TestTimeouts {
+  return process.env.STRYKER_MUTATOR_WORKER === undefined
+    ? limits
+    : { testTimeout: 300_000, hookTimeout: 300_000 };
+}
+
 export function sharedCoverageOptions(overrides: SharedCoverageOverrides = {}): CoverageOptions {
   return {
     provider: "v8",

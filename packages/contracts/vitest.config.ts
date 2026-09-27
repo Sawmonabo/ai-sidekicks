@@ -9,7 +9,7 @@
 // `vitest.shared.ts`.
 import { defineConfig } from "vitest/config";
 
-import { sharedCoverageOptions } from "../../vitest.shared";
+import { sharedCoverageOptions, sharedTestTimeouts } from "../../vitest.shared";
 
 export default defineConfig({
   test: {
@@ -22,5 +22,6 @@ export default defineConfig({
     // `vitest.shared.ts` for why coverage cannot be hoisted into a single
     // root config.
     coverage: sharedCoverageOptions(),
+    ...sharedTestTimeouts(),
   },
 });

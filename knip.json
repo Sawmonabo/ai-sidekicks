@@ -1,22 +1,21 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
 
-  // Dead-code gate for `apps/desktop` — one of the two structure-enforcement legs.
-  // knip resolves a set of entry points, then reports everything under `project` that no
-  // entry reaches, transitively. That is the whole claim this file makes.
+  // Dead-code gate for every workspace. knip resolves each workspace's entry points, then
+  // reports everything under its `project` that no entry reaches, transitively. That is the
+  // whole claim this file makes.
   //
-  // RUN IT FROM THE WORKSPACE ROOT — `pnpm --filter @ai-sidekicks/desktop structure:dead-code`
-  // does exactly that, via `--directory ../..`. The workspace keys below are therefore
-  // repo-root-relative. Running from the workspace root is not a preference: a package-scoped
-  // run cannot see the workspace-root `pnpm-workspace.yaml`, so every `catalog:` specifier
-  // reports unresolved, and it cannot see the root manifest, so `tsc` / `eslint` / `turbo`
-  // report as unlisted binaries. Both classes vanish here, and neither is silenced by an
-  // ignore entry.
+  // RUN IT FROM THE WORKSPACE ROOT — `pnpm structure:dead-code` runs every workspace, and
+  // `pnpm --filter @ai-sidekicks/desktop structure:dead-code` runs the desktop alone from here
+  // via `--directory ../..`. The workspace keys below are therefore repo-root-relative. Running
+  // from the workspace root is not a preference: a package-scoped run cannot see the
+  // workspace-root `pnpm-workspace.yaml`, so every `catalog:` specifier reports unresolved, and
+  // it cannot see the root manifest, so `tsc` / `eslint` / `turbo` report as unlisted
+  // binaries. Both classes vanish here, and neither is silenced by an ignore entry.
   //
   // The root workspace is declared with empty globs on purpose: knip then reads its manifest
-  // for dependency resolution while contributing no findings of its own, and `--workspace
-  // apps/desktop` keeps the report scoped to this package.
-  // The per-symbol dead-code lever, and the only one this package uses. knip reads
+  // for dependency resolution while contributing no findings of its own.
+  // The per-symbol dead-code lever, and the only one this repo uses. knip reads
   // JSDoc/TSDoc tags off an export and `-consumedBy` excludes every export carrying
   // `@consumedBy` from the report — the documented `tags` option, which is what
   // `apps/desktop/AGENTS.md` binds to a plain-word reason. It is per SYMBOL, unlike `ignore`
@@ -34,7 +33,12 @@
   "tags": ["-consumedBy"],
 
   "workspaces": {
-    ".": { "entry": [], "project": [] },
+    ".": {
+      "entry": [],
+      "project": [],
+      // `semver` is required by the CI workflow's inline `node -e` scripts, which knip does not read.
+      "ignoreDependencies": ["semver"]
+    },
 
     "apps/desktop": {
       // NO `entry` DECLARATION, deliberately. knip's defaults already cover the three process
@@ -111,6 +115,29 @@
       // Linux runners (`test/helpers/electron-probe.ts`); it is installed by the CI job's apt
       // step and is never a package dependency, so knip is told not to expect it in a manifest.
       "ignoreBinaries": ["xdpyinfo"]
+    },
+
+    // The packages declare no source `entry`: knip reads each one's entries from its own
+    // manifest (`exports`, whose `@ai-sidekicks/source` condition points at `src/`), and its
+    // plugins add the rest — every package's `vitest.config.ts` test files, and the control
+    // plane's worker entry from `wrangler.toml`. Each ignore below names a dependency knip
+    // cannot see being used, with the reason.
+    "packages/contracts": {
+      // The conditional-type tests beside the contracts; `tsc -p tsconfig.test.json` checks
+      // them, and nothing imports them.
+      "entry": ["src/**/*.test-d.ts"]
+    },
+    "packages/crypto-paseto": {},
+    "packages/client-sdk": {},
+    "packages/control-plane": {
+      // The Cloudflare CLI: the worker is run with `wrangler dev` and published with
+      // `wrangler deploy` by hand, so no package script names it.
+      "ignoreDependencies": ["wrangler"]
+    },
+    "packages/runtime-daemon": {
+      // Loaded by `import()` of a specifier held in a variable (`pty/node-pty-host.ts`), which
+      // knip cannot follow; it is a hard runtime dependency.
+      "ignoreDependencies": ["node-pty"]
     }
   }
 }

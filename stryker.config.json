@@ -1,0 +1,23 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "plugins": ["@stryker-mutator/vitest-runner"],
+  "mutate": [
+    "src/**/*.ts",
+    "!src/**/__tests__/**",
+    "!src/**/*.test.ts",
+    "!src/**/*.test-d.ts",
+    "!src/migrations/**"
+  ],
+  "coverageAnalysis": "perTest",
+  "incremental": true,
+  "incrementalFile": ".stryker/incremental.json",
+  "tempDirName": ".stryker/tmp",
+  "inPlace": true,
+  "reporters": ["clear-text"],
+  "clearTextReporter": {
+    "allowColor": false,
+    "allowEmojis": false,
+    "logTests": false
+  }
+}

@@ -71,7 +71,7 @@
         "test/**",
         "build/**",
         "scripts/**",
-        "knip.json",
+        "$TURBO_ROOT$/knip.json",
         "vitest.config.ts",
         "electron.vite.config.ts",
         "tsconfig*.json",

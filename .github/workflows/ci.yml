@@ -592,8 +592,9 @@ jobs:
         # `serial: true` marks a leg whose tasks drive a real browser or
         # Electron window: only one such process may be alive at a time, and
         # a build dependency must not overlap the tier it builds for. The
-        # unmarked legs are plain Node test projects and a static analysis
-        # pair, which run at the default concurrency.
+        # unmarked legs are plain Node test projects and the import-graph
+        # check, which run at the default concurrency. The dead-code check
+        # covers every workspace, so it runs in the `structure` job below.
         include:
           - tier: "test:renderer test:main-unit test:console-unit test:console-assets"
           - tier: "test:console-browser test:console-accessibility"
@@ -605,7 +606,7 @@ jobs:
           - tier: "test:console-e2e test:console-endurance"
             serial: true
           - tier: "test:console-bench"
-          - tier: "structure:dead-code structure:layering"
+          - tier: "structure:layering"
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -803,9 +804,9 @@ jobs:
         if: contains(matrix.tier, 'browser') || contains(matrix.tier, 'smoke') || contains(matrix.tier, 'e2e')
         run: pnpm --filter @ai-sidekicks/desktop exec playwright install --with-deps chromium
 
-      # `--continue` so a leg naming two tasks reports both results: neither
-      # `knip` and `dependency-cruiser` nor any other pair here subsumes the
-      # other, and without it the first failure hides the second's finding.
+      # `--continue` so a leg naming two tasks reports both results: no pair
+      # here subsumes the other, and without it the first failure hides the
+      # second's finding.
       # `--concurrency=1` only on the legs the matrix marks `serial`.
       #
       # `CONSOLE_BENCH_LEDGER_PATH` redirects the bench tier's absolutes to the
@@ -817,6 +818,182 @@ jobs:
         env:
           CONSOLE_BENCH_LEDGER_PATH: ${{ runner.temp }}/console-bench-ledger.json
         run: pnpm turbo run ${{ matrix.tier }} --filter=@ai-sidekicks/desktop --continue ${{ matrix.serial && '--concurrency=1' || '' }} ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
+
+  # Dead code across every workspace. It reads source only, so the job installs
+  # without the Electron binary.
+  structure:
+    name: structure (knip)
+    needs: [changes]
+    if: needs.changes.outputs.desktop == 'true' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SWEEP_REF }}
+
+      - name: Setup pnpm
+        # SHA-pinned per ADR-023 §Axis 4 supply-chain hygiene; Renovate's
+        # helpers:pinGitHubActionDigests preset (renovate.json5) keeps this current.
+        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
+        with:
+          version: 10.33.2
+          run_install: false
+
+      - name: Setup Node.js 22.14
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22.14"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+        run: pnpm install --frozen-lockfile
+
+      - name: Dead code (knip, every workspace)
+        run: pnpm run structure:dead-code
+
+  # Mutation testing over the packages: informational, no score threshold, and
+  # outside `ci-gate`, so it never holds a merge. The plan job splits each
+  # package's source files into a fixed number of shards by a hash of the path,
+  # so a file stays in its shard and each shard keeps its own incremental
+  # results; the matrix below runs every non-empty shard in parallel. A pull
+  # request mutates only the source files it changed; a push to develop and the
+  # nightly run mutate every file, re-testing only mutants whose code or
+  # covering tests changed since the saved results.
+  mutation-plan:
+    name: mutation plan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    env:
+      # Shards per package, sized from the measured full-run time so that every
+      # shard fits the job's time limit.
+      MUTATION_SHARDS: '{"client-sdk": 1, "contracts": 2, "control-plane": 2, "crypto-paseto": 1, "runtime-daemon": 16}'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SWEEP_REF }}
+          # A pull request's changed files are read against its base commit.
+          fetch-depth: 0
+
+      - name: Plan shards
+        id: plan
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          entries=()
+          for package in $(jq -r 'keys[]' <<<"$MUTATION_SHARDS"); do
+            count=$(jq -r --arg package "$package" '.[$package]' <<<"$MUTATION_SHARDS")
+            if [[ -n "$BASE_SHA" ]]; then
+              files=$(git diff --name-only --diff-filter=AMR "$BASE_SHA"...HEAD -- "packages/$package/src")
+            else
+              files=$(git ls-files "packages/$package/src")
+            fi
+            files=$(grep -E '\.ts$' <<<"$files" | grep -Ev '(__tests__/|\.test\.ts$|\.test-d\.ts$|/migrations/)' || true)
+            for ((shard = 0; shard < count; shard++)); do
+              mutate=$(while read -r file; do
+                [[ -z "$file" ]] && continue
+                if (( $(printf '%s' "$file" | cksum | cut -d' ' -f1) % count == shard )); then
+                  echo "${file#"packages/$package/"}"
+                fi
+              done <<<"$files" | paste -sd, -)
+              if [[ -n "$mutate" ]]; then
+                entries+=("$(jq -cn --arg package "$package" --argjson shard "$shard" --arg mutate "$mutate" \
+                  '{package: $package, shard: $shard, mutate: $mutate}')")
+              fi
+            done
+          done
+          echo "matrix=$(printf '%s\n' "${entries[@]}" | jq -cs '{include: .}')" >> "$GITHUB_OUTPUT"
+
+  mutation:
+    name: mutation (${{ matrix.package }} ${{ matrix.shard }})
+    needs: [mutation-plan]
+    if: needs.mutation-plan.outputs.matrix != '{"include":[]}'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.mutation-plan.outputs.matrix) }}
+    env:
+      INCREMENTAL_FILE: packages/${{ matrix.package }}/.stryker/incremental-${{ matrix.shard }}.json
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SWEEP_REF }}
+
+      - name: Setup pnpm
+        # SHA-pinned per ADR-023 §Axis 4 supply-chain hygiene; Renovate's
+        # helpers:pinGitHubActionDigests preset (renovate.json5) keeps this current.
+        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
+        with:
+          version: 10.33.2
+          run_install: false
+
+      - name: Setup Node.js 22.14
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22.14"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+        run: pnpm install --frozen-lockfile
+
+      # The results develop's last push or nightly run saved for this shard.
+      - name: Restore mutation results
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.INCREMENTAL_FILE }}
+          key: stryker-${{ matrix.package }}-${{ matrix.shard }}-${{ github.sha }}
+          restore-keys: stryker-${{ matrix.package }}-${{ matrix.shard }}-
+
+      # A pull request's summary lists the surviving mutants in the files it
+      # changed; a full run's summary is the score table.
+      - name: Mutation testing
+        working-directory: packages/${{ matrix.package }}
+        env:
+          MUTATE: ${{ matrix.mutate }}
+          SHARD: ${{ matrix.shard }}
+          PACKAGE: ${{ matrix.package }}
+          PULL_REQUEST: ${{ github.event_name == 'pull_request' }}
+        run: |
+          set -o pipefail
+          report="$RUNNER_TEMP/mutation.txt"
+          status=0
+          pnpm exec stryker run ../../stryker.config.json --mutate "$MUTATE" \
+            --incrementalFile ".stryker/incremental-$SHARD.json" > "$report" 2>&1 || status=$?
+          {
+            echo "### Mutation testing: $PACKAGE, shard $SHARD"
+            echo '```text'
+            if [[ $status -ne 0 ]]; then
+              tail -n 60 "$report"
+            elif [[ "$PULL_REQUEST" == "true" ]]; then
+              grep -Ev '^[0-9]{2}:[0-9]{2}:[0-9]{2} \([0-9]+\) (INFO|DEBUG)' "$report"
+            else
+              sed -n '/tests per mutant on average/,$p' "$report" | grep -Ev ' (INFO|DEBUG) '
+            fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      - name: Save mutation results
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/develop') }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.INCREMENTAL_FILE }}
+          key: stryker-${{ matrix.package }}-${{ matrix.shard }}-${{ github.sha }}
 
   # Tier-2 (Node 24 — control-plane + CLI per ADR-022 §Decision row 8). The
   # control-plane package declares `engines.node: ">=24.0.0"`, so its build /
@@ -1265,7 +1442,7 @@ jobs:
   ci-gate:
     name: ci-gate
     runs-on: ubuntu-latest
-    needs: [changes, test-node22, test-node24, desktop, native-prebuilds]
+    needs: [changes, test-node22, test-node24, desktop, structure, native-prebuilds]
     if: always()
     steps:
       - name: Aggregate required-checks status
@@ -1303,6 +1480,7 @@ jobs:
           check test-node22 "${{ needs.test-node22.result }}"
           check test-node24 "${{ needs.test-node24.result }}"
           check desktop "${{ needs.desktop.result }}"
+          check structure "${{ needs.structure.result }}"
           check native-prebuilds "${{ needs.native-prebuilds.result }}"
           if [[ $fail -ne 0 ]]; then exit 1; fi
           echo "ci-gate: all required jobs succeeded or were skipped by path filter"

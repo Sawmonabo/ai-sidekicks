@@ -51,7 +51,7 @@ This is a greenfield product with no released version and no external users. Tha
 15. **Record a real dependency choice.** When a library is added, swapped or deliberately not used, say why in a sentence or two in the spec or plan that owns the surface, in an ADR where the choice is a one-way door, or in the PR description: what was considered, and what decided it (maintenance, correctness, API fit, licensing, weight, security, runtime cost).
 16. **Validate at real boundaries.** Validation and error handling sit where data crosses in from outside: a provider, a file, the network, another process, a person's input. Inside those boundaries, typed values are trusted and not re-checked layer by layer.
 
-Rules 2, 4, 9, and 12 are answered by static analysis, not by reading: symbol references, the call graph, the import graph, and the unused-export report. Run the tool, then act on its output. `knip` and `dependency-cruiser` run only in `apps/desktop` today; its `AGENTS.md` has the command.
+Rules 2, 4, 9, and 12 are answered by static analysis, not by reading: symbol references, the call graph, the import graph, and the unused-export report. Run the tool, then act on its output. `knip` runs over every workspace from the root (`pnpm structure:dead-code`, configured in `knip.json`); `dependency-cruiser` runs only in `apps/desktop`, whose `AGENTS.md` has the command.
 
 ## Working style
 

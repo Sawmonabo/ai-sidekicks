@@ -9,7 +9,7 @@
 // of `vitest.shared.ts`.
 import { defineConfig } from "vitest/config";
 
-import { sharedCoverageOptions } from "../../vitest.shared";
+import { sharedCoverageOptions, sharedTestTimeouts } from "../../vitest.shared";
 
 export default defineConfig({
   test: {
@@ -35,8 +35,7 @@ export default defineConfig({
     // (test 5000 -> 15000, hook 10000 -> 30000). See vitest#7302 (the Node-22+
     // CI slowdown) and vitest#9751 (the default-unification raising these
     // values).
-    testTimeout: 15000,
-    hookTimeout: 30000,
+    ...sharedTestTimeouts({ testTimeout: 15000, hookTimeout: 30000 }),
   },
   // Resolve workspace deps to TS source (not stale dist/) under test via the
   // providers' `@ai-sidekicks/source` export condition. Node env = Vite SSR

@@ -14,7 +14,7 @@ Each runs under `pnpm --filter @ai-sidekicks/desktop`.
 
 | Script | Config | Catches |
 | --- | --- | --- |
-| `structure:dead-code` | `knip.json` | files, exports, types, and dependencies no entry point reaches |
+| `structure:dead-code` | the root `knip.json`, this package's workspace | files, exports, types, and dependencies no entry point reaches |
 | `structure:layering` | `.dependency-cruiser.mjs` | cycles, orphans, process-boundary breaks, upward edges against the console DAG |
 | `lint` | `eslint.config.mjs` | the import bans, the console's wire-instant and exported-collection bans, and the eleven rules below |
 

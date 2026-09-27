@@ -18,16 +18,21 @@
     "test:coverage": "turbo run test:coverage",
     "format": "prettier --write \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml,yaml}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml,yaml}\"",
-    "prepare": "lefthook install"
+    "prepare": "lefthook install",
+    "structure:dead-code": "knip --treat-config-hints-as-errors --treat-tag-hints-as-errors",
+    "test:mutation": "pnpm --filter './packages/*' --workspace-concurrency=1 --no-bail exec stryker run ../../stryker.config.json"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.2",
     "@commitlint/cli": "^20.5.2",
     "@commitlint/config-conventional": "^20.5.0",
     "@eslint/js": "^10.0.1",
+    "@stryker-mutator/core": "10.0.0",
+    "@stryker-mutator/vitest-runner": "10.0.0",
     "@types/node": "^25.6.0",
     "@vitest/coverage-v8": "catalog:testing",
     "eslint": "^10.2.1",
+    "knip": "6.34.0",
     "lefthook": "^2.1.6",
     "lint-staged": "^16.4.0",
     "prettier": "^3.8.3",

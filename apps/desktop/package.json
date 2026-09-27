@@ -31,7 +31,7 @@
     "test:changed": "node --experimental-strip-types scripts/test-changed.ts",
     "budget:bundle": "node --experimental-strip-types scripts/budget/measure-bundle.mts",
     "budget:heap": "node --experimental-strip-types scripts/budget/measure-heap.mts",
-    "structure:dead-code": "knip --directory ../.. --config apps/desktop/knip.json --workspace apps/desktop --treat-config-hints-as-errors --treat-tag-hints-as-errors",
+    "structure:dead-code": "knip --directory ../.. --workspace apps/desktop --treat-config-hints-as-errors --treat-tag-hints-as-errors",
     "structure:layering": "depcruise src build scripts vitest --config .dependency-cruiser.mjs --output-type err",
     "structure": "pnpm run structure:dead-code && pnpm run structure:layering",
     "test": "turbo run test:renderer test:main-unit test:console-unit test:console-assets --filter=@ai-sidekicks/desktop && turbo run test:console-browser test:console-accessibility --filter=@ai-sidekicks/desktop --concurrency=1 && turbo run test:console-bundle --filter=@ai-sidekicks/desktop --concurrency=1 && turbo run test:smoke --filter=@ai-sidekicks/desktop --concurrency=1 && turbo run test:console-e2e test:console-endurance --filter=@ai-sidekicks/desktop --concurrency=1"
@@ -89,7 +89,6 @@
     "electron-vite": "^5.0.0",
     "eslint-plugin-perfectionist": "5.11.0",
     "happy-dom": "^19.0.0",
-    "knip": "6.34.0",
     "memlab": "2.0.5",
     "unplugin-icons": "23.0.1",
     "vitest": "catalog:testing"
